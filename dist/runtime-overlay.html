@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nutbook HTML Controls</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+
+    body {
+      position: relative;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .panel {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .panel.hidden { display: none; }
+
+    .fullscreen-hint {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999999;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 12px;
+      background: rgba(17, 17, 19, 0.58);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: 0;
+      box-shadow: none;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 520ms ease, transform 520ms ease;
+    }
+
+    .fullscreen-hint.show {
+      opacity: 1;
+    }
+
+    .fullscreen-hint.fade-out {
+      opacity: 0;
+      transform: translate(-50%, -8px);
+    }
+
+    .row {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 0;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    .tag-row, .actions-row { pointer-events: auto; }
+
+    .tag-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      overflow: visible;
+      min-width: 0;
+      min-height: 40px;
+      flex: 1 1 auto;
+    }
+
+    .actions-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 40px;
+      flex: 0 0 auto;
+    }
+
+    .tag-chip {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      height: 24px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: rgba(20, 20, 20, 0.06);
+      color: #6f6f75;
+      font-size: 11px;
+      white-space: nowrap;
+      border: 0;
+      position: relative;
+      cursor: default;
+      max-width: min(160px, 30vw);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tag-chip.show { display: inline-flex; }
+
+    .tag-chip.custom-btn {
+      cursor: pointer;
+      overflow: visible;
+      padding-right: 14px;
+    }
+    .tag-chip.custom-btn:hover {
+      background: rgba(20, 20, 20, 0.1);
+      color: #111;
+    }
+    #customTagName {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tag-chip.placeholder-btn {
+      cursor: pointer;
+      border: 1px dashed rgba(20, 20, 20, 0.16);
+      background: rgba(20, 20, 20, 0.02);
+    }
+    .tag-chip.placeholder-btn:hover {
+      background: rgba(20, 20, 20, 0.1);
+      color: #111;
+    }
+
+    .tag-remove {
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      width: 14px;
+      height: 14px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(20, 20, 20, 0.72);
+      color: #fff;
+      font-size: 8px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 140ms ease;
+    }
+    .tag-chip.custom-btn:hover .tag-remove {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .action {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      min-height: 28px;
+      flex: 0 0 28px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #8e8e95;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .icon-svg {
+      display: block;
+      width: 22px;
+      height: 22px;
+      color: currentColor;
+    }
+    .action:hover, .action.active { background: #f4f4f6; color: #111; }
+    .action .tip {
+      position: absolute;
+      left: 50%;
+      top: calc(100% + 8px);
+      transform: translateX(-50%);
+      padding: 5px 8px;
+      border-radius: 8px;
+      background: rgba(24, 24, 28, 0.94);
+      color: #fff;
+      font-size: 10px;
+      line-height: 1;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease;
+    }
+    .action:hover .tip { opacity: 1; }
+    .action.menu-open .tip { opacity: 0 !important; }
+    #moreButton .tip { left: auto; right: 0; transform: none; }
+    #moreButton .icon-svg { width: 20px; height: 20px; }
+    .remove-stack { position: relative; width: 22px; height: 22px; display: block; }
+
+    .menu, .tag-menu {
+      position: absolute;
+      padding: 8px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid rgba(228, 228, 234, 0.92);
+      backdrop-filter: blur(14px);
+      display: none;
+      pointer-events: auto;
+      opacity: 0;
+      transform: translateY(-4px);
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+    .menu.open, .tag-menu.open {
+      display: flex;
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .menu {
+      top: 40px; right: 0;
+      min-width: 160px;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .menu button {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: #1f1f24;
+      text-align: center;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      cursor: pointer;
+      pointer-events: auto;
+      user-select: none;
+    }
+    .menu button:hover { background: #f4f4f6; }
+
+    .tag-menu {
+      top: 40px; left: 0;
+      min-width: 240px;
+      max-width: 280px;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .tag-menu-title { font-size: 11px; font-weight: 700; color: #1f1f24; }
+    .tag-menu-create { display: flex; align-items: center; gap: 8px; }
+    .tag-menu-create input {
+      min-width: 0; flex: 1 1 auto;
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(20, 20, 20, 0.08);
+      font-size: 11px;
+      outline: none;
+      background: #fff;
+    }
+    .tag-menu-create button {
+      position: relative;
+      z-index: 2;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 68px;
+      width: 68px;
+      min-height: 30px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 999px;
+      background: #111;
+      color: #fff;
+      font-size: 11px;
+      white-space: nowrap;
+      cursor: pointer !important;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    .tag-menu-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .muted {
+      color: #8a8a91;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .tag-menu-option {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      min-height: 28px;
+      border-radius: 999px;
+      border: 1px solid rgba(20, 20, 20, 0.08);
+      background: rgba(20, 20, 20, 0.06);
+      color: #6f6f75;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .tag-menu-option:hover, .tag-menu-option.active {
+      background: #f5f5f7; color: #111; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="row">
+      <div id="tagRow" class="tag-row">
+        <button id="addTagBtn" class="tag-chip placeholder-btn show" type="button">+ 标签</button>
+        <button id="customTagBtn" class="tag-chip custom-btn" type="button"><span id="customTagName"></span><span id="clearTagBtn" class="tag-remove">×</span></button>
+        <span id="skillTagChip" class="tag-chip">-</span>
+        <span id="typeTagChip" class="tag-chip meta">-</span>
+      </div>
+      <div class="actions-row">
+        <button id="favoriteButton" class="action" type="button" aria-label="收藏">
+          <svg id="favoriteIcon" class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
+            <path id="favoritePath" d="M10 2.1 12.35 6.95l5.35.8-3.85 3.75.92 5.4L10 14.25l-4.77 2.65.92-5.4L2.3 7.75l5.35-.8L10 2.1Z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round"></path>
+          </svg>
+          <span class="tip">收藏文件</span>
+        </button>
+        <button id="removeButton" class="action" type="button" aria-label="移除">
+          <svg class="remove-stack" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M4.6 2.2h7.1l3.3 3.3v10.1a1.7 1.7 0 0 1-1.7 1.7H4.6a1.7 1.7 0 0 1-1.7-1.7V3.9a1.7 1.7 0 0 1 1.7-1.7Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
+            <path d="M11.7 2.2v3.3H15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
+            <path d="M6.1 7.1h5.5M6.1 9.8h4.8M6.1 12.5h5.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path>
+            <path d="m11.3 11.3 4.9 4.9m0-4.9-4.9 4.9" fill="none" stroke="currentColor" stroke-width="2.15" stroke-linecap="round"></path>
+          </svg>
+          <span class="tip">移除文件</span>
+        </button>
+        <button id="moreButton" class="action" type="button" aria-label="更多">
+          <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="4.7" cy="10" r="1.8" fill="currentColor"></circle>
+            <circle cx="10" cy="10" r="1.8" fill="currentColor"></circle>
+            <circle cx="15.3" cy="10" r="1.8" fill="currentColor"></circle>
+          </svg>
+          <span class="tip">更多操作</span>
+        </button>
+      </div>
+    </div>
+    <div id="menu" class="menu">
+      <button id="presentationButton" type="button">演示全屏（F）</button>
+    </div>
+    <div id="tagMenu" class="tag-menu">
+      <div class="tag-menu-title">自定义标签</div>
+      <div class="tag-menu-create">
+        <input id="tagNameInput" placeholder="新标签名" />
+        <button id="createTagButton" type="button">新增标签</button>
+      </div>
+      <div id="tagMenuOptions" class="tag-menu-options"></div>
+    </div>
+  </div>
+  <div id="fullscreenHint" class="fullscreen-hint" aria-live="polite"></div>
+
+  <script src="./i18n.js"></script>
+  <script>
+    const i18n = window.NutbookI18n;
+    const t = (key) => i18n?.lookup(key) ?? key;
+
+    const state = {
+      itemId: null,
+      isFavorite: false,
+      isFullscreen: false,
+      menuOpen: false,
+      tagMenuOpen: false,
+      customTag: null,
+      availableTags: [],
+      skillTag: null,
+      typeTag: null
+    };
+    let controlsHover = false;
+    let menuAutoCloseTimer = null;
+    let menuOpenTimer = null;
+    let tagMenuAutoCloseTimer = null;
+    let lastPresentationActivationAt = 0;
+    let lastTagActivationAt = 0;
+    let tagMenuOpenTimer = null;
+    let actionSequence = 0;
+    let actionQueue = [];
+    let actionQueueRunning = false;
+    let fullscreenHintFadeTimer = null;
+    let fullscreenHintHideTimer = null;
+    let lastCreateTagAt = 0;
+
+    const els = {
+      favoriteButton: document.getElementById("favoriteButton"),
+      favoritePath: document.getElementById("favoritePath"),
+      removeButton: document.getElementById("removeButton"),
+      moreButton: document.getElementById("moreButton"),
+      menu: document.getElementById("menu"),
+      presentationButton: document.getElementById("presentationButton"),
+      addTagBtn: document.getElementById("addTagBtn"),
+      customTagBtn: document.getElementById("customTagBtn"),
+      customTagName: document.getElementById("customTagName"),
+      clearTagBtn: document.getElementById("clearTagBtn"),
+      skillTagChip: document.getElementById("skillTagChip"),
+      typeTagChip: document.getElementById("typeTagChip"),
+      tagMenu: document.getElementById("tagMenu"),
+      tagMenuOptions: document.getElementById("tagMenuOptions"),
+      tagNameInput: document.getElementById("tagNameInput"),
+      createTagButton: document.getElementById("createTagButton"),
+      fullscreenHint: document.getElementById("fullscreenHint")
+    };
+
+    function emit(payload) {
+      if (state.itemId == null) return;
+      var message = Object.assign({ itemId: state.itemId, seq: ++actionSequence }, payload);
+      if (payload.action === "overlay-layout") {
+        actionQueue = actionQueue.filter(function(item) {
+          return item.action !== "overlay-layout";
+        });
+        actionQueue.unshift(message);
+        drainActionQueue();
+        return;
+      }
+      actionQueue.push(message);
+      drainActionQueue();
+    }
+
+    function drainActionQueue() {
+      if (actionQueueRunning || !actionQueue.length) return;
+      actionQueueRunning = true;
+      var message = actionQueue.shift();
+      var nextTitle = "__NUTBOOK_HTML_CONTROLS__:" + JSON.stringify(message);
+      document.title = "Nutbook HTML Controls";
+      setTimeout(function() { document.title = nextTitle; }, 24);
+      setTimeout(function() {
+        if (document.title === nextTitle) document.title = "Nutbook HTML Controls";
+        actionQueueRunning = false;
+        drainActionQueue();
+      }, 120);
+    }
+
+    function currentLayoutMode() {
+      if (state.tagMenuOpen) return "tags";
+      if (state.menuOpen) return "more";
+      if (controlsHover) return "hover";
+      return "default";
+    }
+
+    function emitLayout() {
+      var layoutMode = currentLayoutMode();
+      emit({
+        action: "overlay-layout",
+        expanded: layoutMode !== "default",
+        layoutMode: layoutMode
+      });
+    }
+
+    function resetTransientState(options) {
+      const shouldEmitLayout = !options || options.emitLayout !== false;
+      clearMenuOpenTimer();
+      clearMenuAutoClose();
+      clearTagMenuOpenTimer();
+      clearTagMenuAutoClose();
+      controlsHover = false;
+      state.menuOpen = false;
+      state.tagMenuOpen = false;
+      refresh();
+      if (shouldEmitLayout) emitLayout();
+    }
+
+    function isEscapeKey(event) {
+      return event.key === "Escape" || event.key === "Esc" || event.code === "Escape" || event.keyCode === 27 || event.which === 27;
+    }
+
+    function clearMenuAutoClose() {
+      if (menuAutoCloseTimer) { clearTimeout(menuAutoCloseTimer); menuAutoCloseTimer = null; }
+    }
+    function clearMenuOpenTimer() {
+      if (menuOpenTimer) { clearTimeout(menuOpenTimer); menuOpenTimer = null; }
+    }
+    function scheduleMenuAutoClose(delay) {
+      clearMenuAutoClose();
+      if (!state.menuOpen) return;
+      menuAutoCloseTimer = setTimeout(function() { state.menuOpen = false; refresh(); emitLayout(); }, delay || 1200);
+    }
+    function clearTagMenuAutoClose() {
+      if (tagMenuAutoCloseTimer) { clearTimeout(tagMenuAutoCloseTimer); tagMenuAutoCloseTimer = null; }
+    }
+    function clearTagMenuOpenTimer() {
+      if (tagMenuOpenTimer) { clearTimeout(tagMenuOpenTimer); tagMenuOpenTimer = null; }
+    }
+    function scheduleTagMenuAutoClose(delay) {
+      clearTagMenuAutoClose();
+      if (!state.tagMenuOpen) return;
+      tagMenuAutoCloseTimer = setTimeout(function() { state.tagMenuOpen = false; refresh(); emitLayout(); }, delay || 180);
+    }
+
+    function updateTagChips() {
+      if (state.customTag) {
+        els.addTagBtn.classList.remove("show");
+        els.customTagName.textContent = state.customTag.name;
+        els.customTagBtn.classList.add("show");
+      } else {
+        els.customTagBtn.classList.remove("show");
+        els.addTagBtn.classList.add("show");
+      }
+      if (state.skillTag) {
+        els.skillTagChip.textContent = state.skillTag;
+        els.skillTagChip.classList.add("show");
+      } else {
+        els.skillTagChip.classList.remove("show");
+      }
+      if (state.typeTag) {
+        els.typeTagChip.textContent = state.typeTag;
+        els.typeTagChip.classList.add("show");
+      } else {
+        els.typeTagChip.classList.remove("show");
+      }
+      var isHtml = state.typeTag === "HTML";
+      els.moreButton.style.display = isHtml ? "" : "none";
+      els.favoriteButton.style.display = isHtml ? "" : "none";
+      els.removeButton.style.display = isHtml ? "" : "none";
+      els.addTagBtn.textContent = t("actions.addTag");
+      els.tagNameInput.placeholder = t("html.newTagName");
+      els.createTagButton.textContent = t("actions.createTag");
+    }
+
+    function openTagMenu() {
+      clearTagMenuOpenTimer();
+      clearTagMenuAutoClose();
+      state.tagMenuOpen = true;
+      els.tagMenuOptions.innerHTML = state.availableTags.length
+        ? state.availableTags.map(function(tag) {
+          return '<button class="tag-menu-option' + (state.customTag && state.customTag.id === tag.id ? ' active' : '') + '" type="button" data-tag-id="' + tag.id + '">' + tag.name + '</button>';
+        }).join("")
+        : '<div class="muted" style="padding:4px 2px;">' + t("settings.noLabels") + '</div>';
+      els.tagMenuOptions.querySelectorAll("[data-tag-id]").forEach(function(node) {
+        node.addEventListener("click", function() {
+          emit({ action: "set-tag", tagId: Number(node.dataset.tagId) });
+          closeTagMenuAfterAction();
+        });
+      });
+      emitLayout();
+      tagMenuOpenTimer = setTimeout(function() {
+        if (state.tagMenuOpen) els.tagMenu.classList.add("open");
+        tagMenuOpenTimer = null;
+      }, 80);
+    }
+
+    function closeTagMenu(options) {
+      var shouldEmitLayout = !options || options.emitLayout !== false;
+      clearTagMenuOpenTimer();
+      state.tagMenuOpen = false;
+      els.tagMenu.classList.remove("open");
+      if (shouldEmitLayout) emitLayout();
+    }
+
+    function closeTagMenuAfterAction() {
+      closeTagMenu({ emitLayout: false });
+      setTimeout(emitLayout, 180);
+    }
+
+    function toggleTagMenu() {
+      if (state.tagMenuOpen) { closeTagMenu(); }
+      else { openTagMenu(); }
+    }
+
+    function refresh() {
+      i18n?.apply?.(document);
+      els.favoriteButton.classList.toggle("active", state.isFavorite);
+      if (els.favoritePath) els.favoritePath.setAttribute("fill", state.isFavorite ? "currentColor" : "none");
+      els.moreButton.classList.toggle("menu-open", state.menuOpen);
+      els.menu.classList.toggle("open", state.menuOpen);
+      document.querySelector(".panel").classList.toggle("hidden", state.isFullscreen);
+      els.presentationButton.textContent = state.isFullscreen ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut");
+      updateTagChips();
+      if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");
+    }
+
+    function showFullscreenHint() {
+      if (!els.fullscreenHint) return;
+      clearTimeout(fullscreenHintFadeTimer);
+      clearTimeout(fullscreenHintHideTimer);
+      els.fullscreenHint.textContent = t("html.presentationExitHint");
+      els.fullscreenHint.classList.remove("fade-out");
+      els.fullscreenHint.classList.add("show");
+      fullscreenHintFadeTimer = setTimeout(function() {
+        els.fullscreenHint.classList.add("fade-out");
+      }, 1000);
+      fullscreenHintHideTimer = setTimeout(function() {
+        els.fullscreenHint.classList.remove("show", "fade-out");
+      }, 1500);
+    }
+
+    function hideFullscreenHint() {
+      if (!els.fullscreenHint) return;
+      clearTimeout(fullscreenHintFadeTimer);
+      clearTimeout(fullscreenHintHideTimer);
+      els.fullscreenHint.classList.remove("show", "fade-out");
+    }
+
+    function apply(next) {
+      var wasFullscreen = state.isFullscreen;
+      state.itemId = next.itemId;
+      state.isFavorite = !!next.isFavorite;
+      state.isFullscreen = !!next.isFullscreen;
+      state.customTag = next.customTag || null;
+      state.availableTags = Array.isArray(next.availableTags) ? next.availableTags : [];
+      state.skillTag = next.skillTag || null;
+      state.typeTag = next.typeTag || null;
+      refresh();
+      if (!wasFullscreen && state.isFullscreen) showFullscreenHint();
+      if (wasFullscreen && !state.isFullscreen) hideFullscreenHint();
+    }
+
+    window.__NUTBOOK_UPDATE_OVERLAY_STATE__ = function(next) { apply(next); };
+    window.__NUTBOOK_RESET_TRANSIENT_STATE__ = function() {
+      hideFullscreenHint();
+      resetTransientState({ emitLayout: false });
+    };
+
+    function activateTagMenu(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      var now = Date.now();
+      if (now - lastTagActivationAt < 180) return;
+      lastTagActivationAt = now;
+      toggleTagMenu();
+    }
+    els.addTagBtn.addEventListener("pointerdown", activateTagMenu);
+    els.addTagBtn.addEventListener("click", function(e) { e.preventDefault(); e.stopPropagation(); });
+    els.customTagBtn.addEventListener("pointerdown", function(e) {
+      e.stopPropagation();
+      if (e.target === els.clearTagBtn || els.clearTagBtn.contains(e.target)) {
+        emit({ action: "clear-tag" }); return;
+      }
+      activateTagMenu(e);
+    });
+    els.customTagBtn.addEventListener("click", function(e) { e.preventDefault(); e.stopPropagation(); });
+    els.favoriteButton.addEventListener("click", function() {
+      emit({ action: "toggle-favorite" });
+      state.isFavorite = !state.isFavorite;
+      refresh();
+    });
+    els.removeButton.addEventListener("click", function() { emit({ action: "remove" }); });
+    els.moreButton.addEventListener("click", function() {
+      clearMenuOpenTimer();
+      if (state.menuOpen) {
+        state.menuOpen = false;
+        refresh();
+        emitLayout();
+        clearMenuAutoClose();
+        return;
+      }
+      state.menuOpen = true;
+      emitLayout();
+      menuOpenTimer = setTimeout(function() {
+        menuOpenTimer = null;
+        if (!state.menuOpen) return;
+        refresh();
+        scheduleMenuAutoClose();
+      }, 90);
+    });
+    function activatePresentationMode(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      const now = Date.now();
+      if (now - lastPresentationActivationAt < 180) return;
+      lastPresentationActivationAt = now;
+      if (state.isFullscreen) hideFullscreenHint();
+      state.menuOpen = false;
+      refresh();
+      clearMenuAutoClose();
+      emitLayout();
+      emit({ action: "toggle-presentation" });
+    }
+
+    function handleEscapeFullscreen(e) {
+      if (!state.isFullscreen || !isEscapeKey(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      activatePresentationMode(e);
+    }
+
+    els.presentationButton.addEventListener("pointerdown", activatePresentationMode);
+    els.presentationButton.addEventListener("click", activatePresentationMode);
+    els.menu.addEventListener("pointerdown", function(e) {
+      if (e.target === els.presentationButton || els.presentationButton.contains(e.target)) {
+        activatePresentationMode(e);
+      }
+    });
+    function createCustomTag(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      var now = Date.now();
+      if (now - lastCreateTagAt < 180) return;
+      lastCreateTagAt = now;
+      var name = els.tagNameInput.value.trim();
+      if (!name) return;
+      emit({ action: "create-tag", name: name });
+      els.tagNameInput.value = "";
+      closeTagMenuAfterAction();
+    }
+    els.createTagButton.addEventListener("pointerdown", createCustomTag);
+    els.createTagButton.addEventListener("click", createCustomTag);
+    els.tagNameInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); els.createTagButton.click(); }
+    });
+    els.tagMenu.addEventListener("click", function(e) { e.stopPropagation(); });
+    els.tagMenu.addEventListener("mouseenter", function() { clearTagMenuAutoClose(); });
+    els.tagMenu.addEventListener("mouseleave", function() { scheduleTagMenuAutoClose(220); });
+    els.addTagBtn.addEventListener("mouseleave", function() { if (state.tagMenuOpen) scheduleTagMenuAutoClose(900); });
+    els.customTagBtn.addEventListener("mouseleave", function() { if (state.tagMenuOpen) scheduleTagMenuAutoClose(900); });
+    els.menu.addEventListener("mouseenter", function() { clearMenuAutoClose(); });
+    els.menu.addEventListener("mouseleave", function() { scheduleMenuAutoClose(700); });
+    els.moreButton.addEventListener("mouseleave", function() {
+      if (state.menuOpen) scheduleMenuAutoClose(900);
+    });
+    document.querySelector(".row").addEventListener("mouseenter", function() {
+      controlsHover = true;
+      emitLayout();
+    });
+    document.querySelector(".row").addEventListener("mouseleave", function() {
+      controlsHover = false;
+      emitLayout();
+    });
+
+    document.addEventListener("click", function(e) {
+      if (!els.menu.contains(e.target) && !els.moreButton.contains(e.target)) {
+        state.menuOpen = false; refresh(); clearMenuAutoClose();
+        emitLayout();
+      }
+      if (!els.tagMenu.contains(e.target) && !els.addTagBtn.contains(e.target) && !els.customTagBtn.contains(e.target)) {
+        closeTagMenu();
+      }
+    });
+    document.addEventListener("keydown", handleEscapeFullscreen, true);
+    window.addEventListener("keydown", handleEscapeFullscreen, true);
+    i18n?.observe?.();
+
+    if (window.__NUTBOOK_RUNTIME_CONTROLS__) apply(window.__NUTBOOK_RUNTIME_CONTROLS__);
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+# macOS / editor noise
+.DS_Store
+**/.DS_Store
+
+# Local workspace helpers
+.claude/
+.superpowers/
+AGENTS.md
+MEMORY.md
+DESIGN.md
+
+# Build outputs
+src-tauri/target/
+src-tauri/gen/
+dist/**/*.map
+
+# Packaged installers and disk images
+*.dmg
+*.app
+*.pkg
+*.zip
+src-tauri/target/release/bundle/
+
+# Local databases, logs, and temporary runtime state
+src-tauri/.cache/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+*.tmp
+*.temp
+
+# Dependency folders, if a frontend build pipeline is added later
+node_modules/
+
+# Historical reference assets kept outside version control
+backup/
+/*.png
+/*.html
