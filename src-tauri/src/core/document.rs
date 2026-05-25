@@ -14,6 +14,10 @@ fn escape_html(input: &str) -> String {
         .replace('>', "&gt;")
 }
 
+fn escape_html_attribute(input: &str) -> String {
+    escape_html(input).replace('"', "&quot;")
+}
+
 pub fn render_markdown_as_html(raw: &str) -> String {
     let mut html = String::new();
     let mut paragraph = Vec::new();
@@ -43,11 +47,31 @@ pub fn render_markdown_as_html(raw: &str) -> String {
             continue;
         }
 
+        if let Some((alt, src)) = markdown_image(trimmed) {
+            flush_paragraph(&mut html, &mut paragraph);
+            html.push_str(&format!(
+                r#"<p><img src="{}" alt="{}"></p>"#,
+                escape_html_attribute(src),
+                escape_html_attribute(alt)
+            ));
+            continue;
+        }
+
         paragraph.push(escape_html(trimmed));
     }
 
     flush_paragraph(&mut html, &mut paragraph);
     html
+}
+
+fn markdown_image(line: &str) -> Option<(&str, &str)> {
+    let rest = line.strip_prefix("![")?;
+    let (alt, rest) = rest.split_once("](")?;
+    let src = rest.strip_suffix(')')?;
+    if src.trim().is_empty() || src.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((alt, src))
 }
 
 fn markdown_heading(line: &str) -> Option<(usize, &str)> {
@@ -90,6 +114,11 @@ pub fn load_document_payload(
         "markdown" => {
             let raw = fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
             let html = render_markdown_as_html(&raw);
+            let path = std::path::Path::new(&item.summary.file_path);
+            let base_dir = path
+                .parent()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_default();
 
             Ok(PreviewPayload::Markdown(MarkdownPreviewPayload {
                 item_id: item.summary.id,
@@ -97,6 +126,7 @@ pub fn load_document_payload(
                 title: item.summary.title.clone(),
                 raw,
                 html,
+                base_dir,
                 editable: true,
             }))
         }
@@ -143,6 +173,12 @@ mod tests {
         assert!(html.contains("<h2>Section</h2>"));
         assert!(html.contains("<h3>Detail</h3>"));
         assert!(html.contains("<p>body</p>"));
+    }
+
+    #[test]
+    fn markdown_render_supports_image_lines() {
+        let html = render_markdown_as_html("![Hero](./assets/readme-hero.svg)");
+        assert_eq!(html, r#"<p><img src="./assets/readme-hero.svg" alt="Hero"></p>"#);
     }
 
     #[test]

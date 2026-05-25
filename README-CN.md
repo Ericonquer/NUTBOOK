@@ -1,5 +1,7 @@
 # NUTBOOK
 
+![NUTBOOK，不止于书](./assets/readme-hero-cn.svg)
+
 NUTBOOK 是一个面向 AI 生成内容的本地阅读、管理与展示工具。
 
 它帮助你把分散在电脑里的 Markdown 报告、HTML 演示文档、AI 分析结果和各类 skill 产物统一收纳起来，用更好的阅读体验、更清晰的分类方式和更适合展示的界面，把一次次 AI 输出沉淀成可以反复使用的内容资产。

@@ -2146,6 +2146,13 @@
         line-height: 1.82;
       }
 
+      .markdown-preview img,
+      .milkdown-editor-root img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 10px;
+      }
+
       .markdown-preview h1,
       .markdown-preview h2,
       .markdown-preview h3,
@@ -4987,6 +4994,43 @@
         return normalizeLinkedFilePath(`${baseDir}/${target}`);
       }
 
+      function markdownImageFilePath(src, tab) {
+        const target = stripLinkFragmentAndQuery(src);
+        if (!target || target.startsWith("#") || isExternalHttpUrl(target)) return "";
+        if (/^(data|blob):/i.test(target)) return "";
+        if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !target.toLowerCase().startsWith("file:")) {
+          return "";
+        }
+        if (target.toLowerCase().startsWith("file:")) {
+          try {
+            return normalizeLinkedFilePath(decodeURIComponent(new URL(target).pathname));
+          } catch (_) {
+            return "";
+          }
+        }
+        if (target.startsWith("/")) {
+          return normalizeLinkedFilePath(target);
+        }
+        const baseDir = tab?.preview?.baseDir || dirnamePath(tab?.item?.filePath || "");
+        return baseDir ? normalizeLinkedFilePath(`${baseDir}/${target}`) : "";
+      }
+
+      function resolveMarkdownImageUrl(src, tab) {
+        const targetPath = markdownImageFilePath(src, tab);
+        return targetPath ? toLocalServerUrl(targetPath) : "";
+      }
+
+      function setupMarkdownImageResources(card, tab) {
+        if (!card || tab?.preview?.fileType !== "markdown") return;
+        card.querySelectorAll(".markdown-preview img[src]").forEach((image) => {
+          const originalSrc = image.getAttribute("src") || "";
+          const resolvedSrc = resolveMarkdownImageUrl(originalSrc, tab);
+          if (resolvedSrc && resolvedSrc !== originalSrc) {
+            image.setAttribute("src", resolvedSrc);
+          }
+        });
+      }
+
       function isSupportedLinkedArtifactPath(path) {
         const ext = String(path || "").split(".").pop()?.toLowerCase();
         return ["md", "markdown", "html", "htm"].includes(ext);
@@ -5364,6 +5408,9 @@
             markdown: content,
             language: appState.language,
             tableToolsEnabled: appState.markdownPreferences.tableToolsEnabled,
+            resolveImageSrc(src) {
+              return resolveMarkdownImageUrl(src, tab) || src;
+            },
             onEdit() {
               tab.isDirty = true;
               if (tab.id === appState.activeTabId) {
@@ -5396,6 +5443,7 @@
           window.requestAnimationFrame(() => {
             assignMarkdownOutlineTargets(markdownCard);
             setupMarkdownCodeCopyButton(markdownCard);
+            setupMarkdownImageResources(markdownCard, tab);
           });
           setStatus(isMarkdownTabDirty(tab) ? t("markdown.dirty") : t("markdown.ready"), isMarkdownTabDirty(tab) ? "warn" : "ok");
           window.requestAnimationFrame(() => {
@@ -5823,6 +5871,7 @@
             title: preview.title ?? null,
             raw: preview.raw ?? "",
             html: preview.html ?? "",
+            baseDir: preview.baseDir ?? preview.base_dir ?? "",
             editable: Boolean(preview.editable)
           };
         }
@@ -7897,6 +7946,7 @@
           setupMarkdownOutline(markdownCard);
           setupMarkdownCodeCopyButton(markdownCard);
           setupMarkdownLinkHandling(markdownCard, tab);
+          setupMarkdownImageResources(markdownCard, tab);
           restoreMarkdownScroll(tab, markdownScrollTop);
 
           const editorArea = document.getElementById("editorArea");

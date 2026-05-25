@@ -91,6 +91,7 @@ pub struct MarkdownPreviewPayload {
     pub title: Option<String>,
     pub raw: String,
     pub html: String,
+    pub base_dir: String,
     pub editable: bool,
 }
 

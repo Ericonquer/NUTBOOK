@@ -112,7 +112,46 @@ function pastePlainTextWhenLeavingList() {
   });
 }
 
-async function createMilkdownEditor({ root, markdown = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true }) {
+function localImageSrcPlugin(resolveImageSrc) {
+  if (typeof resolveImageSrc !== "function") return null;
+
+  const normalizeImage = (image) => {
+    const originalSrc = image.dataset.nutbookOriginalSrc || image.getAttribute("src") || "";
+    const resolvedSrc = resolveImageSrc(originalSrc);
+    if (!resolvedSrc || resolvedSrc === image.getAttribute("src")) return;
+    image.dataset.nutbookOriginalSrc = originalSrc;
+    image.setAttribute("src", resolvedSrc);
+  };
+  const normalizeImages = (root) => {
+    root.querySelectorAll("img[src]").forEach(normalizeImage);
+  };
+
+  return new Plugin({
+    view(view) {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            if (node.matches?.("img[src]")) {
+              normalizeImage(node);
+            }
+            node.querySelectorAll?.("img[src]").forEach(normalizeImage);
+          });
+        });
+      });
+      observer.observe(view.dom, { childList: true, subtree: true });
+      const frame = requestAnimationFrame(() => normalizeImages(view.dom));
+      return {
+        destroy() {
+          observer.disconnect();
+          cancelAnimationFrame(frame);
+        }
+      };
+    }
+  });
+}
+
+async function createMilkdownEditor({ root, markdown = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -175,8 +214,9 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
           "Backspace": liftListItemAtParagraphStart
         }),
         pastePlainTextWhenLeavingList(),
+        localImageSrcPlugin(resolveImageSrc),
         ...plugins
-      ]);
+      ].filter(Boolean));
       ctx.update(listenerCtx, (listenerManager) => listenerManager
         .updated(() => {
           if (!editorReady) return;

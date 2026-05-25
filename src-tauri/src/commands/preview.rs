@@ -375,6 +375,7 @@ mod tests {
             PreviewPayload::Markdown(markdown) => {
                 assert_eq!(markdown.raw, "# Hello");
                 assert!(markdown.html.contains("<h1>Hello</h1>"));
+                assert_eq!(markdown.base_dir, root.to_string_lossy());
             }
             PreviewPayload::Html(_) => panic!("expected markdown payload"),
         }
