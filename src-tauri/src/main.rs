@@ -219,6 +219,9 @@ fn main() {
             commands::thumbnails::generate_thumbnail,
             commands::thumbnails::get_thumbnail_backend_status,
             commands::thumbnails::set_system_chrome_thumbnail_enabled,
+            commands::updates::get_update_settings,
+            commands::updates::set_auto_check_updates_enabled,
+            commands::updates::check_for_updates,
             commands::window::start_window_drag_command,
             commands::window::open_external_url_command,
         ])

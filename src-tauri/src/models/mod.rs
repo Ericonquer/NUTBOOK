@@ -2,6 +2,7 @@ pub mod item;
 pub mod library;
 pub mod skill;
 pub mod tag;
+pub mod update;
 
 pub use item::{
     AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest, DeleteLibraryRequest,
@@ -24,4 +25,8 @@ pub use skill::{
 pub use tag::{
     CreateTagRequest, DeleteTagRequest, DeleteTagResponse, SetItemTagsRequest,
     SetItemTagsResponse, Tag, UpdateTagRequest,
+};
+pub use update::{
+    CheckForUpdatesRequest, GitHubRelease, SetAutoCheckUpdatesRequest, UpdateCheckResponse,
+    UpdateSettings,
 };

@@ -24,6 +24,7 @@ pub struct AppState {
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<Vec<PollWatcher>>,
     thumbnail_settings_path: PathBuf,
+    update_settings_path: PathBuf,
     system_chrome_thumbnails_enabled: Mutex<bool>,
 }
 
@@ -37,6 +38,7 @@ impl AppState {
             LocalContentServer::shared().expect("failed to start local content server");
 
         let thumbnail_settings_path = app_data_dir.join("thumbnail-settings.json");
+        let update_settings_path = app_data_dir.join("update-settings.json");
         let system_chrome_enabled = fs::read_to_string(&thumbnail_settings_path)
             .map(|value| value.trim() == "1")
             .unwrap_or(false);
@@ -53,6 +55,7 @@ impl AppState {
             watched_libraries: Mutex::new(HashSet::new()),
             active_watchers: Mutex::new(Vec::new()),
             thumbnail_settings_path,
+            update_settings_path,
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
         }
     }
@@ -91,6 +94,27 @@ impl AppState {
         }
 
         Ok(())
+    }
+
+    pub fn update_settings(&self) -> Result<crate::models::UpdateSettings, AppError> {
+        crate::core::update::load_update_settings(&self.update_settings_path)
+    }
+
+    pub fn save_update_settings(
+        &self,
+        settings: &crate::models::UpdateSettings,
+    ) -> Result<(), AppError> {
+        crate::core::update::save_update_settings(&self.update_settings_path, settings)
+    }
+
+    pub fn set_auto_check_updates_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<crate::models::UpdateSettings, AppError> {
+        let mut settings = self.update_settings()?;
+        settings.auto_check_enabled = enabled;
+        self.save_update_settings(&settings)?;
+        Ok(settings)
     }
 
     pub fn watch_library(

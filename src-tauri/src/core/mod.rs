@@ -6,4 +6,5 @@ pub mod preview_protocol;
 pub mod scanner;
 pub mod skill_discovery;
 pub mod thumbnail;
+pub mod update;
 pub mod watcher;

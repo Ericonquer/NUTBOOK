@@ -114,6 +114,7 @@
         gap: 0;
         min-width: 0;
         justify-content: center;
+        position: relative;
       }
 
       .brand-logo {
@@ -132,6 +133,78 @@
         max-width: 30px;
         max-height: 30px;
         object-fit: contain;
+      }
+
+      .update-badge {
+        position: absolute;
+        top: -14px;
+        right: -29px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 36px;
+        height: 15px;
+        padding: 0 6px;
+        border: 0;
+        border-radius: 5px;
+        background: #111;
+        color: #fff;
+        font-size: 7px;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+        z-index: 6;
+      }
+
+      .update-badge::after {
+        content: "";
+        position: absolute;
+        left: 5px;
+        bottom: -7px;
+        width: 15px;
+        height: 9px;
+        background: #111;
+        clip-path: polygon(0 100%, 100% 0, 30% 0);
+      }
+
+      .update-badge span {
+        position: relative;
+        z-index: 1;
+      }
+
+      .update-badge[hidden] {
+        display: none;
+      }
+
+      .update-badge-compact {
+        display: none;
+      }
+
+      .app-shell.document-mode .update-badge {
+        top: -13px;
+        right: -19px;
+        width: 20px;
+        min-width: 20px;
+        height: 14px;
+        padding: 0;
+        border-radius: 5px;
+        font-size: 8px;
+      }
+
+      .app-shell.document-mode .update-badge::after {
+        left: 3px;
+        bottom: -7px;
+        width: 13px;
+        height: 8px;
+      }
+
+      .app-shell.document-mode .update-badge-expanded {
+        display: none;
+      }
+
+      .app-shell.document-mode .update-badge-compact {
+        display: inline;
       }
 
       .brand-short {
@@ -3108,6 +3181,20 @@
         gap: 8px;
       }
 
+      .settings-inline-link {
+        appearance: none;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 2px;
+      }
+
       .preference-select {
         min-width: 132px;
         min-height: 34px;
@@ -3891,6 +3978,32 @@
           display: block;
         }
 
+        .update-badge {
+          top: -13px;
+          right: -19px;
+          width: 20px;
+          min-width: 20px;
+          height: 14px;
+          padding: 0;
+          border-radius: 5px;
+          font-size: 8px;
+        }
+
+        .update-badge::after {
+          left: 3px;
+          bottom: -7px;
+          width: 13px;
+          height: 8px;
+        }
+
+        .update-badge-expanded {
+          display: none;
+        }
+
+        .update-badge-compact {
+          display: inline;
+        }
+
         .nav-shell {
           align-items: center;
           width: 100%;
@@ -3943,6 +4056,10 @@
             <img class="brand-logo-compact" src="./nb-logo.png" alt="NB" />
             <div class="brand-mark" style="display:none;">NUTBOOK</div>
             <div class="brand-short" style="display:none;">NB</div>
+            <button id="updateBadge" class="update-badge" type="button" aria-label="打开新版本 Release" hidden>
+              <span class="update-badge-expanded">New beta</span>
+              <span class="update-badge-compact">NB</span>
+            </button>
           </div>
           <button id="toggleSidebarButton" class="brand-toggle" type="button" aria-label="切换侧栏">
             <span id="toggleSidebarIcon" class="material-symbols-outlined">left_panel_close</span>
@@ -4237,7 +4354,7 @@
     </div>
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
 
-    <script src="./i18n.js"></script>
+    <script src="./i18n.js?v=20260525-update-check"></script>
     <script>
       const i18n = window.NutbookI18n;
       const t = (key) => i18n?.lookup(key) ?? key;
@@ -4359,6 +4476,24 @@
         markdownEditorShouldFocus: false,
         markdownEditorError: "",
         markdownPreferences: loadMarkdownPreferences(),
+        updateSettings: {
+          autoCheckEnabled: true,
+          lastCheckedAt: null,
+          lastKnownLatestVersion: null,
+          lastKnownReleaseUrl: null
+        },
+        updateStatus: {
+          currentVersion: "0.3.0",
+          latestVersion: null,
+          releaseUrl: null,
+          hasUpdate: false,
+          checkedAt: null,
+          status: "idle",
+          error: null
+        },
+        updateCheckInFlight: false,
+        updateCheckFeedback: "",
+        updatePreferenceAutoCheckStarted: false,
         thumbnailInstallCommandCopied: false,
         thumbnailInstallCommandCopiedTimer: null,
         language: currentLanguage()
@@ -4369,6 +4504,7 @@
         mainShell: document.getElementById("mainShell"),
         toggleSidebarButton: document.getElementById("toggleSidebarButton"),
         toggleSidebarIcon: document.getElementById("toggleSidebarIcon"),
+        updateBadge: document.getElementById("updateBadge"),
         folderPicker: document.getElementById("folderPicker"),
         singleFilePicker: document.getElementById("singleFilePicker"),
         addFolderButtonTopbar: document.getElementById("addFolderButtonTopbar"),
@@ -5892,12 +6028,12 @@
       }
 
       function commandVariants(command, args = {}) {
-        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
+        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill") {
+        if (command === "select_library" || command === "scan_library" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -6003,6 +6139,202 @@
         setStatus(t("status.preferencesSaved"), "ok");
       }
 
+      function normalizeUpdateSettings(value = {}) {
+        return {
+          autoCheckEnabled: value.autoCheckEnabled !== false,
+          lastCheckedAt: value.lastCheckedAt || null,
+          lastKnownLatestVersion: value.lastKnownLatestVersion || null,
+          lastKnownReleaseUrl: value.lastKnownReleaseUrl || null
+        };
+      }
+
+      function mockUpdateEnabled() {
+        return new URLSearchParams(window.location.search).get("mockUpdate") === "1";
+      }
+
+      function normalizeUpdateStatus(value = {}) {
+        return {
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "0.3.0",
+          latestVersion: value.latestVersion || null,
+          releaseUrl: value.releaseUrl || null,
+          hasUpdate: Boolean(value.hasUpdate),
+          checkedAt: value.checkedAt || null,
+          status: value.status || "idle",
+          error: value.error || null
+        };
+      }
+
+      function updateCheckDue() {
+        if (!appState.updateSettings.autoCheckEnabled) return false;
+        const last = Date.parse(appState.updateSettings.lastCheckedAt || "");
+        if (!Number.isFinite(last)) return true;
+        return Date.now() - last >= 24 * 60 * 60 * 1000;
+      }
+
+      function mergeUpdateResultIntoSettings(result) {
+        if (!result) return;
+        appState.updateSettings = {
+          ...appState.updateSettings,
+          lastCheckedAt: result.checkedAt || appState.updateSettings.lastCheckedAt,
+          lastKnownLatestVersion: result.latestVersion || appState.updateSettings.lastKnownLatestVersion,
+          lastKnownReleaseUrl: result.releaseUrl || appState.updateSettings.lastKnownReleaseUrl
+        };
+      }
+
+      function updateStatusMessage() {
+        if (appState.updateCheckInFlight) return t("settings.updateChecking");
+        const status = appState.updateStatus?.status;
+        if (status === "available") {
+          return t("settings.updateAvailable");
+        }
+        if (status === "current") return t("settings.updateCurrent");
+        if (status === "disabled") return t("settings.updateDisabled");
+        if (status === "error") return `${t("settings.updateFailedPrefix")}${appState.updateStatus.error || t("settings.updateNetworkUnavailable")}`;
+        if (status === "unavailable") return appState.updateStatus.error || t("settings.updateUnavailable");
+        return appState.updateSettings.lastCheckedAt ? t("settings.updateChecked") : t("settings.updateNotChecked");
+      }
+
+      function formatUpdateCheckedAt(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return "";
+        const numeric = /^\d+$/.test(raw) ? Number(raw) : null;
+        const date = numeric != null
+          ? new Date(raw.length >= 13 ? numeric : numeric * 1000)
+          : new Date(raw);
+        if (!Number.isFinite(date.getTime())) return raw;
+        return new Intl.DateTimeFormat(currentLanguage(), {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false
+        }).format(date);
+      }
+
+      function latestVersionHtml() {
+        const version = appState.updateStatus.latestVersion || appState.updateSettings.lastKnownLatestVersion;
+        if (!version) return "";
+        const url = appState.updateStatus.releaseUrl || appState.updateSettings.lastKnownReleaseUrl;
+        if (!url) return ` · ${t("settings.updateLatestVersion")} ${escapeHtml(version)}`;
+        return ` · ${t("settings.updateLatestVersion")} <button class="settings-inline-link" type="button" data-update-open-release="true" title="${t("settings.openRelease")}">${escapeHtml(version)}</button>`;
+      }
+
+      function lastUpdateCheckedHtml() {
+        const checkedAt = formatUpdateCheckedAt(appState.updateSettings.lastCheckedAt);
+        return checkedAt ? ` · ${t("settings.updateLastChecked")} ${escapeHtml(checkedAt)}` : "";
+      }
+
+      function updateStatusInlineHtml() {
+        const message = appState.updateCheckFeedback || updateStatusMessage();
+        return message ? ` · ${escapeHtml(message)}` : "";
+      }
+
+      function renderUpdateBadge() {
+        if (!els.updateBadge) return;
+        const shouldShow = Boolean(appState.updateStatus?.hasUpdate && appState.updateStatus?.releaseUrl);
+        els.updateBadge.hidden = !shouldShow;
+        els.updateBadge.title = shouldShow
+          ? `打开 ${appState.updateStatus.latestVersion || "新版本"} Release`
+          : "";
+      }
+
+      async function loadUpdateSettings() {
+        try {
+          appState.updateSettings = normalizeUpdateSettings(await invoke("get_update_settings"));
+        } catch (error) {
+          appState.updateCheckFeedback = `${t("settings.updateSettingsLoadFailedPrefix")}${normalizeError(error)}`;
+        }
+        renderSettingsPanel();
+        renderUpdateBadge();
+      }
+
+      async function setAutoCheckUpdatesEnabled(enabled) {
+        try {
+          appState.updateSettings = normalizeUpdateSettings(
+            await invoke("set_auto_check_updates_enabled", { enabled })
+          );
+          if (!enabled) {
+            appState.updateStatus = {
+              ...appState.updateStatus,
+              hasUpdate: false,
+              status: "disabled"
+            };
+          }
+          appState.updateCheckFeedback = t("settings.updateSettingsSaved");
+          renderSettingsPanel();
+          renderUpdateBadge();
+        } catch (error) {
+          appState.updateCheckFeedback = `${t("settings.updateSettingsSaveFailedPrefix")}${normalizeError(error)}`;
+          renderSettingsPanel();
+        }
+      }
+
+      async function checkForUpdates(options = {}) {
+        if (appState.updateCheckInFlight) return appState.updateStatus;
+        const manual = Boolean(options.manual);
+        appState.updateCheckInFlight = true;
+        appState.updateCheckFeedback = manual ? t("settings.updateChecking") : "";
+        renderSettingsPanel();
+        try {
+          const result = normalizeUpdateStatus(await invoke("check_for_updates", {
+            force: Boolean(options.force || manual),
+            checkedAt: new Date().toISOString()
+          }));
+          appState.updateStatus = result;
+          mergeUpdateResultIntoSettings(result);
+          appState.updateCheckFeedback = manual ? updateStatusMessage() : "";
+          renderUpdateBadge();
+          return result;
+        } catch (error) {
+          appState.updateStatus = normalizeUpdateStatus({
+            ...appState.updateStatus,
+            status: "error",
+            error: normalizeError(error)
+          });
+          appState.updateCheckFeedback = manual ? updateStatusMessage() : "";
+          return appState.updateStatus;
+        } finally {
+          appState.updateCheckInFlight = false;
+          renderSettingsPanel();
+          renderUpdateBadge();
+        }
+      }
+
+      function scheduleAutomaticUpdateCheck() {
+        if (mockUpdateEnabled()) {
+          window.setTimeout(() => {
+            checkForUpdates({ manual: false, force: true }).catch(() => {});
+          }, 600);
+          return;
+        }
+        if (!appState.isTauri || !updateCheckDue()) return;
+        window.setTimeout(() => {
+          if (updateCheckDue()) {
+            checkForUpdates({ manual: false, force: false }).catch(() => {});
+          }
+        }, 3500);
+      }
+
+      function maybeCheckUpdatesForPreferences() {
+        if (appState.settingsTab !== "preferences") return;
+        if (appState.updatePreferenceAutoCheckStarted || appState.updateCheckInFlight) return;
+        appState.updatePreferenceAutoCheckStarted = true;
+        window.setTimeout(() => {
+          checkForUpdates({ manual: false, force: true }).catch(() => {});
+        }, 80);
+      }
+
+      async function openUpdateRelease() {
+        const url = appState.updateStatus?.releaseUrl || appState.updateSettings?.lastKnownReleaseUrl;
+        if (!url) return;
+        try {
+          await openExternalMarkdownLink(url);
+        } catch (error) {
+          setStatus(`${t("settings.openReleaseFailedPrefix")}${normalizeError(error)}`, "error");
+        }
+      }
+
       async function updateInterfaceLanguage(language) {
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
@@ -6052,6 +6384,9 @@
 
       function openSettingsTab(tab) {
         appState.settingsTab = tab;
+        if (tab === "preferences") {
+          appState.updatePreferenceAutoCheckStarted = false;
+        }
         appState.isSettingsMenuOpen = false;
         appState.isSettingsOpen = true;
         renderSettingsMenu();
@@ -6298,6 +6633,7 @@
         els.settingsTagsSection.hidden = appState.settingsTab !== "tags";
         els.settingsPreferencesSection.hidden = appState.settingsTab !== "preferences";
         els.settingsThumbnailsSection.hidden = appState.settingsTab !== "thumbnails";
+        maybeCheckUpdatesForPreferences();
         if (els.settingsSourceSearchInput) {
           els.settingsSourceSearchInput.value = appState.settingsSourceSearch;
         }
@@ -6568,6 +6904,19 @@
             </div>
             <button class="preference-toggle ${appState.markdownPreferences.tableToolsEnabled ? "active" : ""}" type="button" data-preference-toggle="tableToolsEnabled" aria-label="切换表格增强工具"></button>
           </div>
+          <div class="preference-row">
+            <div class="preference-copy">
+              <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
+              <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
+              <div class="settings-row-meta">
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "0.3.0")}
+                ${latestVersionHtml()}
+                ${lastUpdateCheckedHtml()}
+                ${updateStatusInlineHtml()}
+              </div>
+            </div>
+            <button class="preference-toggle ${appState.updateSettings.autoCheckEnabled ? "active" : ""}" type="button" data-update-auto-check-toggle="true" aria-label="${t("settings.autoCheckUpdates")}"></button>
+          </div>
         `;
 
         document.getElementById("settingsLanguageSelect")?.addEventListener("change", (event) => {
@@ -6578,6 +6927,10 @@
         document.getElementById("settingsCodeBlockThemeSelect")?.addEventListener("change", (event) => {
           updateMarkdownPreference("codeBlockTheme", event.target.value === "light" ? "light" : "dark");
         });
+        els.settingsPreferenceList.querySelector("[data-update-auto-check-toggle]")?.addEventListener("click", () => {
+          setAutoCheckUpdatesEnabled(!Boolean(appState.updateSettings.autoCheckEnabled));
+        });
+        els.settingsPreferenceList.querySelector("[data-update-open-release]")?.addEventListener("click", openUpdateRelease);
         els.settingsPreferenceList.querySelectorAll("[data-preference-toggle]").forEach((node) => {
           node.addEventListener("click", () => {
             const key = node.dataset.preferenceToggle;
@@ -6780,6 +7133,42 @@
         if (command === "list_tags") return structuredClone(mockData.tags);
         if (command === "list_ignored_items") return [];
         if (command === "get_local_server_origin") return "http://127.0.0.1:4173";
+        if (command === "get_update_settings") {
+          return {
+            autoCheckEnabled: true,
+            lastCheckedAt: null,
+            lastKnownLatestVersion: null,
+            lastKnownReleaseUrl: null
+          };
+        }
+        if (command === "set_auto_check_updates_enabled") {
+          return {
+            ...appState.updateSettings,
+            autoCheckEnabled: args.enabled !== false
+          };
+        }
+        if (command === "check_for_updates") {
+          if (mockUpdateEnabled()) {
+            return {
+              currentVersion: "0.3.0",
+              latestVersion: "v0.3.1",
+              releaseUrl: "https://github.com/leeeric202666-prog/NUTBOOK/releases/tag/v0.3.1",
+              hasUpdate: true,
+              checkedAt: args.checkedAt || new Date().toISOString(),
+              status: "available",
+              error: null
+            };
+          }
+          return {
+            currentVersion: "0.3.0",
+            latestVersion: "0.3.0",
+            releaseUrl: "https://github.com/leeeric202666-prog/NUTBOOK/releases",
+            hasUpdate: false,
+            checkedAt: args.checkedAt || new Date().toISOString(),
+            status: "current",
+            error: null
+          };
+        }
         if (command === "open_folder_dialog" || command === "open_folder_dialog_at") return null;
         if (command === "open_file_dialog") return null;
         if (command === "open_library_location") return true;
@@ -7120,6 +7509,7 @@
                 (value === "html" && fileTypeFilter === "html")));
           node.classList.toggle("active", active);
         });
+        renderUpdateBadge();
       }
 
       function syncShellMode() {
@@ -9658,6 +10048,10 @@
         els.toggleSidebarButton.addEventListener("click", () => {
           setSidebarCollapsed(!appState.isSidebarCollapsed);
         });
+        els.updateBadge?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openUpdateRelease();
+        });
         els.toggleSidebarButton.addEventListener("pointerleave", () => {
           els.toggleSidebarButton.classList.remove("suppress-tooltip");
         });
@@ -9824,6 +10218,9 @@
         document.querySelectorAll("[data-settings-tab]").forEach((node) => {
           node.addEventListener("click", () => {
             appState.settingsTab = node.dataset.settingsTab;
+            if (appState.settingsTab === "preferences") {
+              appState.updatePreferenceAutoCheckStarted = false;
+            }
             renderSettingsPanel();
             node.blur();
           });
@@ -9895,6 +10292,7 @@
             await loadIgnoredItems();
             await loadDiscoveredArtifactSkills();
             await loadThumbnailBackendStatus();
+            await loadUpdateSettings();
             renderSettingsPanel();
           }
           return;
@@ -9929,6 +10327,7 @@
         } else {
           appState.localServerOrigin = "http://127.0.0.1:4173";
         }
+        await loadUpdateSettings();
         await loadLibraries();
         await loadTags();
         await loadIgnoredItems();
@@ -9944,6 +10343,7 @@
         });
         await ensureWatcher();
         startAutoRefresh();
+        scheduleAutomaticUpdateCheck();
 
         if (!appState.isTauri) {
           appState.activeLibraryId = 1;

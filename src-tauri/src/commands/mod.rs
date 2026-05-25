@@ -4,4 +4,5 @@ pub mod preview;
 pub mod skills;
 pub mod tags;
 pub mod thumbnails;
+pub mod updates;
 pub mod window;
