@@ -1,5 +1,7 @@
 # NUTBOOK
 
+![NUTBOOK, NOT A BOOK.](./assets/readme-hero.svg)
+
 NUTBOOK is a local reading, management, and presentation tool for AI-generated content.
 
 It helps you bring scattered Markdown reports, HTML presentation documents, AI analysis results, and skill-generated artifacts into one local library. With a better reading experience, clearer organization, and presentation-friendly viewing, NUTBOOK turns one-off AI outputs into reusable content assets.

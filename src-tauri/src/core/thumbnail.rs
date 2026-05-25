@@ -297,36 +297,16 @@ fn temp_thumbnail_path(suffix: &str) -> PathBuf {
 }
 
 pub fn build_placeholder_html_thumbnail(input: HtmlThumbnailInput) -> GeneratedThumbnailAsset {
-    let display_title = input
-        .title
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(input.file_name);
-    let preview_line = input
-        .raw_text
-        .as_deref()
-        .map(strip_html_like_text)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "HTML document preview".to_string());
+    let _ = input;
 
     let svg = format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
-<rect width="800" height="500" rx="24" fill="#f2f2f5"/>
-<rect x="24" y="24" width="752" height="452" rx="20" fill="#ffffff" stroke="#e2e2e4"/>
-<rect x="48" y="52" width="180" height="22" rx="11" fill="#111111" fill-opacity="0.08"/>
-<rect x="48" y="104" width="704" height="1" fill="#ececef"/>
-<text x="48" y="162" fill="#111111" font-family="Inter, PingFang SC, sans-serif" font-size="34" font-weight="700">{}</text>
-<text x="48" y="214" fill="#5e5e63" font-family="Inter, PingFang SC, sans-serif" font-size="20">{}</text>
-<rect x="48" y="254" width="248" height="156" rx="14" fill="#f4f4f6" stroke="#ececef"/>
-<rect x="320" y="254" width="188" height="14" rx="7" fill="#e7e7ea"/>
-<rect x="320" y="282" width="232" height="14" rx="7" fill="#ededf0"/>
-<rect x="320" y="310" width="204" height="14" rx="7" fill="#ededf0"/>
-<rect x="320" y="356" width="278" height="12" rx="6" fill="#f0f0f2"/>
-<rect x="320" y="380" width="244" height="12" rx="6" fill="#f0f0f2"/>
-<rect x="48" y="430" width="74" height="24" rx="12" fill="#18181b" fill-opacity="0.75"/>
-<text x="85" y="447" fill="#ffffff" text-anchor="middle" font-family="Inter, PingFang SC, sans-serif" font-size="12" font-weight="700">HTML</text>
+<rect width="800" height="500" fill="#ececef"/>
+<rect x="60" y="52" width="680" height="396" rx="28" fill="#ffffff" fill-opacity="0.58" stroke="#dddde3" stroke-width="4" stroke-dasharray="14 12"/>
+<path d="M330 214 264 250l66 36" fill="none" stroke="#c9c9d1" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M470 214 536 250l-66 36" fill="none" stroke="#c9c9d1" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M428 176 372 324" fill="none" stroke="#d2d2da" stroke-width="18" stroke-linecap="round"/>
 </svg>"##,
-        escape_svg_text(&display_title, 52),
-        escape_svg_text(&preview_line, 92),
     );
 
     GeneratedThumbnailAsset {
@@ -338,38 +318,6 @@ pub fn build_placeholder_html_thumbnail(input: HtmlThumbnailInput) -> GeneratedT
         width: 800,
         height: 500,
     }
-}
-
-fn strip_html_like_text(raw: &str) -> String {
-    let mut text = String::with_capacity(raw.len());
-    let mut in_tag = false;
-    for ch in raw.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => text.push(ch),
-            _ => {}
-        }
-    }
-
-    text.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(92)
-        .collect()
-}
-
-fn escape_svg_text(value: &str, limit: usize) -> String {
-    value
-        .chars()
-        .take(limit)
-        .collect::<String>()
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]
@@ -397,8 +345,8 @@ mod tests {
         assert_eq!(asset.file_extension, "svg");
         assert_eq!(asset.width, 800);
         assert_eq!(asset.height, 500);
-        assert!(asset.svg.contains("AI Deck"));
-        assert!(asset.svg.contains("Slide"));
+        assert!(asset.svg.contains("#ececef"));
+        assert!(asset.svg.contains("stroke-dasharray"));
         assert!(!asset.svg.contains("<script>"));
         assert!(asset.bytes.starts_with(b"<svg"));
     }
