@@ -176,6 +176,7 @@ fn main() {
             commands::library::open_folder_dialog_at,
             commands::library::open_file_dialog,
             commands::library::open_library_location,
+            commands::library::repair_library_root,
             commands::library::select_library,
             commands::library::scan_library,
             commands::library::watch_library,

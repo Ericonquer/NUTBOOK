@@ -163,6 +163,10 @@ impl LibraryRepository for AppState {
         self.database.upsert_library(library)
     }
 
+    fn update_library(&self, library: Library) -> Result<Library, AppError> {
+        self.database.update_library(library)
+    }
+
     fn next_library_id(&self) -> Result<i64, AppError> {
         self.database.next_library_id()
     }

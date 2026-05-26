@@ -1426,6 +1426,38 @@
         background: linear-gradient(135deg, #f1f1f4, #e4e4e8);
       }
 
+      .thumb-wrap.path-missing .thumb {
+        filter: grayscale(1) brightness(0.72);
+      }
+
+      .thumb-missing-mask {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        background: rgba(30, 30, 34, 0.28);
+        pointer-events: none;
+      }
+
+      .thumb-missing-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: rgba(18, 18, 22, 0.84);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+      }
+
       .thumb-badge {
         position: absolute;
         right: 8px;
@@ -1624,6 +1656,12 @@
         flex: 0 0 auto;
       }
 
+      .main-shell.home-mode .thumb-missing-pill {
+        min-height: 28px;
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
       .main-shell.home-mode .thumb-inline {
         width: 100%;
         height: 100%;
@@ -1709,6 +1747,14 @@
         background: rgba(255, 255, 255, 0.98);
       }
 
+      .item-card.path-missing {
+        border-color: #d2d2d8;
+      }
+
+      .item-card.path-missing .item-card-title {
+        color: #5f6168;
+      }
+
       .main-shell.home-mode .item-card-title {
         font-size: 12px;
         line-height: 1.4;
@@ -1780,6 +1826,16 @@
         width: 100%;
         height: 100%;
         aspect-ratio: auto;
+      }
+
+      .main-shell.home-mode.list-layout .thumb-missing-mask {
+        padding: 8px;
+      }
+
+      .main-shell.home-mode.list-layout .thumb-missing-pill {
+        min-height: 24px;
+        max-width: calc(100% - 8px);
+        font-size: 10px;
       }
 
       .main-shell.home-mode.list-layout .item-main {
@@ -4150,7 +4206,7 @@
           </div>
         </div>
 
-        <div class="document-toolbar" data-tauri-drag-region>
+        <div class="document-toolbar">
           <div class="breadcrumb">
             <span data-i18n-key="document.file">文件</span>
             <span>›</span>
@@ -4453,6 +4509,7 @@
         runtimeHostSyncInFlight: false,
         runtimeHostSyncPending: false,
         runtimeSurfaceTokens: new Map(),
+        itemOpenTokens: new Map(),
         runtimeControlsOverlayExpanded: false,
         runtimeControlsOverlayMode: "default",
         documentTagDraft: "",
@@ -5647,6 +5704,13 @@
         return stackLine ? `${message} / ${stackLine}` : message;
       }
 
+      function isMissingIndexedItemError(error) {
+        const code = String(error?.code || "").toUpperCase();
+        if (code === "ITEM_NOT_FOUND" || code === "LIBRARY_NOT_FOUND") return true;
+        const message = normalizeError(error).toLowerCase();
+        return message.includes("item not found") || message.includes("library not found");
+      }
+
       function toRuntimeFileUrl(pathOrUrl, fallbackPath) {
         const candidate = fallbackPath || pathOrUrl;
         if (!candidate) return "";
@@ -5824,6 +5888,7 @@
           name: library.name,
           rootPath: library.rootPath ?? library.root_path,
           sourceKind: library.sourceKind ?? library.source_kind ?? "folder",
+          pathState: library.pathState ?? library.path_state ?? "valid",
           isActive: library.isActive ?? library.is_active,
           createdAt: library.createdAt ?? library.created_at,
           updatedAt: library.updatedAt ?? library.updated_at,
@@ -5869,6 +5934,7 @@
           modifiedAt: item.modifiedAt ?? item.modified_at,
           title: item.title ?? null,
           summary: item.summary ?? null,
+          pathState: item.pathState ?? item.path_state ?? "valid",
           isFavorite: Boolean(item.isFavorite ?? item.is_favorite),
           lastOpenedAt: item.lastOpenedAt ?? item.last_opened_at ?? null,
           skillBinding: normalizeSkillBinding(item.skillBinding ?? item.skill_binding ?? null),
@@ -5889,6 +5955,25 @@
           createdAt: detail.createdAt ?? detail.created_at ?? null,
           updatedAt: detail.updatedAt ?? detail.updated_at ?? null
         };
+      }
+
+      function isItemPathMissing(item) {
+        return (item?.pathState || "valid") === "missing";
+      }
+
+      function isLibraryPathMissing(libraryId) {
+        const library = appState.libraries.find((entry) => entry.id === Number(libraryId));
+        return library?.pathState === "missing";
+      }
+
+      function fallbackRepairDialogPath(library) {
+        const rawPath = library?.rootPath || "";
+        if (!rawPath) return undefined;
+        const trimmed = rawPath.replace(/\/+$/, "");
+        const segments = trimmed.split("/").filter(Boolean);
+        if (!segments.length) return "/";
+        const parentSegments = library?.sourceKind === "file" ? segments.slice(0, -1) : segments.slice(0, -1);
+        return `/${parentSegments.join("/")}` || "/";
       }
 
       function renderDocumentTagChips(item, typeLabel) {
@@ -6033,7 +6118,7 @@
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -6686,11 +6771,12 @@
                     <div class="settings-row-title">${escapeHtml(library.name)}</div>
                     <span class="source-kind-badge">${library.sourceKind === "file" ? t("settings.singleFile") : t("settings.folder")}</span>
                     ${library.skillBinding ? `<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>` : ""}
+                    ${library.pathState === "missing" ? `<span class="source-kind-badge">路径失效</span>` : ""}
                   </div>
                   <div class="settings-row-meta settings-row-path">${escapeHtml(library.rootPath)}</div>
                 </div>
                 <div class="button-row">
-                  <button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.sourceKind === "file" ? t("actions.index") : t("actions.scan")}</button>
+                  <button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.pathState === "missing" ? "修正路径" : (library.sourceKind === "file" ? t("actions.index") : t("actions.scan"))}</button>
                   <button class="button button-ghost" type="button" data-settings-delete-library="${library.id}">${t("actions.remove")}</button>
                 </div>
               </div>
@@ -6899,10 +6985,10 @@
           </div>
           <div class="preference-row">
             <div class="preference-copy">
-              <div class="preference-title">表格增强工具</div>
-              <div class="preference-desc">后续用于表格行列增删工具；当前先保存开关偏好。</div>
+              <div class="preference-title">${t("settings.tableTools")}</div>
+              <div class="preference-desc">${t("settings.tableToolsDescription")}</div>
             </div>
-            <button class="preference-toggle ${appState.markdownPreferences.tableToolsEnabled ? "active" : ""}" type="button" data-preference-toggle="tableToolsEnabled" aria-label="切换表格增强工具"></button>
+            <button class="preference-toggle ${appState.markdownPreferences.tableToolsEnabled ? "active" : ""}" type="button" data-preference-toggle="tableToolsEnabled" aria-label="${t("settings.toggleTableTools")}"></button>
           </div>
           <div class="preference-row">
             <div class="preference-copy">
@@ -6945,6 +7031,7 @@
           : `${t("settings.thumbnailAvailable")}：${thumbnailEngineLabel}`;
         els.settingsThumbnailStatus.innerHTML = thumbnailStatus ? `
           <div class="settings-empty">${t("settings.thumbnailIntro")}</div>
+          <div class="settings-empty">${t("settings.thumbnailRebuildHint")}</div>
           <div class="settings-kv-row">
             <div class="settings-kv-label">${t("settings.screenshotEngine")}</div>
             <div class="settings-kv-value">${thumbnailStatus.screenshotAvailable ? thumbnailAvailableText : t("settings.thumbnailUnavailableDefault")}</div>
@@ -6953,7 +7040,6 @@
             <div class="settings-kv-label">${t("settings.currentPath")}</div>
             <div class="settings-kv-value">${escapeHtml(thumbnailStatus.chromiumPath || t("settings.thumbnailHeadlessMissing"))}</div>
           </div>
-          <div class="settings-empty">${t("settings.thumbnailRebuildHint")}</div>
           ${!thumbnailStatus.screenshotAvailable ? `
             <div class="settings-empty">${t("settings.thumbnailInstallHint")}</div>
             <div class="settings-empty">${t("settings.thumbnailInstallCommand")}<code>npx playwright install chromium</code></div>
@@ -6996,6 +7082,10 @@
             const libraryId = Number(node.dataset.settingsScanLibrary);
             const library = appState.libraries.find((entry) => entry.id === libraryId);
             appState.activeLibraryId = libraryId;
+            if (library?.pathState === "missing") {
+              await repairMissingLibrary(library);
+              return;
+            }
             if (library?.sourceKind === "file") {
               await invoke("open_library_location", { libraryId });
               setStatus(t("status.fileLocationOpened"), "ok");
@@ -7177,8 +7267,11 @@
         if (command === "restore_ignored_item") return true;
         if (command === "sync_filesystem_state") {
           return {
-            missingItemsMarkedDeleted: 0,
-            missingIgnoredItemsPurged: 0
+            missingItemsMarkedMissing: 0,
+            restoredItemsMarkedValid: 0,
+            missingIgnoredItemsPurged: 0,
+            missingLibrariesMarkedMissing: 0,
+            restoredLibrariesMarkedValid: 0
           };
         }
         if (command === "select_library") {
@@ -7405,14 +7498,36 @@
         scheduleRuntimeSurfaceHide(previousTabId);
       }
 
+      async function isOpenTabSourceMissing(tab) {
+        if (!tab?.id || !appState.isTauri) return false;
+        try {
+          await maybeSyncFilesystemState(true);
+          const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId: tab.id }));
+          return isItemPathMissing(detail) || isLibraryPathMissing(detail.libraryId);
+        } catch (error) {
+          return isMissingIndexedItemError(error);
+        }
+      }
+
       async function closeOpenTab(tabId) {
         captureActiveMarkdownScroll();
+        invalidateItemOpenToken(tabId);
         const tab = getOpenTab(tabId);
+        let sourcePathMissing = false;
+        const isClosingActiveTab = appState.activeTabId === tabId;
+        const remainingTabsAfterClose = getOpenTabs().filter((entry) => entry.id !== tabId);
+        const nextActiveTabId = isClosingActiveTab
+          ? (remainingTabsAfterClose[remainingTabsAfterClose.length - 1]?.id ?? null)
+          : appState.activeTabId;
         if (tab?.preview?.fileType === "markdown") {
           if (tab.id === appState.activeTabId || tab.id === appState.activeMarkdownEditorTabId) {
             captureActiveMarkdownDraft();
           }
-          if (isMarkdownTabDirty(tab)) {
+          sourcePathMissing = await isOpenTabSourceMissing(tab);
+          if (sourcePathMissing) {
+            tab.isDirty = false;
+            tab.draft = tab.markdownBaseline ?? tab.preview.raw ?? "";
+          } else if (isMarkdownTabDirty(tab)) {
             const shouldSave = await appConfirm({
               title: "保存 Markdown 修改？",
               message: `“${tab.item?.fileName || tab.preview?.title || "Markdown"}” 有未保存修改，是否保存后再关闭？`,
@@ -7427,11 +7542,19 @@
               tab.isDirty = false;
             }
           }
+          if (isClosingActiveTab) {
+            appState.activeTabId = nextActiveTabId;
+          }
           if (tab.id === appState.activeTabId) {
+            cleanupMarkdownEditor();
+          } else if (tab.id === appState.activeMarkdownEditorTabId) {
             cleanupMarkdownEditor();
           }
         }
         if (tab?.preview?.fileType === "html-runtime") {
+          if (isClosingActiveTab) {
+            appState.activeTabId = nextActiveTabId;
+          }
           cleanupRuntimeHostSync();
           cancelPendingRuntimeSurfaceHide(tabId);
           nextRuntimeSurfaceToken(tabId);
@@ -7452,9 +7575,8 @@
         appState.markdownScrollByTab.delete(tabId);
         appState.markdownOutlineCollapsedByTab.delete(tabId);
 
-        if (appState.activeTabId === tabId) {
-          const remainingTabs = getOpenTabs();
-          appState.activeTabId = remainingTabs[remainingTabs.length - 1]?.id ?? null;
+        if (isClosingActiveTab) {
+          appState.activeTabId = nextActiveTabId;
         }
 
         const nextActiveTab = getActiveTab();
@@ -7467,6 +7589,9 @@
 
         if (!getActiveTab()) {
           await releaseRuntimeShellState({ itemId: null });
+        }
+        if (tab?.preview?.fileType === "markdown" && sourcePathMissing) {
+          setStatus(`“${tab.item?.fileName || tab.preview?.title || "Markdown"}”的路径已失效，已关闭本地标签页。`, "warn");
         }
       }
 
@@ -7695,6 +7820,7 @@
 
       function thumbnailNode(item) {
         const skillBinding = resolveItemSkillBinding(item);
+        const pathMissing = isItemPathMissing(item);
         const primaryCustomTag = item.tags?.[0];
         const chips = [
           primaryCustomTag ? `<span class="tag-chip">${escapeHtml(primaryCustomTag.name)}</span>` : "",
@@ -7704,6 +7830,9 @@
           .join("");
         const overlayRow = chips ? `<div class="thumb-chip-row">${chips}</div>` : "";
         const badge = `${overlayRow}<span class="thumb-badge thumb-badge-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>`;
+        const missingMask = pathMissing
+          ? `<div class="thumb-missing-mask"><span class="thumb-missing-pill">文件路径失效</span></div>`
+          : "";
         if (item.thumbnail?.path) {
           if (item.thumbnail.path.startsWith("data:image/svg+xml;base64,")) {
             const encoded = item.thumbnail.path.slice("data:image/svg+xml;base64,".length);
@@ -7715,23 +7844,25 @@
             }
             if (svgMarkup) {
               return `
-                <div class="thumb-wrap">
+                <div class="thumb-wrap ${pathMissing ? "path-missing" : ""}">
                   <div class="thumb thumb-inline" aria-hidden="true">${svgMarkup}</div>
+                  ${missingMask}
                   ${badge}
                 </div>
               `;
             }
           }
           return `
-            <div class="thumb-wrap">
+            <div class="thumb-wrap ${pathMissing ? "path-missing" : ""}">
               <img class="thumb" src="${escapeAttribute(item.thumbnail.path)}" alt="" />
-            ${badge}
-          </div>
-        `;
-      }
+              ${missingMask}
+              ${badge}
+            </div>
+          `;
+        }
         if (item.fileType === "html") {
           return `
-            <div class="thumb-wrap">
+            <div class="thumb-wrap ${pathMissing ? "path-missing" : ""}">
               <div class="thumb thumb-inline" aria-hidden="true">
                 <div class="html-thumb-card">
                   <div class="html-thumb-frame">
@@ -7739,12 +7870,13 @@
                   </div>
                 </div>
               </div>
+              ${missingMask}
               ${badge}
             </div>
           `;
         }
         return `
-          <div class="thumb-wrap">
+          <div class="thumb-wrap ${pathMissing ? "path-missing" : ""}">
             <div class="thumb thumb-inline" aria-hidden="true">
               <div class="markdown-thumb-card">
                 <div class="markdown-thumb-frame">
@@ -7752,6 +7884,7 @@
                 </div>
               </div>
             </div>
+            ${missingMask}
             ${badge}
           </div>
         `;
@@ -7770,6 +7903,7 @@
         }
         const targets = items.filter((item) =>
           supportsGeneratedThumbnail(item) &&
+          !isItemPathMissing(item) &&
           !appState.pendingThumbnailIds.has(item.id) &&
           (!item.thumbnail?.path || item.thumbnail.path.startsWith("data:image/svg+xml"))
         );
@@ -7862,8 +7996,9 @@
           .map(
             (item) => {
               const skillBinding = resolveItemSkillBinding(item);
+              const pathMissing = isItemPathMissing(item);
               return `
-              <article class="item-card" data-open-item="${item.id}" role="button" tabindex="0" aria-label="打开 ${escapeAttribute(item.title || item.fileName)}">
+              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}" role="button" tabindex="0" aria-label="${escapeAttribute(pathMissing ? `文件路径失效：${item.title || item.fileName}` : `打开 ${item.title || item.fileName}`)}">
                 <button class="card-remove" type="button" data-remove-item="${item.id}" aria-label="从 Nutbook 移除">
                   <span style="font-size:18px; line-height:1; font-weight:500;">×</span>
                   <span class="card-action-tooltip">${appState.altKeyPressed ? "删除" : "移除"}</span>
@@ -8473,6 +8608,22 @@
         return appState.runtimeSurfaceTokens.get(itemId) || 0;
       }
 
+      function nextItemOpenToken(itemId) {
+        if (!itemId) return 0;
+        const next = (appState.itemOpenTokens.get(itemId) || 0) + 1;
+        appState.itemOpenTokens.set(itemId, next);
+        return next;
+      }
+
+      function isCurrentItemOpenToken(itemId, token) {
+        if (!itemId || !token) return false;
+        return appState.itemOpenTokens.get(itemId) === token;
+      }
+
+      function invalidateItemOpenToken(itemId) {
+        nextItemOpenToken(itemId);
+      }
+
       function isRuntimeSurfaceActive(itemId) {
         const activeTab = getActiveTab();
         return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
@@ -8867,15 +9018,22 @@
         const task = invoke("sync_filesystem_state")
           .then(async (result) => {
             appState.lastFilesystemSyncAt = Date.now();
-            const removed = Number(result?.missingItemsMarkedDeleted ?? 0);
+            const missing = Number(result?.missingItemsMarkedMissing ?? 0);
+            const restored = Number(result?.restoredItemsMarkedValid ?? 0);
             const purged = Number(result?.missingIgnoredItemsPurged ?? 0);
-            const removedSources = Number(result?.staleFileLibrariesRemoved ?? 0);
-            if (removedSources > 0) {
+            const missingSources = Number(result?.missingLibrariesMarkedMissing ?? 0);
+            const restoredSources = Number(result?.restoredLibrariesMarkedValid ?? 0);
+            if (missingSources > 0 || restoredSources > 0) {
               await loadLibraries();
             }
-            if (removed > 0 || purged > 0 || removedSources > 0) {
-              const sourceText = removedSources > 0 ? `${t("status.filesystemSyncedSourcePrefix")}${removedSources}${t("status.filesystemSyncedSourceSuffix")}` : "";
-              setStatus(`${t("status.filesystemSyncedPrefix")}${removed}${t("status.filesystemSyncedMiddle")}${purged}${t("status.filesystemSyncedSuffix")}${sourceText}`, "ok");
+            if (missing > 0 || restored > 0 || purged > 0 || missingSources > 0 || restoredSources > 0) {
+              const sourceText = missingSources > 0
+                ? `${t("status.filesystemSyncedSourcePrefix")}${missingSources}${t("status.filesystemSyncedSourceSuffix")}`
+                : "";
+              const restoredText = restored > 0 || restoredSources > 0
+                ? `，恢复 ${restored + restoredSources} 条路径`
+                : "";
+              setStatus(`${t("status.filesystemSyncedPrefix")}${missing}${t("status.filesystemSyncedMiddle")}${purged}${t("status.filesystemSyncedSuffix")}${sourceText}${restoredText}`, "ok");
             }
             return result;
           })
@@ -8889,6 +9047,36 @@
 
         appState.filesystemSyncInFlight = task;
         return task;
+      }
+
+      async function refreshInvalidIndexedItemState(itemId, item, options = {}) {
+        const fileName = item?.fileName || options.fileName || t("document.file");
+        await loadLibraries();
+        await loadItems();
+        renderTabs();
+        renderViewer();
+        const message = `“${fileName}”的路径已失效，请移除或重新接入。`;
+        setStatus(message, "warn");
+        showToast("文件路径失效");
+      }
+
+      async function ensureItemStillAvailable(itemId, item, options = {}) {
+        if (!appState.isTauri) return true;
+        try {
+          await maybeSyncFilesystemState(true);
+          const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId }));
+          if (isItemPathMissing(detail) || isLibraryPathMissing(detail.libraryId)) {
+            await refreshInvalidIndexedItemState(itemId, item || detail, options);
+            return false;
+          }
+          return true;
+        } catch (error) {
+          if (isMissingIndexedItemError(error)) {
+            await refreshInvalidIndexedItemState(itemId, item, options);
+            return false;
+          }
+          throw error;
+        }
       }
 
       async function loadThumbnailBackendStatus() {
@@ -9001,10 +9189,17 @@
         return detail?.fileType === "html" ? "html-runtime" : "content-tab";
       }
 
-      async function openHtmlRuntimeSession(detail, item) {
+      async function openHtmlRuntimeSession(detail, item, openToken) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
         const session = await invoke("open_html_window", { itemId: detail.id });
+        if (!isCurrentItemOpenToken(detail.id, openToken)) {
+          try {
+            await invoke("close_html_window", { itemId: detail.id });
+          } catch (_) {
+          }
+          return;
+        }
         const tabItem = item || normalizeItemSummary(detail);
         const existing = appState.runtimeSessions.find((tab) => tab.id === detail.id);
         const preview = {
@@ -9044,10 +9239,11 @@
         setStatus(`已打开 HTML Runtime：${detail.fileName || item?.fileName}`, "ok");
       }
 
-      async function openMarkdownContentTab(itemId, item, detail) {
+      async function openMarkdownContentTab(itemId, item, detail, openToken) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
         const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
+        if (!isCurrentItemOpenToken(itemId, openToken)) return;
         const tabItem = item || normalizeItemSummary(detail);
         const existing = appState.tabs.find((tab) => tab.id === itemId);
 
@@ -9123,29 +9319,38 @@
         setStatus(markdownOpeningStatus(item?.fileName), "warn");
       }
 
-      async function openArtifactRuntime(itemId, item, detail) {
+      async function openArtifactRuntime(itemId, item, detail, openToken) {
         if (artifactRuntimeType(detail) === "html-runtime") {
-          await openHtmlRuntimeSession(detail, item);
+          await openHtmlRuntimeSession(detail, item, openToken);
           return;
         }
 
-        await openMarkdownContentTab(itemId, item, detail);
+        await openMarkdownContentTab(itemId, item, detail, openToken);
       }
 
       async function openItem(itemId) {
+        const openToken = nextItemOpenToken(itemId);
         try {
           const item = appState.items.find((entry) => entry.id === itemId);
+          if (!(await ensureItemStillAvailable(itemId, item))) {
+            return;
+          }
+          if (!isCurrentItemOpenToken(itemId, openToken)) return;
           if (item?.fileType === "markdown") {
             openMarkdownLoadingTab(itemId, item);
           }
+          if (!isCurrentItemOpenToken(itemId, openToken)) return;
           try {
             await invoke("mark_item_opened", { itemId });
           } catch (_) {
           }
+          if (!isCurrentItemOpenToken(itemId, openToken)) return;
           const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId }));
+          if (!isCurrentItemOpenToken(itemId, openToken)) return;
 
-          await openArtifactRuntime(itemId, item, detail);
+          await openArtifactRuntime(itemId, item, detail, openToken);
         } catch (error) {
+          if (!isCurrentItemOpenToken(itemId, openToken)) return;
           const loadingTab = getOpenTab(itemId);
           if (loadingTab?.preview?.fileType === "markdown-loading") {
             appState.tabs = appState.tabs.filter((tab) => tab.id !== itemId);
@@ -9154,6 +9359,11 @@
             }
             renderTabs();
             renderViewer();
+          }
+          if (isMissingIndexedItemError(error)) {
+            const item = appState.items.find((entry) => entry.id === itemId) || getOpenTab(itemId)?.item;
+            await refreshInvalidIndexedItemState(itemId, item);
+            return;
           }
           setStatus(statusError("status.openFileFailedPrefix", error), "error");
         }
@@ -9190,6 +9400,7 @@
 
         try {
           setStatus(statusWithValue("status.itemRemovingPrefix", fileName), "warn");
+          await maybeSyncFilesystemState(true);
           await invoke("remove_item_from_nutbook", { itemId });
           await closeOpenTab(itemId).catch(() => {});
           await loadLibraries();
@@ -9199,6 +9410,10 @@
           setStatus(statusWithValue("status.itemRemovedPrefix", fileName), "ok");
           showToast("已移除");
         } catch (error) {
+          if (isMissingIndexedItemError(error)) {
+            await refreshInvalidIndexedItemState(itemId, item, { fileName });
+            return;
+          }
           setStatus(statusError("status.removeFailedPrefix", error), "error");
           showToast("移除失败");
         }
@@ -9799,6 +10014,48 @@
         await loadIgnoredItems();
         renderSettingsPanel();
         setStatus("已接入文件夹来源", "ok");
+      }
+
+      async function repairMissingLibrary(library) {
+        if (!library) return;
+        let selected = null;
+        try {
+          if (appState.isTauri) {
+            if (library.sourceKind === "file") {
+              selected = await invoke("open_file_dialog");
+            } else {
+              selected = await invoke("open_folder_dialog_at", {
+                payload: {
+                  defaultPath: fallbackRepairDialogPath(library)
+                }
+              });
+            }
+          } else {
+            selected = window.prompt("输入修正后的路径", library.rootPath || "/");
+          }
+        } catch (error) {
+          setStatus(`打开路径选择失败：${normalizeError(error)}`, "error");
+          return;
+        }
+
+        if (!selected) return;
+
+        try {
+          setStatus(`正在修正“${library.name}”的路径…`, "warn");
+          await invoke("repair_library_root", {
+            libraryId: library.id,
+            rootPath: selected.trim()
+          });
+          await loadLibraries();
+          await loadItems();
+          await loadIgnoredItems();
+          renderSettingsPanel();
+          setStatus(`已修正“${library.name}”的路径。`, "ok");
+          showToast("路径已修正");
+        } catch (error) {
+          setStatus(`修正路径失败：${normalizeError(error)}`, "error");
+          showToast("修正失败");
+        }
       }
 
       async function attachSkillSourceManually(skillName, normalizedName, skillRootPath = "") {

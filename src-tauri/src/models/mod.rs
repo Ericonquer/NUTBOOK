@@ -11,7 +11,7 @@ pub use item::{
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
     HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSummary, ListItemsQuery,
     IgnoredItemSummary, MarkItemOpenedRequest, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
-    OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RuntimeHostBounds,
+    OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,
     SaveMarkdownContentRequest, SaveMarkdownContentResponse, ScanLibraryRequest, ScanLibraryResponse, SelectLibraryRequest,
     SetHtmlRuntimeControlsOverlayVisibilityRequest, SetHtmlRuntimeHostVisibilityRequest, ThumbnailInfo, ThumbnailBackendStatusPayload,

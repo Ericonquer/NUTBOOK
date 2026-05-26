@@ -48,6 +48,7 @@ pub struct ItemSummary {
     pub modified_at: String,
     pub title: Option<String>,
     pub summary: Option<String>,
+    pub path_state: String,
     pub is_favorite: bool,
     pub last_opened_at: Option<String>,
     pub skill_binding: Option<SkillBindingSummary>,
@@ -147,6 +148,13 @@ pub struct OpenLibraryLocationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RepairLibraryRootRequest {
+    pub library_id: i64,
+    pub root_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanLibraryResponse {
     pub library_id: i64,
     pub mode: String,
@@ -224,9 +232,11 @@ pub struct RestoreIgnoredItemRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncFilesystemStateResponse {
-    pub missing_items_marked_deleted: u64,
+    pub missing_items_marked_missing: u64,
+    pub restored_items_marked_valid: u64,
     pub missing_ignored_items_purged: u64,
-    pub stale_file_libraries_removed: u64,
+    pub missing_libraries_marked_missing: u64,
+    pub restored_libraries_marked_valid: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

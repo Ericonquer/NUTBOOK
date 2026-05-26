@@ -210,6 +210,7 @@ mod tests {
                     modified_at: "1".to_string(),
                     title: None,
                     summary: None,
+                    path_state: "valid".to_string(),
                     is_favorite: false,
                     last_opened_at: None,
                     skill_binding: None,

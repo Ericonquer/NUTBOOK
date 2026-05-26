@@ -485,6 +485,7 @@ mod tests {
             name: "Output".to_string(),
             root_path: root_path.to_string(),
             source_kind: "folder".to_string(),
+            path_state: "valid".to_string(),
             is_active: true,
             created_at: "0".to_string(),
             updated_at: "0".to_string(),

@@ -9,6 +9,7 @@ pub struct Library {
     pub name: String,
     pub root_path: String,
     pub source_kind: String,
+    pub path_state: String,
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,

@@ -55,6 +55,14 @@ impl Database {
             [],
         );
         let _ = connection.execute(
+            "ALTER TABLE libraries ADD COLUMN path_state TEXT NOT NULL DEFAULT 'valid' CHECK (path_state IN ('valid', 'missing'))",
+            [],
+        );
+        let _ = connection.execute(
+            "ALTER TABLE items ADD COLUMN path_state TEXT NOT NULL DEFAULT 'valid' CHECK (path_state IN ('valid', 'missing'))",
+            [],
+        );
+        let _ = connection.execute(
             "ALTER TABLE items ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0, 1))",
             [],
         );
@@ -309,23 +317,43 @@ impl Database {
 
         let active_items = {
             let mut statement = connection
-                .prepare("SELECT id, file_path FROM items WHERE is_deleted = 0")
+                .prepare("SELECT id, file_path, path_state FROM items WHERE is_deleted = 0")
                 .map_err(|_| AppError::DatabaseError)?;
             let rows = statement
-                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
                 .map_err(|_| AppError::DatabaseError)?;
             rows.collect::<Result<Vec<_>, _>>()
                 .map_err(|_| AppError::DatabaseError)?
         };
 
         let missing_item_ids = active_items
-            .into_iter()
-            .filter_map(|(item_id, file_path)| {
+            .iter()
+            .filter_map(|(item_id, file_path, path_state)| {
                 let path = Path::new(&file_path);
-                if path.exists() && path.is_file() {
-                    None
+                let exists = path.exists() && path.is_file();
+                if !exists && path_state != "missing" {
+                    Some(*item_id)
                 } else {
-                    Some(item_id)
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let restored_item_ids = active_items
+            .iter()
+            .filter_map(|(item_id, file_path, path_state)| {
+                let path = Path::new(&file_path);
+                let exists = path.exists() && path.is_file();
+                if exists && path_state != "valid" {
+                    Some(*item_id)
+                } else {
+                    None
                 }
             })
             .collect::<Vec<_>>();
@@ -353,35 +381,70 @@ impl Database {
             })
             .collect::<Vec<_>>();
 
-        let stale_file_library_ids = {
+        let libraries = {
             let mut statement = connection
-                .prepare("SELECT id, root_path FROM libraries WHERE source_kind = 'file'")
+                .prepare("SELECT id, root_path, source_kind, path_state FROM libraries")
                 .map_err(|_| AppError::DatabaseError)?;
             let rows = statement
-                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })
                 .map_err(|_| AppError::DatabaseError)?;
             rows.collect::<Result<Vec<_>, _>>()
                 .map_err(|_| AppError::DatabaseError)?
-        }
-        .into_iter()
-        .filter_map(|(library_id, root_path)| {
-            let path = Path::new(&root_path);
-            if path.exists() && path.is_file() {
-                None
-            } else {
-                Some(library_id)
-            }
-        })
-        .collect::<Vec<_>>();
+        };
+
+        let missing_library_ids = libraries
+            .iter()
+            .filter_map(|(library_id, root_path, source_kind, path_state)| {
+                let path = Path::new(root_path);
+                let exists = if source_kind == "file" {
+                    path.exists() && path.is_file()
+                } else {
+                    path.exists() && path.is_dir()
+                };
+                if !exists && path_state != "missing" {
+                    Some(*library_id)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let restored_library_ids = libraries
+            .iter()
+            .filter_map(|(library_id, root_path, source_kind, path_state)| {
+                let path = Path::new(root_path);
+                let exists = if source_kind == "file" {
+                    path.exists() && path.is_file()
+                } else {
+                    path.exists() && path.is_dir()
+                };
+                if exists && path_state != "valid" {
+                    Some(*library_id)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
 
         if missing_item_ids.is_empty()
+            && restored_item_ids.is_empty()
             && stale_ignored_item_ids.is_empty()
-            && stale_file_library_ids.is_empty()
+            && missing_library_ids.is_empty()
+            && restored_library_ids.is_empty()
         {
             return Ok(crate::models::SyncFilesystemStateResponse {
-                missing_items_marked_deleted: 0,
+                missing_items_marked_missing: 0,
+                restored_items_marked_valid: 0,
                 missing_ignored_items_purged: 0,
-                stale_file_libraries_removed: 0,
+                missing_libraries_marked_missing: 0,
+                restored_libraries_marked_valid: 0,
             });
         }
 
@@ -390,11 +453,25 @@ impl Database {
             .transaction()
             .map_err(|_| AppError::DatabaseError)?;
 
-        let mut missing_items_marked_deleted = 0_u64;
+        let mut missing_items_marked_missing = 0_u64;
         for item_id in &missing_item_ids {
-            missing_items_marked_deleted += transaction
+            missing_items_marked_missing += transaction
                 .execute(
-                    "UPDATE items SET is_deleted = 1 WHERE id = ?1 AND is_deleted = 0",
+                    "UPDATE items
+                     SET path_state = 'missing'
+                     WHERE id = ?1 AND is_deleted = 0 AND path_state <> 'missing'",
+                    params![item_id],
+                )
+                .map_err(|_| AppError::DatabaseError)? as u64;
+        }
+
+        let mut restored_items_marked_valid = 0_u64;
+        for item_id in &restored_item_ids {
+            restored_items_marked_valid += transaction
+                .execute(
+                    "UPDATE items
+                     SET path_state = 'valid'
+                     WHERE id = ?1 AND is_deleted = 0 AND path_state <> 'valid'",
                     params![item_id],
                 )
                 .map_err(|_| AppError::DatabaseError)? as u64;
@@ -407,23 +484,38 @@ impl Database {
                 .map_err(|_| AppError::DatabaseError)? as u64;
         }
 
-        let mut stale_file_libraries_removed = 0_u64;
-        for library_id in &stale_file_library_ids {
-            stale_file_libraries_removed += transaction
-                .execute("DELETE FROM libraries WHERE id = ?1 AND source_kind = 'file'", params![library_id])
+        let mut missing_libraries_marked_missing = 0_u64;
+        for library_id in &missing_library_ids {
+            missing_libraries_marked_missing += transaction
+                .execute(
+                    "UPDATE libraries
+                     SET path_state = 'missing'
+                     WHERE id = ?1 AND path_state <> 'missing'",
+                    params![library_id],
+                )
                 .map_err(|_| AppError::DatabaseError)? as u64;
         }
 
-        if missing_items_marked_deleted > 0 {
-            Self::rebuild_fts_index(&transaction)?;
+        let mut restored_libraries_marked_valid = 0_u64;
+        for library_id in &restored_library_ids {
+            restored_libraries_marked_valid += transaction
+                .execute(
+                    "UPDATE libraries
+                     SET path_state = 'valid'
+                     WHERE id = ?1 AND path_state <> 'valid'",
+                    params![library_id],
+                )
+                .map_err(|_| AppError::DatabaseError)? as u64;
         }
 
         transaction.commit().map_err(|_| AppError::DatabaseError)?;
 
         Ok(crate::models::SyncFilesystemStateResponse {
-            missing_items_marked_deleted,
+            missing_items_marked_missing,
+            restored_items_marked_valid,
             missing_ignored_items_purged,
-            stale_file_libraries_removed,
+            missing_libraries_marked_missing,
+            restored_libraries_marked_valid,
         })
     }
 
@@ -547,7 +639,7 @@ impl LibraryRepository for Database {
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, name, root_path, source_kind, is_active, created_at, updated_at, last_scanned_at
+                "SELECT id, name, root_path, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at
                  FROM libraries
                  ORDER BY id ASC",
             )
@@ -560,10 +652,11 @@ impl LibraryRepository for Database {
                     name: row.get(1)?,
                     root_path: row.get(2)?,
                     source_kind: row.get(3)?,
-                    is_active: row.get::<_, i64>(4)? != 0,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
-                    last_scanned_at: row.get(7)?,
+                    path_state: row.get(4)?,
+                    is_active: row.get::<_, i64>(5)? != 0,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    last_scanned_at: row.get(8)?,
                     skill_binding: None,
                 })
             })
@@ -585,11 +678,12 @@ impl LibraryRepository for Database {
         let connection = self.connection()?;
         connection
             .execute(
-                "INSERT INTO libraries (id, name, root_path, source_kind, is_active, created_at, updated_at, last_scanned_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO libraries (id, name, root_path, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(root_path) DO UPDATE SET
                    name = excluded.name,
                    source_kind = excluded.source_kind,
+                   path_state = excluded.path_state,
                    is_active = excluded.is_active,
                    updated_at = excluded.updated_at,
                    last_scanned_at = excluded.last_scanned_at",
@@ -598,6 +692,7 @@ impl LibraryRepository for Database {
                     library.name,
                     library.root_path,
                     library.source_kind,
+                    library.path_state,
                     if library.is_active { 1 } else { 0 },
                     library.created_at,
                     library.updated_at,
@@ -605,6 +700,39 @@ impl LibraryRepository for Database {
                 ],
             )
             .map_err(|_| AppError::DatabaseError)?;
+
+        Ok(library)
+    }
+
+    fn update_library(&self, library: Library) -> Result<Library, AppError> {
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                "UPDATE libraries
+                 SET name = ?2,
+                     root_path = ?3,
+                     source_kind = ?4,
+                     path_state = ?5,
+                     is_active = ?6,
+                     updated_at = ?7,
+                     last_scanned_at = ?8
+                 WHERE id = ?1",
+                params![
+                    library.id,
+                    library.name,
+                    library.root_path,
+                    library.source_kind,
+                    library.path_state,
+                    if library.is_active { 1 } else { 0 },
+                    library.updated_at,
+                    library.last_scanned_at,
+                ],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+
+        if changed == 0 {
+            return Err(AppError::LibraryNotFound);
+        }
 
         Ok(library)
     }
@@ -712,8 +840,8 @@ impl ItemRepository for Database {
                 .execute(
                     "INSERT INTO items (
                         library_id, file_path, relative_path, file_name, file_ext, file_type,
-                        file_size, modified_at, file_hash, title, summary, is_favorite, last_opened_at, is_deleted, created_at, updated_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, 0, NULL, 0, ?9, ?10)
+                        file_size, modified_at, file_hash, title, summary, path_state, is_favorite, last_opened_at, is_deleted, created_at, updated_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, 'valid', 0, NULL, 0, ?9, ?10)
                      ON CONFLICT(file_path) DO UPDATE SET
                         library_id = excluded.library_id,
                         relative_path = excluded.relative_path,
@@ -722,6 +850,7 @@ impl ItemRepository for Database {
                         file_type = excluded.file_type,
                         file_size = excluded.file_size,
                         modified_at = excluded.modified_at,
+                        path_state = 'valid',
                         is_deleted = 0,
                         updated_at = excluded.updated_at",
                     params![
@@ -837,7 +966,7 @@ impl ItemRepository for Database {
 
         let sql = format!(
             "SELECT id, library_id, file_path, relative_path, file_name, file_ext, file_type,
-                    file_size, modified_at, title, summary, is_favorite, last_opened_at
+                    file_size, modified_at, title, summary, path_state, is_favorite, last_opened_at
              FROM items
              {where_sql}
              ORDER BY {sort_column} {sort_order}, id ASC
@@ -861,8 +990,9 @@ impl ItemRepository for Database {
                 modified_at: row.get(8)?,
                 title: row.get(9)?,
                 summary: row.get(10)?,
-                is_favorite: row.get::<_, i64>(11)? != 0,
-                last_opened_at: row.get(12)?,
+                path_state: row.get(11)?,
+                is_favorite: row.get::<_, i64>(12)? != 0,
+                last_opened_at: row.get(13)?,
                 skill_binding: None,
                 tags: Vec::new(),
                 thumbnail: None,
@@ -896,7 +1026,7 @@ impl ItemRepository for Database {
             .prepare(
                 "SELECT
                     i.id, i.library_id, i.file_path, i.relative_path, i.file_name, i.file_ext,
-                    i.file_type, i.file_size, i.modified_at, i.title, i.summary, i.is_favorite, i.last_opened_at,
+                    i.file_type, i.file_size, i.modified_at, i.title, i.summary, i.path_state, i.is_favorite, i.last_opened_at,
                     i.file_hash, ic.extracted_title, ic.source_text, ic.raw_text, ic.rendered_cache,
                     i.created_at, i.updated_at
                  FROM items i
@@ -920,19 +1050,20 @@ impl ItemRepository for Database {
                         modified_at: row.get(8)?,
                         title: row.get(9)?,
                         summary: row.get(10)?,
-                        is_favorite: row.get::<_, i64>(11)? != 0,
-                        last_opened_at: row.get(12)?,
+                        path_state: row.get(11)?,
+                        is_favorite: row.get::<_, i64>(12)? != 0,
+                        last_opened_at: row.get(13)?,
                         skill_binding: None,
                         tags: Vec::new(),
                         thumbnail: None,
                     },
-                    file_hash: row.get(13)?,
-                    extracted_title: row.get(14)?,
-                    source_text: row.get(15)?,
-                    raw_text: row.get(16)?,
-                    rendered_cache: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    file_hash: row.get(14)?,
+                    extracted_title: row.get(15)?,
+                    source_text: row.get(16)?,
+                    raw_text: row.get(17)?,
+                    rendered_cache: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             })
             .map_err(|_| AppError::ItemNotFound)?;
@@ -1698,6 +1829,7 @@ mod tests {
                 name: "Clips".to_string(),
                 root_path: "/tmp/clips".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -1724,6 +1856,7 @@ mod tests {
                 name: "Clips".to_string(),
                 root_path: "/tmp/clips".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -1814,6 +1947,7 @@ mod tests {
                 name: "Clips".to_string(),
                 root_path: "/tmp/clips".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -1858,6 +1992,7 @@ mod tests {
                 name: "html-ppt output".to_string(),
                 root_path: "/tmp/html-ppt-output".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -1919,6 +2054,7 @@ mod tests {
                 name: "Clips".to_string(),
                 root_path: "/tmp/clips".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -1988,6 +2124,7 @@ mod tests {
                 name: "Clips".to_string(),
                 root_path: root.to_string_lossy().to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -2038,9 +2175,9 @@ mod tests {
         let synced = database
             .sync_filesystem_state()
             .expect("filesystem sync should succeed");
-        assert_eq!(synced.missing_items_marked_deleted, 1);
+        assert_eq!(synced.missing_items_marked_missing, 1);
         assert_eq!(synced.missing_ignored_items_purged, 1);
-        assert_eq!(synced.stale_file_libraries_removed, 0);
+        assert_eq!(synced.missing_libraries_marked_missing, 0);
 
         let ignored = database
             .list_ignored_items()
@@ -2053,14 +2190,15 @@ mod tests {
                 ..ListItemsQuery::default()
             })
             .expect("items should be listed");
-        assert_eq!(listed.total, 0);
+        assert_eq!(listed.total, 1);
+        assert_eq!(listed.items[0].path_state, "missing");
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
-    fn database_sync_filesystem_state_removes_missing_single_file_sources() {
+    fn database_sync_filesystem_state_marks_missing_single_file_sources() {
         let path = unique_db_path();
         let database = Database::new(&path).expect("database should initialize");
         let root = std::env::temp_dir().join(format!(
@@ -2080,6 +2218,7 @@ mod tests {
                 name: "linked.md".to_string(),
                 root_path: file_path.to_string_lossy().to_string(),
                 source_kind: "file".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),
@@ -2111,16 +2250,18 @@ mod tests {
         let synced = database
             .sync_filesystem_state()
             .expect("filesystem sync should succeed");
-        assert_eq!(synced.missing_items_marked_deleted, 1);
-        assert_eq!(synced.stale_file_libraries_removed, 1);
+        assert_eq!(synced.missing_items_marked_missing, 1);
+        assert_eq!(synced.missing_libraries_marked_missing, 1);
 
         let libraries = database.list_libraries().expect("libraries should list");
-        assert!(libraries.is_empty());
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].path_state, "missing");
 
         let listed = database
             .list_items(&ListItemsQuery::default())
             .expect("items should be listed");
-        assert_eq!(listed.total, 0);
+        assert_eq!(listed.total, 1);
+        assert_eq!(listed.items[0].path_state, "missing");
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_file(path);
@@ -2137,6 +2278,7 @@ mod tests {
                 name: "Clips".to_string(),
                 root_path: "/tmp/clips".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "2026-04-22T00:00:00Z".to_string(),
                 updated_at: "2026-04-22T00:00:00Z".to_string(),

@@ -76,6 +76,7 @@ mod tests {
                 name: "Library".to_string(),
                 root_path: "/tmp/library".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "now".to_string(),
                 updated_at: "now".to_string(),

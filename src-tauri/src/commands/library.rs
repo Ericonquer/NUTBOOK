@@ -6,12 +6,13 @@ use crate::{
     db::Database,
     errors::AppError,
     models::{
-        DeleteLibraryRequest, Library, OpenLibraryLocationRequest, ScanLibraryRequest,
+        DeleteLibraryRequest, Library, OpenLibraryLocationRequest, RepairLibraryRootRequest, ScanLibraryRequest,
         ScanLibraryResponse, SelectLibraryRequest, WatchLibraryRequest, WatchLibraryResponse,
     },
     state::AppState,
 };
 use serde::Deserialize;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,21 +99,33 @@ pub fn open_library_location(
         .find(|library| library.id == payload.library_id)
         .ok_or(AppError::LibraryNotFound)?;
 
-    let path = std::path::PathBuf::from(&library.root_path);
+    let path = PathBuf::from(&library.root_path);
     let target = if library.source_kind == "file" {
         path.parent()
-            .map(std::path::Path::to_path_buf)
+            .map(Path::to_path_buf)
             .ok_or(AppError::InvalidParams)?
     } else {
         path
     };
+    let open_target = nearest_existing_directory(&target).ok_or(AppError::IoError)?;
 
     std::process::Command::new("open")
-        .arg(target)
+        .arg(open_target)
         .status()
         .map_err(|_| AppError::IoError)?;
 
     Ok(true)
+}
+
+fn nearest_existing_directory(path: &Path) -> Option<PathBuf> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.exists() && candidate.is_dir() {
+            return Some(candidate.to_path_buf());
+        }
+        current = candidate.parent();
+    }
+    None
 }
 
 #[tauri::command]
@@ -133,6 +146,47 @@ pub fn scan_library(
         started_at: response.started_at.clone(),
         finished_at: response.finished_at,
     })
+}
+
+#[tauri::command]
+pub fn repair_library_root(
+    state: tauri::State<'_, AppState>,
+    payload: RepairLibraryRootRequest,
+) -> Result<Library, AppError> {
+    let libraries = state.list_libraries()?;
+    let current = libraries
+        .iter()
+        .find(|library| library.id == payload.library_id)
+        .cloned()
+        .ok_or(AppError::LibraryNotFound)?;
+
+    let other_libraries = libraries
+        .into_iter()
+        .filter(|library| library.id != payload.library_id)
+        .collect::<Vec<_>>();
+
+    let now = current_timestamp();
+    let mut repaired = select_or_create_library(
+        &other_libraries,
+        &payload.root_path,
+        None,
+        &current.source_kind,
+        current.id,
+        &now,
+    )?;
+    repaired.created_at = current.created_at;
+    repaired.updated_at = now.clone();
+    repaired.last_scanned_at = current.last_scanned_at.clone();
+    repaired.path_state = "valid".to_string();
+
+    state.update_library(repaired)?;
+    let _ = scan_library_once(&state.database, payload.library_id)?;
+
+    state
+        .list_libraries()?
+        .into_iter()
+        .find(|library| library.id == payload.library_id)
+        .ok_or(AppError::LibraryNotFound)
 }
 
 #[tauri::command]
@@ -241,6 +295,7 @@ mod tests {
                 name: "Library".to_string(),
                 root_path: "/tmp/library".to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "now".to_string(),
                 updated_at: "now".to_string(),
@@ -281,6 +336,7 @@ mod tests {
                 name: "Watched".to_string(),
                 root_path: root.to_string_lossy().to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "now".to_string(),
                 updated_at: "now".to_string(),
@@ -297,6 +353,7 @@ mod tests {
                 name: "Watched".to_string(),
                 root_path: root.to_string_lossy().to_string(),
                 source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
                 is_active: true,
                 created_at: "now".to_string(),
                 updated_at: "now".to_string(),
