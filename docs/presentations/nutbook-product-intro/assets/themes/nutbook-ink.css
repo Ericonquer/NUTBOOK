@@ -1,0 +1,220 @@
+:root {
+  --bg: #141416;
+  --bg-soft: #1d1d20;
+  --surface: #242428;
+  --surface-2: #2d2d32;
+  --border: #44444a;
+  --border-strong: #696970;
+  --text-1: #f4f4f5;
+  --text-2: #d0d0d2;
+  --text-3: #9b9ba1;
+  --accent: #ffffff;
+  --accent-2: #c8c8cc;
+  --accent-3: #8f8f95;
+  --good: #f4f4f5;
+  --warn: #d0d0d2;
+  --bad: #ff8a80;
+  --grad: linear-gradient(135deg, #ffffff, #a8a8ad);
+  --grad-soft: linear-gradient(135deg, #242428, #333338);
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 16px;
+  --shadow: 0 22px 70px rgba(0,0,0,0.48), 0 5px 20px rgba(0,0,0,0.28);
+  --shadow-lg: 0 28px 80px rgba(0,0,0,0.56), 0 8px 24px rgba(0,0,0,0.34);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --font-serif: Georgia, "Songti SC", serif;
+  --font-mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --font-display: var(--font-sans);
+  --letter-tight: 0;
+  --letter-normal: 0;
+}
+
+body.tpl-nutbook-product {
+  --bg: #141416;
+  --surface: #242428;
+  --surface-2: #2d2d32;
+  --surface-3: #39393f;
+  --border: #44444a;
+  --border-strong: #696970;
+  --text-1: #f4f4f5;
+  --text-2: #d0d0d2;
+  --text-3: #9b9ba1;
+  --accent: #ffffff;
+  --accent-2: #c8c8cc;
+  --bg-soft: #161617;
+  --shadow: 0 22px 70px rgba(0,0,0,0.48), 0 5px 20px rgba(0,0,0,0.28);
+  --shadow-lg: 0 28px 80px rgba(0,0,0,0.56), 0 8px 24px rgba(0,0,0,0.34);
+}
+
+body.tpl-nutbook-product .slide {
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.052) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(180deg, rgba(255,255,255,0.044) 1px, transparent 1px) 0 0 / 40px 40px,
+    var(--bg);
+}
+
+body.tpl-nutbook-product .brand-logo {
+  filter: invert(1);
+}
+
+body.tpl-nutbook-product .brand-icon {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.14);
+}
+
+body.tpl-nutbook-product .problem-card,
+body.tpl-nutbook-product .persona-card,
+body.tpl-nutbook-product .artifact-card,
+body.tpl-nutbook-product .feature-list div,
+body.tpl-nutbook-product .timeline div,
+body.tpl-nutbook-product .promise-grid div,
+body.tpl-nutbook-product .source-stack div,
+body.tpl-nutbook-product .library-shelf,
+body.tpl-nutbook-product .audience-list div {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+body.tpl-nutbook-product .app-window,
+body.tpl-nutbook-product .hero-panel,
+body.tpl-nutbook-product .reading-outline,
+body.tpl-nutbook-product .reading-surface,
+body.tpl-nutbook-product .stage-screen {
+  background: #ffffff;
+  border-color: #e8e8ea;
+}
+
+body.tpl-nutbook-product .product-ui {
+  background: #f9f9fb;
+}
+
+body.tpl-nutbook-product .product-sidebar {
+  background: rgba(250,250,251,0.94);
+  border-color: #e4e4e7;
+}
+
+body.tpl-nutbook-product .product-main {
+  background: #f9f9fb;
+}
+
+body.tpl-nutbook-product .traffic,
+body.tpl-nutbook-product .tabs,
+body.tpl-nutbook-product .md-toolbar {
+  background: #f3f3f5;
+  border-color: #dedee2;
+}
+
+body.tpl-nutbook-product .screen-content {
+  background:
+    linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px) 0 0 / 32px 32px,
+    #f9f9fb;
+}
+
+body.tpl-nutbook-product .doc-preview,
+body.tpl-nutbook-product .reading-outline,
+body.tpl-nutbook-product .reading-surface,
+body.tpl-nutbook-product .reading-features div {
+  background: #ffffff;
+  color: #1a1c1d;
+}
+
+body.tpl-nutbook-product .reading-outline b,
+body.tpl-nutbook-product .reading-surface h3,
+body.tpl-nutbook-product .feature-list b,
+body.tpl-nutbook-product .doc-preview h3 {
+  color: #1a1c1d;
+}
+
+body.tpl-nutbook-product .reading-outline span,
+body.tpl-nutbook-product .reading-surface p,
+body.tpl-nutbook-product .feature-list span,
+body.tpl-nutbook-product .doc-preview p {
+  color: #4c4546;
+}
+
+body.tpl-nutbook-product .reading-outline .active {
+  background: #f3f3f5;
+  border-left-color: #000000;
+  color: #1a1c1d;
+}
+
+body.tpl-nutbook-product .md-toolbar em {
+  background: #000000;
+  color: #ffffff;
+}
+
+body.tpl-nutbook-product .render-table,
+body.tpl-nutbook-product .render-table span {
+  border-color: #e8e8ea;
+}
+
+body.tpl-nutbook-product .render-table span {
+  color: #4c4546;
+}
+
+body.tpl-nutbook-product .reading-surface pre {
+  background: #1a1c1d;
+  color: #f9f9fb;
+}
+
+body.tpl-nutbook-product .traffic b,
+body.tpl-nutbook-product .side-logo small,
+body.tpl-nutbook-product .side-label,
+body.tpl-nutbook-product .side-item,
+body.tpl-nutbook-product .tabs span,
+body.tpl-nutbook-product .file-head small {
+  color: #71717a;
+}
+
+body.tpl-nutbook-product .side-logo strong,
+body.tpl-nutbook-product .file-head strong,
+body.tpl-nutbook-product .tabs .active,
+body.tpl-nutbook-product .side-item.active,
+body.tpl-nutbook-product .mock-file b {
+  color: #000000;
+}
+
+body.tpl-nutbook-product .mock-file small {
+  color: #a1a1aa;
+}
+
+body.tpl-nutbook-product .mock-file.dark b,
+body.tpl-nutbook-product .mock-file.dark small {
+  color: #ffffff;
+}
+
+body.tpl-nutbook-product .tabs .active,
+body.tpl-nutbook-product .side-item.active {
+  background: #ffffff;
+  border-color: #e4e4e7;
+}
+
+body.tpl-nutbook-product .side-item.active {
+  border-left-color: #000000;
+}
+
+body.tpl-nutbook-product .tabs,
+body.tpl-nutbook-product .side-line {
+  border-color: #e4e4e7;
+}
+
+body.tpl-nutbook-product .side-line {
+  background: #e4e4e7;
+}
+
+body.tpl-nutbook-product .shelf-grid i {
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+
+body.tpl-nutbook-product .business,
+body.tpl-nutbook-product .research,
+body.tpl-nutbook-product .maker,
+body.tpl-nutbook-product .artifact-card.html,
+body.tpl-nutbook-product .artifact-card.md,
+body.tpl-nutbook-product .artifact-card.skill,
+body.tpl-nutbook-product .artifact-card.fav,
+body.tpl-nutbook-product .yes,
+body.tpl-nutbook-product .no {
+  border-color: var(--accent);
+}
