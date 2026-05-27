@@ -11,7 +11,7 @@ use crate::{
 };
 
 const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/leeeric202666-prog/NUTBOOK/releases/latest";
+    "https://api.github.com/repos/Ericonquer/NUTBOOK/releases/latest";
 
 fn parse_version_parts(version: &str) -> Option<Vec<u64>> {
     let normalized = version.trim().trim_start_matches(['v', 'V']);

@@ -117,6 +117,22 @@
         position: relative;
       }
 
+      .brand-logo-button {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+      }
+
+      .brand-logo-button:hover .brand-logo,
+      .brand-logo-button:hover .brand-logo-compact {
+        filter: brightness(0.96);
+      }
+
       .brand-logo {
         display: block;
         width: auto;
@@ -2839,6 +2855,121 @@
         display: flex;
       }
 
+      .about-modal {
+        width: min(520px, calc(100vw - 48px));
+        max-height: min(720px, calc(100vh - 48px));
+        overflow: auto;
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 247, 249, 0.99));
+        border: 1px solid var(--line);
+        box-shadow: 0 28px 68px rgba(20, 20, 20, 0.14);
+        padding: 26px 26px 24px;
+        position: relative;
+      }
+
+      .about-close {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+      }
+
+      .about-logo {
+        display: block;
+        width: min(220px, 70%);
+        height: auto;
+        margin: 2px auto 22px;
+      }
+
+      .about-title {
+        margin: 0 0 14px;
+        color: #161616;
+        font-size: 18px;
+        font-weight: 750;
+        text-align: center;
+      }
+
+      .about-copy {
+        color: #34343a;
+        font-size: 13px;
+        line-height: 1.75;
+      }
+
+      .about-copy p {
+        margin: 0;
+      }
+
+      .about-copy p + p {
+        margin-top: 10px;
+      }
+
+      .about-message {
+        color: #202025;
+      }
+
+      .about-author {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        margin: 18px 0 20px;
+        color: #222;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .about-author-avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        border: 1px solid rgba(20, 20, 20, 0.08);
+        background: #f0f0f2;
+        object-fit: cover;
+      }
+
+      .about-actions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .about-pill-button {
+        min-height: 38px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 20, 20, 0.12);
+        background: #151515;
+        color: #fff;
+        padding: 0 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 650;
+        cursor: pointer;
+        box-shadow: 0 10px 26px rgba(20, 20, 20, 0.12);
+        transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+      }
+
+      .about-pill-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 32px rgba(20, 20, 20, 0.16);
+      }
+
+      .about-pill-button.secondary {
+        background: #fff;
+        color: #151515;
+      }
+
+      .about-pill-button svg {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        fill: currentColor;
+      }
+
       .confirm-card {
         width: min(360px, calc(100vw - 48px));
         padding: 18px;
@@ -4107,11 +4238,13 @@
       <input id="singleFilePicker" type="file" accept=".md,.markdown,.html,.htm,text/markdown,text/html" style="display: none;" />
       <aside class="sidebar" data-tauri-drag-region>
         <div class="brand">
-          <div class="brand-copy" data-tauri-drag-region>
-            <img class="brand-logo" src="./nutbook-logo.png" alt="Nutbook" />
-            <img class="brand-logo-compact" src="./nb-logo.png" alt="NB" />
-            <div class="brand-mark" style="display:none;">NUTBOOK</div>
-            <div class="brand-short" style="display:none;">NB</div>
+          <div class="brand-copy">
+            <button id="brandAboutButton" class="brand-logo-button" type="button" aria-label="关于 NUTBOOK">
+              <img class="brand-logo" src="./nutbook-logo.png" alt="Nutbook" />
+              <img class="brand-logo-compact" src="./nb-logo.png" alt="NB" />
+              <div class="brand-mark" style="display:none;">NUTBOOK</div>
+              <div class="brand-short" style="display:none;">NB</div>
+            </button>
             <button id="updateBadge" class="update-badge" type="button" aria-label="打开新版本 Release" hidden>
               <span class="update-badge-expanded">New beta</span>
               <span class="update-badge-compact">NB</span>
@@ -4390,7 +4523,7 @@
             <div class="settings-header">
               <div>
                 <h3 class="settings-section-title">偏好设定</h3>
-                <div class="settings-row-meta" data-i18n-key="settings.preferencesDescription">管理 Markdown 阅读与编辑相关偏好，后续的大纲导航、代码块主题和表格工具都会从这里控制。</div>
+                <div class="settings-row-meta" data-i18n-key="settings.preferencesDescription">调整阅读、编辑和展示体验，例如代码块主题、文档大纲、表格工具与自动更新提醒。</div>
               </div>
             </div>
             <div id="settingsPreferenceList" class="preference-list"></div>
@@ -4406,6 +4539,37 @@
               </div>
             <div id="settingsThumbnailStatus" class="settings-kv scrollable"></div>
           </section>
+      </div>
+    </div>
+    <div id="aboutScrim" class="modal-scrim" aria-hidden="true">
+      <div class="about-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+        <button id="closeAboutButton" class="icon-button about-close" type="button" aria-label="关闭关于 NUTBOOK">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+        <img class="about-logo" src="./nutbook-logo.png" alt="NUTBOOK" />
+        <h2 id="aboutTitle" class="about-title">关于 NUTBOOK</h2>
+        <div class="about-copy">
+          <p id="aboutIntroText"></p>
+          <p id="aboutMessageText" class="about-message"></p>
+        </div>
+        <div class="about-author">
+          <img class="about-author-avatar" src="https://github.com/Ericonquer.png" alt="Ericonquer" />
+          <span id="aboutAuthorText">by Ericonquer</span>
+        </div>
+        <div class="about-actions">
+          <button id="aboutGithubProfileButton" class="about-pill-button secondary" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.65 7.65 0 0 1 8 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path>
+            </svg>
+            <span id="aboutGithubProfileLabel">作者主页</span>
+          </button>
+          <button id="aboutGithubStarButton" class="about-pill-button" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 .25a.75.75 0 0 1 .67.42l1.88 3.82 4.22.61a.75.75 0 0 1 .42 1.28l-3.05 2.98.72 4.2a.75.75 0 0 1-1.09.79L8 12.37l-3.77 1.98a.75.75 0 0 1-1.09-.79l.72-4.2L.81 6.38a.75.75 0 0 1 .42-1.28l4.22-.61L7.33.67A.75.75 0 0 1 8 .25Z"></path>
+            </svg>
+            <span id="aboutGithubStarLabel">给 NUTBOOK 加星</span>
+          </button>
+        </div>
       </div>
     </div>
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
@@ -4515,6 +4679,7 @@
         documentTagDraft: "",
         localServerOrigin: null,
         isSettingsOpen: false,
+        isAboutOpen: false,
         isSortMenuOpen: false,
         isSettingsMenuOpen: false,
         isSettingsSourceSortMenuOpen: false,
@@ -4559,6 +4724,7 @@
       const els = {
         appShell: document.getElementById("appShell"),
         mainShell: document.getElementById("mainShell"),
+        brandAboutButton: document.getElementById("brandAboutButton"),
         toggleSidebarButton: document.getElementById("toggleSidebarButton"),
         toggleSidebarIcon: document.getElementById("toggleSidebarIcon"),
         updateBadge: document.getElementById("updateBadge"),
@@ -4613,6 +4779,16 @@
         settingsButton: document.getElementById("settingsButton"),
         settingsScrim: document.getElementById("settingsScrim"),
         closeSettingsButton: document.getElementById("closeSettingsButton"),
+        aboutScrim: document.getElementById("aboutScrim"),
+        closeAboutButton: document.getElementById("closeAboutButton"),
+        aboutTitle: document.getElementById("aboutTitle"),
+        aboutIntroText: document.getElementById("aboutIntroText"),
+        aboutMessageText: document.getElementById("aboutMessageText"),
+        aboutAuthorText: document.getElementById("aboutAuthorText"),
+        aboutGithubProfileButton: document.getElementById("aboutGithubProfileButton"),
+        aboutGithubProfileLabel: document.getElementById("aboutGithubProfileLabel"),
+        aboutGithubStarButton: document.getElementById("aboutGithubStarButton"),
+        aboutGithubStarLabel: document.getElementById("aboutGithubStarLabel"),
         settingsSourceSearchInput: document.getElementById("settingsSourceSearchInput"),
         settingsSourceSortButton: document.getElementById("settingsSourceSortButton"),
         settingsSourceSortMenu: document.getElementById("settingsSourceSortMenu"),
@@ -4972,6 +5148,10 @@
 
       function captureActiveMarkdownScroll() {
         const tab = getActiveTab();
+        captureMarkdownScrollForTab(tab);
+      }
+
+      function captureMarkdownScrollForTab(tab) {
         if (tab?.preview?.fileType !== "markdown") return;
         const scrollTop = Math.max(0, els.viewerBody.scrollTop || 0);
         appState.markdownScrollByTab.set(tab.id, scrollTop);
@@ -6430,6 +6610,7 @@
         if (els.settingsScrim?.classList.contains("open")) {
           renderSettingsPanel();
         }
+        renderAboutPanel();
         renderSettingsMenu();
         renderSortMenu();
         renderDocumentMoreMenu();
@@ -6496,6 +6677,79 @@
         }, delay);
       }
 
+      const ABOUT_GITHUB_PROFILE_URL = "https://github.com/Ericonquer";
+      const ABOUT_GITHUB_STAR_URL = "https://github.com/Ericonquer/NUTBOOK";
+      const ABOUT_CONTENT = {
+        "zh-CN": {
+          title: "关于 NUTBOOK",
+          closeLabel: "关闭关于 NUTBOOK",
+          intro: "NUTBOOK 是一个面向 AI 生成内容的本地阅读、管理与展示工具。它帮助你把分散在电脑里的 Markdown 报告、HTML 演示文档、AI 分析结果和各类 skill 产物统一收纳起来，用更好的阅读体验、更清晰的分类方式和更适合展示的界面，把一次次 AI 输出沉淀成可以反复使用的内容资产。",
+          message: "NUTBOOK 是我第一个真正的 vibe coding 作品，希望对你有用，如果喜欢 NUTBOOK，请帮我点亮一下 GitHub 的星星，谢谢～",
+          profileButton: "作者主页",
+          starButton: "给 NUTBOOK 加星"
+        },
+        "en-US": {
+          title: "About NUTBOOK",
+          closeLabel: "Close About NUTBOOK",
+          intro: "NUTBOOK is a local reading, management, and presentation tool for AI-generated content. It helps you bring scattered Markdown reports, HTML presentation documents, AI analysis results, and skill-generated artifacts into one local library. With a better reading experience, clearer organization, and presentation-friendly viewing, NUTBOOK turns one-off AI outputs into reusable content assets.",
+          message: "NUTBOOK is my first true vibe coding work. I hope it is useful to you. If you like NUTBOOK, please light up a GitHub star for it. Thank you.",
+          profileButton: "GitHub Profile",
+          starButton: "Star NUTBOOK"
+        }
+      };
+
+      function currentAboutContent() {
+        return ABOUT_CONTENT[appState.language] || ABOUT_CONTENT["zh-CN"];
+      }
+
+      function renderAboutPanel() {
+        const content = currentAboutContent();
+        if (els.aboutTitle) els.aboutTitle.textContent = content.title;
+        if (els.closeAboutButton) els.closeAboutButton.setAttribute("aria-label", content.closeLabel);
+        if (els.aboutIntroText) els.aboutIntroText.textContent = content.intro;
+        if (els.aboutMessageText) els.aboutMessageText.textContent = content.message;
+        if (els.aboutAuthorText) els.aboutAuthorText.textContent = "by Ericonquer";
+        if (els.aboutGithubProfileLabel) els.aboutGithubProfileLabel.textContent = content.profileButton;
+        if (els.aboutGithubStarLabel) els.aboutGithubStarLabel.textContent = content.starButton;
+        els.aboutScrim?.classList.toggle("open", appState.isAboutOpen);
+        els.aboutScrim?.setAttribute("aria-hidden", appState.isAboutOpen ? "false" : "true");
+      }
+
+      async function openAboutDialog() {
+        if (getActiveTab()?.preview?.fileType === "html-runtime") {
+          await openAboutOverlay();
+          return;
+        }
+        appState.isAboutOpen = true;
+        renderAboutPanel();
+      }
+
+      async function openAboutOverlay() {
+        if (!appState.isTauri) {
+          appState.isAboutOpen = true;
+          renderAboutPanel();
+          return;
+        }
+        await invoke("attach_settings_overlay_command", {
+          bounds: {
+            x: 0,
+            y: 0,
+            width: Math.max(1, window.innerWidth),
+            height: Math.max(1, window.innerHeight)
+          },
+          tab: "about",
+          mode: "about"
+        });
+      }
+
+      function closeAboutDialog() {
+        appState.isAboutOpen = false;
+        renderAboutPanel();
+        if (appState.isSettingsOverlay && appState.settingsOverlayMode === "about") {
+          closeSettingsOverlay();
+        }
+      }
+
       async function openSettingsOverlay(tab = "skills", mode = "menu") {
         if (!appState.isTauri) {
           openSettingsTab(tab);
@@ -6560,10 +6814,14 @@
       window.__NUTBOOK_OPEN_SETTINGS_OVERLAY__ = (tab = "skills", mode = "menu") => {
         appState.isSettingsOverlay = true;
         appState.settingsOverlayMode = mode;
+        document.documentElement.classList.add("settings-overlay-mode");
+        document.body.classList.add("settings-overlay-mode");
         document.body.classList.toggle("settings-overlay-menu", mode === "menu");
         appState.settingsTab = tab;
-        appState.isSettingsOpen = mode !== "menu";
+        appState.isAboutOpen = mode === "about";
+        appState.isSettingsOpen = mode !== "menu" && mode !== "about";
         renderSettingsPanel();
+        renderAboutPanel();
       };
 
       window.__NUTBOOK_REFRESH_AFTER_SETTINGS__ = async () => {
@@ -8315,7 +8573,7 @@
         hideMarkdownLinkTooltip();
         const tab = getActiveTab();
         if (appState.activeMarkdownEditor) {
-          captureActiveMarkdownScroll();
+          captureMarkdownScrollForTab(getOpenTab(appState.activeMarkdownEditorTabId));
           captureActiveMarkdownDraft();
           cleanupMarkdownEditor();
         }
@@ -10418,6 +10676,29 @@
         els.newTagName.addEventListener("keydown", (event) => {
           if (event.key === "Enter") createTag();
         });
+        els.brandAboutButton?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openAboutDialog().catch((error) => {
+            setStatus(`打开关于窗口失败：${normalizeError(error)}`, "error");
+          });
+        });
+        els.brandAboutButton?.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openAboutDialog().catch((error) => {
+            setStatus(`打开关于窗口失败：${normalizeError(error)}`, "error");
+          });
+        });
+        els.closeAboutButton?.addEventListener("click", closeAboutDialog);
+        els.aboutScrim?.addEventListener("click", (event) => {
+          if (event.target === els.aboutScrim) closeAboutDialog();
+        });
+        els.aboutGithubProfileButton?.addEventListener("click", async () => {
+          await openExternalMarkdownLink(ABOUT_GITHUB_PROFILE_URL);
+        });
+        els.aboutGithubStarButton?.addEventListener("click", async () => {
+          await openExternalMarkdownLink(ABOUT_GITHUB_STAR_URL);
+        });
         els.settingsButton.addEventListener("click", (event) => {
           event.stopPropagation();
           if (getActiveTab()?.preview?.fileType === "html-runtime") {
@@ -10529,10 +10810,12 @@
           appState.settingsTab = window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ || "skills";
           appState.settingsOverlayMode = window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "menu";
           document.body.classList.toggle("settings-overlay-menu", appState.settingsOverlayMode === "menu");
-          appState.isSettingsOpen = appState.settingsOverlayMode !== "menu";
+          appState.isAboutOpen = appState.settingsOverlayMode === "about";
+          appState.isSettingsOpen = appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about";
           wireEvents();
           renderSettingsMenu();
           renderSettingsPanel();
+          renderAboutPanel();
           i18n?.observe?.();
           if (appState.settingsOverlayMode === "menu") {
             els.hostSettingsMenu?.addEventListener("mouseenter", cancelHostSettingsOverlayClose);
@@ -10543,7 +10826,7 @@
             });
             scheduleHostSettingsOverlayClose(2400);
           }
-          if (appState.settingsOverlayMode !== "menu") {
+          if (appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about") {
             await loadLibraries();
             await loadTags();
             await loadIgnoredItems();

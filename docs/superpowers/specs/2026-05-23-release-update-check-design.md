@@ -34,7 +34,7 @@ Nutbook 只检查 GitHub Releases。
 默认仓库：
 
 ```text
-https://github.com/leeeric202666-prog/NUTBOOK
+https://github.com/Ericonquer/NUTBOOK
 ```
 
 后端查询 GitHub latest release endpoint。后续如果需要排除 prerelease，可以改为查询 Releases API 列表并筛选；当前版本先以 GitHub 最新 Release 为准。
@@ -77,7 +77,7 @@ update-settings.json
   "autoCheckEnabled": true,
   "lastCheckedAt": "2026-05-23T00:00:00Z",
   "lastKnownLatestVersion": "0.3.1",
-  "lastKnownReleaseUrl": "https://github.com/leeeric202666-prog/NUTBOOK/releases/tag/v0.3.1"
+  "lastKnownReleaseUrl": "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.3.1"
 }
 ```
 
@@ -118,7 +118,7 @@ open_external_url_command
 {
   "currentVersion": "0.3.0",
   "latestVersion": "0.3.1",
-  "releaseUrl": "https://github.com/leeeric202666-prog/NUTBOOK/releases/tag/v0.3.1",
+  "releaseUrl": "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.3.1",
   "hasUpdate": true,
   "checkedAt": "2026-05-23T00:00:00Z",
   "status": "available"
