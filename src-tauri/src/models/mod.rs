@@ -5,7 +5,8 @@ pub mod tag;
 pub mod update;
 
 pub use item::{
-    AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest, DeleteLibraryRequest,
+    AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+    CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteLibraryRequest, DeleteMarkdownImageAssetRequest,
     DispatchHtmlRuntimeShortcutRequest,
     FocusHtmlRuntimeHostRequest,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,

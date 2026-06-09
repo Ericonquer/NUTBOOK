@@ -1,3 +1,5 @@
+use std::path::Component;
+
 use crate::{
     core::{
         document::{content_hash, load_document_payload, markdown_summary, render_markdown_as_html},
@@ -13,7 +15,7 @@ use crate::{
     models::{
         AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest, GetItemPreviewRequest,
         DispatchHtmlRuntimeShortcutRequest,
-        FocusHtmlRuntimeHostRequest,
+        CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteMarkdownImageAssetRequest, FocusHtmlRuntimeHostRequest,
         HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload, ExportMarkdownRequest,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlRuntimeControlsOverlayVisibilityRequest, SetHtmlRuntimeHostVisibilityRequest,
@@ -44,6 +46,15 @@ pub fn get_local_server_origin(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, AppError> {
     Ok(state.local_server_origin())
+}
+
+#[tauri::command]
+pub fn open_image_file_dialog() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("选择图片")
+        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -303,6 +314,173 @@ pub fn export_markdown_file(
     Ok(true)
 }
 
+const MARKDOWN_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
+
+fn is_supported_markdown_image(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            let normalized = extension.to_ascii_lowercase();
+            MARKDOWN_IMAGE_EXTENSIONS.contains(&normalized.as_str())
+        })
+        .unwrap_or(false)
+}
+
+fn markdown_relative_asset_path(file_name: &str) -> String {
+    format!("./assets/{}", file_name.replace('\\', "/"))
+}
+
+fn markdown_asset_path_from_src(markdown_path: &std::path::Path, image_src: &str) -> Result<std::path::PathBuf, AppError> {
+    let src = image_src
+        .split(['#', '?'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .replace('\\', "/");
+    if src.is_empty()
+        || src.starts_with('/')
+        || src.starts_with("data:")
+        || src.starts_with("blob:")
+        || src.contains("://")
+    {
+        return Err(AppError::InvalidParams);
+    }
+
+    let relative = std::path::Path::new(&src);
+    let mut components = relative.components();
+    match components.next() {
+        Some(Component::CurDir) => match components.next() {
+            Some(Component::Normal(segment)) if segment == "assets" => {}
+            _ => return Err(AppError::InvalidParams),
+        },
+        Some(Component::Normal(segment)) if segment == "assets" => {}
+        _ => return Err(AppError::InvalidParams),
+    }
+
+    let mut asset_relative = std::path::PathBuf::new();
+    for component in components {
+        match component {
+            Component::Normal(segment) => asset_relative.push(segment),
+            _ => return Err(AppError::InvalidParams),
+        }
+    }
+    if asset_relative.as_os_str().is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+
+    let markdown_dir = markdown_path.parent().ok_or(AppError::InvalidParams)?;
+    let asset_path = markdown_dir.join("assets").join(asset_relative);
+    if !is_supported_markdown_image(&asset_path) {
+        return Err(AppError::UnsupportedFileType);
+    }
+    Ok(asset_path)
+}
+
+fn next_available_asset_path(assets_dir: &std::path::Path, source_path: &std::path::Path) -> Result<std::path::PathBuf, AppError> {
+    let file_name = source_path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .filter(|file_name| !file_name.trim().is_empty())
+        .ok_or(AppError::InvalidParams)?;
+    let first_candidate = assets_dir.join(file_name);
+    if !first_candidate.exists() {
+        return Ok(first_candidate);
+    }
+
+    if let (Ok(source), Ok(existing)) = (source_path.canonicalize(), first_candidate.canonicalize()) {
+        if source == existing {
+            return Ok(first_candidate);
+        }
+    }
+
+    let stem = source_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.trim().is_empty())
+        .unwrap_or("image");
+    let extension = source_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| format!(".{extension}"))
+        .unwrap_or_default();
+
+    for index in 2..10_000 {
+        let candidate = assets_dir.join(format!("{stem}-{index}{extension}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(AppError::IoError)
+}
+
+pub fn copy_markdown_image_asset_impl(
+    payload: CopyMarkdownImageAssetRequest,
+) -> Result<CopyMarkdownImageAssetResponse, AppError> {
+    let markdown_path = std::path::PathBuf::from(payload.markdown_file_path);
+    let source_path = std::path::PathBuf::from(payload.source_image_path);
+    if !source_path.is_file() {
+        return Err(AppError::InvalidParams);
+    }
+    if !is_supported_markdown_image(&source_path) {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    let markdown_dir = markdown_path.parent().ok_or(AppError::InvalidParams)?;
+    let assets_dir = markdown_dir.join("assets");
+    std::fs::create_dir_all(&assets_dir).map_err(|_| AppError::IoError)?;
+
+    let target_path = next_available_asset_path(&assets_dir, &source_path)?;
+    let same_file = match (source_path.canonicalize(), target_path.canonicalize()) {
+        (Ok(source), Ok(target)) => source == target,
+        _ => false,
+    };
+    if !same_file {
+        std::fs::copy(&source_path, &target_path).map_err(|_| AppError::IoError)?;
+    }
+
+    let file_name = target_path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .ok_or(AppError::InvalidParams)?
+        .to_string();
+
+    Ok(CopyMarkdownImageAssetResponse {
+        relative_path: markdown_relative_asset_path(&file_name),
+        asset_path: target_path.to_string_lossy().to_string(),
+        file_name,
+    })
+}
+
+#[tauri::command]
+pub fn copy_markdown_image_asset(
+    payload: CopyMarkdownImageAssetRequest,
+) -> Result<CopyMarkdownImageAssetResponse, AppError> {
+    copy_markdown_image_asset_impl(payload)
+}
+
+pub fn delete_markdown_image_asset_impl(
+    payload: DeleteMarkdownImageAssetRequest,
+) -> Result<bool, AppError> {
+    let markdown_path = std::path::PathBuf::from(payload.markdown_file_path);
+    let asset_path = markdown_asset_path_from_src(&markdown_path, &payload.image_src)?;
+    if !asset_path.exists() {
+        return Ok(false);
+    }
+    if !asset_path.is_file() {
+        return Err(AppError::InvalidParams);
+    }
+    std::fs::remove_file(&asset_path).map_err(|_| AppError::IoError)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn delete_markdown_image_asset(
+    payload: DeleteMarkdownImageAssetRequest,
+) -> Result<bool, AppError> {
+    delete_markdown_image_asset_impl(payload)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, time::{SystemTime, UNIX_EPOCH}};
@@ -310,11 +488,11 @@ mod tests {
     use crate::{
         core::document::{content_hash, load_document_payload},
         db::{repositories::{ItemRepository, LibraryRepository}, Database},
-        models::{IndexedItemRecord, Library, PreviewPayload, SaveMarkdownContentRequest},
+        models::{CopyMarkdownImageAssetRequest, DeleteMarkdownImageAssetRequest, IndexedItemRecord, Library, PreviewPayload, SaveMarkdownContentRequest},
         state::AppState,
     };
 
-    use super::save_markdown_content_impl;
+    use super::{copy_markdown_image_asset_impl, delete_markdown_image_asset_impl, save_markdown_content_impl};
 
     fn temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
@@ -528,6 +706,148 @@ mod tests {
         }
 
         let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn copy_markdown_image_asset_copies_to_sibling_assets() {
+        let root = temp_path("asset-copy-root");
+        let source_dir = temp_path("asset-copy-source");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        fs::create_dir_all(&source_dir).expect("source dir should be created");
+        let markdown_path = root.join("README.md");
+        let image_path = source_dir.join("Hero Image.PNG");
+        fs::write(&markdown_path, "# Readme").expect("markdown should be written");
+        fs::write(&image_path, b"png bytes").expect("image should be written");
+
+        let response = copy_markdown_image_asset_impl(CopyMarkdownImageAssetRequest {
+            markdown_file_path: markdown_path.to_string_lossy().to_string(),
+            source_image_path: image_path.to_string_lossy().to_string(),
+        })
+        .expect("copy should succeed");
+
+        assert_eq!(response.relative_path, "./assets/Hero Image.PNG");
+        assert_eq!(response.file_name, "Hero Image.PNG");
+        assert_eq!(
+            fs::read(root.join("assets").join("Hero Image.PNG")).expect("copied image should read"),
+            b"png bytes"
+        );
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(source_dir);
+    }
+
+    #[test]
+    fn copy_markdown_image_asset_adds_suffix_for_name_collision() {
+        let root = temp_path("asset-collision-root");
+        let source_dir = temp_path("asset-collision-source");
+        fs::create_dir_all(root.join("assets")).expect("assets dir should be created");
+        fs::create_dir_all(&source_dir).expect("source dir should be created");
+        let markdown_path = root.join("note.md");
+        let source_path = source_dir.join("photo.jpg");
+        fs::write(&markdown_path, "# Note").expect("markdown should be written");
+        fs::write(root.join("assets").join("photo.jpg"), b"old").expect("old image should be written");
+        fs::write(&source_path, b"new").expect("new image should be written");
+
+        let response = copy_markdown_image_asset_impl(CopyMarkdownImageAssetRequest {
+            markdown_file_path: markdown_path.to_string_lossy().to_string(),
+            source_image_path: source_path.to_string_lossy().to_string(),
+        })
+        .expect("copy should succeed");
+
+        assert_eq!(response.relative_path, "./assets/photo-2.jpg");
+        assert_eq!(
+            fs::read(root.join("assets").join("photo-2.jpg")).expect("copied image should read"),
+            b"new"
+        );
+        assert_eq!(
+            fs::read(root.join("assets").join("photo.jpg")).expect("existing image should remain"),
+            b"old"
+        );
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(source_dir);
+    }
+
+    #[test]
+    fn copy_markdown_image_asset_reuses_existing_asset_file() {
+        let root = temp_path("asset-reuse-root");
+        fs::create_dir_all(root.join("assets")).expect("assets dir should be created");
+        let markdown_path = root.join("note.md");
+        let image_path = root.join("assets").join("diagram.svg");
+        fs::write(&markdown_path, "# Note").expect("markdown should be written");
+        fs::write(&image_path, "<svg></svg>").expect("svg should be written");
+
+        let response = copy_markdown_image_asset_impl(CopyMarkdownImageAssetRequest {
+            markdown_file_path: markdown_path.to_string_lossy().to_string(),
+            source_image_path: image_path.to_string_lossy().to_string(),
+        })
+        .expect("reuse should succeed");
+
+        assert_eq!(response.relative_path, "./assets/diagram.svg");
+        assert_eq!(response.asset_path, image_path.to_string_lossy());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn copy_markdown_image_asset_rejects_non_image_file() {
+        let root = temp_path("asset-reject-root");
+        let source_dir = temp_path("asset-reject-source");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        fs::create_dir_all(&source_dir).expect("source dir should be created");
+        let markdown_path = root.join("note.md");
+        let source_path = source_dir.join("notes.txt");
+        fs::write(&markdown_path, "# Note").expect("markdown should be written");
+        fs::write(&source_path, "text").expect("source should be written");
+
+        let error = copy_markdown_image_asset_impl(CopyMarkdownImageAssetRequest {
+            markdown_file_path: markdown_path.to_string_lossy().to_string(),
+            source_image_path: source_path.to_string_lossy().to_string(),
+        })
+        .expect_err("non-image should be rejected");
+
+        assert_eq!(error.code(), "UNSUPPORTED_FILE_TYPE");
+        assert!(!root.join("assets").exists());
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(source_dir);
+    }
+
+    #[test]
+    fn delete_markdown_image_asset_removes_sibling_asset_file() {
+        let root = temp_path("asset-delete-root");
+        fs::create_dir_all(root.join("assets")).expect("assets dir should be created");
+        let markdown_path = root.join("note.md");
+        let image_path = root.join("assets").join("photo.png");
+        fs::write(&markdown_path, "# Note").expect("markdown should be written");
+        fs::write(&image_path, b"image").expect("image should be written");
+
+        let deleted = delete_markdown_image_asset_impl(DeleteMarkdownImageAssetRequest {
+            markdown_file_path: markdown_path.to_string_lossy().to_string(),
+            image_src: "./assets/photo.png".to_string(),
+        })
+        .expect("delete should succeed");
+
+        assert!(deleted);
+        assert!(!image_path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn delete_markdown_image_asset_rejects_path_outside_assets() {
+        let root = temp_path("asset-delete-reject-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("note.md");
+        fs::write(&markdown_path, "# Note").expect("markdown should be written");
+
+        let error = delete_markdown_image_asset_impl(DeleteMarkdownImageAssetRequest {
+            markdown_file_path: markdown_path.to_string_lossy().to_string(),
+            image_src: "../photo.png".to_string(),
+        })
+        .expect_err("outside assets path should be rejected");
+
+        assert_eq!(error.code(), "INVALID_PARAMS");
         let _ = fs::remove_dir_all(root);
     }
 

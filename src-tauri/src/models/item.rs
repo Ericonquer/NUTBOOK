@@ -247,6 +247,28 @@ pub struct ExportMarkdownRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CopyMarkdownImageAssetRequest {
+    pub markdown_file_path: String,
+    pub source_image_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyMarkdownImageAssetResponse {
+    pub relative_path: String,
+    pub asset_path: String,
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteMarkdownImageAssetRequest {
+    pub markdown_file_path: String,
+    pub image_src: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetItemPreviewRequest {
     pub item_id: i64,
 }

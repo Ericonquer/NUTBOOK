@@ -2298,6 +2298,42 @@
         border-radius: 10px;
       }
 
+      .markdown-preview img.nutbook-image-align-left,
+      .milkdown-editor-root img.nutbook-image-align-left {
+        display: block;
+        margin-left: 0;
+        margin-right: auto;
+      }
+
+      .markdown-preview img.nutbook-image-align-center,
+      .milkdown-editor-root img.nutbook-image-align-center {
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .markdown-preview img.nutbook-image-align-right,
+      .milkdown-editor-root img.nutbook-image-align-right {
+        display: block;
+        margin-left: auto;
+        margin-right: 0;
+      }
+
+      .markdown-preview img.nutbook-image-size-small,
+      .milkdown-editor-root img.nutbook-image-size-small {
+        width: 36%;
+      }
+
+      .markdown-preview img.nutbook-image-size-medium,
+      .milkdown-editor-root img.nutbook-image-size-medium {
+        width: 64%;
+      }
+
+      .markdown-preview img.nutbook-image-size-large,
+      .milkdown-editor-root img.nutbook-image-size-large {
+        width: 100%;
+      }
+
       .markdown-preview h1,
       .markdown-preview h2,
       .markdown-preview h3,
@@ -3610,6 +3646,10 @@
         display: block;
       }
 
+      .content-card.editing:not(.source-editing) {
+        overflow: visible;
+      }
+
       .milkdown-editor-root {
         position: relative;
       }
@@ -3847,6 +3887,191 @@
       }
 
       .markdown-table-toolbar button:hover .markdown-table-tooltip {
+        opacity: 1;
+      }
+
+      .markdown-insert-menu {
+        position: absolute;
+        z-index: 26;
+        display: block;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-1px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .markdown-insert-menu.visible {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+      }
+
+      .markdown-insert-trigger {
+        width: 26px;
+        height: 26px;
+        min-width: 26px;
+        min-height: 26px;
+        padding: 0;
+        border: 1px solid rgba(218, 218, 222, 0.94);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.96);
+        color: #57585d;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+        font-size: 18px;
+        font-weight: 500;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .markdown-insert-trigger:hover,
+      .markdown-insert-menu.open .markdown-insert-trigger {
+        background: #1f1f22;
+        color: #fff;
+        border-color: #1f1f22;
+      }
+
+      .markdown-insert-popover {
+        position: absolute;
+        left: 32px;
+        top: 0;
+        display: none;
+        align-items: center;
+        gap: 4px;
+        width: auto;
+        padding: 5px;
+        border: 1px solid rgba(224, 224, 228, 0.94);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.08);
+      }
+
+      .markdown-insert-menu.open .markdown-insert-popover {
+        display: inline-flex;
+      }
+
+      .markdown-insert-popover button {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #696a70;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .markdown-insert-popover button:hover {
+        background: #1f1f22;
+        color: #fff;
+      }
+
+      .markdown-insert-trigger svg,
+      .markdown-insert-popover button svg {
+        width: 17px;
+        height: 17px;
+        display: block;
+      }
+
+      .markdown-insert-tooltip {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+      }
+
+      .markdown-insert-popover button:hover .markdown-insert-tooltip {
+        opacity: 1;
+      }
+
+      .markdown-image-align-toolbar {
+        position: absolute;
+        z-index: 27;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px;
+        border: 1px solid rgba(224, 224, 228, 0.94);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .markdown-image-align-toolbar.visible {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+      }
+
+      .markdown-image-align-toolbar button {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #696a70;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .markdown-image-align-toolbar button:hover,
+      .markdown-image-align-toolbar button.active {
+        background: #1f1f22;
+        color: #fff;
+      }
+
+      .markdown-image-align-toolbar svg {
+        width: 17px;
+        height: 17px;
+        display: block;
+      }
+
+      .markdown-image-align-tooltip {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+      }
+
+      .markdown-image-align-toolbar button:hover .markdown-image-align-tooltip {
         opacity: 1;
       }
 
@@ -4691,7 +4916,7 @@
         activeMarkdownEditor: null,
         activeMarkdownEditorTabId: null,
         markdownEditorMountToken: 0,
-        markdownOutlineRefreshFrame: null,
+        markdownOutlineRefreshTimer: null,
         markdownEditScrollTop: 0,
         markdownScrollByTab: new Map(),
         markdownOutlineCollapsedByTab: new Map(),
@@ -5065,7 +5290,7 @@
       }
 
       function refreshMarkdownOutline(tab) {
-        appState.markdownOutlineRefreshFrame = null;
+        appState.markdownOutlineRefreshTimer = null;
         if (!tab || tab.id !== appState.activeTabId || tab.preview?.fileType !== "markdown") return;
         const shell = els.viewerBody.querySelector(".markdown-document-shell");
         const card = els.viewerBody.querySelector(".content-card");
@@ -5100,10 +5325,10 @@
       }
 
       function scheduleMarkdownOutlineRefresh(tab) {
-        if (appState.markdownOutlineRefreshFrame) {
-          cancelAnimationFrame(appState.markdownOutlineRefreshFrame);
+        if (appState.markdownOutlineRefreshTimer) {
+          clearTimeout(appState.markdownOutlineRefreshTimer);
         }
-        appState.markdownOutlineRefreshFrame = requestAnimationFrame(() => refreshMarkdownOutline(tab));
+        appState.markdownOutlineRefreshTimer = window.setTimeout(() => refreshMarkdownOutline(tab), 180);
       }
 
       function setupMarkdownOutline(card) {
@@ -5393,6 +5618,28 @@
         return targetPath ? toLocalServerUrl(targetPath) : "";
       }
 
+      function markdownImageAlignmentFromTitle(title) {
+        const match = String(title || "").match(/(?:^|\s)nutbook-align=(left|center|right)(?=\s|$)/i);
+        return match?.[1]?.toLowerCase() || "";
+      }
+
+      function markdownImageSizeFromTitle(title) {
+        const match = String(title || "").match(/(?:^|\s)nutbook-size=(small|medium|large)(?=\s|$)/i);
+        return match?.[1]?.toLowerCase() || "large";
+      }
+
+      function applyMarkdownImageAlignment(image) {
+        const title = image?.getAttribute("title") || "";
+        const alignment = markdownImageAlignmentFromTitle(title);
+        const size = markdownImageSizeFromTitle(title);
+        ["left", "center", "right"].forEach((value) => {
+          image?.classList.toggle(`nutbook-image-align-${value}`, alignment === value);
+        });
+        ["small", "medium", "large"].forEach((value) => {
+          image?.classList.toggle(`nutbook-image-size-${value}`, size === value);
+        });
+      }
+
       function setupMarkdownImageResources(card, tab) {
         if (!card || tab?.preview?.fileType !== "markdown") return;
         card.querySelectorAll(".markdown-preview img[src]").forEach((image) => {
@@ -5401,6 +5648,7 @@
           if (resolvedSrc && resolvedSrc !== originalSrc) {
             image.setAttribute("src", resolvedSrc);
           }
+          applyMarkdownImageAlignment(image);
         });
       }
 
@@ -5758,6 +6006,44 @@
         }, { timeout: 900 });
       }
 
+      async function insertMarkdownImageAssetForTab(tab) {
+        if (!tab?.item?.filePath) {
+          setStatus(t("markdown.imageInsertMissingPath"), "warn");
+          return null;
+        }
+        const sourceImagePath = await invoke("open_image_file_dialog");
+        if (!sourceImagePath) return null;
+        try {
+          const result = await invoke("copy_markdown_image_asset", {
+            markdownFilePath: tab.item.filePath,
+            sourceImagePath
+          });
+          const relativePath = result?.relativePath ?? result?.relative_path ?? "";
+          if (!relativePath) return null;
+          setStatus(t("markdown.imageInserted"), "ok");
+          return {
+            relativePath,
+            fileName: result?.fileName ?? result?.file_name ?? ""
+          };
+        } catch (error) {
+          setStatus(statusError("markdown.imageInsertFailedPrefix", error), "error");
+          return null;
+        }
+      }
+
+      async function deleteMarkdownImageAssetForTab(tab, imageSrc) {
+        if (!tab?.item?.filePath || !imageSrc || !appState.isTauri) return false;
+        try {
+          return await invoke("delete_markdown_image_asset", {
+            markdownFilePath: tab.item.filePath,
+            imageSrc
+          });
+        } catch (error) {
+          console.warn("Markdown image asset delete failed", error);
+          return false;
+        }
+      }
+
       async function mountMarkdownEditor(tab) {
         const root = document.getElementById("milkdownEditorRoot");
         if (!root || !tab) return;
@@ -5783,6 +6069,12 @@
             tableToolsEnabled: appState.markdownPreferences.tableToolsEnabled,
             resolveImageSrc(src) {
               return resolveMarkdownImageUrl(src, tab) || src;
+            },
+            onInsertImageAsset() {
+              return insertMarkdownImageAssetForTab(tab);
+            },
+            onRemoveImageAsset(src) {
+              return deleteMarkdownImageAssetForTab(tab, src);
             },
             onEdit() {
               tab.isDirty = true;
@@ -6293,12 +6585,12 @@
       }
 
       function commandVariants(command, args = {}) {
-        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
+        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -7518,7 +7810,17 @@
           };
         }
         if (command === "open_folder_dialog" || command === "open_folder_dialog_at") return null;
-        if (command === "open_file_dialog") return null;
+        if (command === "open_file_dialog" || command === "open_image_file_dialog") return null;
+        if (command === "copy_markdown_image_asset") {
+          const source = args.sourceImagePath || args.source_image_path || "";
+          const fileName = source.split(/[\\/]/).filter(Boolean).pop() || "image.png";
+          return {
+            relativePath: `./assets/${fileName}`,
+            assetPath: `${args.markdownFilePath || args.markdown_file_path || ""}/../assets/${fileName}`,
+            fileName
+          };
+        }
+        if (command === "delete_markdown_image_asset") return true;
         if (command === "open_library_location") return true;
         if (command === "start_window_drag_command") return true;
         if (command === "attach_settings_overlay_command") return true;

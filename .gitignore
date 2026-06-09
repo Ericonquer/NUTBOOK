@@ -8,6 +8,8 @@
 AGENTS.md
 MEMORY.md
 DESIGN.md
+docs/videos/
+docs/superpowers/
 
 # Build outputs
 src-tauri/target/

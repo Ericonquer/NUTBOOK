@@ -6,7 +6,7 @@ import { redo, undo } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { liftListItem } from "@milkdown/kit/prose/schema-list";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
+import { Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
 import { setBlockType, toggleMark } from "prosemirror-commands";
 import {
   addColumnAfter,
@@ -57,6 +57,81 @@ function codeLanguageOptions(currentValue = "") {
     ...CODE_BLOCK_LANGUAGES,
     { value: current, label: current }
   ];
+}
+
+const INSERT_ICON_SVG = {
+  image: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="m4 13.8 3.2-3.2 2.4 2.2 2.7-3.1 3.7 4.1" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/><circle cx="13.4" cy="7.8" r="1.1" fill="currentColor"/></svg>`,
+  h1: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5v10M10 5v10M4 10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M14.7 15V8.2l-1.7.9" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  h2: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5v10M10 5v10M4 10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13.1 9.1c.4-.7 1-1 1.9-1 1.1 0 1.9.7 1.9 1.7 0 .8-.5 1.4-1.4 2.1l-2.3 2.1h3.8" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  h3: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5v10M10 5v10M4 10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13.2 8.7c.4-.4 1-.6 1.7-.6 1.1 0 1.9.6 1.9 1.5 0 .8-.6 1.3-1.4 1.4.9.1 1.6.7 1.6 1.6 0 1-.9 1.8-2.1 1.8-.8 0-1.5-.2-2-.7" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  h4: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5v10M10 5v10M4 10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.2 14.5V8.2l-3.5 4.3h4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  list: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 6h8M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="4.8" cy="6" r="1" fill="currentColor"/><circle cx="4.8" cy="10" r="1" fill="currentColor"/><circle cx="4.8" cy="14" r="1" fill="currentColor"/></svg>`,
+  orderedList: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 6h8M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.3 7V4.5l-.8.4M3.5 9.2c.2-.3.6-.5 1-.5.7 0 1.1.4 1.1 1 0 .4-.3.8-.8 1.2l-1.2.9h2M3.6 13.2c.2-.2.5-.3.9-.3.7 0 1.1.3 1.1.8 0 .4-.3.7-.8.8.6.1 1 .4 1 .9 0 .6-.5 1-1.3 1-.4 0-.8-.1-1.1-.3" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  table: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM3.5 8.5h13M8 5v10M12.5 5v10" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/></svg>`,
+  code: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.4 6.6-3.2 3.4 3.2 3.4M12.6 6.6l3.2 3.4-3.2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+};
+
+const IMAGE_ALIGN_ICON_SVG = {
+  left: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M4 8h8.5M4 11.5h12M4 15h8.5" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
+  center: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M6.2 8h7.6M4 11.5h12M6.2 15h7.6" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
+  right: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M7.5 8H16M4 11.5h12M7.5 15H16" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`
+};
+
+const IMAGE_SIZE_ICON_SVG = {
+  small: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.2" y="6.2" width="7.6" height="7.6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.55"/><path d="M8 11.8 9.5 10l1.1 1.2 1.2-1.5 1.5 2.1" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  medium: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.8" y="4.8" width="10.4" height="10.4" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.55"/><path d="M6.8 12.8 9 10.5l1.4 1.5 1.7-2 2 2.8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  large: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="1.7" fill="none" stroke="currentColor" stroke-width="1.55"/><path d="M5.8 13.7 8.7 11l1.8 1.8 2.2-2.6 2.5 3.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+};
+
+const IMAGE_ALIGNMENT_TOKEN = /(?:^|\s)nutbook-align=(left|center|right)(?=\s|$)/i;
+const IMAGE_SIZE_TOKEN = /(?:^|\s)nutbook-size=(small|medium|large)(?=\s|$)/i;
+
+function imageAlignmentFromTitle(title = "") {
+  const match = String(title || "").match(IMAGE_ALIGNMENT_TOKEN);
+  return match?.[1]?.toLowerCase() || "";
+}
+
+function imageSizeFromTitle(title = "") {
+  const match = String(title || "").match(IMAGE_SIZE_TOKEN);
+  return match?.[1]?.toLowerCase() || "large";
+}
+
+function cleanImageTitleTokens(title = "") {
+  return String(title || "")
+    .replace(IMAGE_ALIGNMENT_TOKEN, " ")
+    .replace(IMAGE_SIZE_TOKEN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleWithImageAlignment(title = "", alignment = "") {
+  const cleanTitle = cleanImageTitleTokens(title);
+  const size = imageSizeFromTitle(title);
+  const sizeToken = size && size !== "large" ? `nutbook-size=${size}` : "";
+  if (!alignment) return cleanTitle;
+  return [cleanTitle, `nutbook-align=${alignment}`, sizeToken].filter(Boolean).join(" ");
+}
+
+function titleWithImageSize(title = "", size = "large") {
+  const cleanTitle = cleanImageTitleTokens(title);
+  const alignment = imageAlignmentFromTitle(title);
+  const sizeToken = size && size !== "large" ? `nutbook-size=${size}` : "";
+  return [cleanTitle, alignment ? `nutbook-align=${alignment}` : "", sizeToken].filter(Boolean).join(" ");
+}
+
+function applyMarkdownImageAlignment(image) {
+  if (!image) return "";
+  const alignment = imageAlignmentFromTitle(image.getAttribute("title") || "");
+  const size = imageSizeFromTitle(image.getAttribute("title") || "");
+  ["left", "center", "right"].forEach((value) => {
+    image.classList.toggle(`nutbook-image-align-${value}`, alignment === value);
+  });
+  ["small", "medium", "large"].forEach((value) => {
+    image.classList.toggle(`nutbook-image-size-${value}`, size === value);
+  });
+  image.dataset.nutbookImageAlign = alignment;
+  image.dataset.nutbookImageSize = size;
+  return alignment;
 }
 
 function destroyExisting(root) {
@@ -112,15 +187,65 @@ function pastePlainTextWhenLeavingList() {
   });
 }
 
-function localImageSrcPlugin(resolveImageSrc) {
-  if (typeof resolveImageSrc !== "function") return null;
+function collectImageSources(doc) {
+  const sources = new Set();
+  doc?.descendants?.((node) => {
+    if (node.type?.name === "image" && node.attrs?.src) {
+      sources.add(String(node.attrs.src));
+    }
+    return true;
+  });
+  return sources;
+}
 
+function markdownImageAssetRemovalPlugin(onRemoveImageAsset) {
+  if (typeof onRemoveImageAsset !== "function") return null;
+  return new Plugin({
+    view(view) {
+      let knownSources = collectImageSources(view.state.doc);
+      let scanTimer = null;
+      const scanForRemovedAssets = () => {
+        scanTimer = null;
+        const nextSources = collectImageSources(view.state.doc);
+        knownSources.forEach((src) => {
+          if (!nextSources.has(src)) {
+            queueMicrotask(() => onRemoveImageAsset(src));
+          }
+        });
+        knownSources = nextSources;
+      };
+      const scheduleScan = () => {
+        if (scanTimer) clearTimeout(scanTimer);
+        scanTimer = window.setTimeout(scanForRemovedAssets, 360);
+      };
+      return {
+        update(nextView, oldState) {
+          if (oldState.doc.eq(nextView.state.doc)) return;
+          view = nextView;
+          scheduleScan();
+        },
+        destroy() {
+          if (scanTimer) {
+            clearTimeout(scanTimer);
+            scanTimer = null;
+          }
+        }
+      };
+    }
+  });
+}
+
+function localImageSrcPlugin(resolveImageSrc) {
   const normalizeImage = (image) => {
     const originalSrc = image.dataset.nutbookOriginalSrc || image.getAttribute("src") || "";
-    const resolvedSrc = resolveImageSrc(originalSrc);
-    if (!resolvedSrc || resolvedSrc === image.getAttribute("src")) return;
-    image.dataset.nutbookOriginalSrc = originalSrc;
-    image.setAttribute("src", resolvedSrc);
+    if (typeof resolveImageSrc === "function") {
+      const resolvedSrc = resolveImageSrc(originalSrc);
+      if (resolvedSrc && resolvedSrc !== image.getAttribute("src")) {
+        image.dataset.nutbookOriginalSrc = originalSrc;
+        image.setAttribute("src", resolvedSrc);
+      }
+    }
+    applyMarkdownImageAlignment(image);
   };
   const normalizeImages = (root) => {
     root.querySelectorAll("img[src]").forEach(normalizeImage);
@@ -151,7 +276,7 @@ function localImageSrcPlugin(resolveImageSrc) {
   });
 }
 
-async function createMilkdownEditor({ root, markdown = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null }) {
+async function createMilkdownEditor({ root, markdown = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onRemoveImageAsset = null }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -173,19 +298,29 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   let tableToolbar = null;
   let tableToolbarFrame = null;
   let tableToolbarVisible = false;
+  let insertMenu = null;
+  let insertMenuFrame = null;
+  let insertMenuVisible = false;
+  let insertMenuOpen = false;
+  let insertMenuSelection = null;
+  let imageAlignToolbar = null;
+  let imageAlignFrame = null;
+  let activeImageTarget = null;
   let codeLanguageLayer = null;
   let codeLanguageFrame = null;
+  let markdownChangeTimer = null;
+  let lastNotifiedMarkdown = markdown;
   const codeLanguageControls = new Map();
   const markUserInteracted = () => {
     if (!userInteracted) {
       onEdit?.();
     }
     userInteracted = true;
+    if (insertMenuVisible) {
+      hideInsertMenu();
+    }
   };
-  const interactionEvents = ["beforeinput", "input", "paste", "keydown", "compositionend"];
-  for (const eventName of interactionEvents) {
-    root.addEventListener(eventName, markUserInteracted, true);
-  }
+  const interactionEvents = [];
   const handleUndoRedoShortcut = (event) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
     const view = getEditorView();
@@ -198,6 +333,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     view.focus();
     scheduleFormatToolbarUpdate();
     scheduleTableToolbarUpdate();
+    scheduleInsertMenuUpdate();
     scheduleCodeLanguageControlsUpdate();
   };
   root.addEventListener("keydown", handleUndoRedoShortcut, true);
@@ -214,6 +350,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
           "Backspace": liftListItemAtParagraphStart
         }),
         pastePlainTextWhenLeavingList(),
+        markdownImageAssetRemovalPlugin(onRemoveImageAsset),
         localImageSrcPlugin(resolveImageSrc),
         ...plugins
       ].filter(Boolean));
@@ -221,27 +358,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
         .updated(() => {
           if (!editorReady) return;
           hasDocumentChanges = true;
-          scheduleFormatToolbarUpdate();
-          scheduleTableToolbarUpdate();
-          scheduleCodeLanguageControlsUpdate();
-          if (!userInteracted) {
-            onEdit?.();
-          }
-          userInteracted = true;
-        })
-        .markdownUpdated((_ctx, value) => {
-          currentMarkdown = value;
-          if (editorReady && value !== markdown) {
-            hasDocumentChanges = true;
-            scheduleFormatToolbarUpdate();
-            scheduleTableToolbarUpdate();
-            scheduleCodeLanguageControlsUpdate();
-            if (!userInteracted) {
-              onEdit?.();
-            }
-            userInteracted = true;
-            onChange?.(value);
-          }
+          scheduleMarkdownChangeSync();
         }));
     })
     .use(commonmark)
@@ -257,19 +374,48 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     return currentMarkdown;
   });
   const baselineMarkdown = serializeCurrentDocument();
+  lastNotifiedMarkdown = baselineMarkdown;
 
   queueMicrotask(() => {
     editorReady = true;
     setupFormatToolbar();
     setupTableToolbar();
+    setupInsertMenu();
+    setupImageAlignToolbar();
     setupCodeLanguageControls();
     scheduleFormatToolbarUpdate();
     scheduleTableToolbarUpdate();
+    scheduleInsertMenuUpdate();
     scheduleCodeLanguageControlsUpdate();
   });
 
   function getEditorView() {
     return editor.action((ctx) => ctx.get(editorViewCtx));
+  }
+
+  function flushMarkdownChangeSync() {
+    markdownChangeTimer = null;
+    if (!editorReady) return;
+    const view = getEditorView();
+    if (view?.composing) {
+      scheduleMarkdownChangeSync(180);
+      return;
+    }
+    const value = serializeCurrentDocument();
+    if (!userInteracted) {
+      onEdit?.();
+      userInteracted = true;
+    }
+    if (value !== lastNotifiedMarkdown) {
+      lastNotifiedMarkdown = value;
+      onChange?.(value);
+    }
+  }
+
+  function scheduleMarkdownChangeSync(delay = 260) {
+    if (!editorReady) return;
+    if (markdownChangeTimer) clearTimeout(markdownChangeTimer);
+    markdownChangeTimer = window.setTimeout(flushMarkdownChangeSync, delay);
   }
 
   function findActiveTableElement(view) {
@@ -291,8 +437,208 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
       view.focus();
       scheduleFormatToolbarUpdate();
       scheduleTableToolbarUpdate();
+      scheduleInsertMenuUpdate();
     }
     return handled;
+  }
+
+  function emptyParagraphSelection(view) {
+    const selection = view?.state.selection;
+    if (!view || !selection?.empty || isInTable(view.state) || selectionIsInList(selection)) return null;
+    const { $from } = selection;
+    if (!$from.parent?.isTextblock || $from.parent.type?.name !== "paragraph") return null;
+    if ($from.parent.content?.size > 0) return null;
+    if ($from.parent.textContent.trim()) return null;
+    return {
+      from: selection.from,
+      blockStart: $from.before($from.depth),
+      blockEnd: $from.after($from.depth)
+    };
+  }
+
+  function activeEmptyParagraphElement(view) {
+    const target = emptyParagraphSelection(view);
+    if (!view || !target) return null;
+    try {
+      const blockDom = view.nodeDOM(target.blockStart);
+      if (blockDom?.nodeType === Node.ELEMENT_NODE && blockDom.matches?.("p")) {
+        return blockDom;
+      }
+      const domAtPos = view.domAtPos(target.from);
+      const node = domAtPos.node?.nodeType === Node.ELEMENT_NODE
+        ? domAtPos.node
+        : domAtPos.node?.parentElement;
+      return node?.closest?.("p") || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function restoreInsertSelection(view) {
+    if (!view || !insertMenuSelection) return false;
+    const position = Math.max(1, Math.min(insertMenuSelection.from, view.state.doc.content.size));
+    try {
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function replaceEmptyParagraphWith(node, selectionOffset = null) {
+    const view = getEditorView();
+    if (!view) return false;
+    restoreInsertSelection(view);
+    const target = emptyParagraphSelection(view);
+    if (!target) return false;
+    const transaction = view.state.tr.replaceWith(target.blockStart, target.blockEnd, node);
+    const requestedSelection = Number.isFinite(selectionOffset)
+      ? target.blockStart + selectionOffset
+      : target.blockStart + node.nodeSize;
+    const selectionPos = Math.max(1, Math.min(requestedSelection, transaction.doc.content.size));
+    transaction.setSelection(TextSelection.near(transaction.doc.resolve(selectionPos), Number.isFinite(selectionOffset) ? 1 : -1));
+    view.dispatch(transaction.scrollIntoView());
+    markUserInteracted();
+    view.focus();
+    hideInsertMenu();
+    scheduleFormatToolbarUpdate();
+    scheduleTableToolbarUpdate();
+    scheduleCodeLanguageControlsUpdate();
+    return true;
+  }
+
+  function runInsertHeading(level) {
+    const view = getEditorView();
+    if (!view) return false;
+    restoreInsertSelection(view);
+    const heading = view.state.schema.nodes.heading;
+    if (!heading || !emptyParagraphSelection(view)) return false;
+    hideInsertMenu();
+    return runEditorCommand(setBlockType(heading, { level }));
+  }
+
+  function runInsertCodeBlock() {
+    const view = getEditorView();
+    if (!view) return false;
+    restoreInsertSelection(view);
+    const codeBlock = view.state.schema.nodes.code_block;
+    if (!codeBlock || !emptyParagraphSelection(view)) return false;
+    hideInsertMenu();
+    return runEditorCommand(setBlockType(codeBlock, { language: "" }));
+  }
+
+  function runInsertBulletList() {
+    const view = getEditorView();
+    const nodes = view?.state.schema.nodes;
+    const bulletList = nodes?.bullet_list || nodes?.bulletList;
+    const listItem = nodes?.list_item || nodes?.listItem;
+    const paragraph = nodes?.paragraph;
+    if (!view || !bulletList || !listItem || !paragraph) return false;
+    const listNode = bulletList.create(null, [
+      listItem.create(null, paragraph.create())
+    ]);
+    return replaceEmptyParagraphWith(listNode, 3);
+  }
+
+  function runInsertOrderedList() {
+    const view = getEditorView();
+    const nodes = view?.state.schema.nodes;
+    const orderedList = nodes?.ordered_list || nodes?.orderedList;
+    const listItem = nodes?.list_item || nodes?.listItem;
+    const paragraph = nodes?.paragraph;
+    if (!view || !orderedList || !listItem || !paragraph) return false;
+    const listNode = orderedList.create({ order: 1 }, [
+      listItem.create(null, paragraph.create())
+    ]);
+    return replaceEmptyParagraphWith(listNode, 3);
+  }
+
+  function runInsertTable() {
+    const view = getEditorView();
+    const nodes = view?.state.schema.nodes;
+    const table = nodes?.table;
+    const tableRow = nodes?.table_row || nodes?.tableRow;
+    const tableCell = nodes?.table_cell || nodes?.tableCell;
+    const tableHeaderRow = nodes?.table_header_row || nodes?.tableHeaderRow;
+    const tableHeader = nodes?.table_header || nodes?.tableHeader;
+    if (!view || !table || !tableRow || !tableCell || !tableHeaderRow || !tableHeader) return false;
+    restoreInsertSelection(view);
+    const target = emptyParagraphSelection(view);
+    if (!target) return false;
+    const createCell = (cellType) => cellType.createAndFill?.() || cellType.create();
+    const createCells = (cellType) => [0, 1, 2].map(() => createCell(cellType));
+    const tableNode = table.create(null, [
+      tableHeaderRow.create(null, createCells(tableHeader)),
+      tableRow.create(null, createCells(tableCell)),
+      tableRow.create(null, createCells(tableCell))
+    ]);
+    const transaction = view.state.tr.replaceWith(target.blockStart, target.blockEnd, tableNode);
+    const selection = Selection.findFrom(transaction.doc.resolve(target.blockStart), 1, true);
+    if (selection) {
+      transaction.setSelection(selection);
+    }
+    view.dispatch(transaction.scrollIntoView());
+    markUserInteracted();
+    view.focus();
+    hideInsertMenu();
+    scheduleFormatToolbarUpdate();
+    scheduleTableToolbarUpdate();
+    scheduleCodeLanguageControlsUpdate();
+    return true;
+  }
+
+  function imageAltFromFileName(fileName = "") {
+    const baseName = String(fileName || "").split(/[\\/]/).pop() || "image";
+    return baseName.replace(/\.[^.]+$/, "") || "image";
+  }
+
+  function runInsertImage(relativePath, fileName = "") {
+    const view = getEditorView();
+    const image = view?.state.schema.nodes.image;
+    const paragraph = view?.state.schema.nodes.paragraph;
+    if (!view || !image || !paragraph || !relativePath) return false;
+    const imageNode = image.create({
+      src: relativePath,
+      alt: imageAltFromFileName(fileName || relativePath),
+      title: ""
+    });
+    return replaceEmptyParagraphWith(paragraph.create(null, [imageNode]));
+  }
+
+  async function runInsertImageAsset() {
+    if (typeof onInsertImageAsset !== "function") return false;
+    const view = getEditorView();
+    if (!view || !emptyParagraphSelection(view)) return false;
+    insertMenuSelection = { from: view.state.selection.from };
+    closeInsertMenu({ preserveSelection: true });
+    let asset = null;
+    try {
+      asset = await onInsertImageAsset();
+    } catch (error) {
+      console.warn("Markdown image insert failed", error);
+    }
+    if (!asset?.relativePath) {
+      insertMenuSelection = null;
+      scheduleInsertMenuUpdate();
+      return false;
+    }
+    return runInsertImage(asset.relativePath, asset.fileName);
+  }
+
+  function runInsertCommand(command) {
+    if (command === "image") {
+      runInsertImageAsset();
+      return true;
+    }
+    if (command === "h1") return runInsertHeading(1);
+    if (command === "h2") return runInsertHeading(2);
+    if (command === "h3") return runInsertHeading(3);
+    if (command === "h4") return runInsertHeading(4);
+    if (command === "bullet-list") return runInsertBulletList();
+    if (command === "ordered-list") return runInsertOrderedList();
+    if (command === "table") return runInsertTable();
+    if (command === "code-block") return runInsertCodeBlock();
+    return false;
   }
 
   function getCodeBlockEntries(view) {
@@ -351,7 +697,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     codeLanguageLayer = document.createElement("div");
     codeLanguageLayer.className = "markdown-code-language-layer";
     root.appendChild(codeLanguageLayer);
-    ["keyup", "mouseup", "focusin", "pointerup", "input"].forEach((eventName) => {
+    ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
       root.addEventListener(eventName, scheduleCodeLanguageControlsUpdate, true);
     });
     window.addEventListener("scroll", scheduleCodeLanguageControlsUpdate, true);
@@ -400,6 +746,312 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     if (!codeLanguageLayer) return;
     if (codeLanguageFrame) cancelAnimationFrame(codeLanguageFrame);
     codeLanguageFrame = requestAnimationFrame(updateCodeLanguageControls);
+  }
+
+  function createInsertMenu() {
+    const menu = document.createElement("div");
+    menu.className = "markdown-insert-menu";
+    menu.setAttribute("aria-label", t("markdown.insertMenu"));
+    const items = [
+      { command: "image", icon: INSERT_ICON_SVG.image, label: t("markdown.insertImage") },
+      { command: "h1", icon: INSERT_ICON_SVG.h1, label: t("markdown.insertHeading1") },
+      { command: "h2", icon: INSERT_ICON_SVG.h2, label: t("markdown.insertHeading2") },
+      { command: "h3", icon: INSERT_ICON_SVG.h3, label: t("markdown.insertHeading3") },
+      { command: "h4", icon: INSERT_ICON_SVG.h4, label: t("markdown.insertHeading4") },
+      { command: "bullet-list", icon: INSERT_ICON_SVG.list, label: t("markdown.insertBulletList") },
+      { command: "ordered-list", icon: INSERT_ICON_SVG.orderedList, label: t("markdown.insertOrderedList") },
+      { command: "table", icon: INSERT_ICON_SVG.table, label: t("markdown.insertTable") },
+      { command: "code-block", icon: INSERT_ICON_SVG.code, label: t("markdown.insertCodeBlock") }
+    ];
+    menu.innerHTML = `
+      <button class="markdown-insert-trigger" type="button" aria-label="${t("markdown.openInsertMenu")}">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      </button>
+      <div class="markdown-insert-popover" role="menu" aria-hidden="true">
+        ${items.map((item) => `
+          <button type="button" role="menuitem" data-insert-command="${item.command}" aria-label="${item.label}">
+            ${item.icon}
+            <span class="markdown-insert-tooltip">${item.label}</span>
+          </button>
+        `).join("")}
+      </div>
+    `;
+    menu.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    menu.querySelector(".markdown-insert-trigger")?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const view = getEditorView();
+      if (!view || !emptyParagraphSelection(view)) return;
+      insertMenuSelection = { from: view.state.selection.from };
+      insertMenuOpen = !insertMenuOpen;
+      menu.classList.toggle("open", insertMenuOpen);
+      menu.querySelector(".markdown-insert-popover")?.setAttribute("aria-hidden", insertMenuOpen ? "false" : "true");
+      scheduleInsertMenuUpdate();
+    });
+    menu.addEventListener("pointerdown", (event) => {
+      const button = event.target.closest("button[data-insert-command]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      runInsertCommand(button.dataset.insertCommand);
+    });
+    return menu;
+  }
+
+  function setupInsertMenu() {
+    if (insertMenu) return;
+    insertMenu = createInsertMenu();
+    root.appendChild(insertMenu);
+    ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
+      root.addEventListener(eventName, scheduleInsertMenuUpdate, true);
+    });
+    root.addEventListener("keydown", scheduleInsertMenuUpdateAfterEnter, true);
+    root.addEventListener("pointerdown", closeInsertMenuOnEditorPointerDown, true);
+    window.addEventListener("scroll", scheduleInsertMenuUpdate, true);
+    window.addEventListener("resize", scheduleInsertMenuUpdate);
+    root.addEventListener("focusout", scheduleInsertMenuHideAfterBlur, true);
+  }
+
+  function scheduleInsertMenuUpdateAfterEnter(event) {
+    if (event.key !== "Enter" || event.isComposing) return;
+    window.setTimeout(scheduleInsertMenuUpdate, 0);
+    window.setTimeout(scheduleInsertMenuUpdate, 80);
+  }
+
+  function closeInsertMenuOnEditorPointerDown(event) {
+    if (!insertMenuOpen || insertMenu?.contains(event.target)) return;
+    closeInsertMenu();
+  }
+
+  function closeInsertMenu({ preserveSelection = false } = {}) {
+    insertMenuOpen = false;
+    if (!preserveSelection) {
+      insertMenuSelection = null;
+    }
+    insertMenu?.classList.remove("open");
+    insertMenu?.querySelector(".markdown-insert-popover")?.setAttribute("aria-hidden", "true");
+  }
+
+  function hideInsertMenu() {
+    if (!insertMenu) return;
+    closeInsertMenu();
+    insertMenu.classList.remove("visible");
+    insertMenuVisible = false;
+  }
+
+  function scheduleInsertMenuHideAfterBlur() {
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (!root.contains(active) && !insertMenu?.contains(active)) {
+        hideInsertMenu();
+      }
+    }, 0);
+  }
+
+  function updateInsertMenu() {
+    insertMenuFrame = null;
+    if (!insertMenu || !editorReady) return;
+    const view = getEditorView();
+    const target = emptyParagraphSelection(view);
+    if (!view || !target || !root.contains(view.dom)) {
+      hideInsertMenu();
+      return;
+    }
+
+    let cursorRect = null;
+    try {
+      cursorRect = view.coordsAtPos(view.state.selection.from);
+    } catch (_) {
+      hideInsertMenu();
+      return;
+    }
+    const rootRect = root.getBoundingClientRect();
+    const paragraphRect = activeEmptyParagraphElement(view)?.getBoundingClientRect();
+    const anchorLeft = paragraphRect?.left ?? cursorRect.left;
+    const left = anchorLeft - rootRect.left - 34;
+    const top = Math.max(4, cursorRect.top - rootRect.top + ((cursorRect.bottom - cursorRect.top) / 2) - 13);
+    insertMenu.style.left = `${Math.round(left)}px`;
+    insertMenu.style.top = `${Math.round(top)}px`;
+    if (!insertMenuVisible) {
+      insertMenu.classList.add("visible");
+      insertMenuVisible = true;
+    }
+  }
+
+  function scheduleInsertMenuUpdate() {
+    if (!insertMenu) return;
+    if (insertMenuFrame) cancelAnimationFrame(insertMenuFrame);
+    insertMenuFrame = requestAnimationFrame(updateInsertMenu);
+  }
+
+  function findImageTargetFromElement(imageElement, view = getEditorView()) {
+    if (!imageElement || !view) return null;
+    let target = null;
+    view.state.doc.descendants((node, pos) => {
+      if (target || node.type?.name !== "image") return !target;
+      const dom = view.nodeDOM(pos);
+      if (dom === imageElement || dom?.contains?.(imageElement)) {
+        target = { element: imageElement, node, pos };
+        return false;
+      }
+      return true;
+    });
+    return target;
+  }
+
+  function setImageAlignment(alignment) {
+    const view = getEditorView();
+    if (!view || !activeImageTarget) return false;
+    const node = view.state.doc.nodeAt(activeImageTarget.pos);
+    if (!node || node.type?.name !== "image") return false;
+    const attrs = {
+      ...node.attrs,
+      title: titleWithImageAlignment(node.attrs?.title || "", alignment)
+    };
+    const transaction = view.state.tr.setNodeMarkup(activeImageTarget.pos, null, attrs);
+    view.dispatch(transaction.scrollIntoView());
+    markUserInteracted();
+    activeImageTarget.node = view.state.doc.nodeAt(activeImageTarget.pos);
+    view.focus();
+    scheduleImageAlignToolbarUpdate();
+    return true;
+  }
+
+  function setImageSize(size) {
+    const view = getEditorView();
+    if (!view || !activeImageTarget) return false;
+    const node = view.state.doc.nodeAt(activeImageTarget.pos);
+    if (!node || node.type?.name !== "image") return false;
+    const attrs = {
+      ...node.attrs,
+      title: titleWithImageSize(node.attrs?.title || "", size)
+    };
+    const transaction = view.state.tr.setNodeMarkup(activeImageTarget.pos, null, attrs);
+    view.dispatch(transaction.scrollIntoView());
+    markUserInteracted();
+    activeImageTarget.node = view.state.doc.nodeAt(activeImageTarget.pos);
+    view.focus();
+    scheduleImageAlignToolbarUpdate();
+    return true;
+  }
+
+  function createImageAlignToolbar() {
+    const toolbar = document.createElement("div");
+    toolbar.className = "markdown-image-align-toolbar";
+    toolbar.setAttribute("aria-label", t("markdown.imageAlignTools"));
+    const items = [
+      { type: "align", value: "left", icon: IMAGE_ALIGN_ICON_SVG.left, label: t("markdown.alignLeft") },
+      { type: "align", value: "center", icon: IMAGE_ALIGN_ICON_SVG.center, label: t("markdown.alignCenter") },
+      { type: "align", value: "right", icon: IMAGE_ALIGN_ICON_SVG.right, label: t("markdown.alignRight") },
+      { type: "size", value: "small", icon: IMAGE_SIZE_ICON_SVG.small, label: t("markdown.imageSizeSmall") },
+      { type: "size", value: "medium", icon: IMAGE_SIZE_ICON_SVG.medium, label: t("markdown.imageSizeMedium") },
+      { type: "size", value: "large", icon: IMAGE_SIZE_ICON_SVG.large, label: t("markdown.imageSizeLarge") }
+    ];
+    toolbar.innerHTML = items.map((item) => `
+      <button type="button" data-image-${item.type}="${item.value}" aria-label="${item.label}">
+        ${item.icon}
+        <span class="markdown-image-align-tooltip">${item.label}</span>
+      </button>
+    `).join("");
+    toolbar.addEventListener("pointerdown", (event) => {
+      const button = event.target.closest("button[data-image-align], button[data-image-size]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.dataset.imageAlign) {
+        setImageAlignment(button.dataset.imageAlign);
+      } else {
+        setImageSize(button.dataset.imageSize || "large");
+      }
+    });
+    toolbar.addEventListener("pointerenter", () => {
+      scheduleImageAlignToolbarUpdate();
+    });
+    toolbar.addEventListener("pointerleave", () => {
+      window.setTimeout(() => {
+        if (!imageAlignToolbar?.matches(":hover") && !activeImageTarget?.element?.matches?.(":hover")) {
+          hideImageAlignToolbar();
+        }
+      }, 120);
+    });
+    return toolbar;
+  }
+
+  function setupImageAlignToolbar() {
+    if (imageAlignToolbar) return;
+    imageAlignToolbar = createImageAlignToolbar();
+    root.appendChild(imageAlignToolbar);
+    root.addEventListener("pointerover", handleImageAlignPointerOver, true);
+    root.addEventListener("pointerout", handleImageAlignPointerOut, true);
+    window.addEventListener("scroll", scheduleImageAlignToolbarUpdate, true);
+    window.addEventListener("resize", scheduleImageAlignToolbarUpdate);
+  }
+
+  function handleImageAlignPointerOver(event) {
+    const image = event.target?.closest?.(".milkdown-editor-root .ProseMirror img");
+    if (!image || !root.contains(image)) return;
+    const target = findImageTargetFromElement(image);
+    if (!target) return;
+    activeImageTarget = target;
+    scheduleImageAlignToolbarUpdate();
+  }
+
+  function handleImageAlignPointerOut(event) {
+    if (!activeImageTarget?.element) return;
+    const next = event.relatedTarget;
+    if (next && (activeImageTarget.element.contains(next) || imageAlignToolbar?.contains(next))) return;
+    window.setTimeout(() => {
+      if (!imageAlignToolbar?.matches(":hover") && !activeImageTarget?.element?.matches?.(":hover")) {
+        hideImageAlignToolbar();
+      }
+    }, 120);
+  }
+
+  function hideImageAlignToolbar() {
+    if (!imageAlignToolbar) return;
+    imageAlignToolbar.classList.remove("visible");
+    activeImageTarget = null;
+  }
+
+  function updateImageAlignToolbar() {
+    imageAlignFrame = null;
+    if (!imageAlignToolbar || !activeImageTarget?.element || !root.contains(activeImageTarget.element)) {
+      hideImageAlignToolbar();
+      return;
+    }
+    const view = getEditorView();
+    const refreshedTarget = findImageTargetFromElement(activeImageTarget.element, view);
+    if (!refreshedTarget) {
+      hideImageAlignToolbar();
+      return;
+    }
+    activeImageTarget = refreshedTarget;
+    const title = activeImageTarget.node.attrs?.title || "";
+    const alignment = imageAlignmentFromTitle(title);
+    const size = imageSizeFromTitle(title);
+    imageAlignToolbar.querySelectorAll("button[data-image-align]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.imageAlign === alignment);
+    });
+    imageAlignToolbar.querySelectorAll("button[data-image-size]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.imageSize === size);
+    });
+    const rootRect = root.getBoundingClientRect();
+    const imageRect = activeImageTarget.element.getBoundingClientRect();
+    const toolbarWidth = imageAlignToolbar.offsetWidth || 108;
+    const left = Math.max(8, Math.min(imageRect.left - rootRect.left + (imageRect.width / 2) - (toolbarWidth / 2), rootRect.width - toolbarWidth - 8));
+    const top = Math.max(4, imageRect.top - rootRect.top + 8);
+    imageAlignToolbar.style.left = `${Math.round(left)}px`;
+    imageAlignToolbar.style.top = `${Math.round(top)}px`;
+    imageAlignToolbar.classList.add("visible");
+  }
+
+  function scheduleImageAlignToolbarUpdate() {
+    if (!imageAlignToolbar) return;
+    if (imageAlignFrame) cancelAnimationFrame(imageAlignFrame);
+    imageAlignFrame = requestAnimationFrame(updateImageAlignToolbar);
   }
 
   function runMarkCommand(markName) {
@@ -851,6 +1503,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
         view.focus();
         scheduleFormatToolbarUpdate();
         scheduleTableToolbarUpdate();
+        scheduleInsertMenuUpdate();
         scheduleCodeLanguageControlsUpdate();
       }
       return handled;
@@ -860,6 +1513,10 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   const api = {
     editor,
     getMarkdown() {
+      if (markdownChangeTimer) {
+        clearTimeout(markdownChangeTimer);
+        markdownChangeTimer = null;
+      }
       return serializeCurrentDocument();
     },
     getBaselineMarkdown() {
@@ -918,6 +1575,10 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
       });
     },
     destroy() {
+      if (markdownChangeTimer) {
+        clearTimeout(markdownChangeTimer);
+        markdownChangeTimer = null;
+      }
       if (formatToolbarFrame) {
         cancelAnimationFrame(formatToolbarFrame);
         formatToolbarFrame = null;
@@ -938,7 +1599,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
         codeLanguageFrame = null;
       }
       if (codeLanguageLayer) {
-        ["keyup", "mouseup", "focusin", "pointerup", "input"].forEach((eventName) => {
+        ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
           root.removeEventListener(eventName, scheduleCodeLanguageControlsUpdate, true);
         });
         window.removeEventListener("scroll", scheduleCodeLanguageControlsUpdate, true);
@@ -960,6 +1621,35 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
         window.removeEventListener("resize", scheduleTableToolbarUpdate);
         tableToolbar.remove();
         tableToolbar = null;
+      }
+      if (insertMenuFrame) {
+        cancelAnimationFrame(insertMenuFrame);
+        insertMenuFrame = null;
+      }
+      if (insertMenu) {
+        ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
+          root.removeEventListener(eventName, scheduleInsertMenuUpdate, true);
+        });
+        root.removeEventListener("keydown", scheduleInsertMenuUpdateAfterEnter, true);
+        root.removeEventListener("pointerdown", closeInsertMenuOnEditorPointerDown, true);
+        window.removeEventListener("scroll", scheduleInsertMenuUpdate, true);
+        window.removeEventListener("resize", scheduleInsertMenuUpdate);
+        root.removeEventListener("focusout", scheduleInsertMenuHideAfterBlur, true);
+        insertMenu.remove();
+        insertMenu = null;
+      }
+      if (imageAlignFrame) {
+        cancelAnimationFrame(imageAlignFrame);
+        imageAlignFrame = null;
+      }
+      if (imageAlignToolbar) {
+        root.removeEventListener("pointerover", handleImageAlignPointerOver, true);
+        root.removeEventListener("pointerout", handleImageAlignPointerOut, true);
+        window.removeEventListener("scroll", scheduleImageAlignToolbarUpdate, true);
+        window.removeEventListener("resize", scheduleImageAlignToolbarUpdate);
+        imageAlignToolbar.remove();
+        imageAlignToolbar = null;
+        activeImageTarget = null;
       }
       for (const eventName of interactionEvents) {
         root.removeEventListener(eventName, markUserInteracted, true);
