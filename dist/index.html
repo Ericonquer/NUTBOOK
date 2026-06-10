@@ -4811,6 +4811,13 @@
         const language = currentLanguage();
         return fallbackByLanguage[language] ?? fallbackByLanguage["zh-CN"] ?? "";
       }
+      function formatTranslation(key, values = {}) {
+        let value = t(key);
+        Object.entries(values).forEach(([name, replacement]) => {
+          value = value.replaceAll(`{${name}}`, String(replacement ?? ""));
+        });
+        return value;
+      }
 
       const DEFAULT_MARKDOWN_PREFERENCES = {
         codeBlockTheme: "dark",
@@ -5838,7 +5845,7 @@
         });
       }
 
-      function appConfirm({ title = "请确认", message = "", confirmText = "确认", cancelText = "取消", danger = false } = {}) {
+      function appConfirm({ title = t("actions.confirm"), message = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
         if (!els.confirmScrim) return Promise.resolve(window.confirm(message || title));
         return new Promise((resolve) => {
           const close = (value) => {
@@ -8088,11 +8095,12 @@
             tab.isDirty = false;
             tab.draft = tab.markdownBaseline ?? tab.preview.raw ?? "";
           } else if (isMarkdownTabDirty(tab)) {
+            const fileName = tab.item?.fileName || tab.preview?.title || "Markdown";
             const shouldSave = await appConfirm({
-              title: "保存 Markdown 修改？",
-              message: `“${tab.item?.fileName || tab.preview?.title || "Markdown"}” 有未保存修改，是否保存后再关闭？`,
-              confirmText: "保存",
-              cancelText: "不保存"
+              title: t("markdown.unsavedCloseTitle"),
+              message: formatTranslation("markdown.unsavedCloseMessage", { fileName }),
+              confirmText: t("actions.save"),
+              cancelText: t("markdown.discardChanges")
             });
             if (shouldSave) {
               const saved = await saveMarkdownTab(tab, { renderAfter: false });

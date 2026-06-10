@@ -8,6 +8,8 @@ It helps you bring scattered Markdown reports, HTML presentation documents, AI a
 
 中文版请见 [README-CN.md](./README-CN.md)。
 
+<https://github.com/user-attachments/assets/45dcfef4-44c4-4ec1-888a-c47404995a72>
+
 ## What Is It
 
 Many people are no longer just chatting with AI. They are asking AI to produce real files:
