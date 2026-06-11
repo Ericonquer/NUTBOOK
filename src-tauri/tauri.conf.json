@@ -53,7 +53,8 @@
     ],
     "resources": {
       "../integrations/nbskill/": "nbskill/",
-      "generated-resources/nutbook-cli/": "nutbook-cli/"
+      "generated-resources/nutbook-cli/": "nutbook-cli/",
+      "resources/export-templates/": "export-templates/"
     },
     "macOS": {
       "signingIdentity": "-"

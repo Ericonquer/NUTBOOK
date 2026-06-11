@@ -1,6 +1,8 @@
 use std::path::Component;
 
+use chrono::{Local, TimeZone};
 use serde_json::Value;
+use tauri::path::BaseDirectory;
 use tauri::Manager;
 
 use crate::{
@@ -11,6 +13,10 @@ use crate::{
             MarkdownResourceContext,
         },
         document_title::DocumentTitle,
+        markdown_export::{
+            default_markdown_html_file_name, fallback_reading_template, render_reading_html,
+            MarkdownHtmlExportInput, MarkdownHtmlExportOutput, READING_TEMPLATE,
+        },
         html_runtime::{
             attach_controls_overlay, attach_external_html_runtime_host,
             attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
@@ -47,7 +53,7 @@ use crate::{
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
-        EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
+        EvalHtmlRuntimeScriptRequest, ExportMarkdownHtmlRequest, ExportMarkdownHtmlResponse, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
         GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, ItemDetail, OpenHtmlWindowRequest, PreviewPayload,
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
@@ -1342,6 +1348,78 @@ fn markdown_export_default_file_name(title: &str, fallback_file_name: &str) -> S
             .to_string();
     }
     format!("{stem}.{extension}")
+}
+
+fn export_markdown_html_to_path(
+    state: &AppState,
+    payload: ExportMarkdownHtmlRequest,
+    target: &std::path::Path,
+    template_html: String,
+) -> Result<ExportMarkdownHtmlResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" || payload.template != READING_TEMPLATE {
+        return Err(AppError::InvalidParams);
+    }
+    let raw = std::fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    if content_hash(&raw) != payload.expected_file_hash {
+        return Err(AppError::EditConflict);
+    }
+    if let Some(expected_modified_at) = payload.expected_modified_at.as_deref() {
+        if expected_modified_at != item.summary.modified_at {
+            return Err(AppError::EditConflict);
+        }
+    }
+    let MarkdownHtmlExportOutput { html, warnings } = render_reading_html(MarkdownHtmlExportInput {
+        title: item.summary.title.clone().unwrap_or_else(|| item.summary.file_name.clone()),
+        source_file: item.summary.file_name.clone(),
+        source_path: std::path::PathBuf::from(&item.summary.file_path),
+        markdown: raw,
+        generated_at: format_export_modified_at(&item.summary.modified_at),
+        template_html,
+    })?;
+    std::fs::write(target, html).map_err(|_| AppError::IoError)?;
+    Ok(ExportMarkdownHtmlResponse {
+        item_id: payload.item_id,
+        target_path: target.to_string_lossy().to_string(),
+        warnings,
+        exported: true,
+    })
+}
+
+fn markdown_export_template(app: &tauri::AppHandle) -> String {
+    app.path()
+        .resolve("export-templates/markdown-reading.html", BaseDirectory::Resource)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_else(|| fallback_reading_template().to_string())
+}
+
+fn format_export_modified_at(modified_at: &str) -> String {
+    let trimmed = modified_at.trim();
+    if trimmed.is_empty() {
+        return "修改时间未知".to_string();
+    }
+    trimmed.parse::<i64>().ok().and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
+        .map(|time| format!("修改时间：{}", time.format("%Y-%m-%d %H:%M")))
+        .unwrap_or_else(|| format!("修改时间：{trimmed}"))
+}
+
+#[tauri::command]
+pub fn export_markdown_html(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: ExportMarkdownHtmlRequest,
+) -> Result<ExportMarkdownHtmlResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let target = rfd::FileDialog::new()
+        .set_file_name(&default_markdown_html_file_name(&item.summary.file_name))
+        .add_filter("HTML", &["html", "htm"])
+        .save_file()
+        .ok_or(AppError::InvalidParams)?;
+    export_markdown_html_to_path(&state, payload, &target, markdown_export_template(&app))
 }
 
 const MARKDOWN_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];

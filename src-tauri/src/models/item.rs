@@ -376,6 +376,24 @@ pub struct ExportMarkdownRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownHtmlRequest {
+    pub item_id: i64,
+    pub template: String,
+    pub expected_file_hash: String,
+    pub expected_modified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownHtmlResponse {
+    pub item_id: i64,
+    pub target_path: String,
+    pub warnings: Vec<String>,
+    pub exported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CopyMarkdownImageAssetRequest {
     pub markdown_file_path: String,
     pub source_image_path: String,

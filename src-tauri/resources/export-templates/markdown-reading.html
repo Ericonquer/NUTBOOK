@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{title}}</title>
+  <style>
+    * { box-sizing: border-box; }
+    html { background: #f9f9fb; color: #1a1c1d; }
+    body {
+      margin: 0;
+      font-family: Inter, "PingFang SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.72;
+    }
+    .page {
+      width: min(880px, calc(100vw - 32px));
+      margin: 40px auto;
+      padding: 56px;
+      background: #ffffff;
+      border: 1px solid #e2e2e4;
+      border-radius: 8px;
+      box-shadow: 0 18px 52px rgba(26, 28, 29, 0.08);
+    }
+    header { margin-bottom: 34px; color: #5e5e63; font-size: 13px; }
+    h1, h2, h3, h4, h5, h6 { color: #1a1c1d; line-height: 1.25; }
+    h1 { margin: 0 0 24px; font-size: 34px; }
+    h2 { margin: 34px 0 14px; font-size: 25px; }
+    h3 { margin: 28px 0 12px; font-size: 21px; }
+    p, ul, ol, blockquote, pre, table { margin: 0 0 18px; }
+    a { color: #1a1c1d; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    blockquote { padding: 12px 18px; border-left: 4px solid #cfc4c5; border-radius: 0 14px 14px 0; background: #f3f3f5; color: #4c4546; }
+    blockquote p:last-child { margin-bottom: 0; }
+    code { padding: 0.12em 0.35em; border-radius: 5px; background: #eeeef0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+    pre { position: relative; overflow: auto; padding: 16px; border-radius: 8px; background: #2f3132; color: #f0f0f2; }
+    pre code { padding: 0; background: transparent; color: inherit; }
+    .code-copy-button { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: rgba(255,255,255,0.1); color: rgba(240,240,242,0.76); cursor: pointer; }
+    .code-copy-button:hover { color: #f0f0f2; background: rgba(255,255,255,0.16); }
+    .code-copy-button.copied { color: #f0f0f2; background: rgba(255,255,255,0.18); }
+    .code-copy-button.failed { color: #f0f0f2; background: rgba(186,26,26,0.55); }
+    .code-copy-icon { display: block; width: 16px; height: 16px; pointer-events: none; }
+    .code-copy-tooltip { position: absolute; top: 11px; right: 48px; min-height: 28px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 8px; background: rgba(24,24,28,0.94); color: #f0f0f2; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; opacity: 0; transform: translateX(4px); transition: opacity 140ms ease, transform 140ms ease; }
+    .code-copy-tooltip.visible,
+    .code-copy-button:hover + .code-copy-tooltip,
+    .code-copy-button:focus-visible + .code-copy-tooltip { opacity: 1; transform: translateX(0); }
+    .code-copy-tooltip.success { background: #1a1c1d; }
+    .code-copy-tooltip.failed { background: #ba1a1a; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #cfc4c5; border-radius: 14px; overflow: hidden; font-size: 0.95em; line-height: 1.38; }
+    th, td { min-width: 48px; padding: 7px 10px; border-right: 1px solid #e2e2e4; border-bottom: 1px solid #e2e2e4; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: normal; }
+    th { background: #f3f3f5; color: #1a1c1d; font-weight: 700; }
+    tr:last-child td { border-bottom: 0; }
+    th:last-child, td:last-child { border-right: 0; }
+    img { max-width: 100%; height: auto; border-radius: 8px; }
+    .missing-image { display: block; padding: 14px; border: 1px dashed #cfc4c5; border-radius: 8px; color: #4c4546; background: #f3f3f5; }
+    .export-warnings { margin: 0 0 24px; padding: 14px 16px; border-radius: 8px; background: #eeeef0; color: #4c4546; }
+    .export-warnings ul { margin: 8px 0 0; padding-left: 20px; }
+    footer { margin-top: 42px; padding-top: 18px; border-top: 1px solid #e2e2e4; color: #5e5e63; font-size: 12px; display: inline-flex; align-items: center; gap: 7px; }
+    .footer-logo { display: block; width: 74px; height: auto; border-radius: 0; opacity: 0.78; }
+    @media (max-width: 720px) {
+      .page { width: 100%; min-height: 100vh; margin: 0; padding: 28px 20px; border: 0; border-radius: 0; box-shadow: none; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>{{title}}</h1>
+      <div>{{source_file}} · {{generated_at}}</div>
+    </header>
+    {{warnings}}
+    <article>
+      {{content}}
+    </article>
+    <footer><span>by</span><img class="footer-logo" src="{{logo_data_uri}}" alt="NUTBOOK"></footer>
+  </main>
+  <script>
+    (() => {
+      async function copyText(text) {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "true");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      document.querySelectorAll("pre").forEach((pre) => {
+        if (pre.querySelector("[data-copy-code]")) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "code-copy-button";
+        button.dataset.copyCode = "true";
+        button.setAttribute("aria-label", "复制代码");
+        button.title = "复制代码";
+        button.innerHTML = '<svg class="code-copy-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
+        const tooltip = document.createElement("span");
+        tooltip.className = "code-copy-tooltip";
+        tooltip.dataset.copyTooltip = "true";
+        tooltip.textContent = "复制代码";
+        const resetButton = () => {
+          button.classList.remove("copied", "failed");
+          button.setAttribute("aria-label", "复制代码");
+          button.title = "复制代码";
+          tooltip.classList.remove("visible", "success", "failed");
+          tooltip.textContent = "复制代码";
+        };
+        button.addEventListener("click", async () => {
+          try {
+            await copyText(pre.innerText || pre.textContent || "");
+            button.classList.remove("failed");
+            button.classList.add("copied");
+            button.setAttribute("aria-label", "已复制");
+            button.title = "已复制";
+            tooltip.textContent = "复制成功";
+            tooltip.classList.remove("failed");
+            tooltip.classList.add("visible", "success");
+            window.setTimeout(() => {
+              resetButton();
+            }, 900);
+          } catch (_) {
+            button.classList.remove("copied");
+            button.classList.add("failed");
+            button.setAttribute("aria-label", "复制失败");
+            button.title = "复制失败";
+            tooltip.textContent = "复制失败";
+            tooltip.classList.remove("success");
+            tooltip.classList.add("visible", "failed");
+            window.setTimeout(() => {
+              resetButton();
+            }, 900);
+          }
+        });
+        pre.appendChild(button);
+        pre.appendChild(tooltip);
+      });
+    })();
+  </script>
+</body>
+</html>

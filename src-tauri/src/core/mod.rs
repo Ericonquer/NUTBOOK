@@ -13,6 +13,8 @@ pub mod content_session;
 pub mod local_server;
 pub mod markdown_cover;
 pub mod markdown_cover_assets;
+pub mod markdown_export;
+pub mod markdown_render;
 pub mod nbskill_package;
 pub mod path_identity;
 pub mod preview_protocol;

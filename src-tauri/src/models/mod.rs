@@ -48,6 +48,7 @@ pub use item::{
     DurableSaveSyncReport,
     EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,
+    ExportMarkdownHtmlRequest, ExportMarkdownHtmlResponse,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
     HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemContentRevision, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery, ScanDelta, ScanDeltaRename, ScanDeltaReport, SearchSuggestion,    IgnoredItemSummary, MarkItemOpenedRequest, MarkdownInspectorSnapshot, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,

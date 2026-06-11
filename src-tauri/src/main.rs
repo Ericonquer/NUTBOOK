@@ -452,6 +452,7 @@ fn main() {
             commands::html_edit::write_editable_html_copy,
             commands::preview::save_markdown_content,
             commands::preview::export_markdown_file,
+            commands::preview::export_markdown_html,
             commands::tags::list_tags,
             commands::tags::create_tag,
             commands::tags::update_tag,
