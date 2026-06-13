@@ -14,8 +14,9 @@ use crate::{
         },
         document_title::DocumentTitle,
         markdown_export::{
-            default_markdown_html_file_name, fallback_reading_template, render_reading_html,
-            MarkdownHtmlExportInput, MarkdownHtmlExportOutput, READING_TEMPLATE,
+            default_markdown_html_file_name, fallback_reading_dark_template, fallback_reading_light_template,
+            fallback_reading_template, render_reading_html, MarkdownHtmlExportInput, MarkdownHtmlExportOutput,
+            MarkdownHtmlExportPreferences, ReadingWidth, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE, READING_TEMPLATE,
         },
         html_runtime::{
             attach_controls_overlay, attach_external_html_runtime_host,
@@ -53,7 +54,7 @@ use crate::{
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
-        EvalHtmlRuntimeScriptRequest, ExportMarkdownHtmlRequest, ExportMarkdownHtmlResponse, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
+        EvalHtmlRuntimeScriptRequest, ExportMarkdownHtmlPreferences, ExportMarkdownHtmlRequest, ExportMarkdownHtmlResponse, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
         GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, ItemDetail, OpenHtmlWindowRequest, PreviewPayload,
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
@@ -1357,7 +1358,13 @@ fn export_markdown_html_to_path(
     template_html: String,
 ) -> Result<ExportMarkdownHtmlResponse, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
-    if item.summary.file_type != "markdown" || payload.template != READING_TEMPLATE {
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    if !matches!(
+        payload.template.as_str(),
+        READING_TEMPLATE | READING_LIGHT_TEMPLATE | READING_DARK_TEMPLATE
+    ) {
         return Err(AppError::InvalidParams);
     }
     let raw = std::fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
@@ -1376,6 +1383,7 @@ fn export_markdown_html_to_path(
         markdown: raw,
         generated_at: format_export_modified_at(&item.summary.modified_at),
         template_html,
+        preferences: export_preferences(payload.preferences.as_ref()),
     })?;
     std::fs::write(target, html).map_err(|_| AppError::IoError)?;
     Ok(ExportMarkdownHtmlResponse {
@@ -1386,12 +1394,40 @@ fn export_markdown_html_to_path(
     })
 }
 
-fn markdown_export_template(app: &tauri::AppHandle) -> String {
+fn markdown_export_template(app: &tauri::AppHandle, template: &str) -> String {
+    let file_name = match template {
+        READING_DARK_TEMPLATE => "markdown-reading-dark.html",
+        READING_LIGHT_TEMPLATE | READING_TEMPLATE => "markdown-reading-light.html",
+        _ => "markdown-reading-light.html",
+    };
+    let resource_path = format!("resources/export-templates/{file_name}");
+    let dev_path = format!("src-tauri/resources/export-templates/{file_name}");
     app.path()
-        .resolve("export-templates/markdown-reading.html", BaseDirectory::Resource)
+        .resolve(&resource_path, BaseDirectory::Resource)
         .ok()
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .unwrap_or_else(|| fallback_reading_template().to_string())
+        .or_else(|| std::fs::read_to_string(dev_path).ok())
+        .unwrap_or_else(|| match template {
+            READING_DARK_TEMPLATE => fallback_reading_dark_template().to_string(),
+            READING_LIGHT_TEMPLATE | READING_TEMPLATE => fallback_reading_light_template().to_string(),
+            _ => fallback_reading_template().to_string(),
+        })
+}
+
+fn export_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> MarkdownHtmlExportPreferences {
+    let Some(preferences) = preferences else {
+        return MarkdownHtmlExportPreferences::default();
+    };
+    MarkdownHtmlExportPreferences {
+        embed_images: preferences.embed_images,
+        code_copy: preferences.code_copy,
+        outline: preferences.outline,
+        width: match preferences.width.as_str() {
+            "compact" => ReadingWidth::Compact,
+            "wide" => ReadingWidth::Wide,
+            _ => ReadingWidth::Standard,
+        },
+    }
 }
 
 fn format_export_modified_at(modified_at: &str) -> String {
@@ -1419,7 +1455,8 @@ pub fn export_markdown_html(
         .add_filter("HTML", &["html", "htm"])
         .save_file()
         .ok_or(AppError::InvalidParams)?;
-    export_markdown_html_to_path(&state, payload, &target, markdown_export_template(&app))
+    let template_html = markdown_export_template(&app, &payload.template);
+    export_markdown_html_to_path(&state, payload, &target, template_html)
 }
 
 const MARKDOWN_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
@@ -2172,6 +2209,98 @@ mod tests {
             markdown_export_default_file_name("AI/Report: Draft?", "old-name.md"),
             "AI_Report_ Draft_.md"
         );
+    }
+
+    #[test]
+    fn export_markdown_html_writes_reading_html_and_rejects_stale_hash() {
+        let root = temp_path("export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("note.md");
+        fs::write(&markdown_path, "# Export\n\n![Hero](hero.png)").expect("markdown file should be written");
+        fs::write(root.join("hero.png"), b"abc").expect("image should be written");
+
+        let db_path = temp_path("export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Export".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "note.md".to_string(),
+                    file_name: "note.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: 29,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
+
+        let target = root.join("note.html");
+        let response = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "reading".to_string(),
+                preferences: None,
+                expected_file_hash: content_hash("# Export\n\n![Hero](hero.png)"),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_reading_template().to_string(),
+        )
+        .expect("html export should succeed");
+
+        let html = fs::read_to_string(&target).expect("target html should read");
+        assert!(response.exported);
+        assert!(response.warnings.is_empty());
+        assert!(html.contains(r#"<h1 id="export">Export</h1>"#));
+        assert!(html.contains("data:image/png;base64,YWJj"));
+
+        let error = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "reading".to_string(),
+                preferences: None,
+                expected_file_hash: "stale".to_string(),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_reading_template().to_string(),
+        )
+        .expect_err("stale hash should be rejected");
+        assert_eq!(error.code(), "EDIT_CONFLICT");
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_modified_at_is_formatted_for_humans() {
+        assert!(super::format_export_modified_at("1781149127").starts_with("修改时间："));
+        assert!(!super::format_export_modified_at("1781149127").contains("1781149127"));
+        assert_eq!(super::format_export_modified_at(""), "修改时间未知");
     }
 
     #[test]

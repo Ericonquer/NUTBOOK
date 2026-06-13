@@ -4850,6 +4850,37 @@
         background: #f3f3f5;
         color: #6f6f75;
         font-size: 11px;
+      .export-modal {
+        width: min(820px, calc(100vw - 48px));
+        padding: 20px;
+        border-radius: 20px;
+        background: var(--surface-variant);
+        border: 1px solid var(--line);
+        box-shadow: 0 24px 60px rgba(20, 20, 20, 0.14);
+      }
+
+      .export-modal.expanded {
+        width: min(980px, calc(100vw - 48px));
+      }
+
+      .export-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .export-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 760;
+      }
+
+      .export-subtitle {
+        margin: 4px 0 0;
+        color: var(--ink-soft);
+        font-size: 13px;
         line-height: 1.45;
         overflow-wrap: anywhere;
         user-select: text;
@@ -4857,6 +4888,526 @@
 
       .confirm-detail-label {
         color: var(--ink-soft);
+      .export-close {
+        width: 32px;
+        height: 32px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .export-close:hover {
+        background: var(--surface-variant);
+        color: var(--ink);
+      }
+
+      .export-section + .export-section {
+        margin-top: 16px;
+      }
+
+      .export-format-tabbar {
+        margin: 16px 0 0;
+      }
+
+      .export-format-tabbar .settings-tab {
+        color: var(--ink-soft);
+        background: transparent;
+      }
+
+      .export-format-tabbar .settings-tab.active {
+        background: var(--surface-variant);
+        color: #000;
+        border-color: var(--line);
+        border-bottom-color: var(--surface-variant);
+      }
+
+      .export-subtabs {
+        display: inline-flex;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface-variant);
+      }
+
+      .export-subtab {
+        min-height: 26px;
+        padding: 0 11px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .export-subtab.active {
+        background: #fff;
+        color: var(--ink);
+        box-shadow: 0 1px 3px rgba(26, 28, 29, 0.08);
+      }
+
+      .export-panel-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 306px;
+        gap: 20px;
+        align-items: start;
+        min-height: 233px;
+      }
+
+      .export-modal.expanded .export-panel-grid {
+        min-height: 287px;
+      }
+
+      .export-html-mode-section {
+        margin-top: 20px;
+      }
+
+      .export-template-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 28px;
+      }
+
+      .export-template-heading .export-panel-title {
+        margin-bottom: 0;
+      }
+
+      .export-icon-button {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+        position: relative;
+      }
+
+      .export-icon-button:hover {
+        background: #f1f1f3;
+      }
+
+      .export-icon-button svg {
+        width: 16px;
+        height: 16px;
+        pointer-events: none;
+      }
+
+      .export-tooltip {
+        position: absolute;
+        left: 50%;
+        top: 36px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 4;
+      }
+
+      .export-icon-button:hover .export-tooltip,
+      .export-segment:hover .export-tooltip {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .export-template-scroll {
+        height: 205px;
+        overflow: auto;
+        padding: 2px 8px 2px 2px;
+        border-right: 1px solid var(--line);
+      }
+
+      .export-modal.expanded .export-template-scroll {
+        height: 259px;
+      }
+
+      .export-template-grid-v2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .export-modal.expanded .export-template-grid-v2 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .export-template-preview-card {
+        padding: 0;
+        display: block;
+        overflow: hidden;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .export-template-preview-card.active {
+        border-color: #000;
+        background: #fff;
+        box-shadow: inset 0 0 0 1px #000;
+      }
+
+      .export-template-preview {
+        height: 104px;
+        padding: 12px;
+        display: block;
+      }
+
+      .export-template-preview.light {
+        background: #f9f9fb;
+      }
+
+      .export-template-preview.dark {
+        background: #2f3132;
+      }
+
+      .export-template-outline {
+        display: none;
+      }
+
+      .export-template-preview.dark .export-template-outline {
+        border-color: #45474b;
+      }
+
+      .export-preview-title,
+      .export-preview-line,
+      .export-preview-quote {
+        display: block;
+        border-radius: 2px;
+      }
+
+      .export-preview-title {
+        width: auto;
+        height: auto;
+        margin-bottom: 9px;
+        background: transparent;
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .export-template-preview.dark .export-preview-title {
+        color: #f0f0f2;
+      }
+
+      .export-preview-line {
+        height: 6px;
+        margin-bottom: 5px;
+        background: #cfcfd3;
+      }
+
+      .export-template-preview.dark .export-preview-line {
+        background: #828488;
+      }
+
+      .export-preview-quote {
+        height: 24px;
+        margin-top: 10px;
+        border-left: 4px solid #cfc4c5;
+        background: var(--surface-variant);
+      }
+
+      .export-template-preview.dark .export-preview-quote {
+        border-left-color: #828488;
+        background: #1a1c1d;
+      }
+
+      .export-template-card-body {
+        padding: 9px;
+      }
+
+      .export-template-card-body strong {
+        display: block;
+        font-size: 12px;
+        line-height: 1.25;
+      }
+
+      .export-template-card-body p {
+        display: none;
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .export-preferences {
+        display: grid;
+        gap: 10px;
+      }
+
+      .export-preference-panel {
+        height: 205px;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        align-self: start;
+      }
+
+      .export-preference-panel.compact {
+        height: 205px;
+      }
+
+      .export-preference-panel.compact .export-preferences {
+        gap: 8px;
+      }
+
+      .export-preference-panel.compact .export-preference-group {
+        gap: 5px;
+      }
+
+      .export-preference-panel.compact .export-label {
+        margin-bottom: 5px;
+      }
+
+      .export-preference-panel.compact .export-segment,
+      .export-preference-panel.compact .export-density-picker {
+        min-height: 27px;
+      }
+
+      .export-preference-panel.compact .export-density-option {
+        min-height: 19px;
+      }
+
+      .export-preference-row {
+        min-height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .export-preference-group {
+        display: grid;
+        gap: 6px;
+      }
+
+      .export-segment-grid {
+        display: grid;
+        gap: 6px;
+      }
+
+      .export-segment-grid.three {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .export-segment-grid.two {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .export-segment {
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 650;
+        position: relative;
+      }
+
+      .export-segment.active {
+        background: #000;
+        border-color: #000;
+        color: #fff;
+      }
+
+      .export-preference-row .preference-toggle {
+        flex: 0 0 auto;
+      }
+
+      .export-preference-row .preference-toggle {
+        width: 34px;
+        height: 20px;
+        padding: 2px;
+      }
+
+      .export-preference-row .preference-toggle::before {
+        width: 14px;
+        height: 14px;
+      }
+
+      .export-preference-row .preference-toggle.active::before {
+        transform: translateX(14px);
+      }
+
+      .export-density-picker {
+        min-height: 30px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+      }
+
+      .export-density-option {
+        min-width: 0;
+        min-height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .export-density-option::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: #c7c7cc;
+      }
+
+      .export-density-option.active {
+        background: #000;
+        color: #fff;
+      }
+
+      .export-density-option.active::before {
+        background: #fff;
+      }
+
+      .export-coming-soon {
+        min-height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed var(--line-strong);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .export-label {
+        margin: 0 0 8px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 760;
+        line-height: 1.2;
+      }
+
+      .export-panel-title {
+        margin: 0 0 9px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 780;
+        line-height: 1.2;
+      }
+
+      .export-options {
+        display: grid;
+        gap: 8px;
+      }
+
+      .export-format-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .export-template-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .export-option {
+        width: 100%;
+        min-height: 42px;
+        padding: 0 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 650;
+        text-align: left;
+      }
+
+      .export-option.active {
+        border-color: #000;
+        background: #000;
+        color: #fff;
+      }
+
+      .export-option:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+      }
+
+      .export-template-card {
+        min-height: 82px;
+        padding: 12px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        text-align: left;
+      }
+
+      .export-template-card.active {
+        border-color: #000;
+        background: var(--paper);
+        box-shadow: inset 3px 0 0 #000;
+      }
+
+      .export-template-card:disabled {
+        cursor: not-allowed;
+      }
+
+      .export-template-card strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
+      .export-template-card p {
+        margin: 6px 0 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .export-soon {
+        color: var(--muted);
+        font-size: 12px;
         font-weight: 600;
       }
 
@@ -4924,6 +5475,30 @@
         color: var(--muted);
         font-size: 11px;
         line-height: 1.4;
+      }
+
+      @media (max-width: 760px) {
+        .export-panel-grid {
+          grid-template-columns: 1fr;
+          min-height: 0;
+        }
+
+        .export-template-scroll {
+          height: auto;
+          max-height: 260px;
+          border-right: 0;
+          padding-right: 0;
+        }
+
+        .export-modal.expanded .export-template-scroll {
+          height: auto;
+          max-height: 320px;
+        }
+
+        .export-preference-panel,
+        .export-preference-panel.compact {
+          height: auto;
+        }
       }
 
       .confirm-actions {
@@ -8387,6 +8962,28 @@
         isSettingsSourceSortMenuOpen: false,
         isDocumentMoreMenuOpen: false,
         isDocumentTagMenuOpen: false,
+        exportDialogOpen: false,
+        exportActiveFormat: "html",
+        exportHtmlMode: "reading",
+        exportExpandedTemplates: false,
+        exportSelections: {
+          readingTemplate: "reading-light",
+          presentationTemplate: "presentation-light"
+        },
+        exportPreferences: {
+          reading: {
+            embedImages: true,
+            codeCopy: true,
+            outline: true,
+            width: "wide"
+          },
+          presentation: {
+            aspectRatio: "16-9",
+            density: "balanced",
+            outputKind: "static"
+          }
+        },
+        exportInProgress: false,
         altKeyPressed: false,
         markdownEditMode: "rich",
         markdownEditorLoadPromise: null,
@@ -16078,6 +16675,126 @@
             </div>
           </div>
         `;
+      function renderMarkdownExportDialogV2() {
+        const isHtml = appState.exportActiveFormat === "html";
+        const isReading = appState.exportHtmlMode === "reading";
+        const expanded = Boolean(appState.exportExpandedTemplates);
+        const readingPreferences = appState.exportPreferences.reading;
+        const presentationPreferences = appState.exportPreferences.presentation;
+        const tab = (format, label) => `<button class="settings-tab export-tab ${appState.exportActiveFormat === format ? "active" : ""}" type="button" data-export-format="${format}">${escapeHtml(label)}</button>`;
+        const subtab = (mode, label) => `<button class="export-subtab ${appState.exportHtmlMode === mode ? "active" : ""}" type="button" data-export-html-mode="${mode}">${escapeHtml(label)}</button>`;
+        const toggleTitle = expanded ? t("markdown.collapseTemplates") : t("markdown.moreTemplates");
+        const toggleIcon = expanded
+          ? '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M8 12h8"></path>'
+          : '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
+        const selectedTemplate = isReading ? appState.exportSelections.readingTemplate : appState.exportSelections.presentationTemplate;
+        const templates = isReading
+          ? [["reading-light", t("markdown.readingLight"), t("markdown.readingLightDescription"), "light"], ["reading-dark", t("markdown.readingDark"), t("markdown.readingDarkDescription"), "dark"]]
+          : [["presentation-light", t("markdown.presentationLight"), t("markdown.presentationLightDescription"), "light"], ["presentation-dark", t("markdown.presentationDark"), t("markdown.presentationDarkDescription"), "dark"]];
+        if (expanded) {
+          templates.push(["future-minimal", "Minimal", t("markdown.comingSoon"), "light"], ["future-print", "Print", t("markdown.comingSoon"), "light"]);
+        }
+        const templateCards = templates.map(([id, name, desc, tone]) => `
+          <button class="export-template-preview-card ${selectedTemplate === id ? "active" : ""}" type="button" data-export-template-choice="${escapeAttribute(id)}" ${id.startsWith("future") ? "disabled" : ""}>
+            <div class="export-template-preview ${tone}">
+              <div class="export-template-outline"></div>
+              <div><span class="export-preview-title">NUTBOOK</span><span class="export-preview-line"></span><span class="export-preview-line" style="width:78%"></span><span class="export-preview-quote"></span></div>
+            </div>
+            <div class="export-template-card-body"><strong>${escapeHtml(name)}</strong><p>${escapeHtml(desc)}</p></div>
+          </button>
+        `).join("");
+        const preferenceToggle = (key, labelKey) => `
+          <div class="export-preference-row">
+            <span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
+            <button class="preference-toggle ${readingPreferences[key] ? "active" : ""}" type="button" data-reading-pref-toggle="${key}" aria-label="${escapeAttribute(t(`markdown.${labelKey}`))}" aria-pressed="${readingPreferences[key] ? "true" : "false"}"></button>
+          </div>`;
+        const widthButton = (value, labelKey, tipKey) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-segment ${readingPreferences.width === value ? "active" : ""}" type="button" data-reading-width="${value}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const segmentButton = (value, labelKey, tipKey, activeValue, dataAttribute) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-segment ${activeValue === value ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(value)}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const densityButton = (value, labelKey) => `<button class="export-density-option ${presentationPreferences.density === value ? "active" : ""}" type="button" data-presentation-density="${escapeAttribute(value)}">${escapeHtml(t(`markdown.${labelKey}`))}</button>`;
+        const readingPanel = `
+          <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+            <div class="export-preferences">
+              ${preferenceToggle("embedImages", "embedLocalImages")}
+              ${preferenceToggle("codeCopy", "codeCopyButton")}
+              ${preferenceToggle("outline", "embedOutline")}
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.pageWidth"))}</div><div class="export-segment-grid three">
+                ${widthButton("compact", "compact", "compactWidthTip")}${widthButton("standard", "standard", "standardWidthTip")}${widthButton("wide", "wide", "wideWidthTip")}
+              </div></div>
+            </div>
+          </aside>`;
+        const presentationPanel = `
+          <aside class="export-preference-panel compact"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+            <div class="export-preferences">
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.aspectRatio"))}</div><div class="export-segment-grid three">
+                ${[["16-9","aspectWide","aspectWideTip"],["4-3","aspectClassic","aspectClassicTip"],["portrait","aspectPortrait","aspectPortraitTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.aspectRatio, "data-presentation-aspect")).join("")}
+              </div></div>
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.contentDensity"))}</div><div class="export-density-picker">
+                ${densityButton("concise", "densityConcise")}${densityButton("balanced", "densityBalanced")}${densityButton("detailed", "densityDetailed")}
+              </div></div>
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid two">
+                ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
+              </div></div>
+            </div>
+          </aside>`;
+        const htmlPanel = `
+          <section class="export-section export-html-mode-section"><div class="export-subtabs">${subtab("reading", t("markdown.readingHtml"))}${subtab("presentation", t("markdown.presentationHtml"))}</div></section>
+          <section class="export-section export-panel-grid">
+            <div>
+              <div class="export-template-heading">
+                <div><div class="export-panel-title">${escapeHtml(isReading ? t("markdown.readingHtmlTemplates") : t("markdown.presentationHtmlTemplates"))}</div></div>
+                <button class="export-icon-button" type="button" data-export-toggle-templates aria-label="${escapeAttribute(toggleTitle)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${toggleIcon}</svg><span class="export-tooltip">${escapeHtml(toggleTitle)}</span></button>
+              </div>
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCards}</div></div>
+            </div>
+            ${isReading ? readingPanel : presentationPanel}
+          </section>`;
+        const comingSoonPanel = `<section class="export-section"><div class="export-coming-soon"><div><strong>${escapeHtml(t("markdown.comingSoon"))}</strong><br>${escapeHtml(t("markdown.exportComingSoonBody"))}</div></div></section>`;
+        const canExport = isHtml && isReading && !appState.exportInProgress;
+        els.exportScrim.innerHTML = `
+          <div class="export-modal ${expanded ? "expanded" : ""}" role="dialog" aria-modal="true" aria-labelledby="markdownExportTitle">
+            <div class="export-header"><div><h3 id="markdownExportTitle" class="export-title">${escapeHtml(t("markdown.exportDialogTitle"))}</h3></div><button class="export-close" type="button" data-export-cancel aria-label="${escapeAttribute(t("markdown.closeExportDialog"))}">×</button></div>
+            <div class="settings-tabbar export-format-tabbar">${tab("html", "HTML")}${tab("pdf", "PDF")}${tab("image", t("markdown.exportLongImage"))}</div>
+            ${isHtml ? htmlPanel : comingSoonPanel}
+            <div class="export-actions"><button class="export-action-button" type="button" data-export-cancel ${appState.exportInProgress ? "disabled" : ""}>${escapeHtml(t("actions.cancel"))}</button><button class="export-action-button primary" type="button" data-export-submit ${canExport ? "" : "disabled"}>${escapeHtml(appState.exportInProgress ? t("markdown.exportingHtml") : canExport ? t("markdown.exportHtml") : t("markdown.comingSoon"))}</button></div>
+          </div>`;
+        els.exportScrim.querySelectorAll("[data-export-cancel]").forEach((node) => node.addEventListener("click", closeMarkdownExportDialog));
+        els.exportScrim.querySelector("[data-export-submit]")?.addEventListener("click", exportActiveMarkdownHtml);
+        els.exportScrim.querySelectorAll("[data-export-format]").forEach((node) => node.addEventListener("click", () => { appState.exportActiveFormat = node.dataset.exportFormat || "html"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-export-html-mode]").forEach((node) => node.addEventListener("click", () => { appState.exportHtmlMode = node.dataset.exportHtmlMode || "reading"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelector("[data-export-toggle-templates]")?.addEventListener("click", () => { appState.exportExpandedTemplates = !appState.exportExpandedTemplates; renderMarkdownExportDialog(); });
+        els.exportScrim.querySelectorAll("[data-export-template-choice]").forEach((node) => node.addEventListener("click", () => { const value = node.dataset.exportTemplateChoice; if (!value) return; if (appState.exportHtmlMode === "reading") appState.exportSelections.readingTemplate = value; else appState.exportSelections.presentationTemplate = value; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-reading-pref-toggle]").forEach((node) => node.addEventListener("click", () => {
+          const key = node.dataset.readingPrefToggle;
+          if (!key) return;
+          const next = !Boolean(appState.exportPreferences.reading[key]);
+          appState.exportPreferences.reading[key] = next;
+          if (key === "outline" && next) appState.exportPreferences.reading.width = "wide";
+          renderMarkdownExportDialog();
+        }));
+        els.exportScrim.querySelectorAll("[data-reading-width]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.reading.width = node.dataset.readingWidth || "standard"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-aspect]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.aspectRatio = node.dataset.presentationAspect || "16-9"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-density]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.density = node.dataset.presentationDensity || "balanced"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-output]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.outputKind = node.dataset.presentationOutput || "static"; renderMarkdownExportDialog(); }));
+        els.exportScrim.addEventListener("click", (event) => {
+          if (event.target === els.exportScrim && !appState.exportInProgress) closeMarkdownExportDialog();
+        }, { once: true });
+      }
+
+      function renderMarkdownExportDialog() {
+        if (!els.exportScrim) return;
+        els.exportScrim.classList.toggle("open", Boolean(appState.exportDialogOpen));
+        els.exportScrim.setAttribute("aria-hidden", appState.exportDialogOpen ? "false" : "true");
+        if (!appState.exportDialogOpen) {
+          els.exportScrim.innerHTML = "";
+          return;
+        }
+        renderMarkdownExportDialogV2();
       }
 
       function renderSettingsAgentProjectContent() {
@@ -22273,6 +22990,56 @@ if (!chipTipController) {
         } catch (error) {
           setStatus(`导出失败：${normalizeError(error)}`, "error");
         }
+      }
+
+      async function openMarkdownExportDialog() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return;
+        const ready = await ensureMarkdownSavedBeforeContinue(tab);
+        if (!ready) return;
+        appState.exportActiveFormat = "html";
+        appState.exportHtmlMode = "reading";
+        appState.exportExpandedTemplates = false;
+        appState.exportDialogOpen = true;
+        appState.exportInProgress = false;
+        renderMarkdownExportDialog();
+      }
+
+      async function exportActiveMarkdownHtml() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.exportInProgress) return;
+        appState.exportInProgress = true;
+        renderMarkdownExportDialog();
+        try {
+          const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const response = await invoke("export_markdown_html", {
+            itemId: tab.id,
+            template: appState.exportSelections.readingTemplate,
+            preferences: appState.exportPreferences.reading,
+            expectedFileHash,
+            expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
+          });
+          appState.exportDialogOpen = false;
+          appState.exportInProgress = false;
+          renderMarkdownExportDialog();
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          setStatus(
+            warningCount > 0
+              ? formatTranslation("markdown.exportImagesWarning", { count: warningCount })
+              : `${t("markdown.exportHtmlSuccessPrefix")}${tab.item.fileName}`,
+            warningCount > 0 ? "warn" : "ok"
+          );
+          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+        } catch (error) {
+          appState.exportInProgress = false;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportHtmlFailedPrefix")}${normalizeError(error)}`, "error");
+          showToast(t("markdown.exportFailed"));
+        }
+      }
+
+      async function exportActiveMarkdown() {
+        await saveAsActiveMarkdown();
       }
 
       async function createTag() {

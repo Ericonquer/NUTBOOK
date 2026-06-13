@@ -6,10 +6,50 @@ use std::{
 use crate::{core::markdown_render::render_markdown_html, errors::AppError};
 
 pub const READING_TEMPLATE: &str = "reading";
+pub const READING_LIGHT_TEMPLATE: &str = "reading-light";
+pub const READING_DARK_TEMPLATE: &str = "reading-dark";
 const MAX_SINGLE_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
 const FALLBACK_READING_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading.html");
+const FALLBACK_READING_LIGHT_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-light.html");
+const FALLBACK_READING_DARK_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-dark.html");
 const NUTBOOK_LOGO_BYTES: &[u8] = include_bytes!("../../../nutbook-logo.png");
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadingWidth {
+    Compact,
+    Standard,
+    Wide,
+}
+
+impl ReadingWidth {
+    fn css_width(self) -> &'static str {
+        match self {
+            Self::Compact => "760px",
+            Self::Standard => "880px",
+            Self::Wide => "1040px",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MarkdownHtmlExportPreferences {
+    pub embed_images: bool,
+    pub code_copy: bool,
+    pub outline: bool,
+    pub width: ReadingWidth,
+}
+
+impl Default for MarkdownHtmlExportPreferences {
+    fn default() -> Self {
+        Self {
+            embed_images: true,
+            code_copy: true,
+            outline: true,
+            width: ReadingWidth::Standard,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkdownHtmlExportInput {
@@ -19,6 +59,7 @@ pub struct MarkdownHtmlExportInput {
     pub markdown: String,
     pub generated_at: String,
     pub template_html: String,
+    pub preferences: MarkdownHtmlExportPreferences,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,12 +82,20 @@ pub fn fallback_reading_template() -> &'static str {
     FALLBACK_READING_TEMPLATE
 }
 
+pub fn fallback_reading_light_template() -> &'static str {
+    FALLBACK_READING_LIGHT_TEMPLATE
+}
+
+pub fn fallback_reading_dark_template() -> &'static str {
+    FALLBACK_READING_DARK_TEMPLATE
+}
+
 pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtmlExportOutput, AppError> {
     if input.template_html.trim().is_empty() {
         return Err(AppError::InvalidParams);
     }
 
-    let rendered = render_markdown_html(&input.markdown);
+    let rendered = add_heading_ids(&render_markdown_html(&input.markdown), &input.markdown);
     if rendered.trim().is_empty() {
         return Err(AppError::InvalidParams);
     }
@@ -57,13 +106,27 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
         .map(Path::to_path_buf)
         .unwrap_or_else(PathBuf::new);
     let mut embedder = ImageEmbedder::new(source_dir);
-    let content = embedder.embed_images(&rendered);
+    let outline_html = if input.preferences.outline {
+        render_outline(&input.markdown)
+    } else {
+        String::new()
+    };
+    let content = if input.preferences.embed_images {
+        embedder.embed_images(&rendered)
+    } else {
+        rendered
+    };
     let warnings_html = render_warnings(&embedder.warnings);
 
     let html = input
         .template_html
         .replace("{{title}}", &escape_html_text(&input.title))
         .replace("{{content}}", &content)
+        .replace("{{outline}}", &outline_html)
+        .replace("{{outline_columns}}", if outline_html.is_empty() { "1fr" } else { "180px minmax(0, 1fr)" })
+        .replace("{{page_width}}", input.preferences.width.css_width())
+        .replace("{{code_copy_styles}}", if input.preferences.code_copy { CODE_COPY_STYLES } else { "" })
+        .replace("{{code_copy_script}}", if input.preferences.code_copy { CODE_COPY_SCRIPT } else { "" })
         .replace("{{generated_at}}", &escape_html_text(&input.generated_at))
         .replace("{{source_file}}", &escape_html_text(&input.source_file))
         .replace("{{logo_data_uri}}", &nutbook_logo_data_uri())
@@ -74,6 +137,85 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
         warnings: embedder.warnings,
     })
 }
+
+const CODE_COPY_STYLES: &str = r#"
+    .code-copy-button { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: rgba(255,255,255,0.1); color: rgba(240,240,242,0.76); cursor: pointer; }
+    .code-copy-button:hover { color: #f0f0f2; background: rgba(255,255,255,0.16); }
+    .code-copy-button.copied { color: #f0f0f2; background: rgba(255,255,255,0.18); }
+    .code-copy-button.failed { color: #f0f0f2; background: rgba(186,26,26,0.55); }
+    .code-copy-icon { display: block; width: 16px; height: 16px; pointer-events: none; }
+    .code-copy-tooltip { position: absolute; top: 11px; right: 48px; min-height: 28px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 8px; background: rgba(24,24,28,0.94); color: #f0f0f2; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; opacity: 0; transform: translateX(4px); transition: opacity 140ms ease, transform 140ms ease; }
+    .code-copy-tooltip.visible,
+    .code-copy-button:hover + .code-copy-tooltip,
+    .code-copy-button:focus-visible + .code-copy-tooltip { opacity: 1; transform: translateX(0); }
+    .code-copy-tooltip.success { background: #1a1c1d; }
+    .code-copy-tooltip.failed { background: #ba1a1a; }
+"#;
+
+const CODE_COPY_SCRIPT: &str = r#"<script>
+    (() => {
+      async function copyText(text) {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "true");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      document.querySelectorAll("pre").forEach((pre) => {
+        if (pre.querySelector("[data-copy-code]")) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "code-copy-button";
+        button.dataset.copyCode = "true";
+        button.setAttribute("aria-label", "复制代码");
+        button.title = "复制代码";
+        button.innerHTML = '<svg class="code-copy-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
+        const tooltip = document.createElement("span");
+        tooltip.className = "code-copy-tooltip";
+        tooltip.dataset.copyTooltip = "true";
+        tooltip.textContent = "复制代码";
+        const resetButton = () => {
+          button.classList.remove("copied", "failed");
+          button.setAttribute("aria-label", "复制代码");
+          button.title = "复制代码";
+          tooltip.classList.remove("visible", "success", "failed");
+          tooltip.textContent = "复制代码";
+        };
+        button.addEventListener("click", async () => {
+          try {
+            await copyText(pre.innerText || pre.textContent || "");
+            button.classList.remove("failed");
+            button.classList.add("copied");
+            button.setAttribute("aria-label", "已复制");
+            button.title = "已复制";
+            tooltip.textContent = "复制成功";
+            tooltip.classList.remove("failed");
+            tooltip.classList.add("visible", "success");
+            window.setTimeout(() => resetButton(), 900);
+          } catch (_) {
+            button.classList.remove("copied");
+            button.classList.add("failed");
+            button.setAttribute("aria-label", "复制失败");
+            button.title = "复制失败";
+            tooltip.textContent = "复制失败";
+            tooltip.classList.remove("success");
+            tooltip.classList.add("visible", "failed");
+            window.setTimeout(() => resetButton(), 900);
+          }
+        });
+        pre.appendChild(button);
+        pre.appendChild(tooltip);
+      });
+    })();
+  </script>"#;
 
 struct ImageEmbedder {
     source_dir: PathBuf,
@@ -190,6 +332,82 @@ fn image_placeholder(tag: &str, src: &str) -> String {
     )
 }
 
+fn render_outline(markdown: &str) -> String {
+    let items = markdown
+        .lines()
+        .filter_map(markdown_heading)
+        .map(|(level, title)| {
+            let id = heading_id(&title);
+            format!(
+                r##"<a class="depth-{level}" href="#{}">{}</a>"##,
+                escape_html_attr(&id),
+                escape_html_text(&title)
+            )
+        })
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return String::new();
+    }
+    format!(
+        r#"<nav class="export-outline" aria-label="文档大纲"><p class="export-outline-title">文档大纲</p>{}</nav>"#,
+        items.join("")
+    )
+}
+
+fn add_heading_ids(html: &str, markdown: &str) -> String {
+    let mut output = html.to_string();
+    for (level, title) in markdown.lines().filter_map(markdown_heading) {
+        let id = heading_id(&title);
+        let open = format!("<h{level}>");
+        let with_id = format!(r#"<h{level} id="{}">"#, escape_html_attr(&id));
+        output = output.replacen(&open, &with_id, 1);
+    }
+    output
+}
+
+fn markdown_heading(line: &str) -> Option<(u8, String)> {
+    let trimmed = line.trim_start();
+    let hashes = trimmed.chars().take_while(|value| *value == '#').count();
+    if !(1..=3).contains(&hashes) {
+        return None;
+    }
+    let rest = trimmed.get(hashes..)?;
+    if !rest.starts_with(' ') {
+        return None;
+    }
+    let title = rest
+        .trim()
+        .trim_end_matches('#')
+        .trim()
+        .to_string();
+    if title.is_empty() {
+        return None;
+    }
+    Some((hashes as u8, title))
+}
+
+fn heading_id(title: &str) -> String {
+    let mut id = String::new();
+    let mut previous_dash = false;
+    for ch in title.chars() {
+        if ch.is_alphanumeric() {
+            for lower in ch.to_lowercase() {
+                id.push(lower);
+            }
+            previous_dash = false;
+        } else if !previous_dash {
+            id.push('-');
+            previous_dash = true;
+        }
+    }
+    let id = id.trim_matches('-');
+    if id.is_empty() {
+        "section".to_string()
+    } else {
+        id.to_string()
+    }
+}
+
 fn render_warnings(warnings: &[String]) -> String {
     if warnings.is_empty() {
         return String::new();
@@ -252,6 +470,7 @@ mod tests {
 
     use super::{
         default_markdown_html_file_name, fallback_reading_template, render_reading_html, MarkdownHtmlExportInput,
+        MarkdownHtmlExportPreferences, ReadingWidth,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -276,10 +495,11 @@ mod tests {
             markdown: "# Title\n\n> Quote\n\n| A | B |\n| - | - |\n| 1 | 2 |".to_string(),
             generated_at: "123".to_string(),
             template_html: template(),
+            preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
 
-        assert!(output.html.contains("<h1>Title</h1>"));
+        assert!(output.html.contains(r#"<h1 id="title">Title</h1>"#));
         assert!(output.html.contains("<blockquote>"));
         assert!(output.html.contains("<table>"));
         assert!(output.html.contains("<title>Plan &lt;One&gt;</title>"));
@@ -296,6 +516,7 @@ mod tests {
             markdown: "> Quote\n\n```rust\nfn main() {}\n```\n\n| A | B |\n| - | - |\n| 1 | 2 |".to_string(),
             generated_at: "修改时间：2026-06-11 16:20".to_string(),
             template_html: fallback_reading_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
 
@@ -328,6 +549,7 @@ mod tests {
             markdown: "# Logo".to_string(),
             generated_at: "修改时间：2026-06-11 16:20".to_string(),
             template_html: fallback_reading_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
 
@@ -352,6 +574,7 @@ mod tests {
             markdown: "![Hero](hero.png)".to_string(),
             generated_at: "1".to_string(),
             template_html: template(),
+            preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
 
@@ -373,6 +596,7 @@ mod tests {
             markdown: "![Icon](icon.svg)".to_string(),
             generated_at: "1".to_string(),
             template_html: template(),
+            preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
 
@@ -380,6 +604,63 @@ mod tests {
         assert!(!output.html.contains("missing-image"));
         assert!(output.warnings.is_empty());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reading_preferences_can_disable_image_embedding_and_code_copy() {
+        let root = temp_path("preference-root");
+        fs::create_dir_all(&root).expect("root should be created");
+        fs::write(root.join("hero.png"), b"abc").expect("image should be written");
+
+        let output = render_reading_html(MarkdownHtmlExportInput {
+            title: "Preferences".to_string(),
+            source_file: "note.md".to_string(),
+            source_path: root.join("note.md"),
+            markdown: "![Hero](hero.png)\n\n```js\nconsole.log(1)\n```".to_string(),
+            generated_at: "1".to_string(),
+            template_html: fallback_reading_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences {
+                embed_images: false,
+                code_copy: false,
+                outline: false,
+                width: ReadingWidth::Compact,
+            },
+        })
+        .expect("reading html should render");
+
+        assert!(output.html.contains(r#"src="hero.png""#));
+        assert!(!output.html.contains("src=\"data:image/png;base64,YWJj\""));
+        assert!(!output.html.contains("data-copy-code"));
+        assert!(!output.html.contains("navigator.clipboard"));
+        assert!(output.html.contains("width: min(760px"));
+        assert!(!output.html.contains(r#"<nav class="export-outline""#));
+        assert!(output.warnings.is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reading_preferences_render_outline_and_wide_width() {
+        let output = render_reading_html(MarkdownHtmlExportInput {
+            title: "Outline".to_string(),
+            source_file: "outline.md".to_string(),
+            source_path: temp_path("outline").with_extension("md"),
+            markdown: "# Intro\n\n## Details\n\n### More".to_string(),
+            generated_at: "1".to_string(),
+            template_html: fallback_reading_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences {
+                embed_images: true,
+                code_copy: true,
+                outline: true,
+                width: ReadingWidth::Wide,
+            },
+        })
+        .expect("reading html should render");
+
+        assert!(output.html.contains("width: min(1040px"));
+        assert!(output.html.contains(r#"<nav class="export-outline""#));
+        assert!(output.html.contains(r##"href="#intro""##));
+        assert!(output.html.contains(r#"<h1 id="intro">Intro</h1>"#));
+        assert!(output.html.contains(r##"class="depth-3" href="#more""##));
     }
 
     #[test]

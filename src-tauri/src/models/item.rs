@@ -379,8 +379,18 @@ pub struct ExportMarkdownRequest {
 pub struct ExportMarkdownHtmlRequest {
     pub item_id: i64,
     pub template: String,
+    pub preferences: Option<ExportMarkdownHtmlPreferences>,
     pub expected_file_hash: String,
     pub expected_modified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownHtmlPreferences {
+    pub embed_images: bool,
+    pub code_copy: bool,
+    pub outline: bool,
+    pub width: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
