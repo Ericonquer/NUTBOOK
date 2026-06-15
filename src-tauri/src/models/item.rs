@@ -391,6 +391,9 @@ pub struct ExportMarkdownHtmlPreferences {
     pub code_copy: bool,
     pub outline: bool,
     pub width: String,
+    pub aspect_ratio: Option<String>,
+    pub density: Option<String>,
+    pub output_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

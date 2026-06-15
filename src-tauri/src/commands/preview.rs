@@ -14,9 +14,12 @@ use crate::{
         },
         document_title::DocumentTitle,
         markdown_export::{
-            default_markdown_html_file_name, fallback_reading_dark_template, fallback_reading_light_template,
-            fallback_reading_template, render_reading_html, MarkdownHtmlExportInput, MarkdownHtmlExportOutput,
-            MarkdownHtmlExportPreferences, ReadingWidth, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE, READING_TEMPLATE,
+            default_markdown_html_file_name, fallback_presentation_dark_template, fallback_presentation_light_template,
+            fallback_reading_dark_template, fallback_reading_light_template, fallback_reading_template,
+            render_presentation_html, render_reading_html, MarkdownHtmlExportInput, MarkdownHtmlExportOutput,
+            MarkdownHtmlExportPreferences, PresentationDensity, PresentationHtmlExportPreferences, ReadingWidth,
+            PRESENTATION_DARK_TEMPLATE, PRESENTATION_LIGHT_TEMPLATE, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE,
+            READING_TEMPLATE,
         },
         html_runtime::{
             attach_controls_overlay, attach_external_html_runtime_host,
@@ -1363,7 +1366,7 @@ fn export_markdown_html_to_path(
     }
     if !matches!(
         payload.template.as_str(),
-        READING_TEMPLATE | READING_LIGHT_TEMPLATE | READING_DARK_TEMPLATE
+        READING_TEMPLATE | READING_LIGHT_TEMPLATE | READING_DARK_TEMPLATE | PRESENTATION_LIGHT_TEMPLATE | PRESENTATION_DARK_TEMPLATE
     ) {
         return Err(AppError::InvalidParams);
     }
@@ -1376,15 +1379,25 @@ fn export_markdown_html_to_path(
             return Err(AppError::EditConflict);
         }
     }
-    let MarkdownHtmlExportOutput { html, warnings } = render_reading_html(MarkdownHtmlExportInput {
-        title: item.summary.title.clone().unwrap_or_else(|| item.summary.file_name.clone()),
+    let input = MarkdownHtmlExportInput {
+        title: item
+            .summary
+            .title
+            .clone()
+            .unwrap_or_else(|| item.summary.file_name.clone()),
         source_file: item.summary.file_name.clone(),
         source_path: std::path::PathBuf::from(&item.summary.file_path),
         markdown: raw,
         generated_at: format_export_modified_at(&item.summary.modified_at),
         template_html,
         preferences: export_preferences(payload.preferences.as_ref()),
-    })?;
+    };
+    let rendered = if matches!(payload.template.as_str(), PRESENTATION_LIGHT_TEMPLATE | PRESENTATION_DARK_TEMPLATE) {
+        render_presentation_html(input, presentation_preferences(payload.preferences.as_ref()))?
+    } else {
+        render_reading_html(input)?
+    };
+    let MarkdownHtmlExportOutput { html, warnings } = rendered;
     std::fs::write(target, html).map_err(|_| AppError::IoError)?;
     Ok(ExportMarkdownHtmlResponse {
         item_id: payload.item_id,
@@ -1396,6 +1409,8 @@ fn export_markdown_html_to_path(
 
 fn markdown_export_template(app: &tauri::AppHandle, template: &str) -> String {
     let file_name = match template {
+        PRESENTATION_DARK_TEMPLATE => "markdown-presentation-dark.html",
+        PRESENTATION_LIGHT_TEMPLATE => "markdown-presentation-light.html",
         READING_DARK_TEMPLATE => "markdown-reading-dark.html",
         READING_LIGHT_TEMPLATE | READING_TEMPLATE => "markdown-reading-light.html",
         _ => "markdown-reading-light.html",
@@ -1408,10 +1423,34 @@ fn markdown_export_template(app: &tauri::AppHandle, template: &str) -> String {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .or_else(|| std::fs::read_to_string(dev_path).ok())
         .unwrap_or_else(|| match template {
+            PRESENTATION_DARK_TEMPLATE => fallback_presentation_dark_template().to_string(),
+            PRESENTATION_LIGHT_TEMPLATE => fallback_presentation_light_template().to_string(),
             READING_DARK_TEMPLATE => fallback_reading_dark_template().to_string(),
             READING_LIGHT_TEMPLATE | READING_TEMPLATE => fallback_reading_light_template().to_string(),
             _ => fallback_reading_template().to_string(),
         })
+}
+
+fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> PresentationHtmlExportPreferences {
+    let aspect_ratio = preferences
+        .and_then(|value| value.aspect_ratio.clone())
+        .unwrap_or_else(|| "16-9".to_string());
+    let output_kind = preferences
+        .and_then(|value| value.output_kind.clone())
+        .unwrap_or_else(|| "static".to_string());
+    let density = match preferences
+        .and_then(|value| value.density.as_deref())
+        .unwrap_or("balanced")
+    {
+        "master" | "concise" => PresentationDensity::Master,
+        "report" | "detailed" => PresentationDensity::Report,
+        _ => PresentationDensity::Balanced,
+    };
+    PresentationHtmlExportPreferences {
+        aspect_ratio,
+        density,
+        output_kind,
+    }
 }
 
 fn export_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> MarkdownHtmlExportPreferences {
@@ -2291,6 +2330,84 @@ mod tests {
         )
         .expect_err("stale hash should be rejected");
         assert_eq!(error.code(), "EDIT_CONFLICT");
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_markdown_html_accepts_presentation_template() {
+        let root = temp_path("presentation-export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("deck.md");
+        let markdown = "# Deck\n\nIntro.\n\n## First\n\nContent.\n\n## Second\n\nMore.";
+        fs::write(&markdown_path, markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("presentation-export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Deck".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "deck.md".to_string(),
+                    file_name: "deck.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: markdown.len() as i64,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
+
+        let target = root.join("deck.html");
+        let response = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "presentation-light".to_string(),
+                preferences: Some(crate::models::ExportMarkdownHtmlPreferences {
+                    embed_images: true,
+                    code_copy: true,
+                    outline: true,
+                    width: "standard".to_string(),
+                    aspect_ratio: Some("16-9".to_string()),
+                    density: Some("balanced".to_string()),
+                    output_kind: Some("static".to_string()),
+                }),
+                expected_file_hash: content_hash(markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_presentation_light_template().to_string(),
+        )
+        .expect("presentation html export should succeed");
+
+        let html = fs::read_to_string(&target).expect("target html should read");
+        assert!(response.exported);
+        assert!(html.contains(r#"<main class="deck aspect-16-9""#));
+        assert!(html.contains("data-presentation-controls"));
+        assert!(html.contains("Deck"));
 
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_dir_all(root);

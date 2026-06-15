@@ -5024,7 +5024,8 @@
       }
 
       .export-icon-button:hover .export-tooltip,
-      .export-segment:hover .export-tooltip {
+      .export-segment:hover .export-tooltip,
+      .export-density-option:hover .export-tooltip {
         opacity: 1;
         transform: translate(-50%, 0);
       }
@@ -5267,6 +5268,7 @@
       }
 
       .export-density-option {
+        position: relative;
         min-width: 0;
         min-height: 22px;
         display: inline-flex;
@@ -16716,7 +16718,11 @@
           const tip = t(`markdown.${tipKey}`);
           return `<button class="export-segment ${activeValue === value ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(value)}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
         };
-        const densityButton = (value, labelKey) => `<button class="export-density-option ${presentationPreferences.density === value ? "active" : ""}" type="button" data-presentation-density="${escapeAttribute(value)}">${escapeHtml(t(`markdown.${labelKey}`))}</button>`;
+        const normalizedPresentationDensity = presentationPreferences.density === "concise" ? "master" : presentationPreferences.density === "detailed" ? "report" : (presentationPreferences.density || "balanced");
+        const densityButton = (value, labelKey, tipKey) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-density-option ${normalizedPresentationDensity === value ? "active" : ""}" type="button" data-presentation-density="${escapeAttribute(value)}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
         const readingPanel = `
           <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
             <div class="export-preferences">
@@ -16735,7 +16741,7 @@
                 ${[["16-9","aspectWide","aspectWideTip"],["4-3","aspectClassic","aspectClassicTip"],["portrait","aspectPortrait","aspectPortraitTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.aspectRatio, "data-presentation-aspect")).join("")}
               </div></div>
               <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.contentDensity"))}</div><div class="export-density-picker">
-                ${densityButton("concise", "densityConcise")}${densityButton("balanced", "densityBalanced")}${densityButton("detailed", "densityDetailed")}
+                ${densityButton("master", "densityMaster", "densityMasterTip")}${densityButton("balanced", "densityBalanced", "densityBalancedTip")}${densityButton("report", "densityReport", "densityReportTip")}
               </div></div>
               <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid two">
                 ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
@@ -16755,7 +16761,8 @@
             ${isReading ? readingPanel : presentationPanel}
           </section>`;
         const comingSoonPanel = `<section class="export-section"><div class="export-coming-soon"><div><strong>${escapeHtml(t("markdown.comingSoon"))}</strong><br>${escapeHtml(t("markdown.exportComingSoonBody"))}</div></div></section>`;
-        const canExport = isHtml && isReading && !appState.exportInProgress;
+        const canExportPresentation = isHtml && !isReading && presentationPreferences.outputKind === "static";
+        const canExport = isHtml && (isReading || canExportPresentation) && !appState.exportInProgress;
         els.exportScrim.innerHTML = `
           <div class="export-modal ${expanded ? "expanded" : ""}" role="dialog" aria-modal="true" aria-labelledby="markdownExportTitle">
             <div class="export-header"><div><h3 id="markdownExportTitle" class="export-title">${escapeHtml(t("markdown.exportDialogTitle"))}</h3></div><button class="export-close" type="button" data-export-cancel aria-label="${escapeAttribute(t("markdown.closeExportDialog"))}">×</button></div>
@@ -23012,10 +23019,30 @@ if (!chipTipController) {
         renderMarkdownExportDialog();
         try {
           const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const isPresentationExport = appState.exportHtmlMode === "presentation";
+          const exportTemplate = isPresentationExport
+            ? appState.exportSelections.presentationTemplate
+            : appState.exportSelections.readingTemplate;
+          const normalizedPresentationDensity = appState.exportPreferences.presentation.density === "concise"
+            ? "master"
+            : appState.exportPreferences.presentation.density === "detailed"
+              ? "report"
+              : (appState.exportPreferences.presentation.density || "balanced");
+          const exportPreferences = isPresentationExport
+            ? {
+                embedImages: true,
+                codeCopy: false,
+                outline: false,
+                width: "standard",
+                aspectRatio: appState.exportPreferences.presentation.aspectRatio,
+                density: normalizedPresentationDensity,
+                outputKind: appState.exportPreferences.presentation.outputKind
+              }
+            : appState.exportPreferences.reading;
           const response = await invoke("export_markdown_html", {
             itemId: tab.id,
-            template: appState.exportSelections.readingTemplate,
-            preferences: appState.exportPreferences.reading,
+            template: exportTemplate,
+            preferences: exportPreferences,
             expectedFileHash,
             expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
           });
