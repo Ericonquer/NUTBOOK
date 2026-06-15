@@ -22,6 +22,8 @@
       box-shadow: 0 18px 52px rgba(26, 28, 29, 0.08);
     }
     header { margin-bottom: 34px; color: #5e5e63; font-size: 13px; }
+    header h1 { overflow-wrap: anywhere; }
+    article { min-width: 0; overflow-wrap: break-word; }
     h1, h2, h3, h4, h5, h6 { color: #1a1c1d; line-height: 1.25; }
     h1 { margin: 0 0 24px; font-size: 34px; }
     h2 { margin: 34px 0 14px; font-size: 25px; }
@@ -31,12 +33,14 @@
     blockquote { padding: 12px 18px; border-left: 4px solid #cfc4c5; border-radius: 0 14px 14px 0; background: #f3f3f5; color: #4c4546; }
     blockquote p:last-child { margin-bottom: 0; }
     code { padding: 0.12em 0.35em; border-radius: 5px; background: #eeeef0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
-    pre { position: relative; overflow: auto; padding: 16px; border-radius: 8px; background: #2f3132; color: #f0f0f2; }
+    pre { max-width: 100%; position: relative; overflow: auto; padding: 16px; border-radius: 8px; background: #2f3132; color: #f0f0f2; }
     pre code { padding: 0; background: transparent; color: inherit; }
     {{code_copy_styles}}
-    table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #cfc4c5; border-radius: 14px; overflow: hidden; font-size: 0.95em; line-height: 1.38; }
+    table { max-width: 100%; width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #cfc4c5; border-radius: 14px; overflow: auto; font-size: 0.95em; line-height: 1.38; }
     th, td { min-width: 48px; padding: 7px 10px; border-right: 1px solid #e2e2e4; border-bottom: 1px solid #e2e2e4; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: normal; }
     th { background: #f3f3f5; color: #1a1c1d; font-weight: 700; }
+    thead tr:first-child th:first-child { border-top-left-radius: 13px; }
+    thead tr:first-child th:last-child { border-top-right-radius: 13px; }
     tr:last-child td { border-bottom: 0; }
     th:last-child, td:last-child { border-right: 0; }
     img { max-width: 100%; height: auto; border-radius: 8px; }
@@ -47,13 +51,28 @@
     .footer-logo { display: block; width: 74px; height: auto; border-radius: 0; opacity: 0.78; }
     .export-layout { display: grid; grid-template-columns: {{outline_columns}}; gap: 28px; }
     .export-outline { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow: auto; padding-right: 12px; border-right: 1px solid #e2e2e4; font-size: 13px; }
-    .export-outline-title { margin: 0 0 10px; color: #1a1c1d; font-size: 12px; font-weight: 800; }
+    .export-outline-header { margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .export-outline-title { margin: 0; color: #1a1c1d; font-size: 12px; font-weight: 800; }
+    .export-outline-toggle-wrap { position: relative; display: inline-flex; }
+    .export-outline-toggle { flex: 0 0 auto; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #5e5e63; cursor: pointer; }
+    .export-outline-toggle:hover { background: #eeeef0; color: #1a1c1d; }
+    .export-outline-toggle svg { width: 16px; height: 16px; transition: transform 160ms ease; }
+    .export-outline-tooltip { position: absolute; top: 34px; right: 0; z-index: 4; padding: 7px 9px; white-space: nowrap; border-radius: 8px; background: rgba(24,24,28,0.94); color: #f0f0f2; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; opacity: 0; transform: translateY(-2px); transition: opacity 140ms ease, transform 140ms ease; }
+    .export-outline-toggle-wrap:hover .export-outline-tooltip,
+    .export-outline-toggle:focus-visible + .export-outline-tooltip { opacity: 1; transform: translateY(0); }
     .export-outline a { display: block; padding: 4px 0; color: #5e5e63; text-decoration: none; }
     .export-outline a:hover { color: #1a1c1d; }
     .export-outline .depth-3 { padding-left: 12px; font-size: 12px; }
+    body.outline-collapsed .export-layout { grid-template-columns: 36px minmax(0, 1fr); gap: 18px; }
+    body.outline-collapsed .export-outline { padding-right: 0; border-right: 0; overflow: visible; }
+    body.outline-collapsed .export-outline-title,
+    body.outline-collapsed .export-outline-links { display: none; }
+    body.outline-collapsed .export-outline-toggle svg { transform: rotate(180deg); }
     @media (max-width: 900px) {
       .export-layout { grid-template-columns: 1fr; }
       .export-outline { position: static; max-height: none; border-right: 0; border-bottom: 1px solid #e2e2e4; padding: 0 0 14px; }
+      body.outline-collapsed .export-layout { grid-template-columns: 1fr; }
+      body.outline-collapsed .export-outline { border-bottom: 0; padding-bottom: 0; }
     }
     @media (max-width: 720px) {
       .page { width: 100%; min-height: 100vh; margin: 0; padding: 28px 20px; border: 0; border-radius: 0; box-shadow: none; }
@@ -61,7 +80,7 @@
     }
   </style>
 </head>
-<body>
+<body class="{{outline_state_class}}">
   <main class="page" data-template="reading-light">
     <header>
       <h1>{{title}}</h1>
@@ -77,5 +96,6 @@
     <footer><span>by</span><img class="footer-logo" src="{{logo_data_uri}}" alt="NUTBOOK"></footer>
   </main>
   {{code_copy_script}}
+  {{outline_toggle_script}}
 </body>
 </html>

@@ -95,6 +95,8 @@
     .code-frame.code-scroll-y { overflow-y: auto; overflow-x: hidden; }
     .mobile-landscape-hint { margin-top: 22px; cursor: zoom-in; }
     .mobile-hint-preview { height: 210px; display: grid; place-items: center; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,0.56); opacity: 0.9; }
+    .mobile-hint-icon { width: 132px; height: 120px; color: #5e5e63; opacity: 0.72; }
+    .mobile-hint-detail { display: none; }
     .mobile-hint-preview img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
     .mobile-hint-preview table { width: 100%; max-height: 100%; border-collapse: collapse; font-size: 11px; }
     .mobile-hint-preview th, .mobile-hint-preview td { padding: 5px 6px; border: 1px solid #dfdfe3; }
@@ -185,9 +187,10 @@
       });
       document.querySelectorAll(".mobile-landscape-hint").forEach((hint) => {
         const open = () => {
+          const detail = hint.querySelector(".mobile-hint-detail");
           const preview = hint.querySelector(".mobile-hint-preview");
           if (!preview || !viewerContent) return;
-          viewerContent.innerHTML = preview.innerHTML;
+          viewerContent.innerHTML = detail?.innerHTML || preview.innerHTML;
           viewer.classList.add("is-open");
         };
         hint.addEventListener("click", open);

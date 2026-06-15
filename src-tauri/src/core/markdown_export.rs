@@ -12,7 +12,6 @@ pub const PRESENTATION_LIGHT_TEMPLATE: &str = "presentation-light";
 pub const PRESENTATION_DARK_TEMPLATE: &str = "presentation-dark";
 const MAX_SINGLE_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
-const FALLBACK_READING_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading.html");
 const FALLBACK_READING_LIGHT_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-light.html");
 const FALLBACK_READING_DARK_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-dark.html");
 const FALLBACK_PRESENTATION_LIGHT_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-presentation-light.html");
@@ -106,10 +105,6 @@ pub fn default_markdown_html_file_name(source_file: &str) -> String {
     format!("{stem}.html")
 }
 
-pub fn fallback_reading_template() -> &'static str {
-    FALLBACK_READING_TEMPLATE
-}
-
 pub fn fallback_reading_light_template() -> &'static str {
     FALLBACK_READING_LIGHT_TEMPLATE
 }
@@ -147,6 +142,11 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
     } else {
         String::new()
     };
+    let outline_state_class = if !outline_html.is_empty() && input.preferences.width == ReadingWidth::Compact {
+        "outline-collapsed"
+    } else {
+        ""
+    };
     let content = if input.preferences.embed_images {
         embedder.embed_images(&rendered)
     } else {
@@ -160,6 +160,8 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
         .replace("{{content}}", &content)
         .replace("{{outline}}", &outline_html)
         .replace("{{outline_columns}}", if outline_html.is_empty() { "1fr" } else { "180px minmax(0, 1fr)" })
+        .replace("{{outline_state_class}}", outline_state_class)
+        .replace("{{outline_toggle_script}}", if outline_html.is_empty() { "" } else { OUTLINE_TOGGLE_SCRIPT })
         .replace("{{page_width}}", input.preferences.width.css_width())
         .replace("{{code_copy_styles}}", if input.preferences.code_copy { CODE_COPY_STYLES } else { "" })
         .replace("{{code_copy_script}}", if input.preferences.code_copy { CODE_COPY_SCRIPT } else { "" })
@@ -223,12 +225,18 @@ pub fn render_presentation_html(
 }
 
 const CODE_COPY_STYLES: &str = r#"
-    .code-copy-button { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: rgba(255,255,255,0.1); color: rgba(240,240,242,0.76); cursor: pointer; }
+    .code-block { margin: 0 0 18px; overflow: hidden; border-radius: 8px; background: #2f3132; color: #f0f0f2; }
+    .code-block pre { margin: 0; border-radius: 0; background: transparent; color: inherit; }
+    .code-block pre code { background: transparent; color: inherit; }
+    .code-toolbar { min-height: 42px; padding: 8px 10px 2px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: inherit; }
+    .code-language { color: rgba(240,240,242,0.52); font-size: 12px; font-weight: 800; line-height: 1; letter-spacing: 0; text-transform: uppercase; }
+    .code-copy-wrap { position: relative; display: inline-flex; align-items: center; }
+    .code-copy-button { width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: rgba(255,255,255,0.1); color: rgba(240,240,242,0.76); cursor: pointer; }
     .code-copy-button:hover { color: #f0f0f2; background: rgba(255,255,255,0.16); }
     .code-copy-button.copied { color: #f0f0f2; background: rgba(255,255,255,0.18); }
     .code-copy-button.failed { color: #f0f0f2; background: rgba(186,26,26,0.55); }
     .code-copy-icon { display: block; width: 16px; height: 16px; pointer-events: none; }
-    .code-copy-tooltip { position: absolute; top: 11px; right: 48px; min-height: 28px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 8px; background: rgba(24,24,28,0.94); color: #f0f0f2; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; opacity: 0; transform: translateX(4px); transition: opacity 140ms ease, transform 140ms ease; }
+    .code-copy-tooltip { position: absolute; top: 1px; right: 38px; min-height: 28px; padding: 0 10px; display: inline-flex; align-items: center; white-space: nowrap; border-radius: 8px; background: rgba(24,24,28,0.94); color: #f0f0f2; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; opacity: 0; transform: translateX(4px); transition: opacity 140ms ease, transform 140ms ease; }
     .code-copy-tooltip.visible,
     .code-copy-button:hover + .code-copy-tooltip,
     .code-copy-button:focus-visible + .code-copy-tooltip { opacity: 1; transform: translateX(0); }
@@ -253,8 +261,25 @@ const CODE_COPY_SCRIPT: &str = r#"<script>
         document.execCommand("copy");
         textarea.remove();
       }
+      function codeLanguage(pre) {
+        const code = pre.querySelector("code");
+        const classes = [...(code?.classList || []), ...(pre.classList || [])];
+        const found = classes.find((name) => name.startsWith("language-"));
+        if (!found) return "text";
+        return found.replace(/^language-/, "").trim() || "text";
+      }
       document.querySelectorAll("pre").forEach((pre) => {
         if (pre.querySelector("[data-copy-code]")) return;
+        if (pre.closest(".code-block")) return;
+        const wrapper = document.createElement("div");
+        wrapper.className = "code-block";
+        const toolbar = document.createElement("div");
+        toolbar.className = "code-toolbar";
+        const language = document.createElement("span");
+        language.className = "code-language";
+        language.textContent = codeLanguage(pre);
+        const buttonWrap = document.createElement("span");
+        buttonWrap.className = "code-copy-wrap";
         const button = document.createElement("button");
         button.type = "button";
         button.className = "code-copy-button";
@@ -275,7 +300,8 @@ const CODE_COPY_SCRIPT: &str = r#"<script>
         };
         button.addEventListener("click", async () => {
           try {
-            await copyText(pre.innerText || pre.textContent || "");
+            const code = pre.querySelector("code");
+            await copyText(code?.innerText || code?.textContent || pre.innerText || pre.textContent || "");
             button.classList.remove("failed");
             button.classList.add("copied");
             button.setAttribute("aria-label", "已复制");
@@ -295,9 +321,33 @@ const CODE_COPY_SCRIPT: &str = r#"<script>
             window.setTimeout(() => resetButton(), 900);
           }
         });
-        pre.appendChild(button);
-        pre.appendChild(tooltip);
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(toolbar);
+        wrapper.appendChild(pre);
+        toolbar.appendChild(language);
+        buttonWrap.appendChild(button);
+        buttonWrap.appendChild(tooltip);
+        toolbar.appendChild(buttonWrap);
       });
+    })();
+  </script>"#;
+
+const OUTLINE_TOGGLE_SCRIPT: &str = r#"<script>
+    (() => {
+      const button = document.querySelector("[data-outline-toggle]");
+      if (!button) return;
+      const body = document.body;
+      function sync() {
+        const collapsed = body.classList.contains("outline-collapsed");
+        button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        button.setAttribute("aria-label", collapsed ? "展开大纲" : "收起大纲");
+        button.title = collapsed ? "展开大纲" : "收起大纲";
+      }
+      button.addEventListener("click", () => {
+        body.classList.toggle("outline-collapsed");
+        sync();
+      });
+      sync();
     })();
   </script>"#;
 
@@ -514,7 +564,7 @@ fn render_outline(markdown: &str) -> String {
         return String::new();
     }
     format!(
-        r#"<nav class="export-outline" aria-label="文档大纲"><p class="export-outline-title">文档大纲</p>{}</nav>"#,
+        r#"<nav class="export-outline" aria-label="文档大纲"><div class="export-outline-header"><p class="export-outline-title">文档大纲</p><span class="export-outline-toggle-wrap"><button class="export-outline-toggle" type="button" data-outline-toggle aria-label="收起大纲" aria-expanded="true" title="收起/展开大纲"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l8 7-8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span class="export-outline-tooltip">收起/展开大纲</span></span></div><div class="export-outline-links">{}</div></nav>"#,
         items.join("")
     )
 }
@@ -880,6 +930,10 @@ fn parse_presentation_blocks(markdown: &str) -> Vec<PresentationBlock> {
             break;
         }
         let line = lines[index];
+        if is_markdown_thematic_break(line) {
+            index += 1;
+            continue;
+        }
         if let Some((level, title)) = markdown_heading(line) {
             blocks.push(PresentationBlock::Heading { level, title });
             index += 1;
@@ -992,6 +1046,7 @@ fn collect_paragraph(lines: &[&str], start: usize) -> (String, usize) {
         && !lines[index].trim().is_empty()
         && !is_markdown_list_item(lines[index])
         && !is_markdown_table_start(lines, index)
+        && !is_markdown_thematic_break(lines[index])
         && !lines[index].trim_start().starts_with("```")
         && !is_markdown_image_line(lines[index])
         && !lines[index].trim_start().starts_with('>')
@@ -1032,6 +1087,18 @@ fn plan_presentation_slides(
         );
     }
     slides
+}
+
+fn is_markdown_thematic_break(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.len() < 3 {
+        return false;
+    }
+    let mut chars = trimmed.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    matches!(first, '-' | '*' | '_') && trimmed.chars().all(|ch| ch == first)
 }
 
 fn plan_landscape_slides(
@@ -1452,11 +1519,17 @@ fn plan_topic_landscape(
             }
             PresentationBlock::Code { language, body, lines, max_line_chars } => {
                 let intro_markdown = code_intro_markdown(&mut text_blocks, *lines, *max_line_chars, preferences);
-                if intro_markdown.is_none() {
+                if !text_blocks.is_empty() {
                     flush_text_blocks(chapter, &topic.title, &mut text_blocks, preferences, slides);
                 }
                 let outro_markdown = if intro_markdown.is_some() {
-                    code_outro_markdown(topic.blocks.get(index + 1), *lines, *max_line_chars, preferences)
+                    code_outro_markdown(
+                        topic.blocks.get(index + 1),
+                        topic.blocks.get(index + 2),
+                        *lines,
+                        *max_line_chars,
+                        preferences,
+                    )
                 } else {
                     None
                 };
@@ -1490,21 +1563,20 @@ fn code_intro_markdown(
         return None;
     }
     let budget = presentation_budget(preferences);
-    let only_short_text = text_blocks.iter().all(|block| match block {
-        PresentationBlock::Paragraph(value) => value.chars().count() <= budget.max_paragraph_chars,
-        PresentationBlock::Heading { .. } => true,
-        _ => false,
-    });
-    if !only_short_text {
-        return None;
+    if let Some(PresentationBlock::Paragraph(value)) = text_blocks.last() {
+        if value.chars().count() <= budget.max_paragraph_chars / 2 {
+            return match text_blocks.pop() {
+                Some(PresentationBlock::Paragraph(value)) if !value.trim().is_empty() => Some(value),
+                _ => None,
+            };
+        }
     }
-    let markdown = blocks_to_markdown(text_blocks, Some(budget.max_paragraph_chars), None);
-    text_blocks.clear();
-    (!markdown.trim().is_empty()).then_some(markdown)
+    None
 }
 
 fn code_outro_markdown(
     next_block: Option<&PresentationBlock>,
+    following_block: Option<&PresentationBlock>,
     lines: usize,
     max_line_chars: usize,
     preferences: &PresentationHtmlExportPreferences,
@@ -1514,11 +1586,20 @@ fn code_outro_markdown(
     }
     let budget = presentation_budget(preferences);
     match next_block {
-        Some(PresentationBlock::Paragraph(value)) if value.chars().count() <= budget.max_paragraph_chars / 2 => {
+        Some(PresentationBlock::Paragraph(value))
+            if value.chars().count() <= budget.max_paragraph_chars / 2
+                && !is_list_intro_paragraph(value, following_block) =>
+        {
             Some(value.clone())
         }
         _ => None,
     }
+}
+
+fn is_list_intro_paragraph(value: &str, following_block: Option<&PresentationBlock>) -> bool {
+    let trimmed = value.trim_end();
+    (trimmed.ends_with('：') || trimmed.ends_with(':'))
+        && matches!(following_block, Some(PresentationBlock::List(_)))
 }
 
 fn flush_text_blocks(
@@ -1642,8 +1723,8 @@ fn landscape_card_limit(cards: &[ListCardPlan], has_outro: bool) -> usize {
 }
 
 fn estimated_card_units(card: &ListCardPlan) -> usize {
-    let title_lines = card.title.chars().count().div_ceil(18).max(1);
-    let body_lines = markdown_text_chars(&card.body_markdown).div_ceil(34);
+    let title_lines = card.title.chars().count().div_ceil(26).max(1);
+    let body_lines = markdown_text_chars(&card.body_markdown).div_ceil(52);
     title_lines + body_lines
 }
 
@@ -1750,6 +1831,16 @@ fn list_group_at(blocks: &[PresentationBlock], index: usize) -> Option<(Option<S
     while let Some(PresentationBlock::List(next_items)) = blocks.get(cursor) {
         items.extend(next_items.iter().cloned());
         cursor += 1;
+        if next_items.len() == 1 && ordered_list_marker(&next_items[0]).is_some() {
+            if let Some(PresentationBlock::Paragraph(value)) = blocks.get(cursor) {
+                if let Some(item) = items.last_mut() {
+                    item.push_str("\n\n");
+                    item.push_str(value);
+                }
+                cursor += 1;
+                continue;
+            }
+        }
     }
     if items.len() < 2 || !should_render_as_list_cards(&items) {
         return None;
@@ -1818,12 +1909,22 @@ fn is_link_only_list_item(item: &str) -> bool {
 }
 
 fn list_item_to_card(item: &str) -> ListCardPlan {
-    let stripped = strip_list_marker(item);
+    let (head, following_body) = item.split_once("\n\n").map_or((item, ""), |(head, body)| (head, body.trim()));
+    let stripped = strip_list_marker(head);
+    let append_body = |body_markdown: String| {
+        if following_body.is_empty() {
+            body_markdown
+        } else if body_markdown.trim().is_empty() {
+            markdown_inline_to_text(following_body)
+        } else {
+            format!("{body_markdown}\n\n{}", markdown_inline_to_text(following_body))
+        }
+    };
     if let Some(rest) = stripped.strip_prefix("**") {
         if let Some((title, after_title)) = rest.split_once("**") {
             return ListCardPlan {
-                title: list_item_title_text(item, title.trim()),
-                body_markdown: markdown_inline_to_text(after_title.trim_start_matches([':', '：', ' ', '-']).trim()),
+                title: list_item_title_text(head, title.trim()),
+                body_markdown: append_body(markdown_inline_to_text(after_title.trim_start_matches([':', '：', ' ', '-']).trim())),
             };
         }
     }
@@ -1832,13 +1933,13 @@ fn list_item_to_card(item: &str) -> ListCardPlan {
         .or_else(|| stripped.split_once(": "))
     {
         return ListCardPlan {
-            title: list_item_title_text(item, title.trim()),
-            body_markdown: markdown_inline_to_text(body.trim()),
+            title: list_item_title_text(head, title.trim()),
+            body_markdown: append_body(markdown_inline_to_text(body.trim())),
         };
     }
     ListCardPlan {
-        title: list_item_plain_text(item, true),
-        body_markdown: String::new(),
+        title: list_item_plain_text(head, true),
+        body_markdown: append_body(String::new()),
     }
 }
 
@@ -1891,6 +1992,8 @@ fn text_slide_markdown(
     preferences: &PresentationHtmlExportPreferences,
 ) -> Vec<(Option<String>, String)> {
     let budget = presentation_budget(preferences);
+    let paragraph_split_limit = paragraph_split_limit(preferences, budget);
+    let group_budget = semantic_group_budget(preferences, budget);
     let mut slides = Vec::new();
     let mut subtitle: Option<String> = None;
     let mut current = Vec::new();
@@ -1906,14 +2009,28 @@ fn text_slide_markdown(
         }
     };
 
-    for block in blocks {
+    let mut block_index = 0usize;
+    while block_index < blocks.len() {
+        if let Some((group_markdown, next_index)) = question_answer_group_at(blocks, block_index) {
+            let chars = markdown_text_chars(&group_markdown);
+            if current_chars + chars > group_budget && !current.is_empty() {
+                push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
+            }
+            current.push(group_markdown);
+            current_chars += chars;
+            current_items += 1;
+            block_index = next_index;
+            continue;
+        }
+
+        let block = &blocks[block_index];
         match block {
             PresentationBlock::Heading { title, .. } => {
                 push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
                 subtitle = Some(title.clone());
             }
             PresentationBlock::Paragraph(value) => {
-                let parts = split_paragraph_for_presentation(value, budget.max_paragraph_chars);
+                let parts = split_paragraph_for_presentation(value, paragraph_split_limit);
                 for part in parts {
                     let chars = part.chars().count();
                     if preferences.density == PresentationDensity::Master && !current.is_empty() {
@@ -1957,14 +2074,22 @@ fn text_slide_markdown(
                 }
             }
             PresentationBlock::Quote(value) => {
-                if !current.is_empty() {
+                let quote_chars = markdown_text_chars(value);
+                if !current.is_empty() && current_chars + quote_chars <= budget.max_paragraph_chars {
+                    current.push(value.clone());
+                    current_chars += quote_chars;
+                    push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
+                } else {
+                    if !current.is_empty() {
+                        push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
+                    }
+                    current.push(value.clone());
                     push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
                 }
-                current.push(value.clone());
-                push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
             }
             _ => {}
         }
+        block_index += 1;
     }
     push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
     if slides.is_empty() {
@@ -1972,6 +2097,50 @@ fn text_slide_markdown(
     }
     rebalance_short_tail_text_slides(&mut slides, preferences);
     slides
+}
+
+fn paragraph_split_limit(
+    preferences: &PresentationHtmlExportPreferences,
+    budget: PresentationPageBudget,
+) -> usize {
+    match preferences.density {
+        PresentationDensity::Balanced => budget.max_paragraph_chars + 120,
+        _ => budget.max_paragraph_chars,
+    }
+}
+
+fn semantic_group_budget(
+    preferences: &PresentationHtmlExportPreferences,
+    budget: PresentationPageBudget,
+) -> usize {
+    match preferences.density {
+        PresentationDensity::Balanced => budget.max_paragraph_chars + 100,
+        _ => budget.max_paragraph_chars,
+    }
+}
+
+fn question_answer_group_at(blocks: &[PresentationBlock], index: usize) -> Option<(String, usize)> {
+    let PresentationBlock::Paragraph(question) = blocks.get(index)? else {
+        return None;
+    };
+    master_question_title(question)?;
+
+    let mut grouped = Vec::new();
+    grouped.push(PresentationBlock::Paragraph(question.clone()));
+
+    let mut cursor = index + 1;
+    while let Some(block) = blocks.get(cursor) {
+        match block {
+            PresentationBlock::Paragraph(value) if master_question_title(value).is_some() => break,
+            PresentationBlock::Paragraph(_) | PresentationBlock::List(_) | PresentationBlock::Quote(_) => {
+                grouped.push(block.clone());
+                cursor += 1;
+            }
+            _ => break,
+        }
+    }
+
+    Some((blocks_to_markdown(&grouped, None, None), cursor))
 }
 
 fn pop_orphaned_numbered_heading(
@@ -2099,7 +2268,7 @@ fn plan_mobile_slides(
                             chapter: chapter.title.clone(),
                             title: topic.title.clone(),
                             kind: MobileHintKind::Table,
-                            preview: table_preview(markdown),
+                            preview: markdown.clone(),
                         });
                     }
                     PresentationBlock::Code { language: _, body, lines, max_line_chars } if *lines > 16 || *max_line_chars > 80 => {
@@ -2108,7 +2277,7 @@ fn plan_mobile_slides(
                             chapter: chapter.title.clone(),
                             title: topic.title.clone(),
                             kind: MobileHintKind::Code,
-                            preview: code_preview(body),
+                            preview: body.clone(),
                         });
                     }
                     PresentationBlock::Code { language, body, lines, max_line_chars } => {
@@ -2173,14 +2342,6 @@ fn is_mobile_short_text(blocks: &[PresentationBlock], budget: PresentationPageBu
         })
         .sum::<usize>();
     chars <= budget.max_paragraph_chars
-}
-
-fn table_preview(markdown: &str) -> String {
-    markdown.lines().take(4).collect::<Vec<_>>().join("\n")
-}
-
-fn code_preview(code: &str) -> String {
-    code.lines().take(8).collect::<Vec<_>>().join("\n")
 }
 
 fn blocks_to_markdown(blocks: &[PresentationBlock], max_chars: Option<usize>, max_items: Option<usize>) -> String {
@@ -2464,7 +2625,17 @@ fn render_presentation_slide(
             )
         }
         PresentationSlidePlan::MobileHint { chapter, title, kind, preview } => {
-            let preview_html = embedder.embed_images(&render_markdown_html(preview));
+            let detail_html = match kind {
+                MobileHintKind::Code => format!(
+                    r#"<pre class="code-frame code-scroll-y" data-code-mode="code-scroll-y"><code>{}</code></pre>"#,
+                    escape_html_text(preview),
+                ),
+                _ => embedder.embed_images(&render_markdown_html(preview)),
+            };
+            let preview_html = match kind {
+                MobileHintKind::Table | MobileHintKind::Code => mobile_hint_icon_svg(*kind),
+                MobileHintKind::Figure => detail_html.clone(),
+            };
             render_content_slide(
                 "mobile-hint",
                 preferences,
@@ -2476,9 +2647,10 @@ fn render_presentation_slide(
                 title,
                 Some(kind.label()),
                 &format!(
-                    r#"<div class="mobile-landscape-hint" data-mobile-hint-kind="{kind}" role="button" tabindex="0"><div class="mobile-hint-preview">{preview}</div><p>{label}</p></div>"#,
+                    r#"<div class="mobile-landscape-hint" data-mobile-hint-kind="{kind}" role="button" tabindex="0"><div class="mobile-hint-preview">{preview}</div><div class="mobile-hint-detail" hidden>{detail}</div><p>{label}</p></div>"#,
                     kind = kind.key(),
                     preview = preview_html,
+                    detail = detail_html,
                     label = escape_html_text(kind.label()),
                 ),
             )
@@ -2498,6 +2670,25 @@ fn render_presentation_slide(
             total = total,
         ),
     }
+}
+
+fn mobile_hint_icon_svg(kind: MobileHintKind) -> String {
+    let (label, body) = match kind {
+        MobileHintKind::Table => (
+            "表格占位图标",
+            r#"<rect x="34" y="46" width="156" height="112" rx="12"></rect><path d="M34 78h156M34 112h156M82 46v112M134 46v112"></path>"#,
+        ),
+        MobileHintKind::Code => (
+            "代码占位图标",
+            r#"<rect x="36" y="48" width="152" height="108" rx="12"></rect><path d="M84 88l-24 22 24 22M140 88l24 22-24 22M124 78l-24 66"></path>"#,
+        ),
+        MobileHintKind::Figure => ("图片占位图标", ""),
+    };
+    format!(
+        r#"<svg class="mobile-hint-icon" viewBox="0 0 224 204" role="img" aria-label="{label}" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><title>{label}</title>{body}</svg>"#,
+        label = label,
+        body = body,
+    )
 }
 
 fn render_content_slide(
@@ -2784,7 +2975,7 @@ mod tests {
     };
 
     use super::{
-        default_markdown_html_file_name, fallback_presentation_light_template, fallback_reading_template,
+        default_markdown_html_file_name, fallback_presentation_light_template, fallback_reading_light_template,
         render_presentation_html, render_reading_html, text_slide_markdown, MarkdownHtmlExportInput,
         MarkdownHtmlExportPreferences, PresentationBlock, PresentationDensity, PresentationHtmlExportPreferences,
         ReadingWidth,
@@ -2853,7 +3044,7 @@ mod tests {
             source_path: temp_path("styled").with_extension("md"),
             markdown: "> Quote\n\n```rust\nfn main() {}\n```\n\n| A | B |\n| - | - |\n| 1 | 2 |".to_string(),
             generated_at: "修改时间：2026-06-11 16:20".to_string(),
-            template_html: fallback_reading_template().to_string(),
+            template_html: fallback_reading_light_template().to_string(),
             preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
@@ -2865,6 +3056,8 @@ mod tests {
         assert!(output.html.contains("border-radius: 0 14px 14px 0"));
         assert!(output.html.contains("border-collapse: separate"));
         assert!(output.html.contains("border-radius: 14px"));
+        assert!(output.html.contains("thead tr:first-child th:first-child { border-top-left-radius: 13px; }"));
+        assert!(output.html.contains("thead tr:first-child th:last-child { border-top-right-radius: 13px; }"));
         assert!(output.html.contains("data-copy-code"));
         assert!(output.html.contains(r#"<svg class="code-copy-icon""#));
         assert!(output.html.contains(r#"button.setAttribute("aria-label", "复制代码")"#));
@@ -2873,6 +3066,19 @@ mod tests {
         assert!(output.html.contains(r#"tooltip.textContent = "复制代码""#));
         assert!(output.html.contains(r#"tooltip.textContent = "复制成功""#));
         assert!(output.html.contains(r#"tooltip.classList.add("visible", "success")"#));
+        assert!(output.html.contains(r#"wrapper.className = "code-block""#));
+        assert!(output.html.contains(r#"toolbar.className = "code-toolbar""#));
+        assert!(output.html.contains("wrapper.appendChild(toolbar)"));
+        assert!(output.html.contains("wrapper.appendChild(pre)"));
+        assert!(output.html.contains(r#"language.className = "code-language""#));
+        assert!(output.html.contains("language.textContent = codeLanguage(pre)"));
+        assert!(output.html.contains("toolbar.appendChild(language)"));
+        assert!(output.html.contains(r#"return found.replace(/^language-/, "").trim() || "text";"#));
+        assert!(output.html.contains(".code-block { margin: 0 0 18px; overflow: hidden; border-radius: 8px; background: #2f3132;"));
+        assert!(output.html.contains(".code-block pre { margin: 0; border-radius: 0; background: transparent;"));
+        assert!(output.html.contains(".code-block pre code { background: transparent; color: inherit; }"));
+        assert!(output.html.contains(".code-toolbar { min-height: 42px; padding: 8px 10px 2px 14px; display: flex; align-items: center; justify-content: space-between;"));
+        assert!(output.html.contains(".code-language { color: rgba(240,240,242,0.52); font-size: 12px; font-weight: 800;"));
         assert!(!output.html.contains(r#"button.textContent = "复制""#));
         assert!(output.html.contains("navigator.clipboard"));
         assert!(output.html.contains("修改时间：2026-06-11 16:20"));
@@ -2886,7 +3092,7 @@ mod tests {
             source_path: temp_path("logo").with_extension("md"),
             markdown: "# Logo".to_string(),
             generated_at: "修改时间：2026-06-11 16:20".to_string(),
-            template_html: fallback_reading_template().to_string(),
+            template_html: fallback_reading_light_template().to_string(),
             preferences: MarkdownHtmlExportPreferences::default(),
         })
         .expect("reading html should render");
@@ -2956,7 +3162,7 @@ mod tests {
             source_path: root.join("note.md"),
             markdown: "![Hero](hero.png)\n\n```js\nconsole.log(1)\n```".to_string(),
             generated_at: "1".to_string(),
-            template_html: fallback_reading_template().to_string(),
+            template_html: fallback_reading_light_template().to_string(),
             preferences: MarkdownHtmlExportPreferences {
                 embed_images: false,
                 code_copy: false,
@@ -2984,7 +3190,7 @@ mod tests {
             source_path: temp_path("outline").with_extension("md"),
             markdown: "# Intro\n\n## Details\n\n### More".to_string(),
             generated_at: "1".to_string(),
-            template_html: fallback_reading_template().to_string(),
+            template_html: fallback_reading_light_template().to_string(),
             preferences: MarkdownHtmlExportPreferences {
                 embed_images: true,
                 code_copy: true,
@@ -2999,6 +3205,70 @@ mod tests {
         assert!(output.html.contains(r##"href="#intro""##));
         assert!(output.html.contains(r#"<h1 id="intro">Intro</h1>"#));
         assert!(output.html.contains(r##"class="depth-3" href="#more""##));
+    }
+
+    #[test]
+    fn reading_outline_can_collapse_and_defaults_collapsed_for_compact_width() {
+        let output = render_reading_html(MarkdownHtmlExportInput {
+            title: "Outline".to_string(),
+            source_file: "outline.md".to_string(),
+            source_path: temp_path("outline-compact").with_extension("md"),
+            markdown: "# Intro\n\n## Part\n\n### More\n\nText".to_string(),
+            generated_at: "修改时间：2026-06-15 10:00".to_string(),
+            template_html: fallback_reading_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences {
+                outline: true,
+                width: ReadingWidth::Compact,
+                ..MarkdownHtmlExportPreferences::default()
+            },
+        })
+        .expect("reading html should render");
+
+        assert!(output.html.contains(r#"<body class="outline-collapsed">"#));
+        assert!(output.html.contains(r#"class="export-outline-toggle""#));
+        assert!(output.html.contains(r#"class="export-outline-tooltip""#));
+        assert!(output.html.contains("data-outline-toggle"));
+        assert!(output.html.contains("outline-collapsed"));
+    }
+
+    #[test]
+    fn reading_outline_starts_expanded_for_non_compact_width() {
+        let output = render_reading_html(MarkdownHtmlExportInput {
+            title: "Outline".to_string(),
+            source_file: "outline.md".to_string(),
+            source_path: temp_path("outline-wide").with_extension("md"),
+            markdown: "# Intro\n\n## Part\n\n### More\n\nText".to_string(),
+            generated_at: "修改时间：2026-06-15 10:00".to_string(),
+            template_html: fallback_reading_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences {
+                outline: true,
+                width: ReadingWidth::Wide,
+                ..MarkdownHtmlExportPreferences::default()
+            },
+        })
+        .expect("reading html should render");
+
+        assert!(output.html.contains(r#"<body class="">"#));
+        assert!(output.html.contains(r#"class="export-outline-toggle""#));
+        assert!(output.html.contains(r#"aria-expanded="true""#));
+    }
+
+    #[test]
+    fn reading_template_prevents_content_from_expanding_page_frame() {
+        let output = render_reading_html(MarkdownHtmlExportInput {
+            title: "2026-05-22-markdown-export-center-design.md".to_string(),
+            source_file: "2026-05-22-markdown-export-center-design.md".to_string(),
+            source_path: temp_path("reading-overflow").with_extension("md"),
+            markdown: "# Long\n\n```text\n点击更多菜单“导出...” -> 检查当前 Markdown tab -> 检查未保存修改 -> 必要时弹出二选一 -> 保存成功或无未保存修改 -> 打开导出弹窗\n```".to_string(),
+            generated_at: "修改时间：2026-06-15 10:00".to_string(),
+            template_html: fallback_reading_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        })
+        .expect("reading html should render");
+
+        assert!(output.html.contains("article { min-width: 0; overflow-wrap: break-word; }"));
+        assert!(output.html.contains("header h1 { overflow-wrap: anywhere; }"));
+        assert!(output.html.contains("pre { max-width: 100%;"));
     }
 
     #[test]
@@ -3114,6 +3384,35 @@ mod tests {
     }
 
     #[test]
+    fn presentation_html_keeps_trailing_intro_with_code_after_previous_list() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Unsaved".to_string(),
+                source_file: "unsaved.md".to_string(),
+                source_path: temp_path("presentation-code-after-list").with_extension("md"),
+                markdown: "## 导出中心交互\n\n### 4.3 未保存修改\n\n进入导出中心前检查当前 Markdown tab 是否存在未保存修改。\n\n- 当前内容来自 `markdownContentForTab(tab)`\n- baseline 使用现有 `markdownBaseline`\n\n如果有未保存修改，先显示应用级确认弹窗：\n\n```text\n当前 Markdown 有未保存修改。请先保存后再继续。\n\n保存并继续\n取消\n```".to_string(),
+                generated_at: "修改时间：2026-06-15 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        let intro_index = output
+            .html
+            .find("如果有未保存修改，先显示应用级确认弹窗")
+            .expect("intro should render");
+        let code_index = output.html.find(r#"<pre class="code-frame"#).expect("code should render");
+        assert!(!output.html[intro_index..code_index].contains(r#"<section class="slide"#));
+        assert!(output.html.contains(r#"class="code-intro""#));
+    }
+
+    #[test]
     fn presentation_html_keeps_short_code_with_intro_and_following_note() {
         let output = render_presentation_html(
             MarkdownHtmlExportInput {
@@ -3142,6 +3441,59 @@ mod tests {
             .expect("following note should render");
         assert!(!output.html[code_index..note_index].contains(r#"<section class="slide"#));
         assert!(output.html.contains(r#"class="code-outro""#));
+    }
+
+    #[test]
+    fn presentation_html_keeps_intro_quote_together_and_omits_thematic_break() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Reference".to_string(),
+                source_file: "reference.md".to_string(),
+                source_path: temp_path("presentation-intro-quote-hr").with_extension("md"),
+                markdown: "# AI 可编辑设计工具\n\n## 0. 一句话定位\n\n不要做一个单纯的“AI 出图工具”，而是做一个：\n\n> **本地-first 的 AI 视觉资产与可编辑设计编译器**\n> 从视觉灵感 / Prompt / 参考图 / Web UI / Skill 中检索灵感，调用模型生成设计。\n\n---\n\n## 1. 产品链路总览\n\n下一章。".to_string(),
+                generated_at: "修改时间：2026-06-15 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        let intro_index = output.html.find("不要做一个单纯").expect("intro should render");
+        let quote_index = output.html.find("本地-first").expect("quote should render");
+        assert!(!output.html[intro_index..quote_index].contains(r#"<section class="slide"#));
+        assert!(!output.html.contains("<hr"));
+    }
+
+    #[test]
+    fn presentation_html_does_not_attach_list_intro_after_code_as_outro() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Template".to_string(),
+                source_file: "template.md".to_string(),
+                source_path: temp_path("presentation-code-before-list-intro").with_extension("md"),
+                markdown: "## HTML 模板\n\n### 5.1 模板目录\n\n第一版建议建立模板目录：\n\n```text\nsrc-tauri/resources/export-templates/\n  markdown-reading-light.html\n```\n\n模板目录的意义：\n\n- 避免把大段 HTML/CSS 作为 Rust 字符串长期维护\n- 让导出模板成为 Tauri 后端资源".to_string(),
+                generated_at: "修改时间：2026-06-15 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        let code_index = output.html.find(r#"<pre class="code-frame"#).expect("code should render");
+        let list_intro_index = output.html.find("模板目录的意义").expect("list intro should render");
+        assert!(output.html[code_index..list_intro_index].contains(r#"<section class="slide"#));
+        assert!(!output.html.contains(r#"class="code-outro"><p>模板目录的意义："#));
+        assert!(output.html.contains(r#"data-slide-kind="list-cards""#));
     }
 
     #[test]
@@ -3283,6 +3635,59 @@ mod tests {
 
         assert_eq!(third_title_slide, third_detail_slide);
         assert_eq!(fifth_title_slide, fifth_detail_slide);
+    }
+
+    #[test]
+    fn text_slide_markdown_keeps_balanced_two_sentence_paragraph_together() {
+        let preferences = PresentationHtmlExportPreferences {
+            aspect_ratio: "16-9".to_string(),
+            density: PresentationDensity::Balanced,
+            output_kind: "static".to_string(),
+        };
+        let first_sentence = "It helps you bring scattered Markdown reports, HTML presentation documents, AI analysis results, and skill-generated artifacts into one local library.";
+        let second_sentence = "With a better reading experience, clearer organization, and presentation-friendly viewing, NUTBOOK turns one-off AI outputs into reusable content assets.";
+        let blocks = vec![PresentationBlock::Paragraph(format!("{first_sentence} {second_sentence}"))];
+
+        let slides = text_slide_markdown(&blocks, &preferences);
+
+        assert_eq!(slides.len(), 1);
+        assert!(slides[0].1.contains(first_sentence));
+        assert!(slides[0].1.contains(second_sentence));
+    }
+
+    #[test]
+    fn text_slide_markdown_keeps_faq_question_with_answer() {
+        let preferences = PresentationHtmlExportPreferences {
+            aspect_ratio: "16-9".to_string(),
+            density: PresentationDensity::Balanced,
+            output_kind: "static".to_string(),
+        };
+        let blocks = vec![
+            PresentationBlock::Paragraph("**Q: Is NUTBOOK a knowledge base?**".to_string()),
+            PresentationBlock::Paragraph("No. The current version is closer to local AI artifact reading, presentation, organization, and accumulation.".to_string()),
+            PresentationBlock::Paragraph("**Q: Can it manage ordinary files?**".to_string()),
+            PresentationBlock::Paragraph("Yes. You can connect local folders and individual files, but the current design focuses on Markdown and HTML artifacts.".to_string()),
+            PresentationBlock::Paragraph("**Q: How does it relate to AI tools?**".to_string()),
+            PresentationBlock::Paragraph("AI tools generate content. NUTBOOK takes responsibility for the connected result after generation.".to_string()),
+        ];
+
+        let slides = text_slide_markdown(&blocks, &preferences);
+
+        for (question, answer) in [
+            ("Is NUTBOOK a knowledge base", "current version is closer"),
+            ("Can it manage ordinary files", "connect local folders"),
+            ("How does it relate to AI tools", "takes responsibility"),
+        ] {
+            let question_slide = slides
+                .iter()
+                .position(|(_, markdown)| markdown.contains(question))
+                .expect("question should render");
+            let answer_slide = slides
+                .iter()
+                .position(|(_, markdown)| markdown.contains(answer))
+                .expect("answer should render");
+            assert_eq!(question_slide, answer_slide, "{question} should stay with its answer");
+        }
     }
 
     #[test]
@@ -3435,6 +3840,34 @@ mod tests {
     }
 
     #[test]
+    fn presentation_html_groups_ordered_items_with_explanations_into_cards() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "QSkills".to_string(),
+                source_file: "qskills.md".to_string(),
+                source_path: temp_path("presentation-ordered-explanations").with_extension("md"),
+                markdown: "# QSkills\n\n## 0. v0.5 更新摘要\n\n本版本基于 v0.3 做了以下关键调整：\n\n1. **将“项目目录”统一改为“Workspace 工作区目录”**\n\nQSkills 不只服务代码项目，也服务营销、公关、内容创作、客户项目资料夹等工作目录。\n\n2. **将 P0 拆分为 P0a / P0b**\n\nP0a 先跑通最小闭环：导入 catalog → 浏览 Skill → 查看详情 → 安装到 Workspace → 记录状态 → 安全卸载。 P0b 再扩展更多工具、Windows 多路径复制、批量部署等能力。\n\n3. **修正 Codex 默认路径策略**\n\nCodex P0a 默认使用官方 repo-scoped `.agents/skills`。 `.codex/skills` 暂列为“待验证兼容路径”，不作为 P0a 默认写入目标。\n\n4. **引入 ToolAdapter 适配器模型**\n\n每个 AI 工具用独立配置描述：路径、策略、是否已验证、冲突处理方式。 避免把 6 个工具路径硬编码进部署逻辑。\n\n5. **加入非破坏性部署原则**\n\nQSkills 绝不覆盖用户已有目录。 所有部署行为必须写入 `.qskills-manifest.json`，卸载只删除 manifest 中记录的文件。\n\n6. **加入 SKILL.md 最低校验规则**\n\n`SKILL.md` 必须存在；建议包含 YAML frontmatter、`name`、`description`。 缺少 description 时允许浏览，但部署前提示“可能无法被 AI 自动触发”。\n\n7. **补齐 Tauri v2 权限、文件路径、打包签名风险**\n\n前端不直接做任意文件系统写入，所有关键读写通过 Rust command 执行。".to_string(),
+                generated_at: "修改时间：2026-06-15 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        assert!(output.html.contains(r#"data-slide-kind="list-cards""#));
+        assert_eq!(list_card_counts(&output.html), vec![4, 3]);
+        assert!(output.html.contains(r#"<h3 class="list-card-title">1. 将“项目目录”统一改为“Workspace 工作区目录”</h3>"#));
+        assert!(output.html.contains(r#"<div class="list-card-body"><p>QSkills 不只服务代码项目"#));
+        assert!(output.html.contains(r#"<h3 class="list-card-title">7. 补齐 Tauri v2 权限、文件路径、打包签名风险</h3>"#));
+        assert!(output.html.contains("前端不直接做任意文件系统写入"));
+    }
+
+    #[test]
     fn presentation_html_omits_repeated_kicker_when_chapter_matches_title() {
         let output = render_presentation_html(
             MarkdownHtmlExportInput {
@@ -3547,6 +3980,12 @@ mod tests {
         assert!(portrait.html.contains("横屏查看表格"));
         assert!(portrait.html.contains("横屏查看代码"));
         assert!(portrait.html.contains("横屏查看图片"));
+        assert!(portrait.html.contains(r#"<svg class="mobile-hint-icon""#));
+        assert!(portrait.html.contains(r#"aria-label="表格占位图标""#));
+        assert!(portrait.html.contains(r#"aria-label="代码占位图标""#));
+        assert!(portrait.html.contains(r#"class="mobile-hint-detail" hidden"#));
+        assert!(portrait.html.contains(r#"<pre class="code-frame code-scroll-y" data-code-mode="code-scroll-y"><code>const value = 1;"#));
+        assert!(portrait.html.contains("viewerContent.innerHTML = detail?.innerHTML || preview.innerHTML"));
         assert!(!portrait.html.contains(r#"data-slide-kind="figure""#));
     }
 

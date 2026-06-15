@@ -15,7 +15,7 @@ use crate::{
         document_title::DocumentTitle,
         markdown_export::{
             default_markdown_html_file_name, fallback_presentation_dark_template, fallback_presentation_light_template,
-            fallback_reading_dark_template, fallback_reading_light_template, fallback_reading_template,
+            fallback_reading_dark_template, fallback_reading_light_template,
             render_presentation_html, render_reading_html, MarkdownHtmlExportInput, MarkdownHtmlExportOutput,
             MarkdownHtmlExportPreferences, PresentationDensity, PresentationHtmlExportPreferences, ReadingWidth,
             PRESENTATION_DARK_TEMPLATE, PRESENTATION_LIGHT_TEMPLATE, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE,
@@ -1427,7 +1427,7 @@ fn markdown_export_template(app: &tauri::AppHandle, template: &str) -> String {
             PRESENTATION_LIGHT_TEMPLATE => fallback_presentation_light_template().to_string(),
             READING_DARK_TEMPLATE => fallback_reading_dark_template().to_string(),
             READING_LIGHT_TEMPLATE | READING_TEMPLATE => fallback_reading_light_template().to_string(),
-            _ => fallback_reading_template().to_string(),
+            _ => fallback_reading_light_template().to_string(),
         })
 }
 
@@ -2306,7 +2306,7 @@ mod tests {
                 expected_modified_at: Some("1".to_string()),
             },
             &target,
-            crate::core::markdown_export::fallback_reading_template().to_string(),
+            crate::core::markdown_export::fallback_reading_light_template().to_string(),
         )
         .expect("html export should succeed");
 
@@ -2326,7 +2326,7 @@ mod tests {
                 expected_modified_at: Some("1".to_string()),
             },
             &target,
-            crate::core::markdown_export::fallback_reading_template().to_string(),
+            crate::core::markdown_export::fallback_reading_light_template().to_string(),
         )
         .expect_err("stale hash should be rejected");
         assert_eq!(error.code(), "EDIT_CONFLICT");

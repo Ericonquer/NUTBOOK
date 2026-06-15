@@ -16677,12 +16677,17 @@
             </div>
           </div>
         `;
+      function normalizePresentationAspectRatio(value) {
+        return value === "4-3" ? "4-3" : "16-9";
+      }
+
       function renderMarkdownExportDialogV2() {
         const isHtml = appState.exportActiveFormat === "html";
         const isReading = appState.exportHtmlMode === "reading";
         const expanded = Boolean(appState.exportExpandedTemplates);
         const readingPreferences = appState.exportPreferences.reading;
         const presentationPreferences = appState.exportPreferences.presentation;
+        presentationPreferences.aspectRatio = normalizePresentationAspectRatio(presentationPreferences.aspectRatio);
         const tab = (format, label) => `<button class="settings-tab export-tab ${appState.exportActiveFormat === format ? "active" : ""}" type="button" data-export-format="${format}">${escapeHtml(label)}</button>`;
         const subtab = (mode, label) => `<button class="export-subtab ${appState.exportHtmlMode === mode ? "active" : ""}" type="button" data-export-html-mode="${mode}">${escapeHtml(label)}</button>`;
         const toggleTitle = expanded ? t("markdown.collapseTemplates") : t("markdown.moreTemplates");
@@ -16737,8 +16742,8 @@
         const presentationPanel = `
           <aside class="export-preference-panel compact"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
             <div class="export-preferences">
-              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.aspectRatio"))}</div><div class="export-segment-grid three">
-                ${[["16-9","aspectWide","aspectWideTip"],["4-3","aspectClassic","aspectClassicTip"],["portrait","aspectPortrait","aspectPortraitTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.aspectRatio, "data-presentation-aspect")).join("")}
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.aspectRatio"))}</div><div class="export-segment-grid two">
+                ${[["16-9","aspectWide","aspectWideTip"],["4-3","aspectClassic","aspectClassicTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.aspectRatio, "data-presentation-aspect")).join("")}
               </div></div>
               <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.contentDensity"))}</div><div class="export-density-picker">
                 ${densityButton("master", "densityMaster", "densityMasterTip")}${densityButton("balanced", "densityBalanced", "densityBalancedTip")}${densityButton("report", "densityReport", "densityReportTip")}
@@ -16785,7 +16790,7 @@
           renderMarkdownExportDialog();
         }));
         els.exportScrim.querySelectorAll("[data-reading-width]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.reading.width = node.dataset.readingWidth || "standard"; renderMarkdownExportDialog(); }));
-        els.exportScrim.querySelectorAll("[data-presentation-aspect]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.aspectRatio = node.dataset.presentationAspect || "16-9"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-aspect]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.aspectRatio = normalizePresentationAspectRatio(node.dataset.presentationAspect); renderMarkdownExportDialog(); }));
         els.exportScrim.querySelectorAll("[data-presentation-density]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.density = node.dataset.presentationDensity || "balanced"; renderMarkdownExportDialog(); }));
         els.exportScrim.querySelectorAll("[data-presentation-output]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.outputKind = node.dataset.presentationOutput || "static"; renderMarkdownExportDialog(); }));
         els.exportScrim.addEventListener("click", (event) => {
@@ -23028,13 +23033,15 @@ if (!chipTipController) {
             : appState.exportPreferences.presentation.density === "detailed"
               ? "report"
               : (appState.exportPreferences.presentation.density || "balanced");
+          const normalizedPresentationAspect = normalizePresentationAspectRatio(appState.exportPreferences.presentation.aspectRatio);
+          appState.exportPreferences.presentation.aspectRatio = normalizedPresentationAspect;
           const exportPreferences = isPresentationExport
             ? {
                 embedImages: true,
                 codeCopy: false,
                 outline: false,
                 width: "standard",
-                aspectRatio: appState.exportPreferences.presentation.aspectRatio,
+                aspectRatio: normalizedPresentationAspect,
                 density: normalizedPresentationDensity,
                 outputKind: appState.exportPreferences.presentation.outputKind
               }
