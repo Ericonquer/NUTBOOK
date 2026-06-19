@@ -17092,7 +17092,7 @@
               ${engineStatus}
             </aside>
           </section>`;
-        const canExportPresentation = isHtml && !isReading && presentationPreferences.outputKind === "static";
+        const canExportPresentation = isHtml && !isReading && ["static", "dynamic"].includes(presentationPreferences.outputKind);
         const canExport = (isHtml ? (isReading || canExportPresentation) : (isPdf || isImage)) && !appState.exportInProgress;
         const activePanel = isHtml ? htmlPanel : isPdf ? pdfPanel : imagePanel;
         const exportLabel = appState.exportInProgress

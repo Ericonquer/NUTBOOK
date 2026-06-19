@@ -22,8 +22,8 @@ use crate::{
             fallback_reading_dark_template, fallback_reading_light_template,
             render_presentation_html, render_reading_html, MarkdownHtmlExportInput, MarkdownHtmlExportOutput,
             MarkdownHtmlExportPreferences, PresentationDensity, PresentationHtmlExportPreferences, ReadingWidth,
-            PRESENTATION_DARK_TEMPLATE, PRESENTATION_LIGHT_TEMPLATE, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE,
-            READING_TEMPLATE,
+            PRESENTATION_DARK_TEMPLATE, PRESENTATION_LIGHT_TEMPLATE, PRESENTATION_OUTPUT_DYNAMIC,
+            PRESENTATION_OUTPUT_STATIC, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE, READING_TEMPLATE,
         },
         html_runtime::{
             attach_controls_overlay, attach_external_html_runtime_host,
@@ -1421,7 +1421,7 @@ fn export_markdown_html_to_path(
         preferences: export_preferences(payload.preferences.as_ref()),
     };
     let rendered = if matches!(payload.template.as_str(), PRESENTATION_LIGHT_TEMPLATE | PRESENTATION_DARK_TEMPLATE) {
-        render_presentation_html(input, presentation_preferences(payload.preferences.as_ref()))?
+        render_presentation_html(input, presentation_preferences(payload.preferences.as_ref())?)?
     } else {
         render_reading_html(input)?
     };
@@ -2581,7 +2581,7 @@ fn markdown_export_template(app: &tauri::AppHandle, template: &str) -> String {
         })
 }
 
-fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> PresentationHtmlExportPreferences {
+fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> Result<PresentationHtmlExportPreferences, AppError> {
     let aspect_ratio = preferences
         .and_then(|value| value.aspect_ratio.clone())
         .unwrap_or_else(|| "16-9".to_string());
@@ -2590,9 +2590,11 @@ fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>)
     } else {
         "16-9".to_string()
     };
-    let output_kind = preferences
-        .and_then(|value| value.output_kind.clone())
-        .unwrap_or_else(|| "static".to_string());
+    let output_kind = match preferences.and_then(|value| value.output_kind.as_deref()) {
+        Some(PRESENTATION_OUTPUT_STATIC) | None => PRESENTATION_OUTPUT_STATIC.to_string(),
+        Some(PRESENTATION_OUTPUT_DYNAMIC) => PRESENTATION_OUTPUT_DYNAMIC.to_string(),
+        Some(_) => return Err(AppError::InvalidParams),
+    };
     let density = match preferences
         .and_then(|value| value.density.as_deref())
         .unwrap_or("balanced")
@@ -2601,11 +2603,11 @@ fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>)
         "report" | "detailed" => PresentationDensity::Report,
         _ => PresentationDensity::Balanced,
     };
-    PresentationHtmlExportPreferences {
+    Ok(PresentationHtmlExportPreferences {
         aspect_ratio,
         density,
         output_kind,
-    }
+    })
 }
 
 fn export_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> MarkdownHtmlExportPreferences {
@@ -3779,6 +3781,48 @@ mod tests {
         assert!(html.contains(r#"<main class="deck aspect-16-9""#));
         assert!(html.contains("data-presentation-controls"));
         assert!(html.contains("Deck"));
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_markdown_html_rejects_invalid_presentation_output_kind() {
+        let root = temp_path("presentation-invalid-output-kind-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("deck.md");
+        let markdown = "# Deck\n\n## First\n\nContent.";
+        fs::write(&markdown_path, markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("presentation-invalid-output-kind-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &markdown_path, markdown);
+
+        let target = root.join("deck.html");
+        let error = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "presentation-light".to_string(),
+                preferences: Some(crate::models::ExportMarkdownHtmlPreferences {
+                    embed_images: true,
+                    code_copy: true,
+                    outline: true,
+                    width: "standard".to_string(),
+                    aspect_ratio: Some("16-9".to_string()),
+                    density: Some("balanced".to_string()),
+                    output_kind: Some("surprise".to_string()),
+                }),
+                expected_file_hash: content_hash(markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_presentation_light_template().to_string(),
+        )
+        .expect_err("invalid presentation output kind should be rejected");
+
+        assert_eq!(error.code(), "INVALID_PARAMS");
 
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_dir_all(root);

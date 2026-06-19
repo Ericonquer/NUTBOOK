@@ -10,6 +10,9 @@ pub const READING_LIGHT_TEMPLATE: &str = "reading-light";
 pub const READING_DARK_TEMPLATE: &str = "reading-dark";
 pub const PRESENTATION_LIGHT_TEMPLATE: &str = "presentation-light";
 pub const PRESENTATION_DARK_TEMPLATE: &str = "presentation-dark";
+pub const PRESENTATION_OUTPUT_STATIC: &str = "static";
+pub const PRESENTATION_OUTPUT_DYNAMIC: &str = "dynamic";
+const NUTBOOK_DEFAULT_MOTION_PRESET: &str = "nutbook-default";
 const MAX_SINGLE_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
 const FALLBACK_READING_LIGHT_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-light.html");
@@ -93,6 +96,12 @@ pub struct PresentationHtmlExportPreferences {
     pub aspect_ratio: String,
     pub density: PresentationDensity,
     pub output_kind: String,
+}
+
+impl PresentationHtmlExportPreferences {
+    fn is_dynamic(&self) -> bool {
+        self.output_kind == PRESENTATION_OUTPUT_DYNAMIC
+    }
 }
 
 pub fn default_markdown_html_file_name(source_file: &str) -> String {
@@ -206,6 +215,21 @@ pub fn render_presentation_html(
         "4-3" => "aspect-4-3",
         _ => "aspect-16-9",
     };
+    let motion_styles = if preferences.is_dynamic() {
+        PRESENTATION_MOTION_STYLES
+    } else {
+        ""
+    };
+    let motion_script = if preferences.is_dynamic() {
+        PRESENTATION_MOTION_SCRIPT
+    } else {
+        ""
+    };
+    let motion_preset_attr = if preferences.is_dynamic() {
+        format!(r#" data-motion-preset="{NUTBOOK_DEFAULT_MOTION_PRESET}""#)
+    } else {
+        String::new()
+    };
 
     let html = input
         .template_html
@@ -218,6 +242,9 @@ pub fn render_presentation_html(
         .replace("{{aspect_ratio}}", &escape_html_attr(&preferences.aspect_ratio))
         .replace("{{density}}", preferences.density.key())
         .replace("{{output_kind}}", &escape_html_attr(&preferences.output_kind))
+        .replace("{{motion_styles}}", motion_styles)
+        .replace("{{motion_script}}", motion_script)
+        .replace("{{motion_preset_attr}}", &motion_preset_attr)
         .replace("{{generated_at}}", &escape_html_text(&input.generated_at))
         .replace("{{source_file}}", &escape_html_text(&input.source_file))
         .replace("{{logo_data_uri}}", &nutbook_logo_data_uri())
@@ -353,6 +380,131 @@ const OUTLINE_TOGGLE_SCRIPT: &str = r#"<script>
         sync();
       });
       sync();
+    })();
+  </script>"#;
+
+const PRESENTATION_MOTION_STYLES: &str = r#"
+    /* nutbook-motion-styles: nutbook-default */
+    @keyframes nutbookMotionRise {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes nutbookMotionImage {
+      from { opacity: 0; transform: translateY(14px) scale(0.985); }
+      to { opacity: 1; transform: none; }
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .kicker,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .cover-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .chapter-index,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .chapter-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .statement-rule,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .statement-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .statement-note,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .slide-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .slide-subtitle,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .slide-content,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .topic-card,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .list-card-intro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .list-card,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .list-card-outro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .figure-copy,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .figure-media,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .table-frame,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .code-intro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .code-frame,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .code-outro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .thanks-content {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .kicker,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .cover-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .chapter-index,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .chapter-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .statement-rule,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .statement-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .statement-note,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .slide-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .slide-subtitle,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .slide-content,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card-intro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card-outro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .figure-copy,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .table-frame,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .code-intro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .code-frame,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .code-outro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .thanks-content {
+      animation: nutbookMotionRise 560ms cubic-bezier(.2,.7,.2,1) both;
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .figure-media {
+      animation: nutbookMotionImage 620ms cubic-bezier(.2,.7,.2,1) both;
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .kicker,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .chapter-index {
+      animation-delay: 40ms;
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .cover-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .chapter-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .statement-title,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .slide-title {
+      animation-delay: 90ms;
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .slide-subtitle,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .statement-note,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .slide-content,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .table-frame,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .code-intro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .code-frame,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .figure-copy {
+      animation-delay: 150ms;
+    }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card:nth-child(1),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(1) { animation-delay: 120ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card:nth-child(2),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(2) { animation-delay: 180ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card:nth-child(3),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(3) { animation-delay: 240ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card:nth-child(4),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(4) { animation-delay: 300ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card:nth-child(n+5),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(n+5) { animation-delay: 360ms; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide * {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    }
+    @media print {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide * {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    }
+"#;
+
+const PRESENTATION_MOTION_SCRIPT: &str = r#"<script id="nutbook-motion-script">
+    (() => {
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+      function prefersReducedMotion() {
+        return Boolean(reduceMotion?.matches);
+      }
+      window.NutbookPresentationMotion = {
+        replay(slide) {
+          if (!slide || prefersReducedMotion()) return;
+          slide.classList.remove("is-motion-active");
+          void slide.offsetWidth;
+          slide.classList.add("is-motion-active");
+        },
+        sync(slide) {
+          if (!slide || !prefersReducedMotion()) return;
+          slide.classList.add("is-motion-active");
+        }
+      };
     })();
   </script>"#;
 
@@ -2903,10 +3055,10 @@ mod tests {
     };
 
     use super::{
-        default_markdown_html_file_name, fallback_presentation_light_template, fallback_reading_light_template,
-        parse_presentation_blocks, render_presentation_html, render_reading_html, text_slide_markdown,
-        MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationBlock, PresentationDensity,
-        PresentationHtmlExportPreferences, ReadingWidth,
+        default_markdown_html_file_name, fallback_presentation_dark_template, fallback_presentation_light_template,
+        fallback_reading_light_template, parse_presentation_blocks, render_presentation_html, render_reading_html,
+        text_slide_markdown, MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationBlock,
+        PresentationDensity, PresentationHtmlExportPreferences, ReadingWidth,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -3231,6 +3383,152 @@ mod tests {
         assert!(!output.html.contains("brand-row"));
         assert!(!output.html.contains("修改时间：2026-06-13 10:00"));
         assert!(output.html.contains("Thanks"));
+    }
+
+    #[test]
+    fn presentation_html_static_and_dynamic_motion_are_isolated() {
+        let input = || MarkdownHtmlExportInput {
+            title: "Motion Deck".to_string(),
+            source_file: "motion.md".to_string(),
+            source_path: temp_path("presentation-motion").with_extension("md"),
+            markdown: "# Motion Deck\n\n## Problem\n\n- Too many files\n- Hard to present\n\n## Visual\n\n![Hero](hero.png)\n\n## Code\n\n```text\nstatus = ready\n```".to_string(),
+            generated_at: "修改时间：2026-06-18 10:00".to_string(),
+            template_html: fallback_presentation_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        };
+
+        let static_output = render_presentation_html(
+            input(),
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("static presentation html should render");
+        let dynamic_output = render_presentation_html(
+            input(),
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "dynamic".to_string(),
+            },
+        )
+        .expect("dynamic presentation html should render");
+
+        assert!(static_output.html.contains(r#"data-output-kind="static""#));
+        assert!(!static_output.html.contains("nutbook-default"));
+        assert!(!static_output.html.contains("data-motion-preset"));
+        assert!(!static_output.html.contains("{{"));
+        assert!(!static_output.html.contains("}}"));
+
+        assert!(dynamic_output.html.contains(r#"data-output-kind="dynamic""#));
+        assert!(dynamic_output.html.contains(r#"data-motion-preset="nutbook-default""#));
+        assert!(dynamic_output.html.contains("nutbook-motion-styles"));
+        assert!(dynamic_output.html.contains("nutbook-motion-script"));
+        assert!(dynamic_output.html.contains("prefers-reduced-motion: reduce"));
+        assert!(dynamic_output.html.contains("matchMedia"));
+        assert!(!dynamic_output.html.contains("{{"));
+        assert!(!dynamic_output.html.contains("}}"));
+    }
+
+    #[test]
+    fn presentation_html_dark_template_supports_dynamic_motion() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Dark Motion".to_string(),
+                source_file: "dark.md".to_string(),
+                source_path: temp_path("presentation-dark-motion").with_extension("md"),
+                markdown: "# Dark Motion\n\n## First\n\nContent.".to_string(),
+                generated_at: "修改时间：2026-06-18 10:00".to_string(),
+                template_html: fallback_presentation_dark_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "4-3".to_string(),
+                density: PresentationDensity::Master,
+                output_kind: "dynamic".to_string(),
+            },
+        )
+        .expect("dark dynamic presentation html should render");
+
+        assert!(output.html.contains(r#"data-output-kind="dynamic""#));
+        assert!(output.html.contains(r#"data-motion-preset="nutbook-default""#));
+        assert!(output.html.contains("nutbook-motion-styles"));
+        assert!(!output.html.contains("{{"));
+        assert!(!output.html.contains("}}"));
+    }
+
+    #[test]
+    fn presentation_html_card_frames_stretch_to_equal_height() {
+        let topic_output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Scenarios".to_string(),
+                source_file: "scenarios.md".to_string(),
+                source_path: temp_path("presentation-equal-topic-cards").with_extension("md"),
+                markdown: "# Scenarios\n\n## 典型场景\n\n### 阅读一份 AI 生成的竞品分析报告\n\n把竞品分析报告收进 NUTBOOK 后，可以通过缩略图快速识别内容。\n\n### 修改一份学术研究的 AI 分析报告\n\n对于论文解读、研究综述、实验结论等 Markdown 文件，NUTBOOK 提供即时轻编辑能力。\n\n### 在会议或提案中展示 HTML 文档\n\n如果 AI 生成的是 HTML 演示文档，NUTBOOK 可以直接预览和全屏展示。".to_string(),
+                generated_at: "修改时间：2026-06-19 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+        let list_output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Steps".to_string(),
+                source_file: "steps.md".to_string(),
+                source_path: temp_path("presentation-equal-list-cards").with_extension("md"),
+                markdown: "# Steps\n\n## 操作步骤\n\n1. 打开系统设置，找到隐私与安全性，并确认本地文件访问权限。\n2. 选择导出中心的展示 HTML 输出。\n3. 检查导出的 HTML 是否可以翻页、全屏、打印。\n4. 分享文件给会议参与者。".to_string(),
+                generated_at: "修改时间：2026-06-19 10:00".to_string(),
+                template_html: fallback_presentation_dark_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("list presentation html should render");
+
+        assert!(topic_output.html.contains(r#"data-slide-kind="topic-cards""#));
+        assert!(topic_output.html.contains(".topic-card-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 13px; align-items: stretch; }"));
+        assert!(topic_output.html.contains(".topic-card { height: 100%;"));
+        assert!(list_output.html.contains(r#"data-slide-kind="list-cards""#));
+        assert!(list_output.html.contains(".list-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 13px; align-items: stretch; }"));
+        assert!(list_output.html.contains(".list-card { height: 100%;"));
+    }
+
+    #[test]
+    fn presentation_html_fullscreen_control_has_visible_tooltip() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Controls".to_string(),
+                source_file: "controls.md".to_string(),
+                source_path: temp_path("presentation-controls-tooltip").with_extension("md"),
+                markdown: "# Controls\n\n## First\n\nContent.".to_string(),
+                generated_at: "修改时间：2026-06-19 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        assert!(output.html.contains(r#"class="presentation-control-button-wrap""#));
+        assert!(output.html.contains(r#"class="presentation-control-tooltip""#));
+        assert!(output.html.contains(r#"data-fullscreen aria-label="全屏演示" title="全屏演示""#));
+        assert!(output.html.contains(r#"<span class="presentation-control-tooltip">全屏演示</span>"#));
+        assert!(output.html.contains(".presentation-control-button-wrap:hover .presentation-control-tooltip"));
     }
 
     #[test]
