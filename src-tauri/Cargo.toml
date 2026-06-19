@@ -45,6 +45,7 @@ roxmltree = "0.20"
 kamadak-exif = "0.6"
 html5ever = "0.27"
 markup5ever_rcdom = "0.3"
+png = "0.17"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # §7.2 文件默认应用：NSWorkspace handler 查询与 setDefaultApplicationAtURL。

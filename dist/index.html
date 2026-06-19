@@ -5083,6 +5083,61 @@
         background: #2f3132;
       }
 
+      .export-template-preview.pdf-document {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        overflow: hidden;
+        background: #eef1f0;
+      }
+
+      .export-template-preview.pdf-document > div:not(.export-template-outline) {
+        width: 142px;
+        min-height: 128px;
+        margin-top: 8px;
+        padding: 12px 10px;
+        border: 1px solid #d6d9d7;
+        background: #fff;
+        box-shadow: 0 6px 16px rgba(26,28,29,0.12);
+      }
+
+      .export-template-preview.pdf-document .export-preview-title {
+        max-width: 100%;
+        font-size: 8px;
+        overflow: hidden;
+        text-overflow: clip;
+        white-space: nowrap;
+      }
+
+      .export-template-preview.pdf-document .export-preview-line {
+        height: 4px;
+        margin-bottom: 4px;
+      }
+
+      .export-template-preview.pdf-document .export-preview-quote {
+        height: 18px;
+        margin-top: 7px;
+      }
+
+      .export-template-preview.pdf-report {
+        display: flex;
+        align-items: center;
+        background: #f6f2ec;
+      }
+
+      .export-template-preview.pdf-report > div:not(.export-template-outline) {
+        width: 100%;
+        min-height: 58px;
+        padding: 10px;
+        border: 1px solid #ded5c9;
+        background: #fff;
+        box-shadow: inset 0 10px 0 #1f2224;
+      }
+
+      .export-template-preview.pdf-report .export-preview-title {
+        margin-top: 10px;
+      }
+
       .export-template-outline {
         display: none;
       }
@@ -5419,6 +5474,80 @@
         max-height: min(280px, 42vh);
         margin: -4px 0 16px;
         overflow: auto;
+      .export-engine-status {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 680;
+        line-height: 1.45;
+      }
+
+      .export-engine-status.ready {
+        color: var(--ink);
+      }
+
+      .export-engine-status.warn {
+        border-color: var(--line-strong);
+      }
+
+      .export-error-banner {
+        margin-top: 14px;
+        padding: 12px 14px;
+        border: 1px solid rgba(176, 42, 42, 0.34);
+        border-radius: 8px;
+        background: #fff1f1;
+        color: #8f1f1f;
+        font-size: 13px;
+        font-weight: 740;
+        line-height: 1.45;
+      }
+
+      .export-split-prompt {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 14px;
+        padding: 6px 14px 6px 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface-container-high) 82%, #000 4%);
+        color: var(--ink);
+        box-shadow: 0 8px 20px rgba(26, 28, 29, 0.08);
+        font-size: 12px;
+        font-weight: 760;
+        line-height: 1.35;
+      }
+
+      .export-split-prompt-icon {
+        display: inline-flex;
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: #000;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 900;
+        box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
+        animation: exportAttentionPulse 1s ease-in-out infinite;
+      }
+
+      @keyframes exportAttentionPulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22); }
+        50% { transform: scale(1.18); box-shadow: 0 0 0 7px rgba(0, 0, 0, 0); }
+      }
+
+      .export-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 16px;
       }
 
       .confirm-selection-option {
@@ -8113,6 +8242,89 @@
         opacity: 1;
       }
 
+      .export-progress-overlay {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        z-index: 490;
+        width: min(360px, calc(100vw - 48px));
+        padding: 16px 18px 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(249, 249, 251, 0.96);
+        box-shadow: 0 22px 54px rgba(26, 28, 29, 0.18);
+        color: var(--ink);
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -48%);
+        transition: opacity 160ms ease, transform 160ms ease;
+      }
+
+      .export-progress-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translate(-50%, -50%);
+      }
+
+      .export-progress-title {
+        font-size: 13px;
+        font-weight: 780;
+        line-height: 1.35;
+      }
+
+      .export-progress-body {
+        margin-top: 6px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .export-progress-track {
+        position: relative;
+        height: 6px;
+        margin-top: 14px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--surface-container-high);
+      }
+
+      .export-progress-bar {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 42%;
+        border-radius: inherit;
+        background: var(--ink);
+        animation: exportProgressSlide 1.2s ease-in-out infinite;
+      }
+
+      .export-progress-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 14px;
+      }
+
+      .export-progress-background {
+        height: 30px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 720;
+        cursor: pointer;
+      }
+
+      .export-progress-background:hover {
+        border-color: var(--line-strong);
+      }
+
+      @keyframes exportProgressSlide {
+        0% { transform: translateX(-115%); }
+        52% { transform: translateX(95%); }
+        100% { transform: translateX(245%); }
+      }
+
       .markdown-link-tooltip {
         position: fixed;
         z-index: 520;
@@ -8506,6 +8718,7 @@
           <div id="statusHint">最小可见 demo：资料库 -> 扫描 -> 列表 -> 标签页 -> 查看 / 保存</div>
         </div>
         <div id="toast" class="toast" aria-live="polite"></div>
+        <div id="exportProgress" class="export-progress-overlay" role="status" aria-live="polite" aria-hidden="true"></div>
         <div id="markdownLinkTooltip" class="markdown-link-tooltip" role="tooltip" aria-hidden="true" data-i18n-skip></div>
         <div id="recentSearchPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
         <div id="settingsSearchSuggestionPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
@@ -8970,7 +9183,9 @@
         exportExpandedTemplates: false,
         exportSelections: {
           readingTemplate: "reading-light",
-          presentationTemplate: "presentation-light"
+          presentationTemplate: "presentation-light",
+          pdfTemplate: "document",
+          imageTemplate: "light"
         },
         exportPreferences: {
           reading: {
@@ -8983,9 +9198,21 @@
             aspectRatio: "16-9",
             density: "balanced",
             outputKind: "static"
+          },
+          pdf: {
+            margin: "standard",
+            coverAndToc: true,
+            pageNumbers: true
+          },
+          image: {
+            width: 1080,
+            quality: "standard"
           }
         },
         exportInProgress: false,
+        exportProgressOpen: false,
+        exportErrorMessage: "",
+        exportPendingLongImageSplitPayload: null,
         altKeyPressed: false,
         markdownEditMode: "rich",
         markdownEditorLoadPromise: null,
@@ -9109,6 +9336,7 @@
         statusText: document.getElementById("statusText"),
         statusHint: document.getElementById("statusHint"),
         toast: document.getElementById("toast"),
+        exportProgress: document.getElementById("exportProgress"),
         markdownLinkTooltip: document.getElementById("markdownLinkTooltip"),
         confirmScrim: document.getElementById("confirmScrim"),
         newTagName: document.getElementById("newTagName"),
@@ -9464,6 +9692,35 @@
           return window.NutbookDocumentTitle.inlineDisplayText(String(text || ""));
         }
         return String(text || "").trim();
+      function showExportProgress(title, body) {
+        if (!els.exportProgress) return;
+        appState.exportProgressOpen = true;
+        els.exportProgress.innerHTML = `
+          <div class="export-progress-title">${escapeHtml(title)}</div>
+          <div class="export-progress-body">${escapeHtml(body)}</div>
+          <div class="export-progress-track" aria-hidden="true"><div class="export-progress-bar"></div></div>
+          <div class="export-progress-actions"><button class="export-progress-background" type="button" data-export-progress-background>${escapeHtml(t("markdown.exportLongImageProgressBackground"))}</button></div>
+        `;
+        els.exportProgress.querySelector("[data-export-progress-background]")?.addEventListener("click", hideExportProgress);
+        els.exportProgress.classList.add("open");
+        els.exportProgress.setAttribute("aria-hidden", "false");
+      }
+
+      function hideExportProgress() {
+        if (!els.exportProgress) return;
+        appState.exportProgressOpen = false;
+        els.exportProgress.classList.remove("open");
+        els.exportProgress.setAttribute("aria-hidden", "true");
+      }
+
+      function cleanMarkdownHeadingText(text) {
+        return String(text || "")
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+          .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+          .replace(/<[^>]+>/g, "")
+          .replace(/[`*_~]/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
       }
 
       function buildMarkdownOutline(markdown) {
@@ -14159,7 +14416,7 @@
         // 已传 { payload: {...} }，包装会双重嵌套导致反序列化必败（与
         // attach_external_html_runtime_host_command 同走默认 [args] 分支）。
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_html" || command === "export_markdown_pdf" || command === "preflight_markdown_long_image_export" || command === "select_markdown_long_image_export_path" || command === "export_markdown_long_image_to_path_command" || command === "export_markdown_long_image" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -16683,25 +16940,23 @@
 
       function renderMarkdownExportDialogV2() {
         const isHtml = appState.exportActiveFormat === "html";
+        const isPdf = appState.exportActiveFormat === "pdf";
+        const isImage = appState.exportActiveFormat === "image";
         const isReading = appState.exportHtmlMode === "reading";
         const expanded = Boolean(appState.exportExpandedTemplates);
         const readingPreferences = appState.exportPreferences.reading;
         const presentationPreferences = appState.exportPreferences.presentation;
+        const pdfPreferences = appState.exportPreferences.pdf;
+        const imagePreferences = appState.exportPreferences.image;
         presentationPreferences.aspectRatio = normalizePresentationAspectRatio(presentationPreferences.aspectRatio);
+        const engineReady = canGenerateDocumentThumbnails();
         const tab = (format, label) => `<button class="settings-tab export-tab ${appState.exportActiveFormat === format ? "active" : ""}" type="button" data-export-format="${format}">${escapeHtml(label)}</button>`;
         const subtab = (mode, label) => `<button class="export-subtab ${appState.exportHtmlMode === mode ? "active" : ""}" type="button" data-export-html-mode="${mode}">${escapeHtml(label)}</button>`;
         const toggleTitle = expanded ? t("markdown.collapseTemplates") : t("markdown.moreTemplates");
         const toggleIcon = expanded
           ? '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M8 12h8"></path>'
           : '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
-        const selectedTemplate = isReading ? appState.exportSelections.readingTemplate : appState.exportSelections.presentationTemplate;
-        const templates = isReading
-          ? [["reading-light", t("markdown.readingLight"), t("markdown.readingLightDescription"), "light"], ["reading-dark", t("markdown.readingDark"), t("markdown.readingDarkDescription"), "dark"]]
-          : [["presentation-light", t("markdown.presentationLight"), t("markdown.presentationLightDescription"), "light"], ["presentation-dark", t("markdown.presentationDark"), t("markdown.presentationDarkDescription"), "dark"]];
-        if (expanded) {
-          templates.push(["future-minimal", "Minimal", t("markdown.comingSoon"), "light"], ["future-print", "Print", t("markdown.comingSoon"), "light"]);
-        }
-        const templateCards = templates.map(([id, name, desc, tone]) => `
+        const templateCardsFor = (templates, selectedTemplate) => templates.map(([id, name, desc, tone]) => `
           <button class="export-template-preview-card ${selectedTemplate === id ? "active" : ""}" type="button" data-export-template-choice="${escapeAttribute(id)}" ${id.startsWith("future") ? "disabled" : ""}>
             <div class="export-template-preview ${tone}">
               <div class="export-template-outline"></div>
@@ -16710,6 +16965,11 @@
             <div class="export-template-card-body"><strong>${escapeHtml(name)}</strong><p>${escapeHtml(desc)}</p></div>
           </button>
         `).join("");
+        const templateHeading = (title) => `
+          <div class="export-template-heading">
+            <div><div class="export-panel-title">${escapeHtml(title)}</div></div>
+            <button class="export-icon-button" type="button" data-export-toggle-templates aria-label="${escapeAttribute(toggleTitle)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${toggleIcon}</svg><span class="export-tooltip">${escapeHtml(toggleTitle)}</span></button>
+          </div>`;
         const preferenceToggle = (key, labelKey) => `
           <div class="export-preference-row">
             <span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
@@ -16739,6 +16999,13 @@
               </div></div>
             </div>
           </aside>`;
+        const htmlTemplates = isReading
+          ? [["reading-light", t("markdown.readingLight"), t("markdown.readingLightDescription"), "light"], ["reading-dark", t("markdown.readingDark"), t("markdown.readingDarkDescription"), "dark"]]
+          : [["presentation-light", t("markdown.presentationLight"), t("markdown.presentationLightDescription"), "light"], ["presentation-dark", t("markdown.presentationDark"), t("markdown.presentationDarkDescription"), "dark"]];
+        if (expanded) {
+          htmlTemplates.push(["future-minimal", t("markdown.futureMinimal"), t("markdown.comingSoon"), "light"], ["future-print", t("markdown.futurePrint"), t("markdown.comingSoon"), "light"]);
+        }
+        const htmlTemplateCards = templateCardsFor(htmlTemplates, isReading ? appState.exportSelections.readingTemplate : appState.exportSelections.presentationTemplate);
         const presentationPanel = `
           <aside class="export-preference-panel compact"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
             <div class="export-preferences">
@@ -16757,42 +17024,134 @@
           <section class="export-section export-html-mode-section"><div class="export-subtabs">${subtab("reading", t("markdown.readingHtml"))}${subtab("presentation", t("markdown.presentationHtml"))}</div></section>
           <section class="export-section export-panel-grid">
             <div>
-              <div class="export-template-heading">
-                <div><div class="export-panel-title">${escapeHtml(isReading ? t("markdown.readingHtmlTemplates") : t("markdown.presentationHtmlTemplates"))}</div></div>
-                <button class="export-icon-button" type="button" data-export-toggle-templates aria-label="${escapeAttribute(toggleTitle)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${toggleIcon}</svg><span class="export-tooltip">${escapeHtml(toggleTitle)}</span></button>
-              </div>
-              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCards}</div></div>
+              ${templateHeading(isReading ? t("markdown.readingHtmlTemplates") : t("markdown.presentationHtmlTemplates"))}
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${htmlTemplateCards}</div></div>
             </div>
             ${isReading ? readingPanel : presentationPanel}
           </section>`;
-        const comingSoonPanel = `<section class="export-section"><div class="export-coming-soon"><div><strong>${escapeHtml(t("markdown.comingSoon"))}</strong><br>${escapeHtml(t("markdown.exportComingSoonBody"))}</div></div></section>`;
+        const prefToggle = (active, key, labelKey, dataAttribute) => `
+          <div class="export-preference-row">
+            <span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
+            <button class="preference-toggle ${active ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(key)}" aria-label="${escapeAttribute(t(`markdown.${labelKey}`))}" aria-pressed="${active ? "true" : "false"}"></button>
+          </div>`;
+        const engineStatus = `<div class="export-engine-status ${engineReady ? "ready" : "warn"}">${escapeHtml(engineReady ? t("markdown.exportEngineReady") : t("markdown.exportEngineUnavailable"))}</div>`;
+        const pdfTemplates = [
+          ["document", t("markdown.pdfDocument"), t("markdown.pdfDocumentDescription"), "pdf-document"],
+          ["report", t("markdown.pdfReport"), t("markdown.pdfReportDescription"), "pdf-report"]
+        ];
+        if (expanded) {
+          pdfTemplates.push(["future-pdf-editorial", t("markdown.futureMinimal"), t("markdown.comingSoon"), "pdf-document"], ["future-pdf-print", t("markdown.futurePrint"), t("markdown.comingSoon"), "pdf-report"]);
+        }
+        const pdfPanel = `
+          <section class="export-section export-panel-grid">
+            <div>
+              ${templateHeading(t("markdown.pdfTemplates"))}
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(pdfTemplates, appState.exportSelections.pdfTemplate)}</div></div>
+            </div>
+            <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+              <div class="export-preferences">
+                <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.pageMargin"))}</div><div class="export-segment-grid three">
+                  ${[["compact","narrowMargin","compactMarginTip"],["standard","standard","standardMarginTip"],["wide","wideMargin","wideMarginTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, pdfPreferences.margin, "data-pdf-margin")).join("")}
+                </div></div>
+                ${prefToggle(pdfPreferences.coverAndToc, "coverAndToc", "coverAndToc", "data-pdf-toggle")}
+                ${prefToggle(pdfPreferences.pageNumbers, "pageNumbers", "pageNumbers", "data-pdf-toggle")}
+              </div>
+              ${engineStatus}
+            </aside>
+          </section>`;
+        const imageWidthButton = (value) => {
+          const tip = t(`markdown.imageWidth${value}Tip`);
+          return `<button class="export-segment ${imagePreferences.width === value ? "active" : ""}" type="button" data-image-width="${value}" aria-label="${escapeAttribute(`${value}：${tip}`)}">${value}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const imageQualityButton = (value, labelKey, tipKey) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-segment ${imagePreferences.quality === value ? "active" : ""}" type="button" data-image-quality="${value}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const imageTemplates = [
+          ["light", t("markdown.imageLight"), t("markdown.imageLightDescription"), "light"],
+          ["dark", t("markdown.imageDark"), t("markdown.imageDarkDescription"), "dark"]
+        ];
+        if (expanded) {
+          imageTemplates.push(["future-image-feed", t("markdown.futureMinimal"), t("markdown.comingSoon"), "light"], ["future-image-poster", t("markdown.futurePrint"), t("markdown.comingSoon"), "dark"]);
+        }
+        const imagePanel = `
+          <section class="export-section export-panel-grid">
+            <div>
+              ${templateHeading(t("markdown.imageTemplates"))}
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(imageTemplates, appState.exportSelections.imageTemplate)}</div></div>
+            </div>
+            <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+              <div class="export-preferences">
+                <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.imageWidth"))}</div><div class="export-segment-grid three">
+                  ${[800,1080,1440].map(imageWidthButton).join("")}
+                </div></div>
+                <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.imageQuality"))}</div><div class="export-segment-grid two">
+                  ${imageQualityButton("standard", "imageStandardQuality", "imageStandardQualityTip")}${imageQualityButton("high", "imageHighQuality", "imageHighQualityTip")}
+                </div></div>
+              </div>
+              ${engineStatus}
+            </aside>
+          </section>`;
         const canExportPresentation = isHtml && !isReading && presentationPreferences.outputKind === "static";
-        const canExport = isHtml && (isReading || canExportPresentation) && !appState.exportInProgress;
+        const canExport = (isHtml ? (isReading || canExportPresentation) : (isPdf || isImage)) && !appState.exportInProgress;
+        const activePanel = isHtml ? htmlPanel : isPdf ? pdfPanel : imagePanel;
+        const exportLabel = appState.exportInProgress
+          ? (isPdf ? t("markdown.exportingPdf") : isImage ? t("markdown.exportingLongImage") : t("markdown.exportingHtml"))
+          : (isPdf ? t("markdown.exportPdf") : isImage ? t("markdown.exportLongImageButton") : canExport ? t("markdown.exportHtml") : t("markdown.comingSoon"));
+        const exportErrorBanner = appState.exportErrorMessage
+          ? `<div class="export-error-banner" role="alert">${escapeHtml(appState.exportErrorMessage)}</div>`
+          : "";
+        const splitPrompt = appState.exportPendingLongImageSplitPayload
+          ? `<div class="export-split-prompt" role="alert"><span class="export-split-prompt-icon">!</span><span>${escapeHtml(t("markdown.exportLongImageSplitPrompt"))}</span></div>`
+          : "";
+        const actionButtons = appState.exportPendingLongImageSplitPayload
+          ? `<button class="export-action-button" type="button" data-export-split-cancel>${escapeHtml(t("actions.cancel"))}</button><button class="export-action-button primary" type="button" data-export-split-confirm>${escapeHtml(t("markdown.exportLongImageSplitConfirm"))}</button>`
+          : `<button class="export-action-button" type="button" data-export-cancel ${appState.exportInProgress ? "disabled" : ""}>${escapeHtml(t("actions.cancel"))}</button><button class="export-action-button primary" type="button" data-export-submit ${canExport ? "" : "disabled"}>${escapeHtml(exportLabel)}</button>`;
         els.exportScrim.innerHTML = `
           <div class="export-modal ${expanded ? "expanded" : ""}" role="dialog" aria-modal="true" aria-labelledby="markdownExportTitle">
             <div class="export-header"><div><h3 id="markdownExportTitle" class="export-title">${escapeHtml(t("markdown.exportDialogTitle"))}</h3></div><button class="export-close" type="button" data-export-cancel aria-label="${escapeAttribute(t("markdown.closeExportDialog"))}">×</button></div>
             <div class="settings-tabbar export-format-tabbar">${tab("html", "HTML")}${tab("pdf", "PDF")}${tab("image", t("markdown.exportLongImage"))}</div>
-            ${isHtml ? htmlPanel : comingSoonPanel}
-            <div class="export-actions"><button class="export-action-button" type="button" data-export-cancel ${appState.exportInProgress ? "disabled" : ""}>${escapeHtml(t("actions.cancel"))}</button><button class="export-action-button primary" type="button" data-export-submit ${canExport ? "" : "disabled"}>${escapeHtml(appState.exportInProgress ? t("markdown.exportingHtml") : canExport ? t("markdown.exportHtml") : t("markdown.comingSoon"))}</button></div>
+            ${activePanel}
+            ${exportErrorBanner}
+            ${splitPrompt}
+            <div class="export-actions">${actionButtons}</div>
           </div>`;
         els.exportScrim.querySelectorAll("[data-export-cancel]").forEach((node) => node.addEventListener("click", closeMarkdownExportDialog));
-        els.exportScrim.querySelector("[data-export-submit]")?.addEventListener("click", exportActiveMarkdownHtml);
-        els.exportScrim.querySelectorAll("[data-export-format]").forEach((node) => node.addEventListener("click", () => { appState.exportActiveFormat = node.dataset.exportFormat || "html"; renderMarkdownExportDialog(); }));
-        els.exportScrim.querySelectorAll("[data-export-html-mode]").forEach((node) => node.addEventListener("click", () => { appState.exportHtmlMode = node.dataset.exportHtmlMode || "reading"; renderMarkdownExportDialog(); }));
-        els.exportScrim.querySelector("[data-export-toggle-templates]")?.addEventListener("click", () => { appState.exportExpandedTemplates = !appState.exportExpandedTemplates; renderMarkdownExportDialog(); });
-        els.exportScrim.querySelectorAll("[data-export-template-choice]").forEach((node) => node.addEventListener("click", () => { const value = node.dataset.exportTemplateChoice; if (!value) return; if (appState.exportHtmlMode === "reading") appState.exportSelections.readingTemplate = value; else appState.exportSelections.presentationTemplate = value; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelector("[data-export-submit]")?.addEventListener("click", exportActiveMarkdownSelectedFormat);
+        els.exportScrim.querySelector("[data-export-split-cancel]")?.addEventListener("click", () => { appState.exportPendingLongImageSplitPayload = null; renderMarkdownExportDialog(); });
+        els.exportScrim.querySelector("[data-export-split-confirm]")?.addEventListener("click", exportPendingMarkdownLongImageSplit);
+        els.exportScrim.querySelectorAll("[data-export-format]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportActiveFormat = node.dataset.exportFormat || "html"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-export-html-mode]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportHtmlMode = node.dataset.exportHtmlMode || "reading"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelector("[data-export-toggle-templates]")?.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportExpandedTemplates = !appState.exportExpandedTemplates; renderMarkdownExportDialog(); });
+        els.exportScrim.querySelectorAll("[data-export-template-choice]").forEach((node) => node.addEventListener("click", () => {
+          const value = node.dataset.exportTemplateChoice;
+          if (!value) return;
+          if (appState.exportActiveFormat === "pdf") appState.exportSelections.pdfTemplate = value;
+          else if (appState.exportActiveFormat === "image") appState.exportSelections.imageTemplate = value;
+          else if (appState.exportHtmlMode === "reading") appState.exportSelections.readingTemplate = value;
+          else appState.exportSelections.presentationTemplate = value;
+          appState.exportErrorMessage = "";
+          appState.exportPendingLongImageSplitPayload = null;
+          renderMarkdownExportDialog();
+        }));
         els.exportScrim.querySelectorAll("[data-reading-pref-toggle]").forEach((node) => node.addEventListener("click", () => {
           const key = node.dataset.readingPrefToggle;
           if (!key) return;
           const next = !Boolean(appState.exportPreferences.reading[key]);
           appState.exportPreferences.reading[key] = next;
           if (key === "outline" && next) appState.exportPreferences.reading.width = "wide";
+          appState.exportErrorMessage = "";
+          appState.exportPendingLongImageSplitPayload = null;
           renderMarkdownExportDialog();
         }));
-        els.exportScrim.querySelectorAll("[data-reading-width]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.reading.width = node.dataset.readingWidth || "standard"; renderMarkdownExportDialog(); }));
-        els.exportScrim.querySelectorAll("[data-presentation-aspect]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.aspectRatio = normalizePresentationAspectRatio(node.dataset.presentationAspect); renderMarkdownExportDialog(); }));
-        els.exportScrim.querySelectorAll("[data-presentation-density]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.density = node.dataset.presentationDensity || "balanced"; renderMarkdownExportDialog(); }));
-        els.exportScrim.querySelectorAll("[data-presentation-output]").forEach((node) => node.addEventListener("click", () => { appState.exportPreferences.presentation.outputKind = node.dataset.presentationOutput || "static"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-reading-width]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.reading.width = node.dataset.readingWidth || "standard"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-aspect]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.presentation.aspectRatio = normalizePresentationAspectRatio(node.dataset.presentationAspect); renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-density]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.presentation.density = node.dataset.presentationDensity || "balanced"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-output]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.presentation.outputKind = node.dataset.presentationOutput || "static"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-pdf-margin]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.pdf.margin = node.dataset.pdfMargin || "standard"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-pdf-toggle]").forEach((node) => node.addEventListener("click", () => { const key = node.dataset.pdfToggle; if (!key) return; appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.pdf[key] = !Boolean(appState.exportPreferences.pdf[key]); renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-image-width]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.image.width = Number(node.dataset.imageWidth) || 1080; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-image-quality]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.image.quality = node.dataset.imageQuality || "standard"; renderMarkdownExportDialog(); }));
         els.exportScrim.addEventListener("click", (event) => {
           if (event.target === els.exportScrim && !appState.exportInProgress) closeMarkdownExportDialog();
         }, { once: true });
@@ -17147,6 +17506,11 @@
             appState.settingsKeyboardTablist = "";
           }
         });
+      function closeMarkdownExportDialog() {
+        if (appState.exportInProgress) return;
+        appState.exportDialogOpen = false;
+        appState.exportPendingLongImageSplitPayload = null;
+        renderMarkdownExportDialog();
       }
 
       function renderSettingsPanel() {
@@ -18341,6 +18705,44 @@
         }
         if (command === "export_markdown_file") {
           return true;
+        }
+        if (command === "export_markdown_html") {
+          return {
+            itemId: args.itemId,
+            targetPath: "/tmp/mock-export.html",
+            warnings: [],
+            exported: true
+          };
+        }
+        if (command === "preflight_markdown_long_image_export") {
+          return {
+            itemId: args.itemId,
+            estimatedHeight: 720,
+            maxHeight: 15000,
+            ok: true,
+            requiresSplit: false
+          };
+        }
+        if (command === "export_markdown_pdf") {
+          return {
+            itemId: args.itemId,
+            targetPath: "/tmp/mock-export.pdf",
+            warnings: [],
+            exported: true
+          };
+        }
+        if (command === "select_markdown_long_image_export_path") {
+          return {
+            targetPath: "/tmp/mock-export.png"
+          };
+        }
+        if (command === "export_markdown_long_image" || command === "export_markdown_long_image_to_path_command") {
+          return {
+            itemId: args.itemId,
+            targetPath: args.targetPath || "/tmp/mock-export.png",
+            warnings: [],
+            exported: true
+          };
         }
         if (command === "create_tag") {
           const tag = {
@@ -23007,6 +23409,10 @@ if (!chipTipController) {
       async function openMarkdownExportDialog() {
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "markdown") return;
+        if (appState.exportInProgress) {
+          setStatus(t("markdown.exportingLongImage"), "warn");
+          return;
+        }
         const ready = await ensureMarkdownSavedBeforeContinue(tab);
         if (!ready) return;
         appState.exportActiveFormat = "html";
@@ -23014,6 +23420,8 @@ if (!chipTipController) {
         appState.exportExpandedTemplates = false;
         appState.exportDialogOpen = true;
         appState.exportInProgress = false;
+        appState.exportErrorMessage = "";
+        appState.exportPendingLongImageSplitPayload = null;
         renderMarkdownExportDialog();
       }
 
@@ -23066,9 +23474,185 @@ if (!chipTipController) {
           showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
         } catch (error) {
           appState.exportInProgress = false;
+          const message = normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportHtmlFailedPrefix")}${message}`;
           renderMarkdownExportDialog();
-          setStatus(`${t("markdown.exportHtmlFailedPrefix")}${normalizeError(error)}`, "error");
-          showToast(t("markdown.exportFailed"));
+          setStatus(`${t("markdown.exportHtmlFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportHtmlFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportActiveMarkdownSelectedFormat() {
+        if (appState.exportActiveFormat === "pdf") {
+          await exportActiveMarkdownPdf();
+          return;
+        }
+        if (appState.exportActiveFormat === "image") {
+          await exportActiveMarkdownLongImage();
+          return;
+        }
+        await exportActiveMarkdownHtml();
+      }
+
+      async function exportActiveMarkdownPdf() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.exportInProgress) return;
+        appState.exportInProgress = true;
+        renderMarkdownExportDialog();
+        try {
+          const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const response = await invoke("export_markdown_pdf", {
+            itemId: tab.id,
+            template: appState.exportSelections.pdfTemplate,
+            preferences: appState.exportPreferences.pdf,
+            expectedFileHash,
+            expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
+          });
+          appState.exportDialogOpen = false;
+          appState.exportInProgress = false;
+          renderMarkdownExportDialog();
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          setStatus(`${t("markdown.exportPdfSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
+          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+        } catch (error) {
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          const message = code === "EXPORT_ENGINE_UNAVAILABLE" ? t("markdown.exportEngineUnavailable") : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportPdfFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportPdfFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportPdfFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportActiveMarkdownLongImage() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.exportInProgress) return;
+        appState.exportErrorMessage = "";
+        try {
+          const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const payload = {
+            itemId: tab.id,
+            template: appState.exportSelections.imageTemplate,
+            preferences: appState.exportPreferences.image,
+            expectedFileHash,
+            expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
+          };
+          const preflight = await invoke("preflight_markdown_long_image_export", payload);
+          const split = Boolean(preflight?.requiresSplit);
+          if (split) {
+            appState.exportPendingLongImageSplitPayload = payload;
+            renderMarkdownExportDialog();
+            return;
+          }
+          await exportMarkdownLongImageQuick(payload);
+        } catch (error) {
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          const message = code === "EXPORT_LONG_IMAGE_TOO_TALL"
+            ? t("markdown.exportLongImageTooTall")
+            : code === "EXPORT_ENGINE_UNAVAILABLE"
+              ? t("markdown.exportEngineUnavailable")
+              : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportLongImageFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportPendingMarkdownLongImageSplit() {
+        const payload = appState.exportPendingLongImageSplitPayload;
+        if (!payload || appState.exportInProgress) return;
+        appState.exportPendingLongImageSplitPayload = null;
+        await exportMarkdownLongImageWithPayload(payload, true);
+      }
+
+      async function exportMarkdownLongImageQuick(payload) {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return;
+        appState.exportErrorMessage = "";
+        try {
+          const pathResponse = await invoke("select_markdown_long_image_export_path", { itemId: payload.itemId });
+          const targetPath = pathResponse?.targetPath;
+          if (!targetPath) {
+            renderMarkdownExportDialog();
+            return;
+          }
+          appState.exportDialogOpen = false;
+          renderMarkdownExportDialog();
+          showExportProgress(t("markdown.exportLongImageProgressTitle"), t("markdown.exportLongImageProgressBody"));
+          setStatus(t("markdown.exportingLongImage"), "warn");
+          const response = await invoke("export_markdown_long_image_to_path_command", {
+            ...payload,
+            targetPath,
+            split: false
+          });
+          hideExportProgress();
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          setStatus(`${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
+          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+        } catch (error) {
+          hideExportProgress();
+          const code = error?.code || error?.error?.code || "";
+          if (code === "INVALID_PARAMS") {
+            renderMarkdownExportDialog();
+            return;
+          }
+          const message = code === "EXPORT_LONG_IMAGE_TOO_TALL"
+            ? t("markdown.exportLongImageTooTall")
+            : code === "EXPORT_ENGINE_UNAVAILABLE"
+              ? t("markdown.exportEngineUnavailable")
+              : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportLongImageFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportMarkdownLongImageWithPayload(payload, split) {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return;
+        try {
+          const pathResponse = await invoke("select_markdown_long_image_export_path", { itemId: payload.itemId });
+          const targetPath = pathResponse?.targetPath;
+          if (!targetPath) {
+            renderMarkdownExportDialog();
+            return;
+          }
+          appState.exportDialogOpen = false;
+          appState.exportInProgress = Boolean(split);
+          appState.exportErrorMessage = "";
+          renderMarkdownExportDialog();
+          if (split) {
+            showExportProgress(t("markdown.exportLongImageProgressTitle"), t("markdown.exportLongImageProgressBody"));
+          }
+          setStatus(t("markdown.exportingLongImage"), "warn");
+          const response = await invoke("export_markdown_long_image_to_path_command", {
+            ...payload,
+            targetPath,
+            split
+          });
+          if (split) hideExportProgress();
+          appState.exportInProgress = false;
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          const splitSuccessMessage = response?.partCount > 1 ? formatTranslation("markdown.exportLongImageSplitSuccess", { count: response.partCount }) : "";
+          setStatus(splitSuccessMessage || `${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
+          showToast(splitSuccessMessage || (warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess")));
+        } catch (error) {
+          if (split) hideExportProgress();
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          const message = code === "EXPORT_LONG_IMAGE_TOO_TALL"
+            ? t("markdown.exportLongImageTooTall")
+            : code === "EXPORT_ENGINE_UNAVAILABLE"
+              ? t("markdown.exportEngineUnavailable")
+              : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportLongImageFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
         }
       }
 

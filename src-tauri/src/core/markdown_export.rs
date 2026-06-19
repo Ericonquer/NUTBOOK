@@ -126,8 +126,14 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
         return Err(AppError::InvalidParams);
     }
 
-    let rendered = add_heading_ids(&render_markdown_html(&input.markdown), &input.markdown);
-    if rendered.trim().is_empty() {
+    let title = first_markdown_h1(&input.markdown).unwrap_or_else(|| input.title.clone());
+    let body_markdown = remove_first_markdown_h1(&input.markdown);
+    let rendered = if body_markdown.trim().is_empty() {
+        String::new()
+    } else {
+        add_heading_ids(&render_markdown_html(&body_markdown), &body_markdown)
+    };
+    if rendered.trim().is_empty() && title.trim().is_empty() {
         return Err(AppError::InvalidParams);
     }
 
@@ -138,7 +144,7 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
         .unwrap_or_else(PathBuf::new);
     let mut embedder = ImageEmbedder::new(source_dir);
     let outline_html = if input.preferences.outline {
-        render_outline(&input.markdown)
+        render_outline(&body_markdown)
     } else {
         String::new()
     };
@@ -156,7 +162,7 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
 
     let html = input
         .template_html
-        .replace("{{title}}", &escape_html_text(&input.title))
+        .replace("{{title}}", &escape_html_text(&title))
         .replace("{{content}}", &content)
         .replace("{{outline}}", &outline_html)
         .replace("{{outline_columns}}", if outline_html.is_empty() { "1fr" } else { "180px minmax(0, 1fr)" })
@@ -198,7 +204,6 @@ pub fn render_presentation_html(
     let warnings_html = render_warnings(&embedder.warnings);
     let aspect_class = match preferences.aspect_ratio.as_str() {
         "4-3" => "aspect-4-3",
-        "portrait" | "9:16" | "mobile" => "aspect-portrait",
         _ => "aspect-16-9",
     };
 
@@ -702,31 +707,6 @@ impl FigureLayout {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MobileHintKind {
-    Figure,
-    Table,
-    Code,
-}
-
-impl MobileHintKind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Figure => "横屏查看图片",
-            Self::Table => "横屏查看表格",
-            Self::Code => "横屏查看代码",
-        }
-    }
-
-    fn key(self) -> &'static str {
-        match self {
-            Self::Figure => "figure",
-            Self::Table => "table",
-            Self::Code => "code",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PresentationSlidePlan {
     Cover { title: String },
@@ -752,7 +732,6 @@ enum PresentationSlidePlan {
         intro_markdown: Option<String>,
         outro_markdown: Option<String>,
     },
-    MobileHint { chapter: String, title: String, kind: MobileHintKind, preview: String },
     Thanks,
 }
 
@@ -765,28 +744,6 @@ struct PresentationPageBudget {
 }
 
 fn presentation_budget(preferences: &PresentationHtmlExportPreferences) -> PresentationPageBudget {
-    if is_portrait_aspect(&preferences.aspect_ratio) {
-        return match preferences.density {
-            PresentationDensity::Master => PresentationPageBudget {
-                max_cards: 1,
-                max_paragraph_chars: 80,
-                max_list_items: 2,
-                max_code_lines: 8,
-            },
-            PresentationDensity::Balanced => PresentationPageBudget {
-                max_cards: 3,
-                max_paragraph_chars: 140,
-                max_list_items: 5,
-                max_code_lines: 12,
-            },
-            PresentationDensity::Report => PresentationPageBudget {
-                max_cards: 3,
-                max_paragraph_chars: 260,
-                max_list_items: 5,
-                max_code_lines: 14,
-            },
-        };
-    }
     match preferences.density {
         PresentationDensity::Master => PresentationPageBudget {
             max_cards: 1,
@@ -814,10 +771,6 @@ fn presentation_card_limit(aspect_ratio: &str) -> usize {
         "4-3" => 3,
         _ => 5,
     }
-}
-
-fn is_portrait_aspect(aspect_ratio: &str) -> bool {
-    matches!(aspect_ratio, "portrait" | "9:16" | "mobile")
 }
 
 fn parse_presentation_document(markdown: &str, fallback_title: &str) -> PresentationDocument {
@@ -855,7 +808,22 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
         }
     };
 
+    let mut active_fence: Option<(char, usize)> = None;
     for line in markdown.lines() {
+        if let Some((marker, len)) = active_fence {
+            raw_topic.push_str(line);
+            raw_topic.push('\n');
+            if is_code_fence_end(line, marker, len) {
+                active_fence = None;
+            }
+            continue;
+        }
+        if let Some(fence) = parse_code_fence_start(line) {
+            raw_topic.push_str(line);
+            raw_topic.push('\n');
+            active_fence = Some((fence.marker, fence.len));
+            continue;
+        }
         if let Some((level, heading)) = markdown_heading(line) {
             if level == 1 && !skipped_first_h1 && heading == title {
                 skipped_first_h1 = true;
@@ -939,7 +907,7 @@ fn parse_presentation_blocks(markdown: &str) -> Vec<PresentationBlock> {
             index += 1;
             continue;
         }
-        if line.trim_start().starts_with("```") {
+        if parse_code_fence_start(line).is_some() {
             let (block, next) = parse_code_block(&lines, index);
             blocks.push(block);
             index = next;
@@ -984,13 +952,16 @@ fn parse_presentation_blocks(markdown: &str) -> Vec<PresentationBlock> {
 }
 
 fn parse_code_block(lines: &[&str], start: usize) -> (PresentationBlock, usize) {
-    let fence = lines[start].trim_start();
-    let language = fence.trim_start_matches("```").trim();
-    let language = (!language.is_empty()).then(|| language.to_string());
+    let fence = parse_code_fence_start(lines[start]).unwrap_or(CodeFence {
+        marker: '`',
+        len: 3,
+        language: None,
+    });
+    let language = fence.language.clone();
     let mut body = Vec::new();
     let mut index = start + 1;
     while index < lines.len() {
-        if lines[index].trim_start().starts_with("```") {
+        if is_code_fence_end(lines[index], fence.marker, fence.len) {
             index += 1;
             break;
         }
@@ -1008,6 +979,41 @@ fn parse_code_block(lines: &[&str], start: usize) -> (PresentationBlock, usize) 
         },
         index,
     )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodeFence {
+    marker: char,
+    len: usize,
+    language: Option<String>,
+}
+
+fn parse_code_fence_start(line: &str) -> Option<CodeFence> {
+    let trimmed = line.trim_start();
+    let marker = trimmed.chars().next()?;
+    if !matches!(marker, '`' | '~') {
+        return None;
+    }
+    let len = trimmed.chars().take_while(|ch| *ch == marker).count();
+    if len < 3 {
+        return None;
+    }
+    let rest = trimmed.chars().skip(len).collect::<String>();
+    let language = rest.trim();
+    Some(CodeFence {
+        marker,
+        len,
+        language: (!language.is_empty()).then(|| language.to_string()),
+    })
+}
+
+fn is_code_fence_end(line: &str, marker: char, opening_len: usize) -> bool {
+    let trimmed = line.trim_start();
+    let len = trimmed.chars().take_while(|ch| *ch == marker).count();
+    if len < opening_len {
+        return false;
+    }
+    trimmed.chars().skip(len).all(char::is_whitespace)
 }
 
 fn parse_table_block(lines: &[&str], start: usize) -> (PresentationBlock, usize) {
@@ -1047,7 +1053,7 @@ fn collect_paragraph(lines: &[&str], start: usize) -> (String, usize) {
         && !is_markdown_list_item(lines[index])
         && !is_markdown_table_start(lines, index)
         && !is_markdown_thematic_break(lines[index])
-        && !lines[index].trim_start().starts_with("```")
+        && parse_code_fence_start(lines[index]).is_none()
         && !is_markdown_image_line(lines[index])
         && !lines[index].trim_start().starts_with('>')
         && markdown_heading(lines[index]).is_none()
@@ -1067,12 +1073,11 @@ fn plan_presentation_slides(
     let mut slides = vec![PresentationSlidePlan::Cover {
         title: document.title.clone(),
     }];
-    if is_portrait_aspect(&preferences.aspect_ratio) {
-        plan_mobile_slides(document, preferences, &mut slides);
-    } else if preferences.density == PresentationDensity::Master {
+    if preferences.density == PresentationDensity::Master {
         plan_master_slides(document, preferences, &mut slides);
     } else {
         plan_landscape_slides(document, preferences, source_dir, &mut slides);
+        compact_report_slides(&mut slides, preferences);
     }
     slides.push(PresentationSlidePlan::Thanks);
     if slides.len() == 2 && input.markdown.trim().is_empty() {
@@ -1087,6 +1092,77 @@ fn plan_presentation_slides(
         );
     }
     slides
+}
+
+fn compact_report_slides(
+    slides: &mut Vec<PresentationSlidePlan>,
+    preferences: &PresentationHtmlExportPreferences,
+) {
+    if preferences.density != PresentationDensity::Report {
+        return;
+    }
+    let budget = presentation_budget(preferences);
+    let mut compacted: Vec<PresentationSlidePlan> = Vec::new();
+    let mut active_chapter: Option<String> = None;
+    for slide in std::mem::take(slides) {
+        match slide {
+            PresentationSlidePlan::Chapter { title } => {
+                active_chapter = Some(title);
+                continue;
+            }
+            PresentationSlidePlan::Text {
+                chapter,
+                title,
+                subtitle,
+                markdown,
+            } => {
+                let chapter_title = active_chapter.clone().unwrap_or(chapter);
+                let normalized_markdown = report_section_markdown(&chapter_title, &title, subtitle.as_deref(), &markdown);
+
+                if let Some(PresentationSlidePlan::Text {
+                    title: previous_title,
+                    markdown: previous_markdown,
+                    ..
+                }) = compacted.last_mut()
+                {
+                    let current_chars = markdown_text_chars(&normalized_markdown);
+                    let combined_chars = markdown_text_chars(previous_markdown) + current_chars;
+                    if previous_title == &chapter_title && current_chars <= 260 && combined_chars <= budget.max_paragraph_chars + 320 {
+                        if !normalized_markdown.trim().is_empty() {
+                            previous_markdown.push_str("\n\n");
+                            previous_markdown.push_str(&normalized_markdown);
+                        }
+                        continue;
+                    }
+                }
+
+                compacted.push(PresentationSlidePlan::Text {
+                    chapter: chapter_title.clone(),
+                    title: chapter_title,
+                    subtitle: None,
+                    markdown: normalized_markdown,
+                });
+            }
+            _ => {
+                compacted.push(slide);
+            }
+        }
+    }
+    *slides = compacted;
+}
+
+fn report_section_markdown(chapter: &str, title: &str, subtitle: Option<&str>, markdown: &str) -> String {
+    let mut parts = Vec::new();
+    if title != chapter && !title.trim().is_empty() {
+        parts.push(format!("### {}", title.trim()));
+    }
+    if let Some(subtitle) = subtitle.filter(|value| !value.trim().is_empty()) {
+        parts.push(format!("#### {}", subtitle.trim()));
+    }
+    if !markdown.trim().is_empty() {
+        parts.push(markdown.trim().to_string());
+    }
+    parts.join("\n\n")
 }
 
 fn is_markdown_thematic_break(line: &str) -> bool {
@@ -1563,15 +1639,25 @@ fn code_intro_markdown(
         return None;
     }
     let budget = presentation_budget(preferences);
-    if let Some(PresentationBlock::Paragraph(value)) = text_blocks.last() {
-        if value.chars().count() <= budget.max_paragraph_chars / 2 {
-            return match text_blocks.pop() {
-                Some(PresentationBlock::Paragraph(value)) if !value.trim().is_empty() => Some(value),
-                _ => None,
-            };
+    let mut start = text_blocks.len();
+    let mut chars = 0usize;
+    while start > 0 {
+        let PresentationBlock::Paragraph(value) = &text_blocks[start - 1] else {
+            break;
+        };
+        let paragraph_chars = markdown_text_chars(value);
+        if paragraph_chars == 0 || chars + paragraph_chars > budget.max_paragraph_chars {
+            break;
         }
+        chars += paragraph_chars;
+        start -= 1;
     }
-    None
+    if start == text_blocks.len() || chars > budget.max_paragraph_chars {
+        return None;
+    }
+    let intro_blocks = text_blocks.drain(start..).collect::<Vec<_>>();
+    let intro = blocks_to_markdown(&intro_blocks, None, None);
+    (!intro.trim().is_empty()).then_some(intro)
 }
 
 fn code_outro_markdown(
@@ -1645,38 +1731,11 @@ fn push_list_card_slides(
     intro: Option<String>,
     cards: Vec<ListCardPlan>,
     outro: Option<String>,
-    preferences: &PresentationHtmlExportPreferences,
+    _preferences: &PresentationHtmlExportPreferences,
     slides: &mut Vec<PresentationSlidePlan>,
 ) {
-    if !is_portrait_aspect(&preferences.aspect_ratio) {
-        let counts = landscape_card_chunks(&cards, outro.is_some());
-        if counts.len() <= 1 {
-            slides.push(PresentationSlidePlan::ListCards {
-                chapter: chapter.to_string(),
-                title: title.to_string(),
-                intro,
-                cards,
-                outro,
-            });
-            return;
-        }
-        let mut start = 0usize;
-        let last_index = counts.len().saturating_sub(1);
-        for (chunk_index, count) in counts.into_iter().enumerate() {
-            let end = (start + count).min(cards.len());
-            slides.push(PresentationSlidePlan::ListCards {
-                chapter: chapter.to_string(),
-                title: title.to_string(),
-                intro: (chunk_index == 0).then(|| intro.clone()).flatten(),
-                cards: cards[start..end].to_vec(),
-                outro: (chunk_index == last_index).then(|| outro.clone()).flatten(),
-            });
-            start = end;
-        }
-        return;
-    }
-
-    if cards.len() <= portrait_card_limit(outro.is_some()) {
+    let counts = landscape_card_chunks(&cards, outro.is_some());
+    if counts.len() <= 1 {
         slides.push(PresentationSlidePlan::ListCards {
             chapter: chapter.to_string(),
             title: title.to_string(),
@@ -1687,7 +1746,6 @@ fn push_list_card_slides(
         return;
     }
 
-    let counts = portrait_card_chunks(cards.len(), outro.is_some());
     let mut start = 0usize;
     let last_index = counts.len().saturating_sub(1);
     for (chunk_index, count) in counts.into_iter().enumerate() {
@@ -1738,36 +1796,6 @@ fn balanced_card_chunks(total: usize, limit: usize) -> Vec<usize> {
     (0..pages)
         .map(|index| base + usize::from(index < remainder))
         .collect()
-}
-
-fn portrait_card_limit(has_outro: bool) -> usize {
-    if has_outro {
-        4
-    } else {
-        5
-    }
-}
-
-fn portrait_card_chunks(total: usize, has_outro: bool) -> Vec<usize> {
-    let max_last = portrait_card_limit(has_outro);
-    if total <= max_last {
-        return vec![total];
-    }
-    let mut remaining = total;
-    let mut chunks = Vec::new();
-    while remaining > max_last {
-        let take = if has_outro {
-            (remaining.saturating_sub(2)).min(5).max(1)
-        } else {
-            remaining.min(5)
-        };
-        chunks.push(take);
-        remaining -= take;
-    }
-    if remaining > 0 {
-        chunks.push(remaining);
-    }
-    chunks
 }
 
 fn merge_plain_blocks_into_list_intro(
@@ -2248,102 +2276,6 @@ fn code_mode(lines: usize, max_line_chars: usize, preferences: &PresentationHtml
     }
 }
 
-fn plan_mobile_slides(
-    document: &PresentationDocument,
-    preferences: &PresentationHtmlExportPreferences,
-    slides: &mut Vec<PresentationSlidePlan>,
-) {
-    let budget = presentation_budget(preferences);
-    for chapter in &document.chapters {
-        slides.push(PresentationSlidePlan::Chapter {
-            title: chapter.title.clone(),
-        });
-        for topic in &chapter.topics {
-            let mut text_blocks = Vec::new();
-            for block in &topic.blocks {
-                match block {
-                    PresentationBlock::Table { markdown, .. } => {
-                        flush_mobile_text_blocks(&chapter.title, &topic.title, &mut text_blocks, preferences, slides);
-                        slides.push(PresentationSlidePlan::MobileHint {
-                            chapter: chapter.title.clone(),
-                            title: topic.title.clone(),
-                            kind: MobileHintKind::Table,
-                            preview: markdown.clone(),
-                        });
-                    }
-                    PresentationBlock::Code { language: _, body, lines, max_line_chars } if *lines > 16 || *max_line_chars > 80 => {
-                        flush_mobile_text_blocks(&chapter.title, &topic.title, &mut text_blocks, preferences, slides);
-                        slides.push(PresentationSlidePlan::MobileHint {
-                            chapter: chapter.title.clone(),
-                            title: topic.title.clone(),
-                            kind: MobileHintKind::Code,
-                            preview: body.clone(),
-                        });
-                    }
-                    PresentationBlock::Code { language, body, lines, max_line_chars } => {
-                        flush_mobile_text_blocks(&chapter.title, &topic.title, &mut text_blocks, preferences, slides);
-                        slides.push(PresentationSlidePlan::Code {
-                            chapter: chapter.title.clone(),
-                            title: topic.title.clone(),
-                            language: language.clone(),
-                            code: body.clone(),
-                            mode: code_mode(*lines, *max_line_chars, preferences),
-                            intro_markdown: None,
-                            outro_markdown: None,
-                        });
-                    }
-                    PresentationBlock::Image(markdown) => {
-                        flush_mobile_text_blocks(&chapter.title, &topic.title, &mut text_blocks, preferences, slides);
-                        slides.push(PresentationSlidePlan::MobileHint {
-                            chapter: chapter.title.clone(),
-                            title: topic.title.clone(),
-                            kind: MobileHintKind::Figure,
-                            preview: markdown.clone(),
-                        });
-                    }
-                    other => text_blocks.push(other.clone()),
-                }
-            }
-            if !text_blocks.is_empty() && preferences.density == PresentationDensity::Balanced && is_mobile_short_text(&text_blocks, budget) {
-                slides.push(PresentationSlidePlan::TopicCards {
-                    chapter: chapter.title.clone(),
-                    cards: vec![TopicCardPlan {
-                        title: topic.title.clone(),
-                        summary_markdown: blocks_to_markdown(&text_blocks, Some(budget.max_paragraph_chars), Some(budget.max_list_items)),
-                    }],
-                });
-            } else {
-                flush_mobile_text_blocks(&chapter.title, &topic.title, &mut text_blocks, preferences, slides);
-            }
-        }
-    }
-}
-
-fn flush_mobile_text_blocks(
-    chapter: &str,
-    title: &str,
-    blocks: &mut Vec<PresentationBlock>,
-    preferences: &PresentationHtmlExportPreferences,
-    slides: &mut Vec<PresentationSlidePlan>,
-) {
-    if blocks.is_empty() {
-        return;
-    }
-    flush_text_blocks(chapter, title, blocks, preferences, slides);
-}
-
-fn is_mobile_short_text(blocks: &[PresentationBlock], budget: PresentationPageBudget) -> bool {
-    let chars = blocks
-        .iter()
-        .map(|block| match block {
-            PresentationBlock::Paragraph(value) => value.chars().count(),
-            PresentationBlock::List(items) => items.iter().map(|item| item.chars().count()).sum(),
-            _ => 0,
-        })
-        .sum::<usize>();
-    chars <= budget.max_paragraph_chars
-}
-
 fn blocks_to_markdown(blocks: &[PresentationBlock], max_chars: Option<usize>, max_items: Option<usize>) -> String {
     let mut output = Vec::new();
     for block in blocks {
@@ -2624,37 +2556,6 @@ fn render_presentation_slide(
                 ),
             )
         }
-        PresentationSlidePlan::MobileHint { chapter, title, kind, preview } => {
-            let detail_html = match kind {
-                MobileHintKind::Code => format!(
-                    r#"<pre class="code-frame code-scroll-y" data-code-mode="code-scroll-y"><code>{}</code></pre>"#,
-                    escape_html_text(preview),
-                ),
-                _ => embedder.embed_images(&render_markdown_html(preview)),
-            };
-            let preview_html = match kind {
-                MobileHintKind::Table | MobileHintKind::Code => mobile_hint_icon_svg(*kind),
-                MobileHintKind::Figure => detail_html.clone(),
-            };
-            render_content_slide(
-                "mobile-hint",
-                preferences,
-                active,
-                index,
-                total,
-                input,
-                chapter,
-                title,
-                Some(kind.label()),
-                &format!(
-                    r#"<div class="mobile-landscape-hint" data-mobile-hint-kind="{kind}" role="button" tabindex="0"><div class="mobile-hint-preview">{preview}</div><div class="mobile-hint-detail" hidden>{detail}</div><p>{label}</p></div>"#,
-                    kind = kind.key(),
-                    preview = preview_html,
-                    detail = detail_html,
-                    label = escape_html_text(kind.label()),
-                ),
-            )
-        }
         PresentationSlidePlan::Thanks => format!(
             r#"<section class="slide thanks density-{density}{active}" data-slide-kind="thanks" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="Thanks">
   <div class="thanks-content">
@@ -2670,25 +2571,6 @@ fn render_presentation_slide(
             total = total,
         ),
     }
-}
-
-fn mobile_hint_icon_svg(kind: MobileHintKind) -> String {
-    let (label, body) = match kind {
-        MobileHintKind::Table => (
-            "表格占位图标",
-            r#"<rect x="34" y="46" width="156" height="112" rx="12"></rect><path d="M34 78h156M34 112h156M82 46v112M134 46v112"></path>"#,
-        ),
-        MobileHintKind::Code => (
-            "代码占位图标",
-            r#"<rect x="36" y="48" width="152" height="108" rx="12"></rect><path d="M84 88l-24 22 24 22M140 88l24 22-24 22M124 78l-24 66"></path>"#,
-        ),
-        MobileHintKind::Figure => ("图片占位图标", ""),
-    };
-    format!(
-        r#"<svg class="mobile-hint-icon" viewBox="0 0 224 204" role="img" aria-label="{label}" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><title>{label}</title>{body}</svg>"#,
-        label = label,
-        body = body,
-    )
 }
 
 fn render_content_slide(
@@ -2854,21 +2736,67 @@ fn is_markdown_table_start(lines: &[&str], index: usize) -> bool {
 }
 
 fn first_markdown_h1(markdown: &str) -> Option<String> {
-    markdown.lines().find_map(|line| match markdown_heading(line) {
-        Some((1, title)) => Some(title),
-        _ => None,
-    })
+    markdown_headings_outside_code(markdown)
+        .into_iter()
+        .find_map(|(level, title)| (level == 1).then_some(title))
+}
+
+fn remove_first_markdown_h1(markdown: &str) -> String {
+    let mut removed = false;
+    let mut active_fence: Option<(char, usize)> = None;
+    let mut lines = Vec::new();
+    for line in markdown.lines() {
+        if let Some((marker, len)) = active_fence {
+            lines.push(line);
+            if is_code_fence_end(line, marker, len) {
+                active_fence = None;
+            }
+            continue;
+        }
+        if let Some(fence) = parse_code_fence_start(line) {
+            active_fence = Some((fence.marker, fence.len));
+            lines.push(line);
+            continue;
+        }
+        if !removed && matches!(markdown_heading(line), Some((1, _))) {
+            removed = true;
+            continue;
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
 }
 
 fn add_heading_ids(html: &str, markdown: &str) -> String {
     let mut output = html.to_string();
-    for (level, title) in markdown.lines().filter_map(markdown_heading) {
+    for (level, title) in markdown_headings_outside_code(markdown) {
         let id = heading_id(&title);
         let open = format!("<h{level}>");
         let with_id = format!(r#"<h{level} id="{}">"#, escape_html_attr(&id));
         output = output.replacen(&open, &with_id, 1);
     }
     output
+}
+
+fn markdown_headings_outside_code(markdown: &str) -> Vec<(u8, String)> {
+    let mut headings = Vec::new();
+    let mut active_fence: Option<(char, usize)> = None;
+    for line in markdown.lines() {
+        if let Some((marker, len)) = active_fence {
+            if is_code_fence_end(line, marker, len) {
+                active_fence = None;
+            }
+            continue;
+        }
+        if let Some(fence) = parse_code_fence_start(line) {
+            active_fence = Some((fence.marker, fence.len));
+            continue;
+        }
+        if let Some(heading) = markdown_heading(line) {
+            headings.push(heading);
+        }
+    }
+    headings
 }
 
 fn markdown_heading(line: &str) -> Option<(u8, String)> {
@@ -2976,9 +2904,9 @@ mod tests {
 
     use super::{
         default_markdown_html_file_name, fallback_presentation_light_template, fallback_reading_light_template,
-        render_presentation_html, render_reading_html, text_slide_markdown, MarkdownHtmlExportInput,
-        MarkdownHtmlExportPreferences, PresentationBlock, PresentationDensity, PresentationHtmlExportPreferences,
-        ReadingWidth,
+        parse_presentation_blocks, render_presentation_html, render_reading_html, text_slide_markdown,
+        MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationBlock, PresentationDensity,
+        PresentationHtmlExportPreferences, ReadingWidth,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -3028,10 +2956,10 @@ mod tests {
         })
         .expect("reading html should render");
 
-        assert!(output.html.contains(r#"<h1 id="title">Title</h1>"#));
+        assert!(!output.html.contains(r#"<h1 id="title">Title</h1>"#));
         assert!(output.html.contains("<blockquote>"));
         assert!(output.html.contains("<table>"));
-        assert!(output.html.contains("<title>Plan &lt;One&gt;</title>"));
+        assert!(output.html.contains("<title>Title</title>"));
         assert!(output.html.contains("123 plan.md"));
         assert!(!output.html.contains("export-warnings"));
     }
@@ -3202,8 +3130,9 @@ mod tests {
 
         assert!(output.html.contains("width: min(1040px"));
         assert!(output.html.contains(r#"<nav class="export-outline""#));
-        assert!(output.html.contains(r##"href="#intro""##));
-        assert!(output.html.contains(r#"<h1 id="intro">Intro</h1>"#));
+        assert!(!output.html.contains(r##"href="#intro""##));
+        assert!(!output.html.contains(r#"<h1 id="intro">Intro</h1>"#));
+        assert!(output.html.contains(r##"href="#details""##));
         assert!(output.html.contains(r##"class="depth-3" href="#more""##));
     }
 
@@ -3384,6 +3313,36 @@ mod tests {
     }
 
     #[test]
+    fn presentation_html_keeps_multiple_short_intro_paragraphs_with_code() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Summary".to_string(),
+                source_file: "summary.md".to_string(),
+                source_path: temp_path("presentation-code-multi-intro").with_extension("md"),
+                markdown: "## 五、口语摘要层设计\n\n### 5.1 设计思路\n\n问题：OpenClaw 完整回复包含大量工具调用细节、代码片段、冗长解释，直接送给 TTS 播报体验很差。\n\n解决：在 Bridge 和 TTS 之间插入**口语摘要层**：\n\n```text\nOpenClaw 完整回复\n  ↓\n  ├→ [去格式化] → 去掉 markdown、代码块、URL、工具日志\n  └→ [TTS 流式] → 边合成边播放\n```".to_string(),
+                generated_at: "修改时间：2026-06-15 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        assert_eq!(output.html.matches(r#"data-slide-kind="code""#).count(), 1);
+        assert!(!output.html.contains(r#"data-slide-kind="text""#));
+        let problem_index = output.html.find("问题：OpenClaw 完整回复").expect("problem should render");
+        let solution_index = output.html.find("解决：在 Bridge 和 TTS").expect("solution should render");
+        let code_index = output.html.find(r#"<pre class="code-frame"#).expect("code should render");
+        assert!(!output.html[problem_index..solution_index].contains(r#"<section class="slide"#));
+        assert!(!output.html[solution_index..code_index].contains(r#"<section class="slide"#));
+        assert!(output.html.contains(r#"class="code-intro""#));
+    }
+
+    #[test]
     fn presentation_html_keeps_trailing_intro_with_code_after_previous_list() {
         let output = render_presentation_html(
             MarkdownHtmlExportInput {
@@ -3441,6 +3400,43 @@ mod tests {
             .expect("following note should render");
         assert!(!output.html[code_index..note_index].contains(r#"<section class="slide"#));
         assert!(output.html.contains(r#"class="code-outro""#));
+    }
+
+    #[test]
+    fn presentation_html_preserves_nested_fence_python_comments_as_code() {
+        let markdown = "## 四、自定义唤醒词方案\n\n### 4.3 自定义唤醒词配置\n\n````markdown\n```python\n# config.py\nWAKE_WORD = \"来钳\"\n# Porcupine 模型路径\nWAKE_WORD_MODEL_PATH = \"./models/wake_word/lizi_mac.ppn\"\n```\n````";
+        let blocks = parse_presentation_blocks(markdown);
+        assert!(blocks.iter().any(|block| matches!(
+            block,
+            PresentationBlock::Code { body, .. }
+                if body.contains("# config.py") && body.contains("# Porcupine 模型路径")
+        )));
+        assert!(!blocks.iter().any(|block| matches!(
+            block,
+            PresentationBlock::Heading { title, .. }
+                if title == "config.py" || title == "Porcupine 模型路径"
+        )));
+
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Fence".to_string(),
+                source_file: "fence.md".to_string(),
+                source_path: temp_path("presentation-nested-fence").with_extension("md"),
+                markdown: markdown.to_string(),
+                generated_at: "修改时间：2026-06-15 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("presentation html should render");
+
+        assert!(!output.html.contains(r#"data-title="config.py""#));
+        assert!(!output.html.contains(r#"data-title="Porcupine 模型路径""#));
     }
 
     #[test]
@@ -3955,92 +3951,6 @@ mod tests {
     }
 
     #[test]
-    fn presentation_html_portrait_uses_mobile_brief_hints_for_complex_content() {
-        let markdown = "## 竖版页面\n\n### 普通图片\n\n![photo](photo.png)\n\n### 复杂表格\n\n| A | B | C | D |\n| - | - | - | - |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n| 1 | 2 | 3 | 4 |\n\n### 长代码\n\n```ts\nconst value = 1;\nconst value2 = 2;\nconst value3 = 3;\nconst value4 = 4;\nconst value5 = 5;\nconst value6 = 6;\nconst value7 = 7;\nconst value8 = 8;\nconst value9 = 9;\nconst value10 = 10;\nconst value11 = 11;\nconst value12 = 12;\nconst value13 = 13;\nconst value14 = 14;\nconst value15 = 15;\nconst value16 = 16;\nconst value17 = 17;\n```";
-        let portrait = render_presentation_html(
-            MarkdownHtmlExportInput {
-                title: "Portrait".to_string(),
-                source_file: "portrait.md".to_string(),
-                source_path: temp_path("presentation-portrait").with_extension("md"),
-                markdown: markdown.to_string(),
-                generated_at: "修改时间：2026-06-13 10:00".to_string(),
-                template_html: fallback_presentation_light_template().to_string(),
-                preferences: MarkdownHtmlExportPreferences::default(),
-            },
-            PresentationHtmlExportPreferences {
-                aspect_ratio: "portrait".to_string(),
-                density: PresentationDensity::Balanced,
-                output_kind: "static".to_string(),
-            },
-        )
-        .expect("portrait presentation should render");
-
-        assert!(portrait.html.contains("aspect-portrait"));
-        assert!(portrait.html.contains("mobile-landscape-hint"));
-        assert!(portrait.html.contains("横屏查看表格"));
-        assert!(portrait.html.contains("横屏查看代码"));
-        assert!(portrait.html.contains("横屏查看图片"));
-        assert!(portrait.html.contains(r#"<svg class="mobile-hint-icon""#));
-        assert!(portrait.html.contains(r#"aria-label="表格占位图标""#));
-        assert!(portrait.html.contains(r#"aria-label="代码占位图标""#));
-        assert!(portrait.html.contains(r#"class="mobile-hint-detail" hidden"#));
-        assert!(portrait.html.contains(r#"<pre class="code-frame code-scroll-y" data-code-mode="code-scroll-y"><code>const value = 1;"#));
-        assert!(portrait.html.contains("viewerContent.innerHTML = detail?.innerHTML || preview.innerHTML"));
-        assert!(!portrait.html.contains(r#"data-slide-kind="figure""#));
-    }
-
-    #[test]
-    fn presentation_html_portrait_splits_list_cards_to_mobile_budget() {
-        let output = render_presentation_html(
-            MarkdownHtmlExportInput {
-                title: "Mobile".to_string(),
-                source_file: "mobile.md".to_string(),
-                source_path: temp_path("presentation-mobile-budget").with_extension("md"),
-                markdown: "## 当前支持什么\n\n### 当前支持什么\n\n当前版本已经可以完成一套基础的本地管理闭环：\n\n- Skill 扫描并接入文件夹\n- 文件夹扫描录入\n- 单文件接入\n- Markdown 阅读 / 轻编辑\n- HTML 打开与预览\n- 支持带 JavaScript 交互的 HTML 页面查看\n- 文件缩略图\n- 收藏与标签\n- 本地文件管理\n\n简单说，当前版本已经适合把常见的 AI 输出文件集中收进来。".to_string(),
-                generated_at: "修改时间：2026-06-14 10:00".to_string(),
-                template_html: fallback_presentation_light_template().to_string(),
-                preferences: MarkdownHtmlExportPreferences::default(),
-            },
-            PresentationHtmlExportPreferences {
-                aspect_ratio: "portrait".to_string(),
-                density: PresentationDensity::Balanced,
-                output_kind: "static".to_string(),
-            },
-        )
-        .expect("portrait presentation html should render");
-
-        assert!(!output.html.contains(r#"<div class="list-card-grid" data-card-count="9""#));
-        assert!(output.html.contains(r#"data-card-count="4""#));
-        assert!(output.html.matches(r#"data-slide-kind="list-cards""#).count() >= 2);
-    }
-
-    #[test]
-    fn presentation_html_portrait_keeps_short_link_text_list_together() {
-        let output = render_presentation_html(
-            MarkdownHtmlExportInput {
-                title: "Links".to_string(),
-                source_file: "links.md".to_string(),
-                source_path: temp_path("presentation-portrait-links").with_extension("md"),
-                markdown: "## 核心能力\n\n### 4. 主动适配内容生成型 skill\n\nNUTBOOK 会主动适配更适合展示和阅读的内容生成型 skill，例如：\n\n* [`html-ppt-skill`](https://github.com/lewislulu/html-ppt-skill)\n* [`huashu-design`](https://github.com/alchaincyf/huashu-design)\n* [`open-design`](https://github.com/alchaincyf/open-design)\n* [`guizang-ppt-skill`](https://github.com/u14app/deep-research)\n* 其他生成 Markdown / HTML 报告、提案、演示页的 skill\n\n对于这类产物，NUTBOOK 会尽量保留其交互和视觉效果。".to_string(),
-                generated_at: "修改时间：2026-06-14 10:00".to_string(),
-                template_html: fallback_presentation_light_template().to_string(),
-                preferences: MarkdownHtmlExportPreferences::default(),
-            },
-            PresentationHtmlExportPreferences {
-                aspect_ratio: "portrait".to_string(),
-                density: PresentationDensity::Balanced,
-                output_kind: "static".to_string(),
-            },
-        )
-        .expect("portrait presentation html should render");
-
-        assert_eq!(output.html.matches(r#"data-topic-title="4. 主动适配内容生成型 skill""#).count(), 1);
-        assert!(!output.html.contains(r#"data-slide-kind="list-cards""#));
-        assert!(output.html.contains("guizang-ppt-skill"));
-        assert!(output.html.contains("对于这类产物"));
-    }
-
-    #[test]
     fn presentation_html_density_and_card_limits_are_content_aware() {
         let markdown = "# Deck\n\n## 方案\n\n### 一\n\n一句话。\n\n### 二\n\n一句话。\n\n### 三\n\n一句话。\n\n### 四\n\n一句话。\n\n### 五\n\n一句话。\n\n### 六\n\n一句话。";
         let wide = render_presentation_html(
@@ -4202,10 +4112,65 @@ mod tests {
         .expect("report presentation html should render");
 
         assert!(output.html.contains(r#"data-slide-kind="text""#));
+        assert!(!output.html.contains(r#"data-slide-kind="chapter""#));
         assert!(!output.html.contains(r#"data-slide-kind="list-cards""#));
         assert!(!output.html.contains(r#"data-slide-kind="topic-cards""#));
         assert!(output.html.contains("接入 skill 产物目录"));
         assert!(output.html.contains("无论内容来自哪里"));
+    }
+
+    #[test]
+    fn presentation_html_report_merges_short_reading_sections() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Report".to_string(),
+                source_file: "report.md".to_string(),
+                source_path: temp_path("presentation-report-compact").with_extension("md"),
+                markdown: "# Deck\n\n## 第一章\n\n### 摘要\n\n只有一句话。\n\n### 结论\n\n再补一句话。".to_string(),
+                generated_at: "修改时间：2026-06-14 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Report,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("report presentation html should render");
+
+        assert_eq!(output.html.matches(r#"data-slide-kind="text""#).count(), 1);
+        assert!(output.html.contains(r#"data-title="第一章""#));
+        assert!(output.html.contains("<h3>摘要</h3>"));
+        assert!(output.html.contains("<h3>结论</h3>"));
+        assert!(output.html.contains("只有一句话"));
+        assert!(output.html.contains("再补一句话"));
+    }
+
+    #[test]
+    fn presentation_html_report_does_not_merge_across_chapters() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Report".to_string(),
+                source_file: "report.md".to_string(),
+                source_path: temp_path("presentation-report-chapters").with_extension("md"),
+                markdown: "# Deck\n\n## 适合谁\n\n这是一段适合谁的说明。\n\n## 典型场景\n\n### 阅读报告\n\n场景一。\n\n## 当前支持什么\n\n当前版本已经可以完成基础闭环。".to_string(),
+                generated_at: "修改时间：2026-06-14 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Report,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("report presentation html should render");
+
+        assert!(output.html.contains(r#"data-title="适合谁""#));
+        assert!(output.html.contains(r#"data-title="典型场景""#));
+        assert!(output.html.contains(r#"data-title="当前支持什么""#));
+        assert!(output.html.contains("<h3>阅读报告</h3>"));
     }
 
     #[test]

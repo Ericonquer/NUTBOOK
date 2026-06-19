@@ -47,6 +47,10 @@ pub enum AppError {
     CoverAssetRejected(String),
     #[error("HTML edit session is no longer active")]
     InvalidSession,
+    #[error("export engine unavailable")]
+    ExportEngineUnavailable,
+    #[error("long image is too tall")]
+    ExportLongImageTooTall,
     #[error("database error")]
     DatabaseError,
     #[error("io error")]
@@ -154,6 +158,8 @@ impl AppError {
             AppError::MarkdownResourceUnavailable(_) => "MARKDOWN_RESOURCE_UNAVAILABLE",
             AppError::AgentDiscoveryDatabaseUnavailable(_) => "AGENT_DISCOVERY_DATABASE_UNAVAILABLE",
             AppError::InvalidSession => "INVALID_SESSION",
+            AppError::ExportEngineUnavailable => "EXPORT_ENGINE_UNAVAILABLE",
+            AppError::ExportLongImageTooTall => "EXPORT_LONG_IMAGE_TOO_TALL",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",
             AppError::InternalError => "INTERNAL_ERROR",
