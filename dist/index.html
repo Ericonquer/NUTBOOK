@@ -23474,6 +23474,12 @@ if (!chipTipController) {
           showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
         } catch (error) {
           appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          if (code === "EXPORT_CANCELLED") {
+            appState.exportErrorMessage = "";
+            renderMarkdownExportDialog();
+            return;
+          }
           const message = normalizeError(error);
           appState.exportErrorMessage = `${t("markdown.exportHtmlFailedPrefix")}${message}`;
           renderMarkdownExportDialog();

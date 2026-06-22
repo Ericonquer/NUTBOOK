@@ -91,6 +91,23 @@ impl PresentationDensity {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisualRhythm {
+    Anchor,    // 低密度定调 — 封面/章节封面/尾页
+    Dense,     // 高密度核心内容 — 文字/列表/数据页
+    Breathing, // 中低密度过渡 — 结论/过渡/图片页
+}
+
+impl VisualRhythm {
+    fn class_name(self) -> &'static str {
+        match self {
+            Self::Anchor => "rhythm-anchor",
+            Self::Dense => "rhythm-dense",
+            Self::Breathing => "rhythm-breathing",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentationHtmlExportPreferences {
     pub aspect_ratio: String,
@@ -407,6 +424,11 @@ const PRESENTATION_MOTION_STYLES: &str = r#"
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .list-card-intro,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .list-card,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .list-card-outro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .presentation-quote,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .presentation-step,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .comparison-panel,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .presentation-big-number,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .summary-item,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .figure-copy,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .figure-media,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide .table-frame,
@@ -431,6 +453,11 @@ const PRESENTATION_MOTION_STYLES: &str = r#"
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card-intro,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card-outro,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-quote,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-step,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .comparison-panel,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-big-number,
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .summary-item,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .figure-copy,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .table-frame,
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .code-intro,
@@ -471,6 +498,14 @@ const PRESENTATION_MOTION_STYLES: &str = r#"
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(4) { animation-delay: 300ms; }
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .topic-card:nth-child(n+5),
     body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .list-card:nth-child(n+5) { animation-delay: 360ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-step:nth-child(1),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .summary-item:nth-child(1) { animation-delay: 120ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-step:nth-child(2),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .summary-item:nth-child(2) { animation-delay: 180ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-step:nth-child(3),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .summary-item:nth-child(3) { animation-delay: 240ms; }
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .presentation-step:nth-child(n+4),
+    body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide.is-active.is-motion-active .summary-item:nth-child(n+4) { animation-delay: 300ms; }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
       body[data-output-kind="dynamic"][data-motion-preset="nutbook-default"] .slide * {
@@ -739,6 +774,11 @@ fn render_presentation_slides(
         .unwrap_or_else(PathBuf::new);
     let plans = plan_presentation_slides(&document, input, preferences, &source_dir);
     let total = plans.len().max(1);
+    // Audit results are internal diagnostics. Only actionable export warnings,
+    // such as missing embedded images, belong in the rendered document.
+    let _audit_warnings = audit_slide_plan(&plans);
+    // Compute rhythm sequence
+    let rhythms = assign_rhythm_sequence(&plans);
     let mut chapter_ordinal = 0usize;
     plans
         .iter()
@@ -758,6 +798,7 @@ fn render_presentation_slides(
                 input,
                 preferences,
                 embedder,
+                rhythms.get(index).copied().flatten(),
             )
         })
         .collect::<Vec<_>>()
@@ -780,17 +821,95 @@ struct PresentationChapter {
 struct PresentationTopic {
     title: String,
     blocks: Vec<PresentationBlock>,
+    directive: PresentationDirective,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct PresentationDirective {
+    layout: Option<String>,
+    reveal: Option<String>,
+    emphasis: Option<usize>,
+    section: bool,
+}
+
+impl PresentationDirective {
+    fn merge(&mut self, other: Self) {
+        if other.layout.is_some() {
+            self.layout = other.layout;
+        }
+        if other.reveal.is_some() {
+            self.reveal = other.reveal;
+        }
+        if other.emphasis.is_some() {
+            self.emphasis = other.emphasis;
+        }
+        self.section |= other.section;
+    }
+
+    fn is_empty(&self) -> bool {
+        self.layout.is_none() && self.reveal.is_none() && self.emphasis.is_none() && !self.section
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PresentationBlock {
     Paragraph(String),
     List(Vec<String>),
+    /// Enhanced list variant — preserves per-item label/body/children structure.
+    /// Produced by `upgrade_rich_list()` when a list has structured items.
+    /// Consumers that don't need semantic info continue matching `List(Vec<String>)`.
+    RichList(PresentationRichList),
     Quote(String),
     Heading { level: u8, title: String },
     Image(String),
     Table { markdown: String, rows: usize, cols: usize, max_line_chars: usize },
     Code { language: Option<String>, body: String, lines: usize, max_line_chars: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RichListItem {
+    label: String,
+    body: String,
+    children: Vec<RichListItem>,
+    ordered: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PresentationRichList {
+    items: Vec<RichListItem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelationKind {
+    Parallel,
+    Sequence,
+    Hierarchy,
+    Cycle,
+    Comparison,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Confidence {
+    High,
+    Medium,
+    Low,
+}
+
+/// Lightweight semantic group — the output of the post-parse semantic pass.
+/// Provides layout-relevant facts without replacing `PresentationSlidePlan`.
+#[derive(Debug, Clone)]
+struct SemanticGroup {
+    headline: String,
+    members: Vec<SemanticMember>,
+    relation: RelationKind,
+    confidence: Confidence,
+}
+
+#[derive(Debug, Clone)]
+struct SemanticMember {
+    label: String,
+    evidence: Vec<PresentationBlock>,
+    children: Vec<SemanticMember>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -803,6 +922,64 @@ struct TopicCardPlan {
 struct ListCardPlan {
     title: String,
     body_markdown: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListCardArrangement {
+    StackedGrid,
+    SideBySideStack,
+}
+
+impl ListCardArrangement {
+    fn key(self) -> &'static str {
+        match self {
+            Self::StackedGrid => "stacked-grid",
+            Self::SideBySideStack => "side-by-side-stack",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CardHeightBand {
+    Compact,
+    Standard,
+    Relaxed,
+}
+
+impl CardHeightBand {
+    fn pixels(self) -> usize {
+        match self {
+            Self::Compact => 76,
+            Self::Standard => 96,
+            Self::Relaxed => 116,
+        }
+    }
+
+    fn clamp_step_from(self, previous: Self) -> Self {
+        let max_rank = previous as i8 + 1;
+        if self as i8 > max_rank {
+            match max_rank {
+                0 => Self::Compact,
+                1 => Self::Standard,
+                _ => Self::Relaxed,
+            }
+        } else {
+            self
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListCardLayoutPlan {
+    arrangement: ListCardArrangement,
+    columns: usize,
+    card_height: CardHeightBand,
+    minimum_card_height: CardHeightBand,
+    gap: usize,
+    group_width_percent: usize,
+    vertical_centered: bool,
+    estimated_fill_per_mille: usize,
+    score: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -864,6 +1041,7 @@ enum PresentationSlidePlan {
     Cover { title: String },
     Chapter { title: String },
     Statement { chapter: String, title: String, note: Option<String> },
+    Overview { chapter: String, title: String, items: Vec<String> },
     TopicCards { chapter: String, cards: Vec<TopicCardPlan> },
     Text { chapter: String, title: String, subtitle: Option<String>, markdown: String },
     ListCards {
@@ -872,6 +1050,7 @@ enum PresentationSlidePlan {
         intro: Option<String>,
         cards: Vec<ListCardPlan>,
         outro: Option<String>,
+        layout: Option<ListCardLayoutPlan>,
     },
     Figure { chapter: String, title: String, markdown: String, layout: FigureLayout, aside_markdown: Option<String> },
     Table { chapter: String, title: String, markdown: String, mode: TableMode },
@@ -884,6 +1063,14 @@ enum PresentationSlidePlan {
         intro_markdown: Option<String>,
         outro_markdown: Option<String>,
     },
+    SectionTransition { title: String },
+    Quote { chapter: String, title: String, markdown: String },
+    Process { chapter: String, title: String, steps: Vec<ListCardPlan> },
+    Cycle { chapter: String, title: String, items: Vec<ListCardPlan> },
+    Hierarchy { chapter: String, title: String, roots: Vec<ListCardPlan> },
+    Comparison { chapter: String, title: String, left: Vec<ListCardPlan>, right: Vec<ListCardPlan> },
+    BigNumber { chapter: String, title: String, number: String, supporting: String },
+    Summary { chapter: String, title: String, items: Vec<ListCardPlan> },
     Thanks,
 }
 
@@ -925,6 +1112,27 @@ fn presentation_card_limit(aspect_ratio: &str) -> usize {
     }
 }
 
+fn parse_presentation_directive(line: &str) -> Option<PresentationDirective> {
+    let value = line.trim().strip_prefix("<!-- nutbook:")?.strip_suffix("-->")?.trim();
+    let (key, value) = value.split_once(char::is_whitespace)?;
+    let value = value.trim();
+    let mut directive = PresentationDirective::default();
+    match key {
+        "layout" if matches!(value, "auto" | "quote" | "process" | "comparison" | "big-number" | "summary" | "cards" | "text") => {
+            directive.layout = Some(value.to_string());
+        }
+        "reveal" if matches!(value, "auto" | "none" | "step") => {
+            directive.reveal = Some(value.to_string());
+        }
+        "emphasis" => {
+            directive.emphasis = value.parse::<usize>().ok().filter(|index| *index > 0);
+        }
+        "section" if value == "true" => directive.section = true,
+        _ => return None,
+    }
+    Some(directive)
+}
+
 fn parse_presentation_document(markdown: &str, fallback_title: &str) -> PresentationDocument {
     let title = first_markdown_h1(markdown).unwrap_or_else(|| fallback_title.to_string());
     let overview_title = localized_overview_title(markdown, fallback_title);
@@ -936,9 +1144,11 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
     let mut current_topic = PresentationTopic {
         title: overview_title.clone(),
         blocks: Vec::new(),
+        directive: PresentationDirective::default(),
     };
     let mut raw_topic = String::new();
     let mut skipped_first_h1 = false;
+    let mut pending_directive = PresentationDirective::default();
 
     let flush_topic = |topic: &mut PresentationTopic, raw: &mut String, chapter: &mut PresentationChapter| {
         if !raw.trim().is_empty() {
@@ -950,6 +1160,7 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
         *topic = PresentationTopic {
             title: chapter.title.clone(),
             blocks: Vec::new(),
+            directive: PresentationDirective::default(),
         };
         raw.clear();
     };
@@ -976,6 +1187,10 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
             active_fence = Some((fence.marker, fence.len));
             continue;
         }
+        if let Some(directive) = parse_presentation_directive(line) {
+            pending_directive.merge(directive);
+            continue;
+        }
         if let Some((level, heading)) = markdown_heading(line) {
             if level == 1 && !skipped_first_h1 && heading == title {
                 skipped_first_h1 = true;
@@ -992,6 +1207,7 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
                     current_topic = PresentationTopic {
                         title: heading,
                         blocks: Vec::new(),
+                        directive: std::mem::take(&mut pending_directive),
                     };
                     continue;
                 }
@@ -1000,14 +1216,21 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
                     current_topic = PresentationTopic {
                         title: heading,
                         blocks: Vec::new(),
+                        directive: std::mem::take(&mut pending_directive),
                     };
                     continue;
                 }
                 _ => {}
             }
         }
+        if !line.trim().is_empty() && raw_topic.trim().is_empty() && !pending_directive.is_empty() {
+            current_topic.directive.merge(std::mem::take(&mut pending_directive));
+        }
         raw_topic.push_str(line);
         raw_topic.push('\n');
+    }
+    if !pending_directive.is_empty() && raw_topic.trim().is_empty() {
+        current_topic.directive.merge(pending_directive);
     }
     flush_topic(&mut current_topic, &mut raw_topic, &mut current_chapter);
     flush_chapter(&mut current_chapter, &mut chapters);
@@ -1019,6 +1242,7 @@ fn parse_presentation_document(markdown: &str, fallback_title: &str) -> Presenta
             topics: vec![PresentationTopic {
                 title: overview_title,
                 blocks,
+                directive: PresentationDirective::default(),
             }],
         });
     }
@@ -1216,6 +1440,376 @@ fn collect_paragraph(lines: &[&str], start: usize) -> (String, usize) {
     (parts.join(" "), index)
 }
 
+// ---------------------------------------------------------------
+// Rich list upgrade — post-parse, pre-plan
+// ---------------------------------------------------------------
+
+/// Try to upgrade a `List(Vec<String>)` to `RichList` when items have
+/// detectable label/body structure (`**label** desc` or `label：desc`).
+/// Non-structured lists remain as `List` and continue through existing logic.
+fn upgrade_rich_list(items: &[String]) -> Option<PresentationRichList> {
+    let mut cursor = 0usize;
+    let base_indent = items.first().map_or(0, |item| list_item_indent(item));
+    let rich_items = parse_rich_list_level(items, &mut cursor, base_indent);
+    // Every overview label must be readable. A partial promotion would create
+    // blank or fabricated labels on the overview slide.
+    let labeled = rich_items.iter().filter(|i| !i.label.is_empty()).count();
+    if labeled != rich_items.len() {
+        return None;
+    }
+    Some(PresentationRichList { items: rich_items })
+}
+
+fn parse_rich_list_level(items: &[String], cursor: &mut usize, level_indent: usize) -> Vec<RichListItem> {
+    let mut output = Vec::new();
+    while let Some(raw) = items.get(*cursor) {
+        let indent = list_item_indent(raw);
+        if indent < level_indent || indent > level_indent {
+            break;
+        }
+        let mut item = parse_rich_list_item(raw);
+        *cursor += 1;
+        if let Some(next) = items.get(*cursor) {
+            let child_indent = list_item_indent(next);
+            if child_indent > indent {
+                item.children = parse_rich_list_level(items, cursor, child_indent);
+            }
+        }
+        output.push(item);
+    }
+    output
+}
+
+fn parse_rich_list_item(item: &str) -> RichListItem {
+    let stripped = strip_list_marker(item).trim().to_string();
+    // **label** + body
+    if let Some(rest) = stripped.strip_prefix("**") {
+        if let Some((label, after)) = rest.split_once("**") {
+            let body = after.trim_start_matches([':', '：', ' ', '-']).trim().to_string();
+            return RichListItem { label: label.trim().to_string(), body, children: vec![], ordered: ordered_list_marker(item).is_some() };
+        }
+    }
+    // label：body or label: body
+    if let Some((label, body)) = stripped.split_once('：').or_else(|| stripped.split_once(": ")) {
+        return RichListItem { label: label.trim().to_string(), body: body.trim().to_string(), children: vec![], ordered: ordered_list_marker(item).is_some() };
+    }
+    // Single short line — treat whole thing as label
+    let text = markdown_inline_to_text(&stripped);
+    if text.chars().count() <= 48 && !text.contains("。") {
+        return RichListItem { label: text, body: String::new(), children: vec![], ordered: ordered_list_marker(item).is_some() };
+    }
+    // Couldn't extract — empty label signals skip
+    RichListItem { label: String::new(), body: stripped, children: vec![], ordered: ordered_list_marker(item).is_some() }
+}
+
+/// Run semantic grouping pass on a topic's blocks.
+/// Returns `Some(SemanticGroup)` when a list-backed group is detected at high confidence,
+/// `None` to fall through to existing planning logic.
+fn semantic_grouping_pass(topic: &PresentationTopic) -> Option<SemanticGroup> {
+    // Check: topic must have exactly one top-level list (possibly with surrounding paragraphs as evidence)
+    let list_blocks: Vec<&PresentationBlock> = topic.blocks.iter().filter(|b| matches!(b, PresentationBlock::List(_) | PresentationBlock::RichList(_))).collect();
+    if list_blocks.len() != 1 {
+        return None;
+    }
+    let list_block = list_blocks[0];
+    let items: &[String] = match list_block {
+        PresentationBlock::List(items) => items,
+        PresentationBlock::RichList(rich) => return upgrade_group_from_rich_list(rich, topic),
+        _ => return None,
+    };
+    // Overview-detail needs 3-6 roots; relationship layouts may use two roots.
+    if items.len() < 2 || items.len() > 6 {
+        return None;
+    }
+    // Try to upgrade to RichList and then evaluate
+    if let Some(rich) = upgrade_rich_list(items) {
+        // Temporarily insert RichList into a synthetic topic blocks for evaluation
+        let mut eval_blocks = topic.blocks.clone();
+        if let Some(pos) = eval_blocks.iter().position(|b| matches!(b, PresentationBlock::List(_))) {
+            eval_blocks[pos] = PresentationBlock::RichList(rich);
+        }
+        let eval_topic = PresentationTopic { blocks: eval_blocks, ..topic.clone() };
+        // Find the rich list again and evaluate
+        for block in &eval_topic.blocks {
+            if let PresentationBlock::RichList(r) = block {
+                return upgrade_group_from_rich_list(r, &eval_topic);
+            }
+        }
+    }
+    None
+}
+
+fn upgrade_group_from_rich_list(rich: &PresentationRichList, topic: &PresentationTopic) -> Option<SemanticGroup> {
+    if rich.items.is_empty() {
+        return None;
+    }
+    let items = &rich.items;
+    // Only preserve evidence whose ownership is explicit in the Markdown item.
+    // A paragraph after a multi-item list is topic-level copy, not safe member evidence.
+    let evidence_map = assign_evidence_to_items(items, &topic.blocks);
+    // Build members
+    let members: Vec<SemanticMember> = items.iter().map(|item| {
+        let mut evidence = (!item.body.trim().is_empty())
+            .then(|| PresentationBlock::Paragraph(item.body.clone()))
+            .into_iter()
+            .collect::<Vec<_>>();
+        evidence.extend(evidence_map.get(&item.label).cloned().unwrap_or_default());
+        SemanticMember { label: item.label.clone(), evidence, children: item.children.iter().map(|c| SemanticMember { label: c.label.clone(), evidence: vec![], children: vec![] }).collect() }
+    }).collect();
+    let (relation, confidence) = detect_relation_kind(items, topic);
+    // Low confidence → don't use semantic grouping, fall through to existing logic
+    if confidence == Confidence::Low {
+        return None;
+    }
+    Some(SemanticGroup {
+        headline: topic.title.clone(),
+        members,
+        relation,
+        confidence,
+    })
+}
+
+fn semantic_member_to_card(member: &SemanticMember) -> ListCardPlan {
+    let mut body_markdown = blocks_to_markdown(&member.evidence, None, None);
+    if !member.children.is_empty() {
+        let children = member
+            .children
+            .iter()
+            .map(|child| format!("- {}", child.label))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !body_markdown.trim().is_empty() {
+            body_markdown.push_str("\n\n");
+        }
+        body_markdown.push_str(&children);
+    }
+    ListCardPlan {
+        title: member.label.clone(),
+        body_markdown,
+    }
+}
+
+fn semantic_relation_plan(chapter: &str, topic: &PresentationTopic) -> Option<PresentationSlidePlan> {
+    let group = semantic_grouping_pass(topic)?;
+    if group.confidence != Confidence::High {
+        return None;
+    }
+    let cards = group.members.iter().map(semantic_member_to_card).collect::<Vec<_>>();
+    match group.relation {
+        RelationKind::Sequence => Some(PresentationSlidePlan::Process {
+            chapter: chapter.to_string(),
+            title: group.headline,
+            steps: cards,
+        }),
+        RelationKind::Cycle if (3..=5).contains(&cards.len()) => Some(PresentationSlidePlan::Cycle {
+            chapter: chapter.to_string(),
+            title: group.headline,
+            items: cards,
+        }),
+        // Nested Markdown is document structure, not enough evidence for a
+        // diagram. Automatic hierarchy routing is disabled; this remains for
+        // a future explicit hierarchy directive.
+        RelationKind::Hierarchy
+            if topic.directive.layout.as_deref() == Some("hierarchy")
+                && cards.len() >= 2
+                && group.members.iter().all(|member| !member.children.is_empty()) =>
+        {
+            Some(PresentationSlidePlan::Hierarchy {
+                chapter: chapter.to_string(),
+                title: group.headline,
+                roots: cards,
+            })
+        }
+        RelationKind::Comparison if cards.len() >= 2 && cards.len() % 2 == 0 => {
+            let midpoint = cards.len() / 2;
+            Some(PresentationSlidePlan::Comparison {
+                chapter: chapter.to_string(),
+                title: group.headline,
+                left: cards[..midpoint].to_vec(),
+                right: cards[midpoint..].to_vec(),
+            })
+        }
+        RelationKind::Parallel | RelationKind::Cycle | RelationKind::Comparison | RelationKind::Hierarchy => None,
+    }
+}
+
+/// Assign explanatory blocks (paragraphs, lists, images, tables, code) that follow
+/// each list item as that item's evidence. Uses proximity: blocks between item N+1
+/// and item N belong to item N.
+fn assign_evidence_to_items(_items: &[RichListItem], _blocks: &[PresentationBlock]) -> std::collections::HashMap<String, Vec<PresentationBlock>> {
+    // The flat block stream does not retain a trustworthy parent for paragraphs
+    // after a multi-item list. Returning no mapping is safer than inventing one.
+    std::collections::HashMap::new()
+}
+
+fn detect_relation_kind(items: &[RichListItem], topic: &PresentationTopic) -> (RelationKind, Confidence) {
+    let all_ordered = items.iter().all(|i| i.ordered);
+    let all_same = items.iter().all(|i| i.body.is_empty());
+    let all_structured = items.iter().all(|i| !i.label.trim().is_empty() && !i.body.trim().is_empty());
+    let text = topic.blocks.iter().map(|b| match b { PresentationBlock::Paragraph(p) => p.clone(), _ => String::new() }).collect::<Vec<_>>().join(" ");
+    let title = topic.title.to_lowercase();
+    let combined = format!("{} {}", title, text).to_lowercase();
+    // Check nested hierarchy
+    let has_nested = items.iter().any(|i| !i.children.is_empty());
+    if has_nested && items.len() >= 2 {
+        return (RelationKind::Hierarchy, Confidence::High);
+    }
+    // Check cycle keywords
+    if (3..=5).contains(&items.len()) && items.iter().all(|i| i.body.is_empty()) {
+        let title_signals_cycle = title.contains("闭环") || title.contains("循环") || title.contains("迭代") || title.contains("复盘");
+        let explicit_cycle_intro = text.contains("循环如下") || text.contains("形成闭环") || text.contains("进入下一轮");
+        if title_signals_cycle || explicit_cycle_intro {
+            return (RelationKind::Cycle, Confidence::High);
+        }
+    }
+    // Ordered lists alone are common document structure. Only route to a
+    // process slide when the author also supplied an explicit process cue.
+    if combined.contains("步骤") || combined.contains("流程") || combined.contains("先后") {
+        return (RelationKind::Sequence, Confidence::High);
+    }
+    if all_ordered {
+        return (RelationKind::Sequence, Confidence::Low);
+    }
+    // Check comparison
+    if items.len() >= 2 && items.len() <= 8 && items.len() % 2 == 0 {
+        if combined.contains("对比") || combined.contains("优缺点") || combined.contains("前后") {
+            return (RelationKind::Comparison, Confidence::High);
+        }
+    }
+    // Parallel — all items same structure, no other signal
+    if all_same || all_structured || (items.len() >= 3 && items.iter().all(|i| !i.body.contains("。"))) {
+        return (RelationKind::Parallel, Confidence::Medium);
+    }
+    (RelationKind::Parallel, Confidence::Low)
+}
+
+/// Evaluate whether a topic should be split into overview + detail pages.
+/// Returns `Some((overview_markdown, detail_markdowns))` or `None` to fall through.
+fn try_overview_detail_split(
+    topic: &PresentationTopic,
+    budget: PresentationPageBudget,
+    _preferences: &PresentationHtmlExportPreferences,
+) -> Option<(String, Vec<(String, String)>)> {
+    let group = semantic_grouping_pass(topic)?;
+    // Only Parallel/Sequence at Medium+ confidence qualify for overview-detail
+    if !matches!(group.relation, RelationKind::Parallel | RelationKind::Sequence) {
+        return None;
+    }
+    if group.confidence == Confidence::Low {
+        return None;
+    }
+    if group.members.len() < 3 || group.members.len() > 6 {
+        return None;
+    }
+    // Rule 6: each member must have ~70 chars or sub-content
+    let has_evidence = |m: &SemanticMember| -> bool {
+        let text_chars: usize = m.evidence.iter().map(|b| match b {
+            PresentationBlock::Paragraph(p) => markdown_text_chars(p),
+            PresentationBlock::List(items) => items.iter().map(|i| markdown_text_chars(i)).sum(),
+            PresentationBlock::RichList(r) => r.items.iter().map(|i| i.label.chars().count() + i.body.chars().count()).sum(),
+            PresentationBlock::Code { body, .. } => body.chars().count(),
+            PresentationBlock::Table { .. } => 70,
+            PresentationBlock::Image(_) => 70,
+            _ => 0,
+        }).sum();
+        text_chars >= 70 || !m.children.is_empty()
+    };
+    let qualified: Vec<usize> = group.members.iter().enumerate().filter(|(_, m)| has_evidence(m)).map(|(i, _)| i).collect();
+    if qualified.len() < 2 {
+        return None;
+    }
+    // Rule 3: check for catch-all items
+    for m in &group.members {
+        let lower = m.label.to_lowercase();
+        if lower.contains("其他") || lower.contains("注意事项") || lower.contains("补充") {
+            return None;
+        }
+    }
+    // Rule 3: check label length similarity (CV < 0.5)
+    let lengths: Vec<f64> = group.members.iter().map(|m| m.label.chars().count() as f64).collect();
+    let mean: f64 = lengths.iter().sum::<f64>() / lengths.len() as f64;
+    if mean > 0.0 {
+        let variance: f64 = lengths.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / lengths.len() as f64;
+        if variance.sqrt() / mean > 0.5 {
+            return None;
+        }
+    }
+    // Rule 7: baseline page count check
+    let total_text: usize = group.members.iter().map(|m| m.label.chars().count() + m.evidence.iter().map(|b| {
+        match b { PresentationBlock::Paragraph(p) => markdown_text_chars(p), PresentationBlock::List(items) => items.iter().map(|i| markdown_text_chars(i)).sum(), PresentationBlock::RichList(r) => r.items.iter().map(|i| i.label.chars().count() + i.body.chars().count()).sum(), PresentationBlock::Code { body, .. } => body.chars().count(), PresentationBlock::Table { markdown, .. } => markdown_text_chars(markdown), PresentationBlock::Image(_) => 50, _ => 0 }
+    }).sum::<usize>()).sum();
+    let baseline_pages = (total_text / budget.max_paragraph_chars.max(1)).max(1);
+    let candidate_pages = 1 + qualified.len(); // overview + detail pages
+    if candidate_pages > baseline_pages + 3 || candidate_pages > 5 {
+        return None;
+    }
+    // Build overview — headline + member labels
+    let overview_md = group.members.iter().enumerate().map(|(i, m)| format!("{}. {}", i + 1, m.label)).collect::<Vec<_>>().join("\n");
+    // Build detail pages
+    let mut details = Vec::new();
+    for (_i, &idx) in qualified.iter().enumerate() {
+        let m = &group.members[idx];
+        let detail_md = m.evidence.iter().map(|b| match b {
+            PresentationBlock::Paragraph(p) => p.clone(),
+            PresentationBlock::List(items) => items.join("\n"),
+            PresentationBlock::RichList(r) => r.items.iter().map(|ri| format!("- **{}** {}", ri.label, ri.body)).collect::<Vec<_>>().join("\n"),
+            PresentationBlock::Code { language, body, .. } => {
+                let lang = language.as_deref().unwrap_or("");
+                format!("```{lang}\n{body}\n```")
+            }
+            PresentationBlock::Table { markdown, .. } => markdown.clone(),
+            PresentationBlock::Image(md) => md.clone(),
+            _ => String::new(),
+        }).collect::<Vec<_>>().join("\n\n");
+        let label = format!("{} — {}", group.headline, m.label);
+        details.push((label, detail_md));
+    }
+    Some((overview_md, details))
+}
+
+// ---------------------------------------------------------------
+// Rhythm assignment — post-plan, pre-render
+// ---------------------------------------------------------------
+
+fn assign_rhythm_sequence(slides: &[PresentationSlidePlan]) -> Vec<Option<VisualRhythm>> {
+    let mut rhythms: Vec<Option<VisualRhythm>> = Vec::with_capacity(slides.len());
+    for (i, slide) in slides.iter().enumerate() {
+        let rhythm = match slide {
+            // Cover/Chapter → anchor
+            PresentationSlidePlan::Cover { .. } => Some(VisualRhythm::Anchor),
+            PresentationSlidePlan::Chapter { .. } => Some(VisualRhythm::Anchor),
+            // Thanks / Summary / SectionTransition → breathing
+            PresentationSlidePlan::Thanks => Some(VisualRhythm::Breathing),
+            PresentationSlidePlan::Summary { .. } => Some(VisualRhythm::Breathing),
+            PresentationSlidePlan::SectionTransition { .. } => Some(VisualRhythm::Breathing),
+            // Last content slide → breathing
+            _ if i == slides.len().saturating_sub(2) && !matches!(slides.last(), Some(PresentationSlidePlan::Thanks)) => {
+                Some(VisualRhythm::Breathing)
+            }
+            // Mid-slides: boundary check for consecutive dense
+            _ => {
+                // Default: dense, but break if 4+ consecutive dense
+                let last_n: Vec<Option<VisualRhythm>> = rhythms.iter().rev().take(4).copied().collect();
+                let consecutive_dense = last_n.iter().take_while(|r| **r == Some(VisualRhythm::Dense)).count();
+                if consecutive_dense >= 3 {
+                    Some(VisualRhythm::Breathing)
+                } else {
+                    Some(VisualRhythm::Dense)
+                }
+            }
+        };
+        rhythms.push(rhythm);
+    }
+    // Ensure final non-Thanks slide is breathing, not dense
+    if rhythms.len() >= 2 {
+        let last_content = rhythms.len().saturating_sub(2);
+        if rhythms[last_content] == Some(VisualRhythm::Dense) {
+            rhythms[last_content] = Some(VisualRhythm::Breathing);
+        }
+    }
+    rhythms
+}
+
 fn plan_presentation_slides(
     document: &PresentationDocument,
     input: &MarkdownHtmlExportInput,
@@ -1243,7 +1837,72 @@ fn plan_presentation_slides(
             },
         );
     }
+    apply_list_card_layouts(&mut slides, preferences);
     slides
+}
+
+// ---------------------------------------------------------------
+// Post-evaluation audit — detects layout/rthythm/density issues
+// ---------------------------------------------------------------
+
+fn audit_slide_plan(slides: &[PresentationSlidePlan]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if slides.len() < 3 { return warnings; }
+    let mut consecutive_text = 0usize;
+    for slide in slides {
+        if matches!(slide, PresentationSlidePlan::Text { .. }) {
+            consecutive_text += 1;
+        } else {
+            consecutive_text = 0;
+        }
+        if consecutive_text > 4 {
+            warnings.push("More than 4 consecutive Text slides — consider adding visual breaks.".to_string());
+            break;
+        }
+    }
+    let char_counts: Vec<usize> = slides.iter().filter_map(|s| match s {
+        PresentationSlidePlan::Text { markdown, .. } => Some(markdown.len()),
+        PresentationSlidePlan::ListCards { cards, .. } => Some(cards.iter().map(|c| c.title.len() + c.body_markdown.len()).sum()),
+        _ => None,
+    }).collect();
+    if char_counts.len() >= 3 {
+        let mean = char_counts.iter().sum::<usize>() as f64 / char_counts.len() as f64;
+        if mean > 0.0 {
+            let variance = char_counts.iter().map(|c| (*c as f64 - mean).powi(2)).sum::<f64>() / char_counts.len() as f64;
+            let cv = variance.sqrt() / mean;
+            if cv > 0.6 {
+                warnings.push(format!("Content density CV is {:.2} — consider rebalancing.", cv));
+            }
+        }
+    }
+    let kinds: Vec<&str> = slides.iter().map(|s| match s {
+        PresentationSlidePlan::Cover { .. } => "cover",
+        PresentationSlidePlan::Chapter { .. } => "chapter",
+        PresentationSlidePlan::Overview { .. } => "overview",
+        PresentationSlidePlan::Text { .. } => "text",
+        PresentationSlidePlan::ListCards { .. } => "list-cards",
+        PresentationSlidePlan::TopicCards { .. } => "topic-cards",
+        PresentationSlidePlan::Figure { .. } => "figure",
+        PresentationSlidePlan::Table { .. } => "table",
+        PresentationSlidePlan::Code { .. } => "code",
+        PresentationSlidePlan::Quote { .. } => "quote",
+        PresentationSlidePlan::Process { .. } => "process",
+        PresentationSlidePlan::Cycle { .. } => "cycle",
+        PresentationSlidePlan::Hierarchy { .. } => "hierarchy",
+        PresentationSlidePlan::Comparison { .. } => "comparison",
+        PresentationSlidePlan::BigNumber { .. } => "big-number",
+        PresentationSlidePlan::Summary { .. } => "summary",
+        PresentationSlidePlan::SectionTransition { .. } => "section-transition",
+        PresentationSlidePlan::Statement { .. } => "statement",
+        PresentationSlidePlan::Thanks => "thanks",
+    }).collect();
+    if kinds.len() >= 10 {
+        let unique: std::collections::HashSet<&str> = kinds.iter().rev().take(10).copied().collect();
+        if unique.len() < 3 {
+            warnings.push(format!("Only {} slide kinds in last 10 slides — low layout diversity.", unique.len()));
+        }
+    }
+    warnings
 }
 
 fn compact_report_slides(
@@ -1343,14 +2002,70 @@ fn plan_landscape_slides(
         let mut index = 0usize;
         let has_list_topic = chapter.topics.iter().any(topic_has_list_blocks);
         while index < chapter.topics.len() {
-            if !has_list_topic {
-                if let Some((cards, next_index)) = collect_topic_cards(&chapter.topics, index, budget.max_cards, preferences) {
-                slides.push(PresentationSlidePlan::TopicCards {
-                    chapter: chapter.title.clone(),
-                    cards,
+            let topic = &chapter.topics[index];
+            if topic.directive.section {
+                slides.push(PresentationSlidePlan::SectionTransition {
+                    title: topic.title.clone(),
                 });
-                index = next_index;
+            }
+            if topic.directive.layout.as_deref().map_or(true, |layout| layout == "auto") {
+                if let Some(plan) = semantic_relation_plan(&chapter.title, topic) {
+                    slides.push(plan);
+                    index += 1;
+                    continue;
+                }
+            }
+            // P0-0: Try overview-detail split for structured lists
+            if preferences.density != PresentationDensity::Master && topic.directive.layout.as_deref().map_or(true, |l| l == "auto") {
+                if let Some((overview_md, details)) = try_overview_detail_split(topic, budget, preferences) {
+                    let chapter_title = chapter.title.clone();
+                    let topic_title = topic.title.clone();
+                    slides.push(PresentationSlidePlan::Overview {
+                        chapter: chapter_title.clone(),
+                        title: topic_title.clone(),
+                        items: overview_items_from_markdown(&overview_md),
+                    });
+                    for (detail_title, detail_md) in details {
+                        slides.push(PresentationSlidePlan::Text {
+                            chapter: chapter_title.clone(),
+                            title: detail_title.clone(),
+                            subtitle: None,
+                            markdown: detail_md,
+                        });
+                    }
+                    index += 1;
+                    continue;
+                }
+            }
+            if let Some(plan) = semantic_plan_for_topic(&chapter.title, topic, preferences) {
+                slides.push(plan);
+                index += 1;
                 continue;
+            }
+            if !has_list_topic && topic.directive.is_empty() {
+                if let Some((cards, next_index)) = collect_topic_cards(&chapter.topics, index, budget.max_cards, preferences) {
+                    if topic_cards_need_overview_detail(&cards) {
+                        slides.push(PresentationSlidePlan::Overview {
+                            chapter: chapter.title.clone(),
+                            title: chapter.title.clone(),
+                            items: cards.iter().map(|card| card.title.clone()).collect(),
+                        });
+                        for card in cards {
+                            slides.push(PresentationSlidePlan::Text {
+                                chapter: chapter.title.clone(),
+                                title: card.title,
+                                subtitle: None,
+                                markdown: card.summary_markdown,
+                            });
+                        }
+                    } else {
+                        slides.push(PresentationSlidePlan::TopicCards {
+                            chapter: chapter.title.clone(),
+                            cards,
+                        });
+                    }
+                    index = next_index;
+                    continue;
                 }
             }
             plan_topic_landscape(&chapter.title, &chapter.topics[index], preferences, source_dir, slides);
@@ -1363,7 +2078,105 @@ fn topic_has_list_blocks(topic: &PresentationTopic) -> bool {
     topic
         .blocks
         .iter()
-        .any(|block| matches!(block, PresentationBlock::List(_)))
+        .any(|block| matches!(block, PresentationBlock::List(_) | PresentationBlock::RichList(_)))
+}
+
+fn semantic_plan_for_topic(
+    chapter: &str,
+    topic: &PresentationTopic,
+    _preferences: &PresentationHtmlExportPreferences,
+) -> Option<PresentationSlidePlan> {
+    if topic.blocks.iter().any(|block| matches!(block, PresentationBlock::Image(_) | PresentationBlock::Table { .. } | PresentationBlock::Code { .. })) {
+        return None;
+    }
+    let forced = topic.directive.layout.as_deref().filter(|layout| *layout != "auto");
+    let auto = if forced.is_none() {
+        detect_semantic_layout(topic)
+    } else {
+        None
+    };
+    let layout = forced.or(auto)?;
+    let all_markdown = blocks_to_markdown(&topic.blocks, None, None);
+    let list_items = topic
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            PresentationBlock::List(items) => Some(items.clone()),
+            PresentationBlock::RichList(rich) => Some(rich.items.iter().map(|i| { if i.body.is_empty() { i.label.clone() } else { format!("**{}** {}", i.label, i.body) } }).collect::<Vec<_>>()),
+            _ => None,
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+    match layout {
+        "quote" => topic.blocks.iter().find_map(|block| match block { PresentationBlock::Quote(value) => Some(PresentationSlidePlan::Quote {
+            chapter: chapter.to_string(), title: topic.title.clone(), markdown: value.clone(),
+        }), _ => None }),
+        "process" if (3..=6).contains(&list_items.len()) => Some(PresentationSlidePlan::Process {
+            chapter: chapter.to_string(), title: topic.title.clone(), steps: list_items_to_cards(&list_items),
+        }),
+        "comparison" if (2..=8).contains(&list_items.len()) && list_items.len() % 2 == 0 => {
+            let midpoint = list_items.len() / 2;
+            Some(PresentationSlidePlan::Comparison {
+                chapter: chapter.to_string(), title: topic.title.clone(),
+                left: list_items_to_cards(&list_items[..midpoint]), right: list_items_to_cards(&list_items[midpoint..]),
+            })
+        }
+        "big-number" => extract_primary_number(&all_markdown).map(|number| PresentationSlidePlan::BigNumber {
+            chapter: chapter.to_string(), title: topic.title.clone(), number,
+            supporting: markdown_inline_to_text(&all_markdown),
+        }),
+        "summary" if (2..=4).contains(&list_items.len()) => Some(PresentationSlidePlan::Summary {
+            chapter: chapter.to_string(), title: topic.title.clone(), items: list_items_to_cards(&list_items),
+        }),
+        _ => None,
+    }
+}
+
+fn topic_list_item_count(topic: &PresentationTopic) -> Option<usize> {
+    for block in &topic.blocks {
+        match block {
+            PresentationBlock::List(items) => return Some(items.len()),
+            PresentationBlock::RichList(rich) => return Some(rich.items.len()),
+            _ => continue,
+        }
+    }
+    None
+}
+
+fn detect_semantic_layout(topic: &PresentationTopic) -> Option<&'static str> {
+    let has_quote = topic.blocks.iter().any(|block| matches!(block, PresentationBlock::Quote(_)));
+    if has_quote && topic.blocks.len() == 1 {
+        return Some("quote");
+    }
+    let text = blocks_to_markdown(&topic.blocks, None, None);
+    let title = normalized_title_text(&topic.title).to_lowercase();
+    if let Some(item_count) = topic_list_item_count(topic) {
+        if (3..=6).contains(&item_count) && (title.contains("实施流程") || text.contains("流程如下") || text.contains("分为以下步骤")) {
+            return Some("process");
+        }
+        if (2..=8).contains(&item_count) && item_count % 2 == 0 && (title.contains("方案对比") || text.contains("优缺点对照") || text.contains("以下进行对比")) {
+            return Some("comparison");
+        }
+        if (2..=4).contains(&item_count) && (title.contains("核心结论") || text.contains("总结如下") || text.contains("关键 takeaway")) {
+            return Some("summary");
+        }
+        return None;
+    }
+    // A bare number is too ambiguous for automatic emphasis: dates, versions
+    // and section identifiers are common in Markdown. Big-number slides must
+    // be explicitly requested with a presentation directive.
+    None
+}
+
+fn extract_primary_number(value: &str) -> Option<String> {
+    let start = value.char_indices().find_map(|(index, ch)| ch.is_ascii_digit().then_some(index))?;
+    let tail = &value[start..];
+    let end = tail
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_digit() || matches!(ch, '.' | ',' | '%' | '％'))
+        .last()
+        .map(|(index, ch)| index + ch.len_utf8())?;
+    Some(tail[..end].to_string())
 }
 
 fn plan_master_slides(
@@ -1616,16 +2429,60 @@ fn collect_topic_cards(
     let card_limit = dynamic_topic_card_limit(topics, start, max_cards, preferences);
     while index < topics.len() && cards.len() < card_limit {
         let topic = &topics[index];
-        if !is_short_card_topic(topic, preferences) {
+        if !topic.directive.is_empty() || detect_semantic_layout(topic).is_some() || !is_short_card_topic(topic, preferences) {
+            break;
+        }
+        let summary_markdown = topic_card_summary(topic, preferences);
+        if topic_card_contains_multiple_children(&summary_markdown) {
             break;
         }
         cards.push(TopicCardPlan {
             title: topic.title.clone(),
-            summary_markdown: topic_card_summary(topic, preferences),
+            summary_markdown,
         });
         index += 1;
     }
-    (cards.len() >= 2).then_some((cards, index))
+    (cards.len() >= 2 && topic_cards_have_balanced_copy(&cards)).then_some((cards, index))
+}
+
+fn topic_cards_have_balanced_copy(cards: &[TopicCardPlan]) -> bool {
+    let lengths = cards
+        .iter()
+        .map(|card| markdown_text_chars(&card.summary_markdown))
+        .collect::<Vec<_>>();
+    let Some(shortest) = lengths.iter().copied().min() else {
+        return false;
+    };
+    let longest = lengths.iter().copied().max().unwrap_or(0);
+    shortest > 0 && longest.saturating_sub(shortest) <= 48
+}
+
+fn topic_cards_need_overview_detail(cards: &[TopicCardPlan]) -> bool {
+    (3..=4).contains(&cards.len())
+        && cards
+            .iter()
+            .all(|card| markdown_text_chars(&card.summary_markdown) >= 72)
+}
+
+fn topic_card_contains_multiple_children(markdown: &str) -> bool {
+    markdown
+        .lines()
+        .filter(|line| is_markdown_list_item(line))
+        .take(2)
+        .count()
+        >= 2
+}
+
+fn overview_items_from_markdown(markdown: &str) -> Vec<String> {
+    markdown
+        .lines()
+        .map(|line| {
+            line.trim_start_matches(|ch: char| ch.is_ascii_digit() || matches!(ch, '.' | '、' | ' '))
+                .trim()
+                .to_string()
+        })
+        .filter(|item| !item.is_empty())
+        .collect()
 }
 
 fn dynamic_topic_card_limit(
@@ -1671,7 +2528,7 @@ fn is_short_card_topic(topic: &PresentationTopic, preferences: &PresentationHtml
     for block in &topic.blocks {
         match block {
             PresentationBlock::Paragraph(value) => chars += value.chars().count(),
-            PresentationBlock::List(_) => return false,
+            PresentationBlock::List(_) | PresentationBlock::RichList(_) => return false,
             PresentationBlock::Heading { .. } => {}
             PresentationBlock::Quote(_) | PresentationBlock::Image(_) | PresentationBlock::Table { .. } | PresentationBlock::Code { .. } => {
                 return false;
@@ -1715,8 +2572,10 @@ fn plan_topic_landscape(
         let block = &topic.blocks[index];
         match block {
             PresentationBlock::Image(markdown) => {
+                let text_chars: usize = text_blocks.iter().map(|b| match b { PresentationBlock::Paragraph(p) => p.chars().count(), PresentationBlock::List(items) => items.iter().map(|i| i.chars().count()).sum(), _ => 0 }).sum();
                 let layout = figure_layout_for_markdown(markdown, source_dir);
-                let aside_markdown = if layout == FigureLayout::Side && !text_blocks.is_empty() {
+                // Lookahead: if text is small (< 100 chars), merge as aside instead of flushing
+                let aside_markdown = if !text_blocks.is_empty() && (layout == FigureLayout::Side || text_chars < 100) {
                     let aside = blocks_to_markdown(
                         &text_blocks,
                         Some(budget.max_paragraph_chars),
@@ -1883,10 +2742,15 @@ fn push_list_card_slides(
     intro: Option<String>,
     cards: Vec<ListCardPlan>,
     outro: Option<String>,
-    _preferences: &PresentationHtmlExportPreferences,
+    preferences: &PresentationHtmlExportPreferences,
     slides: &mut Vec<PresentationSlidePlan>,
 ) {
-    let counts = landscape_card_chunks(&cards, outro.is_some());
+    if cards.len() < 2 || !list_cards_have_balanced_copy(&cards) {
+        push_list_cards_as_text(chapter, title, intro, cards, outro, preferences, slides);
+        return;
+    }
+    let capacity_hint = list_layout_capacity_hint(intro.as_deref(), &cards, outro.as_deref(), preferences);
+    let counts = landscape_card_chunks_with_capacity(&cards, outro.is_some(), capacity_hint);
     if counts.len() <= 1 {
         slides.push(PresentationSlidePlan::ListCards {
             chapter: chapter.to_string(),
@@ -1894,6 +2758,7 @@ fn push_list_card_slides(
             intro,
             cards,
             outro,
+            layout: None,
         });
         return;
     }
@@ -1902,23 +2767,101 @@ fn push_list_card_slides(
     let last_index = counts.len().saturating_sub(1);
     for (chunk_index, count) in counts.into_iter().enumerate() {
         let end = (start + count).min(cards.len());
+        let chunk_intro = (chunk_index == 0).then(|| intro.clone()).flatten();
+        let chunk_outro = (chunk_index == last_index).then(|| outro.clone()).flatten();
+        let chunk_cards = cards[start..end].to_vec();
+        if !list_cards_have_balanced_copy(&chunk_cards) {
+            push_list_cards_as_text(
+                chapter,
+                title,
+                chunk_intro,
+                chunk_cards,
+                chunk_outro,
+                preferences,
+                slides,
+            );
+            start = end;
+            continue;
+        }
         slides.push(PresentationSlidePlan::ListCards {
             chapter: chapter.to_string(),
             title: title.to_string(),
-            intro: (chunk_index == 0).then(|| intro.clone()).flatten(),
-            cards: cards[start..end].to_vec(),
-            outro: (chunk_index == last_index).then(|| outro.clone()).flatten(),
+            intro: chunk_intro,
+            cards: chunk_cards,
+            outro: chunk_outro,
+            layout: None,
         });
         start = end;
     }
 }
 
-fn landscape_card_chunks(cards: &[ListCardPlan], has_outro: bool) -> Vec<usize> {
-    let limit = landscape_card_limit(cards, has_outro);
+fn list_cards_have_balanced_copy(cards: &[ListCardPlan]) -> bool {
+    let Some(first) = cards.first() else {
+        return false;
+    };
+    let has_body = !first.body_markdown.trim().is_empty();
+    cards
+        .iter()
+        .all(|card| !card.body_markdown.trim().is_empty() == has_body)
+}
+
+fn push_list_cards_as_text(
+    chapter: &str,
+    title: &str,
+    intro: Option<String>,
+    cards: Vec<ListCardPlan>,
+    outro: Option<String>,
+    preferences: &PresentationHtmlExportPreferences,
+    slides: &mut Vec<PresentationSlidePlan>,
+) {
+    let mut blocks = Vec::new();
+    if let Some(intro) = intro.filter(|value| !value.trim().is_empty()) {
+        blocks.push(PresentationBlock::Paragraph(intro));
+    }
+    if !cards.is_empty() {
+        blocks.push(PresentationBlock::List(
+            cards
+                .into_iter()
+                .map(|card| {
+                    if card.body_markdown.trim().is_empty() {
+                        format!("- {}", card.title)
+                    } else {
+                        format!("- **{}** {}", card.title, card.body_markdown)
+                    }
+                })
+                .collect(),
+        ));
+    }
+    if let Some(outro) = outro.filter(|value| !value.trim().is_empty()) {
+        blocks.push(PresentationBlock::Paragraph(outro));
+    }
+    for (subtitle, markdown) in text_slide_markdown(&blocks, preferences) {
+        slides.push(PresentationSlidePlan::Text {
+            chapter: chapter.to_string(),
+            title: title.to_string(),
+            subtitle,
+            markdown,
+        });
+    }
+}
+
+fn landscape_card_chunks_with_capacity(
+    cards: &[ListCardPlan],
+    has_outro: bool,
+    capacity_hint: Option<usize>,
+) -> Vec<usize> {
+    let limit = capacity_hint.unwrap_or_else(|| landscape_card_limit(cards, has_outro));
     if cards.len() <= limit {
         return vec![cards.len()];
     }
-    balanced_card_chunks(cards.len(), limit)
+    let mut chunks = balanced_card_chunks(cards.len(), limit);
+    if chunks.len() > 1 && chunks.last() == Some(&1) {
+        let tail = chunks.pop();
+        if let (Some(tail), Some(previous)) = (tail, chunks.last_mut()) {
+            *previous += tail;
+        }
+    }
+    chunks
 }
 
 fn landscape_card_limit(cards: &[ListCardPlan], has_outro: bool) -> usize {
@@ -1938,6 +2881,266 @@ fn estimated_card_units(card: &ListCardPlan) -> usize {
     title_lines + body_lines
 }
 
+fn list_layout_capacity_hint(
+    intro: Option<&str>,
+    cards: &[ListCardPlan],
+    outro: Option<&str>,
+    preferences: &PresentationHtmlExportPreferences,
+) -> Option<usize> {
+    if plan_list_card_layout(intro, cards, outro, preferences).is_some() {
+        return None;
+    }
+    if cards.len() == 7 && cards.iter().any(|card| !card.body_markdown.trim().is_empty()) {
+        return Some(4);
+    }
+    for capacity in (2..cards.len()).rev() {
+        let counts = balanced_card_chunks(cards.len(), capacity);
+        let mut start = 0usize;
+        let all_chunks_fit = counts.into_iter().enumerate().all(|(index, count)| {
+            let end = (start + count).min(cards.len());
+            let chunk_intro = (index == 0).then_some(intro).flatten();
+            let chunk_outro = (end == cards.len()).then_some(outro).flatten();
+            let fits = plan_list_card_layout(chunk_intro, &cards[start..end], chunk_outro, preferences).is_some();
+            start = end;
+            fits
+        });
+        if all_chunks_fit {
+            return Some(capacity);
+        }
+    }
+    Some(2)
+}
+
+fn apply_list_card_layouts(
+    slides: &mut [PresentationSlidePlan],
+    preferences: &PresentationHtmlExportPreferences,
+) {
+    let mut previous: Option<ListCardLayoutPlan> = None;
+    for slide in slides {
+        let PresentationSlidePlan::ListCards {
+            intro,
+            cards,
+            outro,
+            layout,
+            ..
+        } = slide else {
+            previous = None;
+            continue;
+        };
+        let mut planned = plan_list_card_layout(intro.as_deref(), cards, outro.as_deref(), preferences)
+            .unwrap_or_else(|| fallback_list_card_layout(cards, preferences));
+        if let Some(previous) = previous {
+            let adjusted = planned.card_height.clamp_step_from(previous.card_height);
+            if adjusted >= planned.minimum_card_height {
+                planned.card_height = adjusted;
+            }
+        }
+        previous = Some(planned.clone());
+        *layout = Some(planned);
+    }
+}
+
+fn fallback_list_card_layout(
+    cards: &[ListCardPlan],
+    preferences: &PresentationHtmlExportPreferences,
+) -> ListCardLayoutPlan {
+    let columns = match cards.len() {
+        0 | 1 => 1,
+        2 | 3 => cards.len(),
+        4 => 2,
+        _ => 1,
+    };
+    ListCardLayoutPlan {
+        arrangement: ListCardArrangement::StackedGrid,
+        columns,
+        card_height: CardHeightBand::Relaxed,
+        minimum_card_height: CardHeightBand::Relaxed,
+        gap: 14,
+        group_width_percent: 100,
+        vertical_centered: true,
+        estimated_fill_per_mille: 0,
+        score: layout_score(0, layout_frame(preferences).1, 0, 200),
+    }
+}
+
+fn plan_list_card_layout(
+    intro: Option<&str>,
+    cards: &[ListCardPlan],
+    outro: Option<&str>,
+    preferences: &PresentationHtmlExportPreferences,
+) -> Option<ListCardLayoutPlan> {
+    let mut candidates = Vec::new();
+    if let Some(columns) = stacked_grid_columns(cards, preferences) {
+        if let Some(plan) = plan_stacked_grid_layout(intro, cards, outro, columns, preferences) {
+            candidates.push(plan);
+        }
+    }
+    if side_by_side_is_candidate(cards) {
+        if let Some(plan) = plan_side_by_side_layout(intro, cards, outro, preferences) {
+            candidates.push(plan);
+        }
+    }
+    candidates
+        .into_iter()
+        .max_by_key(|plan| (plan.score, matches!(plan.arrangement, ListCardArrangement::StackedGrid)))
+}
+
+fn stacked_grid_columns(
+    cards: &[ListCardPlan],
+    preferences: &PresentationHtmlExportPreferences,
+) -> Option<usize> {
+    let count = cards.len();
+    if !(1..=6).contains(&count) {
+        return None;
+    }
+    if count == 1 {
+        return Some(1);
+    }
+    if count <= 3 {
+        return Some(count);
+    }
+    let all_short = cards.iter().all(|card| {
+        card.body_markdown.trim().is_empty()
+            && estimated_wrapped_lines(&card.title, candidate_card_width(count, count, preferences), 9) <= 1
+    });
+    match count {
+        4 if all_short => Some(4),
+        4 => Some(2),
+        5 if all_short => Some(5),
+        5 => None,
+        6 => Some(3),
+        _ => None,
+    }
+}
+
+fn side_by_side_is_candidate(cards: &[ListCardPlan]) -> bool {
+    cards.len() >= 4
+        && (cards.len() >= 6
+            || cards.iter().any(|card| !card.body_markdown.trim().is_empty())
+            || cards.iter().any(|card| card.title.chars().count() > 18))
+}
+
+fn layout_frame(preferences: &PresentationHtmlExportPreferences) -> (usize, usize) {
+    if preferences.aspect_ratio == "4-3" {
+        (748, 555)
+    } else {
+        (1048, 555)
+    }
+}
+
+fn candidate_card_width(
+    _count: usize,
+    columns: usize,
+    preferences: &PresentationHtmlExportPreferences,
+) -> usize {
+    let (width, _) = layout_frame(preferences);
+    let gaps = columns.saturating_sub(1) * 14;
+    (width.saturating_sub(gaps) / columns.max(1)).max(160)
+}
+
+fn estimated_wrapped_lines(value: &str, width: usize, average_char_width: usize) -> usize {
+    let chars_per_line = (width / average_char_width.max(1)).max(1);
+    markdown_text_chars(value).div_ceil(chars_per_line).max(1)
+}
+
+fn estimated_copy_height(intro: Option<&str>, outro: Option<&str>, width: usize) -> usize {
+    [intro, outro]
+        .into_iter()
+        .flatten()
+        .map(|value| estimated_wrapped_lines(value, width, 8) * 24)
+        .sum()
+}
+
+fn band_for_cards(
+    cards: &[ListCardPlan],
+    width: usize,
+    arrangement: ListCardArrangement,
+) -> Option<(CardHeightBand, usize)> {
+    let (title_line_height, body_line_height, padding) = match arrangement {
+        ListCardArrangement::StackedGrid => (22, 19, 34),
+        ListCardArrangement::SideBySideStack => (19, 18, 20),
+    };
+    let max_text_height = cards
+        .iter()
+        .map(|card| {
+            estimated_wrapped_lines(&card.title, width, 9) * title_line_height
+                + (!card.body_markdown.trim().is_empty()) as usize
+                    * estimated_wrapped_lines(&card.body_markdown, width, 8)
+                    * body_line_height
+        })
+        .max()
+        .unwrap_or(0);
+    [CardHeightBand::Compact, CardHeightBand::Standard, CardHeightBand::Relaxed]
+        .into_iter()
+        .filter(|band| band.pixels() >= max_text_height + padding)
+        .find_map(|band| {
+            let fill = max_text_height * 1000 / band.pixels().saturating_sub(padding).max(1);
+            (fill >= 300).then_some((band, fill))
+        })
+}
+
+fn plan_stacked_grid_layout(
+    intro: Option<&str>,
+    cards: &[ListCardPlan],
+    outro: Option<&str>,
+    columns: usize,
+    preferences: &PresentationHtmlExportPreferences,
+) -> Option<ListCardLayoutPlan> {
+    let (_, frame_height) = layout_frame(preferences);
+    let width = candidate_card_width(cards.len(), columns, preferences);
+    let (band, fill) = band_for_cards(cards, width, ListCardArrangement::StackedGrid)?;
+    let rows = cards.len().div_ceil(columns);
+    let gap = 14;
+    let group_height = rows * band.pixels() + rows.saturating_sub(1) * gap;
+    let copy_height = estimated_copy_height(intro, outro, width * columns + gap * columns.saturating_sub(1));
+    let occupied = 68 + copy_height + group_height;
+    (occupied <= frame_height).then(|| ListCardLayoutPlan {
+        arrangement: ListCardArrangement::StackedGrid,
+        columns,
+        card_height: band,
+        minimum_card_height: band,
+        gap,
+        group_width_percent: 100,
+        vertical_centered: true,
+        estimated_fill_per_mille: fill,
+        score: layout_score(occupied, frame_height, fill, 0),
+    })
+}
+
+fn plan_side_by_side_layout(
+    intro: Option<&str>,
+    cards: &[ListCardPlan],
+    outro: Option<&str>,
+    preferences: &PresentationHtmlExportPreferences,
+) -> Option<ListCardLayoutPlan> {
+    let (frame_width, frame_height) = layout_frame(preferences);
+    let group_width_percent = if preferences.aspect_ratio == "4-3" { 54 } else { 58 };
+    let card_width = frame_width * group_width_percent / 100;
+    let (band, fill) = band_for_cards(cards, card_width, ListCardArrangement::SideBySideStack)?;
+    let gap = 14;
+    let group_height = cards.len() * band.pixels() + cards.len().saturating_sub(1) * gap;
+    let copy_height = estimated_copy_height(intro, outro, frame_width * 34 / 100);
+    let occupied = 68 + group_height.max(copy_height);
+    (occupied <= frame_height).then(|| ListCardLayoutPlan {
+        arrangement: ListCardArrangement::SideBySideStack,
+        columns: 1,
+        card_height: band,
+        minimum_card_height: band,
+        gap,
+        group_width_percent,
+        vertical_centered: true,
+        estimated_fill_per_mille: fill,
+        score: layout_score(occupied, frame_height, fill, 14),
+    })
+}
+
+fn layout_score(occupied: usize, frame_height: usize, fill: usize, arrangement_penalty: i32) -> i32 {
+    let occupancy = occupied * 1000 / frame_height.max(1);
+    let occupancy_penalty = (occupancy as i32 - 650).unsigned_abs() as i32;
+    let fill_penalty = (fill as i32 - 510).unsigned_abs() as i32;
+    2_000 - occupancy_penalty - fill_penalty - arrangement_penalty
+}
+
 fn balanced_card_chunks(total: usize, limit: usize) -> Vec<usize> {
     if total <= limit {
         return vec![total];
@@ -1955,20 +3158,15 @@ fn merge_plain_blocks_into_list_intro(
     intro: Option<String>,
     preferences: &PresentationHtmlExportPreferences,
 ) -> Option<Option<String>> {
-    if plain_blocks.len() != 1 || !plain_blocks.iter().all(|block| matches!(block, PresentationBlock::Paragraph(_))) {
-        return None;
-    }
-    let prefix_chars: usize = plain_blocks
-        .iter()
-        .map(|block| match block {
-            PresentationBlock::Paragraph(value) => value.chars().count(),
-            _ => 0,
-        })
-        .sum();
+    let prefix = match plain_blocks.as_slice() {
+        [PresentationBlock::Paragraph(value)] => value.clone(),
+        [PresentationBlock::Heading { title, .. }] => format!("**{title}**"),
+        _ => return None,
+    };
+    let prefix_chars = markdown_text_chars(&prefix);
     if prefix_chars > presentation_budget(preferences).max_paragraph_chars {
         return None;
     }
-    let prefix = blocks_to_markdown(plain_blocks, None, None);
     plain_blocks.clear();
     let merged = match intro {
         Some(value) if !value.trim().is_empty() => format!("{prefix}\n\n{value}"),
@@ -2056,28 +3254,13 @@ fn list_items_to_cards(items: &[String]) -> Vec<ListCardPlan> {
     cards
 }
 
-fn list_card_layout(intro: Option<&str>, cards: &[ListCardPlan], outro: Option<&str>) -> &'static str {
-    let copy_chars =
-        intro.unwrap_or_default().chars().count() + outro.unwrap_or_default().chars().count();
-    let body_chars: usize = cards.iter().map(|card| card.body_markdown.chars().count()).sum();
-    let title_chars: usize = cards.iter().map(|card| card.title.chars().count()).sum();
-    let avg_title_chars = title_chars / cards.len().max(1);
-    let max_title_chars = cards.iter().map(|card| card.title.chars().count()).max().unwrap_or(0);
-    if cards.len() > 6 {
-        return "split";
-    }
-    if copy_chars == 0 && body_chars == 0 && cards.len() <= 4 {
-        return "stacked";
-    }
-    if body_chars > 0 || avg_title_chars > 20 || max_title_chars > 30 {
-        "split"
-    } else {
-        "stacked"
-    }
-}
-
 fn should_render_as_list_cards(items: &[String]) -> bool {
     !items.iter().any(|item| is_link_only_list_item(item))
+        && !has_multiple_nested_list_items(items)
+}
+
+fn has_multiple_nested_list_items(items: &[String]) -> bool {
+    items.iter().any(|item| list_item_indent(item) > 0)
 }
 
 fn is_link_only_list_item(item: &str) -> bool {
@@ -2243,11 +3426,42 @@ fn text_slide_markdown(
                 } else {
                     items.clone()
                 };
-                for chunk in take_items.chunks(budget.max_list_items.max(1)) {
-                    if current_items + chunk.len() > budget.max_list_items && !current.is_empty() {
+                let avg_item_chars = markdown_text_chars(&take_items.join("")) / take_items.len().max(1);
+                let has_nested_items = take_items.iter().any(|item| list_item_indent(item) > 0);
+                let chunk_size = if has_nested_items {
+                    budget.max_list_items
+                } else if avg_item_chars < 30 {
+                    budget.max_list_items * 2
+                } else if avg_item_chars > 80 {
+                    (budget.max_list_items / 2).max(2)
+                } else {
+                    budget.max_list_items
+                };
+                for chunk in take_items.chunks(chunk_size) {
+                    let chunk_chars: usize = chunk.iter().map(|item| markdown_text_chars(item)).sum();
+                    let exceeds_nested_row_budget = has_nested_items
+                        && current_items + chunk.len() > budget.max_list_items;
+                    if (current_chars + chunk_chars > budget.max_paragraph_chars || exceeds_nested_row_budget)
+                        && !current.is_empty()
+                    {
                         push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
                     }
+                    current.extend(chunk.iter().cloned());
+                    current_chars += chunk_chars;
+                    current_items += chunk.len();
+                }
+            }
+            PresentationBlock::RichList(rich) => {
+                let items: Vec<String> = rich.items.iter().map(|item| {
+                    if item.body.is_empty() { item.label.clone() } else { format!("- **{}** {}", item.label, item.body) }
+                }).collect();
+                let avg_item_chars = markdown_text_chars(&items.join("")) / items.len().max(1);
+                let chunk_size = if avg_item_chars < 30 { budget.max_list_items * 2 } else if avg_item_chars > 80 { (budget.max_list_items / 2).max(2) } else { budget.max_list_items };
+                for chunk in items.chunks(chunk_size) {
                     let chunk_chars: usize = chunk.iter().map(|item| markdown_text_chars(item)).sum();
+                    if current_chars + chunk_chars > budget.max_paragraph_chars && !current.is_empty() {
+                        push_current(&mut slides, &mut subtitle, &mut current, &mut current_chars, &mut current_items);
+                    }
                     current.extend(chunk.iter().cloned());
                     current_chars += chunk_chars;
                     current_items += chunk.len();
@@ -2436,6 +3650,12 @@ fn blocks_to_markdown(blocks: &[PresentationBlock], max_chars: Option<usize>, ma
             PresentationBlock::List(items) => {
                 output.extend(items.iter().take(max_items.unwrap_or(items.len())).cloned());
             }
+            PresentationBlock::RichList(rich) => {
+                for item in &rich.items {
+                    let prefix = if item.body.is_empty() { item.label.clone() } else { format!("**{}** {}", item.label, item.body) };
+                    output.push(prefix);
+                }
+            }
             PresentationBlock::Quote(value) => output.push(value.clone()),
             PresentationBlock::Heading { level, title } => {
                 output.push(format!("{} {}", "#".repeat((*level).into()), title));
@@ -2454,11 +3674,13 @@ fn render_presentation_slide(
     input: &MarkdownHtmlExportInput,
     preferences: &PresentationHtmlExportPreferences,
     embedder: &mut ImageEmbedder,
+    rhythm: Option<VisualRhythm>,
 ) -> String {
     let active = if index == 1 { " is-active" } else { "" };
+    let rhythm_cls = rhythm.map(|r| format!(" {}", r.class_name())).unwrap_or_default();
     match plan {
         PresentationSlidePlan::Cover { title } => format!(
-            r#"<section class="slide cover density-{density}{active}" data-slide-kind="cover" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
+            r#"<section class="slide cover density-{density}{active}{rhythm_cls}" data-slide-kind="cover" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
   <div class="cover-copy">
     <p class="kicker">Markdown Presentation</p>
     <h1 class="cover-title">{title}</h1>
@@ -2467,6 +3689,7 @@ fn render_presentation_slide(
 </section>"#,
             density = preferences.density.key(),
             active = active,
+            rhythm_cls = rhythm_cls,
             index = index,
             title_attr = escape_html_attr(title),
             title = escape_html_text(title),
@@ -2474,7 +3697,7 @@ fn render_presentation_slide(
             total = total,
         ),
         PresentationSlidePlan::Chapter { title } => format!(
-            r#"<section class="slide chapter density-{density}{active}" data-slide-kind="chapter" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
+            r#"<section class="slide chapter density-{density}{active}{rhythm_cls}" data-slide-kind="chapter" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
   <div class="chapter-copy">
     <span class="chapter-index">Chapter · {label}</span>
     <h2 class="chapter-title">{title}</h2>
@@ -2483,6 +3706,7 @@ fn render_presentation_slide(
 </section>"#,
             density = preferences.density.key(),
             active = active,
+            rhythm_cls = rhythm_cls,
             index = index,
             label = format!("{:02}", chapter_label.unwrap_or(0)),
             title_attr = escape_html_attr(title),
@@ -2497,7 +3721,7 @@ fn render_presentation_slide(
                 .map(|value| format!(r#"<p class="statement-note">{}</p>"#, escape_html_text(value)))
                 .unwrap_or_default();
             format!(
-                r#"<section class="slide statement density-{density}{active}" data-slide-kind="statement" data-density="{density}" data-topic-title="{title_attr}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
+                r#"<section class="slide statement density-{density}{active}{rhythm_cls}" data-slide-kind="statement" data-density="{density}" data-topic-title="{title_attr}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
   <p class="kicker">{chapter}</p>
   <div class="statement-rule"></div>
   <h2 class="statement-title">{title}</h2>
@@ -2506,6 +3730,7 @@ fn render_presentation_slide(
 </section>"#,
                 density = preferences.density.key(),
                 active = active,
+                rhythm_cls = rhythm_cls,
                 index = index,
                 title_attr = escape_html_attr(title),
                 chapter = escape_html_text(chapter),
@@ -2513,6 +3738,33 @@ fn render_presentation_slide(
                 note = note_html,
                 source = escape_html_text(&input.source_file),
                 total = total,
+            )
+        }
+        PresentationSlidePlan::Overview { chapter, title, items } => {
+            let cards_html = items
+                .iter()
+                .enumerate()
+                .map(|(item_index, item)| {
+                    format!(
+                        r#"<article class="overview-card"><span class="overview-card-index">{:02}</span><h3>{}</h3></article>"#,
+                        item_index + 1,
+                        escape_html_text(item),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            render_content_slide(
+                "overview",
+                preferences,
+                active,
+                index,
+                total,
+                input,
+                chapter,
+                title,
+                None,
+                &format!(r#"<div class="overview-card-grid" data-card-count="{}">{cards_html}</div>"#, items.len()),
+                &rhythm_cls,
             )
         }
         PresentationSlidePlan::TopicCards { chapter, cards } => {
@@ -2530,13 +3782,14 @@ fn render_presentation_slide(
                 .collect::<Vec<_>>()
                 .join("");
             format!(
-                r#"<section class="slide topic-cards density-{density}{active}" data-slide-kind="topic-cards" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{chapter_attr}">
+                r#"<section class="slide topic-cards density-{density}{active}{rhythm_cls}" data-slide-kind="topic-cards" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{chapter_attr}">
   <p class="kicker">{chapter}</p>
   <div class="topic-card-grid" data-card-count="{count}">{cards}</div>
   <div class="deck-footer"><span>{source}</span><span>{index}/{total}</span></div>
 </section>"#,
                 density = preferences.density.key(),
                 active = active,
+                rhythm_cls = rhythm_cls,
                 index = index,
                 chapter_attr = escape_html_attr(chapter),
                 chapter = escape_html_text(chapter),
@@ -2548,6 +3801,8 @@ fn render_presentation_slide(
         }
         PresentationSlidePlan::Text { chapter, title, subtitle, markdown } => {
             let content = embedder.embed_images(&render_markdown_html(markdown));
+            let text_layout_cls = if markdown.len() > 400 { " layout-compact" } else { "" };
+            let text_extra = format!("{}{}", rhythm_cls, text_layout_cls);
             render_content_slide(
                 "text",
                 preferences,
@@ -2559,6 +3814,7 @@ fn render_presentation_slide(
                 title,
                 subtitle.as_deref(),
                 &format!(r#"<div class="slide-content text-flow">{content}</div>"#),
+                &text_extra,
             )
         }
         PresentationSlidePlan::ListCards {
@@ -2567,8 +3823,18 @@ fn render_presentation_slide(
             intro,
             cards,
             outro,
+            layout,
         } => {
-            let layout = list_card_layout(intro.as_deref(), cards, outro.as_deref());
+            let layout = layout.as_ref().expect("list-card layouts are planned before rendering");
+            let label_only = cards.len() >= 2
+                && cards.iter().all(|card| card.body_markdown.trim().is_empty());
+            let label_card_cls = if label_only
+                && cards.iter().all(|card| markdown_text_chars(&card.title) <= 28)
+            {
+                " label-card"
+            } else {
+                ""
+            };
             let intro_html = intro
                 .as_ref()
                 .map(|value| {
@@ -2596,13 +3862,15 @@ fn render_presentation_slide(
                         embedder.embed_images(&render_markdown_html(&card.body_markdown))
                     };
                     format!(
-                        r#"<article class="list-card"><h3 class="list-card-title">{title}</h3><div class="list-card-body">{body}</div></article>"#,
+                        r#"<article class="list-card{label_card_cls}"><h3 class="list-card-title">{title}</h3><div class="list-card-body">{body}</div></article>"#,
+                        label_card_cls = label_card_cls,
                         title = escape_html_text(&card.title),
                         body = body,
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("");
+            let lc_extra = rhythm_cls.to_string();
             render_content_slide(
                 "list-cards",
                 preferences,
@@ -2613,7 +3881,8 @@ fn render_presentation_slide(
                 chapter,
                 title,
                 None,
-                &render_list_card_layout(layout, &intro_html, &cards_html, &outro_html, cards.len()),
+                &render_list_card_layout_with_fragments(layout, &intro_html, &cards_html, &outro_html, cards.len()),
+                &lc_extra,
             )
         }
         PresentationSlidePlan::Figure { chapter, title, markdown, layout, aside_markdown } => {
@@ -2628,6 +3897,7 @@ fn render_presentation_slide(
                     )
                 })
                 .unwrap_or_default();
+            let figure_extra = rhythm_cls.clone();
             render_content_slide(
                 "figure",
                 preferences,
@@ -2645,10 +3915,12 @@ fn render_presentation_slide(
                     aside = aside_html,
                     content = content,
                 ),
+                &figure_extra,
             )
         }
         PresentationSlidePlan::Table { chapter, title, markdown, mode } => {
             let content = render_markdown_html(markdown);
+            let table_extra = format!("{} layout-wide", rhythm_cls);
             render_content_slide(
                 "table",
                 preferences,
@@ -2664,6 +3936,7 @@ fn render_presentation_slide(
                     mode = mode.class_name(),
                     content = content,
                 ),
+                &table_extra,
             )
         }
         PresentationSlidePlan::Code { chapter, title, language, code, mode, intro_markdown, outro_markdown } => {
@@ -2689,6 +3962,7 @@ fn render_presentation_slide(
                     )
                 })
                 .unwrap_or_default();
+            let code_extra = format!("{} layout-wide", rhythm_cls);
             render_content_slide(
                 "code",
                 preferences,
@@ -2706,10 +3980,74 @@ fn render_presentation_slide(
                     code = code_html,
                     outro = outro_html,
                 ),
+                &code_extra,
             )
         }
+        PresentationSlidePlan::SectionTransition { title } => format!(
+            r#"<section class="slide section-transition density-{density}{active}{rhythm_cls}" data-slide-kind="section-transition" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
+  <div class="chapter-copy"><span class="chapter-index">Section</span><h2 class="chapter-title">{title}</h2></div>
+  <div class="deck-footer"><span>{source}</span><span>{index}/{total}</span></div>
+</section>"#,
+            density = preferences.density.key(), active = active, rhythm_cls = rhythm_cls, index = index, title_attr = escape_html_attr(title),
+            title = escape_html_text(title), source = escape_html_text(&input.source_file), total = total,
+        ),
+        PresentationSlidePlan::Quote { chapter, title, markdown } => render_content_slide(
+            "quote", preferences, active, index, total, input, chapter, title, None,
+            &format!(r#"<blockquote class="presentation-quote">{}</blockquote>"#, embedder.embed_images(&render_markdown_html(markdown))),
+            &rhythm_cls,
+        ),
+        PresentationSlidePlan::Process { chapter, title, steps } => {
+            let steps_html = steps.iter().enumerate().map(|(step_index, step)| format!(
+                r#"<article class="presentation-step"><span class="presentation-step-number">{:02}</span><h3>{}</h3><p>{}</p></article>"#,
+                step_index + 1, escape_html_text(&step.title), escape_html_text(&step.body_markdown),
+            )).collect::<Vec<_>>().join("");
+            render_content_slide("process", preferences, active, index, total, input, chapter, title, None,
+                &format!(r#"<div class="presentation-process">{steps_html}</div>"#), &rhythm_cls)
+        }
+        PresentationSlidePlan::Cycle { chapter, title, items } => {
+            let items_html = items.iter().enumerate().map(|(item_index, item)| {
+                let angle = item_index * 360 / items.len().max(1);
+                format!(
+                    r#"<article class="presentation-cycle-item" style="--cycle-angle: {angle}deg"><h3>{}</h3><p>{}</p></article>"#,
+                    escape_html_text(&item.title),
+                    escape_html_text(&item.body_markdown),
+                )
+            }).collect::<Vec<_>>().join("");
+            render_content_slide("cycle", preferences, active, index, total, input, chapter, title, None,
+                &format!(r#"<div class="presentation-cycle"><span class="presentation-cycle-core">循环</span>{items_html}</div>"#), &rhythm_cls)
+        }
+        PresentationSlidePlan::Hierarchy { chapter, title, roots } => {
+            let roots_html = roots.iter().map(|root| format!(
+                r#"<article class="presentation-hierarchy-root"><h3>{}</h3><div>{}</div></article>"#,
+                escape_html_text(&root.title),
+                embedder.embed_images(&render_markdown_html(&root.body_markdown)),
+            )).collect::<Vec<_>>().join("");
+            render_content_slide("hierarchy", preferences, active, index, total, input, chapter, title, None,
+                &format!(r#"<div class="presentation-hierarchy">{roots_html}</div>"#), &rhythm_cls)
+        }
+        PresentationSlidePlan::Comparison { chapter, title, left, right } => {
+            let render_side = |label: &str, cards: &[ListCardPlan]| format!(
+                r#"<section class="comparison-panel"><p class="comparison-label">{label}</p>{}</section>"#,
+                cards.iter().map(|card| format!(r#"<article><h3>{}</h3><p>{}</p></article>"#, escape_html_text(&card.title), escape_html_text(&card.body_markdown))).collect::<Vec<_>>().join(""),
+            );
+            render_content_slide("comparison", preferences, active, index, total, input, chapter, title, None,
+                &format!(r#"<div class="presentation-comparison">{}{}</div>"#, render_side("A", left), render_side("B", right)), &rhythm_cls)
+        }
+        PresentationSlidePlan::BigNumber { chapter, title, number, supporting } => render_content_slide(
+            "big-number", preferences, active, index, total, input, chapter, title, None,
+            &format!(r#"<div class="presentation-big-number"><strong>{}</strong><p>{}</p></div>"#, escape_html_text(number), escape_html_text(supporting)),
+            &rhythm_cls,
+        ),
+        PresentationSlidePlan::Summary { chapter, title, items } => {
+            let items_html = items.iter().enumerate().map(|(item_index, item)| format!(
+                r#"<article class="summary-item"><span>{:02}</span><h3>{}</h3><p>{}</p></article>"#,
+                item_index + 1, escape_html_text(&item.title), escape_html_text(&item.body_markdown),
+            )).collect::<Vec<_>>().join("");
+            render_content_slide("summary", preferences, active, index, total, input, chapter, title, None,
+                &format!(r#"<div class="presentation-summary">{items_html}</div>"#), &rhythm_cls)
+        }
         PresentationSlidePlan::Thanks => format!(
-            r#"<section class="slide thanks density-{density}{active}" data-slide-kind="thanks" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="Thanks">
+            r#"<section class="slide thanks density-{density}{active}{rhythm_cls}" data-slide-kind="thanks" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="Thanks">
   <div class="thanks-content">
     <h2>Thanks</h2>
     <p><span>by</span><img class="thanks-logo" src="{{{{logo_data_uri}}}}" alt="NUTBOOK"></p>
@@ -2718,6 +4056,7 @@ fn render_presentation_slide(
 </section>"#,
             density = preferences.density.key(),
             active = active,
+            rhythm_cls = rhythm_cls,
             index = index,
             source = escape_html_text(&input.source_file),
             total = total,
@@ -2736,6 +4075,7 @@ fn render_content_slide(
     title: &str,
     subtitle: Option<&str>,
     body: &str,
+    extra_cls: &str,
 ) -> String {
     let subtitle_html = subtitle
         .filter(|value| !value.trim().is_empty())
@@ -2747,7 +4087,7 @@ fn render_content_slide(
         format!(r#"<p class="kicker">{}</p>"#, escape_html_text(chapter))
     };
     format!(
-        r#"<section class="slide {kind} density-{density}{active}" data-slide-kind="{kind}" data-density="{density}" data-topic-title="{title_attr}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
+        r#"<section class="slide {kind} density-{density}{active}{extra_cls}" data-slide-kind="{kind}" data-density="{density}" data-topic-title="{title_attr}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
   {kicker}
   <h2 class="slide-title">{title}</h2>
   {subtitle}
@@ -2757,6 +4097,7 @@ fn render_content_slide(
         kind = kind,
         density = preferences.density.key(),
         active = active,
+        extra_cls = extra_cls,
         index = index,
         title_attr = escape_html_attr(title),
         kicker = kicker_html,
@@ -2772,16 +4113,27 @@ fn normalized_title_text(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn render_list_card_layout(
-    layout: &str,
+fn render_list_card_layout_with_fragments(
+    layout: &ListCardLayoutPlan,
     intro_html: &str,
     cards_html: &str,
     outro_html: &str,
     card_count: usize,
 ) -> String {
-    if layout == "split" {
+    let style = format!(
+        "--card-cols: {}; --card-row-height: {}px; --card-gap: {}px; --group-width: {}%; --group-offset: 0px;",
+        layout.columns,
+        layout.card_height.pixels(),
+        layout.gap,
+        layout.group_width_percent,
+    );
+    let vertical_position = if layout.vertical_centered { "centered" } else { "flow" };
+    if layout.arrangement == ListCardArrangement::SideBySideStack {
         return format!(
-            r#"<div class="list-card-layout split" data-layout="split"><div class="list-card-copy">{intro}{outro}</div><div class="list-card-grid" data-card-count="{count}">{cards}</div></div>"#,
+            r#"<div class="list-card-flow" data-vertical-position="{vertical_position}" style="{style}"><div class="list-card-layout" data-layout="{layout}"><div class="list-card-copy">{intro}{outro}</div><div class="list-card-grid" data-card-count="{count}">{cards}</div></div></div>"#,
+            layout = layout.arrangement.key(),
+            style = style,
+            vertical_position = vertical_position,
             intro = intro_html,
             outro = outro_html,
             count = card_count,
@@ -2789,7 +4141,10 @@ fn render_list_card_layout(
         );
     }
     format!(
-        r#"<div class="list-card-layout stacked" data-layout="stacked"><div class="list-card-copy">{intro}</div><div class="list-card-grid" data-card-count="{count}">{cards}</div></div>{outro}"#,
+        r#"<div class="list-card-flow" data-vertical-position="{vertical_position}" style="{style}"><div class="list-card-layout" data-layout="{layout}"><div class="list-card-copy">{intro}</div><div class="list-card-grid" data-card-count="{count}">{cards}</div></div>{outro}</div>"#,
+        layout = layout.arrangement.key(),
+        style = style,
+        vertical_position = vertical_position,
         intro = intro_html,
         count = card_count,
         cards = cards_html,
@@ -3055,10 +4410,14 @@ mod tests {
     };
 
     use super::{
-        default_markdown_html_file_name, fallback_presentation_dark_template, fallback_presentation_light_template,
-        fallback_reading_light_template, parse_presentation_blocks, render_presentation_html, render_reading_html,
-        text_slide_markdown, MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationBlock,
-        PresentationDensity, PresentationHtmlExportPreferences, ReadingWidth,
+        assign_evidence_to_items, default_markdown_html_file_name, fallback_presentation_dark_template,
+        fallback_presentation_light_template, fallback_reading_light_template, parse_presentation_blocks,
+        landscape_card_chunks_with_capacity, list_layout_capacity_hint, plan_list_card_layout,
+        presentation_budget, render_presentation_html, render_reading_html, should_render_as_list_cards, text_slide_markdown,
+        semantic_relation_plan, try_overview_detail_split, MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationBlock,
+        PresentationDensity, PresentationDirective, PresentationHtmlExportPreferences, PresentationRichList,
+        PresentationSlidePlan, PresentationTopic, ReadingWidth, RichListItem, ListCardArrangement,
+        ListCardPlan,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -3500,7 +4859,7 @@ mod tests {
         assert!(topic_output.html.contains(".topic-card-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 13px; align-items: stretch; }"));
         assert!(topic_output.html.contains(".topic-card { height: 100%;"));
         assert!(list_output.html.contains(r#"data-slide-kind="list-cards""#));
-        assert!(list_output.html.contains(".list-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 13px; align-items: stretch; }"));
+        assert!(list_output.html.contains(".list-card-grid { display: grid; width: var(--group-width); grid-template-columns: repeat(var(--card-cols), minmax(0, 1fr)); grid-auto-rows: var(--card-row-height); gap: var(--card-gap); align-items: stretch; }"));
         assert!(list_output.html.contains(".list-card { height: 100%;"));
     }
 
@@ -3581,6 +4940,42 @@ mod tests {
         assert!(output.html.contains(r#"data-slide-kind="text""#));
         assert!(output.html.contains("HTML 快捷键会优先交给当前打开的 HTML 页面处理"));
         assert!(!output.html.contains("HTML 演示（续）"));
+    }
+
+    #[test]
+    fn presentation_html_keeps_cover_chapter_table_and_titles_on_the_design_baseline() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "设计基线".to_string(),
+                source_file: "baseline.md".to_string(),
+                source_path: temp_path("presentation-design-baseline").with_extension("md"),
+                markdown: "# 设计基线\n\n## 第一章\n\n### 数据概览\n\n| 指标 | 数值 |\n| - | - |\n| 完成度 | 80% |".to_string(),
+                generated_at: "修改时间：2026-06-21 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("baseline presentation html should render");
+
+        assert!(output.html.contains(r#"data-slide-kind="cover""#));
+        assert!(output.html.contains(r#"data-slide-kind="chapter""#));
+        assert!(output.html.contains(r#"data-slide-kind="table""#));
+        assert!(!output.html.contains("mod-mask-gradient"));
+        assert!(!output.html.contains("mod-overlay-color"));
+
+        for template in [fallback_presentation_light_template(), fallback_presentation_dark_template()] {
+            assert!(!template.contains("rhythm-anchor .slide-title"));
+            assert!(!template.contains("rhythm-dense .slide-title"));
+            assert!(!template.contains("rhythm-breathing .slide-title"));
+            assert!(!template.contains("layout-wide .slide-title"));
+            assert!(!template.contains("mod-mask-gradient"));
+            assert!(!template.contains("mod-overlay-color"));
+        }
     }
 
     #[test]
@@ -4005,7 +5400,7 @@ mod tests {
         .expect("presentation html should render");
 
         assert!(output.html.contains(r#"data-card-count="7""#));
-        assert!(output.html.contains(r#"data-layout="split""#));
+        assert!(output.html.contains(r#"data-layout="side-by-side-stack""#));
         assert_eq!(output.html.matches(r#"data-slide-kind="list-cards""#).count(), 1);
 
         let eleven = render_presentation_html(
@@ -4243,9 +5638,9 @@ mod tests {
         .expect("presentation html should render");
 
         assert!(output.html.contains(r#"data-figure-layout="full""#));
-        let text_index = output.html.find("这张图应该单独展示").expect("text should render");
-        let figure_index = output.html.find(r#"data-figure-layout="full""#).expect("figure should render");
-        assert!(output.html[text_index..figure_index].contains(r#"<section class="slide"#));
+        // Small text before an image is merged as aside (lookahead merge, P2-2)
+        assert!(output.html.contains(r#"class="figure-copy"#));
+        assert!(output.html.contains("这张图应该单独展示"));
     }
 
     #[test]
@@ -4920,8 +6315,8 @@ mod tests {
         )
         .expect("short presentation html should render");
 
-        assert!(dense.html.contains(r#"data-layout="split""#));
-        assert!(short.html.contains(r#"data-layout="stacked""#));
+        assert!(dense.html.contains(r#"data-layout="side-by-side-stack""#));
+        assert!(short.html.contains(r#"data-layout="stacked-grid""#));
     }
 
     #[test]
@@ -4951,6 +6346,446 @@ mod tests {
         let outro_index = output.html.find("它适合阅读 AI 产出的长报告").expect("outro should render");
         assert!(!output.html[intro_index..list_index].contains(r#"<section class="slide"#));
         assert!(!output.html[list_index..outro_index].contains(r#"<section class="slide"#));
+    }
+
+    #[test]
+    fn presentation_html_routes_directives_to_distinct_semantic_layouts() {
+        let parsed = super::parse_presentation_document("## 演示\n\n<!-- nutbook:layout quote -->\n### 观点\n> 好的演示先给观众一个明确判断。", "Layouts");
+        assert_eq!(parsed.chapters[0].topics[0].directive.layout.as_deref(), Some("quote"));
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Layouts".to_string(),
+                source_file: "layouts.md".to_string(),
+                source_path: temp_path("presentation-semantic-layouts").with_extension("md"),
+                markdown: "# Layouts\n\n## 演示\n\n<!-- nutbook:layout quote -->\n### 观点\n> 好的演示先给观众一个明确判断。\n\n<!-- nutbook:layout process -->\n### 路径\n1. 收集资料\n2. 组织观点\n3. 开始表达\n\n<!-- nutbook:layout comparison -->\n### 对比\n- 手工整理\n- 自动归档\n- 零散文件\n- 集中资料库\n\n<!-- nutbook:layout big-number -->\n### 成效\n导出耗时降低 70%。\n\n<!-- nutbook:layout summary -->\n### 总结\n- 结构清晰\n- 节奏稳定\n- 离线可用".to_string(),
+                generated_at: "修改时间：2026-06-20 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("semantic presentation html should render");
+
+        for kind in ["quote", "process", "comparison", "big-number", "summary"] {
+            assert!(output.html.contains(&format!(r#"data-slide-kind="{kind}""#)), "missing {kind} layout");
+        }
+        assert!(!output.html.contains("nutbook:layout"));
+    }
+
+    #[test]
+    fn presentation_html_keeps_card_layouts_whole_during_dynamic_export() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Report".to_string(),
+                source_file: "report.md".to_string(),
+                source_path: temp_path("presentation-directive-report").with_extension("md"),
+                markdown: "# Report\n\n## 结论\n\n<!-- nutbook:section true -->\n<!-- nutbook:layout process -->\n### 下一步\n1. 定义范围\n2. 实施规则\n3. 验证结果".to_string(),
+                generated_at: "修改时间：2026-06-20 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Report,
+                output_kind: "dynamic".to_string(),
+            },
+        )
+        .expect("report presentation html should render");
+
+        assert!(output.html.contains(r#"data-slide-kind="section-transition""#));
+        assert!(output.html.contains(r#"data-slide-kind="process""#));
+        assert!(!output.html.contains("data-fragment-count"));
+        assert!(!output.html.contains("data-step-index"));
+        assert!(output.html.contains(".presentation-step"));
+    }
+
+    #[test]
+    fn presentation_html_routes_strong_semantic_cues_without_directives() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "Automatic".to_string(),
+                source_file: "automatic.md".to_string(),
+                source_path: temp_path("presentation-automatic-layouts").with_extension("md"),
+                markdown: "# Automatic\n\n## 展示\n\n### 实施流程\n流程如下：\n\n1. 收集资料\n2. 组织观点\n3. 开始表达\n\n### 方案对比\n优缺点对照：\n\n- 手工整理\n- 自动归档\n- 零散文件\n- 集中资料库\n\n### 核心结论\n- 结构清晰\n- 节奏稳定\n- 离线可用".to_string(),
+                generated_at: "修改时间：2026-06-20 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("automatic semantic presentation html should render");
+
+        for kind in ["process", "comparison", "summary"] {
+            assert!(output.html.contains(&format!(r#"data-slide-kind="{kind}""#)), "missing {kind} layout");
+        }
+    }
+
+    #[test]
+    fn overview_detail_uses_each_structured_list_items_inline_body() {
+        let topic = PresentationTopic {
+            title: "能力构成".to_string(),
+            blocks: vec![PresentationBlock::List(vec![
+                "- **采集**：".to_string() + &"收集来源并保留上下文。".repeat(8),
+                "- **整理**：".to_string() + &"按主题归档并关联资料。".repeat(8),
+                "- **展示**：".to_string() + &"以适合阅读的形式输出。".repeat(8),
+            ])],
+            directive: PresentationDirective::default(),
+        };
+        let preferences = PresentationHtmlExportPreferences {
+            aspect_ratio: "16-9".to_string(),
+            density: PresentationDensity::Balanced,
+            output_kind: "static".to_string(),
+        };
+
+        let (overview, details) = try_overview_detail_split(&topic, presentation_budget(&preferences), &preferences)
+            .expect("structured inline list bodies should produce overview and detail slides");
+
+        assert!(overview.contains("采集"));
+        assert_eq!(details.len(), 3);
+        assert!(details[0].1.contains("收集来源并保留上下文"));
+        assert!(details[1].1.contains("按主题归档并关联资料"));
+        assert!(details[2].1.contains("以适合阅读的形式输出"));
+    }
+
+    #[test]
+    fn presentation_html_expands_three_independent_scenarios_into_overview_and_details() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "NUTBOOK 典型场景".to_string(),
+                source_file: "scenarios.md".to_string(),
+                source_path: temp_path("presentation-scenarios").with_extension("md"),
+                markdown: "# NUTBOOK 典型场景\n\n## 典型场景\n\n### 阅读一份 AI 生成的竞品分析报告\n\n把竞品分析报告收进 NUTBOOK 后，可以通过缩略图快速识别内容，在更适合阅读的 Markdown 视图中查看结构、表格和重点信息，并用收藏或标签把它归到对应项目下。\n\n### 修改一份学术研究的 AI 分析报告\n\n对于论文解读、研究综述、实验结论等 Markdown 文件，NUTBOOK 提供即时轻编辑能力。你可以在阅读过程中修正 AI 表述、补充引用线索、整理段落，而不必切换到复杂编辑器。\n\n### 在会议或提案中展示 HTML 文档\n\n如果 AI 生成的是 HTML 演示文档，NUTBOOK 可以直接预览和全屏展示。对于带 JavaScript 交互的页面，也可以保留交互效果，更适合现场讲解、项目提案和课堂展示。".to_string(),
+                generated_at: "修改时间：2026-06-21 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("scenario presentation should render");
+
+        assert_eq!(output.html.matches(r#"data-slide-kind="overview""#).count(), 1);
+        assert_eq!(output.html.matches(r#"class="overview-card""#).count(), 3);
+        assert_eq!(output.html.matches(r#"data-slide-kind="text""#).count(), 3);
+        assert!(!output.html.contains(r#"data-slide-kind="topic-cards""#));
+        assert!(!output.html.contains("Content density CV"));
+        assert!(!output.html.contains(r#"<section class="export-warnings">"#));
+        for title in [
+            "阅读一份 AI 生成的竞品分析报告",
+            "修改一份学术研究的 AI 分析报告",
+            "在会议或提案中展示 HTML 文档",
+        ] {
+            assert!(output.html.contains(&format!(r#"<h2 class="slide-title">{title}</h2>"#)));
+        }
+    }
+
+    #[test]
+    fn semantic_grouping_does_not_assign_a_shared_following_paragraph_to_a_member() {
+        let items = vec![
+            RichListItem { label: "采集".to_string(), body: "说明".to_string(), children: vec![], ordered: false },
+            RichListItem { label: "整理".to_string(), body: "说明".to_string(), children: vec![], ordered: false },
+            RichListItem { label: "展示".to_string(), body: "说明".to_string(), children: vec![], ordered: false },
+        ];
+        let blocks = vec![
+            PresentationBlock::RichList(PresentationRichList { items: items.clone() }),
+            PresentationBlock::Paragraph("这是面向整组能力的统一说明，不属于任何单项。".to_string()),
+        ];
+
+        assert!(assign_evidence_to_items(&items, &blocks).is_empty());
+    }
+
+    #[test]
+    fn hierarchy_layout_requires_children_for_every_root() {
+        let topic = PresentationTopic {
+            title: "模块选择".to_string(),
+            blocks: vec![PresentationBlock::RichList(PresentationRichList {
+                items: vec![
+                    RichListItem {
+                        label: "推荐用途".to_string(),
+                        body: String::new(),
+                        children: vec![RichListItem {
+                            label: "研究路线".to_string(),
+                            body: String::new(),
+                            children: vec![],
+                            ordered: false,
+                        }],
+                        ordered: false,
+                    },
+                    RichListItem {
+                        label: "方案".to_string(),
+                        body: String::new(),
+                        children: vec![],
+                        ordered: false,
+                    },
+                ],
+            })],
+            directive: PresentationDirective::default(),
+        };
+
+        assert!(semantic_relation_plan("模块", &topic).is_none());
+    }
+
+    #[test]
+    fn card_pagination_never_leaves_a_single_card_tail() {
+        let cards = (0..5)
+            .map(|index| ListCardPlan {
+                title: format!("项目{}", index + 1),
+                body_markdown: String::new(),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(landscape_card_chunks_with_capacity(&cards, false, Some(2)), vec![2, 3]);
+    }
+
+    #[test]
+    fn nested_text_lists_use_the_standard_page_budget() {
+        let blocks = vec![PresentationBlock::List(vec![
+            "- 能力一".to_string(),
+            "  - 子项一".to_string(),
+            "  - 子项二".to_string(),
+            "- 能力二".to_string(),
+            "  - 子项三".to_string(),
+            "  - 子项四".to_string(),
+            "- 能力三".to_string(),
+            "  - 子项五".to_string(),
+        ])];
+
+        let slides = text_slide_markdown(&blocks, &layout_preferences("16-9"));
+        assert_eq!(slides.len(), 2);
+    }
+
+    #[test]
+    fn overview_detail_rejects_a_six_item_topic_that_would_expand_to_seven_pages() {
+        let items = (1..=6)
+            .map(|index| format!("- **能力{index}**：{}", "这是一段足够长的独立说明。".repeat(7)))
+            .collect::<Vec<_>>();
+        let topic = PresentationTopic {
+            title: "能力清单".to_string(),
+            blocks: vec![PresentationBlock::List(items)],
+            directive: PresentationDirective::default(),
+        };
+        let preferences = PresentationHtmlExportPreferences {
+            aspect_ratio: "16-9".to_string(),
+            density: PresentationDensity::Balanced,
+            output_kind: "static".to_string(),
+        };
+
+        assert!(try_overview_detail_split(&topic, presentation_budget(&preferences), &preferences).is_none());
+    }
+
+    #[test]
+    fn presentation_templates_enlarge_bold_copy_and_center_card_content() {
+        for template in [fallback_presentation_light_template(), fallback_presentation_dark_template()] {
+            assert!(template.contains("font-size: calc(1em + 2px)"));
+            assert!(template.contains(".topic-card { height: 100%; min-height: 0; padding: 20px; display: flex; flex-direction: column; justify-content: center;"));
+            assert!(template.contains(".list-card { min-height: var(--card-row-height); padding: 17px 18px; display: flex; flex-direction: column; justify-content: center;"));
+        }
+    }
+
+    #[test]
+    fn presentation_templates_anchor_side_copy_and_keep_card_rows_content_driven() {
+        for template in [fallback_presentation_light_template(), fallback_presentation_dark_template()] {
+            assert!(template.contains(".list-card-layout[data-layout=\"side-by-side-stack\"] .list-card-copy { display: flex; flex-direction: column; justify-content: flex-start; }"));
+            assert!(template.contains("grid-auto-rows: minmax(var(--card-row-height), max-content);"));
+            assert!(template.contains(".list-card { min-height: var(--card-row-height);"));
+            assert!(!template.contains(".list-card { height: 100%; min-height: var(--card-row-height);"));
+        }
+    }
+
+    #[test]
+    fn nested_lists_with_multiple_children_fall_back_to_normal_content_pages() {
+        let items = vec![
+            "- 产品能力".to_string(),
+            "  - 文件管理".to_string(),
+            "  - 标签分类".to_string(),
+            "- 展示能力".to_string(),
+            "  - HTML 预览".to_string(),
+            "  - 全屏演示".to_string(),
+        ];
+
+        assert!(!should_render_as_list_cards(&items));
+    }
+
+    #[test]
+    fn presentation_html_centers_short_label_only_list_card_grids() {
+        let output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "能力".to_string(),
+                source_file: "capabilities.md".to_string(),
+                source_path: temp_path("presentation-label-grid").with_extension("md"),
+                markdown: "# 能力\n\n## 核心能力\n\n当前重点支持：\n\n- 接入本地文件夹和单文件\n- 接入 skill 产物目录\n- 统一管理 Markdown / HTML 内容\n- 收藏重要内容\n- 用标签进行分类\n- 按来源、最近、收藏等方式浏览内容".to_string(),
+                generated_at: "修改时间：2026-06-21 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("label grid presentation should render");
+
+        assert_eq!(list_card_counts(&output.html), vec![6]);
+        assert_eq!(output.html.matches(r#"class="list-card label-card""#).count(), 6);
+        assert!(output.html.contains(r#"data-layout="stacked-grid""#));
+        assert!(output.html.contains("--card-cols: 3; --card-row-height: 76px; --card-gap: 14px; --group-width: 100%; --group-offset: 0px;"));
+        assert!(output.html.contains(".list-card.label-card { align-items: center; text-align: center; }"));
+        assert!(output.html.contains(".list-card.label-card .list-card-title { margin: 0; }"));
+        assert!(output.html.contains("grid-template-columns: repeat(var(--card-cols), minmax(0, 1fr));"));
+        assert!(output.html.contains("min-height: var(--card-row-height);"));
+        assert!(!output.html.contains("relaxed-label-grid"));
+        assert!(!output.html.contains(".list-card-grid.label-grid[data-card-count"));
+    }
+
+    #[test]
+    fn presentation_html_routes_five_short_labels_to_a_single_row_and_long_or_seven_labels_to_a_vertical_stack() {
+        let five_item_output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "标签".to_string(),
+                source_file: "labels.md".to_string(),
+                source_path: temp_path("presentation-five-labels").with_extension("md"),
+                markdown: "# 标签\n\n## 快捷入口\n\n- 收集\n- 整理\n- 搜索\n- 展示\n- 分享".to_string(),
+                generated_at: "修改时间：2026-06-21 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("five short labels should render");
+        assert!(five_item_output.html.contains(r#"data-layout="stacked-grid" style="--card-cols: 5;"#));
+
+        let long_five_item_output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "标签".to_string(),
+                source_file: "labels.md".to_string(),
+                source_path: temp_path("presentation-five-long-labels").with_extension("md"),
+                markdown: "# 标签\n\n## 快捷入口\n\n这组能力适合在阅读过程中继续整理。\n\n- 把来自多个工具的内容统一收集并保留完整上下文\n- 按项目整理资料并建立可追溯的关联关系\n- 搜索需要继续处理且尚未完成归档的内容\n- 浏览最近修改、收藏和来自不同来源的资料\n- 分享可以在其他设备直接打开的完整产物".to_string(),
+                generated_at: "修改时间：2026-06-21 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("five long labels should render");
+        assert!(long_five_item_output.html.contains(r#"data-layout="side-by-side-stack""#));
+
+        let seven_item_output = render_presentation_html(
+            MarkdownHtmlExportInput {
+                title: "标签".to_string(),
+                source_file: "labels.md".to_string(),
+                source_path: temp_path("presentation-seven-labels").with_extension("md"),
+                markdown: "# 标签\n\n## 快捷入口\n\n- 收集内容\n- 整理内容\n- 搜索内容\n- 浏览内容\n- 收藏内容\n- 标注内容\n- 分享内容".to_string(),
+                generated_at: "修改时间：2026-06-21 10:00".to_string(),
+                template_html: fallback_presentation_light_template().to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            },
+            PresentationHtmlExportPreferences {
+                aspect_ratio: "16-9".to_string(),
+                density: PresentationDensity::Balanced,
+                output_kind: "static".to_string(),
+            },
+        )
+        .expect("seven labels should render");
+        assert!(seven_item_output.html.contains(r#"data-layout="side-by-side-stack""#));
+        assert!(seven_item_output.html.contains(".list-card-layout[data-layout=\"side-by-side-stack\"] .list-card-grid { width: 100%; grid-template-columns: 1fr; }"));
+    }
+
+    #[test]
+    fn physical_list_layout_routes_counts_by_content_and_aspect_ratio() {
+        let short = |count| {
+            (0..count)
+                .map(|index| ListCardPlan {
+                    title: format!("项目{}", index + 1),
+                    body_markdown: String::new(),
+                })
+                .collect::<Vec<_>>()
+        };
+        let explained = (0..5)
+            .map(|index| ListCardPlan {
+                title: format!("能力{}", index + 1),
+                body_markdown: "这是一段足够长的解释文字，用于验证左右结构会为每个项目保留可读空间。".to_string(),
+            })
+            .collect::<Vec<_>>();
+
+        let wide = layout_preferences("16-9");
+        assert_eq!(plan_list_card_layout(None, &short(3), None, &wide).expect("three cards should fit").arrangement, ListCardArrangement::StackedGrid);
+        assert_eq!(plan_list_card_layout(None, &short(3), None, &wide).expect("three cards should fit").columns, 3);
+        assert_eq!(plan_list_card_layout(None, &short(4), None, &wide).expect("four cards should fit").columns, 4);
+        assert_eq!(plan_list_card_layout(Some("背景说明"), &explained, None, &wide).expect("five explained cards should fit").arrangement, ListCardArrangement::SideBySideStack);
+        assert_eq!(plan_list_card_layout(None, &short(5), None, &wide).expect("five short cards should fit").columns, 5);
+
+        let classic = layout_preferences("4-3");
+        assert_eq!(list_layout_capacity_hint(Some("背景说明"), &explained, None, &classic), None);
+        assert_eq!(plan_list_card_layout(Some("背景说明"), &explained, None, &classic).expect("classic side layout should fit").arrangement, ListCardArrangement::SideBySideStack);
+    }
+
+    #[test]
+    fn physical_list_layout_preflight_splits_explained_seven_items_four_plus_three() {
+        let cards = (0..7)
+            .map(|index| ListCardPlan {
+                title: format!("能力{}", index + 1),
+                body_markdown: "每项都有一段解释，单页右侧纵向排列会明显挤压正文。".to_string(),
+            })
+            .collect::<Vec<_>>();
+        let preferences = layout_preferences("16-9");
+
+        assert_eq!(list_layout_capacity_hint(None, &cards, None, &preferences), Some(4));
+        assert_eq!(landscape_card_chunks_with_capacity(&cards, false, Some(4)), vec![4, 3]);
+    }
+
+    fn layout_preferences(aspect_ratio: &str) -> PresentationHtmlExportPreferences {
+        PresentationHtmlExportPreferences {
+            aspect_ratio: aspect_ratio.to_string(),
+            density: PresentationDensity::Balanced,
+            output_kind: "static".to_string(),
+        }
+    }
+
+    #[test]
+    fn semantic_relation_routes_cycle_and_hierarchy_to_distinct_slide_plans() {
+        let cycle_topic = PresentationTopic {
+            title: "持续迭代闭环".to_string(),
+            blocks: vec![PresentationBlock::List(vec![
+                "- 收集反馈".to_string(),
+                "- 调整方案".to_string(),
+                "- 验证结果".to_string(),
+            ])],
+            directive: PresentationDirective::default(),
+        };
+        let hierarchy_topic = PresentationTopic {
+            title: "能力层级".to_string(),
+            blocks: vec![PresentationBlock::List(vec![
+                "- 内容层".to_string(),
+                "  - Markdown 解析".to_string(),
+                "  - HTML 渲染".to_string(),
+                "- 交互层".to_string(),
+                "  - 演示控制".to_string(),
+            ])],
+            directive: PresentationDirective::default(),
+        };
+
+        assert!(matches!(semantic_relation_plan("方法", &cycle_topic), Some(PresentationSlidePlan::Cycle { .. })));
+        assert!(semantic_relation_plan("方法", &hierarchy_topic).is_none());
     }
 
     #[test]

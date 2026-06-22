@@ -2650,7 +2650,7 @@ pub fn export_markdown_html(
         .set_file_name(&default_markdown_html_file_name(&item.summary.file_name))
         .add_filter("HTML", &["html", "htm"])
         .save_file()
-        .ok_or(AppError::InvalidParams)?;
+        .ok_or(AppError::ExportCancelled)?;
     let template_html = markdown_export_template(&app, &payload.template);
     export_markdown_html_to_path(&state, payload, &target, template_html)
 }
