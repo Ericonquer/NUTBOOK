@@ -2,7 +2,7 @@ use std::path::Component;
 
 use crate::{
     core::{
-        document::{content_hash, load_document_payload, markdown_summary, render_markdown_as_html},
+        document::{content_hash, load_document_payload, markdown_document_title, markdown_summary, render_markdown_as_html},
         html_runtime::{
             attach_controls_overlay, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay, close_html_runtime_window, dispatch_html_runtime_shortcut,
             focus_html_runtime_host, focus_main_webview,
@@ -299,19 +299,51 @@ pub fn export_markdown_file(
         return Err(AppError::UnsupportedFileType);
     }
 
-    let default_name = item.summary.file_name.clone();
+    let content = item
+        .source_text
+        .clone()
+        .unwrap_or_else(|| std::fs::read_to_string(&item.summary.file_path).unwrap_or_default());
+    let default_name = markdown_export_default_file_name(
+        &markdown_document_title(&content, &item.summary.file_name),
+        &item.summary.file_name,
+    );
     let target = rfd::FileDialog::new()
         .set_file_name(&default_name)
         .add_filter("Markdown", &["md", "markdown"])
         .save_file()
         .ok_or(AppError::InvalidParams)?;
 
-    let content = item
-        .source_text
-        .clone()
-        .unwrap_or_else(|| std::fs::read_to_string(&item.summary.file_path).unwrap_or_default());
     std::fs::write(target, content).map_err(|_| AppError::IoError)?;
     Ok(true)
+}
+
+fn markdown_export_default_file_name(title: &str, fallback_file_name: &str) -> String {
+    let fallback_path = std::path::Path::new(fallback_file_name);
+    let extension = fallback_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("md");
+    let mut stem: String = title
+        .chars()
+        .map(|value| match value {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            value if value.is_control() => '_',
+            value => value,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if stem.is_empty() {
+        stem = fallback_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("Markdown")
+            .to_string();
+    }
+    format!("{stem}.{extension}")
 }
 
 const MARKDOWN_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
@@ -492,7 +524,7 @@ mod tests {
         state::AppState,
     };
 
-    use super::{copy_markdown_image_asset_impl, delete_markdown_image_asset_impl, save_markdown_content_impl};
+    use super::{copy_markdown_image_asset_impl, delete_markdown_image_asset_impl, markdown_export_default_file_name, save_markdown_content_impl};
 
     fn temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
@@ -552,8 +584,9 @@ mod tests {
 
         match payload {
             PreviewPayload::Markdown(markdown) => {
+                assert_eq!(markdown.title.as_deref(), Some("Hello"));
                 assert_eq!(markdown.raw, "# Hello");
-                assert!(markdown.html.contains("<h1>Hello</h1>"));
+                assert!(!markdown.html.contains("<h1>Hello</h1>"));
                 assert_eq!(markdown.base_dir, root.to_string_lossy());
             }
             PreviewPayload::Html(_) => panic!("expected markdown payload"),
@@ -699,14 +732,24 @@ mod tests {
             .expect("payload should load");
         match payload {
             PreviewPayload::Markdown(markdown) => {
+                assert_eq!(markdown.title.as_deref(), Some("Updated Title"));
                 assert_eq!(markdown.raw, "# Updated Title\n\nbody");
-                assert!(markdown.html.contains("Updated Title"));
+                assert!(!markdown.html.contains("Updated Title"));
+                assert!(markdown.html.contains("<p>body</p>"));
             }
             PreviewPayload::Html(_) => panic!("expected markdown payload"),
         }
 
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn markdown_export_default_file_name_uses_sanitized_document_title() {
+        assert_eq!(
+            markdown_export_default_file_name("AI/Report: Draft?", "old-name.md"),
+            "AI_Report_ Draft_.md"
+        );
     }
 
     #[test]

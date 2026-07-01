@@ -21,6 +21,7 @@ import "@milkdown/kit/prose/tables/style/tables.css";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 
 const instances = new WeakMap();
+const SKILL_FRONTMATTER_FIELDS = ["name", "description", "trigger_keywords"];
 
 const CODE_BLOCK_LANGUAGES = [
   { value: "", label: "Plain Text" },
@@ -47,6 +48,231 @@ function escapeOptionText(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function splitSkillFrontmatterForEditor(markdown = "") {
+  const raw = String(markdown || "");
+  const match = raw.match(/^---[ \t]*(?:\r?\n)([\s\S]*?)(?:\r?\n)---[ \t]*(?:\r?\n|$)/);
+  if (!match) return null;
+  return {
+    raw: match[0],
+    body: raw.slice(match[0].length),
+    fields: parseSkillFrontmatterFields(match[1] || "")
+  };
+}
+
+function trimFrontmatterValue(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/^['"]|['"]$/g, "")
+    .trim();
+}
+
+function parseFrontmatterInlineValues(value = "") {
+  const trimmed = String(value || "").trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed.slice(1, -1)
+      .split(",")
+      .map(trimFrontmatterValue)
+      .filter(Boolean);
+  }
+  const cleanValue = trimFrontmatterValue(trimmed);
+  return cleanValue ? [cleanValue] : [];
+}
+
+function extractSkillTriggersFromDescription(description = "") {
+  const match = String(description || "").match(/(?:^|\s)Triggers:\s*([\s\S]+)$/i);
+  if (!match) return [];
+  return match[1]
+    .split(",")
+    .map((value) => trimFrontmatterValue(value.replace(/\.$/, "")))
+    .filter(Boolean);
+}
+
+function cleanSkillDescription(description = "") {
+  return String(description || "")
+    .replace(/\s*Triggers:\s*[\s\S]+$/i, "")
+    .trim();
+}
+
+function parseSkillFrontmatterFields(frontmatter = "") {
+  const fields = [];
+  let currentIndex = -1;
+  let blockIndex = -1;
+  let blockFolded = false;
+  String(frontmatter || "").split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith("- ")) {
+      if (currentIndex >= 0) {
+        const value = trimFrontmatterValue(trimmed.slice(2));
+        if (value) fields[currentIndex].values.push(value);
+      }
+      return;
+    }
+    if (/^\s/.test(line) && blockIndex >= 0) {
+      const value = trimmed;
+      if (!value) return;
+      const values = fields[blockIndex].values;
+      values[0] = [values[0], value].filter(Boolean).join(blockFolded ? " " : "\n");
+      return;
+    }
+    const separatorIndex = trimmed.indexOf(":");
+    if (separatorIndex < 0) {
+      currentIndex = -1;
+      blockIndex = -1;
+      return;
+    }
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const rawValue = trimmed.slice(separatorIndex + 1).trim();
+    if (!key) return;
+    currentIndex = fields.length;
+    if (rawValue === ">" || rawValue === "|") {
+      fields.push({ key, values: [""] });
+      blockIndex = currentIndex;
+      blockFolded = rawValue === ">";
+      return;
+    }
+    fields.push({ key, values: parseFrontmatterInlineValues(rawValue) });
+    blockIndex = -1;
+  });
+  return fields;
+}
+
+function skillFrontmatterField(frontmatter, key) {
+  return (frontmatter?.fields || []).find((field) => field.key === key) || null;
+}
+
+function skillFrontmatterValue(frontmatter, key) {
+  const field = skillFrontmatterField(frontmatter, key);
+  if (field && key === "description") {
+    return (field.values || []).map(cleanSkillDescription).filter(Boolean);
+  }
+  if (field) return field.values || [];
+  if (key === "trigger_keywords") {
+    const description = skillFrontmatterField(frontmatter, "description")?.values?.[0] || "";
+    return extractSkillTriggersFromDescription(description);
+  }
+  return [];
+}
+
+function setSkillFrontmatterValues(frontmatter, key, values) {
+  if (!frontmatter) return;
+  const cleanValues = values.map((value) => String(value || "").trim()).filter(Boolean);
+  const existing = frontmatter.fields.find((field) => field.key === key);
+  if (existing) {
+    existing.values = cleanValues;
+  } else {
+    frontmatter.fields.push({ key, values: cleanValues });
+  }
+}
+
+function frontmatterContentLines(rawFrontmatter = "") {
+  return String(rawFrontmatter || "")
+    .replace(/^---[ \t]*(?:\r?\n)?/, "")
+    .replace(/(?:\r?\n)?---[ \t]*(?:\r?\n)?$/, "")
+    .split(/\r?\n/);
+}
+
+function frontmatterEntries(rawFrontmatter = "") {
+  const entries = [];
+  let current = null;
+  frontmatterContentLines(rawFrontmatter).forEach((line) => {
+    const trimmed = line.trim();
+    const isTopLevelField = trimmed && !/^\s/.test(line) && trimmed.includes(":");
+    if (isTopLevelField) {
+      current = {
+        key: trimmed.slice(0, trimmed.indexOf(":")).trim(),
+        lines: [line]
+      };
+      entries.push(current);
+      return;
+    }
+    if (current) {
+      current.lines.push(line);
+    } else {
+      entries.push({ key: "", lines: [line] });
+    }
+  });
+  return entries;
+}
+
+function formatFrontmatterField(key, values = []) {
+  const cleanValues = values.map((value) => String(value || "").trim()).filter(Boolean);
+  if (key === "trigger_keywords") {
+    if (!cleanValues.length) return [];
+    return [ `${key}:`, ...cleanValues.map((value) => `  - ${value}`) ];
+  }
+  if (key === "description") {
+    const value = cleanValues[0] || "";
+    if (!value) return [];
+    if (value.includes("\n")) {
+      return [ `${key}: >`, ...value.split(/\r?\n/).map((line) => `  ${line.trim()}`) ];
+    }
+    return [`${key}: ${value}`];
+  }
+  const value = cleanValues[0] || "";
+  return value ? [`${key}: ${value}`] : [];
+}
+
+function serializeSkillFrontmatterForEditor(frontmatter) {
+  if (!frontmatter) return "";
+  const seen = new Set();
+  const lines = [];
+  frontmatterEntries(frontmatter.raw).forEach((entry) => {
+    if (SKILL_FRONTMATTER_FIELDS.includes(entry.key)) {
+      seen.add(entry.key);
+      lines.push(...formatFrontmatterField(entry.key, skillFrontmatterValue(frontmatter, entry.key)));
+      return;
+    }
+    lines.push(...entry.lines);
+  });
+  SKILL_FRONTMATTER_FIELDS.forEach((key) => {
+    if (seen.has(key)) return;
+    lines.push(...formatFrontmatterField(key, skillFrontmatterValue(frontmatter, key)));
+  });
+  return `---\n${lines.filter((line, index, all) => line.trim() || all[index - 1]?.trim()).join("\n").trim()}\n---\n`;
+}
+
+function renderSkillFrontmatterPanel(frontmatter) {
+  if (!frontmatter) return null;
+  const panel = document.createElement("section");
+  panel.className = "markdown-frontmatter skill-frontmatter";
+  panel.setAttribute("contenteditable", "false");
+  const name = skillFrontmatterValue(frontmatter, "name")[0] || "";
+  const description = skillFrontmatterValue(frontmatter, "description")[0] || "";
+  const triggerKeywords = skillFrontmatterValue(frontmatter, "trigger_keywords").join("\n");
+  panel.innerHTML = `
+    <div class="markdown-frontmatter-label">SKILL 元信息</div>
+    <label class="markdown-frontmatter-row">
+      <span class="markdown-frontmatter-key">name</span>
+      <input class="markdown-frontmatter-input" data-frontmatter-field="name" value="${escapeOptionText(name)}" spellcheck="false" />
+    </label>
+    <label class="markdown-frontmatter-row">
+      <span class="markdown-frontmatter-key">description</span>
+      <textarea class="markdown-frontmatter-input markdown-frontmatter-textarea" data-frontmatter-field="description" rows="3">${escapeOptionText(description)}</textarea>
+    </label>
+    <label class="markdown-frontmatter-row">
+      <span class="markdown-frontmatter-key">trigger_keywords</span>
+      <textarea class="markdown-frontmatter-input markdown-frontmatter-textarea" data-frontmatter-field="trigger_keywords" rows="2" placeholder="每行一个关键词，也可以用逗号分隔">${escapeOptionText(triggerKeywords)}</textarea>
+    </label>
+  `;
+  return panel;
+}
+
+function setupSkillFrontmatterEditing(panel, frontmatter, onEdited) {
+  if (!panel || !frontmatter) return;
+  panel.querySelectorAll("[data-frontmatter-field]").forEach((control) => {
+    control.addEventListener("input", () => {
+      const key = control.dataset.frontmatterField;
+      const rawValue = control.value || "";
+      const values = key === "trigger_keywords"
+        ? rawValue.split(/[,\n]/).map((value) => value.trim()).filter(Boolean)
+        : [rawValue.trim()];
+      setSkillFrontmatterValues(frontmatter, key, values);
+      onEdited?.();
+    });
+  });
 }
 
 function codeLanguageOptions(currentValue = "") {
@@ -286,6 +512,15 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
 
   destroyExisting(root);
   root.innerHTML = "";
+  const skillFrontmatter = splitSkillFrontmatterForEditor(markdown);
+  const editorMarkdown = skillFrontmatter ? skillFrontmatter.body : markdown;
+  const editorMount = document.createElement("div");
+  editorMount.className = "milkdown-editor-body";
+  const frontmatterPanel = renderSkillFrontmatterPanel(skillFrontmatter);
+  if (frontmatterPanel) {
+    root.appendChild(frontmatterPanel);
+  }
+  root.appendChild(editorMount);
 
   let currentMarkdown = markdown;
   let userInteracted = false;
@@ -320,8 +555,14 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
       hideInsertMenu();
     }
   };
+  setupSkillFrontmatterEditing(frontmatterPanel, skillFrontmatter, () => {
+    markUserInteracted();
+    hasDocumentChanges = true;
+    scheduleMarkdownChangeSync(80);
+  });
   const interactionEvents = [];
   const handleUndoRedoShortcut = (event) => {
+    if (event.isComposing || event.key === "Process") return;
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
     const view = getEditorView();
     if (!view) return;
@@ -340,8 +581,8 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
 
   const editor = await Editor.make()
     .config((ctx) => {
-      ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, markdown);
+      ctx.set(rootCtx, editorMount);
+      ctx.set(defaultValueCtx, editorMarkdown);
       ctx.update(prosePluginsCtx, (plugins) => [
         keymap({
           "Mod-z": undo,
@@ -370,7 +611,8 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   const serializeCurrentDocument = () => editor.action((ctx) => {
     const view = ctx.get(editorViewCtx);
     const serializer = ctx.get(serializerCtx);
-    currentMarkdown = serializer(view.state.doc);
+    const bodyMarkdown = serializer(view.state.doc);
+    currentMarkdown = skillFrontmatter ? `${serializeSkillFrontmatterForEditor(skillFrontmatter)}${bodyMarkdown}` : bodyMarkdown;
     return currentMarkdown;
   });
   const baselineMarkdown = serializeCurrentDocument();
@@ -391,6 +633,10 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
 
   function getEditorView() {
     return editor.action((ctx) => ctx.get(editorViewCtx));
+  }
+
+  function isEditorComposing() {
+    return Boolean(getEditorView()?.composing);
   }
 
   function flushMarkdownChangeSync() {
@@ -707,6 +953,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   function updateCodeLanguageControls() {
     codeLanguageFrame = null;
     if (!codeLanguageLayer || !editorReady) return;
+    if (isEditorComposing()) return;
     const view = getEditorView();
     const editorRoot = root.querySelector(".ProseMirror");
     if (!view || !editorRoot) return;
@@ -854,6 +1101,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   function updateInsertMenu() {
     insertMenuFrame = null;
     if (!insertMenu || !editorReady) return;
+    if (isEditorComposing()) return;
     const view = getEditorView();
     const target = emptyParagraphSelection(view);
     if (!view || !target || !root.contains(view.dom)) {
@@ -1323,6 +1571,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   function updateFormatToolbar() {
     formatToolbarFrame = null;
     if (!formatToolbar || !editorReady) return;
+    if (isEditorComposing()) return;
     const view = getEditorView();
     const selection = view?.state.selection;
     if (!view || !selection || selection.empty || !root.contains(view.dom)) {
@@ -1459,6 +1708,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   function updateTableToolbar() {
     tableToolbarFrame = null;
     if (!tableToolbar || !tableToolsEnabled || !editorReady) return;
+    if (isEditorComposing()) return;
     const view = getEditorView();
     const table = findActiveTableElement(view);
     if (!table) {

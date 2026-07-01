@@ -10,6 +10,7 @@ MEMORY.md
 DESIGN.md
 docs/videos/
 docs/superpowers/
+docs/plans
 
 # Build outputs
 src-tauri/target/

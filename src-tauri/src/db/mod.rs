@@ -1596,7 +1596,7 @@ fn thumbnail_cache_key(file_type: &str, file_hash: Option<&str>, summary: Option
             .filter(|value| !value.is_empty())
             .unwrap_or("untitled");
         return Some(format!(
-            "{}:md-thumb-v3",
+            "{}:md-thumb-v4",
             summary_key
         ));
     }
@@ -1767,6 +1767,59 @@ fn markdown_thumbnail_document(title: &str, raw: &str) -> String {
     article h3 {{ margin: 24px 0 8px; font-size: 20px; color: #242422; }}
     article h4, article h5, article h6 {{ margin: 20px 0 8px; font-size: 17px; color: #30302e; }}
     article p {{ margin: 0 0 16px; }}
+    .markdown-frontmatter {{
+      margin: 0 0 24px;
+      padding: 18px 20px;
+      border: 1px solid #e5e1d8;
+      border-radius: 18px;
+      background: #fffaf0;
+      color: #3d362d;
+    }}
+    .markdown-frontmatter-label {{
+      margin-bottom: 10px;
+      color: #8a6f3d;
+      font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0.08em;
+    }}
+    .markdown-frontmatter-row {{
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      gap: 14px;
+      padding: 7px 0;
+      border-top: 1px solid rgba(138, 111, 61, 0.14);
+    }}
+    .markdown-frontmatter-row:first-of-type {{ border-top: 0; }}
+    .markdown-frontmatter-key {{
+      color: #7a6a56;
+      font: 600 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }}
+    .markdown-frontmatter-values {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      min-width: 0;
+    }}
+    .markdown-frontmatter-value {{
+      max-width: 100%;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: rgba(138, 111, 61, 0.09);
+      color: #352f28;
+      font-size: 14px;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }}
+    article img {{
+      display: block;
+      width: auto;
+      max-width: 100%;
+      max-height: 430px;
+      height: auto;
+      margin: 10px auto 20px;
+      border-radius: 12px;
+      object-fit: contain;
+    }}
+    article p:has(> img:only-child) {{ margin: 0 0 18px; }}
   </style>
 </head>
 <body>
@@ -1843,6 +1896,27 @@ mod tests {
         assert_eq!(libraries[0].root_path, "/tmp/clips");
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn markdown_thumbnail_document_constrains_images_to_article_width() {
+        let html = super::markdown_thumbnail_document(
+            "Document with hero image",
+            "![Hero](./assets/hero.png)\n\nBody text",
+        );
+
+        assert!(html.contains("article img"));
+        assert!(html.contains("max-width: 100%"));
+        assert!(html.contains("height: auto"));
+        assert!(html.contains("object-fit: contain"));
+    }
+
+    #[test]
+    fn markdown_thumbnail_cache_key_tracks_image_layout_template_version() {
+        let key = super::thumbnail_cache_key("markdown", Some("ignored-file-hash"), Some("Hero Doc"))
+            .expect("markdown thumbnail key should exist");
+
+        assert!(key.ends_with(":md-thumb-v4"));
     }
 
     #[test]
