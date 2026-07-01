@@ -1636,6 +1636,10 @@
         grid-template-columns: repeat(auto-fill, 232px);
       }
 
+      .app-shell.document-mode .main-shell.home-mode .item-card {
+        min-height: 178px;
+      }
+
       .main-shell.home-mode .list-body.empty-mode {
         display: block;
       }
@@ -1649,7 +1653,7 @@
         border-radius: 14px;
         position: relative;
         flex: 0 0 auto;
-        min-height: 178px;
+        min-height: 188px;
       }
 
       .main-shell.home-mode .thumb {
@@ -1776,6 +1780,10 @@
         line-height: 1.4;
         overflow-wrap: anywhere;
         word-break: break-word;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
       }
 
       .main-shell.home-mode .item-card-meta {
@@ -2032,6 +2040,11 @@
         align-items: flex-start;
       }
 
+      .markdown-title-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
       .content-title {
         margin: 0;
         font-size: 34px;
@@ -2039,10 +2052,35 @@
         letter-spacing: -0.03em;
       }
 
+      .markdown-title-input {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        font-family: var(--font-title);
+        line-height: 1.12;
+        padding: 2px 4px;
+      }
+
+      .markdown-title-input:hover,
+      .markdown-title-input:focus {
+        background: rgba(20, 20, 20, 0.04);
+        outline: none;
+      }
+
+      .markdown-title-input:focus {
+        box-shadow: 0 0 0 3px rgba(20, 20, 20, 0.08);
+      }
+
       .content-meta {
         color: var(--ink-soft);
         font-size: 12px;
         line-height: 1.6;
+        padding-left: 4px;
+        margin-top: 6px;
       }
 
       .source-kind-badge {
@@ -2289,6 +2327,86 @@
       .markdown-preview li {
         font-size: 16px;
         line-height: 1.82;
+      }
+
+      .markdown-frontmatter {
+        margin: 0 0 24px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      .markdown-frontmatter-label {
+        margin-bottom: 12px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .markdown-frontmatter-row {
+        display: grid;
+        grid-template-columns: 128px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+        padding: 10px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .markdown-frontmatter-row:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .markdown-frontmatter-key {
+        padding-top: 7px;
+        color: var(--ink-soft);
+        font: 600 12px/1.4 var(--font-ui);
+      }
+
+      .markdown-frontmatter-values {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .markdown-frontmatter-value {
+        max-width: 100%;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        font-size: 13px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
+      .markdown-frontmatter-input {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        background: var(--paper);
+        color: var(--ink);
+        font: 14px/1.55 var(--font-ui);
+        padding: 7px 10px;
+        outline: none;
+        resize: vertical;
+        transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      }
+
+      .markdown-frontmatter-input:focus {
+        border-color: var(--accent);
+        background: var(--paper);
+        box-shadow: 0 0 0 3px rgba(20, 20, 20, 0.06);
+      }
+
+      .markdown-frontmatter-textarea {
+        min-height: 44px;
       }
 
       .markdown-preview img,
@@ -3351,17 +3469,30 @@
         min-width: 0;
         display: grid;
         gap: 4px;
+        flex: 1 1 auto;
       }
 
       .settings-row-copy-top {
         display: flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
       }
 
       .settings-row-title {
         font-size: 12px;
         font-weight: 600;
+        min-width: 0;
+      }
+
+      .settings-row-path {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .settings-row > .button-row {
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
       }
 
       .preference-list {
@@ -3652,6 +3783,11 @@
 
       .milkdown-editor-root {
         position: relative;
+      }
+
+      .milkdown-editor-root .ProseMirror > h1:first-child,
+      .milkdown-editor-root .ProseMirror h1.markdown-document-title-source {
+        display: none;
       }
 
       .markdown-format-toolbar {
@@ -5197,10 +5333,51 @@
           .trim();
       }
 
+      function findMarkdownDocumentTitleLine(markdown) {
+        const lines = String(markdown || "").split(/\r?\n/);
+        let fence = "";
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index];
+          const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+          if (fenceMatch) {
+            fence = fence ? "" : fenceMatch[1][0];
+            continue;
+          }
+          if (fence) continue;
+          const match = line.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/);
+          if (!match) continue;
+          const title = cleanMarkdownHeadingText(match[1]);
+          if (!title) continue;
+          return { index, title };
+        }
+        return null;
+      }
+
+      function markdownDocumentTitle(markdown, fallbackTitle = "Markdown") {
+        return findMarkdownDocumentTitleLine(markdown)?.title || fallbackTitle || "Markdown";
+      }
+
+      function setMarkdownDocumentTitle(markdown, title) {
+        const nextTitle = String(title || "").trim();
+        if (!nextTitle) return String(markdown || "");
+        const raw = String(markdown || "");
+        const lines = raw.split(/\r?\n/);
+        const existing = findMarkdownDocumentTitleLine(raw);
+        if (existing) {
+          lines[existing.index] = `# ${nextTitle}`;
+          return lines.join("\n");
+        }
+        if (!raw.trim()) {
+          return `# ${nextTitle}\n`;
+        }
+        return `# ${nextTitle}\n\n${raw}`;
+      }
+
       function buildMarkdownOutline(markdown) {
         const outline = [];
         const lines = String(markdown || "").split(/\r?\n/);
         let fence = "";
+        let skippedDocumentTitle = false;
         lines.forEach((line) => {
           const fenceMatch = line.match(/^\s*(```+|~~~+)/);
           if (fenceMatch) {
@@ -5212,6 +5389,10 @@
           if (!match) return;
           const title = cleanMarkdownHeadingText(match[2]);
           if (!title) return;
+          if (match[1].length === 1 && !skippedDocumentTitle) {
+            skippedDocumentTitle = true;
+            return;
+          }
           outline.push({
             index: outline.length,
             level: match[1].length,
@@ -5290,8 +5471,20 @@
         const selectors = "h1, h2, h3, h4, h5, h6";
         [card.querySelector(".markdown-preview"), card.querySelector(".milkdown-editor-root .ProseMirror")].forEach((container) => {
           if (!container) return;
-          container.querySelectorAll(selectors).forEach((heading, index) => {
-            heading.dataset.markdownOutlineIndex = String(index);
+          container.querySelectorAll(".markdown-document-title-source").forEach((heading) => {
+            heading.classList.remove("markdown-document-title-source");
+          });
+          let skippedDocumentTitle = false;
+          let outlineIndex = 0;
+          container.querySelectorAll(selectors).forEach((heading) => {
+            if (heading.tagName === "H1" && !skippedDocumentTitle) {
+              skippedDocumentTitle = true;
+              heading.classList.add("markdown-document-title-source");
+              delete heading.dataset.markdownOutlineIndex;
+              return;
+            }
+            heading.dataset.markdownOutlineIndex = String(outlineIndex);
+            outlineIndex += 1;
           });
         });
       }
@@ -5973,6 +6166,45 @@
         if (!tab || tab.preview?.fileType !== "markdown") return false;
         const baseline = tab.markdownBaseline ?? tab.preview.raw ?? "";
         return Boolean(tab.isDirty) || markdownContentForTab(tab) !== baseline;
+      }
+
+      function commitMarkdownDocumentTitle(tab, input) {
+        if (!tab || tab.preview?.fileType !== "markdown" || !input) return;
+        const fallbackTitle = tab.preview?.title || tab.item?.fileName || "Markdown";
+        const nextTitle = String(input.value || "").trim();
+        if (!nextTitle) {
+          input.value = markdownDocumentTitle(markdownContentForTab(tab), fallbackTitle);
+          return;
+        }
+        const current = markdownContentForTab(tab);
+        const next = setMarkdownDocumentTitle(current, nextTitle);
+        if (next === current && tab.preview.title === nextTitle) return;
+        captureMarkdownScrollForTab(tab);
+        cleanupMarkdownEditor();
+        tab.draft = next;
+        tab.preview.title = nextTitle;
+        const baseline = tab.markdownBaseline ?? "";
+        tab.isDirty = next !== baseline;
+        renderViewer();
+        updateMarkdownStatusHint(tab);
+      }
+
+      function setupMarkdownTitleInput(tab) {
+        const input = document.getElementById("markdownTitleInput");
+        if (!input || !tab) return;
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            input.blur();
+          }
+          if (event.key === "Escape") {
+            input.value = markdownDocumentTitle(markdownContentForTab(tab), tab.preview?.title || tab.item?.fileName || "Markdown");
+            input.blur();
+          }
+        });
+        input.addEventListener("blur", () => {
+          commitMarkdownDocumentTitle(tab, input);
+        });
       }
 
       function updateMarkdownStatusHint(tab) {
@@ -9011,7 +9243,9 @@
           const markdownRenderStartedAt = performance.now();
           const detail = tab.detail || {};
           const sourceMode = appState.markdownEditMode === "source";
-          const markdownOutline = buildMarkdownOutline(tab.draft ?? tab.preview.raw ?? "");
+          const markdownContent = tab.draft ?? tab.preview.raw ?? "";
+          const markdownShellTitle = markdownDocumentTitle(markdownContent, tab.preview.title || tab.item.fileName);
+          const markdownOutline = buildMarkdownOutline(markdownContent);
           tab.markdownOutlineSignature = markdownOutlineSignature(markdownOutline);
           const showMarkdownOutline = appState.markdownPreferences.outlineEnabled && markdownOutline.length > 0;
           const codeThemeClass = appState.markdownPreferences.codeBlockTheme === "light"
@@ -9025,8 +9259,8 @@
               <div class="markdown-document-main">
                 <div class="content-card editing ${codeThemeClass} ${sourceMode ? "source-editing" : ""}">
                   <div class="content-head">
-                    <div>
-                      <h1 class="content-title">${escapeHtml(tab.preview.title || tab.item.fileName)}</h1>
+                    <div class="markdown-title-copy">
+                      <input id="markdownTitleInput" class="content-title markdown-title-input" type="text" value="${escapeAttribute(markdownShellTitle)}" aria-label="文档标题" autocomplete="off" spellcheck="false" />
                       <div class="content-meta">修改时间：${escapeHtml(formatTimestamp(detail.modifiedAt || tab.item.modifiedAt || ""))} · 修改后按 ⌘S 保存</div>
                     </div>
                   </div>
@@ -9048,6 +9282,7 @@
           setupMarkdownCodeCopyButton(markdownCard);
           setupMarkdownLinkHandling(markdownCard, tab);
           setupMarkdownImageResources(markdownCard, tab);
+          setupMarkdownTitleInput(tab);
           restoreMarkdownScroll(tab, markdownScrollTop);
 
           const editorArea = document.getElementById("editorArea");
@@ -9456,12 +9691,7 @@
       async function loadLibraries() {
         try {
           appState.libraries = (await invoke("list_libraries")).map(normalizeLibrary);
-          if (!appState.activeLibraryId && appState.libraries.length) {
-            appState.activeLibraryId = appState.libraries[0].id;
-          }
-          if (appState.activeLibraryId && appState.libraries.every((library) => library.id !== appState.activeLibraryId)) {
-            appState.activeLibraryId = appState.libraries[0]?.id ?? null;
-          }
+          reconcileActiveLibrary();
           renderLibraries();
           renderSettingsPanel();
           await loadIgnoredItems();
@@ -9469,6 +9699,19 @@
         } catch (error) {
           setStatus(`加载资料库失败：${normalizeError(error)}`, "error");
         }
+      }
+
+      function reconcileActiveLibrary() {
+        const activeLibrary = appState.libraries.find((library) => library.id === appState.activeLibraryId);
+        if (activeLibrary && activeLibrary.pathState !== "missing") return;
+        appState.activeLibraryId = appState.libraries.find((library) => library.pathState !== "missing")?.id ?? null;
+      }
+
+      async function refreshLibrariesAfterFilesystemSync() {
+        appState.libraries = (await invoke("list_libraries")).map(normalizeLibrary);
+        reconcileActiveLibrary();
+        renderLibraries();
+        renderSettingsPanel();
       }
 
       async function loadTags() {
@@ -9600,7 +9843,7 @@
             const missingSources = Number(result?.missingLibrariesMarkedMissing ?? 0);
             const restoredSources = Number(result?.restoredLibrariesMarkedValid ?? 0);
             if (missingSources > 0 || restoredSources > 0) {
-              await loadLibraries();
+              await refreshLibrariesAfterFilesystemSync();
             }
             if (missing > 0 || restored > 0 || purged > 0 || missingSources > 0 || restoredSources > 0) {
               const sourceText = missingSources > 0
@@ -10109,18 +10352,21 @@
       });
 
       window.addEventListener("keydown", (event) => {
-        appState.altKeyPressed = event.altKey;
-        viewerToolbarState();
-        if (appState.homeTabOpen && !getActiveTab()) {
-          renderItems();
-        }
+        if (event.isComposing || event.key === "Process") return;
+        const tab = getActiveTab();
+        const isMarkdownEditorKeyEvent = Boolean(event.target?.closest?.(".milkdown-editor-root .ProseMirror"));
         if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
-          const tab = getActiveTab();
           if (tab?.preview?.fileType === "markdown") {
             event.preventDefault();
             saveActiveMarkdown();
             return;
           }
+        }
+        if (isMarkdownEditorKeyEvent) return;
+        appState.altKeyPressed = event.altKey;
+        viewerToolbarState();
+        if (appState.homeTabOpen && !getActiveTab()) {
+          renderItems();
         }
         if ((event.key === "x" || event.key === "X") && event.altKey && !event.metaKey && !event.ctrlKey) {
           const tag = document.activeElement?.tagName;
@@ -10145,7 +10391,6 @@
           }
           return;
         }
-        const tab = getActiveTab();
         if (!tab || (tab.preview?.fileType !== "html" && tab.preview?.fileType !== "html-runtime")) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (tab.preview?.fileType === "html-runtime") {
@@ -10206,6 +10451,8 @@
       });
 
       window.addEventListener("keyup", (event) => {
+        if (event.isComposing || event.key === "Process") return;
+        if (event.target?.closest?.(".milkdown-editor-root .ProseMirror")) return;
         appState.altKeyPressed = event.altKey;
         viewerToolbarState();
         if (appState.homeTabOpen && !getActiveTab()) {
@@ -11191,7 +11438,7 @@
         await loadIgnoredItems();
         await loadDiscoveredArtifactSkills();
         await loadThumbnailBackendStatus();
-        if (appState.activeLibraryId) {
+        if (appState.activeLibraryId && !isLibraryPathMissing(appState.activeLibraryId)) {
           await scanLibrary({ silent: true });
         }
         appState.isBooting = false;
