@@ -364,6 +364,7 @@
       </div>
     </div>
     <div id="menu" class="menu">
+      <button id="editButton" type="button">编辑</button>
       <button id="presentationButton" type="button">演示全屏（F）</button>
     </div>
     <div id="tagMenu" class="tag-menu">
@@ -413,6 +414,7 @@
       removeButton: document.getElementById("removeButton"),
       moreButton: document.getElementById("moreButton"),
       menu: document.getElementById("menu"),
+      editButton: document.getElementById("editButton"),
       presentationButton: document.getElementById("presentationButton"),
       addTagBtn: document.getElementById("addTagBtn"),
       customTagBtn: document.getElementById("customTagBtn"),
@@ -589,6 +591,7 @@
       els.moreButton.classList.toggle("menu-open", state.menuOpen);
       els.menu.classList.toggle("open", state.menuOpen);
       document.querySelector(".panel").classList.toggle("hidden", state.isFullscreen);
+      els.editButton.textContent = t("htmlEdit.edit");
       els.presentationButton.textContent = state.isFullscreen ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut");
       updateTagChips();
       if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");
@@ -703,6 +706,15 @@
       activatePresentationMode(e);
     }
 
+    els.editButton.addEventListener("click", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      state.menuOpen = false;
+      refresh();
+      clearMenuAutoClose();
+      emitLayout();
+      emit({ action: "edit" });
+    });
     els.presentationButton.addEventListener("pointerdown", activatePresentationMode);
     els.presentationButton.addEventListener("click", activatePresentationMode);
     els.menu.addEventListener("pointerdown", function(e) {

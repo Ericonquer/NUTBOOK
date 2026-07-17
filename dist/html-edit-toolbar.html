@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nutbook HTML Edit Toolbar</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-width: 280px;
+      max-width: calc(100vw - 16px);
+      height: 44px;
+      padding: 0 10px 0 14px;
+      border: 1px solid rgba(20, 20, 20, 0.1);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 10px 28px rgba(20, 20, 24, 0.16);
+      box-sizing: border-box;
+      pointer-events: auto;
+      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(18px);
+    }
+
+    .status {
+      min-width: 94px;
+      flex: 1 1 auto;
+      overflow: hidden;
+      color: #5e636b;
+      font-size: 12px;
+      line-height: 1.2;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .status.dirty {
+      color: #925200;
+    }
+
+    .actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    button {
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 12px;
+      background: #f0f1f3;
+      color: #1f2328;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 30px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button:hover,
+    button:focus-visible {
+      background: #e4e6ea;
+      outline: none;
+    }
+
+    button.primary {
+      background: #1f6feb;
+      color: #fff;
+    }
+
+    button.primary:hover,
+    button.primary:focus-visible {
+      background: #1a5fd0;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar" role="toolbar" aria-label="HTML 编辑工具台">
+    <div id="status" class="status" aria-live="polite">已保存</div>
+    <div class="actions">
+      <button id="saveButton" class="primary" type="button" aria-label="保存">保存</button>
+      <button id="doneButton" type="button" aria-label="完成">完成</button>
+    </div>
+  </div>
+
+  <script src="./i18n.js?v=20260525-update-check"></script>
+  <script>
+    const i18n = window.NutbookI18n;
+    const t = (key, fallback) => i18n?.lookup(key) ?? fallback;
+    const state = {
+      itemId: null,
+      dirty: false
+    };
+    const els = {
+      status: document.getElementById("status"),
+      saveButton: document.getElementById("saveButton"),
+      doneButton: document.getElementById("doneButton")
+    };
+
+    function apply(next) {
+      if (!next) return;
+      if (Object.prototype.hasOwnProperty.call(next, "itemId")) state.itemId = next.itemId;
+      if (Object.prototype.hasOwnProperty.call(next, "dirty")) state.dirty = Boolean(next.dirty);
+      render();
+    }
+
+    function render() {
+      const statusText = state.dirty ? "有未保存修改" : "已保存";
+      els.status.textContent = statusText;
+      els.status.classList.toggle("dirty", state.dirty);
+      els.saveButton.textContent = t("actions.save", "保存");
+      els.saveButton.setAttribute("aria-label", t("actions.save", "保存"));
+      els.doneButton.textContent = "完成";
+      els.doneButton.setAttribute("aria-label", "完成");
+      i18n?.apply?.(document);
+    }
+
+    function emit(action) {
+      const payload = { action };
+      if (state.itemId != null) payload.itemId = state.itemId;
+      const nextTitle = "__NUTBOOK_HTML_EDIT_TOOLBAR__:" + JSON.stringify(payload);
+      document.title = "Nutbook HTML Edit Toolbar";
+      setTimeout(function() {
+        document.title = nextTitle;
+      }, 16);
+      setTimeout(function() {
+        if (document.title === nextTitle) document.title = "Nutbook HTML Edit Toolbar";
+      }, 96);
+    }
+
+    els.saveButton.addEventListener("click", function() {
+      emit("save");
+    });
+    els.doneButton.addEventListener("click", function() {
+      emit("done");
+    });
+
+    window.__NUTBOOK_HTML_EDIT_TOOLBAR_UPDATE__ = apply;
+
+    apply(window.__NUTBOOK_HTML_EDIT_TOOLBAR__ || {});
+    i18n?.observe?.();
+  </script>
+</body>
+</html>

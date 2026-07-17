@@ -3,6 +3,7 @@ use crate::{
     models::{HtmlRuntimeSessionPayload, ItemDetail, RuntimeHostBounds, Tag},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{
@@ -17,6 +18,8 @@ use objc2_web_kit::WKWebView;
 
 const HTML_FULLSCREEN_TITLE_PREFIX: &str = "__NUTBOOK_TOGGLE_FULLSCREEN__:";
 const HTML_CONTROLS_ACTION_PREFIX: &str = "__NUTBOOK_HTML_CONTROLS__:";
+const HTML_EDIT_RUNTIME_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
+const HTML_EDIT_TOOLBAR_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR__:";
 const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -126,6 +129,10 @@ pub fn close_html_runtime_window(
         }));
         let _ = webview.hide();
         webview.close().map_err(|_| AppError::InternalError)?;
+        closed = true;
+    }
+
+    if close_html_edit_toolbar_overlay(app, item_id)? {
         closed = true;
     }
 
@@ -291,6 +298,71 @@ pub fn set_html_runtime_controls_overlay_visibility(
     Ok(true)
 }
 
+pub fn attach_html_edit_toolbar_overlay(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+    dirty: bool,
+) -> Result<bool, AppError> {
+    let overlay_label = html_edit_toolbar_label(item_id);
+    if let Some(webview) = app.get_webview(&overlay_label) {
+        webview
+            .set_bounds(runtime_host_rect(bounds.clone()))
+            .map_err(|_| AppError::InternalError)?;
+        let _ = webview.eval(&html_edit_toolbar_update_script(dirty));
+        let _ = webview.show();
+        return Ok(true);
+    }
+
+    let builder = build_html_edit_toolbar_builder(app, &overlay_label, item_id, dirty)?;
+    let webview = window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(bounds.x, bounds.y),
+            tauri::LogicalSize::new(bounds.width, bounds.height),
+        )
+        .map_err(|_| AppError::InternalError)?;
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+pub fn set_html_edit_toolbar_overlay_visibility(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    visible: bool,
+) -> Result<bool, AppError> {
+    let label = html_edit_toolbar_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+
+    if visible {
+        webview.show().map_err(|_| AppError::InternalError)?;
+    } else {
+        let _ = webview.hide();
+        webview.close().map_err(|_| AppError::InternalError)?;
+    }
+
+    Ok(true)
+}
+
+pub fn close_html_edit_toolbar_overlay(
+    app: &tauri::AppHandle,
+    item_id: i64,
+) -> Result<bool, AppError> {
+    let label = html_edit_toolbar_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+
+    let _ = webview.hide();
+    webview.close().map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
 pub fn attach_settings_overlay(
     app: &tauri::AppHandle,
     window: &tauri::Window,
@@ -427,6 +499,20 @@ pub fn dispatch_html_runtime_shortcut(
     Ok(true)
 }
 
+pub fn eval_html_runtime_script(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    script: &str,
+) -> Result<bool, AppError> {
+    let label = html_runtime_host_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+
+    webview.eval(script).map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
 pub fn focus_html_runtime_host(
     app: &tauri::AppHandle,
     item_id: i64,
@@ -528,6 +614,10 @@ pub fn html_runtime_controls_label(item_id: i64) -> String {
     format!("html-controls-{item_id}")
 }
 
+pub fn html_edit_toolbar_label(item_id: i64) -> String {
+    format!("html-edit-toolbar-{item_id}")
+}
+
 fn settings_overlay_label() -> String {
     "settings-overlay".to_string()
 }
@@ -615,6 +705,23 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     )
 }
 
+fn build_html_edit_toolbar_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    item_id: i64,
+    dirty: bool,
+) -> Result<WebviewBuilder<R>, AppError> {
+    let overlay_url = tauri::WebviewUrl::App(PathBuf::from("html-edit-toolbar.html"));
+    Ok(
+        WebviewBuilder::new(label, overlay_url)
+            .initialization_script(&html_edit_toolbar_init_script(item_id, dirty))
+            .background_color(tauri::webview::Color(0, 0, 0, 0))
+            .transparent(true)
+            .focused(false)
+            .on_document_title_changed(html_edit_toolbar_action_handler(app)),
+    )
+}
+
 fn build_settings_overlay_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
@@ -643,6 +750,26 @@ fn settings_overlay_action_handler<R: tauri::Runtime>(
             if let Some(main_webview) = app_handle.get_webview("main") {
                 let _ = main_webview.eval("window.__NUTBOOK_REFRESH_AFTER_SETTINGS__?.();");
             }
+        }
+    }
+}
+
+fn html_edit_toolbar_action_handler<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
+    let app_handle = app.clone();
+    move |webview, title| {
+        if let Some(rest) = title.strip_prefix(HTML_EDIT_TOOLBAR_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
+                    let _ = main_webview.eval(&format!(
+                        "window.__NUTBOOK_HANDLE_HTML_EDIT_TOOLBAR_ACTION__?.({});",
+                        payload_json
+                    ));
+                }
+            }
+            let _ = webview.eval("document.title = 'Nutbook HTML Edit Toolbar';");
         }
     }
 }
@@ -728,6 +855,22 @@ fn detached_fullscreen_handler<R: tauri::Runtime>(
 fn detached_embedded_fullscreen_handler<R: tauri::Runtime>()
 -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
     move |webview, title| {
+        if let Some(rest) = title.strip_prefix(HTML_EDIT_RUNTIME_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                if let Some(main_webview) = webview.get_webview("main") {
+                    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
+                    let _ = main_webview.eval(&format!(
+                        "window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__?.({});",
+                        payload_json
+                    ));
+                }
+            }
+            let _ = webview.eval(
+                "document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';"
+            );
+            return;
+        }
+
         if title.starts_with(HTML_FULLSCREEN_TITLE_PREFIX) {
             let window = webview.window();
             let next_fullscreen = !window.is_fullscreen().unwrap_or(false);
@@ -949,6 +1092,20 @@ fn html_runtime_controls_overlay_init_script(
     )
 }
 
+fn html_edit_toolbar_init_script(item_id: i64, dirty: bool) -> String {
+    format!(
+        "window.__NUTBOOK_HTML_EDIT_TOOLBAR__ = {{ itemId: {item_id}, dirty: {} }};",
+        if dirty { "true" } else { "false" }
+    )
+}
+
+pub fn html_edit_toolbar_update_script(dirty: bool) -> String {
+    format!(
+        "window.__NUTBOOK_HTML_EDIT_TOOLBAR_UPDATE__?.({{ dirty: {} }});",
+        if dirty { "true" } else { "false" }
+    )
+}
+
 fn settings_overlay_init_script(tab: Option<String>, mode: Option<String>) -> String {
     let tab_json = serde_json::to_string(&tab.unwrap_or_else(|| "skills".to_string()))
         .unwrap_or_else(|_| "\"skills\"".to_string());
@@ -992,7 +1149,8 @@ mod tests {
     use crate::models::{ItemDetail, ItemSummary};
 
     use super::{
-        html_runtime_compatibility_script, html_runtime_window_label, HtmlRuntimeSession,
+        html_edit_toolbar_label, html_edit_toolbar_update_script, html_runtime_compatibility_script,
+        html_runtime_window_label, HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlRuntimeSession,
     };
 
     fn html_item() -> ItemDetail {
@@ -1071,11 +1229,26 @@ mod tests {
     }
 
     #[test]
+    fn html_edit_toolbar_label_is_stable() {
+        assert_eq!(html_edit_toolbar_label(7), "html-edit-toolbar-7");
+    }
+
+    #[test]
+    fn html_edit_toolbar_update_script_forwards_dirty_state() {
+        let script = html_edit_toolbar_update_script(true);
+
+        assert!(script.contains("__NUTBOOK_HTML_EDIT_TOOLBAR_UPDATE__"));
+        assert!(script.contains("dirty"));
+        assert!(script.contains("true"));
+    }
+
+    #[test]
     fn html_runtime_compatibility_script_keeps_only_production_shims() {
         let script = html_runtime_compatibility_script();
 
         assert!(script.contains("about:blank"));
         assert!(script.contains("__NUTBOOK_TOGGLE_FULLSCREEN__"));
+        assert_eq!(HTML_EDIT_RUNTIME_ACTION_PREFIX, "__NUTBOOK_HTML_EDIT_RUNTIME__:");
         assert!(script.contains("stopImmediatePropagation"));
         assert!(!script.contains("root.requestFullscreen"));
         assert!(!script.contains("__nutbook_runtime_diag__"));

@@ -198,6 +198,23 @@
       document: {
         file: "文件"
       },
+      htmlEdit: {
+        edit: "编辑",
+        toolbar: "HTML 编辑工具栏",
+        save: "保存",
+        done: "完成",
+        unsaved: "未保存",
+        saved: "已保存",
+        duplicateDataId: "发现重复的 data-id，暂时无法编辑",
+        shortcutCaptureFailed: "编辑快捷键接管失败，暂时无法安全编辑",
+        sourceChanged: "源 HTML 已变化，请重新加载后再编辑",
+        saveFailed: "HTML 编辑保存失败：",
+        revisionStale: "编辑内容已被其他窗口更新，请重新加载",
+        confirmLeave: "有未保存的修改，是否保存后再离开？",
+        saveAndContinue: "保存并继续",
+        discardAndContinue: "放弃并继续",
+        keepEditing: "继续编辑"
+      },
       markdown: {
         outline: "文档大纲",
         expandOutline: "展开大纲",
@@ -545,6 +562,23 @@
       },
       document: {
         file: "File"
+      },
+      htmlEdit: {
+        edit: "Edit",
+        toolbar: "HTML Edit Toolbar",
+        save: "Save",
+        done: "Done",
+        unsaved: "Unsaved",
+        saved: "Saved",
+        duplicateDataId: "Duplicate data-id values found. Editing is unavailable for now.",
+        shortcutCaptureFailed: "Edit shortcut capture failed. Editing cannot be enabled safely.",
+        sourceChanged: "The source HTML changed. Reload before editing.",
+        saveFailed: "Failed to save HTML edits: ",
+        revisionStale: "Edits were updated in another window. Reload before continuing.",
+        confirmLeave: "You have unsaved changes. Save before leaving?",
+        saveAndContinue: "Save and Continue",
+        discardAndContinue: "Discard and Continue",
+        keepEditing: "Keep Editing"
       },
       markdown: {
         outline: "Document Outline",

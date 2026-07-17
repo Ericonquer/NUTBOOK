@@ -2,23 +2,33 @@ use std::path::Component;
 
 use crate::{
     core::{
-        document::{content_hash, load_document_payload, markdown_document_title, markdown_summary, render_markdown_as_html},
+        document::{
+            content_hash, load_document_payload, markdown_document_title, markdown_summary,
+            render_markdown_as_html,
+        },
         html_runtime::{
-            attach_controls_overlay, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay, close_html_runtime_window, dispatch_html_runtime_shortcut,
-            focus_html_runtime_host, focus_main_webview,
-            open_html_runtime_window, set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
+            attach_controls_overlay, attach_html_edit_toolbar_overlay,
+            attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
+            close_html_edit_toolbar_overlay, close_html_runtime_window,
+            dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
+            focus_main_webview, open_html_runtime_window,
+            set_html_edit_toolbar_overlay_visibility,
+            set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
             HtmlRuntimeSession,
         },
     },
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
-        AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest, GetItemPreviewRequest,
-        DispatchHtmlRuntimeShortcutRequest,
-        CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteMarkdownImageAssetRequest, FocusHtmlRuntimeHostRequest,
-        HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload, ExportMarkdownRequest,
+        AttachHtmlEditToolbarOverlayRequest, AttachHtmlRuntimeControlsOverlayRequest,
+        AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+        CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
+        DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
+        EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
+        GetItemPreviewRequest, HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
-        SetHtmlRuntimeControlsOverlayVisibilityRequest, SetHtmlRuntimeHostVisibilityRequest,
+        SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
+        SetHtmlRuntimeHostVisibilityRequest,
     },
     state::AppState,
 };
@@ -150,6 +160,45 @@ pub fn set_html_runtime_controls_overlay_visibility_command(
     payload: SetHtmlRuntimeControlsOverlayVisibilityRequest,
 ) -> Result<bool, AppError> {
     set_html_runtime_controls_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn attach_html_edit_toolbar_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlEditToolbarOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    attach_html_edit_toolbar_overlay(&app, &window, payload.item_id, payload.bounds, payload.dirty)
+}
+
+#[tauri::command]
+pub fn set_html_edit_toolbar_overlay_visibility_command(
+    app: tauri::AppHandle,
+    payload: SetHtmlEditToolbarOverlayVisibilityRequest,
+) -> Result<bool, AppError> {
+    set_html_edit_toolbar_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn close_html_edit_toolbar_overlay_command(
+    app: tauri::AppHandle,
+    payload: CloseHtmlWindowRequest,
+) -> Result<bool, AppError> {
+    close_html_edit_toolbar_overlay(&app, payload.item_id)
+}
+
+#[tauri::command]
+pub fn eval_html_runtime_script_command(
+    app: tauri::AppHandle,
+    payload: EvalHtmlRuntimeScriptRequest,
+) -> Result<bool, AppError> {
+    eval_html_runtime_script(&app, payload.item_id, &payload.script)
 }
 
 #[tauri::command]

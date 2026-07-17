@@ -326,6 +326,14 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AttachHtmlEditToolbarOverlayRequest {
+    pub item_id: i64,
+    pub bounds: RuntimeHostBounds,
+    pub dirty: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachSettingsOverlayRequest {
     pub bounds: RuntimeHostBounds,
     pub tab: Option<String>,
@@ -344,6 +352,20 @@ pub struct SetHtmlRuntimeHostVisibilityRequest {
 pub struct SetHtmlRuntimeControlsOverlayVisibilityRequest {
     pub item_id: i64,
     pub visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetHtmlEditToolbarOverlayVisibilityRequest {
+    pub item_id: i64,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvalHtmlRuntimeScriptRequest {
+    pub item_id: i64,
+    pub script: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,13 +1,21 @@
+pub mod html_edit;
 pub mod item;
 pub mod library;
 pub mod skill;
 pub mod tag;
 pub mod update;
 
+pub use html_edit::{
+    GetHtmlEditPatchRequest, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
+    HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus,
+    SaveHtmlEditPatchRequest,
+};
 pub use item::{
+    AttachHtmlEditToolbarOverlayRequest,
     AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
     CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteLibraryRequest, DeleteMarkdownImageAssetRequest,
     DispatchHtmlRuntimeShortcutRequest,
+    EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
     HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSummary, ListItemsQuery,
@@ -15,6 +23,7 @@ pub use item::{
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,
     SaveMarkdownContentRequest, SaveMarkdownContentResponse, ScanLibraryRequest, ScanLibraryResponse, SelectLibraryRequest,
+    SetHtmlEditToolbarOverlayVisibilityRequest,
     SetHtmlRuntimeControlsOverlayVisibilityRequest, SetHtmlRuntimeHostVisibilityRequest, ThumbnailInfo, ThumbnailBackendStatusPayload,
     ToggleFavoriteRequest, WatchLibraryRequest, WatchLibraryResponse, ExportMarkdownRequest,
 };

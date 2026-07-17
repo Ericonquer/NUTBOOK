@@ -2363,9 +2363,11 @@ dependencies = [
  "sha2",
  "tauri",
  "tauri-build",
+ "tempfile",
  "thiserror 1.0.69",
  "ureq",
  "url",
+ "uuid",
 ]
 
 [[package]]

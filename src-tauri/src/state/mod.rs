@@ -1,4 +1,9 @@
-use std::{collections::HashSet, fs, path::PathBuf, sync::Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use notify::PollWatcher;
 
@@ -23,6 +28,7 @@ pub struct AppState {
     local_content_server: LocalContentServer,
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<Vec<PollWatcher>>,
+    html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
     thumbnail_settings_path: PathBuf,
     update_settings_path: PathBuf,
     system_chrome_thumbnails_enabled: Mutex<bool>,
@@ -54,6 +60,7 @@ impl AppState {
             local_content_server,
             watched_libraries: Mutex::new(HashSet::new()),
             active_watchers: Mutex::new(Vec::new()),
+            html_edit_manifest_locks: Mutex::new(HashMap::new()),
             thumbnail_settings_path,
             update_settings_path,
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
@@ -151,6 +158,17 @@ impl AppState {
 
     pub fn sync_filesystem_state(&self) -> Result<SyncFilesystemStateResponse, AppError> {
         self.database.sync_filesystem_state()
+    }
+
+    pub fn html_edit_manifest_lock(&self, library_id: i64) -> Result<Arc<Mutex<()>>, AppError> {
+        let mut locks = self
+            .html_edit_manifest_locks
+            .lock()
+            .map_err(|_| AppError::InternalError)?;
+        Ok(locks
+            .entry(library_id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
     }
 }
 
