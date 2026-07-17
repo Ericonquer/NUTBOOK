@@ -334,6 +334,13 @@ pub struct AttachHtmlEditToolbarOverlayRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AttachHtmlEditLeaveConfirmOverlayRequest {
+    pub item_id: i64,
+    pub bounds: RuntimeHostBounds,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachSettingsOverlayRequest {
     pub bounds: RuntimeHostBounds,
     pub tab: Option<String>,

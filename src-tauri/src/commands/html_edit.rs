@@ -23,9 +23,10 @@ pub fn get_html_edit_patch(
     }
     let library = library_for_item(&state, item.summary.library_id)?;
     let title_hint = title_hint(&item);
+    let library_root = html_edit_library_root(&library)?;
     let lookup = HtmlEditPatchLookup {
         library_id: library.id,
-        library_root: PathBuf::from(library.root_path),
+        library_root,
         item_id: item.summary.id,
         file_path: PathBuf::from(item.summary.file_path),
         title_hint,
@@ -49,9 +50,10 @@ pub fn save_html_edit_patch(
     let title_hint = title_hint(&item);
     let manifest_lock = state.html_edit_manifest_lock(library.id)?;
     let _guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+    let library_root = html_edit_library_root(&library)?;
     let save = HtmlEditPatchSave {
         library_id: library.id,
-        library_root: PathBuf::from(library.root_path),
+        library_root,
         item_id: item.summary.id,
         file_path: PathBuf::from(item.summary.file_path),
         title_hint,
@@ -72,6 +74,17 @@ fn library_for_item(state: &AppState, library_id: i64) -> Result<Library, AppErr
         .ok_or(AppError::LibraryNotFound)
 }
 
+fn html_edit_library_root(library: &Library) -> Result<PathBuf, AppError> {
+    let root = PathBuf::from(&library.root_path);
+    if library.source_kind == "file" {
+        return root
+            .parent()
+            .map(PathBuf::from)
+            .ok_or(AppError::InvalidParams);
+    }
+    Ok(root)
+}
+
 fn title_hint(item: &crate::models::ItemDetail) -> String {
     item.summary
         .title
@@ -86,12 +99,56 @@ fn runtime_session_matches_item(item_id: i64, runtime_session_id: &str) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use super::runtime_session_matches_item;
+    use std::path::PathBuf;
+
+    use crate::models::Library;
+
+    use super::{html_edit_library_root, runtime_session_matches_item};
 
     #[test]
     fn runtime_session_matches_item_id_prefix() {
         assert!(runtime_session_matches_item(42, "html-edit-42-123456"));
         assert!(!runtime_session_matches_item(7, "html-edit-42-123456"));
         assert!(!runtime_session_matches_item(42, ""));
+    }
+
+    #[test]
+    fn html_edit_library_root_uses_parent_for_file_source() {
+        let library = Library {
+            id: 1,
+            name: "single html".to_string(),
+            root_path: "/tmp/nutbook/editable-basic.html".to_string(),
+            source_kind: "file".to_string(),
+            path_state: "valid".to_string(),
+            is_active: true,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+            last_scanned_at: None,
+            skill_binding: None,
+        };
+
+        let root = html_edit_library_root(&library).expect("file library uses parent");
+
+        assert_eq!(root, PathBuf::from("/tmp/nutbook"));
+    }
+
+    #[test]
+    fn html_edit_library_root_keeps_folder_source() {
+        let library = Library {
+            id: 1,
+            name: "folder".to_string(),
+            root_path: "/tmp/nutbook/html-edit-acceptance".to_string(),
+            source_kind: "folder".to_string(),
+            path_state: "valid".to_string(),
+            is_active: true,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+            last_scanned_at: None,
+            skill_binding: None,
+        };
+
+        let root = html_edit_library_root(&library).expect("folder library uses root");
+
+        assert_eq!(root, PathBuf::from("/tmp/nutbook/html-edit-acceptance"));
     }
 }

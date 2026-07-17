@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const indexHtml = readFileSync("dist/index.html", "utf8");
+const i18n = readFileSync("dist/i18n.js", "utf8");
+const htmlEditLeaveConfirm = readFileSync("dist/html-edit-leave-confirm.html", "utf8");
 const markdownEditor = readFileSync("src/markdown-editor.js", "utf8");
 
 const filesystemSync = indexHtml.match(/async function maybeSyncFilesystemState\(force = false\) \{([\s\S]*?)\n      \}/);
@@ -93,5 +95,81 @@ assert.match(
   /function cleanSkillDescription\(description = ""\)/,
   "SKILL editor should not duplicate Triggers text inside description"
 );
+
+const htmlEditLeaveOverlay = indexHtml.match(/async function showHtmlEditLeaveConfirmOverlay\(session\) \{([\s\S]*?)\n      \}/);
+assert.ok(htmlEditLeaveOverlay, "HTML edit leave overlay flow should exist");
+assert.match(
+  htmlEditLeaveOverlay[1],
+  /await invoke\("attach_html_edit_leave_confirm_overlay_command"/,
+  "HTML edit leave flow must observe child-overlay attachment failures"
+);
+assert.match(
+  htmlEditLeaveOverlay[1],
+  /payload:\s*\{\s*itemId:\s*session\.itemId,/,
+  "HTML edit leave flow must pass the named Rust payload argument"
+);
+assert.match(
+  indexHtml,
+  /invoke\("close_html_edit_leave_confirm_overlay_command", \{\s*payload:\s*\{\s*itemId\s*\}\s*\}\)/,
+  "HTML edit leave flow must pass the named Rust payload when closing the child overlay"
+);
+assert.match(
+  htmlEditLeaveOverlay[1],
+  /throw error;/,
+  "HTML edit leave flow must leave editing active and report a child-overlay attachment failure instead of replacing the host overlay with a DOM or native dialog"
+);
+assert.match(
+  indexHtml,
+  /document\.addEventListener\("visibilitychange", \(\) => \{\n          if \(appState\.htmlEditLeavePromptOpen\) return;/,
+  "focus changes while the independent leave overlay is open must not suspend the runtime beneath it"
+);
+
+const runtimeHostSync = indexHtml.match(/async function syncActiveRuntimeHost\(runId = null\) \{([\s\S]*?)\n      \}/);
+assert.ok(runtimeHostSync, "runtime host synchronization should exist");
+assert.doesNotMatch(
+  runtimeHostSync[1],
+  /attach_html_edit_leave_confirm_overlay_command/,
+  "only the leave-intent coordinator may attach the HTML edit confirmation overlay"
+);
+
+const runtimeSuspend = indexHtml.match(/async function suspendRuntimeSurfaces\(\) \{([\s\S]*?)\n      \}/);
+assert.ok(runtimeSuspend, "runtime surface suspension should exist");
+assert.match(
+  runtimeSuspend[1],
+  /appState\.activeRuntimeHostId = null;\n        appState\.runtimeHostLastBoundsKey = null;/,
+  "suspending runtime surfaces must invalidate the hidden host cache"
+);
+const runtimeResume = indexHtml.match(/async function resumeRuntimeSurfaces\(\) \{([\s\S]*?)\n      \}/);
+assert.ok(runtimeResume, "runtime surface resume should be asynchronous");
+assert.match(
+  runtimeResume[1],
+  /const suspendPromise = appState\.runtimeSurfaceSuspendPromise;[\s\S]*await suspendPromise;/,
+  "runtime resume must wait for the previous hide IPC before reattaching the active host"
+);
+assert.match(
+  indexHtml,
+  /async function hideStaleRuntimeHostSync\(runId, itemId\) \{[\s\S]*await hideRuntimeSessionSurfaces\(itemId, \{ force: true, token \}\);/,
+  "a stale host attach must be explicitly hidden after its IPC completes"
+);
+assert.match(
+  runtimeHostSync[1],
+  /await invoke\("attach_html_runtime_host_command", \{[\s\S]*?\n          if \(await hideStaleRuntimeHostSync\(runId, tab\.id\)\) return;/,
+  "host attach must clean up if the active runtime changed while IPC was in flight"
+);
+const htmlEditExit = indexHtml.match(/async function exitHtmlEditMode\(itemOrOptions = \{\}\) \{([\s\S]*?)\n      \}/);
+assert.ok(htmlEditExit, "HTML edit exit flow should exist");
+assert.match(
+  htmlEditExit[1],
+  /appState\.htmlEditToolbarVisible = false;[\s\S]*refocusActiveRuntimeHost\(itemId\);/,
+  "leaving HTML edit mode must restore runtime focus so F can exit presentation mode"
+);
+
+assert.match(i18n, /leavePrompt: "有未保存的修改"/, "Chinese leave-confirm title must be translated");
+assert.match(i18n, /leavePrompt: "Unsaved changes"/, "English leave-confirm title must be translated");
+assert.match(i18n, /discardAndExit: "不保存退出"/, "Chinese leave-confirm discard action must be translated");
+assert.match(i18n, /discardAndExit: "Discard and Exit"/, "English leave-confirm discard action must be translated");
+assert.match(indexHtml, /const width = Math\.min\(456, Math\.max\(360, window\.innerWidth - 32\)\);/, "leave-confirm overlay must reserve enough width for English actions");
+assert.match(htmlEditLeaveConfirm, /width: min\(424px, calc\(100vw - 16px\)\);/, "leave-confirm card must use the wider host bounds");
+assert.match(htmlEditLeaveConfirm, /\.actions \{[\s\S]*flex-wrap: wrap;/, "leave-confirm actions must wrap instead of overflowing on narrow windows");
 
 console.log("Nutbook regression guards passed.");

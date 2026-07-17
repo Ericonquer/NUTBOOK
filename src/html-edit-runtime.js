@@ -12,6 +12,10 @@
     return Array.from(document.querySelectorAll("[data-editable][data-id]"));
   }
 
+  function editableTextElements() {
+    return editableElements().filter((element) => element.getAttribute("data-editable") === "text");
+  }
+
   function scanEditableElements() {
     const seen = new Set();
     const duplicates = [];
@@ -21,7 +25,7 @@
       if (seen.has(id)) duplicates.push(id);
       seen.add(id);
     }
-    return { count: elements.length, duplicates };
+    return { count: editableTextElements().length, duplicates };
   }
 
   function textOf(element) {
@@ -40,8 +44,7 @@
     STATE.baseline.clear();
     STATE.changes.clear();
 
-    for (const element of editableElements()) {
-      if (element.getAttribute("data-editable") !== "text") continue;
+    for (const element of editableTextElements()) {
       const id = element.getAttribute("data-id");
       STATE.baseline.set(id, textOf(element));
       element.setAttribute("contenteditable", "plaintext-only");
@@ -175,17 +178,18 @@
     const blocked = ["f", "F", "s", "S", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", "Enter"];
     if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "s") {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       emitHostMessage({
         type: "html_edit_save_requested_from_runtime",
         runtimeSessionId: STATE.sessionId
       });
       return;
     }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (isEditableEventTarget(event.target)) return;
     if (blocked.includes(key)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
   }
 
@@ -228,6 +232,7 @@
 
   window.__NUTBOOK_HTML_EDIT__ = {
     scanEditableElements,
+    isEditing: () => STATE.editing,
     enter,
     exit,
     markSaved,

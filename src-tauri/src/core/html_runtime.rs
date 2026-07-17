@@ -20,6 +20,7 @@ const HTML_FULLSCREEN_TITLE_PREFIX: &str = "__NUTBOOK_TOGGLE_FULLSCREEN__:";
 const HTML_CONTROLS_ACTION_PREFIX: &str = "__NUTBOOK_HTML_CONTROLS__:";
 const HTML_EDIT_RUNTIME_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
 const HTML_EDIT_TOOLBAR_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR__:";
+const HTML_EDIT_LEAVE_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_LEAVE__:";
 const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -135,6 +136,9 @@ pub fn close_html_runtime_window(
     if close_html_edit_toolbar_overlay(app, item_id)? {
         closed = true;
     }
+    if close_html_edit_leave_confirm_overlay(app, item_id)? {
+        closed = true;
+    }
 
     Ok(closed)
 }
@@ -147,10 +151,6 @@ pub fn attach_html_runtime_host(
 ) -> Result<bool, AppError> {
     let host_label = html_runtime_host_label(session.item_id);
     if let Some(webview) = app.get_webview(&host_label) {
-        let _ = webview.eval(&format!(
-            "window.location.replace({:?});",
-            session.runtime_url
-        ));
         webview
             .set_bounds(runtime_host_rect(bounds))
             .map_err(|_| AppError::InternalError)?;
@@ -354,6 +354,57 @@ pub fn close_html_edit_toolbar_overlay(
     item_id: i64,
 ) -> Result<bool, AppError> {
     let label = html_edit_toolbar_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+
+    let _ = webview.hide();
+    webview.close().map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+pub fn attach_html_edit_leave_confirm_overlay(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+) -> Result<bool, AppError> {
+    let overlay_label = html_edit_leave_confirm_label(item_id);
+    if let Some(webview) = app.get_webview(&overlay_label) {
+        eprintln!("[html-edit-leave] reusing overlay for item {item_id}");
+        webview
+            .set_bounds(runtime_host_rect(bounds.clone()))
+            .map_err(|_| AppError::InternalError)?;
+        let _ = webview.show();
+        return Ok(true);
+    }
+
+    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id)?;
+    let webview = window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(bounds.x, bounds.y),
+            tauri::LogicalSize::new(bounds.width, bounds.height),
+        )
+        .map_err(|error| {
+            eprintln!("[html-edit-leave] add_child failed for item {item_id}: {error:?}");
+            AppError::InternalError
+        })?;
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|error| {
+            eprintln!("[html-edit-leave] set_bounds failed for item {item_id}: {error:?}");
+            AppError::InternalError
+        })?;
+    eprintln!("[html-edit-leave] attached for item {item_id}");
+    Ok(true)
+}
+
+pub fn close_html_edit_leave_confirm_overlay(
+    app: &tauri::AppHandle,
+    item_id: i64,
+) -> Result<bool, AppError> {
+    let label = html_edit_leave_confirm_label(item_id);
     let Some(webview) = app.get_webview(&label) else {
         return Ok(false);
     };
@@ -618,6 +669,10 @@ pub fn html_edit_toolbar_label(item_id: i64) -> String {
     format!("html-edit-toolbar-{item_id}")
 }
 
+pub fn html_edit_leave_confirm_label(item_id: i64) -> String {
+    format!("html-edit-leave-confirm-{item_id}")
+}
+
 fn settings_overlay_label() -> String {
     "settings-overlay".to_string()
 }
@@ -722,6 +777,22 @@ fn build_html_edit_toolbar_builder<R: tauri::Runtime>(
     )
 }
 
+fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    item_id: i64,
+) -> Result<WebviewBuilder<R>, AppError> {
+    let overlay_url = tauri::WebviewUrl::App(PathBuf::from("html-edit-leave-confirm.html"));
+    Ok(
+        WebviewBuilder::new(label, overlay_url)
+            .initialization_script(&html_edit_leave_confirm_init_script(item_id))
+            .background_color(tauri::webview::Color(0, 0, 0, 0))
+            .transparent(true)
+            .focused(true)
+            .on_document_title_changed(html_edit_leave_confirm_action_handler(app)),
+    )
+}
+
 fn build_settings_overlay_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
@@ -761,6 +832,7 @@ fn html_edit_toolbar_action_handler<R: tauri::Runtime>(
     move |webview, title| {
         if let Some(rest) = title.strip_prefix(HTML_EDIT_TOOLBAR_ACTION_PREFIX) {
             if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                eprintln!("[html-edit-toolbar] action payload: {payload}");
                 if let Some(main_webview) = app_handle.get_webview("main") {
                     let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
                     let _ = main_webview.eval(&format!(
@@ -770,6 +842,26 @@ fn html_edit_toolbar_action_handler<R: tauri::Runtime>(
                 }
             }
             let _ = webview.eval("document.title = 'Nutbook HTML Edit Toolbar';");
+        }
+    }
+}
+
+fn html_edit_leave_confirm_action_handler<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
+    let app_handle = app.clone();
+    move |webview, title| {
+        if let Some(rest) = title.strip_prefix(HTML_EDIT_LEAVE_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
+                    let _ = main_webview.eval(&format!(
+                        "window.__NUTBOOK_HANDLE_HTML_EDIT_LEAVE_CONFIRM_ACTION__?.({});",
+                        payload_json
+                    ));
+                }
+            }
+            let _ = webview.eval("document.title = 'Nutbook HTML Edit Leave Confirm';");
         }
     }
 }
@@ -1026,10 +1118,19 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   const isEditableShortcutTarget = (target) => {
     const node = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
     if (!node) return false;
-    return Boolean(node.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+    return Boolean(node.closest?.('input, textarea, select, [contenteditable], [data-nutbook-editing]'));
+  };
+
+  const isNutbookHtmlEditActive = () => {
+    try {
+      return Boolean(window.__NUTBOOK_HTML_EDIT__?.isEditing?.());
+    } catch (_) {
+      return false;
+    }
   };
 
   const handleRuntimeShortcut = (event) => {
+    if (isNutbookHtmlEditActive()) return;
     if (
       !event.metaKey &&
       !event.ctrlKey &&
@@ -1060,6 +1161,7 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   document.addEventListener('keydown', handleRuntimeShortcut, true);
   window.addEventListener('keydown', handleRuntimeShortcut, true);
   document.addEventListener('keyup', (event) => {
+    if (isNutbookHtmlEditActive()) return;
     if (!isEscapeKey(event) || !window.__NUTBOOK_HOST_FULLSCREEN__) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1097,6 +1199,10 @@ fn html_edit_toolbar_init_script(item_id: i64, dirty: bool) -> String {
         "window.__NUTBOOK_HTML_EDIT_TOOLBAR__ = {{ itemId: {item_id}, dirty: {} }};",
         if dirty { "true" } else { "false" }
     )
+}
+
+fn html_edit_leave_confirm_init_script(item_id: i64) -> String {
+    format!("window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id} }};")
 }
 
 pub fn html_edit_toolbar_update_script(dirty: bool) -> String {
@@ -1248,6 +1354,8 @@ mod tests {
 
         assert!(script.contains("about:blank"));
         assert!(script.contains("__NUTBOOK_TOGGLE_FULLSCREEN__"));
+        assert!(script.contains("[contenteditable]"));
+        assert!(script.contains("__NUTBOOK_HTML_EDIT__?.isEditing"));
         assert_eq!(HTML_EDIT_RUNTIME_ACTION_PREFIX, "__NUTBOOK_HTML_EDIT_RUNTIME__:");
         assert!(script.contains("stopImmediatePropagation"));
         assert!(!script.contains("root.requestFullscreen"));

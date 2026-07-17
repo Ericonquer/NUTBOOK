@@ -224,19 +224,39 @@ pub fn save_html_edit_patch_for_file(
     let source_size = metadata.len();
 
     let mut manifest = load_html_edit_manifest(&save.library_root)?;
-    match manifest.entries.get(&source_relative_path) {
+    let manifest_entry_exists = match manifest.entries.get(&source_relative_path) {
         Some(entry) if entry.artifact_edit_id != save.artifact_edit_id => {
             return Err(AppError::EditConflict);
         }
         None if save.expected_patch_revision != 0 => return Err(AppError::EditConflict),
-        _ => {}
+        Some(_) => true,
+        None => false,
+    };
+
+    let current_patch = match load_patch_file(&save.library_root, &save.artifact_edit_id) {
+        Ok(patch) => patch,
+        Err(_) if manifest_entry_exists => return Err(AppError::EditConflict),
+        Err(error) => return Err(error),
+    };
+    if manifest_entry_exists && current_patch.is_none() {
+        return Err(AppError::EditConflict);
     }
 
-    let current_revision = load_patch_revision(&save.library_root, &save.artifact_edit_id)?;
+    let current_revision = current_patch
+        .as_ref()
+        .map(|patch| patch.patch_revision)
+        .unwrap_or(0);
     if current_revision != save.expected_patch_revision {
         return Err(AppError::EditConflict);
     }
 
+    let changes = if let Some(patch) = current_patch {
+        let mut changes = patch.changes;
+        changes.extend(save.changes.clone());
+        changes
+    } else {
+        save.changes.clone()
+    };
     let next_revision = current_revision + 1;
     let updated_at = unix_timestamp()?;
     let patch = HtmlEditPatch {
@@ -253,7 +273,7 @@ pub fn save_html_edit_patch_for_file(
         editable_id_set_hash: String::new(),
         editable_structure_hash: String::new(),
         updated_at,
-        changes: save.changes.clone(),
+        changes,
     };
 
     save_patch_file(&save.library_root, &patch)?;

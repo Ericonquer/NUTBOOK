@@ -7,9 +7,9 @@ use crate::{
             render_markdown_as_html,
         },
         html_runtime::{
-            attach_controls_overlay, attach_html_edit_toolbar_overlay,
+            attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
             attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
-            close_html_edit_toolbar_overlay, close_html_runtime_window,
+            close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay, close_html_runtime_window,
             dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
             focus_main_webview, open_html_runtime_window,
             set_html_edit_toolbar_overlay_visibility,
@@ -20,7 +20,7 @@ use crate::{
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
-        AttachHtmlEditToolbarOverlayRequest, AttachHtmlRuntimeControlsOverlayRequest,
+        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlRuntimeControlsOverlayRequest,
         AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
@@ -178,6 +178,21 @@ pub fn attach_html_edit_toolbar_overlay_command(
 }
 
 #[tauri::command]
+pub fn attach_html_edit_leave_confirm_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlEditLeaveConfirmOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    attach_html_edit_leave_confirm_overlay(&app, &window, payload.item_id, payload.bounds)
+}
+
+#[tauri::command]
 pub fn set_html_edit_toolbar_overlay_visibility_command(
     app: tauri::AppHandle,
     payload: SetHtmlEditToolbarOverlayVisibilityRequest,
@@ -191,6 +206,14 @@ pub fn close_html_edit_toolbar_overlay_command(
     payload: CloseHtmlWindowRequest,
 ) -> Result<bool, AppError> {
     close_html_edit_toolbar_overlay(&app, payload.item_id)
+}
+
+#[tauri::command]
+pub fn close_html_edit_leave_confirm_overlay_command(
+    app: tauri::AppHandle,
+    payload: CloseHtmlWindowRequest,
+) -> Result<bool, AppError> {
+    close_html_edit_leave_confirm_overlay(&app, payload.item_id)
 }
 
 #[tauri::command]

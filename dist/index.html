@@ -4999,6 +4999,7 @@
         htmlEditToolbarSyncInFlight: false,
         htmlEditToolbarSyncPending: false,
         htmlEditDirtyLeaveIntent: null,
+        htmlEditLeavePromptOpen: false,
         htmlEditMarkSavedWaiters: new Map(),
         activeLibraryId: null,
         activeTabId: null,
@@ -5047,7 +5048,10 @@
         runtimeHostSyncRunId: 0,
         runtimeHostSyncInFlight: false,
         runtimeHostSyncPending: false,
+        runtimeSurfacesSuspended: false,
+        runtimeSurfaceSuspendPromise: null,
         runtimeSurfaceTokens: new Map(),
+        runtimePatchAppliedKeys: new Map(),
         itemOpenTokens: new Map(),
         runtimeControlsOverlayExpanded: false,
         runtimeControlsOverlayMode: "default",
@@ -6074,7 +6078,68 @@
         });
       }
 
-      function promptHtmlEditLeaveChoice(tab, session) {
+      function htmlEditLeaveConfirmBounds() {
+        const width = Math.min(456, Math.max(360, window.innerWidth - 32));
+        const height = 216;
+        return {
+          x: Math.max(0, Math.round((window.innerWidth - width) / 2)),
+          y: Math.max(0, Math.round((window.innerHeight - height) / 2)),
+          width,
+          height
+        };
+      }
+
+      function closeHtmlEditLeaveConfirmOverlay(itemId) {
+        if (itemId == null) return;
+        invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+      }
+
+      function resolveHtmlEditLeaveChoice(choice, runtimeSessionId = "") {
+        const intent = appState.htmlEditDirtyLeaveIntent;
+        if (!intent || (runtimeSessionId && intent.runtimeSessionId !== runtimeSessionId)) return false;
+        appState.htmlEditDirtyLeaveIntent = null;
+        appState.htmlEditLeavePromptOpen = false;
+        closeHtmlEditLeaveConfirmOverlay(intent.itemId);
+        intent.resolve(choice);
+        return true;
+      }
+
+      async function showHtmlEditLeaveConfirmOverlay(session) {
+        const existingIntent = appState.htmlEditDirtyLeaveIntent;
+        if (existingIntent?.runtimeSessionId === session?.runtimeSessionId && existingIntent.promise) {
+          return existingIntent.promise;
+        }
+        let resolveChoice = () => {};
+        const promise = new Promise((resolve) => { resolveChoice = resolve; });
+        appState.htmlEditDirtyLeaveIntent = {
+          itemId: session.itemId,
+          runtimeSessionId: session.runtimeSessionId,
+          promise,
+          resolve: resolveChoice
+        };
+        appState.htmlEditLeavePromptOpen = true;
+        try {
+          await invoke("attach_html_edit_leave_confirm_overlay_command", {
+            payload: {
+              itemId: session.itemId,
+              bounds: htmlEditLeaveConfirmBounds()
+            }
+          });
+        } catch (error) {
+          if (appState.htmlEditDirtyLeaveIntent?.runtimeSessionId !== session.runtimeSessionId) return;
+          appState.htmlEditDirtyLeaveIntent = null;
+          appState.htmlEditLeavePromptOpen = false;
+          setStatus(htmlEditSaveErrorStatus(error), "error");
+          syncHtmlEditToolbar().catch(() => {});
+          throw error;
+        }
+        return promise;
+      }
+
+      async function promptHtmlEditLeaveChoice(tab, session) {
+        if (tab?.preview?.fileType === "html-runtime") {
+          return showHtmlEditLeaveConfirmOverlay(session);
+        }
         const existingIntent = appState.htmlEditDirtyLeaveIntent;
         if (
           existingIntent &&
@@ -6147,6 +6212,31 @@
       }
 
       let htmlEditRuntimeScriptCache = null;
+
+      function htmlEditReadonlyPatchScript(patch) {
+        return `(function (changes) {
+          function apply() {
+            var count = 0;
+            Object.keys(changes || {}).forEach(function (id) {
+              var change = changes[id];
+              var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
+              if (!element || element.getAttribute('data-editable') !== 'text') return;
+              element.textContent = change.text || '';
+              count += 1;
+            });
+            return count;
+          }
+          (function wait(attempt) { if (apply() || attempt > 40) return; setTimeout(function () { wait(attempt + 1); }, 50); })(0);
+        })(${JSON.stringify(patch?.changes || {})});`;
+      }
+
+      async function applyHtmlEditPatchToRuntime(itemId) {
+        if (!appState.isTauri || appState.htmlEditSession?.itemId === itemId || appState.runtimePatchAppliedKeys.has(itemId)) return;
+        const response = await invoke("get_html_edit_patch", { itemId });
+        if (!isRuntimeSurfaceActive(itemId) || response.patchApplyStatus !== "clean" || !Object.keys(response.patch?.changes || {}).length) return;
+        await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch) });
+        appState.runtimePatchAppliedKeys.set(itemId, response.patchRevision || 0);
+      }
 
       function htmlEditSaveErrorStatus(error) {
         const message = normalizeError(error);
@@ -6426,6 +6516,9 @@
               await syncHtmlEditToolbar();
               return htmlEditSaveResult({ saved: true, canLeave: false });
             }
+            session.dirty = false;
+            session.changes = {};
+            await syncHtmlEditToolbar();
             const markSavedRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const markSavedResult = waitForHtmlEditMarkSavedResult(runtimeSessionId, markSavedRequestId);
             await invoke("eval_html_runtime_script_command", {
@@ -6463,13 +6556,9 @@
               return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
             }
             if (!markSavedOk) {
-              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              setStatus(t("htmlEdit.saved"), "ok");
               await syncHtmlEditToolbar();
-              return htmlEditSaveResult({ saved: true, canLeave: false });
-            }
-            if (JSON.stringify(session.changes || {}) === savedChangesJson) {
-              session.dirty = false;
-              session.changes = {};
+              return htmlEditSaveResult({ saved: true, canLeave: true });
             }
             if (session.dirty) {
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
@@ -6519,11 +6608,12 @@
           await invoke("close_html_edit_toolbar_overlay_command", { itemId });
         } catch (_) {
         }
-        if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
-          appState.htmlEditSession = null;
-        }
+        resolveHtmlEditLeaveChoice("keep", runtimeSessionId);
+        closeHtmlEditLeaveConfirmOverlay(itemId);
+        if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
         appState.htmlEditToolbarVisible = false;
         appState.htmlEditToolbarSyncPending = false;
+        refocusActiveRuntimeHost(itemId);
       }
 
       window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__ = function handleHtmlEditRuntimeMessage(data) {
@@ -6535,6 +6625,11 @@
           if (Array.isArray(data.duplicates) && data.duplicates.length) {
             setStatus(t("htmlEdit.duplicateDataId"), "error");
             exitHtmlEditMode({ discard: true }).catch(() => {});
+            return;
+          }
+          if (!Number(data.count || 0)) {
+            setStatus(t("htmlEdit.noEditableFields"), "warn");
+            exitHtmlEditMode({ runtimeSessionId: data.runtimeSessionId, discard: true }).catch(() => {});
             return;
           }
           if (!data.shortcutsIntercepted) {
@@ -6577,12 +6672,17 @@
         }
         if (data?.action === "done") {
           confirmHtmlEditLeaveIfNeeded(session.itemId)
-            .then((canLeave) => {
-              if (canLeave) return exitHtmlEditMode(session.itemId);
-              return null;
-            })
             .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
         }
+      };
+
+      window.__NUTBOOK_HANDLE_HTML_EDIT_LEAVE_CONFIRM_ACTION__ = function handleHtmlEditLeaveConfirmAction(data) {
+        const intent = appState.htmlEditDirtyLeaveIntent;
+        if (!intent || Number(data?.itemId) !== intent.itemId) return;
+        const choice = data?.choice;
+        if (choice !== "keep" && choice !== "discard" && choice !== "save") return;
+        resolveHtmlEditLeaveChoice(choice, intent.runtimeSessionId);
+        if (choice === "keep") syncHtmlEditToolbar().catch(() => {});
       };
 
       function normalizeMarkdownSelectionText(value) {
@@ -10035,6 +10135,53 @@
         await setRuntimeHostVisibility(itemId, false);
       }
 
+      async function hideStaleRuntimeHostSync(runId, itemId) {
+        if (!appState.runtimeSurfacesSuspended && isRuntimeHostSyncCurrent(runId, itemId)) return false;
+        cancelPendingRuntimeSurfaceHide(itemId);
+        const token = nextRuntimeSurfaceToken(itemId);
+        await hideRuntimeSessionSurfaces(itemId, { force: true, token });
+        if (appState.activeRuntimeHostId === itemId) {
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+        }
+        return true;
+      }
+
+      async function suspendRuntimeSurfaces() {
+        if (appState.runtimeSurfacesSuspended) return appState.runtimeSurfaceSuspendPromise;
+        appState.runtimeSurfacesSuspended = true;
+        cleanupRuntimeHostSync();
+        appState.activeRuntimeHostId = null;
+        appState.runtimeHostLastBoundsKey = null;
+        const suspendPromise = Promise.all(appState.runtimeSessions.map(async (session) => {
+          cancelPendingRuntimeSurfaceHide(session.id);
+          const token = nextRuntimeSurfaceToken(session.id);
+          await hideRuntimeSessionSurfaces(session.id, { force: true, token });
+        }));
+        appState.runtimeSurfaceSuspendPromise = suspendPromise;
+        try {
+          await suspendPromise;
+        } finally {
+          if (appState.runtimeSurfaceSuspendPromise === suspendPromise) {
+            appState.runtimeSurfaceSuspendPromise = null;
+          }
+        }
+      }
+
+      async function resumeRuntimeSurfaces() {
+        if (!appState.runtimeSurfacesSuspended) return;
+        appState.runtimeSurfacesSuspended = false;
+        const suspendPromise = appState.runtimeSurfaceSuspendPromise;
+        if (suspendPromise) {
+          try {
+            await suspendPromise;
+          } catch (_) {
+          }
+        }
+        if (appState.runtimeSurfacesSuspended) return;
+        scheduleRuntimeHostSync();
+      }
+
       var _runtimeSurfaceHideTimers = {};
       function scheduleRuntimeSurfaceHide(itemId) {
         if (!itemId) return;
@@ -10137,6 +10284,7 @@
       }
 
       async function syncActiveRuntimeHost(runId = null) {
+        if (appState.runtimeSurfacesSuspended) return;
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") {
           appState.runtimeControlsOverlayExpanded = false;
@@ -10173,10 +10321,11 @@
             itemId: tab.id,
             bounds
           });
-          if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           appState.runtimeHostLastBoundsKey = boundsKey;
         }
         appState.activeRuntimeHostId = tab.id;
+        applyHtmlEditPatchToRuntime(tab.id).catch(() => {});
 
         if (appState.runtimeFullscreenItemId === tab.id) {
           await invoke("attach_html_runtime_controls_overlay_command", {
@@ -10189,8 +10338,9 @@
             skillTag: tab.item?.skillBinding?.displayName ?? null,
             typeTag: "HTML"
           });
-          if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           await setRuntimeControlsOverlayVisibility(tab.id, true);
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           if (!appState.runtimeHostResizeObserver) {
             appState.runtimeHostResizeObserver = new ResizeObserver(() => {
               scheduleRuntimeHostSync();
@@ -10212,8 +10362,9 @@
           skillTag: tab.item?.skillBinding?.displayName ?? null,
           typeTag: "HTML"
         });
-        if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
         await setRuntimeControlsOverlayVisibility(tab.id, true);
+        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
 
         if (!appState.runtimeHostResizeObserver) {
           appState.runtimeHostResizeObserver = new ResizeObserver(() => {
@@ -10225,6 +10376,7 @@
       }
 
       function scheduleRuntimeHostSync() {
+        if (appState.runtimeSurfacesSuspended) return;
         if (appState.runtimeHostSyncInFlight) {
           appState.runtimeHostSyncPending = true;
           return;
@@ -10614,6 +10766,7 @@
         }
 
         appState.activeTabId = detail.id;
+        appState.runtimePatchAppliedKeys.delete(detail.id);
         appState.activeHtmlRuntimeUrl = null;
         appState.isEditing = false;
         appState.markdownEditMode = "rich";
@@ -10964,6 +11117,9 @@
         }
         if (!tab || (tab.preview?.fileType !== "html" && tab.preview?.fileType !== "html-runtime")) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
+        if (tab.preview?.fileType === "html-runtime" && appState.htmlEditSession?.itemId === tab.id) {
+          return;
+        }
         if (tab.preview?.fileType === "html-runtime") {
           if (HOST_FORWARDED_RUNTIME_KEYS.has(event.key) || (event.code === "Space" && event.key === " ")) {
             event.preventDefault();
@@ -11697,6 +11853,14 @@
 
       function wireEvents() {
         setupWindowDragRegions();
+        document.addEventListener("visibilitychange", () => {
+          if (appState.htmlEditLeavePromptOpen) return;
+          if (document.hidden) {
+            suspendRuntimeSurfaces().catch(() => {});
+          } else {
+            resumeRuntimeSurfaces().catch(() => {});
+          }
+        });
         els.viewerBody.addEventListener("scroll", () => {
           captureActiveMarkdownScroll();
         }, { passive: true });

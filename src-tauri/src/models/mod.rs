@@ -11,7 +11,7 @@ pub use html_edit::{
     SaveHtmlEditPatchRequest,
 };
 pub use item::{
-    AttachHtmlEditToolbarOverlayRequest,
+    AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,
     AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
     CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteLibraryRequest, DeleteMarkdownImageAssetRequest,
     DispatchHtmlRuntimeShortcutRequest,

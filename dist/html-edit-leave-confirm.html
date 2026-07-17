@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nutbook HTML Edit Leave Confirm</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "PingFang SC", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dialog {
+      width: min(424px, calc(100vw - 16px));
+      box-sizing: border-box;
+      padding: 18px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.99);
+      box-shadow: 0 24px 72px rgba(0, 0, 0, 0.16);
+    }
+
+    h1 {
+      margin: 0;
+      color: #000;
+      font-size: 15px;
+      font-weight: 650;
+      line-height: 20px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 8px 0 16px;
+      color: #555;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 18px;
+      letter-spacing: 0;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    button {
+      height: 32px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 12px;
+      background: #ededed;
+      color: #000;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 32px;
+      letter-spacing: 0;
+      cursor: pointer;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    button:hover, button:focus-visible { background: #e2e2e2; outline: none; }
+    button.primary { background: #000; color: #fff; }
+    button.primary:hover, button.primary:focus-visible { background: #252525; }
+  </style>
+</head>
+<body>
+  <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="title" aria-describedby="message">
+    <h1 id="title">有未保存的修改</h1>
+    <p id="message">退出编辑前，可以保存修改或放弃本次修改。</p>
+    <div class="actions">
+      <button id="keepButton" type="button">继续编辑</button>
+      <button id="discardButton" type="button">不保存退出</button>
+      <button id="saveButton" class="primary" type="button">保存退出</button>
+    </div>
+  </section>
+
+  <script src="./i18n.js?v=20260525-update-check"></script>
+  <script>
+    const i18n = window.NutbookI18n;
+    const t = (key, fallback) => i18n?.lookup(key) ?? fallback;
+    const itemId = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__?.itemId ?? null;
+    const els = {
+      title: document.getElementById("title"),
+      message: document.getElementById("message"),
+      keepButton: document.getElementById("keepButton"),
+      discardButton: document.getElementById("discardButton"),
+      saveButton: document.getElementById("saveButton")
+    };
+
+    function render() {
+      const title = t("htmlEdit.leavePrompt", "有未保存的修改");
+      const message = t("htmlEdit.leaveMessage", "退出编辑前，可以保存修改或放弃本次修改。");
+      const keep = t("htmlEdit.keepEditing", "继续编辑");
+      const discard = t("htmlEdit.discardAndExit", "不保存退出");
+      const save = t("htmlEdit.saveAndExit", "保存退出");
+      els.title.textContent = title;
+      els.message.textContent = message;
+      els.keepButton.textContent = keep;
+      els.keepButton.setAttribute("aria-label", keep);
+      els.keepButton.setAttribute("title", keep);
+      els.discardButton.textContent = discard;
+      els.discardButton.setAttribute("aria-label", discard);
+      els.discardButton.setAttribute("title", discard);
+      els.saveButton.textContent = save;
+      els.saveButton.setAttribute("aria-label", save);
+      els.saveButton.setAttribute("title", save);
+      i18n?.apply?.(document);
+    }
+
+    function emit(choice) {
+      const payload = { action: "leave-choice", choice };
+      if (itemId != null) payload.itemId = itemId;
+      const nextTitle = "__NUTBOOK_HTML_EDIT_LEAVE__:" + JSON.stringify(payload);
+      document.title = "Nutbook HTML Edit Leave Confirm";
+      setTimeout(function() { document.title = nextTitle; }, 16);
+      setTimeout(function() {
+        if (document.title === nextTitle) document.title = "Nutbook HTML Edit Leave Confirm";
+      }, 96);
+    }
+
+    els.keepButton.addEventListener("click", function() { emit("keep"); });
+    els.discardButton.addEventListener("click", function() { emit("discard"); });
+    els.saveButton.addEventListener("click", function() { emit("save"); });
+    render();
+    i18n?.observe?.();
+  </script>
+</body>
+</html>

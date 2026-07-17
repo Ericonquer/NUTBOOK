@@ -1,6 +1,6 @@
 use nutbook_backend::core::html_edit::{
     get_html_edit_patch_for_file, library_relative_path, load_html_edit_manifest,
-    save_html_edit_manifest, save_html_edit_patch_for_file, HtmlEditManifest,
+    patch_path, save_html_edit_manifest, save_html_edit_patch_for_file, HtmlEditManifest,
     HtmlEditManifestEntry, HtmlEditPatchLookup, HtmlEditPatchSave,
 };
 use nutbook_backend::errors::AppError;
@@ -242,6 +242,283 @@ fn html_edit_reopen_loads_saved_patch() {
 }
 
 #[test]
+fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("editable-basic.html");
+    std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
+
+    let lookup = HtmlEditPatchLookup {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+    };
+    let get_response = get_html_edit_patch_for_file(&lookup).expect("get patch");
+    let mut initial_changes = std::collections::BTreeMap::new();
+    initial_changes.insert(
+        "cover-title".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-title\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("First saved title".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+    initial_changes.insert(
+        "cover-body".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-body\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("First saved body".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: get_response.artifact_edit_id.clone(),
+        expected_file_hash: get_response.source_file_hash.clone(),
+        expected_modified_at: get_response.source_modified_at,
+        expected_patch_revision: 0,
+        changes: initial_changes,
+    })
+    .expect("save initial patch");
+
+    let reopened = get_html_edit_patch_for_file(&lookup).expect("reopen patch");
+    assert_eq!(reopened.patch_revision, 1);
+
+    let mut title_only_changes = std::collections::BTreeMap::new();
+    title_only_changes.insert(
+        "cover-title".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-title\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("Second saved title".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path,
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: reopened.artifact_edit_id,
+        expected_file_hash: reopened.source_file_hash,
+        expected_modified_at: reopened.source_modified_at,
+        expected_patch_revision: 1,
+        changes: title_only_changes,
+    })
+    .expect("save title-only patch");
+
+    let reopened_after_second_save = get_html_edit_patch_for_file(&lookup).expect("reopen patch");
+
+    assert_eq!(reopened_after_second_save.patch_revision, 2);
+    let patch = reopened_after_second_save.patch.expect("saved patch");
+    assert_eq!(patch.patch_revision, 2);
+    assert_eq!(
+        patch.changes["cover-title"].text.as_deref(),
+        Some("Second saved title")
+    );
+    assert_eq!(
+        patch.changes["cover-body"].text.as_deref(),
+        Some("First saved body")
+    );
+}
+
+#[test]
+fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("editable-basic.html");
+    std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
+
+    let lookup = HtmlEditPatchLookup {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+    };
+    let get_response = get_html_edit_patch_for_file(&lookup).expect("get patch");
+    let mut changes = std::collections::BTreeMap::new();
+    changes.insert(
+        "cover-title".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-title\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("Saved title before patch loss".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: get_response.artifact_edit_id.clone(),
+        expected_file_hash: get_response.source_file_hash.clone(),
+        expected_modified_at: get_response.source_modified_at,
+        expected_patch_revision: 0,
+        changes,
+    })
+    .expect("save patch");
+
+    let manifest = load_html_edit_manifest(root.path()).expect("load manifest");
+    let entry = manifest
+        .entries
+        .get("editable-basic.html")
+        .expect("manifest entry exists");
+    assert_eq!(entry.artifact_edit_id, get_response.artifact_edit_id);
+
+    let patch_path =
+        patch_path(root.path(), &get_response.artifact_edit_id).expect("patch path");
+    std::fs::remove_file(&patch_path).expect("remove saved patch");
+
+    let mut replacement_changes = std::collections::BTreeMap::new();
+    replacement_changes.insert(
+        "cover-body".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-body\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("Replacement body must not initialize patch".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    let error = save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path,
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: get_response.artifact_edit_id,
+        expected_file_hash: get_response.source_file_hash,
+        expected_modified_at: get_response.source_modified_at,
+        expected_patch_revision: 0,
+        changes: replacement_changes,
+    })
+    .expect_err("missing patch behind manifest entry rejected");
+
+    assert!(matches!(error, AppError::EditConflict));
+    assert!(!patch_path.exists());
+}
+
+#[test]
+fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("editable-basic.html");
+    std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
+
+    let lookup = HtmlEditPatchLookup {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+    };
+    let get_response = get_html_edit_patch_for_file(&lookup).expect("get patch");
+    let mut changes = std::collections::BTreeMap::new();
+    changes.insert(
+        "cover-title".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-title\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("Saved title before patch corruption".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: get_response.artifact_edit_id.clone(),
+        expected_file_hash: get_response.source_file_hash.clone(),
+        expected_modified_at: get_response.source_modified_at,
+        expected_patch_revision: 0,
+        changes,
+    })
+    .expect("save patch");
+
+    let manifest = load_html_edit_manifest(root.path()).expect("load manifest");
+    let entry = manifest
+        .entries
+        .get("editable-basic.html")
+        .expect("manifest entry exists");
+    assert_eq!(entry.artifact_edit_id, get_response.artifact_edit_id);
+
+    let patch_path =
+        patch_path(root.path(), &get_response.artifact_edit_id).expect("patch path");
+    assert!(patch_path.exists());
+    std::fs::write(&patch_path, "{not valid json").expect("corrupt patch file");
+
+    let mut replacement_changes = std::collections::BTreeMap::new();
+    replacement_changes.insert(
+        "cover-body".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-body\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("Replacement body must not overwrite corrupt patch".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    let error = save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path,
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: get_response.artifact_edit_id,
+        expected_file_hash: get_response.source_file_hash,
+        expected_modified_at: get_response.source_modified_at,
+        expected_patch_revision: 1,
+        changes: replacement_changes,
+    })
+    .expect_err("unparseable patch behind manifest entry rejected");
+
+    assert!(matches!(error, AppError::EditConflict));
+}
+
+#[test]
 fn html_edit_get_marks_saved_patch_stale_when_source_hash_changes() {
     let root = tempfile::tempdir().expect("temp dir");
     let html_path = root.path().join("editable-basic.html");
@@ -366,4 +643,55 @@ fn html_edit_save_rejects_modified_at_mismatch() {
     .expect_err("modified time mismatch rejected");
 
     assert!(matches!(error, AppError::EditConflict));
+}
+
+#[test]
+fn html_edit_save_rejects_file_hash_mismatch_without_creating_patch() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("editable-basic.html");
+    std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
+
+    let lookup = HtmlEditPatchLookup {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path.clone(),
+        title_hint: "Editable Basic".to_string(),
+    };
+    let get_response = get_html_edit_patch_for_file(&lookup).expect("get patch");
+    let mut changes = std::collections::BTreeMap::new();
+    changes.insert(
+        "cover-title".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-title\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("Hash mismatch must not create patch".to_string()),
+            src: None,
+            alt: None,
+        },
+    );
+
+    let error = save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path,
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: get_response.artifact_edit_id.clone(),
+        expected_file_hash: "definitely-not-the-current-file-hash".to_string(),
+        expected_modified_at: get_response.source_modified_at,
+        expected_patch_revision: 0,
+        changes,
+    })
+    .expect_err("file hash mismatch rejected");
+
+    assert!(matches!(error, AppError::EditConflict));
+    let patch_path =
+        patch_path(root.path(), &get_response.artifact_edit_id).expect("patch path");
+    assert!(!patch_path.exists());
+    let manifest = load_html_edit_manifest(root.path()).expect("load manifest");
+    assert!(!manifest.entries.contains_key("editable-basic.html"));
 }
