@@ -6215,13 +6215,29 @@
 
       function htmlEditReadonlyPatchScript(patch) {
         return `(function (changes) {
+          function isValidatedRichHtml(html) {
+            if (typeof html !== 'string') return false;
+            var holder = document.createElement('div');
+            holder.innerHTML = html;
+            var allowed = { P: true, BR: true, STRONG: true, EM: true, H1: true, H2: true, H3: true, H4: true, UL: true, OL: true, LI: true };
+            return Array.prototype.every.call(holder.querySelectorAll('*'), function (node) {
+              return allowed[node.tagName] && !node.attributes.length;
+            }) && holder.innerHTML === html;
+          }
           function apply() {
             var count = 0;
             Object.keys(changes || {}).forEach(function (id) {
               var change = changes[id];
               var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
-              if (!element || element.getAttribute('data-editable') !== 'text') return;
-              element.textContent = change.text || '';
+              if (!element) return;
+              if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
+                element.textContent = change.text || '';
+              } else if ((change.type === 'rich_text' || change.type === 'rich-text') && element.getAttribute('data-editable') === 'rich-text' && isValidatedRichHtml(change.html)) {
+                element.innerHTML = change.html;
+                if (change.textAlign) element.style.textAlign = change.textAlign;
+              } else {
+                return;
+              }
               count += 1;
             });
             return count;
@@ -6231,8 +6247,9 @@
       }
 
       async function applyHtmlEditPatchToRuntime(itemId) {
-        if (!appState.isTauri || appState.htmlEditSession?.itemId === itemId || appState.runtimePatchAppliedKeys.has(itemId)) return;
+        if (!appState.isTauri || appState.htmlEditSession?.itemId === itemId) return;
         const response = await invoke("get_html_edit_patch", { itemId });
+        if ((appState.runtimePatchAppliedKeys.get(itemId) || 0) >= (response.patchRevision || 0)) return;
         if (!isRuntimeSurfaceActive(itemId) || response.patchApplyStatus !== "clean" || !Object.keys(response.patch?.changes || {}).length) return;
         await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch) });
         appState.runtimePatchAppliedKeys.set(itemId, response.patchRevision || 0);
@@ -6369,6 +6386,8 @@
           state: "editing",
           dirty: false,
           changes: {},
+          selectedDataId: null,
+          formatState: null,
           saveInFlight: null,
           shortcutsIntercepted: false
         };
@@ -6644,6 +6663,8 @@
         if (data.type === "html_edit_state_changed") {
           session.dirty = Boolean(data.dirty);
           session.changes = data.changes || {};
+          session.selectedDataId = data.selectedDataId || null;
+          session.formatState = data.formatState || null;
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
         }
@@ -6673,6 +6694,23 @@
         if (data?.action === "done") {
           confirmHtmlEditLeaveIfNeeded(session.itemId)
             .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data?.action === "format" && typeof data?.command === "string") {
+          const runtimeSessionId = session.runtimeSessionId;
+          const generation = session.generation;
+          invoke("eval_html_runtime_script_command", {
+            itemId: session.itemId,
+            script: `(function () {
+              if (window.__NUTBOOK_HTML_EDIT__) {
+                window.__NUTBOOK_HTML_EDIT__.applyFormat(${JSON.stringify({ runtimeSessionId, command: data.command })});
+              }
+            })();`
+          }).then(() => {
+            if (appState.htmlEditSession === session && session.generation === generation && session.runtimeSessionId === runtimeSessionId) {
+              syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+            }
+          }).catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
         }
       };
 

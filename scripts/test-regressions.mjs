@@ -5,6 +5,7 @@ const indexHtml = readFileSync("dist/index.html", "utf8");
 const i18n = readFileSync("dist/i18n.js", "utf8");
 const htmlEditLeaveConfirm = readFileSync("dist/html-edit-leave-confirm.html", "utf8");
 const markdownEditor = readFileSync("src/markdown-editor.js", "utf8");
+const htmlEditRuntime = readFileSync("dist/assets/html-edit-runtime.js", "utf8");
 
 const filesystemSync = indexHtml.match(/async function maybeSyncFilesystemState\(force = false\) \{([\s\S]*?)\n      \}/);
 assert.ok(filesystemSync, "filesystem sync function should exist");
@@ -171,5 +172,56 @@ assert.match(i18n, /discardAndExit: "Discard and Exit"/, "English leave-confirm 
 assert.match(indexHtml, /const width = Math\.min\(456, Math\.max\(360, window\.innerWidth - 32\)\);/, "leave-confirm overlay must reserve enough width for English actions");
 assert.match(htmlEditLeaveConfirm, /width: min\(424px, calc\(100vw - 16px\)\);/, "leave-confirm card must use the wider host bounds");
 assert.match(htmlEditLeaveConfirm, /\.actions \{[\s\S]*flex-wrap: wrap;/, "leave-confirm actions must wrap instead of overflowing on narrow windows");
+
+assert.match(
+  htmlEditRuntime,
+  /function editableRichTextElements\(\)[\s\S]*?getAttribute\("data-editable"\) === "rich-text"/,
+  "HTML edit runtime must scan rich-text fields separately from plaintext fields"
+);
+assert.match(
+  htmlEditRuntime,
+  /element\.setAttribute\("contenteditable", type === "rich-text" \? "true" : "plaintext-only"\);/,
+  "plaintext and rich-text fields must use distinct contenteditable modes"
+);
+assert.match(
+  htmlEditRuntime,
+  /STATE\.savedSelection[\s\S]*?cloneRange\(\)[\s\S]*?sameRichTextField/,
+  "only a cloned selection within one rich-text field may be retained for formatting"
+);
+assert.match(
+  htmlEditRuntime,
+  /function applyFormat\(payload\)[\s\S]*?runtimeSessionId !== STATE\.sessionId[\s\S]*?VALID_FORMAT_COMMANDS[\s\S]*?restoreSavedSelection/,
+  "format commands must be session-scoped, restore runtime-owned selection, and be allowlisted"
+);
+assert.match(
+  htmlEditRuntime,
+  /document\.addEventListener\("selectionchange", onSelectionChange, true\);[\s\S]*?document\.addEventListener\("beforeinput", onBeforeInput, true\);/,
+  "rich editing must track selection and intercept paste before DOM insertion"
+);
+assert.match(
+  htmlEditRuntime,
+  /type: "rich_text"[\s\S]*?innerHTML[\s\S]*?normalizeRichTextField/,
+  "rich-text patches must preserve validated canonical HTML"
+);
+assert.match(
+  indexHtml,
+  /function htmlEditReadonlyPatchScript\(patch\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.textContent[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
+  "readonly runtime patching must keep text and validated rich-text fields separate"
+);
+assert.match(
+  indexHtml,
+  /html_edit_state_changed[\s\S]*?session\.selectedDataId = data\.selectedDataId \|\| null;[\s\S]*?session\.formatState = data\.formatState \|\| null;/,
+  "host state must retain runtime-selected field and computed formatting state"
+);
+assert.match(
+  indexHtml,
+  /data\?\.action === "format"[\s\S]*?window\.__NUTBOOK_HTML_EDIT__\.applyFormat\([\s\S]*?runtimeSessionId/,
+  "toolbar actions must cross the host boundary only through the active runtime session"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /<iframe[^>]+html-edit-toolbar/i,
+  "HTML edit toolbar must remain a child-overlay boundary, never an iframe fallback"
+);
 
 console.log("Nutbook regression guards passed.");

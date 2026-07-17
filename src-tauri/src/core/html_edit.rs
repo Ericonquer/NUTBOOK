@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::Write,
     path::{Component, Path, PathBuf},
@@ -63,6 +63,7 @@ pub struct HtmlEditPatchSaveResponse {
     pub source_modified_at: i64,
     pub source_size: u64,
     pub updated_at: i64,
+    pub normalized_changes: BTreeMap<String, HtmlEditChange>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -250,12 +251,20 @@ pub fn save_html_edit_patch_for_file(
         return Err(AppError::EditConflict);
     }
 
+    let normalized_save_changes = save
+        .changes
+        .iter()
+        .map(|(field_id, change)| {
+            normalize_rich_text_change(change).map(|normalized| (field_id.clone(), normalized))
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+
     let changes = if let Some(patch) = current_patch {
         let mut changes = patch.changes;
-        changes.extend(save.changes.clone());
+        changes.extend(normalized_save_changes);
         changes
     } else {
-        save.changes.clone()
+        normalized_save_changes
     };
     let next_revision = current_revision + 1;
     let updated_at = unix_timestamp()?;
@@ -296,7 +305,78 @@ pub fn save_html_edit_patch_for_file(
         source_modified_at,
         source_size,
         updated_at,
+        normalized_changes: patch.changes.clone(),
     })
+}
+
+pub fn normalize_rich_text_change(change: &HtmlEditChange) -> Result<HtmlEditChange, AppError> {
+    use crate::models::HtmlEditChangeType;
+
+    if !matches!(&change.change_type, HtmlEditChangeType::RichText) {
+        if change.html.is_some() || change.text_align.is_some() {
+            return Err(AppError::InvalidParams);
+        }
+        return Ok(change.clone());
+    }
+
+    if change.text.is_some() || change.src.is_some() || change.alt.is_some() {
+        return Err(AppError::InvalidParams);
+    }
+    let html = change
+        .html
+        .as_deref()
+        .filter(|html| !html.trim().is_empty())
+        .ok_or(AppError::InvalidParams)?;
+    if rich_text_contains_disallowed_markup(html) {
+        return Err(AppError::InvalidParams);
+    }
+    let cleaned = clean_rich_text_html(html);
+    if cleaned != html {
+        return Err(AppError::InvalidParams);
+    }
+
+    let mut normalized = change.clone();
+    normalized.html = Some(cleaned);
+    Ok(normalized)
+}
+
+fn rich_text_contains_disallowed_markup(html: &str) -> bool {
+    let mut remaining = html;
+    while let Some(start) = remaining.find('<') {
+        let after_open = &remaining[start + 1..];
+        let Some(end) = after_open.find('>') else {
+            return true;
+        };
+        let tag = &after_open[..end];
+        let tag = tag.trim();
+        let tag = tag.strip_prefix('/').unwrap_or(tag).trim();
+        let name_end = tag
+            .find(|character: char| !character.is_ascii_alphanumeric())
+            .unwrap_or(tag.len());
+        let (name, suffix) = tag.split_at(name_end);
+        if !["p", "br", "strong", "em", "h1", "h2", "h3", "h4", "ul", "ol", "li"]
+            .contains(&name.to_ascii_lowercase().as_str())
+        {
+            return true;
+        }
+        if !suffix.trim().is_empty() && suffix.trim() != "/" {
+            return true;
+        }
+        remaining = &after_open[end + 1..];
+    }
+    false
+}
+
+fn clean_rich_text_html(html: &str) -> String {
+    let allowed_tags = ["p", "br", "strong", "em", "h1", "h2", "h3", "h4", "ul", "ol", "li"]
+        .into_iter()
+        .collect::<HashSet<_>>();
+    ammonia::Builder::default()
+        .tags(allowed_tags)
+        .generic_attributes(HashSet::new())
+        .tag_attributes(HashMap::new())
+        .clean(html)
+        .to_string()
 }
 
 pub fn normalize_existing_root(path: &Path) -> Result<PathBuf, AppError> {
@@ -358,7 +438,13 @@ fn load_patch_file(
         return Ok(None);
     }
     let text = fs::read_to_string(path).map_err(|_| AppError::IoError)?;
-    serde_json::from_str(&text).map_err(|_| AppError::IoError)
+    let mut patch: HtmlEditPatch = serde_json::from_str(&text).map_err(|_| AppError::IoError)?;
+    patch.changes.retain(|_, change| {
+        normalize_rich_text_change(change)
+            .map(|normalized| normalized == (*change).clone())
+            .unwrap_or(false)
+    });
+    Ok(Some(patch))
 }
 
 pub fn load_patch_revision(library_root: &Path, artifact_edit_id: &str) -> Result<u64, AppError> {

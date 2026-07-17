@@ -71,6 +71,16 @@ pub enum HtmlEditChangeType {
     Text,
     Image,
     BackgroundImage,
+    #[serde(rename = "rich_text")]
+    RichText,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HtmlEditTextAlign {
+    Left,
+    Center,
+    Right,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -91,6 +101,10 @@ pub struct HtmlEditChange {
     pub src: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_align: Option<HtmlEditTextAlign>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
