@@ -4,8 +4,355 @@ import { readFileSync } from "node:fs";
 const indexHtml = readFileSync("dist/index.html", "utf8");
 const i18n = readFileSync("dist/i18n.js", "utf8");
 const htmlEditLeaveConfirm = readFileSync("dist/html-edit-leave-confirm.html", "utf8");
+const htmlEditToolbar = readFileSync("dist/html-edit-toolbar.html", "utf8");
+const runtimeOverlay = readFileSync("dist/runtime-overlay.html", "utf8");
 const markdownEditor = readFileSync("src/markdown-editor.js", "utf8");
 const htmlEditRuntime = readFileSync("dist/assets/html-edit-runtime.js", "utf8");
+const richTextFixture = readFileSync("src-tauri/tests/fixtures/html-edit/editable-rich-text.html", "utf8");
+const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8");
+const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
+const mainRust = readFileSync("src-tauri/src/main.rs", "utf8");
+
+function runtimeSection(name, nextName) {
+  const start = htmlEditRuntime.indexOf(`  function ${name}`);
+  const end = htmlEditRuntime.indexOf(`  function ${nextName}`, start + 1);
+  assert.ok(start >= 0 && end > start, `${name} must be followed by ${nextName}`);
+  return htmlEditRuntime.slice(start, end);
+}
+
+assert.match(
+  htmlEditRuntime,
+  /function mountInlineToolbar\(/,
+  "rich-text formatting must mount inside the runtime document"
+);
+assert.match(
+  htmlEditRuntime,
+  /attachShadow\(\{ mode: "closed" \}\)/,
+  "the runtime toolbar must isolate its UI from the artifact page"
+);
+assert.match(
+  htmlEditRuntime,
+  /function toggleInlineMark\(field, range, tagName\)/,
+  "bold and italic must use deterministic inline marks instead of browser editing commands"
+);
+assert.match(
+  htmlEditRuntime,
+  /function rangeExactlySelectsMark\(range, mark\)/,
+  "repeating an inline format command must be able to recognize its exact mark selection"
+);
+assert.match(
+  htmlEditRuntime,
+  /function rangeSelectsEntireMarkText\(range, mark\)/,
+  "repeating an inline format command must also recognize a text-node range covering a mark"
+);
+assert.match(
+  htmlEditRuntime,
+  /function unwrapInlineMark\(mark\)/,
+  "repeating an inline format command must remove the existing mark instead of nesting it"
+);
+assert.match(
+  htmlEditRuntime,
+  /function replaceSelectedBlocks\(field, range, tagName\)/,
+  "content formatting must replace only selected top-level text blocks"
+);
+assert.match(
+  htmlEditRuntime,
+  /function toggleList\(field, range, tagName\)/,
+  "content formatting must transform only supported paragraph runs into lists"
+);
+const inlineFormat = htmlEditRuntime.match(/function applyInlineFormat\(command\) \{([\s\S]*?)\n  \}/);
+assert.ok(inlineFormat, "the inline toolbar must own its format command path");
+assert.doesNotMatch(
+  inlineFormat[1],
+  /document\.execCommand/,
+  "the inline toolbar command path must not use browser editing commands"
+);
+assert.match(
+  htmlEditRuntime,
+  /function buildInlineToolbar\(\)/,
+  "the inline toolbar must build a persistent command surface"
+);
+assert.doesNotMatch(
+  htmlEditRuntime,
+  /function onSelectionChange\(\) \{[^}]*renderInlineToolbar\(\)/,
+  "selection changes must not recreate the toolbar and invalidate its command target"
+);
+assert.match(
+  htmlEditRuntime,
+  /function syncInlineToolbar\(\)[\s\S]*?button\.hidden = !commands\.has\(button\.dataset\.command\)[\s\S]*?button\.disabled = !canFormat/,
+  "selection changes must update existing command availability without recreating the toolbar"
+);
+assert.match(
+  htmlEditRuntime,
+  /if \(directLists\.length === 1 && selected\.length === 1\) \{[\s\S]*?list\.tagName === tagName\.toUpperCase\(\)[\s\S]*?document\.createElement\(tagName\)/,
+  "a selected list must toggle off when unchanged and switch directly when another list type is requested"
+);
+assert.match(
+  htmlEditRuntime,
+  /function inlineCommandsForRole\(role\)/,
+  "short and content fields must have explicit, distinct command sets"
+);
+assert.match(
+  htmlEditRuntime,
+  /function inlineToolbarText\(key\)/,
+  "the inline toolbar must localize its own labels inside the runtime document"
+);
+assert.match(
+  htmlEditRuntime,
+  /function inlineToolbarIcon\(command\)/,
+  "the inline toolbar must use the established SVG command icon set"
+);
+assert.match(
+  htmlEditRuntime,
+  /M6 4h4\.3c2 0 3\.2 1 3\.2 2\.6/,
+  "the inline bold icon must match the Markdown floating toolbar"
+);
+assert.match(
+  htmlEditRuntime,
+  /M4 4\.5h12M4 8h8\.5M4 11\.5h12M4 15h8\.5/,
+  "the inline alignment icons must match the Markdown editor icon family"
+);
+assert.match(
+  htmlEditRuntime,
+  /paragraph: '<svg[^>]*><path d="M5 15V5h5\.2a3\.1 3\.1 0 0 1 0 6H5"/,
+  "the paragraph icon must use the same compact stroke language as heading icons"
+);
+assert.match(
+  htmlEditRuntime,
+  /class="tooltip"/,
+  "each HTML edit toolbar command must expose a visible hover and keyboard-focus tooltip"
+);
+assert.match(
+  htmlEditRuntime,
+  /transition:background .16s ease,transform .16s ease/,
+  "HTML edit toolbar buttons must have the same responsive hover treatment as editor controls"
+);
+assert.doesNotMatch(
+  htmlEditRuntime,
+  /\.commands\{[^}]*overflow-x:auto/,
+  "the command group must not scroll and clip the tooltip layer"
+);
+assert.match(
+  htmlEditRuntime,
+  /\.commands\{[^}]*flex-wrap:wrap[^}]*overflow:visible/,
+  "the command group must wrap on narrow screens while allowing tooltips to escape"
+);
+assert.match(
+  htmlEditRuntime,
+  /width:max-content/,
+  "the inline toolbar must shrink to its visible command set"
+);
+assert.match(
+  indexHtml,
+  /function usesInlineHtmlEditToolbarForSession\(/,
+  "inline sessions must bypass the legacy child-webview toolbar"
+);
+assert.match(
+  indexHtml,
+  /inlineToolbar: Boolean\(appState\.htmlEditSession\?\.runtimeSessionId === runtimeSessionId[\s\S]*?locale: appState\.language/,
+  "the host must pass its current locale into the runtime toolbar"
+);
+assert.match(
+  indexHtml,
+  /function htmlEditLeaveConfirmBounds\(\) \{[\s\S]*?x: 0,[\s\S]*?y: 0,[\s\S]*?width: window\.innerWidth,[\s\S]*?height: window\.innerHeight/,
+  "the leave-confirm child webview must cover the full runtime so its backdrop cannot form a small rectangular substrate"
+);
+assert.match(
+  htmlEditRuntime,
+  /function reportState\(options = \{\}\)[\s\S]*html_edit_state_snapshot/,
+  "the runtime must be able to report a fresh state snapshot before a leave decision"
+);
+assert.match(
+  indexHtml,
+  /async function refreshHtmlEditRuntimeState\(session, minimumRevision = session\?\.documentRevision \?\? 0\)/,
+  "the host must ask the runtime state source to refresh before treating a clean session as safe to leave"
+);
+assert.match(
+  htmlEditLeaveConfirm,
+  /backdrop-filter: blur\(10px\)/,
+  "the native leave-confirm overlay must own its full-screen backdrop treatment"
+);
+assert.match(
+  htmlEditLeaveConfirm,
+  /__NUTBOOK_HTML_EDIT_LEAVE_READY__:/,
+  "the leave-confirm child webview must report that its visible document is ready"
+);
+assert.match(
+  runtimeOverlay,
+  /els\.editButton\.addEventListener\("pointerdown", activateEditMode\);/,
+  "HTML runtime edit must emit on pointerdown before an overlay bounds sync can swallow click"
+);
+assert.match(
+  htmlEditRuntime,
+  /button\.addEventListener\("pointerdown", \(event\) => \{ event\.preventDefault\(\); \}\);[\s\S]*?button\.addEventListener\("click", \(event\) => \{ event\.preventDefault\(\); (?:const applied = )?applyInlineFormat\(button\.dataset\.command\);/,
+  "format commands must execute on click while pointerdown only preserves the runtime selection"
+);
+assert.match(
+  htmlEditRuntime,
+  /function buildInlineToolbar\(\)[\s\S]*?function syncInlineToolbar\(\)/,
+  "the inline toolbar must be mounted once and updated in place instead of being rebuilt during selection changes"
+);
+assert.doesNotMatch(
+  htmlEditRuntime,
+  /function applyFormat\(payload\)[\s\S]*?document\.execCommand/,
+  "all inline formatting must use the one runtime-owned mutation path rather than a second execCommand implementation"
+);
+const updateChange = runtimeSection("updateChange(element)", "recomputeChanges()");
+assert.doesNotMatch(
+  updateChange,
+  /normalizeRichTextField|richHtmlOf/,
+  "reading document changes must not normalize or otherwise mutate the rich-text DOM"
+);
+const recomputeChanges = runtimeSection("recomputeChanges()", "collectChanges()");
+assert.doesNotMatch(
+  recomputeChanges,
+  /normalizeRichTextField|richHtmlOf/,
+  "recomputing changes must be a pure read"
+);
+assert.match(
+  htmlEditRuntime,
+  /function readRichValue\(element\) \{\s*return \{\s*html: element\.innerHTML,\s*textAlign: effectiveTextAlign\(element\)\s*\};\s*\}/,
+  "rich-text reads must use a DOM-pure value helper"
+);
+assert.match(
+  htmlEditRuntime,
+  /function commitDocumentMutation\(field, mutate = null\) \{[\s\S]*?captureFieldSelectionBookmark\(field\)[\s\S]*?normalizeRichTextField\(field\)[\s\S]*?restoreFieldSelectionBookmark\(field, selectionBookmark\)[\s\S]*?recomputeChanges\(\)[\s\S]*?STATE\.documentRevision \+= 1;[\s\S]*?type: "html_edit_document_changed"/,
+  "one document mutation must normalize once, restore its selection, and publish a revisioned snapshot"
+);
+assert.match(
+  htmlEditRuntime,
+  /function withRichFieldMutation\(field, mutate\) \{[\s\S]*?commitDocumentMutation\(field, mutate\)/,
+  "format-only mutations must use the single document transaction"
+);
+for (const [handlerName, nextName] of [["onFocus(event)", "onBlur()"], ["onBlur()", "onSelectionChange()"], ["onSelectionChange()", "mountInlineToolbar()"]]) {
+  const handler = runtimeSection(handlerName, nextName);
+  assert.doesNotMatch(handler, /reportState|recomputeChanges|commitDocumentMutation|normalizeRichTextField/, `${handlerName} must only update runtime-local selection or toolbar state`);
+}
+for (const [handlerName, nextName] of [["onInput(event)", "updateChange(element)"], ["onCompositionEnd(event)", "onInput(event)"], ["onBeforeInput(event)", "restoreSavedSelection()"]]) {
+  const handler = runtimeSection(handlerName, nextName);
+  assert.match(handler, /commitDocumentMutation/, `${handlerName} must commit document changes through the single transaction`);
+}
+assert.match(
+  htmlEditRuntime,
+  /function stateSnapshot\(\) \{[\s\S]*?documentRevision: STATE\.documentRevision/,
+  "every document snapshot must carry its revision"
+);
+assert.match(
+  htmlEditRuntime,
+  /function selectedDirectBlocks\(field, range\)[\s\S]*?Array\.from\(field\.children\)/,
+  "block commands must resolve an explicit contiguous direct-child block set instead of expanding arbitrary descendants"
+);
+assert.match(
+  htmlRuntimeRust,
+  /runtime_type\s*\.map\(\|value\| value\.starts_with\("html_edit_"\)\)[\s\S]*?"runtime-title"[\s\S]*?"runtime-forward"/,
+  "the host boundary must log every HTML edit runtime message, including done and snapshot requests"
+);
+assert.match(
+  htmlEditRuntime,
+  /function emitHostMessage\(payload\) \{[\s\S]*?window\.__TAURI_INTERNALS__\?\.invoke[\s\S]*?invoke\("html_edit_runtime_message_command", \{ payload \}\)/,
+  "runtime messages must use Tauri IPC so formatted HTML is never encoded in document.title"
+);
+assert.match(
+  htmlEditRuntime,
+  /function stableChangesJson\(value\)/,
+  "the runtime must define a canonical rich-text change serializer"
+);
+assert.match(
+  htmlEditRuntime,
+  /stableChangesJson\(collectChanges\(\)\) !== saveOptions\.expectedChangesJson/,
+  "markSaved must compare rich-text changes canonically after crossing the runtime IPC boundary"
+);
+assert.match(
+  previewCommandsRust,
+  /pub fn html_edit_runtime_message_command\([\s\S]*?window\.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__/,
+  "the runtime IPC command must forward the full payload to the main WebView"
+);
+assert.doesNotMatch(
+  htmlEditRuntime,
+  /messageQueue|messageInFlight|ackHostMessage/,
+  "the runtime must not depend on an ACK queue after a title-change callback"
+);
+assert.doesNotMatch(
+  htmlRuntimeRust,
+  /ackHostMessage|runtime-ack/,
+  "the host must forward title messages without evaluating an ACK back into the same callback"
+);
+assert.match(
+  previewCommandsRust,
+  /payload\.script\.contains\("\.reportState\("\)[\s\S]*?"state-refresh"[\s\S]*?payload\.script\.contains\("\.__NUTBOOK_HTML_EDIT__\.exit\("\)[\s\S]*?"leave"/,
+  "runtime eval diagnostics must distinguish leave-state refreshes from actual editor exit requests"
+);
+assert.match(
+  htmlEditRuntime,
+  /(?:\[data-intent="done"\]\'\)|doneButton)\.addEventListener\("click", \(event\) => \{ event\.preventDefault\(\); emitHostMessage\(\{ type: "html_edit_done_requested_from_runtime", \.\.\.stateSnapshot\(\) \}\); \}\);/,
+  "Done must report the already committed snapshot without recomputing or mutating the document"
+);
+assert.match(
+  indexHtml,
+  /function htmlEditRuntimeSnapshotScript\(runtimeSessionId, requestId\)[\s\S]*?window\.setTimeout\(function \(\) \{[\s\S]*?\.reportState\(\{ requestId:/,
+  "leave-state refresh must run from the runtime event loop rather than re-entrantly inside native eval"
+);
+assert.match(
+  indexHtml,
+  /htmlEditRuntimeSnapshotScript[\s\S]*?runtimeSnapshotMissing:[\s\S]*?if \(data\.runtimeSnapshotMissing\) \{[\s\S]*?resolveStateRefresh\(false, -1\);/,
+  "a missing runtime object must be reported explicitly so leave diagnostics do not confuse it with a clean snapshot"
+);
+assert.match(
+  previewCommandsRust,
+  /payload\.script\.contains\("\.reportState\("\)[\s\S]*?"state-refresh"/,
+  "runtime eval diagnostics must identify queued snapshot requests"
+);
+assert.match(
+  indexHtml,
+  /async function confirmHtmlEditLeaveIfNeeded\(tabId = appState\.activeTabId, options = \{\}\) \{[\s\S]*?if \(!htmlEditLeaveRequiresSave\(session\)\)/,
+  "leave must decide from the latest accepted transaction snapshot rather than blocking on an unreliable child-webview pull refresh"
+);
+assert.doesNotMatch(
+  indexHtml.match(/async function confirmHtmlEditLeaveIfNeeded\([\s\S]*?\n      \}/)?.[0] || "",
+  /refreshHtmlEditRuntimeState/,
+  "close-tab and Done leave paths must not be locked by an extra runtime refresh"
+);
+assert.match(
+  mainRust,
+  /RunEvent::WindowEvent\s*\{[\s\S]*?WindowEvent::CloseRequested\s*\{\s*api,[\s\S]*?api\.prevent_close\(\)/,
+  "native main-window close must wait for the HTML edit leave decision"
+);
+assert.match(
+  mainRust,
+  /RunEvent::ExitRequested\s*\{\s*api,[\s\S]*?api\.prevent_exit\(\)/,
+  "native application quit must wait for the HTML edit leave decision"
+);
+assert.match(
+  indexHtml,
+  /__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__\s*=[\s\S]*?confirmHtmlEditLeaveIfNeeded\(session\.itemId, \{ source: "app-exit" \}\)[\s\S]*?invoke\("finalize_html_edit_app_exit_command"\)/,
+  "the app-close bridge must reuse save/discard/keep and only finalize after it permits leaving"
+);
+assert.doesNotMatch(
+  indexHtml.match(/async function saveActiveHtmlEditPatch\(\) \{[\s\S]*?\n      \}/)?.[0] || "",
+  /await refreshHtmlEditRuntimeState/,
+  "save must not be blocked by an extra runtime refresh before it persists the accepted document state"
+);
+assert.match(
+  indexHtml,
+  /function htmlEditLeaveRequiresSave\(session\) \{\s*return Boolean\(session\?\.dirty \|\| session\?\.requiresPatchReconciliation\);/,
+  "a clean DOM with an older persisted patch must still follow the save-or-discard leave path"
+);
+assert.match(
+  indexHtml,
+  /const candidatePersistedChanges = mergeHtmlEditPatchChanges\(session\.persistedChanges, session\.changes\);[\s\S]*?const changesForSave = replaceChanges \? candidatePersistedChanges : session\.changes \|\| \{\};[\s\S]*?replaceChanges,\s*changes: changesForSave/,
+  "the reconciliation save must explicitly replace a full persisted-patch snapshot rather than merge or erase unrelated fields"
+);
+
+assert.doesNotMatch(
+  indexHtml,
+  /html_edit_format_applied/,
+  "format diagnostics must never be able to overwrite the canonical document state"
+);
+assert.match(
+  htmlEditToolbar,
+  /selectedDataId[\s\S]*?formatState/,
+  "temporary toolbar diagnostics must carry the selected field and format role in its title payload"
+);
 
 const filesystemSync = indexHtml.match(/async function maybeSyncFilesystemState\(force = false\) \{([\s\S]*?)\n      \}/);
 assert.ok(filesystemSync, "filesystem sync function should exist");
@@ -102,7 +449,7 @@ assert.ok(htmlEditLeaveOverlay, "HTML edit leave overlay flow should exist");
 assert.match(
   htmlEditLeaveOverlay[1],
   /await invoke\("attach_html_edit_leave_confirm_overlay_command"/,
-  "HTML edit leave flow must observe child-overlay attachment failures"
+  "HTML edit leave flow must use the established child-overlay attachment path"
 );
 assert.match(
   htmlEditLeaveOverlay[1],
@@ -110,14 +457,9 @@ assert.match(
   "HTML edit leave flow must pass the named Rust payload argument"
 );
 assert.match(
-  indexHtml,
-  /invoke\("close_html_edit_leave_confirm_overlay_command", \{\s*payload:\s*\{\s*itemId\s*\}\s*\}\)/,
-  "HTML edit leave flow must pass the named Rust payload when closing the child overlay"
-);
-assert.match(
   htmlEditLeaveOverlay[1],
   /throw error;/,
-  "HTML edit leave flow must leave editing active and report a child-overlay attachment failure instead of replacing the host overlay with a DOM or native dialog"
+  "HTML edit leave flow must leave editing active and report a child-overlay attachment failure"
 );
 assert.match(
   indexHtml,
@@ -169,15 +511,52 @@ assert.match(i18n, /leavePrompt: "有未保存的修改"/, "Chinese leave-confir
 assert.match(i18n, /leavePrompt: "Unsaved changes"/, "English leave-confirm title must be translated");
 assert.match(i18n, /discardAndExit: "不保存退出"/, "Chinese leave-confirm discard action must be translated");
 assert.match(i18n, /discardAndExit: "Discard and Exit"/, "English leave-confirm discard action must be translated");
-assert.match(indexHtml, /const width = Math\.min\(456, Math\.max\(360, window\.innerWidth - 32\)\);/, "leave-confirm overlay must reserve enough width for English actions");
 assert.match(htmlEditLeaveConfirm, /width: min\(424px, calc\(100vw - 16px\)\);/, "leave-confirm card must use the wider host bounds");
 assert.match(htmlEditLeaveConfirm, /\.actions \{[\s\S]*flex-wrap: wrap;/, "leave-confirm actions must wrap instead of overflowing on narrow windows");
 
 assert.match(
   htmlEditRuntime,
-  /function editableRichTextElements\(\)[\s\S]*?getAttribute\("data-editable"\) === "rich-text"/,
-  "HTML edit runtime must scan rich-text fields separately from plaintext fields"
+  /function editableRichTextElements\(\)[\s\S]*?isRichEditRole\(editRoleOf\(element\)\)/,
+  "HTML edit runtime must identify rich fields from their role rather than a second conflicting attribute"
 );
+assert.match(
+  htmlEditRuntime,
+  /function editRoleOf\(element\)[\s\S]*?getAttribute\("data-edit-role"\)/,
+  "HTML edit runtime must read each field's explicit edit role"
+);
+assert.match(
+  htmlEditRuntime,
+  /SHORT_FORMAT_COMMANDS[\s\S]*?"bold"[\s\S]*?"italic"[\s\S]*?"align-left"[\s\S]*?"align-center"[\s\S]*?"align-right"/,
+  "short fields must expose only emphasis and alignment commands"
+);
+assert.match(
+  htmlEditRuntime,
+  /function applyInlineFormat\(command\)[\s\S]*?role === "short" \? SHORT_FORMAT_COMMANDS : VALID_FORMAT_COMMANDS\)\.has\(command\)\) return false/,
+  "short fields must reject block and list commands before mutation"
+);
+assert.match(
+  htmlEditRuntime,
+  /function normalizeShortRichTextField\(field\)[\s\S]*?ALLOWED_SHORT_RICH_TAGS/,
+  "short fields must normalize away block and list structure"
+);
+assert.match(
+  htmlEditRuntime,
+  /data-nutbook-edit-role-label[\s\S]*?data-nutbook-editing="rich-text"[\s\S]*?outline:/,
+  "editing fields must expose a visible nontechnical role label and shared edit affordance"
+);
+assert.match(
+  htmlEditRuntime,
+  /editRole: role/,
+  "HTML edit patches must retain the field role for role-aware persistence"
+);
+assert.match(
+  htmlEditRuntime,
+  /const patchRole = change\.editRole \|\| "content"[\s\S]*?patchRole === role/,
+  "legacy role-less rich patches must remain content-only while new patches are role-bound"
+);
+assert.match(richTextFixture, /data-id="article-title"[^>]*data-edit-role="short"|data-edit-role="short"[^>]*data-id="article-title"/, "acceptance fixture must expose a short rich title");
+assert.match(richTextFixture, /data-id="article-body"[^>]*data-edit-role="content"|data-edit-role="content"[^>]*data-id="article-body"/, "acceptance fixture must expose a content rich body");
+assert.match(richTextFixture, /<button[^>]*data-edit-role="short"[^>]*data-id="article-action"/, "acceptance fixture must expose a short rich button");
 assert.match(
   htmlEditRuntime,
   /element\.setAttribute\("contenteditable", type === "rich-text" \? "true" : "plaintext-only"\);/,
@@ -190,9 +569,87 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /function applyFormat\(payload\)[\s\S]*?runtimeSessionId !== STATE\.sessionId[\s\S]*?VALID_FORMAT_COMMANDS[\s\S]*?restoreSavedSelection/,
+  /function onBlur\(\) \{ syncInlineToolbar\(\); \}/,
+  "blur should update only the runtime toolbar without publishing document state"
+);
+assert.match(
+  htmlEditRuntime,
+  /function applyFormat\(payload\)[\s\S]*?runtimeSessionId !== STATE\.sessionId[\s\S]*?VALID_FORMAT_COMMANDS[\s\S]*?applyInlineFormat/,
   "format commands must be session-scoped, restore runtime-owned selection, and be allowlisted"
 );
+assert.match(
+  htmlEditRuntime,
+  /function withRichFieldMutation\(field, mutate\) \{ return commitDocumentMutation\(field, mutate\); \}/,
+  "semantic bold and block formatting must use the canonical runtime-owned mutation transaction"
+);
+assert.match(
+  htmlEditRuntime,
+  /function selectedDirectBlocks\(field, range\)[\s\S]*?function setInlineBlockAlignment\(field, range, align\)[\s\S]*?block\.setAttribute\("style", `text-align:\$\{align\}`\)[\s\S]*?setInlineBlockAlignment\(field, range, command\.slice\(6\)\)/,
+  "content alignment must apply to the selected block range instead of the entire rich-text field"
+);
+assert.match(
+  htmlEditRuntime,
+  /function isAllowedRichAlignmentAttribute\(node, role\)[\s\S]*?\["text-align:left", "text-align:center", "text-align:right"\][\s\S]*?node\.setAttribute\("style", `text-align:\$\{alignment\}`\)/,
+  "runtime rich-text normalization must preserve only canonical block alignment styles"
+);
+assert.match(
+  htmlEditRuntime,
+  /function computeFormatState\(field, range\)[\s\S]*?editRole:\s*editRoleOf\(field\)/,
+  "runtime format state must report the selected field role to the host"
+);
+assert.match(
+  htmlEditRuntime,
+  /function computeFormatState\(field, range\)[\s\S]*?canFormat:\s*!range\.collapsed[\s\S]*?editRole:\s*editRoleOf\(field\)/,
+  "collapsed rich-text selections must keep their role but disable formatting"
+);
+assert.match(
+  htmlEditRuntime,
+  /function updateSavedSelection\(\)[\s\S]*?STATE\.formatState = computeFormatState\(field, range\);/,
+  "a restored rich-text selection must publish its field role and formatting state to the toolbar"
+);
+assert.match(
+  htmlEditRuntime,
+  /function updateSavedSelection\(\)[\s\S]*?if \(!field\) return;/,
+  "switching to the child toolbar must retain the runtime-owned selection until formatting restores it"
+);
+assert.match(
+  htmlEditRuntime,
+  /style\.textContent = '\[data-nutbook-editing\]\{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative\}\[data-nutbook-editing\]:hover\{outline-color:#a99f9f;background:#f3f3f5\}\[data-nutbook-editing\]:focus\{outline-color:#000;box-shadow:0 4px 12px rgba\(26,28,29,\.12\)\}'/,
+  "editing affordances must use the monochrome DESIGN.md dashed outline, off-white hover, black focus, and no visual role badge"
+);
+assert.doesNotMatch(
+  htmlEditRuntime,
+  /\[data-nutbook-editing\]::after|#2d76ff|rgba\(45,118,255/,
+  "editing affordances must not inject blue styling or a pseudo-element role label"
+);
+assert.match(
+  indexHtml,
+  /function acceptHtmlEditDocumentSnapshot\(session, data\)[\s\S]*?data\.formatState && typeof data\.formatState === "object"\) session\.formatState = data\.formatState[\s\S]*?function defaultHtmlEditToolbarFormatState\(\)[\s\S]*?editRole:\s*"plain"/,
+  "host HTML edit sessions must preserve the runtime field role through canonical snapshots"
+);
+assert.match(
+  htmlEditToolbar,
+  /const SHORT_FORMAT_COMMANDS = new Set\(\["bold", "italic", "align-left", "align-center", "align-right"\]\);[\s\S]*?function activeEditRole\(\)[\s\S]*?editRole === "short"/,
+  "toolbar must select the short-text command allowlist from format state"
+);
+assert.match(
+  htmlEditToolbar,
+  /\.format-commands button\[hidden\], \.format-divider\[hidden\] \{ display: none; \}/,
+  "hidden short-text commands must be visually removed even though toolbar buttons use inline-flex"
+);
+assert.match(
+  htmlEditToolbar,
+  /:root\[data-edit-role="short"\] \.toolbar \{ width: min\(352px,[\s\S]*?document\.documentElement\.dataset\.editRole = editRole;/,
+  "toolbar island width must visibly contract for short-text editing without relying on delayed child-webview resizing"
+);
+assert.match(
+  htmlEditToolbar,
+  /formatCommands\.hidden = !isRichTextRole;[\s\S]*?textEditingState\.hidden = isRichTextRole/,
+  "plain-text editing must replace formatting commands with an editing-state label"
+);
+assert.match(i18n, /textEditing: "文本编辑"/, "Chinese plain-text toolbar state must be translated");
+assert.match(i18n, /textEditing: "Text editing"/, "English plain-text toolbar state must be translated");
+assert.match(htmlEditToolbar, /\.\/i18n\.js\?v=20260715-html-edit-roles/, "toolbar must reload its i18n bundle when role state copy changes");
 assert.match(
   htmlEditRuntime,
   /document\.addEventListener\("selectionchange", onSelectionChange, true\);[\s\S]*?document\.addEventListener\("beforeinput", onBeforeInput, true\);/,
@@ -215,12 +672,17 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /compositionstart[\s\S]*?onCompositionStart[\s\S]*?compositionend[\s\S]*?onCompositionEnd[\s\S]*?if \(element\.getAttribute\("data-editable"\) === "rich-text" && !STATE\.composing\) normalizeRichTextField/,
-  "rich IME composition must defer normalization until composition ends"
+  /function onCompositionEnd\(event\) \{[\s\S]*?STATE\.composing = false;[\s\S]*?commitDocumentMutation\(element\)[\s\S]*?function onInput\(event\) \{[\s\S]*?if \(STATE\.composing\) return;/,
+  "rich IME composition must defer its one document transaction until composition ends"
+);
+assert.doesNotMatch(
+  htmlEditRuntime,
+  /skipNextRichInput/,
+  "IME completion must not leave a flag that can swallow the next ordinary input event"
 );
 assert.match(
   htmlEditRuntime,
-  /function richBaselineOf\(element\)[\s\S]*?html:[\s\S]*?textAlign:[\s\S]*?getComputedStyle/,
+  /function richBaselineOf\(element\) \{ return readRichValue\(element\); \}/,
   "rich baselines must include canonical HTML and effective alignment"
 );
 assert.match(
@@ -235,8 +697,8 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /getComputedStyle\(field\)\.textAlign/,
-  "format state must report the effective text alignment instead of inline style only"
+  /getComputedStyle\(blockElement \|\| field\)\.textAlign/,
+  "format state must report the selected block's effective text alignment instead of the entire rich-text field"
 );
 assert.match(
   htmlEditRuntime,
@@ -341,13 +803,81 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /html_edit_state_changed[\s\S]*?session\.selectedDataId = data\.selectedDataId \|\| null;[\s\S]*?session\.formatState = data\.formatState \|\| null;/,
-  "host state must retain runtime-selected field and computed formatting state"
+  /function acceptHtmlEditDocumentSnapshot\(session, data\)[\s\S]*?session\.selectedDataId = data\.selectedDataId \|\| null;[\s\S]*?session\.formatState = data\.formatState;/,
+  "host state must retain runtime-selected field and computed formatting state only through canonical snapshots"
 );
 assert.match(
   indexHtml,
-  /data\?\.action === "format"[\s\S]*?window\.__NUTBOOK_HTML_EDIT__\.applyFormat\([\s\S]*?runtimeSessionId/,
-  "toolbar actions must cross the host boundary only through the active runtime session"
+  /window\.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__[\s\S]*?session\.runtimeSessionId !== data\.runtimeSessionId[\s\S]*?!isCurrentHtmlEditSession\(session\)/,
+  "runtime state must bind its session id to the active host item and generation"
+);
+assert.match(
+  indexHtml,
+  /window\.__NUTBOOK_HANDLE_HTML_EDIT_TOOLBAR_ACTION__[\s\S]*?data\?\.runtimeSessionId !== session\.runtimeSessionId[\s\S]*?Number\(data\?\.generation\) !== session\.generation/,
+  "legacy toolbar actions must still validate runtime session identity before save or Done"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /window\.__NUTBOOK_HANDLE_HTML_EDIT_TOOLBAR_ACTION__[\s\S]*?data\?\.action === "format"/,
+  "format actions must remain inside the runtime WebView rather than crossing the host toolbar boundary"
+);
+assert.match(
+  indexHtml,
+  /attach_html_edit_toolbar_overlay_command[\s\S]*?runtimeSessionId: session\.runtimeSessionId,[\s\S]*?generation: session\.generation,[\s\S]*?formatState: session\.formatState \|\| defaultHtmlEditToolbarFormatState\(\)/,
+  "toolbar sync must forward the current session identity and formatting state"
+);
+assert.match(
+  htmlEditToolbar,
+  /runtimeSessionId: null,[\s\S]*?generation: null,[\s\S]*?state\.runtimeSessionId = next\.runtimeSessionId;[\s\S]*?state\.generation = next\.generation;[\s\S]*?payload\.runtimeSessionId = state\.runtimeSessionId;[\s\S]*?payload\.generation = state\.generation;/,
+  "toolbar actions must retain and emit their runtime session identity"
+);
+assert.match(
+  htmlEditToolbar,
+  /function emitFormatFromPointerDown\(event\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?emit\("format", \{ command \}\);[\s\S]*?button\.addEventListener\("pointerdown", emitFormatFromPointerDown\);/,
+  "format intent must be sent on pointerdown before cross-webview focus loss can hide the toolbar button"
+);
+assert.match(
+  htmlEditToolbar,
+  /const FORMAT_COMMANDS = \[[\s\S]*?command: "bold", key: "htmlEdit\.format\.bold"[\s\S]*?command: "italic", key: "htmlEdit\.format\.italic"[\s\S]*?command: "paragraph", key: "htmlEdit\.format\.paragraph"[\s\S]*?command: "heading-1", key: "htmlEdit\.format\.heading1"[\s\S]*?command: "heading-4", key: "htmlEdit\.format\.heading4"[\s\S]*?command: "align-left", key: "htmlEdit\.format\.alignLeft"[\s\S]*?command: "align-right", key: "htmlEdit\.format\.alignRight"[\s\S]*?command: "unordered-list", key: "htmlEdit\.format\.bulletList"[\s\S]*?command: "ordered-list", key: "htmlEdit\.format\.orderedList"/,
+  "toolbar format commands must use an explicit command-to-i18n mapping"
+);
+assert.match(
+  htmlEditToolbar,
+  /<button[^>]*data-format-command="bold"[^>]*type="button"[^>]*aria-label=""[^>]*title=""[^>]*>[\s\S]*?<svg[\s\S]*?<button[^>]*data-format-command="ordered-list"[^>]*type="button"[^>]*aria-label=""[^>]*title=""[^>]*>[\s\S]*?<svg/,
+  "toolbar must provide inline-SVG, accessible buttons from bold through ordered list"
+);
+assert.match(
+  htmlEditToolbar,
+  /state\.formatState = next\.formatState \|\| defaultFormatState\(\);[\s\S]*?button\.disabled = !canFormat;[\s\S]*?button\.setAttribute\("aria-pressed", String\(isActive\)\);[\s\S]*?emit\("format", \{ command \}\);/,
+  "format controls must follow runtime availability and active state, then emit a format action"
+);
+assert.match(
+  htmlEditToolbar,
+  /\.format-commands \{[\s\S]*?overflow-x: auto;[\s\S]*?\.actions \{[\s\S]*?flex: 0 0 auto;/,
+  "narrow toolbar format commands must scroll while save and done remain visible"
+);
+assert.match(
+  htmlEditToolbar,
+  /htmlEdit\.format\.formatUnavailable/,
+  "disabled format controls must expose the unavailable-format explanation"
+);
+for (const key of [
+  "bold", "italic", "paragraph", "heading1", "heading2", "heading3", "heading4",
+  "alignLeft", "alignCenter", "alignRight", "bulletList", "orderedList", "formatUnavailable"
+]) {
+  assert.match(i18n, new RegExp(`htmlEdit: \\{[\\s\\S]*?format: \\{[\\s\\S]*?${key}:`), `Chinese HTML edit format key ${key} should exist`);
+  const englishHtmlEdit = i18n.slice(i18n.indexOf('toolbar: "HTML Edit Toolbar"'));
+  assert.match(englishHtmlEdit, new RegExp(`format: \\{[\\s\\S]*?${key}:`), `English HTML edit format key ${key} should exist`);
+}
+assert.match(
+  indexHtml,
+  /function htmlEditToolbarBounds\(formatState\) \{[\s\S]*?formatState\?\.editRole === "content" \? 640 : formatState\?\.editRole === "short" \? 360 : 260;[\s\S]*?Math\.min\(preferredWidth, window\.innerWidth - 16\)[\s\S]*?const height = 56;/,
+  "HTML edit toolbar bounds must adapt to the selected field's command set while remaining a compact island"
+);
+assert.match(
+  htmlEditToolbar,
+  /\.toolbar \{[\s\S]*?width: min\(632px, calc\(100vw - 8px\)\);[\s\S]*?\.format-commands \{[\s\S]*?overflow-x: auto;[\s\S]*?\.actions \{[\s\S]*?flex: 0 0 auto;/,
+  "wide toolbars must show the full command set, while narrow toolbars preserve visible save and done actions"
 );
 assert.doesNotMatch(
   indexHtml,

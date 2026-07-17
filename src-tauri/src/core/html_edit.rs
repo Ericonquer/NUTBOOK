@@ -9,7 +9,7 @@ use std::{
 use crate::errors::AppError;
 use crate::models::{
     HtmlEditChange, HtmlEditFieldApplyReason, HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus,
-    HtmlEditPatch, HtmlEditPatchApplyStatus,
+    HtmlEditPatch, HtmlEditPatchApplyStatus, HtmlEditRole,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -209,6 +209,19 @@ fn field_apply_results_for_patch(
 pub fn save_html_edit_patch_for_file(
     save: &HtmlEditPatchSave,
 ) -> Result<HtmlEditPatchSaveResponse, AppError> {
+    save_html_edit_patch_with_mode_for_file(save, false)
+}
+
+pub fn save_html_edit_patch_replacing_changes_for_file(
+    save: &HtmlEditPatchSave,
+) -> Result<HtmlEditPatchSaveResponse, AppError> {
+    save_html_edit_patch_with_mode_for_file(save, true)
+}
+
+fn save_html_edit_patch_with_mode_for_file(
+    save: &HtmlEditPatchSave,
+    replace_changes: bool,
+) -> Result<HtmlEditPatchSaveResponse, AppError> {
     validate_artifact_edit_id(&save.artifact_edit_id)?;
 
     let source_relative_path = library_relative_path(&save.library_root, &save.file_path)?;
@@ -259,7 +272,9 @@ pub fn save_html_edit_patch_for_file(
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
 
-    let changes = if let Some(patch) = current_patch {
+    let changes = if replace_changes {
+        normalized_save_changes
+    } else if let Some(patch) = current_patch {
         let mut changes = patch.changes;
         changes.extend(normalized_save_changes);
         changes
@@ -316,10 +331,20 @@ pub fn normalize_rich_text_change(change: &HtmlEditChange) -> Result<HtmlEditCha
         if change.html.is_some() || change.text_align.is_some() {
             return Err(AppError::InvalidParams);
         }
+        if matches!(
+            change.edit_role.as_ref(),
+            Some(HtmlEditRole::Short | HtmlEditRole::Content)
+        ) {
+            return Err(AppError::InvalidParams);
+        }
         return Ok(change.clone());
     }
 
     if change.text.is_some() || change.src.is_some() || change.alt.is_some() {
+        return Err(AppError::InvalidParams);
+    }
+    let role = change.edit_role.clone().unwrap_or(HtmlEditRole::Content);
+    if matches!(&role, HtmlEditRole::Plain) {
         return Err(AppError::InvalidParams);
     }
     let html = change
@@ -327,10 +352,11 @@ pub fn normalize_rich_text_change(change: &HtmlEditChange) -> Result<HtmlEditCha
         .as_deref()
         .filter(|html| !html.trim().is_empty())
         .ok_or(AppError::InvalidParams)?;
-    if rich_text_contains_disallowed_markup(html) {
+    let allowed_tags = rich_text_allowed_tags(&role);
+    if rich_text_contains_disallowed_markup(html, allowed_tags) {
         return Err(AppError::InvalidParams);
     }
-    let cleaned = clean_rich_text_html(html);
+    let cleaned = clean_rich_text_html(html, allowed_tags);
     if cleaned != html {
         return Err(AppError::InvalidParams);
     }
@@ -340,7 +366,17 @@ pub fn normalize_rich_text_change(change: &HtmlEditChange) -> Result<HtmlEditCha
     Ok(normalized)
 }
 
-fn rich_text_contains_disallowed_markup(html: &str) -> bool {
+fn rich_text_allowed_tags(role: &HtmlEditRole) -> &'static [&'static str] {
+    match role {
+        HtmlEditRole::Short => &["br", "strong", "em"],
+        HtmlEditRole::Content => &[
+            "p", "br", "strong", "em", "h1", "h2", "h3", "h4", "ul", "ol", "li",
+        ],
+        HtmlEditRole::Plain => &[],
+    }
+}
+
+fn rich_text_contains_disallowed_markup(html: &str, allowed_tags: &[&str]) -> bool {
     let mut remaining = html;
     while let Some(start) = remaining.find('<') {
         let after_open = &remaining[start + 1..];
@@ -354,12 +390,11 @@ fn rich_text_contains_disallowed_markup(html: &str) -> bool {
             .find(|character: char| !character.is_ascii_alphanumeric())
             .unwrap_or(tag.len());
         let (name, suffix) = tag.split_at(name_end);
-        if !["p", "br", "strong", "em", "h1", "h2", "h3", "h4", "ul", "ol", "li"]
-            .contains(&name.to_ascii_lowercase().as_str())
-        {
+        let name = name.to_ascii_lowercase();
+        if !allowed_tags.contains(&name.as_str()) {
             return true;
         }
-        if !suffix.trim().is_empty() && suffix.trim() != "/" {
+        if !rich_text_attribute_is_allowed(&name, suffix.trim()) {
             return true;
         }
         remaining = &after_open[end + 1..];
@@ -367,16 +402,39 @@ fn rich_text_contains_disallowed_markup(html: &str) -> bool {
     false
 }
 
-fn clean_rich_text_html(html: &str) -> String {
-    let allowed_tags = ["p", "br", "strong", "em", "h1", "h2", "h3", "h4", "ul", "ol", "li"]
-        .into_iter()
+fn rich_text_attribute_is_allowed(tag: &str, suffix: &str) -> bool {
+    if suffix.is_empty() || suffix == "/" {
+        return true;
+    }
+    if !matches!(tag, "p" | "h1" | "h2" | "h3" | "h4") {
+        return false;
+    }
+    matches!(
+        suffix,
+        "style=\"text-align:left\""
+            | "style=\"text-align:center\""
+            | "style=\"text-align:right\""
+    )
+}
+
+fn clean_rich_text_html(html: &str, allowed_tags: &[&str]) -> String {
+    let allowed_tags = allowed_tags
+        .iter()
+        .copied()
         .collect::<HashSet<_>>();
-    ammonia::Builder::default()
+    let mut builder = ammonia::Builder::default();
+    let supports_block_alignment = allowed_tags.contains(&"p");
+    builder
         .tags(allowed_tags)
         .generic_attributes(HashSet::new())
-        .tag_attributes(HashMap::new())
-        .clean(html)
-        .to_string()
+        .tag_attributes(HashMap::new());
+    if supports_block_alignment {
+        for tag in ["p", "h1", "h2", "h3", "h4"] {
+            builder.add_tag_attributes(tag, &["style"]);
+        }
+        builder.filter_style_properties(HashSet::from(["text-align"]));
+    }
+    builder.clean(html).to_string()
 }
 
 pub fn normalize_existing_root(path: &Path) -> Result<PathBuf, AppError> {

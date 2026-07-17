@@ -5001,6 +5001,8 @@
         htmlEditDirtyLeaveIntent: null,
         htmlEditLeavePromptOpen: false,
         htmlEditMarkSavedWaiters: new Map(),
+        htmlEditStateRefreshWaiters: new Map(),
+        htmlEditCleanRevisionWaiters: new Map(),
         activeLibraryId: null,
         activeTabId: null,
         activeTagFilterIds: [],
@@ -6079,20 +6081,142 @@
         });
       }
 
+      // NUTBOOK_HTML_EDIT_DOCUMENT_STATE_START
+      function stableHtmlEditJson(value) {
+        const normalize = (entry) => {
+          if (Array.isArray(entry)) return entry.map(normalize);
+          if (!entry || typeof entry !== "object") return entry;
+          const sorted = {};
+          for (const key of Object.keys(entry).sort()) sorted[key] = normalize(entry[key]);
+          return sorted;
+        };
+        return JSON.stringify(normalize(value));
+      }
+
+      function htmlEditDocumentStateKey(data) {
+        return `${data.dirty ? "1" : "0"}:${stableHtmlEditJson(data.changes)}`;
+      }
+
+      function isCompleteHtmlEditDocumentSnapshot(data) {
+        if (!Number.isInteger(data?.documentRevision) || data.documentRevision < 0) return false;
+        if (typeof data.dirty !== "boolean" || !data.changes || typeof data.changes !== "object" || Array.isArray(data.changes)) return false;
+        if (data.dirty !== (Object.keys(data.changes).length > 0)) return false;
+        return data.documentRevision !== 0 || (!data.dirty && Object.keys(data.changes).length === 0);
+      }
+
+      function acceptHtmlEditDocumentSnapshot(session, data) {
+        if (!isCompleteHtmlEditDocumentSnapshot(data)) return false;
+        if (data.documentRevision < session.documentRevision) return false;
+        const incomingKey = htmlEditDocumentStateKey(data);
+        if (data.documentRevision === session.documentRevision && incomingKey !== session.documentStateKey) return false;
+        session.documentRevision = data.documentRevision;
+        session.documentStateKey = incomingKey;
+        session.dirty = data.dirty;
+        session.changes = data.changes;
+        if (Object.prototype.hasOwnProperty.call(data, "selectedDataId")) session.selectedDataId = data.selectedDataId || null;
+        if (data.formatState && typeof data.formatState === "object") session.formatState = data.formatState;
+        return true;
+      }
+
+      function applyHtmlEditDoneSnapshot(session, data) {
+        const revision = data?.documentRevision;
+        if (!Number.isInteger(revision)) return { action: "refresh", minimumRevision: session.documentRevision, protocolError: true };
+        if (revision < session.documentRevision) return { action: "use-current" };
+        if (revision === session.documentRevision) return { action: "use-current", protocolError: !acceptHtmlEditDocumentSnapshot(session, data) };
+        if (acceptHtmlEditDocumentSnapshot(session, data)) return { action: "accepted" };
+        return { action: "refresh", minimumRevision: revision, protocolError: true };
+      }
+
+      function isHtmlEditCleanRevisionSatisfied(session, minimumRevision) {
+        return Boolean(session) && session.dirty === false && Number.isInteger(session.documentRevision) && session.documentRevision >= minimumRevision;
+      }
+
+      function htmlEditLeaveRequiresSave(session) {
+        return Boolean(session?.dirty || session?.requiresPatchReconciliation);
+      }
+
+      function canProceedHtmlEditLeaveAfterSnapshotRefresh(session, refreshed) {
+        return Boolean(refreshed || htmlEditLeaveRequiresSave(session));
+      }
+
+      function markHtmlEditPatchOutOfSync(session, savedChangesJson) {
+        if (!session || stableHtmlEditJson(session.changes || {}) === savedChangesJson) return false;
+        session.requiresPatchReconciliation = true;
+        return true;
+      }
+
+      function mergeHtmlEditPatchChanges(persistedChanges, deltaChanges) {
+        return { ...(persistedChanges || {}), ...(deltaChanges || {}) };
+      }
+      // NUTBOOK_HTML_EDIT_DOCUMENT_STATE_END
+
       function htmlEditLeaveConfirmBounds() {
-        const width = Math.min(456, Math.max(360, window.innerWidth - 32));
-        const height = 216;
         return {
-          x: Math.max(0, Math.round((window.innerWidth - width) / 2)),
-          y: Math.max(0, Math.round((window.innerHeight - height) / 2)),
-          width,
-          height
+          x: 0,
+          y: 0,
+          width: window.innerWidth,
+          height: window.innerHeight
         };
       }
 
       function closeHtmlEditLeaveConfirmOverlay(itemId) {
         if (itemId == null) return;
         invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+      }
+
+      function htmlEditStateRefreshWaiterKey(runtimeSessionId, requestId) {
+        return `${runtimeSessionId}:${requestId}`;
+      }
+
+      function htmlEditRuntimeSnapshotScript(runtimeSessionId, requestId) {
+        return `(function () {
+          window.setTimeout(function () {
+            try {
+              if (window.__NUTBOOK_HTML_EDIT__?.reportState) {
+                window.__NUTBOOK_HTML_EDIT__.reportState({ requestId: ${JSON.stringify(requestId)} });
+                return;
+              }
+              document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
+                type: "html_edit_state_snapshot",
+                runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                requestId: ${JSON.stringify(requestId)},
+                runtimeSnapshotMissing: true
+              });
+            } catch (error) {
+              document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
+                type: "html_edit_state_snapshot_error",
+                runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                requestId: ${JSON.stringify(requestId)},
+                error: String(error?.message || error || "unknown")
+              });
+            }
+          }, 0);
+        })();`;
+      }
+
+      async function refreshHtmlEditRuntimeState(session, minimumRevision = session?.documentRevision ?? 0) {
+        if (!session) return false;
+        const runtimeSessionId = session.runtimeSessionId;
+        const requestId = `leave-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const key = htmlEditStateRefreshWaiterKey(runtimeSessionId, requestId);
+        return new Promise((resolve) => {
+          const finish = (refreshed) => {
+            appState.htmlEditStateRefreshWaiters.delete(key);
+            resolve(Boolean(refreshed));
+          };
+          const timeoutId = window.setTimeout(() => finish(false), 500);
+          appState.htmlEditStateRefreshWaiters.set(key, (accepted = false, revision = -1) => {
+            window.clearTimeout(timeoutId);
+            finish(accepted && revision >= minimumRevision);
+          });
+          invoke("eval_html_runtime_script_command", {
+            itemId: session.itemId,
+            script: htmlEditRuntimeSnapshotScript(runtimeSessionId, requestId)
+          }).catch(() => {
+            window.clearTimeout(timeoutId);
+            finish(false);
+          });
+        });
       }
 
       function resolveHtmlEditLeaveChoice(choice, runtimeSessionId = "") {
@@ -6192,10 +6316,11 @@
         return promise;
       }
 
-      async function confirmHtmlEditLeaveIfNeeded(tabId = appState.activeTabId) {
+      async function confirmHtmlEditLeaveIfNeeded(tabId = appState.activeTabId, options = {}) {
         const session = appState.htmlEditSession;
         if (!session || session.itemId !== tabId) return true;
-        if (!session.dirty) {
+        if (appState.htmlEditSession?.runtimeSessionId !== session.runtimeSessionId) return true;
+        if (!htmlEditLeaveRequiresSave(session)) {
           await exitHtmlEditMode({ runtimeSessionId: session.runtimeSessionId, discard: false });
           return true;
         }
@@ -6317,6 +6442,18 @@
         return appState.htmlEditSessionGeneration;
       }
 
+      function defaultHtmlEditToolbarFormatState() {
+        return {
+          canFormat: false,
+          bold: false,
+          italic: false,
+          block: "paragraph",
+          textAlign: "left",
+          list: null,
+          editRole: "plain"
+        };
+      }
+
       function isHtmlEditEnterCurrent(itemId, generation) {
         return appState.htmlEditSessionGeneration === generation && getActiveTab()?.id === itemId;
       }
@@ -6345,6 +6482,10 @@
         return htmlEditRuntimeScriptCache;
       }
 
+      function usesInlineHtmlEditToolbarForSession(session) {
+        return Boolean(session?.inlineToolbar);
+      }
+
       async function injectHtmlEditRuntime(itemId, runtimeSessionId, patchResponse, isCurrent) {
         if (!isCurrent()) return false;
         const runtimeScript = await loadHtmlEditRuntimeScript();
@@ -6371,7 +6512,9 @@
                   patch: patchResponse.patch || null,
                   patchApplyStatus: patchResponse.patchApplyStatus,
                   fieldApplyResults: patchResponse.fieldApplyResults || {},
-                  patchRevision: patchResponse.patchRevision || 0
+                  patchRevision: patchResponse.patchRevision || 0,
+                  inlineToolbar: Boolean(appState.htmlEditSession?.runtimeSessionId === runtimeSessionId && usesInlineHtmlEditToolbarForSession(appState.htmlEditSession)),
+                  locale: appState.language
                 })});
                 if (window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ === ${JSON.stringify(runtimeSessionId)}) {
                   window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
@@ -6423,12 +6566,17 @@
           patchRevision: response.patchRevision || 0,
           generation,
           state: "editing",
+          documentRevision: 0,
+          documentStateKey: htmlEditDocumentStateKey({ dirty: false, changes: {} }),
           dirty: false,
           changes: {},
           selectedDataId: null,
-          formatState: null,
+          formatState: defaultHtmlEditToolbarFormatState(),
           saveInFlight: null,
-          shortcutsIntercepted: false
+          requiresPatchReconciliation: false,
+          persistedChanges: response.patch?.changes && typeof response.patch.changes === "object" ? structuredClone(response.patch.changes) : {},
+          shortcutsIntercepted: false,
+          inlineToolbar: true
         };
         const session = appState.htmlEditSession;
         const isCurrent = () => isCurrentHtmlEditSession(session);
@@ -6458,8 +6606,9 @@
         }
       }
 
-      function htmlEditToolbarBounds() {
-        const width = 260;
+      function htmlEditToolbarBounds(formatState) {
+        const preferredWidth = formatState?.editRole === "content" ? 640 : formatState?.editRole === "short" ? 360 : 260;
+        const width = Math.max(0, Math.min(preferredWidth, window.innerWidth - 16));
         const height = 56;
         return {
           x: Math.max(0, Math.round((window.innerWidth - width) / 2)),
@@ -6493,6 +6642,11 @@
         const session = appState.htmlEditSession;
         if (!session) return;
         const isCurrent = (options) => isCurrentHtmlEditSession(session, options);
+        if (usesInlineHtmlEditToolbarForSession(session)) {
+          await invoke("close_html_edit_toolbar_overlay_command", { itemId: session.itemId }).catch(() => false);
+          if (isCurrent({ requireActive: false })) appState.htmlEditToolbarVisible = false;
+          return;
+        }
         if (getActiveTab()?.id !== session.itemId) {
           if (appState.htmlEditToolbarVisible) {
             if (!isCurrent({ requireActive: false })) return;
@@ -6511,8 +6665,12 @@
         if (!isCurrent()) return;
         await invoke("attach_html_edit_toolbar_overlay_command", {
           itemId: session.itemId,
-          bounds: htmlEditToolbarBounds(),
-          dirty: Boolean(session.dirty)
+          bounds: htmlEditToolbarBounds(session.formatState),
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          dirty: Boolean(session.dirty),
+          selectedDataId: session.selectedDataId || null,
+          formatState: session.formatState || defaultHtmlEditToolbarFormatState()
         });
         if (!isCurrent()) {
           await closeStaleHtmlEditToolbar(session.itemId);
@@ -6539,17 +6697,46 @@
         });
       }
 
+      function cancelHtmlEditCleanRevisionWaiter(runtimeSessionId) {
+        const waiter = appState.htmlEditCleanRevisionWaiters.get(runtimeSessionId);
+        if (!waiter) return;
+        appState.htmlEditCleanRevisionWaiters.delete(runtimeSessionId);
+        window.clearTimeout(waiter.timeoutId);
+        waiter.resolve(null);
+      }
+
+      function waitForHtmlEditCleanRevision(runtimeSessionId, minimumRevision) {
+        cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
+        let resolvePromise = () => {};
+        const promise = new Promise((resolve) => { resolvePromise = resolve; });
+        const waiter = {
+          minimumRevision,
+          resolve: resolvePromise,
+          timeoutId: window.setTimeout(() => cancelHtmlEditCleanRevisionWaiter(runtimeSessionId), 1200)
+        };
+        appState.htmlEditCleanRevisionWaiters.set(runtimeSessionId, waiter);
+        return { promise, cancel: () => cancelHtmlEditCleanRevisionWaiter(runtimeSessionId) };
+      }
+
+      function resolveHtmlEditCleanRevisionWaiter(session) {
+        const waiter = appState.htmlEditCleanRevisionWaiters.get(session?.runtimeSessionId);
+        if (!waiter || !isHtmlEditCleanRevisionSatisfied(session, waiter.minimumRevision)) return;
+        appState.htmlEditCleanRevisionWaiters.delete(session.runtimeSessionId);
+        window.clearTimeout(waiter.timeoutId);
+        waiter.resolve(session.documentRevision);
+      }
+
       async function saveActiveHtmlEditPatch() {
         const session = appState.htmlEditSession;
         if (!session) return htmlEditSaveResult();
-        if (!session.dirty) return htmlEditSaveResult({ saved: true, canLeave: true });
+        if (!htmlEditLeaveRequiresSave(session)) return htmlEditSaveResult({ saved: true, canLeave: true });
         if (session.saveInFlight) return session.saveInFlight;
         const runtimeSessionId = session.runtimeSessionId;
         const generation = session.generation;
-        const savedChangesJson = JSON.stringify(session.changes || {});
-        const savedChanges = typeof structuredClone === "function"
-          ? structuredClone(session.changes || {})
-          : JSON.parse(savedChangesJson);
+        const savedChangesJson = stableHtmlEditJson(session.changes || {});
+        const replaceChanges = Boolean(session.requiresPatchReconciliation);
+        const candidatePersistedChanges = mergeHtmlEditPatchChanges(session.persistedChanges, session.changes);
+        const changesForSave = replaceChanges ? candidatePersistedChanges : session.changes || {};
         let savePromise;
         savePromise = (async () => {
           try {
@@ -6560,7 +6747,8 @@
               expectedFileHash: session.sourceFileHash,
               expectedModifiedAt: session.sourceModifiedAt,
               expectedPatchRevision: session.patchRevision,
-              changes: savedChanges
+              replaceChanges,
+              changes: changesForSave
             });
             if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
               return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
@@ -6568,61 +6756,66 @@
             session.patchRevision = result.patchRevision ?? (session.patchRevision + 1);
             session.sourceFileHash = result.sourceFileHash ?? session.sourceFileHash;
             session.sourceModifiedAt = result.sourceModifiedAt ?? session.sourceModifiedAt;
-            const currentChangesMatch = JSON.stringify(session.changes || {}) === savedChangesJson;
-            if (!currentChangesMatch) {
+            if (markHtmlEditPatchOutOfSync(session, savedChangesJson)) {
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
               await syncHtmlEditToolbar();
               return htmlEditSaveResult({ saved: true, canLeave: false });
             }
-            session.dirty = false;
-            session.changes = {};
-            await syncHtmlEditToolbar();
+            const preMarkSavedRevision = session.documentRevision;
             const markSavedRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const markSavedResult = waitForHtmlEditMarkSavedResult(runtimeSessionId, markSavedRequestId);
-            await invoke("eval_html_runtime_script_command", {
-              itemId: session.itemId,
-              script: `
-                (function () {
-                  var runtimeSessionId = ${JSON.stringify(runtimeSessionId)};
-                  var requestId = ${JSON.stringify(markSavedRequestId)};
-                  var saved = false;
-                  try {
-                    if (window.__NUTBOOK_HTML_EDIT__) {
-                      saved = Boolean(window.__NUTBOOK_HTML_EDIT__.markSaved(${JSON.stringify({ runtimeSessionId, expectedChangesJson: savedChangesJson })}));
+            const cleanRevisionWaiter = waitForHtmlEditCleanRevision(runtimeSessionId, preMarkSavedRevision + 1);
+            try {
+              await invoke("eval_html_runtime_script_command", {
+                itemId: session.itemId,
+                script: `
+                  (function () {
+                    var runtimeSessionId = ${JSON.stringify(runtimeSessionId)};
+                    var requestId = ${JSON.stringify(markSavedRequestId)};
+                    var saved = false;
+                    try {
+                      if (window.__NUTBOOK_HTML_EDIT__) {
+                        saved = Boolean(window.__NUTBOOK_HTML_EDIT__.markSaved(${JSON.stringify({ runtimeSessionId, expectedChangesJson: savedChangesJson })}));
+                      }
+                    } catch (_) {
+                      saved = false;
                     }
-                  } catch (_) {
-                    saved = false;
-                  }
-                  var previousTitle = document.title;
-                  var messageTitle = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
-                    type: "html_edit_mark_saved_result",
-                    runtimeSessionId: runtimeSessionId,
-                    requestId: requestId,
-                    saved: saved
-                  });
-                  document.title = messageTitle;
-                  setTimeout(function () {
-                    if (document.title === messageTitle) {
-                      document.title = previousTitle;
+                    if (window.__NUTBOOK_HTML_EDIT__?.emitHostMessage) {
+                      window.__NUTBOOK_HTML_EDIT__.emitHostMessage({
+                        type: "html_edit_mark_saved_result",
+                        runtimeSessionId: runtimeSessionId,
+                        requestId: requestId,
+                        saved: saved
+                      });
                     }
-                  }, 80);
-                })();
-              `
-            });
+                  })();
+                `
+              });
+            } catch (error) {
+              cleanRevisionWaiter.cancel();
+              throw error;
+            }
             const markSavedOk = await markSavedResult;
             if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
+              cleanRevisionWaiter.cancel();
               return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
             }
             if (!markSavedOk) {
-              setStatus(t("htmlEdit.saved"), "ok");
-              await syncHtmlEditToolbar();
-              return htmlEditSaveResult({ saved: true, canLeave: true });
-            }
-            if (session.dirty) {
+              cleanRevisionWaiter.cancel();
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
               await syncHtmlEditToolbar();
               return htmlEditSaveResult({ saved: true, canLeave: false });
             }
+            const cleanRevision = await cleanRevisionWaiter.promise;
+            if (cleanRevision == null || session.documentRevision !== cleanRevision || session.dirty) {
+              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              await syncHtmlEditToolbar();
+              return htmlEditSaveResult({ saved: true, canLeave: false });
+            }
+            session.requiresPatchReconciliation = false;
+            session.persistedChanges = result.normalizedChanges && typeof result.normalizedChanges === "object"
+              ? structuredClone(result.normalizedChanges)
+              : candidatePersistedChanges;
             setStatus(t("htmlEdit.saved"), "ok");
             await syncHtmlEditToolbar();
             return htmlEditSaveResult({ saved: true, canLeave: true });
@@ -6648,6 +6841,7 @@
         const discard = Boolean(options.discard);
         if (session.itemId !== itemId) return;
         if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
+        cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
         nextHtmlEditSessionGeneration();
         appState.htmlEditToolbarSyncPending = false;
         try {
@@ -6678,7 +6872,7 @@
         if (!data || typeof data !== "object") return;
         const session = appState.htmlEditSession;
         if (!session || session.runtimeSessionId !== data.runtimeSessionId) return;
-        if (appState.htmlEditSessionGeneration !== session.generation) return;
+        if (!isCurrentHtmlEditSession(session)) return;
         if (data.type === "html_edit_ready") {
           if (Array.isArray(data.duplicates) && data.duplicates.length) {
             setStatus(t("htmlEdit.duplicateDataId"), "error");
@@ -6699,11 +6893,23 @@
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
         }
-        if (data.type === "html_edit_state_changed") {
-          session.dirty = Boolean(data.dirty);
-          session.changes = data.changes || {};
-          session.selectedDataId = data.selectedDataId || null;
-          session.formatState = data.formatState || null;
+        if (data.type === "html_edit_document_changed") {
+          if (!acceptHtmlEditDocumentSnapshot(session, data)) return;
+          resolveHtmlEditCleanRevisionWaiter(session);
+          syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_state_snapshot") {
+          const key = htmlEditStateRefreshWaiterKey(data.runtimeSessionId, data.requestId || "");
+          const resolveStateRefresh = appState.htmlEditStateRefreshWaiters.get(key);
+          if (data.runtimeSnapshotMissing) {
+            if (resolveStateRefresh) resolveStateRefresh(false, -1);
+            return;
+          }
+          const accepted = acceptHtmlEditDocumentSnapshot(session, data);
+          if (resolveStateRefresh) resolveStateRefresh(accepted, accepted ? session.documentRevision : -1);
+          if (!accepted) return;
+          resolveHtmlEditCleanRevisionWaiter(session);
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
         }
@@ -6718,6 +6924,22 @@
         }
         if (data.type === "html_edit_save_requested_from_runtime") {
           saveActiveHtmlEditPatch().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_done_requested_from_runtime") {
+          const done = applyHtmlEditDoneSnapshot(session, data);
+          if (done.protocolError) console.warn("[html-edit] rejected Done document snapshot", { itemId: session.itemId, generation: session.generation, runtimeSessionId: session.runtimeSessionId, documentRevision: data.documentRevision });
+          const proceed = async () => {
+            if (done.action === "refresh") {
+              const refreshed = await refreshHtmlEditRuntimeState(session, done.minimumRevision);
+              if (!canProceedHtmlEditLeaveAfterSnapshotRefresh(session, refreshed)) {
+                setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+                return;
+              }
+            }
+            await confirmHtmlEditLeaveIfNeeded(session.itemId, { source: "runtime-done" });
+          };
+          proceed().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
         }
       };
 
@@ -6726,6 +6948,8 @@
         if (!session) return;
         if (appState.htmlEditSessionGeneration !== session.generation) return;
         if (Number(data?.itemId) !== session.itemId) return;
+        if (data?.runtimeSessionId !== session.runtimeSessionId) return;
+        if (Number(data?.generation) !== session.generation) return;
         if (data?.action === "save") {
           saveActiveHtmlEditPatch().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
@@ -6734,22 +6958,6 @@
           confirmHtmlEditLeaveIfNeeded(session.itemId)
             .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
-        }
-        if (data?.action === "format" && typeof data?.command === "string") {
-          const runtimeSessionId = session.runtimeSessionId;
-          const generation = session.generation;
-          invoke("eval_html_runtime_script_command", {
-            itemId: session.itemId,
-            script: `(function () {
-              if (window.__NUTBOOK_HTML_EDIT__) {
-                window.__NUTBOOK_HTML_EDIT__.applyFormat(${JSON.stringify({ runtimeSessionId, command: data.command })});
-              }
-            })();`
-          }).then(() => {
-            if (appState.htmlEditSession === session && session.generation === generation && session.runtimeSessionId === runtimeSessionId) {
-              syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
-            }
-          }).catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
         }
       };
 
@@ -6760,6 +6968,25 @@
         if (choice !== "keep" && choice !== "discard" && choice !== "save") return;
         resolveHtmlEditLeaveChoice(choice, intent.runtimeSessionId);
         if (choice === "keep") syncHtmlEditToolbar().catch(() => {});
+      };
+
+      let htmlEditAppExitRequestInFlight = false;
+      window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__ = function requestHtmlEditAppExit() {
+        if (htmlEditAppExitRequestInFlight) return;
+        htmlEditAppExitRequestInFlight = true;
+        const session = appState.htmlEditSession;
+        const leave = session
+          ? confirmHtmlEditLeaveIfNeeded(session.itemId, { source: "app-exit" })
+          : Promise.resolve(true);
+        leave
+          .then((canExit) => {
+            if (!canExit) return false;
+            return invoke("finalize_html_edit_app_exit_command");
+          })
+          .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"))
+          .finally(() => {
+            htmlEditAppExitRequestInFlight = false;
+          });
       };
 
       function normalizeMarkdownSelectionText(value) {

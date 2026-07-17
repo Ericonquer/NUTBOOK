@@ -404,6 +404,7 @@
     let actionSequence = 0;
     let actionQueue = [];
     let actionQueueRunning = false;
+    let lastEditActivationAt = 0;
     let fullscreenHintFadeTimer = null;
     let fullscreenHintHideTimer = null;
     let lastCreateTagAt = 0;
@@ -706,14 +707,24 @@
       activatePresentationMode(e);
     }
 
-    els.editButton.addEventListener("click", function(e) {
-      e.preventDefault();
-      e.stopPropagation();
+    function activateEditMode(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      const now = Date.now();
+      if (now - lastEditActivationAt < 180) return;
+      lastEditActivationAt = now;
       state.menuOpen = false;
       refresh();
       clearMenuAutoClose();
       emitLayout();
       emit({ action: "edit" });
+    }
+    els.editButton.addEventListener("pointerdown", activateEditMode);
+    els.editButton.addEventListener("click", function(e) {
+      if (e.detail === 0) activateEditMode(e);
+      else { e.preventDefault(); e.stopPropagation(); }
     });
     els.presentationButton.addEventListener("pointerdown", activatePresentationMode);
     els.presentationButton.addEventListener("click", activatePresentationMode);

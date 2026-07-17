@@ -306,6 +306,18 @@ pub struct RuntimeHostBounds {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct HtmlEditToolbarFormatState {
+    pub can_format: bool,
+    pub bold: bool,
+    pub italic: bool,
+    pub block: String,
+    pub text_align: String,
+    pub list: Option<String>,
+    pub edit_role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachHtmlRuntimeHostRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
@@ -329,7 +341,11 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
 pub struct AttachHtmlEditToolbarOverlayRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
+    pub runtime_session_id: String,
+    pub generation: u64,
     pub dirty: bool,
+    pub selected_data_id: Option<String>,
+    pub format_state: HtmlEditToolbarFormatState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

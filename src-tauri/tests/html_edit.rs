@@ -1,11 +1,11 @@
 use nutbook_backend::core::html_edit::{
     get_html_edit_patch_for_file, library_relative_path, load_html_edit_manifest,
     normalize_rich_text_change, patch_path, save_html_edit_manifest,
-    save_html_edit_patch_for_file, save_patch_file, HtmlEditManifest, HtmlEditManifestEntry,
+    save_html_edit_patch_for_file, save_html_edit_patch_replacing_changes_for_file, save_patch_file, HtmlEditManifest, HtmlEditManifestEntry,
     HtmlEditPatchLookup, HtmlEditPatchSave,
 };
 use nutbook_backend::errors::AppError;
-use nutbook_backend::models::html_edit::HtmlEditTextAlign;
+use nutbook_backend::models::html_edit::{HtmlEditRole, HtmlEditTextAlign};
 use nutbook_backend::models::{
     HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason, HtmlEditFieldApplyStatus,
     HtmlEditPatch, HtmlEditPatchApplyStatus,
@@ -34,6 +34,7 @@ fn html_edit_patch_model_serializes_text_change() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -76,6 +77,7 @@ fn html_edit_patch_model_serializes_rich_text_change() {
             alt: None,
             html: Some("<p><strong>Bold</strong> copy</p>".to_string()),
             text_align: Some(HtmlEditTextAlign::Center),
+            edit_role: Some(HtmlEditRole::Content),
         },
     );
 
@@ -83,6 +85,7 @@ fn html_edit_patch_model_serializes_rich_text_change() {
     assert!(json.contains("\"type\":\"rich_text\""));
     assert!(json.contains("\"html\":\"<p><strong>Bold</strong> copy</p>\""));
     assert!(json.contains("\"textAlign\":\"center\""));
+    assert!(json.contains("\"editRole\":\"content\""));
 }
 
 #[test]
@@ -104,10 +107,85 @@ fn html_edit_rejects_rich_text_with_disallowed_markup() {
             alt: None,
             html: Some(html.to_string()),
             text_align: Some(HtmlEditTextAlign::Center),
+            edit_role: None,
         };
 
         assert!(normalize_rich_text_change(&change).is_err(), "{html}");
     }
+}
+
+#[test]
+fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
+    let rich_change = |role, html: &str| HtmlEditChange {
+        change_type: HtmlEditChangeType::RichText,
+        selector: "[data-id=\"article-body\"]".to_string(),
+        original_text_hash: Some("source-text-hash".to_string()),
+        original_src_hash: None,
+        original_style_hash: None,
+        text: None,
+        src: None,
+        alt: None,
+        html: Some(html.to_string()),
+        text_align: Some(HtmlEditTextAlign::Center),
+        edit_role: Some(role),
+    };
+
+    assert!(normalize_rich_text_change(&rich_change(
+        HtmlEditRole::Short,
+        "<strong>Short</strong><br><em>copy</em>",
+    ))
+    .is_ok());
+    for html in ["<p>Paragraph</p>", "<h1>Heading</h1>", "<ul><li>Item</li></ul>"] {
+        assert!(normalize_rich_text_change(&rich_change(HtmlEditRole::Short, html)).is_err());
+    }
+
+    assert!(normalize_rich_text_change(&rich_change(
+        HtmlEditRole::Content,
+        "<h2>Heading</h2><p><strong>Body</strong></p><ul><li>Item</li></ul>",
+    ))
+    .is_ok());
+    assert!(normalize_rich_text_change(&rich_change(
+        HtmlEditRole::Content,
+        "<p style=\"text-align:center\">Aligned paragraph</p>",
+    ))
+    .is_ok());
+    assert!(normalize_rich_text_change(&rich_change(
+        HtmlEditRole::Content,
+        "<p style=\"color:red\">Unsafe style</p>",
+    ))
+    .is_err());
+    assert!(normalize_rich_text_change(&rich_change(
+        HtmlEditRole::Short,
+        "<strong style=\"text-align:center\">Unsafe short style</strong>",
+    ))
+    .is_err());
+
+    let mut legacy_rich = rich_change(HtmlEditRole::Content, "<p>Legacy body</p>");
+    legacy_rich.edit_role = None;
+    assert!(normalize_rich_text_change(&legacy_rich).is_ok());
+    assert!(serde_json::from_str::<HtmlEditChange>(
+        r#"{"type":"rich_text","selector":"[data-id=\"article-body\"]","html":"<p>Body</p>","editRole":"unsupported"}"#,
+    )
+    .is_err());
+
+    let plain = HtmlEditChange {
+        change_type: HtmlEditChangeType::Text,
+        selector: "[data-id=\"caption\"]".to_string(),
+        original_text_hash: Some("source-text-hash".to_string()),
+        original_src_hash: None,
+        original_style_hash: None,
+        text: Some("Plain copy".to_string()),
+        src: None,
+        alt: None,
+        html: None,
+        text_align: None,
+        edit_role: Some(HtmlEditRole::Plain),
+    };
+    assert!(normalize_rich_text_change(&plain).is_ok());
+
+    let mut plain_with_html = plain.clone();
+    plain_with_html.html = Some("<strong>not plain</strong>".to_string());
+    assert!(normalize_rich_text_change(&plain_with_html).is_err());
 }
 
 #[test]
@@ -137,6 +215,7 @@ fn html_edit_save_persists_canonical_rich_text_and_returns_normalized_changes() 
             alt: None,
             html: Some("<p><strong>Bold</strong> copy</p>".to_string()),
             text_align: Some(HtmlEditTextAlign::Center),
+            edit_role: None,
         },
     );
 
@@ -144,7 +223,7 @@ fn html_edit_save_persists_canonical_rich_text_and_returns_normalized_changes() 
         library_id: 1,
         library_root: root.path().to_path_buf(),
         item_id: 10,
-        file_path: html_path,
+        file_path: html_path.clone(),
         title_hint: "Editable Basic".to_string(),
         artifact_edit_id: current.artifact_edit_id.clone(),
         expected_file_hash: current.source_file_hash,
@@ -196,6 +275,7 @@ fn html_edit_reopen_preserves_rich_text_and_text_alignment() {
             alt: None,
             html: Some(saved_html.to_string()),
             text_align: Some(HtmlEditTextAlign::Center),
+            edit_role: None,
         },
     );
 
@@ -253,6 +333,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
     initial_changes.insert(
@@ -268,6 +349,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             alt: None,
             html: Some(saved_html.to_string()),
             text_align: Some(HtmlEditTextAlign::Center),
+            edit_role: None,
         },
     );
 
@@ -300,6 +382,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
     save_html_edit_patch_for_file(&HtmlEditPatchSave {
@@ -361,6 +444,7 @@ fn html_edit_save_rejects_mixed_invalid_rich_text_without_writing_sidecar() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
     changes.insert(
@@ -376,6 +460,7 @@ fn html_edit_save_rejects_mixed_invalid_rich_text_without_writing_sidecar() {
             alt: None,
             html: Some("<p style=\"color:red\">unsafe</p>".to_string()),
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -428,6 +513,7 @@ fn html_edit_save_rejects_rich_text_requiring_cleaning() {
             alt: None,
             html: Some("<p><br/></p>".to_string()),
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -473,6 +559,7 @@ fn html_edit_get_drops_stored_rich_text_requiring_recleaning() {
             alt: None,
             html: Some("<p><br/></p>".to_string()),
             text_align: None,
+            edit_role: None,
         },
     );
     save_patch_file(
@@ -607,6 +694,7 @@ fn html_edit_save_initializes_manifest_and_rejects_stale_revision() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -671,6 +759,7 @@ fn html_edit_reopen_loads_saved_patch() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -734,6 +823,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
     initial_changes.insert(
@@ -749,6 +839,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -783,6 +874,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -790,7 +882,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
         library_id: 1,
         library_root: root.path().to_path_buf(),
         item_id: 10,
-        file_path: html_path,
+        file_path: html_path.clone(),
         title_hint: "Editable Basic".to_string(),
         artifact_edit_id: reopened.artifact_edit_id,
         expected_file_hash: reopened.source_file_hash,
@@ -813,6 +905,43 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
         patch.changes["cover-body"].text.as_deref(),
         Some("First saved body")
     );
+
+    let mut reconciled_changes = std::collections::BTreeMap::new();
+    reconciled_changes.insert(
+        "cover-body".to_string(),
+        HtmlEditChange {
+            change_type: HtmlEditChangeType::Text,
+            selector: "[data-id=\"cover-body\"]".to_string(),
+            original_text_hash: None,
+            original_src_hash: None,
+            original_style_hash: None,
+            text: Some("First saved body".to_string()),
+            src: None,
+            alt: None,
+            html: None,
+            text_align: None,
+            edit_role: None,
+        },
+    );
+    let reconciled = save_html_edit_patch_replacing_changes_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 10,
+        file_path: html_path,
+        title_hint: "Editable Basic".to_string(),
+        artifact_edit_id: patch.artifact_edit_id.clone(),
+        expected_file_hash: reopened_after_second_save.source_file_hash,
+        expected_modified_at: reopened_after_second_save.source_modified_at,
+        expected_patch_revision: 2,
+        changes: reconciled_changes,
+    })
+    .expect("replace a stale patch with the current full reconciled document state");
+
+    assert_eq!(reconciled.patch_revision, 3);
+    let reopened_after_reconciliation = get_html_edit_patch_for_file(&lookup).expect("reopen reconciled patch");
+    let reconciled_patch = reopened_after_reconciliation.patch.expect("reconciled patch");
+    assert_eq!(reconciled_patch.changes.len(), 1);
+    assert_eq!(reconciled_patch.changes["cover-body"].text.as_deref(), Some("First saved body"));
 }
 
 #[test]
@@ -843,6 +972,7 @@ fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -885,6 +1015,7 @@ fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -934,6 +1065,7 @@ fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -977,6 +1109,7 @@ fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -1025,6 +1158,7 @@ fn html_edit_get_marks_saved_patch_stale_when_source_hash_changes() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 
@@ -1154,6 +1288,7 @@ fn html_edit_save_rejects_file_hash_mismatch_without_creating_patch() {
             alt: None,
             html: None,
             text_align: None,
+            edit_role: None,
         },
     );
 

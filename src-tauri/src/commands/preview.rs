@@ -1,5 +1,8 @@
 use std::path::Component;
 
+use serde_json::Value;
+use tauri::Manager;
+
 use crate::{
     core::{
         document::{
@@ -11,6 +14,7 @@ use crate::{
             attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
             close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay, close_html_runtime_window,
             dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
+            log_html_edit_debug,
             focus_main_webview, open_html_runtime_window,
             set_html_edit_toolbar_overlay_visibility,
             set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
@@ -174,7 +178,17 @@ pub fn attach_html_edit_toolbar_overlay_command(
         return Err(AppError::UnsupportedFileType);
     }
 
-    attach_html_edit_toolbar_overlay(&app, &window, payload.item_id, payload.bounds, payload.dirty)
+    attach_html_edit_toolbar_overlay(
+        &app,
+        &window,
+        payload.item_id,
+        payload.bounds,
+        payload.runtime_session_id,
+        payload.generation,
+        payload.dirty,
+        payload.selected_data_id,
+        payload.format_state,
+    )
 }
 
 #[tauri::command]
@@ -221,7 +235,59 @@ pub fn eval_html_runtime_script_command(
     app: tauri::AppHandle,
     payload: EvalHtmlRuntimeScriptRequest,
 ) -> Result<bool, AppError> {
-    eval_html_runtime_script(&app, payload.item_id, &payload.script)
+    let action = if payload.script.contains(".applyFormat(") {
+        "format"
+    } else if payload.script.contains(".reportState(") || payload.script.contains(".getSnapshot()") {
+        "state-refresh"
+    } else if payload.script.contains(".__NUTBOOK_HTML_EDIT__.exit(") {
+        "leave"
+    } else {
+        "runtime-script"
+    };
+    if action != "runtime-script" {
+        log_html_edit_debug(
+            "eval-request",
+            format!("item={} action={action}", payload.item_id),
+        );
+    }
+    let result = eval_html_runtime_script(&app, payload.item_id, &payload.script);
+    if action != "runtime-script" {
+        match &result {
+            Ok(applied) => log_html_edit_debug(
+                "eval-result",
+                format!("item={} action={action} result=ok applied={applied}", payload.item_id),
+            ),
+            Err(error) => log_html_edit_debug(
+                "eval-result",
+                format!("item={} action={action} result=error error={error:?}", payload.item_id),
+            ),
+        }
+    }
+    result
+}
+
+#[tauri::command]
+pub fn html_edit_runtime_message_command(
+    app: tauri::AppHandle,
+    payload: Value,
+) -> Result<bool, AppError> {
+    let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+    let runtime_session_id = payload
+        .get("runtimeSessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !message_type.starts_with("html_edit_") || runtime_session_id.is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+    let main_webview = app.get_webview("main").ok_or(AppError::InternalError)?;
+    let payload_json = serde_json::to_string(&payload).map_err(|_| AppError::InternalError)?;
+    main_webview
+        .eval(&format!(
+            "window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__?.({payload_json});"
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    log_html_edit_debug("runtime-ipc-forward", format!("type={message_type} session={runtime_session_id}"));
+    Ok(true)
 }
 
 #[tauri::command]

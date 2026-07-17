@@ -8,7 +8,7 @@ pub mod update;
 pub use html_edit::{
     GetHtmlEditPatchRequest, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
     HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus,
-    SaveHtmlEditPatchRequest,
+    HtmlEditRole, SaveHtmlEditPatchRequest,
 };
 pub use item::{
     AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,
@@ -18,7 +18,7 @@ pub use item::{
     EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
-    HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSummary, ListItemsQuery,
+    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSummary, ListItemsQuery,
     IgnoredItemSummary, MarkItemOpenedRequest, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,

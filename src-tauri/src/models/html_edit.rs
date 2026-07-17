@@ -17,6 +17,8 @@ pub struct SaveHtmlEditPatchRequest {
     pub expected_file_hash: String,
     pub expected_modified_at: i64,
     pub expected_patch_revision: u64,
+    #[serde(default)]
+    pub replace_changes: bool,
     pub changes: BTreeMap<String, HtmlEditChange>,
 }
 
@@ -84,6 +86,14 @@ pub enum HtmlEditTextAlign {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HtmlEditRole {
+    Short,
+    Content,
+    Plain,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HtmlEditChange {
     #[serde(rename = "type")]
@@ -105,6 +115,8 @@ pub struct HtmlEditChange {
     pub html: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_align: Option<HtmlEditTextAlign>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edit_role: Option<HtmlEditRole>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use crate::{
     core::html_edit::{
         get_html_edit_patch_for_file as get_patch_for_file,
-        save_html_edit_patch_for_file as save_patch_for_file, HtmlEditPatchLookup,
+        save_html_edit_patch_for_file as save_patch_for_file,
+        save_html_edit_patch_replacing_changes_for_file as replace_patch_for_file, HtmlEditPatchLookup,
         HtmlEditPatchResponse, HtmlEditPatchSave, HtmlEditPatchSaveResponse,
     },
     db::repositories::{ItemRepository, LibraryRepository},
@@ -63,7 +64,11 @@ pub fn save_html_edit_patch(
         expected_patch_revision: payload.expected_patch_revision,
         changes: payload.changes,
     };
-    save_patch_for_file(&save)
+    if payload.replace_changes {
+        replace_patch_for_file(&save)
+    } else {
+        save_patch_for_file(&save)
+    }
 }
 
 fn library_for_item(state: &AppState, library_id: i64) -> Result<Library, AppError> {
