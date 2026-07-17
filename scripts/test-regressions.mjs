@@ -200,13 +200,144 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
+  /function onBeforeInput\(event\)[\s\S]*?event\.inputType === "insertFromDrop"[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.inputType !== "insertFromPaste"/,
+  "drops must always be blocked while paste is allowed only through the rich-text plaintext path"
+);
+assert.match(
+  htmlEditRuntime,
+  /range\.insertNode\(textNode\)[\s\S]*?caret\.setStartAfter\(textNode\)[\s\S]*?caret\.collapse\(true\)[\s\S]*?selection\.addRange\(caret\)/,
+  "rich plaintext paste must leave the caret after the inserted text"
+);
+assert.match(
+  htmlEditRuntime,
+  /const selection = window\.getSelection\(\);[\s\S]*?const range = selection\?\.rangeCount \? selection\.getRangeAt\(0\) : null;/,
+  "rich paste must use one declared selection instance for both range replacement and caret restoration"
+);
+assert.match(
+  htmlEditRuntime,
+  /compositionstart[\s\S]*?onCompositionStart[\s\S]*?compositionend[\s\S]*?onCompositionEnd[\s\S]*?if \(element\.getAttribute\("data-editable"\) === "rich-text" && !STATE\.composing\) normalizeRichTextField/,
+  "rich IME composition must defer normalization until composition ends"
+);
+assert.match(
+  htmlEditRuntime,
+  /function richBaselineOf\(element\)[\s\S]*?html:[\s\S]*?textAlign:[\s\S]*?getComputedStyle/,
+  "rich baselines must include canonical HTML and effective alignment"
+);
+assert.match(
+  htmlEditRuntime,
+  /change\.textAlign \? normalizeTextAlign\(change\.textAlign\) : baseline\.textAlign/,
+  "replaying a rich patch without alignment must reset to the saved rich baseline instead of leaving stale inline alignment"
+);
+assert.match(
+  htmlEditRuntime,
+  /selection\.addRange\(saved\.range\.cloneRange\(\)\)[\s\S]*?sameRichTextField\(selection\.getRangeAt\(0\)\)/,
+  "saved range must be cloned, attached, and then revalidated before formatting"
+);
+assert.match(
+  htmlEditRuntime,
+  /getComputedStyle\(field\)\.textAlign/,
+  "format state must report the effective text alignment instead of inline style only"
+);
+assert.match(
+  htmlEditRuntime,
+  /block: blockTag === "p" \? "paragraph" : `heading-\$\{blockTag\.slice\(1\)\}`[\s\S]*?list: listTag === "ul" \? "unordered-list" : listTag === "ol" \? "ordered-list" : null/,
+  "format state must use the same heading and list command values accepted by the formatter"
+);
+assert.match(
+  htmlEditRuntime,
   /type: "rich_text"[\s\S]*?innerHTML[\s\S]*?normalizeRichTextField/,
   "rich-text patches must preserve validated canonical HTML"
 );
 assert.match(
   indexHtml,
-  /function htmlEditReadonlyPatchScript\(patch\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.textContent[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
+  /function htmlEditReadonlyPatchScript\(patch, surfaceToken\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.textContent[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
   "readonly runtime patching must keep text and validated rich-text fields separate"
+);
+assert.match(
+  indexHtml,
+  /runtimePatchSurfaceLanes\.get\(itemId\)[\s\S]*?runtimePatchAppliedKeys\.get\(itemId\)[\s\S]*?patchRevision/,
+  "readonly patches must serialize each item's revisions so an old response cannot overwrite a newer patch"
+);
+assert.match(
+  indexHtml,
+  /function isRuntimePatchSurfaceCurrent\(itemId, generation, surfaceToken\)[\s\S]*?htmlEditSessionGeneration/,
+  "readonly patch replay must guard against an edit-session generation becoming active mid-flight"
+);
+assert.match(
+  indexHtml,
+  /const surfaceToken = currentRuntimeSurfaceToken\(itemId\);[\s\S]*?isRuntimePatchSurfaceCurrent\(itemId, generation, surfaceToken\)[\s\S]*?await invoke\("get_html_edit_patch"[\s\S]*?isRuntimePatchSurfaceCurrent\(itemId, generation, surfaceToken\)[\s\S]*?await invoke\("eval_html_runtime_script_command"[\s\S]*?isRuntimePatchSurfaceCurrent\(itemId, generation, surfaceToken\)/,
+  "readonly replay must reject stale same-item work when its runtime surface token changes during fetch or eval"
+);
+const closeHtmlRuntime = indexHtml.match(/async function closeOpenTab\(tabId\) \{([\s\S]*?)\n      \}/);
+assert.ok(closeHtmlRuntime, "HTML runtime close flow should exist");
+assert.doesNotMatch(
+  closeHtmlRuntime[1],
+  /runtimeSurfaceTokens\.delete\(tabId\)/,
+  "closing an HTML runtime must not reset its per-item surface token"
+);
+assert.match(
+  indexHtml,
+  /function nextRuntimeSurfaceToken\(itemId\) \{[\s\S]*?runtimeSurfaceTokens\.get\(itemId\) \|\| 0\) \+ 1/,
+  "reopened runtime surfaces must receive a monotonic per-item token"
+);
+assert.match(
+  indexHtml,
+  /data-nutbook-original-text-align[\s\S]*?change\.textAlign \|\| baselineTextAlign/,
+  "readonly replay must retain an original alignment baseline when a newer patch clears alignment"
+);
+assert.match(
+  indexHtml,
+  /function htmlEditReadonlyPatchScript\(patch, surfaceToken\)[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__[\s\S]*?function isCurrentSurface\(\)[\s\S]*?isCurrentSurface\(\)[\s\S]*?setTimeout/,
+  "readonly injected retries must recheck their surface token before every deferred mutation"
+);
+assert.match(
+  indexHtml,
+  /function syncHtmlEditReadonlyPatchSurfaceToken\(itemId, surfaceToken\)[\s\S]*?writeHtmlEditReadonlyPatchSurfaceToken/,
+  "surface-token invalidation must be visible inside the child runtime"
+);
+assert.match(
+  indexHtml,
+  /runtimePatchSurfaceLanes: new Map\(\)/,
+  "surface-token IPC writes must be serialized per runtime item"
+);
+assert.match(
+  indexHtml,
+  /function enqueueHtmlEditReadonlyPatchSurfaceLane\(itemId, work\)[\s\S]*?runtimePatchSurfaceLanes\.get\(itemId\)[\s\S]*?previous\.catch\(\(\) => \{\}\)\.then\(work\)[\s\S]*?runtimePatchSurfaceLanes\.set\(itemId, lane\)/,
+  "surface-token IPC writes must run in per-item order"
+);
+assert.match(
+  indexHtml,
+  /existingSurfaceToken[\s\S]*?nextSurfaceToken >= existingSurfaceToken[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = nextSurfaceToken/,
+  "child runtime must refuse an out-of-order older surface token"
+);
+assert.match(
+  indexHtml,
+  /async function markRuntimeSurfaceActive\(itemId\)[\s\S]*?await syncHtmlEditReadonlyPatchSurfaceToken[\s\S]*?await markRuntimeSurfaceActive\(tab\.id\)/,
+  "active surface transitions must await runtime-visible token invalidation"
+);
+for (const transition of ["hideStaleRuntimeHostSync", "suspendRuntimeSurfaces", "scheduleRuntimeSurfaceHide", "hideInactiveRuntimeHosts"]) {
+  const transitionBody = indexHtml.match(new RegExp(`(?:async )?function ${transition}\\([^)]*\\) \\{([\\s\\S]*?)\\n      \\}`));
+  assert.ok(transitionBody, `${transition} should exist`);
+  assert.match(
+    transitionBody[1],
+    /await syncHtmlEditReadonlyPatchSurfaceToken/,
+    `${transition} must await runtime-visible token invalidation before hiding a surface`
+  );
+}
+assert.match(
+  indexHtml,
+  /function htmlEditReadonlyPatchScript\(patch, surfaceToken\)[\s\S]*?existingSurfaceToken[\s\S]*?incomingSurfaceToken[\s\S]*?incomingSurfaceToken >= existingSurfaceToken[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken/,
+  "readonly patch injection must never downgrade an already newer runtime-visible token"
+);
+assert.match(
+  indexHtml,
+  /runtimePatchSurfaceLanes: new Map\(\)[\s\S]*?runtimePatchSurfaceLanes\.get\(itemId\)[\s\S]*?runtimePatchSurfaceLanes\.set\(itemId, lane\)/,
+  "patch eval and token invalidation must share one per-item serialized lane"
+);
+assert.match(
+  indexHtml,
+  /const surfaceToken = currentRuntimeSurfaceToken\(itemId\);[\s\S]*?await writeHtmlEditReadonlyPatchSurfaceToken\(itemId, surfaceToken\);[\s\S]*?runtimePatchAppliedKeys\.get\(itemId\)/,
+  "runtime-visible token synchronization must happen before same-revision replay early returns"
 );
 assert.match(
   indexHtml,

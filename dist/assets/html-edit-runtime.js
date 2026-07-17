@@ -6,7 +6,7 @@
   const ALLOWED_RICH_TAGS = new Set(["P", "BR", "STRONG", "EM", "H1", "H2", "H3", "H4", "UL", "OL", "LI"]);
   const STATE = {
     sessionId: "", editing: false, dirty: false, selectedDataId: null,
-    baseline: new Map(), changes: new Map(), savedSelection: null, formatState: emptyFormatState()
+    baseline: new Map(), changes: new Map(), savedSelection: null, formatState: emptyFormatState(), composing: false
   };
 
   function emptyFormatState() {
@@ -24,6 +24,13 @@
   function selectorFor(dataId) { return `[data-id="${CSS.escape(dataId)}"]`; }
   function canonicalHash(value) { let hash = 2166136261; for (const char of String(value || "")) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(16); }
   function richHtmlOf(element) { normalizeRichTextField(element); return element.innerHTML; }
+  function normalizeTextAlign(value) { return value === "center" || value === "right" ? value : "left"; }
+  function effectiveTextAlign(element) { return normalizeTextAlign(getComputedStyle(element).textAlign); }
+  function richBaselineOf(element) { return { html: richHtmlOf(element), textAlign: effectiveTextAlign(element) }; }
+  function applyRichBaseline(element, baseline) {
+    element.innerHTML = baseline.html;
+    element.style.textAlign = baseline.textAlign;
+  }
   function isValidatedRichHtml(html) {
     if (typeof html !== "string") return false;
     const holder = document.createElement("div"); holder.innerHTML = html;
@@ -45,28 +52,30 @@
   }
   function setupEditable(element, type) {
     const id = element.getAttribute("data-id");
-    STATE.baseline.set(id, type === "rich-text" ? richHtmlOf(element) : textOf(element));
+    STATE.baseline.set(id, type === "rich-text" ? richBaselineOf(element) : textOf(element));
     element.setAttribute("contenteditable", type === "rich-text" ? "true" : "plaintext-only");
     element.setAttribute("data-nutbook-editing", type);
     element.addEventListener("focus", onFocus, true); element.addEventListener("input", onInput, true); element.addEventListener("blur", onBlur, true);
+    element.addEventListener("compositionstart", onCompositionStart, true); element.addEventListener("compositionend", onCompositionEnd, true);
   }
   function normalizeExitOptions(options) { return typeof options === "string" ? { runtimeSessionId: options, discard: false } : { runtimeSessionId: options?.runtimeSessionId || "", discard: Boolean(options?.discard) }; }
   function exit(options = {}) {
     const exitOptions = normalizeExitOptions(options); if (exitOptions.runtimeSessionId && exitOptions.runtimeSessionId !== STATE.sessionId) return;
     for (const element of editableElements()) {
       const id = element.getAttribute("data-id"); const type = element.getAttribute("data-editable");
-      if (exitOptions.discard && STATE.baseline.has(id)) { if (type === "rich-text") element.innerHTML = STATE.baseline.get(id); else element.textContent = STATE.baseline.get(id); }
+      if (exitOptions.discard && STATE.baseline.has(id)) { if (type === "rich-text") applyRichBaseline(element, STATE.baseline.get(id)); else element.textContent = STATE.baseline.get(id); }
       element.removeAttribute("contenteditable"); element.removeAttribute("data-nutbook-editing");
       element.removeEventListener("focus", onFocus, true); element.removeEventListener("input", onInput, true); element.removeEventListener("blur", onBlur, true);
+      element.removeEventListener("compositionstart", onCompositionStart, true); element.removeEventListener("compositionend", onCompositionEnd, true);
     }
-    STATE.editing = false; STATE.dirty = false; STATE.selectedDataId = null; STATE.changes.clear(); clearSavedSelection();
+    STATE.editing = false; STATE.dirty = false; STATE.selectedDataId = null; STATE.changes.clear(); STATE.composing = false; clearSavedSelection();
     window.removeEventListener("keydown", onKeyDownCapture, true); document.removeEventListener("selectionchange", onSelectionChange, true); document.removeEventListener("beforeinput", onBeforeInput, true);
   }
   function normalizeMarkSavedOptions(options) { return typeof options === "string" ? { runtimeSessionId: options, expectedChangesJson: "" } : { runtimeSessionId: options?.runtimeSessionId || "", expectedChangesJson: options?.expectedChangesJson || "" }; }
   function markSaved(options = {}) {
     const saveOptions = normalizeMarkSavedOptions(options); if (saveOptions.runtimeSessionId && saveOptions.runtimeSessionId !== STATE.sessionId) return false;
     if (saveOptions.expectedChangesJson && JSON.stringify(collectChanges()) !== saveOptions.expectedChangesJson) { reportState(); return false; }
-    for (const element of editableElements()) { const id = element.getAttribute("data-id"); STATE.baseline.set(id, element.getAttribute("data-editable") === "rich-text" ? richHtmlOf(element) : textOf(element)); }
+    for (const element of editableElements()) { const id = element.getAttribute("data-id"); STATE.baseline.set(id, element.getAttribute("data-editable") === "rich-text" ? richBaselineOf(element) : textOf(element)); }
     STATE.dirty = false; STATE.changes.clear(); reportState(); return true;
   }
   function onFocus(event) { STATE.selectedDataId = event.currentTarget.getAttribute("data-id"); updateSavedSelection(); reportState(); }
@@ -90,14 +99,19 @@
   function computeFormatState(field, range) {
     let node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
     const ancestors = []; for (; node && node !== field; node = node.parentElement) ancestors.push(node);
-    const block = ancestors.find((entry) => /^(P|H[1-4])$/.test(entry.tagName))?.tagName?.toLowerCase() || "paragraph";
-    const list = ancestors.find((entry) => entry.tagName === "UL" || entry.tagName === "OL")?.tagName?.toLowerCase() || null;
-    return { canFormat: true, bold: ancestors.some((entry) => entry.tagName === "STRONG" || entry.tagName === "B"), italic: ancestors.some((entry) => entry.tagName === "EM" || entry.tagName === "I"), block: block === "p" ? "paragraph" : block, textAlign: field.style.textAlign || "left", list };
+    const blockTag = ancestors.find((entry) => /^(P|H[1-4])$/.test(entry.tagName))?.tagName?.toLowerCase() || "p";
+    const listTag = ancestors.find((entry) => entry.tagName === "UL" || entry.tagName === "OL")?.tagName?.toLowerCase() || null;
+    return { canFormat: true, bold: ancestors.some((entry) => entry.tagName === "STRONG" || entry.tagName === "B"), italic: ancestors.some((entry) => entry.tagName === "EM" || entry.tagName === "I"), block: blockTag === "p" ? "paragraph" : `heading-${blockTag.slice(1)}`, textAlign: normalizeTextAlign(getComputedStyle(field).textAlign), list: listTag === "ul" ? "unordered-list" : listTag === "ol" ? "ordered-list" : null };
   }
-  function onInput(event) { const element = event.currentTarget; if (element.getAttribute("data-editable") === "rich-text") normalizeRichTextField(element); updateChange(element); updateSavedSelection(); reportState(); }
+  function onCompositionStart(event) { if (event.currentTarget.getAttribute("data-editable") === "rich-text") STATE.composing = true; }
+  function onCompositionEnd(event) { const element = event.currentTarget; if (element.getAttribute("data-editable") !== "rich-text") return; STATE.composing = false; normalizeRichTextField(element); updateChange(element); updateSavedSelection(); reportState(); }
+  function onInput(event) { const element = event.currentTarget; if (element.getAttribute("data-editable") === "rich-text" && !STATE.composing) normalizeRichTextField(element); updateChange(element); updateSavedSelection(); reportState(); }
   function updateChange(element) {
-    const id = element.getAttribute("data-id"); const type = element.getAttribute("data-editable"); const value = type === "rich-text" ? richHtmlOf(element) : textOf(element); const original = STATE.baseline.get(id) || "";
-    if (value === original) STATE.changes.delete(id); else if (type === "rich-text") { const change = { type: "rich_text", selector: selectorFor(id), originalTextHash: canonicalHash(original), html: value }; if (element.style.textAlign) change.textAlign = element.style.textAlign; STATE.changes.set(id, change); } else STATE.changes.set(id, { type: "text", selector: selectorFor(id), originalTextHash: canonicalHash(original), text: value });
+    const id = element.getAttribute("data-id"); const type = element.getAttribute("data-editable");
+    if (type === "rich-text") {
+      const value = STATE.composing ? element.innerHTML : richHtmlOf(element); const textAlign = effectiveTextAlign(element); const original = STATE.baseline.get(id) || { html: "", textAlign: "left" };
+      if (value === original.html && textAlign === original.textAlign) STATE.changes.delete(id); else { const change = { type: "rich_text", selector: selectorFor(id), originalTextHash: canonicalHash(original.html), html: value }; if (textAlign !== original.textAlign) change.textAlign = textAlign; STATE.changes.set(id, change); }
+    } else { const value = textOf(element); const original = STATE.baseline.get(id) || ""; if (value === original) STATE.changes.delete(id); else STATE.changes.set(id, { type: "text", selector: selectorFor(id), originalTextHash: canonicalHash(original), text: value }); }
     STATE.dirty = STATE.changes.size > 0;
   }
   function collectChanges() { return Object.fromEntries(STATE.changes.entries()); }
@@ -106,24 +120,32 @@
     for (const [id, change] of Object.entries(patch.changes)) {
       const element = document.querySelector(selectorFor(id)); if (!element) continue;
       if (change.type === "text" && element.getAttribute("data-editable") === "text") element.textContent = change.text || "";
-      if ((change.type === "rich_text" || change.type === "rich-text") && element.getAttribute("data-editable") === "rich-text" && isValidatedRichHtml(change.html)) { element.innerHTML = change.html; normalizeRichTextField(element); if (change.textAlign) element.style.textAlign = change.textAlign; }
-      const value = element.getAttribute("data-editable") === "rich-text" ? richHtmlOf(element) : textOf(element); STATE.baseline.set(id, value);
+      if ((change.type === "rich_text" || change.type === "rich-text") && element.getAttribute("data-editable") === "rich-text" && isValidatedRichHtml(change.html)) { const baseline = STATE.baseline.get(id) || richBaselineOf(element); element.innerHTML = change.html; normalizeRichTextField(element); element.style.textAlign = change.textAlign ? normalizeTextAlign(change.textAlign) : baseline.textAlign; }
+      const value = element.getAttribute("data-editable") === "rich-text" ? richBaselineOf(element) : textOf(element); STATE.baseline.set(id, value);
     }
   }
   function onBeforeInput(event) {
     if (!STATE.editing || (event.inputType !== "insertFromPaste" && event.inputType !== "insertFromDrop")) return;
-    const range = window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0) : null; const field = sameRichTextField(range);
-    event.preventDefault(); if (!field) return;
+    const selection = window.getSelection(); const range = selection?.rangeCount ? selection.getRangeAt(0) : null; const field = sameRichTextField(range);
+    if (!field) return;
+    if (event.inputType === "insertFromDrop") { event.preventDefault(); return; }
+    if (event.inputType !== "insertFromPaste") return;
+    event.preventDefault();
     const plainText = event.dataTransfer?.getData("text/plain") || event.clipboardData?.getData("text/plain") || "";
-    range.deleteContents(); range.insertNode(document.createTextNode(plainText)); normalizeRichTextField(field); updateChange(field); updateSavedSelection(); reportState();
+    range.deleteContents(); const textNode = document.createTextNode(plainText); range.insertNode(textNode); normalizeRichTextField(field);
+    const caret = document.createRange(); caret.setStartAfter(textNode); caret.collapse(true); selection.removeAllRanges(); selection.addRange(caret);
+    updateChange(field); updateSavedSelection(); reportState();
   }
   function restoreSavedSelection() {
     const saved = STATE.savedSelection; if (!saved || !saved.range) return null;
-    const field = document.querySelector(selectorFor(saved.fieldId)); if (!field || !sameRichTextField(saved.range) || sameRichTextField(saved.range) !== field) return null;
-    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(saved.range); return field;
+    const expectedField = document.querySelector(selectorFor(saved.fieldId)); if (!expectedField) return null;
+    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(saved.range.cloneRange());
+    const field = selection.rangeCount ? sameRichTextField(selection.getRangeAt(0)) : null;
+    if (!field || field !== expectedField) { selection.removeAllRanges(); clearSavedSelection(); return null; }
+    return field;
   }
   function applyFormat(payload) {
-    if (!payload || payload.runtimeSessionId !== STATE.sessionId || !VALID_FORMAT_COMMANDS.has(payload.command)) return false;
+    if (STATE.composing || !payload || payload.runtimeSessionId !== STATE.sessionId || !VALID_FORMAT_COMMANDS.has(payload.command)) return false;
     const field = restoreSavedSelection(); if (!field || !STATE.savedSelection || STATE.savedSelection.range.collapsed) return false;
     const command = payload.command;
     if (command === "bold") document.execCommand("bold"); else if (command === "italic") document.execCommand("italic");

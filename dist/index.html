@@ -5052,6 +5052,7 @@
         runtimeSurfaceSuspendPromise: null,
         runtimeSurfaceTokens: new Map(),
         runtimePatchAppliedKeys: new Map(),
+        runtimePatchSurfaceLanes: new Map(),
         itemOpenTokens: new Map(),
         runtimeControlsOverlayExpanded: false,
         runtimeControlsOverlayMode: "default",
@@ -6213,8 +6214,12 @@
 
       let htmlEditRuntimeScriptCache = null;
 
-      function htmlEditReadonlyPatchScript(patch) {
-        return `(function (changes) {
+      function htmlEditReadonlyPatchScript(patch, surfaceToken) {
+        return `(function (changes, surfaceToken) {
+          var existingSurfaceToken = Number(window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ || 0);
+          var incomingSurfaceToken = Number(surfaceToken || 0);
+          if (incomingSurfaceToken >= existingSurfaceToken) window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken;
+          function isCurrentSurface() { return window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ === surfaceToken; }
           function isValidatedRichHtml(html) {
             if (typeof html !== 'string') return false;
             var holder = document.createElement('div');
@@ -6233,8 +6238,13 @@
               if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
                 element.textContent = change.text || '';
               } else if ((change.type === 'rich_text' || change.type === 'rich-text') && element.getAttribute('data-editable') === 'rich-text' && isValidatedRichHtml(change.html)) {
+                var baselineTextAlign = element.getAttribute('data-nutbook-original-text-align');
+                if (!baselineTextAlign) {
+                  baselineTextAlign = getComputedStyle(element).textAlign === 'center' || getComputedStyle(element).textAlign === 'right' ? getComputedStyle(element).textAlign : 'left';
+                  element.setAttribute('data-nutbook-original-text-align', baselineTextAlign);
+                }
                 element.innerHTML = change.html;
-                if (change.textAlign) element.style.textAlign = change.textAlign;
+                element.style.textAlign = change.textAlign || baselineTextAlign;
               } else {
                 return;
               }
@@ -6242,17 +6252,46 @@
             });
             return count;
           }
-          (function wait(attempt) { if (apply() || attempt > 40) return; setTimeout(function () { wait(attempt + 1); }, 50); })(0);
-        })(${JSON.stringify(patch?.changes || {})});`;
+          (function wait(attempt) { if (!isCurrentSurface() || apply() || attempt > 40) return; setTimeout(function () { if (isCurrentSurface()) wait(attempt + 1); }, 50); })(0);
+        })(${JSON.stringify(patch?.changes || {})}, ${JSON.stringify(surfaceToken)});`;
+      }
+
+      function enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, work) {
+        const previous = appState.runtimePatchSurfaceLanes.get(itemId) || Promise.resolve();
+        const lane = previous.catch(() => {}).then(work);
+        appState.runtimePatchSurfaceLanes.set(itemId, lane);
+        return lane;
+      }
+
+      function writeHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken) {
+        return invoke("eval_html_runtime_script_command", {
+          itemId,
+          script: `(function (nextSurfaceToken) {
+            var existingSurfaceToken = Number(window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ || 0);
+            if (nextSurfaceToken >= existingSurfaceToken) window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = nextSurfaceToken;
+          })(${JSON.stringify(surfaceToken)});`
+        });
+      }
+
+      function syncHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken) {
+        return enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, () => writeHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken));
       }
 
       async function applyHtmlEditPatchToRuntime(itemId) {
-        if (!appState.isTauri || appState.htmlEditSession?.itemId === itemId) return;
-        const response = await invoke("get_html_edit_patch", { itemId });
-        if ((appState.runtimePatchAppliedKeys.get(itemId) || 0) >= (response.patchRevision || 0)) return;
-        if (!isRuntimeSurfaceActive(itemId) || response.patchApplyStatus !== "clean" || !Object.keys(response.patch?.changes || {}).length) return;
-        await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch) });
-        appState.runtimePatchAppliedKeys.set(itemId, response.patchRevision || 0);
+        const generation = appState.htmlEditSessionGeneration;
+        const surfaceToken = currentRuntimeSurfaceToken(itemId);
+        return enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, async () => {
+          if (!appState.isTauri || !isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
+          await writeHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken);
+          if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
+          const response = await invoke("get_html_edit_patch", { itemId });
+          const patchRevision = response.patchRevision || 0;
+          if ((appState.runtimePatchAppliedKeys.get(itemId) || 0) >= patchRevision) return;
+          if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken) || response.patchApplyStatus !== "clean" || !Object.keys(response.patch?.changes || {}).length) return;
+          await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch, surfaceToken) });
+          if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
+          appState.runtimePatchAppliedKeys.set(itemId, patchRevision);
+        });
       }
 
       function htmlEditSaveErrorStatus(error) {
@@ -9051,7 +9090,8 @@
           }
           cleanupRuntimeHostSync();
           cancelPendingRuntimeSurfaceHide(tabId);
-          nextRuntimeSurfaceToken(tabId);
+          const closingSurfaceToken = nextRuntimeSurfaceToken(tabId);
+          await syncHtmlEditReadonlyPatchSurfaceToken(tabId, closingSurfaceToken).catch(() => {});
           await hideRuntimeSessionSurfaces(tabId, { force: true });
           await releaseRuntimeShellState({ itemId: tabId });
           await hideRuntimeSessionSurfaces(tabId, { force: true });
@@ -9061,7 +9101,6 @@
             setStatus(`关闭 HTML Runtime 失败：${normalizeError(error)}`, "error");
           }
           cancelPendingRuntimeSurfaceHide(tabId);
-          appState.runtimeSurfaceTokens.delete(tabId);
           appState.runtimeSessions = appState.runtimeSessions.filter((session) => session.id !== tabId);
         } else {
           appState.tabs = appState.tabs.filter((tab) => tab.id !== tabId);
@@ -10147,16 +10186,24 @@
         return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
       }
 
+      function isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken) {
+        return isRuntimeSurfaceActive(itemId)
+          && appState.htmlEditSession?.itemId !== itemId
+          && appState.htmlEditSessionGeneration === generation
+          && currentRuntimeSurfaceToken(itemId) === surfaceToken;
+      }
+
       function isRuntimeSurfaceHideCurrent(itemId, token, force = false) {
         if (force) return true;
         if (isRuntimeSurfaceActive(itemId)) return false;
         return token == null || currentRuntimeSurfaceToken(itemId) === token;
       }
 
-      function markRuntimeSurfaceActive(itemId) {
+      async function markRuntimeSurfaceActive(itemId) {
         if (!itemId) return;
         cancelPendingRuntimeSurfaceHide(itemId);
-        nextRuntimeSurfaceToken(itemId);
+        const surfaceToken = nextRuntimeSurfaceToken(itemId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken).catch(() => {});
       }
 
       async function hideRuntimeSessionSurfaces(itemId, options = {}) {
@@ -10177,6 +10224,7 @@
         if (!appState.runtimeSurfacesSuspended && isRuntimeHostSyncCurrent(runId, itemId)) return false;
         cancelPendingRuntimeSurfaceHide(itemId);
         const token = nextRuntimeSurfaceToken(itemId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
         await hideRuntimeSessionSurfaces(itemId, { force: true, token });
         if (appState.activeRuntimeHostId === itemId) {
           appState.activeRuntimeHostId = null;
@@ -10194,6 +10242,7 @@
         const suspendPromise = Promise.all(appState.runtimeSessions.map(async (session) => {
           cancelPendingRuntimeSurfaceHide(session.id);
           const token = nextRuntimeSurfaceToken(session.id);
+          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
           await hideRuntimeSessionSurfaces(session.id, { force: true, token });
         }));
         appState.runtimeSurfaceSuspendPromise = suspendPromise;
@@ -10221,10 +10270,11 @@
       }
 
       var _runtimeSurfaceHideTimers = {};
-      function scheduleRuntimeSurfaceHide(itemId) {
+      async function scheduleRuntimeSurfaceHide(itemId) {
         if (!itemId) return;
         cancelPendingRuntimeSurfaceHide(itemId);
         var token = nextRuntimeSurfaceToken(itemId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
         var runId = `${token}:${Date.now()}:${Math.random()}`;
         var timers = [];
         [0, 80, 240, 520].forEach(function(delay) {
@@ -10247,8 +10297,9 @@
       async function hideInactiveRuntimeHosts(activeItemId = null, options = {}) {
         cleanupRuntimeHostSync({ invalidate: options.invalidate !== false });
         const sessionsToHide = appState.runtimeSessions.filter((session) => activeItemId == null || session.id !== activeItemId);
-        await Promise.all(sessionsToHide.map((session) => {
+        await Promise.all(sessionsToHide.map(async (session) => {
           const token = nextRuntimeSurfaceToken(session.id);
+          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
           return hideRuntimeSessionSurfaces(session.id, { token });
         }));
         const activeTab = getActiveTab();
@@ -10334,7 +10385,7 @@
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
         cancelPendingRuntimeSurfaceHide(tab.id);
-        markRuntimeSurfaceActive(tab.id);
+        await markRuntimeSurfaceActive(tab.id);
         const mount = document.getElementById("runtimeHostMount");
         if (!mount) return;
         let bounds = runtimeHostBounds(mount);
