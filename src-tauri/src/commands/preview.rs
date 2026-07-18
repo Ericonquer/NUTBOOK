@@ -214,7 +214,7 @@ pub fn attach_html_edit_leave_confirm_overlay_command(
         return Err(AppError::UnsupportedFileType);
     }
 
-    attach_html_edit_leave_confirm_overlay(&app, &window, payload.item_id, payload.bounds)
+    attach_html_edit_leave_confirm_overlay(&app, &window, payload.item_id, payload.bounds, payload.mode.as_deref().unwrap_or("leave"))
 }
 
 #[tauri::command]
@@ -297,7 +297,7 @@ pub fn html_edit_runtime_message_command(
             "window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__?.({payload_json});"
         ))
         .map_err(|_| AppError::InternalError)?;
-    log_html_edit_debug("runtime-ipc-forward", format!("type={message_type} session={runtime_session_id}"));
+    log_html_edit_debug("runtime-ipc-forward", crate::core::html_runtime::html_edit_debug_payload_fields(&payload));
     Ok(true)
 }
 

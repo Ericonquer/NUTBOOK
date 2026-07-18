@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fs::{self, OpenOptions}, io::Write, path::PathBuf};
 
 use crate::{
     core::html_edit::{
@@ -12,9 +12,18 @@ use crate::{
     },
     db::repositories::{ItemRepository, LibraryRepository},
     errors::AppError,
-    models::{GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, SaveHtmlEditPatchRequest},
+    models::{GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, ListItemsQuery, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS},
     state::AppState,
 };
+
+/// Returns the converter source from the host bundle instead of asking the main
+/// webview to fetch another asset while a child runtime is active.  Conversion
+/// begins before the regular editor runtime is installed, so this keeps the
+/// hand-off entirely on the already-working Tauri IPC path.
+#[tauri::command]
+pub fn get_html_edit_converter_script() -> &'static str {
+    include_str!("../../../dist/assets/html-edit-converter.js")
+}
 
 #[tauri::command]
 pub fn get_html_edit_patch(
@@ -157,6 +166,55 @@ pub fn invalidate_html_edit_session_lease(
         &payload.runtime_session_id,
         payload.generation,
     )
+}
+
+/// Persists the detached-DOM conversion result. The renderer may choose fields,
+/// but never the destination: this command derives the sole companion name from
+/// the current source file and rejects stale sessions/source bytes.
+#[tauri::command]
+pub fn write_editable_html_copy(
+    state: tauri::State<'_, AppState>,
+    payload: WriteEditableHtmlCopyRequest,
+) -> Result<WriteEditableHtmlCopyResponse, AppError> {
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(
+        payload.item_id, &payload.runtime_session_id, payload.generation,
+    )?)?;
+    if payload.protocolized_html.len() > HTML_EDIT_COPY_MAX_BYTES
+        || payload.text_count.saturating_add(payload.image_count).saturating_add(payload.background_image_count) > HTML_EDIT_COPY_MAX_FIELDS {
+        return Err(AppError::InvalidParams);
+    }
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
+    let source = PathBuf::from(&item.summary.file_path).canonicalize().map_err(|_| AppError::ItemNotFound)?;
+    let library = library_for_item(&state, item.summary.library_id)?;
+    let root = html_edit_library_root(&library)?.canonicalize().map_err(|_| AppError::LibraryNotFound)?;
+    if !source.starts_with(&root) { return Err(AppError::LibraryNotFound); }
+    let current_hash = crate::core::html_edit::content_hash_bytes(&fs::read(&source).map_err(|_| AppError::IoError)?);
+    if current_hash != payload.expected_source_file_hash { return Err(AppError::EditConflict); }
+    let stem = source.file_stem().and_then(|v| v.to_str()).ok_or(AppError::InvalidParams)?;
+    let target = source.parent().ok_or(AppError::InvalidParams)?.join(format!("{stem}.nutbook-editable.html"));
+    if target.exists() {
+        return Ok(copy_response(&state, library.id, &target, "already_exists", 0, 0, 0)?);
+    }
+    let mut output = match OpenOptions::new().write(true).create_new(true).open(&target) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Ok(copy_response(&state, library.id, &target, "already_exists", 0, 0, 0)?);
+        }
+        Err(_) => return Err(AppError::IoError),
+    };
+    output.write_all(payload.protocolized_html.as_bytes()).map_err(|_| AppError::IoError)?;
+    output.sync_all().map_err(|_| AppError::IoError)?;
+    copy_response(&state, library.id, &target, "created", payload.text_count, payload.image_count, payload.background_image_count)
+}
+
+fn copy_response(state: &AppState, library_id: i64, path: &std::path::Path, status: &str, text_count: u32, image_count: u32, background_image_count: u32) -> Result<WriteEditableHtmlCopyResponse, AppError> {
+    crate::commands::library::scan_library_once(&state.database, library_id)?;
+    let canonical = path.canonicalize().map_err(|_| AppError::IoError)?;
+    let item_id = state.list_items(&ListItemsQuery { library_id: Some(library_id), include_deleted: Some(false), page: Some(1), page_size: Some(500), ..ListItemsQuery::default() })?
+        .items.into_iter().find(|item| std::path::Path::new(&item.file_path).canonicalize().ok().as_deref() == Some(canonical.as_path())).map(|item| item.id);
+    if item_id.is_none() { return Err(AppError::ItemNotFound); }
+    Ok(WriteEditableHtmlCopyResponse { status: status.into(), file_path: canonical.to_string_lossy().into(), item_id, text_count, image_count, background_image_count })
 }
 
 #[tauri::command]

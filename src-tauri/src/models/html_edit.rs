@@ -2,6 +2,34 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub const HTML_EDIT_COPY_MAX_BYTES: usize = 8 * 1024 * 1024;
+pub const HTML_EDIT_COPY_MAX_FIELDS: u32 = 500;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteEditableHtmlCopyRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub expected_source_file_hash: String,
+    pub protocolized_html: String,
+    pub text_count: u32,
+    pub image_count: u32,
+    pub background_image_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteEditableHtmlCopyResponse {
+    pub status: String,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<i64>,
+    pub text_count: u32,
+    pub image_count: u32,
+    pub background_image_count: u32,
+}
+
 pub const HTML_EDIT_ASSET_MAX_BYTES: u64 = 20 * 1024 * 1024;
 
 #[derive(Debug, Clone)]

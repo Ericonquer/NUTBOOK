@@ -47,7 +47,7 @@ pub fn log_html_edit_debug(event: &str, details: impl AsRef<str>) {
     }
 }
 
-fn html_edit_debug_payload_fields(payload: &Value) -> String {
+pub fn html_edit_debug_payload_fields(payload: &Value) -> String {
     let field = |name: &str| {
         payload
             .get(name)
@@ -68,12 +68,17 @@ fn html_edit_debug_payload_fields(payload: &Value) -> String {
             .unwrap_or_else(|| "-".to_string())
     };
     format!(
-        "item={} action={} type={} session={} generation={} command={} applied={} dirty={} selected_data_id={} format_edit_role={} format_can_format={} format_toolbar_visible={} visible_format_commands={} enabled_format_commands={}",
+        "item={} source_item={} event={} action={} type={} session={} generation={} active_tab={} has_tab={} file_type={} command={} applied={} dirty={} selected_data_id={} format_edit_role={} format_can_format={} format_toolbar_visible={} visible_format_commands={} enabled_format_commands={}",
         field("itemId"),
+        field("sourceItemId"),
+        field("event"),
         field("action"),
         field("type"),
         field("runtimeSessionId"),
         field("generation"),
+        field("activeTabId"),
+        field("hasTab"),
+        field("fileType"),
         field("command"),
         field("applied"),
         field("dirty"),
@@ -466,6 +471,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
     window: &tauri::Window,
     item_id: i64,
     bounds: RuntimeHostBounds,
+    mode: &str,
 ) -> Result<bool, AppError> {
     let overlay_label = html_edit_leave_confirm_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
@@ -481,7 +487,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
         return Ok(true);
     }
 
-    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id)?;
+    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, mode)?;
     let webview = window
         .add_child(
             builder,
@@ -897,12 +903,12 @@ fn build_html_edit_toolbar_builder<R: tauri::Runtime>(
 fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
-    item_id: i64,
+    item_id: i64, mode: &str,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("html-edit-leave-confirm.html"));
     Ok(
         WebviewBuilder::new(label, overlay_url)
-            .initialization_script(&html_edit_leave_confirm_init_script(item_id))
+            .initialization_script(&html_edit_leave_confirm_init_script(item_id, mode))
             .background_color(tauri::webview::Color(0, 0, 0, 0))
             .transparent(true)
             .focused(true)
@@ -1399,8 +1405,8 @@ fn html_edit_toolbar_init_script(
     format!("window.__NUTBOOK_HTML_EDIT_TOOLBAR__ = {payload};")
 }
 
-fn html_edit_leave_confirm_init_script(item_id: i64) -> String {
-    format!("window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id} }};")
+fn html_edit_leave_confirm_init_script(item_id: i64, mode: &str) -> String {
+    format!("window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, mode: {} }};", serde_json::to_string(mode).unwrap())
 }
 
 pub fn html_edit_toolbar_update_script(

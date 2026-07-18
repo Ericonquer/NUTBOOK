@@ -353,6 +353,8 @@ pub struct AttachHtmlEditToolbarOverlayRequest {
 pub struct AttachHtmlEditLeaveConfirmOverlayRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

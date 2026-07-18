@@ -98,7 +98,7 @@
   <script>
     const i18n = window.NutbookI18n;
     const t = (key, fallback) => i18n?.lookup(key) ?? fallback;
-    const itemId = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__?.itemId ?? null;
+    const config = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ || {}; const itemId = config.itemId ?? null; const copyMode = config.mode === "create-copy";
     const els = {
       title: document.getElementById("title"),
       message: document.getElementById("message"),
@@ -108,17 +108,18 @@
     };
 
     function render() {
-      const title = t("htmlEdit.leavePrompt", "有未保存的修改");
-      const message = t("htmlEdit.leaveMessage", "退出编辑前，可以保存修改或放弃本次修改。");
-      const keep = t("htmlEdit.keepEditing", "继续编辑");
-      const discard = t("htmlEdit.discardAndExit", "不保存退出");
-      const save = t("htmlEdit.saveAndExit", "保存退出");
+      const title = copyMode ? "此文件不支持 Nutbook 编辑协议" : t("htmlEdit.leavePrompt", "有未保存的修改");
+      const message = copyMode ? "是否尝试创建一个可编辑副本？原文件不会修改。" : t("htmlEdit.leaveMessage", "退出编辑前，可以保存修改或放弃本次修改。");
+      const keep = copyMode ? "继续预览" : t("htmlEdit.keepEditing", "继续编辑");
+      const discard = copyMode ? "" : t("htmlEdit.discardAndExit", "不保存退出");
+      const save = copyMode ? "创建并编辑" : t("htmlEdit.saveAndExit", "保存退出");
       els.title.textContent = title;
       els.message.textContent = message;
       els.keepButton.textContent = keep;
       els.keepButton.setAttribute("aria-label", keep);
       els.keepButton.setAttribute("title", keep);
       els.discardButton.textContent = discard;
+      els.discardButton.hidden = copyMode;
       els.discardButton.setAttribute("aria-label", discard);
       els.discardButton.setAttribute("title", discard);
       els.saveButton.textContent = save;
@@ -128,7 +129,7 @@
     }
 
     function emit(choice) {
-      const payload = { action: "leave-choice", choice };
+      const payload = { action: copyMode ? "create-copy-choice" : "leave-choice", choice };
       if (itemId != null) payload.itemId = itemId;
       const nextTitle = "__NUTBOOK_HTML_EDIT_LEAVE__:" + JSON.stringify(payload);
       document.title = "Nutbook HTML Edit Leave Confirm";
@@ -138,9 +139,9 @@
       }, 96);
     }
 
-    els.keepButton.addEventListener("click", function() { emit("keep"); });
+    els.keepButton.addEventListener("click", function() { emit(copyMode ? "cancel" : "keep"); });
     els.discardButton.addEventListener("click", function() { emit("discard"); });
-    els.saveButton.addEventListener("click", function() { emit("save"); });
+    els.saveButton.addEventListener("click", function() { emit(copyMode ? "create" : "save"); });
     render();
     i18n?.observe?.();
     document.title = "__NUTBOOK_HTML_EDIT_LEAVE_READY__:" + JSON.stringify({ itemId });
