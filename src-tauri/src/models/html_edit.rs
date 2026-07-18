@@ -1,11 +1,58 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+pub const HTML_EDIT_ASSET_MAX_BYTES: u64 = 20 * 1024 * 1024;
+
+#[derive(Debug, Clone)]
+pub struct HtmlEditAssetImport {
+    pub library_root: PathBuf,
+    pub artifact_edit_id: String,
+    pub source_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportHtmlEditAssetResponse {
+    pub relative_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_url: Option<String>,
+    pub media_type: String,
+    pub byte_size: u64,
+    pub content_hash: String,
+}
+
+/// A host request to import one user-selected image into the current HTML edit
+/// session.  `source_path` is intentionally command-only input: neither it nor
+/// the local-server URL is ever persisted in an HTML edit patch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportHtmlEditAssetRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub asset_request_id: String,
+    pub artifact_edit_id: String,
+    pub expected_patch_revision: u64,
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlEditSessionLeaseRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetHtmlEditPatchRequest {
     pub item_id: i64,
+    #[serde(default)]
+    pub runtime_session_id: String,
+    #[serde(default)]
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,6 +60,7 @@ pub struct GetHtmlEditPatchRequest {
 pub struct SaveHtmlEditPatchRequest {
     pub item_id: i64,
     pub runtime_session_id: String,
+    pub generation: u64,
     pub artifact_edit_id: String,
     pub expected_file_hash: String,
     pub expected_modified_at: i64,
@@ -93,6 +141,18 @@ pub enum HtmlEditRole {
     Plain,
 }
 
+/// Immutable metadata for one direct `picture > source[srcset]` target.
+///
+/// The URL is deliberately absent: an image replacement applies one imported
+/// library asset to every listed source, while this hash lets replay verify
+/// that the source document has not changed underneath the patch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlEditPictureSource {
+    pub index: u32,
+    pub original_srcset_hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HtmlEditChange {
@@ -117,6 +177,8 @@ pub struct HtmlEditChange {
     pub text_align: Option<HtmlEditTextAlign>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edit_role: Option<HtmlEditRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture_sources: Option<Vec<HtmlEditPictureSource>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

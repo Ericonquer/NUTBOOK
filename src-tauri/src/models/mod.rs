@@ -6,9 +6,9 @@ pub mod tag;
 pub mod update;
 
 pub use html_edit::{
-    GetHtmlEditPatchRequest, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
+    GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
     HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus,
-    HtmlEditRole, SaveHtmlEditPatchRequest,
+    HtmlEditRole, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, SaveHtmlEditPatchRequest, HTML_EDIT_ASSET_MAX_BYTES,
 };
 pub use item::{
     AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { webcrypto } from "node:crypto";
 
 const indexHtml = readFileSync("dist/index.html", "utf8");
 const i18n = readFileSync("dist/i18n.js", "utf8");
@@ -19,6 +20,64 @@ function runtimeSection(name, nextName) {
   assert.ok(start >= 0 && end > start, `${name} must be followed by ${nextName}`);
   return htmlEditRuntime.slice(start, end);
 }
+
+for (const marker of [
+  "editableImageElements", "editableBackgroundImageElements", "pictureSources", "originalSrcsetHash",
+  "applyPictureSources", "html_edit_asset_replace_requested", "html_edit_patch_field_result",
+  "applyImportedAsset", "runtimeAssetUrls", "data-nutbook-asset-relative-path", "originalSrcHash", "sha256HexUtf8"
+]) {
+  assert.match(htmlEditRuntime, new RegExp(marker), `HTML image runtime must include ${marker}`);
+}
+const imageRequest = runtimeSection("requestImageReplacement", "applyImportedAsset");
+assert.match(imageRequest, /targetState/, "image replace requests must report target state");
+assert.doesNotMatch(imageRequest, /currentSrc|FileReader/, "image replace requests must not leak URLs or read files");
+const importedAsset = runtimeSection("applyImportedAsset", "applyPictureSources");
+assert.doesNotMatch(importedAsset, /FileReader|clientX|clientY/, "imported assets must not use FileReader or free-coordinate insertion");
+const runtimeSha256 = htmlEditRuntime.match(/async function sha256HexUtf8\(value\) \{([^\n]+)\}/);
+assert.ok(runtimeSha256, "runtime must define a Web Crypto SHA-256 function");
+const sha256HexUtf8 = new Function("crypto", "TextEncoder", `return async function sha256HexUtf8(value) {${runtimeSha256[1]}};`)(webcrypto, TextEncoder);
+assert.equal(await sha256HexUtf8(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+assert.equal(await sha256HexUtf8("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+assert.match(htmlEditRuntime, /source\.getAttribute\("srcset"\)[\s\S]*?originalSrcsetHash: await sha256HexUtf8\(srcset\)/, "picture source hashes must use the raw HTML attribute, not a browser-resolved runtime URL");
+assert.doesNotMatch(htmlEditRuntime, /originalSrcsetHash: await sha256HexUtf8\(source\.srcset\)/, "picture source hashes must survive a changed local-server origin");
+assert.match(
+  htmlEditRuntime,
+  /function constrainImportedImageLayout\(element\) \{[\s\S]*?max-width[\s\S]*?object-fit/,
+  "imported images must receive a runtime layout guard before their source is replaced"
+);
+assert.match(
+  htmlEditRuntime,
+  /function imageSlotHeight\(element\) \{[\s\S]*?Math\.min\(320, Math\.max\(120,/,
+  "an empty image slot must retain a bounded display height rather than grow to the image's natural size"
+);
+assert.match(
+  htmlEditRuntime,
+  /function restoreImageBaseline\(element, baseline\) \{[\s\S]*?if \(baseline\.currentSrc\) element\.setAttribute\("src", baseline\.currentSrc\); else element\.removeAttribute\("src"\)/,
+  "discarding an imported empty slot must restore its original missing src attribute"
+);
+assert.match(
+  htmlEditRuntime,
+  /function onImageEditClick\(event\) \{[\s\S]*?event\.target !== event\.currentTarget[\s\S]*?return/,
+  "clicking or focusing a text field inside an editable background image must not reopen the image picker"
+);
+assert.match(
+  htmlEditRuntime,
+  /const pictureSources = baseline\.pictureSources\.map\([\s\S]*?if \(pictureSources\.length\) change\.pictureSources = pictureSources;/,
+  "ordinary images must omit pictureSources instead of persisting an invalid empty responsive-source set"
+);
+assert.match(
+  htmlEditRuntime,
+  /const isTextSelected = selected\?\.getAttribute\("data-editable"\) === "text" \|\| selected\?\.getAttribute\("data-editable"\) === "rich-text";[\s\S]*?data-text-editing.*commands\.size > 0 \|\| !isTextSelected/,
+  "the inline toolbar must not label an image-only selection as text editing"
+);
+assert.match(indexHtml, /assetRequestId[\s\S]*?assetRequestEpoch[\s\S]*?activeAssetRequestId/, "asset imports must retain request identity and epoch");
+assert.match(indexHtml, /session\.assetRequestEpoch \+= 1[\s\S]*?invalidate_html_edit_session_lease/, "leaving a tab must invalidate pending image results before the lease");
+assert.match(indexHtml, /open_html_edit_image_file_dialog[\s\S]*?import_html_edit_asset[\s\S]*?applyImportedAsset/, "host must pick, import, then apply an asset through the runtime");
+for (const code of ["ASSET_INVALID_TYPE", "ASSET_TOO_LARGE", "INVALID_SESSION"]) {
+  assert.match(indexHtml, new RegExp(code), `host must map ${code} to a recoverable image-import message`);
+}
+assert.match(indexHtml, /html_edit_patch_field_result[\s\S]*?picture_source_mismatch/, "host must surface a field-level picture source mismatch");
+assert.match(indexHtml, /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\)[\s\S]*?change\.type === 'image'[\s\S]*?runtimeAssetUrls\[change\.src\]/, "readonly replay must use only runtime URL mappings for image patches");
 
 assert.match(
   htmlEditRuntime,
@@ -466,6 +525,16 @@ assert.match(
   /document\.addEventListener\("visibilitychange", \(\) => \{\n          if \(appState\.htmlEditLeavePromptOpen\) return;/,
   "focus changes while the independent leave overlay is open must not suspend the runtime beneath it"
 );
+assert.match(
+  indexHtml,
+  /window\.addEventListener\("focus", \(\) => \{\n          if \(!document\.hidden\) scheduleRuntimeHostSync\(\);\n        \}\);/,
+  "restoring a macOS window must re-sync the child runtime after the host regains focus"
+);
+assert.match(
+  indexHtml,
+  /window\.addEventListener\("resize", \(\) => \{\n          if \(!document\.hidden\) scheduleRuntimeHostSync\(\);\n        \}\);/,
+  "a restored host layout must re-sync the child runtime bounds after resize"
+);
 
 const runtimeHostSync = indexHtml.match(/async function syncActiveRuntimeHost\(runId = null\) \{([\s\S]*?)\n      \}/);
 assert.ok(runtimeHostSync, "runtime host synchronization should exist");
@@ -614,7 +683,7 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /style\.textContent = '\[data-nutbook-editing\]\{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative\}\[data-nutbook-editing\]:hover\{outline-color:#a99f9f;background:#f3f3f5\}\[data-nutbook-editing\]:focus\{outline-color:#000;box-shadow:0 4px 12px rgba\(26,28,29,\.12\)\}'/,
+  /outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative.*outline-color:#a99f9f;background:#f3f3f5.*outline-color:#000;box-shadow:0 4px 12px/,
   "editing affordances must use the monochrome DESIGN.md dashed outline, off-white hover, black focus, and no visual role badge"
 );
 assert.doesNotMatch(
@@ -712,7 +781,7 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /function htmlEditReadonlyPatchScript\(patch, surfaceToken\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.textContent[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
+  /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.textContent[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
   "readonly runtime patching must keep text and validated rich-text fields separate"
 );
 assert.match(
@@ -749,7 +818,7 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /function htmlEditReadonlyPatchScript\(patch, surfaceToken\)[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__[\s\S]*?function isCurrentSurface\(\)[\s\S]*?isCurrentSurface\(\)[\s\S]*?setTimeout/,
+  /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\)[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__[\s\S]*?function isCurrentSurface\(\)[\s\S]*?isCurrentSurface\(\)[\s\S]*?setTimeout/,
   "readonly injected retries must recheck their surface token before every deferred mutation"
 );
 assert.match(
@@ -788,7 +857,7 @@ for (const transition of ["hideStaleRuntimeHostSync", "suspendRuntimeSurfaces", 
 }
 assert.match(
   indexHtml,
-  /function htmlEditReadonlyPatchScript\(patch, surfaceToken\)[\s\S]*?existingSurfaceToken[\s\S]*?incomingSurfaceToken[\s\S]*?incomingSurfaceToken >= existingSurfaceToken[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken/,
+  /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\)[\s\S]*?existingSurfaceToken[\s\S]*?incomingSurfaceToken[\s\S]*?incomingSurfaceToken >= existingSurfaceToken[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken/,
   "readonly patch injection must never downgrade an already newer runtime-visible token"
 );
 assert.match(

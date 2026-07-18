@@ -71,6 +71,17 @@ pub fn open_image_file_dialog() -> Option<String> {
         .map(|path| path.to_string_lossy().to_string())
 }
 
+/// HTML edit imports intentionally exclude SVG. The Markdown image picker
+/// continues to accept it, so this must remain a separate command.
+#[tauri::command]
+pub fn open_html_edit_image_file_dialog() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("选择图片")
+        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn open_html_window(
     state: tauri::State<'_, AppState>,

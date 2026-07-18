@@ -6339,12 +6339,24 @@
 
       let htmlEditRuntimeScriptCache = null;
 
-      function htmlEditReadonlyPatchScript(patch, surfaceToken) {
-        return `(function (changes, surfaceToken) {
+      function htmlEditReadonlyPatchScript(patch, runtimeAssetUrls, surfaceToken) {
+        return `(function (changes, runtimeAssetUrls, surfaceToken) {
           var existingSurfaceToken = Number(window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ || 0);
           var incomingSurfaceToken = Number(surfaceToken || 0);
           if (incomingSurfaceToken >= existingSurfaceToken) window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken;
           function isCurrentSurface() { return window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ === surfaceToken; }
+          function constrainImportedImageLayout(element) {
+            if (!element || element.getAttribute('data-editable') !== 'image') return;
+            element.style.setProperty('max-width', '100%', 'important');
+            element.style.setProperty('box-sizing', 'border-box', 'important');
+            if (element.getAttribute('data-image-slot') !== 'empty') return;
+            var parentHeight = Math.round(element.parentElement ? element.parentElement.getBoundingClientRect().height : 0);
+            var height = Math.min(320, Math.max(120, parentHeight || 180));
+            element.style.setProperty('display', 'block', 'important');
+            element.style.setProperty('width', '100%', 'important');
+            element.style.setProperty('height', height + 'px', 'important');
+            element.style.setProperty('object-fit', 'cover', 'important');
+          }
           function isValidatedRichHtml(html) {
             if (typeof html !== 'string') return false;
             var holder = document.createElement('div');
@@ -6354,12 +6366,13 @@
               return allowed[node.tagName] && !node.attributes.length;
             }) && holder.innerHTML === html;
           }
-          function apply() {
+          function sha256(value) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || ''))).then(function (digest) { return Array.prototype.map.call(new Uint8Array(digest), function (byte) { return byte.toString(16).padStart(2, '0'); }).join(''); }); }
+          async function apply() {
             var count = 0;
-            Object.keys(changes || {}).forEach(function (id) {
+            for (var id of Object.keys(changes || {})) {
               var change = changes[id];
               var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
-              if (!element) return;
+              if (!element) continue;
               if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
                 element.textContent = change.text || '';
               } else if ((change.type === 'rich_text' || change.type === 'rich-text') && element.getAttribute('data-editable') === 'rich-text' && isValidatedRichHtml(change.html)) {
@@ -6370,15 +6383,27 @@
                 }
                 element.innerHTML = change.html;
                 element.style.textAlign = change.textAlign || baselineTextAlign;
+              } else if (change.type === 'image' && element.getAttribute('data-editable') === 'image' && runtimeAssetUrls[change.src]) {
+                var picture = element.closest('picture');
+                var sources = picture ? Array.prototype.filter.call(picture.children, function (node) { return node.tagName === 'SOURCE' && node.hasAttribute('srcset'); }) : [];
+                var expected = change.pictureSources || [];
+                if (sources.length !== expected.length || !sources.every(function (source, index) { return expected[index] && expected[index].index === index && source.srcset && source.srcset.indexOf(',') < 0 && !/\\s[0-9]+(?:w|x)(?:\\s|$)/.test(source.srcset); })) continue;
+                var hashes = await Promise.all(sources.map(function (source) { return sha256(source.getAttribute('srcset') || ''); }));
+                if (!hashes.every(function (hash, index) { return hash === expected[index].originalSrcsetHash; })) continue;
+                constrainImportedImageLayout(element);
+                element.src = runtimeAssetUrls[change.src];
+                sources.forEach(function (source) { source.setAttribute('srcset', runtimeAssetUrls[change.src]); });
+              } else if (change.type === 'background-image' && element.getAttribute('data-editable') === 'background-image' && runtimeAssetUrls[change.src]) {
+                element.style.backgroundImage = 'url(' + JSON.stringify(runtimeAssetUrls[change.src]) + ')';
               } else {
-                return;
+                continue;
               }
               count += 1;
-            });
+            }
             return count;
           }
-          (function wait(attempt) { if (!isCurrentSurface() || apply() || attempt > 40) return; setTimeout(function () { if (isCurrentSurface()) wait(attempt + 1); }, 50); })(0);
-        })(${JSON.stringify(patch?.changes || {})}, ${JSON.stringify(surfaceToken)});`;
+          (function wait(attempt) { if (!isCurrentSurface()) return; Promise.resolve(apply()).then(function (count) { if (!isCurrentSurface() || count || attempt > 40) return; setTimeout(function () { if (isCurrentSurface()) wait(attempt + 1); }, 50); }); })(0);
+        })(${JSON.stringify(patch?.changes || {})}, ${JSON.stringify(runtimeAssetUrls || {})}, ${JSON.stringify(surfaceToken)});`;
       }
 
       function enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, work) {
@@ -6413,7 +6438,7 @@
           const patchRevision = response.patchRevision || 0;
           if ((appState.runtimePatchAppliedKeys.get(itemId) || 0) >= patchRevision) return;
           if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken) || response.patchApplyStatus !== "clean" || !Object.keys(response.patch?.changes || {}).length) return;
-          await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch, surfaceToken) });
+          await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch, response.runtimeAssetUrls || {}, surfaceToken) });
           if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
           appState.runtimePatchAppliedKeys.set(itemId, patchRevision);
         });
@@ -6425,6 +6450,14 @@
           return t("htmlEdit.revisionStale");
         }
         return `${t("htmlEdit.saveFailed")}${message}`;
+      }
+
+      function htmlEditAssetImportErrorStatus(error) {
+        const message = normalizeError(error);
+        if (message.includes("ASSET_INVALID_TYPE")) return t("htmlEdit.imageInvalidType");
+        if (message.includes("ASSET_TOO_LARGE")) return t("htmlEdit.imageTooLarge");
+        if (message.includes("INVALID_SESSION")) return t("htmlEdit.imageSessionExpired");
+        return `${t("htmlEdit.imageImportFailed")} ${message}`;
       }
 
       function htmlEditSaveNeedsRetryStatus() {
@@ -6512,6 +6545,7 @@
                   patch: patchResponse.patch || null,
                   patchApplyStatus: patchResponse.patchApplyStatus,
                   fieldApplyResults: patchResponse.fieldApplyResults || {},
+                  runtimeAssetUrls: patchResponse.runtimeAssetUrls || {},
                   patchRevision: patchResponse.patchRevision || 0,
                   inlineToolbar: Boolean(appState.htmlEditSession?.runtimeSessionId === runtimeSessionId && usesInlineHtmlEditToolbarForSession(appState.htmlEditSession)),
                   locale: appState.language
@@ -6550,13 +6584,24 @@
         if (appState.htmlEditSession && !(await confirmHtmlEditLeaveIfNeeded(appState.htmlEditSession.itemId))) return;
         const generation = nextHtmlEditSessionGeneration();
         if (!isHtmlEditEnterCurrent(itemId, generation)) return;
-        const response = await invoke("get_html_edit_patch", { itemId });
-        if (!isHtmlEditEnterCurrent(itemId, generation)) return;
+        const runtimeSessionId = `html-edit-${itemId}-${Date.now()}`;
+        let response;
+        try {
+          await invoke("register_html_edit_session_lease", { itemId, runtimeSessionId, generation });
+          response = await invoke("get_html_edit_patch", { itemId, runtimeSessionId, generation });
+        } catch (error) {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+          throw error;
+        }
+        if (!isHtmlEditEnterCurrent(itemId, generation)) {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+          return;
+        }
         if (response.patchApplyStatus !== "clean") {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
           setStatus(t("htmlEdit.sourceChanged"), "warn");
           return;
         }
-        const runtimeSessionId = `html-edit-${itemId}-${Date.now()}`;
         appState.htmlEditSession = {
           itemId,
           runtimeSessionId,
@@ -6567,6 +6612,9 @@
           generation,
           state: "editing",
           documentRevision: 0,
+          assetImportGeneration: 0,
+          assetRequestEpoch: 0,
+          activeAssetRequestId: "",
           documentStateKey: htmlEditDocumentStateKey({ dirty: false, changes: {} }),
           dirty: false,
           changes: {},
@@ -6581,9 +6629,14 @@
         const session = appState.htmlEditSession;
         const isCurrent = () => isCurrentHtmlEditSession(session);
         try {
+          if (!isCurrent()) {
+            await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+            return;
+          }
           const injected = await injectHtmlEditRuntime(itemId, runtimeSessionId, response, isCurrent);
           if (!injected || !isCurrent()) {
             await closeStaleHtmlEditToolbar(itemId);
+            await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
             if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
               appState.htmlEditSession = null;
               appState.htmlEditToolbarVisible = false;
@@ -6596,6 +6649,7 @@
             await closeStaleHtmlEditToolbar(itemId);
           }
         } catch (error) {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
           await invoke("close_html_edit_toolbar_overlay_command", { itemId }).catch(() => false);
           if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
             appState.htmlEditSession = null;
@@ -6743,6 +6797,7 @@
             const result = await invoke("save_html_edit_patch", {
               itemId: session.itemId,
               runtimeSessionId,
+              generation,
               artifactEditId: session.artifactEditId,
               expectedFileHash: session.sourceFileHash,
               expectedModifiedAt: session.sourceModifiedAt,
@@ -6838,11 +6893,15 @@
         const options = itemOrOptions && typeof itemOrOptions === "object" ? itemOrOptions : {};
         const itemId = typeof itemOrOptions === "number" ? itemOrOptions : (options.itemId ?? session.itemId);
         const runtimeSessionId = options.runtimeSessionId || session.runtimeSessionId;
+        const generation = session.generation;
         const discard = Boolean(options.discard);
         if (session.itemId !== itemId) return;
         if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
         cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
         nextHtmlEditSessionGeneration();
+        session.assetRequestEpoch += 1;
+        session.activeAssetRequestId = "";
+        await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
         appState.htmlEditToolbarSyncPending = false;
         try {
           await invoke("eval_html_runtime_script_command", {
@@ -6891,6 +6950,48 @@
           }
           session.shortcutsIntercepted = true;
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_asset_replace_requested") {
+          const editableType = data.editableType;
+          if ((editableType !== "image" && editableType !== "background-image") || !String(data.dataId || "")) return;
+          const assetRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const generation = session.generation;
+          const assetRequestEpoch = ++session.assetRequestEpoch;
+          const assetImportGeneration = ++session.assetImportGeneration;
+          session.activeAssetRequestId = assetRequestId;
+          const isCurrentRequest = () => appState.htmlEditSession === session
+            && isCurrentHtmlEditSession(session)
+            && session.runtimeSessionId === data.runtimeSessionId
+            && session.generation === generation
+            && session.assetRequestEpoch === assetRequestEpoch
+            && session.assetImportGeneration === assetImportGeneration
+            && session.activeAssetRequestId === assetRequestId;
+          (async () => {
+            const sourcePath = await invoke("open_html_edit_image_file_dialog");
+            if (!sourcePath || !isCurrentRequest()) return;
+            setStatus(t("htmlEdit.importingImage"), "info");
+            const imported = await invoke("import_html_edit_asset", {
+              itemId: session.itemId,
+              runtimeSessionId: session.runtimeSessionId,
+              generation: session.generation,
+              assetRequestId,
+              artifactEditId: session.artifactEditId,
+              expectedPatchRevision: session.patchRevision,
+              sourcePath
+            });
+            if (!isCurrentRequest() || !imported?.relativePath || !imported?.runtimeUrl) return;
+            await invoke("eval_html_runtime_script_command", {
+              itemId: session.itemId,
+              script: `window.__NUTBOOK_HTML_EDIT__?.applyImportedAsset(${JSON.stringify({ runtimeSessionId: session.runtimeSessionId, dataId: data.dataId, editableType, relativePath: imported.relativePath, runtimeUrl: imported.runtimeUrl })});`
+            });
+          })().catch((error) => {
+            if (isCurrentRequest()) setStatus(htmlEditAssetImportErrorStatus(error), "error");
+          });
+          return;
+        }
+        if (data.type === "html_edit_patch_field_result") {
+          if (data.reason === "picture_source_mismatch") setStatus(t("htmlEdit.pictureSourceMismatch"), "warn");
           return;
         }
         if (data.type === "html_edit_document_changed") {
@@ -7746,12 +7847,12 @@
       }
 
       function commandVariants(command, args = {}) {
-        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
+        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "import_html_edit_asset" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -12176,6 +12277,17 @@
           } else {
             resumeRuntimeSurfaces().catch(() => {});
           }
+        });
+        // On macOS, `visibilitychange` can arrive while a restored window still
+        // reports its pre-restore layout. Re-sync the native child webview once
+        // the host window has regained focus or delivered its final resize.
+        // This keeps the child surface inside the current host mount instead of
+        // leaving it at the coordinates it had before minimization.
+        window.addEventListener("focus", () => {
+          if (!document.hidden) scheduleRuntimeHostSync();
+        });
+        window.addEventListener("resize", () => {
+          if (!document.hidden) scheduleRuntimeHostSync();
         });
         els.viewerBody.addEventListener("scroll", () => {
           captureActiveMarkdownScroll();

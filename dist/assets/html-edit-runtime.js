@@ -10,7 +10,7 @@
     sessionId: "", editing: false, dirty: false, selectedDataId: null,
     baseline: new Map(), changes: new Map(), savedSelection: null, formatState: emptyFormatState(), composing: false,
     inlineToolbar: null, inlineToolbarEnabled: false, inlineToolbarDock: "bottom", inlineToolbarDrag: null, locale: "", saveNotice: "",
-    documentRevision: 0, lastCommittedChangesJson: "{}", isMutatingDocument: false
+    documentRevision: 0, lastCommittedChangesJson: "{}", isMutatingDocument: false, imageButtons: [], sourceHashes: new Map()
   };
 
   function emptyFormatState(editRole = "plain") {
@@ -39,16 +39,19 @@
     return element.getAttribute("data-editable") === "rich-text" ? "content" : "plain";
   }
   function isRichEditRole(role) { return role === "short" || role === "content"; }
-  function editableTextElements() { return editableElements().filter((element) => editRoleOf(element) === "plain"); }
-  function editableRichTextElements() { return editableElements().filter((element) => isRichEditRole(editRoleOf(element))); }
+  function editableTextElements() { return editableElements().filter((element) => element.getAttribute("data-editable") === "text" && editRoleOf(element) === "plain"); }
+  function editableRichTextElements() { return editableElements().filter((element) => element.getAttribute("data-editable") === "rich-text" && isRichEditRole(editRoleOf(element))); }
+  function editableImageElements() { return Array.from(document.querySelectorAll('img[data-editable="image"][data-id]')); }
+  function editableBackgroundImageElements() { return Array.from(document.querySelectorAll('[data-editable="background-image"][data-id]')); }
   function scanEditableElements() {
     const seen = new Set(); const duplicates = [];
-    for (const element of editableElements()) { const id = element.getAttribute("data-id") || ""; if (seen.has(id)) duplicates.push(id); seen.add(id); }
+    for (const element of [...editableTextElements(), ...editableRichTextElements(), ...editableImageElements(), ...editableBackgroundImageElements()]) { const id = element.getAttribute("data-id") || ""; if (seen.has(id)) duplicates.push(id); seen.add(id); }
     return { count: editableElements().length, duplicates };
   }
   function textOf(element) { return element.textContent || ""; }
   function selectorFor(dataId) { return `[data-id="${CSS.escape(dataId)}"]`; }
   function canonicalHash(value) { let hash = 2166136261; for (const char of String(value || "")) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(16); }
+  async function sha256HexUtf8(value) { const bytes = new TextEncoder().encode(String(value || "")); const digest = await crypto.subtle.digest("SHA-256", bytes); return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join(""); }
   function normalizeTextAlign(value) { return value === "center" || value === "right" ? value : "left"; }
   function effectiveTextAlign(element) { return normalizeTextAlign(getComputedStyle(element).textAlign); }
   function readRichValue(element) {
@@ -78,20 +81,83 @@
     return holder.innerHTML === html;
   }
 
-  function enter(payload) {
+  async function enter(payload) {
     STATE.sessionId = payload.runtimeSessionId; STATE.editing = true; STATE.dirty = false; STATE.selectedDataId = null;
     STATE.documentRevision = 0; STATE.lastCommittedChangesJson = "{}"; STATE.isMutatingDocument = false;
     STATE.inlineToolbarEnabled = Boolean(payload.inlineToolbar);
     STATE.locale = payload.locale || document.documentElement.lang || navigator.language || "";
-    STATE.baseline.clear(); STATE.changes.clear(); clearSavedSelection(); STATE.inlineToolbarDock = "bottom"; STATE.inlineToolbarDrag = null;
+    STATE.baseline.clear(); STATE.changes.clear(); STATE.sourceHashes.clear(); clearSavedSelection(); STATE.inlineToolbarDock = "bottom"; STATE.inlineToolbarDrag = null;
     installEditAffordanceStyles();
     for (const element of editableTextElements()) setupEditable(element, "text");
     for (const element of editableRichTextElements()) setupEditable(element, "rich-text");
+    await initializeTextSourceHashes();
+    await setupEditableImages();
     installShortcutCapture();
     document.addEventListener("selectionchange", onSelectionChange, true);
     document.addEventListener("beforeinput", onBeforeInput, true);
-    applyPatch(payload.patch); STATE.lastCommittedChangesJson = stableChangesJson(collectChanges()); if (STATE.inlineToolbarEnabled) mountInlineToolbar(); notifyReady();
+    applyPatch(payload.patch, payload.runtimeAssetUrls || {}); STATE.lastCommittedChangesJson = stableChangesJson(collectChanges()); if (STATE.inlineToolbarEnabled) mountInlineToolbar(); notifyReady();
   }
+  async function initializeTextSourceHashes() {
+    const elements = [...editableTextElements(), ...editableRichTextElements()];
+    for (let index = 0; index < elements.length; index += 1) {
+      const element = elements[index]; const id = element.getAttribute("data-id");
+      const source = isRichEditRole(editRoleOf(element)) ? (STATE.baseline.get(id)?.html || "") : (STATE.baseline.get(id) || "");
+      STATE.sourceHashes.set(id, await sha256HexUtf8(source));
+      if (index % 8 === 7) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  async function setupEditableImages() {
+    const elements = [...editableImageElements(), ...editableBackgroundImageElements()];
+    for (let index = 0; index < elements.length; index += 1) {
+      const element = elements[index]; const id = element.getAttribute("data-id"); const editableType = element.matches("img") ? "image" : "background-image";
+      const baseline = await imageBaselineOf(element, editableType);
+      STATE.baseline.set(id, baseline); element.setAttribute("data-nutbook-editing", "image");
+      if (editableType === "image" && !hasSupportedPictureSources(element)) {
+        element.setAttribute("data-nutbook-image-readonly", "picture-source-candidates");
+        continue;
+      }
+      element.addEventListener("click", onImageEditClick, true);
+      addImageAffordance(element, editableType); if (index % 8 === 7) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  function pictureSources(image) { const picture = image.closest("picture"); return !picture ? [] : Array.from(picture.children).filter((node) => node.tagName === "SOURCE" && node.hasAttribute("srcset")); }
+  function hasSingleSourceUrl(value) { return typeof value === "string" && value.trim() && !value.includes(",") && !/\s[0-9]+(?:w|x)(?:\s|$)/.test(value); }
+  function hasSupportedPictureSources(image) { return pictureSources(image).every((source) => hasSingleSourceUrl(source.getAttribute("srcset") || "")); }
+  function validatePictureSourceSet(image, expectedSources) {
+    const baseline = STATE.baseline.get(image.getAttribute("data-id")); const sources = pictureSources(image);
+    if (!sources.length) return !expectedSources || !expectedSources.length;
+    return Array.isArray(expectedSources) && sources.length === expectedSources.length && sources.length === (baseline?.pictureSources || []).length
+      && sources.every((source, index) => hasSingleSourceUrl(source.getAttribute("srcset") || "")
+        && expectedSources[index]?.index === index
+        && expectedSources[index]?.originalSrcsetHash === baseline.pictureSources[index]?.originalSrcsetHash);
+  }
+  async function imageBaselineOf(element, editableType) {
+    if (editableType === "background-image") { const style = element.getAttribute("style") || ""; return { type: editableType, originalStyle: style, currentStyle: style, originalStyleHash: await sha256HexUtf8(style) }; }
+    const sources = pictureSources(element); const sourceBaselines = await Promise.all(sources.map(async (source, index) => { const srcset = source.getAttribute("srcset") || ""; return { index, originalSrcset: srcset, currentSrcset: srcset, originalSrcsetHash: await sha256HexUtf8(srcset) }; }));
+    const src = element.getAttribute("src") || ""; const inlineStyle = element.getAttribute("style") || ""; return { type: editableType, originalSrc: src, currentSrc: src, originalInlineStyle: inlineStyle, currentInlineStyle: inlineStyle, originalSrcHash: await sha256HexUtf8(src), pictureSources: sourceBaselines };
+  }
+  function imageTargetState(element) { return !element.getAttribute("src") && element.getAttribute("data-image-slot") === "empty" ? "empty" : element.hasAttribute("data-nutbook-asset-relative-path") ? "imported" : "source"; }
+  function isEmptyImageSlot(element) { return element.getAttribute("data-image-slot") === "empty"; }
+  function imageSlotHeight(element) { const height = Math.round(element.parentElement?.getBoundingClientRect().height || 0); return Math.min(320, Math.max(120, height || 180)); }
+  function constrainImportedImageLayout(element) {
+    if (!element?.matches?.('img[data-editable="image"]')) return;
+    element.style.setProperty("max-width", "100%", "important");
+    element.style.setProperty("box-sizing", "border-box", "important");
+    if (!isEmptyImageSlot(element)) return;
+    element.style.setProperty("display", "block", "important");
+    element.style.setProperty("width", "100%", "important");
+    element.style.setProperty("height", `${imageSlotHeight(element)}px`, "important");
+    element.style.setProperty("object-fit", "cover", "important");
+  }
+  function findEditableImageTarget(dataId, editableType) { const element = document.querySelector(selectorFor(dataId)); return element && ((editableType === "image" && element.matches('img[data-editable="image"]')) || (editableType === "background-image" && element.matches('[data-editable="background-image"]'))) ? element : null; }
+  function onImageEditClick(event) { if (event.target !== event.currentTarget) return; const element = event.currentTarget; requestImageReplacement(element, element.matches("img") ? "image" : "background-image"); }
+  function requestImageReplacement(element, editableType) { if (!STATE.editing) return; const dataId = element.getAttribute("data-id"); emitHostMessage({ type: "html_edit_asset_replace_requested", runtimeSessionId: STATE.sessionId, dataId, editableType, targetState: imageTargetState(element) }); }
+  function addImageAffordance(element, editableType) { const button = document.createElement("button"); button.type = "button"; button.className = "nutbook-html-edit-image-action"; button.textContent = imageTargetState(element) === "empty" ? "插入图片" : "替换图片"; button.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); requestImageReplacement(element, editableType); }); element.insertAdjacentElement("afterend", button); STATE.imageButtons.push(button); }
+  function isAllowedAssetRelativePath(path) { return /^\.nutbook\/html-edit\/assets\/html-edit-[A-Za-z0-9-]+\/[a-f0-9]{64}\.(png|jpe?g|gif|webp)$/.test(String(path || "")); }
+  function writeRuntimeImageUrl(element, editableType, runtimeUrl) { if (editableType === "background-image") element.style.backgroundImage = `url(${JSON.stringify(runtimeUrl)})`; else element.setAttribute("src", runtimeUrl); }
+  function applyImportedAsset({ runtimeSessionId, dataId, editableType, relativePath, runtimeUrl }) { if (!STATE.editing || runtimeSessionId !== STATE.sessionId) return false; const element = findEditableImageTarget(dataId, editableType); if (!element || !isAllowedAssetRelativePath(relativePath) || !/^https?:\/\//.test(String(runtimeUrl || ""))) return false; if (editableType === "image") { const baseline = STATE.baseline.get(dataId); const currentSources = pictureSources(element); if (!canApplyPictureSources(element, currentSources, baseline?.pictureSources || [])) return false; constrainImportedImageLayout(element); writeRuntimeImageUrl(element, editableType, runtimeUrl); applyPictureSources(element, runtimeUrl, currentSources, baseline?.pictureSources || []); } else writeRuntimeImageUrl(element, editableType, runtimeUrl); element.setAttribute("data-nutbook-asset-relative-path", relativePath); recomputeChanges(); STATE.documentRevision += 1; emitHostMessage({ type: "html_edit_document_changed", ...stateSnapshot() }); return true; }
+  function canApplyPictureSources(image, currentSources, originalSources) { const sources = pictureSources(image); return sources.length === currentSources.length && sources.length === originalSources.length && sources.every((source, index) => source.getAttribute("srcset") === currentSources[index].getAttribute("srcset")); }
+  function applyPictureSources(image, runtimeUrl, currentSources, originalSources) { if (!canApplyPictureSources(image, currentSources, originalSources)) return null; for (const source of pictureSources(image)) source.setAttribute("srcset", runtimeUrl); return originalSources.map((source) => ({ index: source.index, originalSrcsetHash: source.originalSrcsetHash })); }
   function setupEditable(element, type) {
     const id = element.getAttribute("data-id"); const role = editRoleOf(element);
     STATE.baseline.set(id, type === "rich-text" ? richBaselineOf(element) : textOf(element));
@@ -109,7 +175,7 @@
   function normalizeExitOptions(options) { return typeof options === "string" ? { runtimeSessionId: options, discard: false } : { runtimeSessionId: options?.runtimeSessionId || "", discard: Boolean(options?.discard) }; }
   function exit(options = {}) {
     const exitOptions = normalizeExitOptions(options); if (exitOptions.runtimeSessionId && exitOptions.runtimeSessionId !== STATE.sessionId) return;
-    for (const element of editableElements()) {
+    for (const element of [...editableTextElements(), ...editableRichTextElements()]) {
       const id = element.getAttribute("data-id"); const type = isRichEditRole(editRoleOf(element)) ? "rich-text" : "text";
       if (exitOptions.discard && STATE.baseline.has(id)) { if (type === "rich-text") applyRichBaseline(element, STATE.baseline.get(id)); else element.textContent = STATE.baseline.get(id); }
       element.removeAttribute("contenteditable"); element.removeAttribute("data-nutbook-editing");
@@ -120,6 +186,12 @@
       element.removeEventListener("focus", onFocus, true); element.removeEventListener("input", onInput, true); element.removeEventListener("blur", onBlur, true);
       element.removeEventListener("compositionstart", onCompositionStart, true); element.removeEventListener("compositionend", onCompositionEnd, true);
     }
+    for (const element of [...editableImageElements(), ...editableBackgroundImageElements()]) {
+      const id = element.getAttribute("data-id"); const baseline = STATE.baseline.get(id);
+      if (exitOptions.discard && baseline) restoreImageBaseline(element, baseline);
+      element.removeAttribute("data-nutbook-editing"); element.removeEventListener("click", onImageEditClick, true); element.removeEventListener("focus", onImageEditClick, true);
+    }
+    STATE.imageButtons.splice(0).forEach((button) => button.remove());
     unmountInlineToolbar(); removeEditAffordanceStyles();
     STATE.editing = false; STATE.dirty = false; STATE.selectedDataId = null; STATE.changes.clear(); STATE.composing = false; STATE.isMutatingDocument = false; STATE.inlineToolbarDock = "bottom"; STATE.inlineToolbarDrag = null; clearSavedSelection();
     document.title = STATE.runtimeTitle || document.location.pathname.split("/").pop() || "Nutbook Runtime";
@@ -130,7 +202,12 @@
     const saveOptions = normalizeMarkSavedOptions(options); if (saveOptions.runtimeSessionId && saveOptions.runtimeSessionId !== STATE.sessionId) return false;
     recomputeChanges();
     if (saveOptions.expectedChangesJson && stableChangesJson(collectChanges()) !== saveOptions.expectedChangesJson) { reportState(); return false; }
-    for (const element of editableElements()) STATE.baseline.set(element.getAttribute("data-id"), readEditableValue(element));
+    for (const element of [...editableTextElements(), ...editableRichTextElements()]) STATE.baseline.set(element.getAttribute("data-id"), readEditableValue(element));
+    for (const element of [...editableImageElements(), ...editableBackgroundImageElements()]) {
+      const id = element.getAttribute("data-id"); const baseline = STATE.baseline.get(id); if (!baseline) continue;
+      if (baseline.type === "image") { baseline.currentSrc = element.getAttribute("src") || ""; baseline.currentInlineStyle = element.getAttribute("style") || ""; baseline.pictureSources.forEach((source, index) => { source.currentSrcset = pictureSources(element)[index]?.getAttribute("srcset") || ""; }); }
+      else baseline.currentStyle = element.getAttribute("style") || "";
+    }
     STATE.dirty = false; STATE.changes.clear(); STATE.lastCommittedChangesJson = stableChangesJson({}); STATE.documentRevision += 1; STATE.saveNotice = "saved"; syncInlineToolbar();
     emitHostMessage({ type: "html_edit_document_changed", ...stateSnapshot() }); return true;
   }
@@ -215,9 +292,11 @@
   }
   function syncInlineToolbar() {
     const root = STATE.inlineToolbar?.root; if (!root) return;
+    const selected = STATE.selectedDataId && document.querySelector(selectorFor(STATE.selectedDataId));
+    const isTextSelected = selected?.getAttribute("data-editable") === "text" || selected?.getAttribute("data-editable") === "rich-text";
     const role = selectedInlineToolbarRole(); const commands = new Set(inlineCommandsForRole(role)); const canFormat = STATE.formatState.canFormat && commands.size > 0;
     root.querySelectorAll("button[data-command]").forEach((button) => { button.hidden = !commands.has(button.dataset.command); button.disabled = !canFormat; });
-    root.querySelector("[data-text-editing]").hidden = commands.size > 0;
+    root.querySelector("[data-text-editing]").hidden = commands.size > 0 || !isTextSelected;
     root.querySelector("[data-saved]").hidden = STATE.saveNotice !== "saved";
     syncInlineToolbarPosition();
   }
@@ -486,13 +565,25 @@
   }
   function updateChange(element) {
     const id = element.getAttribute("data-id"); const role = editRoleOf(element);
+    if (element.matches?.('img[data-editable="image"]')) {
+      const baseline = STATE.baseline.get(id); const relativePath = element.getAttribute("data-nutbook-asset-relative-path");
+      if (!baseline || !relativePath || (element.getAttribute("src") || "") === baseline.currentSrc) STATE.changes.delete(id);
+      else {
+        const pictureSources = baseline.pictureSources.map((source) => ({ index: source.index, originalSrcsetHash: source.originalSrcsetHash }));
+        const change = { type: "image", selector: selectorFor(id), originalSrcHash: baseline.originalSrcHash, src: relativePath, alt: element.getAttribute("alt") || "" };
+        if (pictureSources.length) change.pictureSources = pictureSources;
+        STATE.changes.set(id, change);
+      }
+      STATE.dirty = STATE.changes.size > 0; return;
+    }
+    if (element.matches?.('[data-editable="background-image"]')) { const baseline = STATE.baseline.get(id); const relativePath = element.getAttribute("data-nutbook-asset-relative-path"); if (!baseline || !relativePath || (element.getAttribute("style") || "") === baseline.currentStyle) STATE.changes.delete(id); else STATE.changes.set(id, { type: "background-image", selector: selectorFor(id), originalStyleHash: baseline.originalStyleHash, src: relativePath }); STATE.dirty = STATE.changes.size > 0; return; }
     if (isRichEditRole(role)) {
       const value = readRichValue(element); const original = STATE.baseline.get(id) || { html: "", textAlign: "left" };
-      if (value.html === original.html && value.textAlign === original.textAlign) STATE.changes.delete(id); else { const change = { type: "rich_text", selector: selectorFor(id), originalTextHash: canonicalHash(original.html), html: value.html, editRole: role }; if (value.textAlign !== original.textAlign) change.textAlign = value.textAlign; STATE.changes.set(id, change); }
-    } else { const value = textOf(element); const original = STATE.baseline.get(id) || ""; if (value === original) STATE.changes.delete(id); else STATE.changes.set(id, { type: "text", selector: selectorFor(id), originalTextHash: canonicalHash(original), text: value, editRole: role }); }
+      if (value.html === original.html && value.textAlign === original.textAlign) STATE.changes.delete(id); else { const change = { type: "rich_text", selector: selectorFor(id), originalTextHash: STATE.sourceHashes.get(id) || "", html: value.html, editRole: role }; if (value.textAlign !== original.textAlign) change.textAlign = value.textAlign; STATE.changes.set(id, change); }
+    } else { const value = textOf(element); const original = STATE.baseline.get(id) || ""; if (value === original) STATE.changes.delete(id); else STATE.changes.set(id, { type: "text", selector: selectorFor(id), originalTextHash: STATE.sourceHashes.get(id) || "", text: value, editRole: role }); }
     STATE.dirty = STATE.changes.size > 0; if (STATE.dirty) STATE.saveNotice = "";
   }
-  function recomputeChanges() { for (const element of editableElements()) updateChange(element); }
+  function recomputeChanges() { for (const element of [...editableTextElements(), ...editableRichTextElements(), ...editableImageElements(), ...editableBackgroundImageElements()]) updateChange(element); }
   function collectChanges() { return Object.fromEntries(STATE.changes.entries()); }
   function stableChangesJson(value) {
     const normalize = (entry) => {
@@ -504,17 +595,32 @@
     };
     return JSON.stringify(normalize(value));
   }
-  function applyPatch(patch) {
+  function applyPatch(patch, runtimeAssetUrls = {}) {
     if (!patch?.changes) return;
     for (const [id, change] of Object.entries(patch.changes)) {
       const element = document.querySelector(selectorFor(id)); if (!element) continue;
       const role = editRoleOf(element);
       if (change.type === "text" && role === "plain") element.textContent = change.text || "";
+      if ((change.type === "image" || change.type === "background-image") && change.src && runtimeAssetUrls[change.src]) {
+        const editableType = change.type === "image" ? "image" : "background-image";
+        if (editableType === "image" && !validatePictureSourceSet(element, change.pictureSources || [])) {
+          emitHostMessage({ type: "html_edit_patch_field_result", runtimeSessionId: STATE.sessionId, dataId: id, patchRevision: patch.patchRevision || 0, status: "skipped", reason: "picture_source_mismatch" });
+          continue;
+        }
+        if (!applyImportedAsset({ runtimeSessionId: STATE.sessionId, dataId: id, editableType, relativePath: change.src, runtimeUrl: runtimeAssetUrls[change.src] })) {
+          emitHostMessage({ type: "html_edit_patch_field_result", runtimeSessionId: STATE.sessionId, dataId: id, patchRevision: patch.patchRevision || 0, status: "skipped", reason: "picture_source_mismatch" });
+          continue;
+        }
+        const baseline = STATE.baseline.get(id);
+        if (baseline?.type === "image") { baseline.currentSrc = element.getAttribute("src") || ""; baseline.currentInlineStyle = element.getAttribute("style") || ""; baseline.pictureSources.forEach((source, index) => { source.currentSrcset = pictureSources(element)[index]?.getAttribute("srcset") || ""; }); }
+        if (baseline?.type === "background-image") baseline.currentStyle = element.getAttribute("style") || "";
+      }
       const patchRole = change.editRole || "content";
       if ((change.type === "rich_text" || change.type === "rich-text") && isRichEditRole(role) && patchRole === role && isValidatedRichHtml(change.html, role)) { const baseline = STATE.baseline.get(id) || readRichValue(element); element.innerHTML = change.html; element.style.textAlign = change.textAlign ? normalizeTextAlign(change.textAlign) : baseline.textAlign; normalizeRichTextField(element); }
-      STATE.baseline.set(id, readEditableValue(element));
+      if (!element.matches?.('[data-editable="image"], [data-editable="background-image"]')) STATE.baseline.set(id, readEditableValue(element));
     }
   }
+  function restoreImageBaseline(element, baseline) { if (baseline.type === "image") { if (baseline.currentSrc) element.setAttribute("src", baseline.currentSrc); else element.removeAttribute("src"); element.setAttribute("style", baseline.currentInlineStyle || ""); pictureSources(element).forEach((source, index) => { source.setAttribute("srcset", baseline.pictureSources[index]?.currentSrcset || source.getAttribute("srcset") || ""); }); } else element.setAttribute("style", baseline.currentStyle); element.removeAttribute("data-nutbook-asset-relative-path"); }
   function onBeforeInput(event) {
     if (!STATE.editing || (event.inputType !== "insertFromPaste" && event.inputType !== "insertFromDrop")) return;
     const selection = window.getSelection(); const range = selection?.rangeCount ? selection.getRangeAt(0) : null; const field = sameRichTextField(range);
@@ -568,7 +674,7 @@
   function installEditAffordanceStyles() {
     if (document.getElementById("nutbook-html-edit-affordance")) return;
     const style = document.createElement("style"); style.id = "nutbook-html-edit-affordance";
-    style.textContent = '[data-nutbook-editing]{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative}[data-nutbook-editing]:hover{outline-color:#a99f9f;background:#f3f3f5}[data-nutbook-editing]:focus{outline-color:#000;box-shadow:0 4px 12px rgba(26,28,29,.12)}';
+    style.textContent = '[data-nutbook-editing]{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative}[data-nutbook-editing]:hover{outline-color:#a99f9f;background:#f3f3f5}[data-nutbook-editing]:focus{outline-color:#000;box-shadow:0 4px 12px rgba(26,28,29,.12)}[data-nutbook-editing="image"]{cursor:pointer}.nutbook-html-edit-image-action{margin:6px;border:1px solid #bbb;border-radius:6px;background:#fff;padding:5px 8px;font:12px sans-serif;cursor:pointer}';
     document.head.append(style);
   }
   function removeEditAffordanceStyles() { document.getElementById("nutbook-html-edit-affordance")?.remove(); }
@@ -594,5 +700,5 @@
     if (!STATE._messageSeq) STATE._messageSeq = 0;
     document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...payload, _s: ++STATE._messageSeq })}`;
   }
-  window.__NUTBOOK_HTML_EDIT__ = { scanEditableElements, isEditing: () => STATE.editing, enter, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, getSnapshot, reportState, emitHostMessage };
+  window.__NUTBOOK_HTML_EDIT__ = { scanEditableElements, isEditing: () => STATE.editing, enter, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, getSnapshot, reportState, emitHostMessage };
 })();

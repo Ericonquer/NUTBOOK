@@ -3,13 +3,16 @@ use std::path::PathBuf;
 use crate::{
     core::html_edit::{
         get_html_edit_patch_for_file as get_patch_for_file,
+        import_html_edit_asset as import_asset,
+        load_html_edit_manifest,
+        populate_runtime_asset_urls,
         save_html_edit_patch_for_file as save_patch_for_file,
         save_html_edit_patch_replacing_changes_for_file as replace_patch_for_file, HtmlEditPatchLookup,
         HtmlEditPatchResponse, HtmlEditPatchSave, HtmlEditPatchSaveResponse,
     },
     db::repositories::{ItemRepository, LibraryRepository},
     errors::AppError,
-    models::{GetHtmlEditPatchRequest, Library, SaveHtmlEditPatchRequest},
+    models::{GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, SaveHtmlEditPatchRequest},
     state::AppState,
 };
 
@@ -18,6 +21,14 @@ pub fn get_html_edit_patch(
     state: tauri::State<'_, AppState>,
     payload: GetHtmlEditPatchRequest,
 ) -> Result<HtmlEditPatchResponse, AppError> {
+    let has_session = !payload.runtime_session_id.is_empty();
+    if has_session {
+        require_html_edit_session_lease(state.html_edit_session_lease_matches(
+            payload.item_id,
+            &payload.runtime_session_id,
+            payload.generation,
+        )?)?;
+    }
     let item = state.get_item_detail(payload.item_id)?;
     if item.summary.file_type != "html" {
         return Err(AppError::UnsupportedFileType);
@@ -27,12 +38,125 @@ pub fn get_html_edit_patch(
     let library_root = html_edit_library_root(&library)?;
     let lookup = HtmlEditPatchLookup {
         library_id: library.id,
-        library_root,
+        library_root: library_root.clone(),
         item_id: item.summary.id,
         file_path: PathBuf::from(item.summary.file_path),
         title_hint,
     };
-    get_patch_for_file(&lookup)
+    let mut response = get_patch_for_file(&lookup)?;
+    let manifest = load_html_edit_manifest(&library_root)?;
+    if has_session && !manifest.entries.contains_key(&response.source_relative_path) {
+        response.artifact_edit_id = state
+            .html_edit_session_provisional_identity(
+                payload.item_id,
+                &payload.runtime_session_id,
+                payload.generation,
+            )?
+            .ok_or(AppError::InvalidSession)?;
+    }
+    populate_runtime_asset_urls(&mut response, &library_root, |path| state.local_server_file_url(path));
+    Ok(response)
+}
+
+#[tauri::command]
+pub fn import_html_edit_asset(
+    state: tauri::State<'_, AppState>,
+    payload: ImportHtmlEditAssetRequest,
+) -> Result<ImportHtmlEditAssetResponse, AppError> {
+    // Do this before item/library lookup and, critically, before core import
+    // opens either user-selected source or a destination directory.
+    let session_is_current = !payload.asset_request_id.is_empty()
+        && state.html_edit_session_lease_matches(
+            payload.item_id,
+            &payload.runtime_session_id,
+            payload.generation,
+        )?;
+    require_html_edit_session_lease(session_is_current)?;
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let library = library_for_item(&state, item.summary.library_id)?;
+    let manifest_lock = state.html_edit_manifest_lock(library.id)?;
+    let _guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+    let library_root = html_edit_library_root(&library)?;
+    let current_session_identity = state
+        .html_edit_session_provisional_identity(
+            payload.item_id,
+            &payload.runtime_session_id,
+            payload.generation,
+        )?
+        .ok_or(AppError::InvalidSession)?;
+    let lookup = HtmlEditPatchLookup {
+        library_id: library.id,
+        library_root: library_root.clone(),
+        item_id: item.summary.id,
+        file_path: PathBuf::from(&item.summary.file_path),
+        title_hint: title_hint(&item),
+    };
+    let current = get_patch_for_file(&lookup)?;
+    let manifest = load_html_edit_manifest(&library_root)?;
+    validate_html_edit_asset_import_identity(
+        manifest.entries.get(&current.source_relative_path).map(|entry| entry.artifact_edit_id.as_str()),
+        current.patch_revision,
+        &current_session_identity,
+        &payload.artifact_edit_id,
+        payload.expected_patch_revision,
+    )?;
+    let result = import_asset_for_active_session(
+        state.html_edit_session_lease_matches(
+            payload.item_id,
+            &payload.runtime_session_id,
+            payload.generation,
+        )?,
+        || import_asset(&HtmlEditAssetImport {
+            library_root: library_root.clone(),
+            artifact_edit_id: payload.artifact_edit_id,
+            source_path: PathBuf::from(payload.source_path),
+        }),
+    )?;
+    let absolute_asset = resolve_imported_asset_path(&library, &result.relative_path)?;
+    let runtime_url = state.local_server_file_url(&absolute_asset);
+    if !runtime_url.starts_with("http://") && !runtime_url.starts_with("https://") {
+        return Err(AppError::InternalError);
+    }
+    Ok(ImportHtmlEditAssetResponse {
+        runtime_url: Some(runtime_url),
+        ..result
+    })
+}
+
+/// Host calls this immediately before injecting the runtime.  It replaces any
+/// older lease for this item atomically, so picker results captured by the old
+/// generation are rejected by `import_html_edit_asset`.
+#[tauri::command]
+pub fn register_html_edit_session_lease(
+    state: tauri::State<'_, AppState>,
+    payload: HtmlEditSessionLeaseRequest,
+) -> Result<(), AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    state.register_html_edit_session_lease(
+        payload.item_id,
+        payload.runtime_session_id,
+        payload.generation,
+    )
+}
+
+/// Exact-match invalidation makes a late exit harmless: it cannot remove a
+/// newer lease for the same item.
+#[tauri::command]
+pub fn invalidate_html_edit_session_lease(
+    state: tauri::State<'_, AppState>,
+    payload: HtmlEditSessionLeaseRequest,
+) -> Result<bool, AppError> {
+    state.invalidate_html_edit_session_lease(
+        payload.item_id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )
 }
 
 #[tauri::command]
@@ -44,9 +168,11 @@ pub fn save_html_edit_patch(
     if item.summary.file_type != "html" {
         return Err(AppError::UnsupportedFileType);
     }
-    if !runtime_session_matches_item(item.summary.id, &payload.runtime_session_id) {
-        return Err(AppError::InvalidParams);
-    }
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(
+        item.summary.id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )?)?;
     let library = library_for_item(&state, item.summary.library_id)?;
     let title_hint = title_hint(&item);
     let manifest_lock = state.html_edit_manifest_lock(library.id)?;
@@ -90,6 +216,16 @@ fn html_edit_library_root(library: &Library) -> Result<PathBuf, AppError> {
     Ok(root)
 }
 
+fn resolve_imported_asset_path(library: &Library, relative_path: &str) -> Result<PathBuf, AppError> {
+    let root = html_edit_library_root(library)?;
+    let root = root.canonicalize().map_err(|_| AppError::IoError)?;
+    let path = root.join(relative_path).canonicalize().map_err(|_| AppError::IoError)?;
+    if !path.starts_with(&root) {
+        return Err(AppError::InternalError);
+    }
+    Ok(path)
+}
+
 fn title_hint(item: &crate::models::ItemDetail) -> String {
     item.summary
         .title
@@ -98,23 +234,90 @@ fn title_hint(item: &crate::models::ItemDetail) -> String {
         .unwrap_or_else(|| item.summary.file_name.clone())
 }
 
-fn runtime_session_matches_item(item_id: i64, runtime_session_id: &str) -> bool {
-    runtime_session_id.starts_with(&format!("html-edit-{item_id}-"))
+fn require_html_edit_session_lease(session_is_current: bool) -> Result<(), AppError> {
+    if session_is_current { Ok(()) } else { Err(AppError::InvalidSession) }
+}
+
+/// A manifest-bound document can only import under its persisted identity and
+/// current revision. Before the first save, the one identity held by the exact
+/// active lease is accepted at revision zero only.
+pub fn validate_html_edit_asset_import_identity(
+    bound_artifact_edit_id: Option<&str>,
+    current_patch_revision: u64,
+    provisional_artifact_edit_id: &str,
+    requested_artifact_edit_id: &str,
+    expected_patch_revision: u64,
+) -> Result<(), AppError> {
+    let valid = match bound_artifact_edit_id {
+        Some(bound) => requested_artifact_edit_id == bound && expected_patch_revision == current_patch_revision,
+        None => requested_artifact_edit_id == provisional_artifact_edit_id && expected_patch_revision == 0,
+    };
+    if valid { Ok(()) } else { Err(AppError::EditConflict) }
+}
+
+fn import_asset_for_active_session<T>(
+    session_is_current: bool,
+    import: impl FnOnce() -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    require_html_edit_session_lease(session_is_current)?;
+    import()
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use crate::models::Library;
+    use crate::{
+        core::html_edit::import_html_edit_asset,
+        models::{HtmlEditAssetImport, Library},
+    };
 
-    use super::{html_edit_library_root, runtime_session_matches_item};
+    use super::{html_edit_library_root, import_asset_for_active_session, require_html_edit_session_lease, validate_html_edit_asset_import_identity};
 
     #[test]
-    fn runtime_session_matches_item_id_prefix() {
-        assert!(runtime_session_matches_item(42, "html-edit-42-123456"));
-        assert!(!runtime_session_matches_item(7, "html-edit-42-123456"));
-        assert!(!runtime_session_matches_item(42, ""));
+    fn html_edit_asset_import_accepts_provisional_identity_only_at_revision_zero() {
+        assert!(validate_html_edit_asset_import_identity(None, 0, "html-edit-provisional", "html-edit-provisional", 0).is_ok());
+        assert!(validate_html_edit_asset_import_identity(None, 0, "html-edit-provisional", "html-edit-provisional", 1).is_err());
+    }
+
+    #[test]
+    fn html_edit_asset_import_rejects_bound_identity_or_revision_mismatch() {
+        assert!(validate_html_edit_asset_import_identity(Some("html-edit-bound"), 3, "html-edit-provisional", "html-edit-provisional", 0).is_err());
+        assert!(validate_html_edit_asset_import_identity(Some("html-edit-bound"), 3, "html-edit-provisional", "html-edit-bound", 2).is_err());
+        assert!(validate_html_edit_asset_import_identity(Some("html-edit-bound"), 3, "html-edit-provisional", "html-edit-bound", 3).is_ok());
+    }
+
+    #[test]
+    fn html_edit_asset_import_save_race_rejects_late_revision_zero_without_writing_asset() {
+        let root = tempfile::tempdir().expect("library root");
+        let result = validate_html_edit_asset_import_identity(
+            Some("html-edit-bound-after-save"),
+            1,
+            "html-edit-provisional",
+            "html-edit-provisional",
+            0,
+        );
+        assert!(matches!(result, Err(crate::errors::AppError::EditConflict)));
+        assert!(
+            !root.path().join(".nutbook/html-edit/assets/html-edit-provisional").exists(),
+            "a late provisional import must fail before it creates its asset directory"
+        );
+    }
+
+    #[test]
+    fn stale_session_is_rejected_before_import_closure_runs() {
+        let root = tempfile::tempdir().expect("library root");
+        let missing_source = root.path().join("does-not-exist.png");
+        let asset_dir = root.path().join(".nutbook/html-edit/assets/html-edit-test");
+        let error = import_asset_for_active_session(false, || import_html_edit_asset(&HtmlEditAssetImport {
+            library_root: root.path().to_path_buf(),
+            artifact_edit_id: "html-edit-test".to_string(),
+            source_path: missing_source.clone(),
+        })).expect_err("invalid lease must stop before import");
+        assert!(matches!(error, crate::errors::AppError::InvalidSession));
+        assert!(!missing_source.exists());
+        assert!(!asset_dir.exists(), "invalid lease must not create destination assets");
+        assert!(require_html_edit_session_lease(false).is_err());
     }
 
     #[test]

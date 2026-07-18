@@ -1,15 +1,22 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::{
+    ffi::CString,
+    os::{fd::{AsRawFd, FromRawFd}, unix::ffi::OsStrExt},
+};
+
 use crate::errors::AppError;
 use crate::models::{
-    HtmlEditChange, HtmlEditFieldApplyReason, HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus,
-    HtmlEditPatch, HtmlEditPatchApplyStatus, HtmlEditRole,
+    HtmlEditAssetImport, HtmlEditChange, HtmlEditFieldApplyReason, HtmlEditFieldApplyResult,
+    HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus, HtmlEditRole,
+    HtmlEditChangeType, ImportHtmlEditAssetResponse, HTML_EDIT_ASSET_MAX_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -51,6 +58,10 @@ pub struct HtmlEditPatchResponse {
     pub patch_revision: u64,
     pub patch_apply_status: HtmlEditPatchApplyStatus,
     pub field_apply_results: BTreeMap<String, HtmlEditFieldApplyResult>,
+    /// Ephemeral local-content-server URLs keyed by persisted asset-relative
+    /// path.  This is deliberately outside `HtmlEditPatch`.
+    #[serde(default)]
+    pub runtime_asset_urls: BTreeMap<String, String>,
     pub patch: Option<HtmlEditPatch>,
 }
 
@@ -130,6 +141,418 @@ pub fn validate_artifact_edit_id(artifact_edit_id: &str) -> Result<(), AppError>
     Ok(())
 }
 
+pub fn import_html_edit_asset(
+    import: &HtmlEditAssetImport,
+) -> Result<ImportHtmlEditAssetResponse, AppError> {
+    validate_artifact_edit_id(&import.artifact_edit_id)?;
+
+    // This path metadata is only a fast rejection before any output path exists.
+    // On Unix the security decision is made again from the O_NOFOLLOW source FD.
+    let source_metadata = fs::metadata(&import.source_path).map_err(|_| AppError::InvalidParams)?;
+    if !source_metadata.is_file() {
+        return Err(AppError::InvalidParams);
+    }
+    if source_metadata.len() > HTML_EDIT_ASSET_MAX_BYTES {
+        return Err(AppError::AssetTooLarge);
+    }
+
+    #[cfg(unix)]
+    let mut source = open_html_edit_asset_source(&import.source_path)?;
+    #[cfg(not(unix))]
+    let mut source = fs::File::open(&import.source_path).map_err(|_| AppError::InvalidParams)?;
+    let opened_metadata = source.metadata().map_err(|_| AppError::InvalidParams)?;
+    if !opened_metadata.is_file() {
+        return Err(AppError::InvalidParams);
+    }
+    if opened_metadata.len() > HTML_EDIT_ASSET_MAX_BYTES {
+        return Err(AppError::AssetTooLarge);
+    }
+
+    let header = read_html_edit_asset_header(&mut source)?;
+    let (media_type, extension) = detect_html_edit_image_type(&header)
+        .ok_or(AppError::AssetInvalidType)?;
+
+    #[cfg(unix)]
+    {
+        return import_html_edit_asset_unix(
+            &import.library_root,
+            &import.artifact_edit_id,
+            &mut source,
+            &header,
+            media_type,
+            extension,
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (source, header, media_type, extension);
+        Err(AppError::IoError)
+    }
+}
+
+#[cfg(unix)]
+fn open_html_edit_asset_source(path: &Path) -> Result<fs::File, AppError> {
+    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| AppError::InvalidParams)?;
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(AppError::InvalidParams);
+    }
+    let file = unsafe { fs::File::from_raw_fd(fd) };
+    let metadata = file.metadata().map_err(|_| AppError::InvalidParams)?;
+    if !metadata.is_file() {
+        return Err(AppError::InvalidParams);
+    }
+    if metadata.len() > HTML_EDIT_ASSET_MAX_BYTES {
+        return Err(AppError::AssetTooLarge);
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn import_html_edit_asset_unix(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    source: &mut fs::File,
+    header: &[u8],
+    media_type: &str,
+    extension: &str,
+) -> Result<ImportHtmlEditAssetResponse, AppError> {
+    let asset_dir = open_html_edit_asset_directory(library_root, artifact_edit_id)?;
+    let temp_leaf = format!(".tmp-{}", Uuid::new_v4());
+    let mut temporary = create_html_edit_asset_temp_in_directory(&asset_dir, &temp_leaf)?;
+    let (byte_size, content_hash) = match copy_html_edit_asset_to_file(source, header, &mut temporary) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = unlink_at(&asset_dir, &temp_leaf);
+            return Err(error);
+        }
+    };
+    if temporary.sync_all().is_err() {
+        let _ = unlink_at(&asset_dir, &temp_leaf);
+        return Err(AppError::IoError);
+    }
+    drop(temporary);
+
+    let file_name = format!("{content_hash}.{extension}");
+    publish_html_edit_asset_temp_no_clobber(
+        &asset_dir,
+        &temp_leaf,
+        &file_name,
+        &content_hash,
+    )?;
+
+    Ok(ImportHtmlEditAssetResponse {
+        relative_path: format!(
+            ".nutbook/html-edit/assets/{artifact_edit_id}/{file_name}"
+        ),
+        runtime_url: None,
+        media_type: media_type.to_string(),
+        byte_size,
+        content_hash,
+    })
+}
+
+#[cfg(unix)]
+fn open_html_edit_asset_directory(
+    library_root: &Path,
+    artifact_edit_id: &str,
+) -> Result<fs::File, AppError> {
+    let root = open_directory_path(library_root)?;
+    let mut current = root;
+    for component in [".nutbook", "html-edit", "assets", artifact_edit_id] {
+        mkdir_at_if_missing(&current, component)?;
+        current = open_directory_at(&current, component)?;
+    }
+    Ok(current)
+}
+
+#[cfg(unix)]
+fn open_directory_path(path: &Path) -> Result<fs::File, AppError> {
+    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| AppError::IoError)?;
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    fd_to_regular_directory(fd)
+}
+
+#[cfg(unix)]
+fn open_directory_at(parent: &fs::File, name: &str) -> Result<fs::File, AppError> {
+    let name = asset_leaf(name)?;
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    fd_to_regular_directory(fd)
+}
+
+#[cfg(unix)]
+fn fd_to_regular_directory(fd: libc::c_int) -> Result<fs::File, AppError> {
+    if fd < 0 {
+        return Err(AppError::IoError);
+    }
+    let file = unsafe { fs::File::from_raw_fd(fd) };
+    let metadata = file.metadata().map_err(|_| AppError::IoError)?;
+    if !metadata.is_dir() {
+        return Err(AppError::IoError);
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn mkdir_at_if_missing(parent: &fs::File, name: &str) -> Result<(), AppError> {
+    let name = asset_leaf(name)?;
+    let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+    if result == 0 {
+        return Ok(());
+    }
+    if std::io::Error::last_os_error().raw_os_error() == Some(libc::EEXIST) {
+        return Ok(());
+    }
+    Err(AppError::IoError)
+}
+
+#[cfg(unix)]
+fn asset_leaf(name: &str) -> Result<CString, AppError> {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+        return Err(AppError::InvalidParams);
+    }
+    CString::new(name).map_err(|_| AppError::InvalidParams)
+}
+
+#[cfg(unix)]
+pub fn create_html_edit_asset_temp_in_directory(
+    directory: &fs::File,
+    temporary_leaf: &str,
+) -> Result<fs::File, AppError> {
+    let temporary_leaf = asset_leaf(temporary_leaf)?;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            temporary_leaf.as_ptr(),
+            libc::O_WRONLY
+                | libc::O_CREAT
+                | libc::O_EXCL
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err(AppError::IoError);
+    }
+    Ok(unsafe { fs::File::from_raw_fd(fd) })
+}
+
+#[cfg(unix)]
+fn regular_leaf_metadata(directory: &fs::File, leaf: &str) -> Result<Option<()>, AppError> {
+    let leaf = asset_leaf(leaf)?;
+    let mut metadata: libc::stat = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::fstatat(
+            directory.as_raw_fd(),
+            leaf.as_ptr(),
+            &mut metadata,
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result != 0 {
+        if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
+            return Ok(None);
+        }
+        return Err(AppError::IoError);
+    }
+    if metadata.st_mode & libc::S_IFMT != libc::S_IFREG {
+        return Err(AppError::IoError);
+    }
+    Ok(Some(()))
+}
+
+#[cfg(unix)]
+fn hash_regular_leaf(directory: &fs::File, leaf: &str) -> Result<String, AppError> {
+    let leaf = asset_leaf(leaf)?;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            leaf.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(AppError::IoError);
+    }
+    let mut file = unsafe { fs::File::from_raw_fd(fd) };
+    if !file.metadata().map_err(|_| AppError::IoError)?.is_file() {
+        return Err(AppError::IoError);
+    }
+    hash_reader(&mut file)
+}
+
+#[cfg(unix)]
+fn unlink_at(directory: &fs::File, leaf: &str) -> Result<(), AppError> {
+    let leaf = asset_leaf(leaf)?;
+    let result = unsafe { libc::unlinkat(directory.as_raw_fd(), leaf.as_ptr(), 0) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(AppError::IoError)
+    }
+}
+
+#[cfg(unix)]
+pub fn publish_html_edit_asset_temp_no_clobber(
+    directory: &fs::File,
+    temporary_leaf: &str,
+    destination_leaf: &str,
+    expected_hash: &str,
+) -> Result<(), AppError> {
+    match link_at(directory, temporary_leaf, destination_leaf) {
+        Ok(()) => return unlink_at(directory, temporary_leaf),
+        Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {}
+        Err(_) => {
+            let _ = unlink_at(directory, temporary_leaf);
+            return Err(AppError::IoError);
+        }
+    }
+
+    let existing_hash = match regular_leaf_metadata(directory, destination_leaf) {
+        Ok(Some(())) => hash_regular_leaf(directory, destination_leaf),
+        Ok(None) => Err(AppError::IoError),
+        Err(error) => Err(error),
+    };
+    let _ = unlink_at(directory, temporary_leaf);
+    match existing_hash {
+        Ok(hash) if hash == expected_hash => Ok(()),
+        Ok(_) | Err(_) => Err(AppError::IoError),
+    }
+}
+
+#[cfg(unix)]
+fn link_at(
+    directory: &fs::File,
+    source_leaf: &str,
+    destination_leaf: &str,
+) -> Result<(), std::io::Error> {
+    let source_leaf = asset_leaf(source_leaf)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid asset leaf"))?;
+    let destination_leaf = asset_leaf(destination_leaf)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid asset leaf"))?;
+    let result = unsafe {
+        libc::linkat(
+            directory.as_raw_fd(),
+            source_leaf.as_ptr(),
+            directory.as_raw_fd(),
+            destination_leaf.as_ptr(),
+            0,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+fn detect_html_edit_image_type(header: &[u8]) -> Option<(&'static str, &'static str)> {
+    if header.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(("image/png", "png"))
+    } else if header.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some(("image/jpeg", "jpg"))
+    } else if header.starts_with(b"GIF87a") || header.starts_with(b"GIF89a") {
+        Some(("image/gif", "gif"))
+    } else if header.len() >= 12 && &header[..4] == b"RIFF" && &header[8..12] == b"WEBP" {
+        Some(("image/webp", "webp"))
+    } else {
+        None
+    }
+}
+
+fn read_html_edit_asset_header(source: &mut fs::File) -> Result<Vec<u8>, AppError> {
+    let mut header = [0_u8; 12];
+    let mut header_len = 0;
+    while header_len < header.len() {
+        let read = source
+            .read(&mut header[header_len..])
+            .map_err(|_| AppError::IoError)?;
+        if read == 0 {
+            break;
+        }
+        header_len += read;
+    }
+    Ok(header[..header_len].to_vec())
+}
+
+pub fn copy_html_edit_asset_reader_to_temp<R: Read>(
+    source: &mut R,
+    header: &[u8],
+    tmp_path: &Path,
+) -> Result<(u64, String), AppError> {
+    let result = (|| {
+        let mut temporary = fs::File::create(tmp_path).map_err(|_| AppError::IoError)?;
+        let result = copy_html_edit_asset_to_file(source, header, &mut temporary)?;
+        temporary.sync_all().map_err(|_| AppError::IoError)?;
+        Ok(result)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(tmp_path);
+    }
+    result
+}
+
+fn copy_html_edit_asset_to_file<R: Read>(
+    source: &mut R,
+    header: &[u8],
+    temporary: &mut fs::File,
+) -> Result<(u64, String), AppError> {
+    let mut hasher = Sha256::new();
+    let mut byte_size = 0_u64;
+    let mut write_chunk = |bytes: &[u8]| -> Result<(), AppError> {
+        byte_size = byte_size
+            .checked_add(bytes.len() as u64)
+            .ok_or(AppError::AssetTooLarge)?;
+        if byte_size > HTML_EDIT_ASSET_MAX_BYTES {
+            return Err(AppError::AssetTooLarge);
+        }
+        temporary.write_all(bytes).map_err(|_| AppError::IoError)?;
+        hasher.update(bytes);
+        Ok(())
+    };
+
+    write_chunk(header)?;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = source.read(&mut buffer).map_err(|_| AppError::IoError)?;
+        if read == 0 {
+            break;
+        }
+        write_chunk(&buffer[..read])?;
+    }
+    Ok((byte_size, format!("{:x}", hasher.finalize())))
+}
+
+fn hash_reader<R: Read>(file: &mut R) -> Result<String, AppError> {
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|_| AppError::IoError)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 pub fn get_html_edit_patch_for_file(
     lookup: &HtmlEditPatchLookup,
 ) -> Result<HtmlEditPatchResponse, AppError> {
@@ -176,8 +599,65 @@ pub fn get_html_edit_patch_for_file(
         patch_revision,
         patch_apply_status,
         field_apply_results,
+        runtime_asset_urls: BTreeMap::new(),
         patch,
     })
+}
+
+/// Resolve a persisted HTML-edit asset reference only when it remains a real,
+/// canonical child of this artifact's asset directory.  Callers use this
+/// boundary before converting a local file to an ephemeral HTTP URL.
+pub fn resolve_html_edit_asset_path(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    relative_path: &str,
+) -> Result<PathBuf, AppError> {
+    validate_artifact_edit_id(artifact_edit_id)?;
+    let asset_prefix = format!(".nutbook/html-edit/assets/{artifact_edit_id}/");
+    let leaf = relative_path
+        .strip_prefix(&asset_prefix)
+        .filter(|leaf| !leaf.is_empty())
+        .ok_or(AppError::InvalidParams)?;
+    if leaf.contains('/') || leaf.contains('\\') || leaf == "." || leaf == ".." || relative_path.contains("..") {
+        return Err(AppError::InvalidParams);
+    }
+
+    let canonical_root = library_root.canonicalize().map_err(|_| AppError::InvalidParams)?;
+    let expected_dir = canonical_root
+        .join(".nutbook/html-edit/assets")
+        .join(artifact_edit_id);
+    let canonical_dir = expected_dir.canonicalize().map_err(|_| AppError::InvalidParams)?;
+    if canonical_dir != expected_dir {
+        return Err(AppError::InvalidParams);
+    }
+    let canonical_asset = canonical_root.join(relative_path).canonicalize().map_err(|_| AppError::InvalidParams)?;
+    if canonical_asset.parent() != Some(canonical_dir.as_path())
+        || !fs::metadata(&canonical_asset).map_err(|_| AppError::InvalidParams)?.is_file()
+    {
+        return Err(AppError::InvalidParams);
+    }
+    Ok(canonical_asset)
+}
+
+/// Add runtime-only URLs to a response without ever changing the persisted
+/// patch. Invalid or escaped references are omitted rather than exposed.
+pub fn populate_runtime_asset_urls<F>(
+    response: &mut HtmlEditPatchResponse,
+    library_root: &Path,
+    mut file_url: F,
+) where
+    F: FnMut(&Path) -> String,
+{
+    response.runtime_asset_urls.clear();
+    let Some(patch) = response.patch.as_ref() else { return; };
+    for change in patch.changes.values() {
+        let Some(relative_path) = change.src.as_deref() else { continue; };
+        let Ok(path) = resolve_html_edit_asset_path(library_root, &response.artifact_edit_id, relative_path) else { continue; };
+        let url = file_url(&path);
+        if url.starts_with("http://") || url.starts_with("https://") {
+            response.runtime_asset_urls.insert(relative_path.to_string(), url);
+        }
+    }
 }
 
 fn field_apply_results_for_patch(
@@ -268,7 +748,13 @@ fn save_html_edit_patch_with_mode_for_file(
         .changes
         .iter()
         .map(|(field_id, change)| {
-            normalize_rich_text_change(change).map(|normalized| (field_id.clone(), normalized))
+            normalize_html_edit_change(
+                &save.library_root,
+                &save.artifact_edit_id,
+                field_id,
+                change,
+            )
+            .map(|normalized| (field_id.clone(), normalized))
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
 
@@ -325,8 +811,6 @@ fn save_html_edit_patch_with_mode_for_file(
 }
 
 pub fn normalize_rich_text_change(change: &HtmlEditChange) -> Result<HtmlEditChange, AppError> {
-    use crate::models::HtmlEditChangeType;
-
     if !matches!(&change.change_type, HtmlEditChangeType::RichText) {
         if change.html.is_some() || change.text_align.is_some() {
             return Err(AppError::InvalidParams);
@@ -364,6 +848,157 @@ pub fn normalize_rich_text_change(change: &HtmlEditChange) -> Result<HtmlEditCha
     let mut normalized = change.clone();
     normalized.html = Some(cleaned);
     Ok(normalized)
+}
+
+/// Validates the persisted patch representation at the storage boundary.
+/// Image URLs never cross this boundary: `src` is an existing library-relative
+/// import owned by this artifact, while local-server URLs exist only at runtime.
+pub fn normalize_html_edit_change(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    field_id: &str,
+    change: &HtmlEditChange,
+) -> Result<HtmlEditChange, AppError> {
+    validate_artifact_edit_id(artifact_edit_id)?;
+    if field_id.is_empty()
+        || field_id.chars().any(|character| {
+            !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | ':'))
+        })
+        || change.selector != format!("[data-id=\"{field_id}\"]")
+    {
+        return Err(AppError::InvalidParams);
+    }
+
+    match &change.change_type {
+        HtmlEditChangeType::Text | HtmlEditChangeType::RichText => {
+            if change.picture_sources.is_some() {
+                return Err(AppError::InvalidParams);
+            }
+            normalize_rich_text_change(change)
+        }
+        HtmlEditChangeType::Image => normalize_image_change(library_root, artifact_edit_id, change),
+        HtmlEditChangeType::BackgroundImage => {
+            normalize_background_image_change(library_root, artifact_edit_id, change)
+        }
+    }
+}
+
+fn normalize_image_change(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    change: &HtmlEditChange,
+) -> Result<HtmlEditChange, AppError> {
+    if change.original_text_hash.is_some()
+        || change.original_style_hash.is_some()
+        || change.original_src_hash.as_deref().filter(|hash| !hash.is_empty()).is_none()
+        || change.text.is_some()
+        || change.html.is_some()
+        || change.text_align.is_some()
+        || change.edit_role.is_some()
+        || change.src.as_deref().filter(|src| !src.is_empty()).is_none()
+    {
+        return Err(AppError::InvalidParams);
+    }
+    validate_html_edit_asset_reference(
+        library_root,
+        artifact_edit_id,
+        change.src.as_deref().expect("checked above"),
+    )?;
+    if let Some(sources) = &change.picture_sources {
+        if sources.is_empty()
+            || sources.iter().enumerate().any(|(index, source)| {
+                source.index != index as u32 || source.original_srcset_hash.trim().is_empty()
+            })
+        {
+            return Err(AppError::InvalidParams);
+        }
+    }
+    Ok(change.clone())
+}
+
+fn normalize_background_image_change(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    change: &HtmlEditChange,
+) -> Result<HtmlEditChange, AppError> {
+    if change.original_text_hash.is_some()
+        || change.original_src_hash.is_some()
+        || change.original_style_hash.as_deref().filter(|hash| !hash.is_empty()).is_none()
+        || change.text.is_some()
+        || change.alt.is_some()
+        || change.html.is_some()
+        || change.text_align.is_some()
+        || change.edit_role.is_some()
+        || change.picture_sources.is_some()
+        || change.src.as_deref().filter(|src| !src.is_empty()).is_none()
+    {
+        return Err(AppError::InvalidParams);
+    }
+    validate_html_edit_asset_reference(
+        library_root,
+        artifact_edit_id,
+        change.src.as_deref().expect("checked above"),
+    )?;
+    Ok(change.clone())
+}
+
+fn validate_html_edit_asset_reference(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    relative_path: &str,
+) -> Result<(), AppError> {
+    let asset_prefix = format!(".nutbook/html-edit/assets/{artifact_edit_id}/");
+    let leaf = relative_path
+        .strip_prefix(&asset_prefix)
+        .filter(|leaf| !leaf.is_empty())
+        .ok_or(AppError::InvalidParams)?;
+    if leaf.contains('/')
+        || leaf.contains('\\')
+        || leaf == "."
+        || leaf == ".."
+        || relative_path.starts_with('/')
+        || relative_path.contains("..")
+    {
+        return Err(AppError::InvalidParams);
+    }
+
+    let canonical_root = library_root.canonicalize().map_err(|_| AppError::InvalidParams)?;
+    let expected_asset_root = canonical_root.join(".nutbook/html-edit/assets");
+    let canonical_asset_root = expected_asset_root
+        .canonicalize()
+        .map_err(|_| AppError::InvalidParams)?;
+    // Do not accept an asset root reached through a symlink.  Merely checking
+    // the final asset's parent would otherwise allow the artifact directory to
+    // resolve outside the library while still comparing equal to itself.
+    if canonical_asset_root != expected_asset_root {
+        return Err(AppError::InvalidParams);
+    }
+    let expected_asset_directory = expected_asset_root.join(artifact_edit_id);
+    let canonical_asset_directory = expected_asset_directory
+        .canonicalize()
+        .map_err(|_| AppError::InvalidParams)?;
+    if canonical_asset_directory != expected_asset_directory
+        || canonical_asset_directory.parent() != Some(canonical_asset_root.as_path())
+    {
+        return Err(AppError::InvalidParams);
+    }
+    let canonical_asset = canonical_root
+        .join(relative_path)
+        .canonicalize()
+        .map_err(|_| AppError::InvalidParams)?;
+    if canonical_asset.parent() != Some(canonical_asset_directory.as_path()) {
+        return Err(AppError::InvalidParams);
+    }
+    let metadata = fs::metadata(&canonical_asset).map_err(|_| AppError::InvalidParams)?;
+    if !metadata.is_file() || metadata.len() > HTML_EDIT_ASSET_MAX_BYTES {
+        return Err(AppError::InvalidParams);
+    }
+    let mut file = fs::File::open(&canonical_asset).map_err(|_| AppError::InvalidParams)?;
+    let header = read_html_edit_asset_header(&mut file).map_err(|_| AppError::InvalidParams)?;
+    if detect_html_edit_image_type(&header).is_none() {
+        return Err(AppError::InvalidParams);
+    }
+    Ok(())
 }
 
 fn rich_text_allowed_tags(role: &HtmlEditRole) -> &'static [&'static str] {
@@ -497,8 +1132,8 @@ fn load_patch_file(
     }
     let text = fs::read_to_string(path).map_err(|_| AppError::IoError)?;
     let mut patch: HtmlEditPatch = serde_json::from_str(&text).map_err(|_| AppError::IoError)?;
-    patch.changes.retain(|_, change| {
-        normalize_rich_text_change(change)
+    patch.changes.retain(|field_id, change| {
+        normalize_html_edit_change(library_root, artifact_edit_id, field_id, change)
             .map(|normalized| normalized == (*change).clone())
             .unwrap_or(false)
     });
