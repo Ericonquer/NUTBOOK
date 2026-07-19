@@ -757,8 +757,11 @@ fn save_html_edit_patch_with_mode_for_file(
             .map(|normalized| (field_id.clone(), normalized))
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
+    if !replace_changes && normalized_save_changes.values().any(|change| change.deleted) {
+        return Err(AppError::InvalidParams);
+    }
 
-    let changes = if replace_changes {
+    let mut changes = if replace_changes {
         normalized_save_changes
     } else if let Some(patch) = current_patch {
         let mut changes = patch.changes;
@@ -767,6 +770,22 @@ fn save_html_edit_patch_with_mode_for_file(
     } else {
         normalized_save_changes
     };
+    // A removed user-inserted frame is carried only across this save request.
+    // Do not persist a tombstone, and never let it delete a source-owned field.
+    changes.retain(|field_id, change| {
+        if !change.deleted {
+            return true;
+        }
+        matches!(change.change_type, HtmlEditChangeType::InsertedImage)
+            && change.inserted_image_id.as_deref() == Some(field_id.as_str())
+    });
+    let deleted_ids = changes
+        .iter()
+        .filter_map(|(field_id, change)| change.deleted.then_some(field_id.clone()))
+        .collect::<Vec<_>>();
+    for field_id in deleted_ids {
+        changes.remove(&field_id);
+    }
     let next_revision = current_revision + 1;
     let updated_at = unix_timestamp()?;
     let patch = HtmlEditPatch {
@@ -860,6 +879,9 @@ pub fn normalize_html_edit_change(
     change: &HtmlEditChange,
 ) -> Result<HtmlEditChange, AppError> {
     validate_artifact_edit_id(artifact_edit_id)?;
+    if matches!(change.change_type, HtmlEditChangeType::InsertedImage) {
+        return normalize_inserted_image_change(library_root, artifact_edit_id, field_id, change);
+    }
     if field_id.is_empty()
         || field_id.chars().any(|character| {
             !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | ':'))
@@ -880,7 +902,64 @@ pub fn normalize_html_edit_change(
         HtmlEditChangeType::BackgroundImage => {
             normalize_background_image_change(library_root, artifact_edit_id, change)
         }
+        HtmlEditChangeType::InsertedImage => unreachable!("inserted images are normalized above"),
     }
+}
+
+fn normalize_inserted_image_change(
+    library_root: &Path,
+    artifact_edit_id: &str,
+    field_id: &str,
+    change: &HtmlEditChange,
+) -> Result<HtmlEditChange, AppError> {
+    let inserted_image_id = change.inserted_image_id.as_deref().ok_or(AppError::InvalidParams)?;
+    let uuid = inserted_image_id.strip_prefix("inserted-image-").ok_or(AppError::InvalidParams)?;
+    uuid::Uuid::parse_str(uuid).map_err(|_| AppError::InvalidParams)?;
+    if field_id != inserted_image_id
+        || change.selector != format!("[data-nutbook-inserted-image-id=\"{inserted_image_id}\"]")
+        || change.original_text_hash.is_some()
+        || change.original_src_hash.is_some()
+        || change.original_style_hash.is_some()
+        || change.text.is_some()
+        || change.html.is_some()
+        || change.text_align.is_some()
+        || change.edit_role.is_some()
+        || change.picture_sources.is_some()
+    {
+        return Err(AppError::InvalidParams);
+    }
+    if change.deleted {
+        if change.src.is_some()
+            || change.alt.is_some()
+            || change.left_permille.is_some()
+            || change.top_permille.is_some()
+            || change.width_permille.is_some()
+            || change.height_permille.is_some()
+        {
+            return Err(AppError::InvalidParams);
+        }
+        return Ok(change.clone());
+    }
+    if change.src.as_deref().filter(|value| !value.is_empty()).is_none() || change.alt.is_none() {
+        return Err(AppError::InvalidParams);
+    }
+    let (left, top, width, height) = (
+        change.left_permille.ok_or(AppError::InvalidParams)?,
+        change.top_permille.ok_or(AppError::InvalidParams)?,
+        change.width_permille.ok_or(AppError::InvalidParams)?,
+        change.height_permille.ok_or(AppError::InvalidParams)?,
+    );
+    if !(1..=1000).contains(&width)
+        || !(1..=1000).contains(&height)
+        || left > 1000
+        || top > 1000
+        || left.checked_add(width).filter(|value| *value <= 1000).is_none()
+        || top.checked_add(height).filter(|value| *value <= 1000).is_none()
+    {
+        return Err(AppError::InvalidParams);
+    }
+    validate_html_edit_asset_reference(library_root, artifact_edit_id, change.src.as_deref().expect("checked above"))?;
+    Ok(change.clone())
 }
 
 fn normalize_image_change(

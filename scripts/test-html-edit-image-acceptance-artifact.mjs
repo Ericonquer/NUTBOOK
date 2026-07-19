@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 const samplePath = "src-tauri/tests/fixtures/html-edit/editable-image.html";
 
@@ -59,3 +59,15 @@ assert.match(html, /editable-image-assets\/evidence\.png/, "the brief must inclu
 assert.match(html, /editable-image-assets\/delivery\.png/, "the brief must include an offline background image");
 
 console.log("HTML edit image acceptance artifact checks passed.");
+
+const phase1dSamplePath = "src-tauri/tests/fixtures/html-edit/editable-free-image.html";
+const phase1dExistingImagePath = "src-tauri/tests/fixtures/html-edit/editable-image-assets/hero.png";
+assert.ok(existsSync(phase1dSamplePath), "Phase 1D must provide a user-openable free-image artifact");
+assert.ok(existsSync(phase1dExistingImagePath) && statSync(phase1dExistingImagePath).size > 0, "Phase 1D must use a real offline existing image");
+const phase1dHtml = readFileSync(phase1dSamplePath, "utf8");
+assert.match(phase1dHtml, /data-editable="rich-text"/, "Phase 1D artifact needs editable text");
+assert.match(phase1dHtml, /data-editable="image"[^>]*src="editable-image-assets\/hero\.png"/, "Phase 1D artifact needs an existing offline image target");
+assert.match(phase1dHtml, /class="free-image-space"/, "Phase 1D artifact needs a visible free-image space");
+assert.match(phase1dHtml, /img, button \{/, "Phase 1D artifact must exercise hostile source CSS isolation");
+assert.doesNotMatch(phase1dHtml, /data-nutbook-inserted-image-id|<script\b|<iframe\b|https?:\/\//, "Phase 1D artifact must be offline and have no persisted insertion overlay");
+console.log("HTML free-image Phase 1D acceptance artifact checks passed.");

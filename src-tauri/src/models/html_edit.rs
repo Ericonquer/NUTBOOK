@@ -32,6 +32,10 @@ pub struct WriteEditableHtmlCopyResponse {
 
 pub const HTML_EDIT_ASSET_MAX_BYTES: u64 = 20 * 1024 * 1024;
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone)]
 pub struct HtmlEditAssetImport {
     pub library_root: PathBuf,
@@ -149,6 +153,7 @@ pub enum HtmlEditChangeType {
     Text,
     Image,
     BackgroundImage,
+    InsertedImage,
     #[serde(rename = "rich_text")]
     RichText,
 }
@@ -207,6 +212,20 @@ pub struct HtmlEditChange {
     pub edit_role: Option<HtmlEditRole>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture_sources: Option<Vec<HtmlEditPictureSource>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inserted_image_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_permille: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_permille: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width_permille: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_permille: Option<u16>,
+    /// Only valid for an `inserted-image` change.  It is a transient tombstone
+    /// accepted by the save boundary and removed from the persisted patch.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -485,6 +485,7 @@ fn html_edit_patch_model_serializes_text_change() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -529,6 +530,7 @@ fn html_edit_patch_model_serializes_rich_text_change() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: Some(HtmlEditRole::Content),
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -556,7 +558,88 @@ fn image_change(src: &str) -> HtmlEditChange {
             index: 0,
             original_srcset_hash: "source-srcset-hash".to_string(),
         }]),
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
     }
+}
+
+fn inserted_image_change(src: &str) -> HtmlEditChange {
+    let id = "inserted-image-550e8400-e29b-41d4-a716-446655440000";
+    HtmlEditChange {
+        change_type: HtmlEditChangeType::InsertedImage,
+        selector: format!("[data-nutbook-inserted-image-id=\"{id}\"]"),
+        original_text_hash: None, original_src_hash: None, original_style_hash: None,
+        text: None, src: Some(src.to_string()), alt: Some("补充证据".to_string()), html: None,
+        text_align: None, edit_role: None, picture_sources: None,
+        inserted_image_id: Some(id.to_string()), left_permille: Some(120), top_permille: Some(480), width_permille: Some(320), height_permille: Some(180), deleted: false,
+    }
+}
+
+#[test]
+fn html_edit_inserted_image_round_trips_storage_and_rejects_invalid_geometry() {
+    let root = tempfile::tempdir().expect("library root");
+    let source = root.path().join("editable.html");
+    std::fs::write(&source, "<html></html>").expect("source html");
+    let artifact = "html-edit-acceptance";
+    let assets = root.path().join(format!(".nutbook/html-edit/assets/{artifact}"));
+    std::fs::create_dir_all(&assets).expect("asset directory");
+    std::fs::write(assets.join("asset.png"), MINIMAL_PNG).expect("asset");
+    let relative = ".nutbook/html-edit/assets/html-edit-acceptance/asset.png";
+    let valid = inserted_image_change(relative);
+    assert!(normalize_html_edit_change(root.path(), artifact, valid.inserted_image_id.as_deref().unwrap(), &valid).is_ok());
+    let current = get_html_edit_patch_for_file(&HtmlEditPatchLookup {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 1,
+        file_path: source.clone(),
+        title_hint: "free image".to_string(),
+    }).expect("new patch lookup");
+    let id = valid.inserted_image_id.clone().expect("inserted image id");
+    let saved = save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 1,
+        file_path: source.clone(),
+        title_hint: "free image".to_string(),
+        artifact_edit_id: artifact.to_string(),
+        expected_file_hash: current.source_file_hash,
+        expected_modified_at: current.source_modified_at,
+        expected_patch_revision: 0,
+        changes: std::collections::BTreeMap::from([(id.clone(), valid.clone())]),
+    }).expect("save inserted image patch");
+    assert_eq!(saved.normalized_changes.get(&id), Some(&valid));
+    let reopened = get_html_edit_patch_for_file(&HtmlEditPatchLookup {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 1,
+        file_path: source,
+        title_hint: "free image".to_string(),
+    }).expect("reopen inserted image patch");
+    assert_eq!(reopened.patch.as_ref().expect("saved patch").changes.get(&id), Some(&valid));
+    let deleted = HtmlEditChange {
+        change_type: HtmlEditChangeType::InsertedImage,
+        selector: format!("[data-nutbook-inserted-image-id=\"{id}\"]"),
+        original_text_hash: None, original_src_hash: None, original_style_hash: None,
+        text: None, src: None, alt: None, html: None, text_align: None, edit_role: None,
+        picture_sources: None, inserted_image_id: Some(id.clone()), left_permille: None,
+        top_permille: None, width_permille: None, height_permille: None, deleted: true,
+    };
+    let removed = save_html_edit_patch_replacing_changes_for_file(&HtmlEditPatchSave {
+        library_id: 1,
+        library_root: root.path().to_path_buf(),
+        item_id: 1,
+        file_path: root.path().join("editable.html"),
+        title_hint: "free image".to_string(),
+        artifact_edit_id: artifact.to_string(),
+        expected_file_hash: reopened.source_file_hash,
+        expected_modified_at: reopened.source_modified_at,
+        expected_patch_revision: reopened.patch_revision,
+        changes: std::collections::BTreeMap::from([(id.clone(), deleted)]),
+    }).expect("delete inserted image patch");
+    assert!(removed.normalized_changes.is_empty(), "deleted frames must not leave tombstones in the sidecar");
+    let mut invalid = valid.clone(); invalid.width_permille = Some(0);
+    assert!(normalize_html_edit_change(root.path(), artifact, invalid.inserted_image_id.as_deref().unwrap(), &invalid).is_err());
+    let mut selector = valid.clone(); selector.selector = "[data-id=\"wrong\"]".to_string();
+    assert!(normalize_html_edit_change(root.path(), artifact, selector.inserted_image_id.as_deref().unwrap(), &selector).is_err());
 }
 
 #[test]
@@ -742,6 +825,7 @@ fn html_edit_mixed_image_patch_keeps_source_and_survives_library_move() {
         original_text_hash: None, original_src_hash: Some("a".repeat(64)), original_style_hash: None,
         text: None, src: Some(relative(name)), alt: Some("imported".to_string()), html: None,
         text_align: None, edit_role: None, picture_sources: sources,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
     };
     let mut changes = std::collections::BTreeMap::new();
     changes.insert("brief-body".to_string(), HtmlEditChange {
@@ -749,6 +833,7 @@ fn html_edit_mixed_image_patch_keeps_source_and_survives_library_move() {
         original_text_hash: Some("b".repeat(64)), original_src_hash: None, original_style_hash: None,
         text: None, src: None, alt: None, html: Some("<p>Updated body</p>".to_string()),
         text_align: None, edit_role: Some(HtmlEditRole::Content), picture_sources: None,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
     });
     changes.insert("brief-hero".to_string(), image("brief-hero", "hero.png", None));
     changes.insert("brief-evidence".to_string(), image("brief-evidence", "evidence.png", Some(vec![HtmlEditPictureSource { index: 0, original_srcset_hash: "c".repeat(64) }])));
@@ -757,6 +842,7 @@ fn html_edit_mixed_image_patch_keeps_source_and_survives_library_move() {
         original_text_hash: None, original_src_hash: None, original_style_hash: Some("d".repeat(64)),
         text: None, src: Some(relative("background.png")), alt: None, html: None,
         text_align: None, edit_role: None, picture_sources: None,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
     });
     save_html_edit_patch_for_file(&HtmlEditPatchSave {
         library_id: 1, library_root: original.path().to_path_buf(), item_id: 1, file_path: html_path.clone(),
@@ -811,6 +897,7 @@ fn html_edit_load_keeps_valid_legacy_text_and_rich_text_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     changes.insert(
@@ -828,6 +915,7 @@ fn html_edit_load_keeps_valid_legacy_text_and_rich_text_changes() {
             text_align: Some(HtmlEditTextAlign::Left),
             edit_role: Some(HtmlEditRole::Content),
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     save_patch_file(
@@ -894,6 +982,7 @@ fn html_edit_rejects_rich_text_with_disallowed_markup() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         };
 
         assert!(normalize_rich_text_change(&change).is_err(), "{html}");
@@ -915,6 +1004,7 @@ fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
         text_align: Some(HtmlEditTextAlign::Center),
         edit_role: Some(role),
         picture_sources: None,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
     };
 
     assert!(normalize_rich_text_change(&rich_change(
@@ -968,6 +1058,7 @@ fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
         text_align: None,
         edit_role: Some(HtmlEditRole::Plain),
         picture_sources: None,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
     };
     assert!(normalize_rich_text_change(&plain).is_ok());
 
@@ -1005,6 +1096,7 @@ fn html_edit_save_persists_canonical_rich_text_and_returns_normalized_changes() 
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1066,6 +1158,7 @@ fn html_edit_reopen_preserves_rich_text_and_text_alignment() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1125,6 +1218,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     initial_changes.insert(
@@ -1142,6 +1236,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1176,6 +1271,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     save_html_edit_patch_for_file(&HtmlEditPatchSave {
@@ -1239,6 +1335,7 @@ fn html_edit_save_rejects_mixed_invalid_rich_text_without_writing_sidecar() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     changes.insert(
@@ -1256,6 +1353,7 @@ fn html_edit_save_rejects_mixed_invalid_rich_text_without_writing_sidecar() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1310,6 +1408,7 @@ fn html_edit_save_rejects_rich_text_requiring_cleaning() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1357,6 +1456,7 @@ fn html_edit_get_drops_stored_rich_text_requiring_recleaning() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     save_patch_file(
@@ -1493,6 +1593,7 @@ fn html_edit_save_initializes_manifest_and_rejects_stale_revision() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1559,6 +1660,7 @@ fn html_edit_reopen_loads_saved_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1624,6 +1726,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     initial_changes.insert(
@@ -1641,6 +1744,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1677,6 +1781,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1724,6 +1829,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
     let reconciled = save_html_edit_patch_replacing_changes_for_file(&HtmlEditPatchSave {
@@ -1777,6 +1883,7 @@ fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1821,6 +1928,7 @@ fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1872,6 +1980,7 @@ fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1917,6 +2026,7 @@ fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -1967,6 +2077,7 @@ fn html_edit_get_marks_saved_patch_stale_when_source_hash_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 
@@ -2098,6 +2209,7 @@ fn html_edit_save_rejects_file_hash_mismatch_without_creating_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, deleted: false,
         },
     );
 

@@ -27,6 +27,8 @@ src-tauri/target/release/bundle/
 
 # Local databases, logs, and temporary runtime state
 src-tauri/.cache/
+src-tauri/tests/fixtures/html-edit/.nutbook/
+src-tauri/tests/fixtures/html-edit/*.nutbook-editable.html
 *.sqlite
 *.sqlite3
 *.db

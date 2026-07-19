@@ -67,8 +67,8 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /const isTextSelected = selected\?\.getAttribute\("data-editable"\) === "text" \|\| selected\?\.getAttribute\("data-editable"\) === "rich-text";[\s\S]*?data-text-editing.*commands\.size > 0 \|\| !isTextSelected/,
-  "the inline toolbar must not label an image-only selection as text editing"
+  /data-nutbook-plain-text-hint[\s\S]*?纯文本：不支持格式[\s\S]*?\[data-nutbook-editing="text"\]:focus::after/,
+  "focusing a pure-text field must show an object-bound formatting limitation label instead of widening the toolbar"
 );
 assert.match(indexHtml, /assetRequestId[\s\S]*?assetRequestEpoch[\s\S]*?activeAssetRequestId/, "asset imports must retain request identity and epoch");
 assert.match(indexHtml, /session\.assetRequestEpoch \+= 1[\s\S]*?invalidate_html_edit_session_lease/, "leaving a tab must invalidate pending image results before the lease");
@@ -78,6 +78,24 @@ for (const code of ["ASSET_INVALID_TYPE", "ASSET_TOO_LARGE", "INVALID_SESSION"])
 }
 assert.match(indexHtml, /html_edit_patch_field_result[\s\S]*?picture_source_mismatch/, "host must surface a field-level picture source mismatch");
 assert.match(indexHtml, /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\)[\s\S]*?change\.type === 'image'[\s\S]*?runtimeAssetUrls\[change\.src\]/, "readonly replay must use only runtime URL mappings for image patches");
+for (const marker of ["beginInsertedImageDraft", "commitInsertedImageDraft", "cancelInsertedImageDraft", "requestInsertedImageReplacement", "deleteInsertedImage", "deletedInsertedImageIds", "clampFrameToCanvas", "serializeFramePermille", "applyInsertedImageAsset", "insertedImageBaseline"]) {
+  assert.match(htmlEditRuntime, new RegExp(marker), `Phase 1D runtime must include ${marker}`);
+}
+assert.match(htmlEditRuntime, /data-intent="insert-image-frame"/, "HTML toolbar must expose an insert-frame action in the runtime WebView");
+assert.match(htmlEditRuntime, /document\.documentElement\.append\(host\)[\s\S]*?attachShadow\(\{ mode: "closed" \}\)/, "inserted frames must use a root-level closed shadow host");
+assert.match(htmlEditRuntime, /html_edit_inserted_image_confirmed/, "picker must start only after explicit frame confirmation");
+assert.match(htmlEditRuntime, /html_edit_inserted_image_replace_requested/, "inserted images must use a separate replace intent");
+assert.match(htmlEditRuntime, /const materialized = current\.leftPermille != null \? \{ \.\.\.current, \.\.\.insertedFrameFromPermille\(current\) \} : current;[\s\S]*?serializeFramePermille\(materialized\)/, "replacing a reopened inserted image must retain its permille geometry");
+assert.match(htmlEditRuntime, /STATE\.insertedImages\.size === 1\) selectInsertedImage\(STATE\.insertedImages\.keys\(\)\.next\(\)\.value\)/, "a single reopened inserted image must be selected for immediate handle access");
+assert.match(indexHtml, /html_edit_inserted_image_confirmed[\s\S]*?open_html_edit_image_file_dialog[\s\S]*?applyInsertedImageAsset/, "host must pick, import, and apply confirmed frames");
+assert.match(indexHtml, /html_edit_inserted_image_replace_requested/, "host must handle inserted-image replacement");
+assert.match(indexHtml, /change\?\.type === "inserted-image" && change\.deleted === true[\s\S]*?delete merged\[fieldId\]/, "saving a deleted inserted image must remove it from the sidecar patch");
+assert.match(indexHtml, /function layoutInsertedImages\(holder\)[\s\S]*?scroll\.scrollTop \|\| window\.scrollY[\s\S]*?document\.addEventListener\('scroll', holder\.layout, true\)/, "readonly inserted images must relayout from the actual scroll root after every document scroll");
+assert.match(indexHtml, /holder\.scheduleLayout = function \(\) \{[\s\S]*?setTimeout\(holder\.layout, 260\)[\s\S]*?new ResizeObserver\(holder\.scheduleLayout\)[\s\S]*?image\.onload = holder\.scheduleLayout/, "readonly inserted images must settle after late page and image layout without requiring a scroll");
+assert.match(htmlEditRuntime, /window\.__NUTBOOK_INSERTED_IMAGE_READONLY__\?\.dispose\?\.\(\)/, "entering edit mode must dispose the readonly inserted-image layer");
+assert.match(indexHtml, /holder\.dispose = function \(\) \{[\s\S]*?document\.removeEventListener\('scroll', holder\.layout, true\)[\s\S]*?delete window\.__NUTBOOK_INSERTED_IMAGE_READONLY__/, "readonly inserted-image disposal must remove its scroll listener and layer");
+assert.match(htmlEditRuntime, /document\.addEventListener\("scroll", STATE\.insertedImageScrollHandler, true\)/, "editing inserted images must relayout for document-level scrolling");
+assert.match(htmlEditRuntime, /zIndex: "2147483645"[\s\S]*?\.bar\{position:fixed;z-index:2147483647/, "the editing toolbar must remain above the inserted-image canvas while scrolling");
 
 assert.match(
   htmlEditRuntime,
@@ -138,7 +156,7 @@ assert.doesNotMatch(
 );
 assert.match(
   htmlEditRuntime,
-  /function syncInlineToolbar\(\)[\s\S]*?button\.hidden = !commands\.has\(button\.dataset\.command\)[\s\S]*?button\.disabled = !canFormat/,
+  /function syncInlineToolbar\(\)[\s\S]*?button\.hidden = false; button\.disabled = !commands\.has\(button\.dataset\.command\) \|\| !canFormat/,
   "selection changes must update existing command availability without recreating the toolbar"
 );
 assert.match(
@@ -150,6 +168,16 @@ assert.match(
   htmlEditRuntime,
   /function inlineCommandsForRole\(role\)/,
   "short and content fields must have explicit, distinct command sets"
+);
+assert.match(
+  htmlEditRuntime,
+  /button\.hidden = false; button\.disabled = !commands\.has\(button\.dataset\.command\) \|\| !canFormat;/,
+  "the HTML toolbar must retain every format command and disable only commands unsupported by the current object"
+);
+assert.match(
+  htmlEditRuntime,
+  /\.bar button\[disabled\] \.tooltip\{display:none\}/,
+  "disabled format commands must retain the existing no-tooltip behavior"
 );
 assert.match(
   htmlEditRuntime,
@@ -386,10 +414,10 @@ assert.match(
   /__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__\s*=[\s\S]*?confirmHtmlEditLeaveIfNeeded\(session\.itemId, \{ source: "app-exit" \}\)[\s\S]*?invoke\("finalize_html_edit_app_exit_command"\)/,
   "the app-close bridge must reuse save/discard/keep and only finalize after it permits leaving"
 );
-assert.doesNotMatch(
+assert.match(
   indexHtml.match(/async function saveActiveHtmlEditPatch\(\) \{[\s\S]*?\n      \}/)?.[0] || "",
-  /await refreshHtmlEditRuntimeState/,
-  "save must not be blocked by an extra runtime refresh before it persists the accepted document state"
+  /await refreshHtmlEditRuntimeState\(session, session\.documentRevision\)/,
+  "save must refresh the child runtime before it decides a newly imported image is clean"
 );
 assert.match(
   indexHtml,
@@ -572,8 +600,8 @@ const htmlEditExit = indexHtml.match(/async function exitHtmlEditMode\(itemOrOpt
 assert.ok(htmlEditExit, "HTML edit exit flow should exist");
 assert.match(
   htmlEditExit[1],
-  /appState\.htmlEditToolbarVisible = false;[\s\S]*refocusActiveRuntimeHost\(itemId\);/,
-  "leaving HTML edit mode must restore runtime focus so F can exit presentation mode"
+  /appState\.htmlEditToolbarVisible = false;[\s\S]*runtimePatchAppliedKeys\.delete\(itemId\);[\s\S]*await applyHtmlEditPatchToRuntime\(itemId\)[\s\S]*refocusActiveRuntimeHost\(itemId\);/,
+  "leaving HTML edit mode must recreate the removed readonly image layer before returning focus"
 );
 
 assert.match(i18n, /leavePrompt: "有未保存的修改"/, "Chinese leave-confirm title must be translated");
@@ -668,8 +696,8 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /function computeFormatState\(field, range\)[\s\S]*?canFormat:\s*!range\.collapsed[\s\S]*?editRole:\s*editRoleOf\(field\)/,
-  "collapsed rich-text selections must keep their role but disable formatting"
+  /function computeFormatState\(field, range\)[\s\S]*?canFormat:\s*isRichEditRole\(editRoleOf\(field\)\)[\s\S]*?editRole:\s*editRoleOf\(field\)/,
+  "placing a caret in rich text must enable the commands that work without a text range"
 );
 assert.match(
   htmlEditRuntime,
@@ -726,7 +754,7 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /function onBeforeInput\(event\)[\s\S]*?event\.inputType === "insertFromDrop"[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.inputType !== "insertFromPaste"/,
+  /function onBeforeInput\(event\)[\s\S]*?event\.inputType !== "insertFromPaste" && event\.inputType !== "insertFromDrop"[\s\S]*?event\.inputType === "insertFromDrop"[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.inputType !== "insertFromPaste"/,
   "drops must always be blocked while paste is allowed only through the rich-text plaintext path"
 );
 assert.match(

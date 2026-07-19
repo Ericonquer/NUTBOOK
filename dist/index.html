@@ -6146,7 +6146,12 @@
       }
 
       function mergeHtmlEditPatchChanges(persistedChanges, deltaChanges) {
-        return { ...(persistedChanges || {}), ...(deltaChanges || {}) };
+        const merged = { ...(persistedChanges || {}) };
+        for (const [fieldId, change] of Object.entries(deltaChanges || {})) {
+          if (change?.type === "inserted-image" && change.deleted === true) delete merged[fieldId];
+          else merged[fieldId] = change;
+        }
+        return merged;
       }
       // NUTBOOK_HTML_EDIT_DOCUMENT_STATE_END
 
@@ -6369,10 +6374,14 @@
             }) && holder.innerHTML === html;
           }
           function sha256(value) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || ''))).then(function (digest) { return Array.prototype.map.call(new Uint8Array(digest), function (byte) { return byte.toString(16).padStart(2, '0'); }).join(''); }); }
+          function layoutInsertedImages(holder) { if (!holder || !holder.frames) return; var scroll = document.scrollingElement, width = Math.max(scroll.scrollWidth, scroll.clientWidth), height = Math.max(scroll.scrollHeight, scroll.clientHeight), scrollLeft = scroll.scrollLeft || window.scrollX || 0, scrollTop = scroll.scrollTop || window.scrollY || 0; Object.keys(holder.frames).forEach(function (id) { var entry = holder.frames[id], change = entry.change, node = entry.node; if (!change || !node) return; node.style.left = (change.leftPermille * width / 1000 - scrollLeft) + 'px'; node.style.top = (change.topPermille * height / 1000 - scrollTop) + 'px'; node.style.width = (change.widthPermille * width / 1000) + 'px'; node.style.height = (change.heightPermille * height / 1000) + 'px'; }); }
+          function insertedRoot() { var holder = window.__NUTBOOK_INSERTED_IMAGE_READONLY__; if (holder && holder.root) return holder; var host = document.createElement('div'); host.style.cssText = 'position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;overflow:visible!important'; var root = host.attachShadow({ mode: 'closed' }); root.innerHTML = '<style>:host{all:initial}.frame{position:fixed;box-sizing:border-box;pointer-events:none}.frame img{display:block;width:100%;height:100%;object-fit:cover}</style>'; document.documentElement.append(host); holder = { host: host, root: root, frames: {}, layout: null, scheduleLayout: null, resizeObserver: null, dispose: null }; holder.layout = function () { layoutInsertedImages(holder); }; holder.scheduleLayout = function () { holder.layout(); requestAnimationFrame(holder.layout); setTimeout(holder.layout, 0); setTimeout(holder.layout, 80); setTimeout(holder.layout, 260); }; holder.resizeObserver = new ResizeObserver(holder.scheduleLayout); holder.resizeObserver.observe(document.documentElement); holder.resizeObserver.observe(document.body); holder.dispose = function () { window.removeEventListener('scroll', holder.layout, true); document.removeEventListener('scroll', holder.layout, true); window.removeEventListener('resize', holder.layout); holder.resizeObserver.disconnect(); host.remove(); if (window.__NUTBOOK_INSERTED_IMAGE_READONLY__ === holder) delete window.__NUTBOOK_INSERTED_IMAGE_READONLY__; }; window.addEventListener('scroll', holder.layout, true); document.addEventListener('scroll', holder.layout, true); window.addEventListener('resize', holder.scheduleLayout); window.__NUTBOOK_INSERTED_IMAGE_READONLY__ = holder; return holder; }
+          function applyInsertedImage(change, id) { if (!change || !change.src || !runtimeAssetUrls[change.src] || change.insertedImageId !== id) return false; var holder = insertedRoot(), root = holder.root, node = root.querySelector('[data-nutbook-inserted-image-id="' + CSS.escape(id) + '"]'); if (!node) { node = document.createElement('div'); node.className = 'frame'; node.setAttribute('data-nutbook-inserted-image-id', id); node.innerHTML = '<img>'; root.append(node); } holder.frames[id] = { change: change, node: node }; var image = node.firstElementChild; image.onload = holder.scheduleLayout; image.src = runtimeAssetUrls[change.src]; image.alt = change.alt || ''; holder.scheduleLayout(); return true; }
           async function apply() {
             var count = 0;
             for (var id of Object.keys(changes || {})) {
               var change = changes[id];
+              if (change.type === 'inserted-image') { if (applyInsertedImage(change, id)) count += 1; continue; }
               var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
               if (!element) continue;
               if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
@@ -6848,12 +6857,22 @@
       async function saveActiveHtmlEditPatch() {
         const session = appState.htmlEditSession;
         if (!session) return htmlEditSaveResult();
+        // The image picker and the child runtime communicate asynchronously.  Do
+        // not treat a host-side clean cache as authoritative: first request a
+        // fresh snapshot so an immediately-clicked Save cannot silently skip a
+        // just-imported image.
+        const refreshed = await refreshHtmlEditRuntimeState(session, session.documentRevision);
+        if (appState.htmlEditSession !== session) return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
+        if (!refreshed && !htmlEditLeaveRequiresSave(session)) {
+          setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+          return htmlEditSaveResult();
+        }
         if (!htmlEditLeaveRequiresSave(session)) return htmlEditSaveResult({ saved: true, canLeave: true });
         if (session.saveInFlight) return session.saveInFlight;
         const runtimeSessionId = session.runtimeSessionId;
         const generation = session.generation;
         const savedChangesJson = stableHtmlEditJson(session.changes || {});
-        const replaceChanges = Boolean(session.requiresPatchReconciliation);
+        const replaceChanges = Boolean(session.requiresPatchReconciliation || Object.values(session.changes || {}).some((change) => change?.type === "inserted-image" && change.deleted === true));
         const candidatePersistedChanges = mergeHtmlEditPatchChanges(session.persistedChanges, session.changes);
         const changesForSave = replaceChanges ? candidatePersistedChanges : session.changes || {};
         let savePromise;
@@ -6989,6 +7008,11 @@
         if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
         appState.htmlEditToolbarVisible = false;
         appState.htmlEditToolbarSyncPending = false;
+        // Exiting removes the editable image layer.  Reapply the sidecar to
+        // the same child runtime immediately; otherwise its revision cache
+        // incorrectly treats the just-removed read-only layer as still shown.
+        appState.runtimePatchAppliedKeys.delete(itemId);
+        await applyHtmlEditPatchToRuntime(itemId).catch(() => {});
         refocusActiveRuntimeHost(itemId);
       }
 
@@ -7048,6 +7072,40 @@
           }
           session.shortcutsIntercepted = true;
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_inserted_image_confirmed" || data.type === "html_edit_inserted_image_replace_requested") {
+          const insertedImageId = String(data.insertedImageId || "");
+          if (!insertedImageId) return;
+          const operation = data.type === "html_edit_inserted_image_confirmed" ? "create" : "replace";
+          const assetRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const generation = session.generation;
+          const assetRequestEpoch = ++session.assetRequestEpoch;
+          const assetImportGeneration = ++session.assetImportGeneration;
+          session.activeAssetRequestId = assetRequestId;
+          const isCurrentRequest = () => appState.htmlEditSession === session
+            && isCurrentHtmlEditSession(session)
+            && session.runtimeSessionId === data.runtimeSessionId
+            && session.generation === generation
+            && session.assetRequestEpoch === assetRequestEpoch
+            && session.assetImportGeneration === assetImportGeneration
+            && session.activeAssetRequestId === assetRequestId;
+          (async () => {
+            const sourcePath = await invoke("open_html_edit_image_file_dialog");
+            if (!sourcePath) {
+              if (isCurrentRequest()) await invoke("eval_html_runtime_script_command", { itemId: session.itemId, script: `window.__NUTBOOK_HTML_EDIT__?.${operation === "create" ? "resumeInsertedImageDraft" : "resumeInsertedImageReplacement"}(${JSON.stringify({ runtimeSessionId: session.runtimeSessionId, insertedImageId, assetRequestId })});` });
+              return;
+            }
+            if (!isCurrentRequest()) return;
+            setStatus(t("htmlEdit.importingImage"), "info");
+            const imported = await invoke("import_html_edit_asset", { itemId: session.itemId, runtimeSessionId: session.runtimeSessionId, generation: session.generation, assetRequestId, artifactEditId: session.artifactEditId, expectedPatchRevision: session.patchRevision, sourcePath });
+            if (!isCurrentRequest() || !imported?.relativePath || !imported?.runtimeUrl) return;
+            await invoke("eval_html_runtime_script_command", { itemId: session.itemId, script: `window.__NUTBOOK_HTML_EDIT__?.applyInsertedImageAsset(${JSON.stringify({ runtimeSessionId: session.runtimeSessionId, insertedImageId, assetRequestId, relativePath: imported.relativePath, runtimeUrl: imported.runtimeUrl })});` });
+          })().catch((error) => { if (isCurrentRequest()) setStatus(htmlEditAssetImportErrorStatus(error), "error"); });
+          return;
+        }
+        if (data.type === "html_edit_inserted_image_unsupported") {
+          setStatus(t("htmlEdit.insertedImageUnsupported") || "This page layout does not support free image insertion.", "warn");
           return;
         }
         if (data.type === "html_edit_asset_replace_requested") {
