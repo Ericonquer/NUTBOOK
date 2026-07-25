@@ -68,7 +68,7 @@ pub fn html_edit_debug_payload_fields(payload: &Value) -> String {
             .unwrap_or_else(|| "-".to_string())
     };
     format!(
-        "item={} source_item={} event={} action={} type={} session={} generation={} active_tab={} has_tab={} file_type={} command={} applied={} dirty={} selected_data_id={} format_edit_role={} format_can_format={} format_toolbar_visible={} visible_format_commands={} enabled_format_commands={}",
+        "item={} source_item={} event={} action={} type={} session={} generation={} active_tab={} has_tab={} file_type={} command={} applied={} dirty={} revision={} history_cursor={} saved_history_cursor={} history_length={} change_ids={} inserted_ids={} inserted_baseline_ids={} selected_data_id={} format_edit_role={} format_can_format={} format_toolbar_visible={} visible_format_commands={} enabled_format_commands={}",
         field("itemId"),
         field("sourceItemId"),
         field("event"),
@@ -82,6 +82,13 @@ pub fn html_edit_debug_payload_fields(payload: &Value) -> String {
         field("command"),
         field("applied"),
         field("dirty"),
+        field("documentRevision"),
+        field("historyCursor"),
+        field("savedHistoryCursor"),
+        field("historyLength"),
+        field("changeIds"),
+        field("insertedIds"),
+        field("insertedBaselineIds"),
         field("selectedDataId"),
         format_field("editRole"),
         format_field("canFormat"),
@@ -591,11 +598,22 @@ pub fn dispatch_html_runtime_shortcut(
         return Ok(false);
     };
 
+    let script = html_runtime_shortcut_script(key);
+
+    webview.eval(&script).map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+fn html_runtime_shortcut_script(key: &str) -> String {
     let key_literal = format!("{key:?}");
-    let script = format!(
+    format!(
         r#"
 (() => {{
-  const key = {key_literal};
+  const shortcut = {key_literal};
+  const shortcutMatch = /^(CmdOrCtrl\+)?(Shift\+)?(.+)$/.exec(shortcut);
+  const key = shortcutMatch ? shortcutMatch[3] : shortcut;
+  const hasCommandModifier = Boolean(shortcutMatch?.[1]);
+  const hasShiftModifier = Boolean(shortcutMatch?.[2]);
   const keyCodeMap = {{
     ArrowLeft: 37,
     ArrowUp: 38,
@@ -636,6 +654,9 @@ pub fn dispatch_html_runtime_shortcut(
   const eventInit = {{
     key,
     code: normalizedCode,
+    metaKey: hasCommandModifier,
+    ctrlKey: hasCommandModifier,
+    shiftKey: hasShiftModifier,
     bubbles: true,
     cancelable: true
   }};
@@ -648,18 +669,14 @@ pub fn dispatch_html_runtime_shortcut(
   const keyup = new KeyboardEvent('keyup', eventInit);
   defineLegacyKeyProps(keydown);
   defineLegacyKeyProps(keyup);
+  // Dispatch once. Events sent to an element already bubble through document
+  // and window; dispatching the same shortcut at all three levels executes
+  // undo/redo multiple times for one native menu action.
   try {{ target?.dispatchEvent?.(keydown); }} catch (_) {{}}
-  try {{ document.dispatchEvent(keydown); }} catch (_) {{}}
-  try {{ window.dispatchEvent(keydown); }} catch (_) {{}}
   try {{ target?.dispatchEvent?.(keyup); }} catch (_) {{}}
-  try {{ document.dispatchEvent(keyup); }} catch (_) {{}}
-  try {{ window.dispatchEvent(keyup); }} catch (_) {{}}
 }})();
 "#
-    );
-
-    webview.eval(&script).map_err(|_| AppError::InternalError)?;
-    Ok(true)
+    )
 }
 
 pub fn eval_html_runtime_script(
@@ -1470,7 +1487,8 @@ mod tests {
 
     use super::{
         html_edit_toolbar_label, html_edit_toolbar_update_script, html_runtime_compatibility_script,
-        html_runtime_window_label, HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlRuntimeSession,
+        html_runtime_shortcut_script, html_runtime_window_label, HTML_EDIT_RUNTIME_ACTION_PREFIX,
+        HtmlRuntimeSession,
     };
 
     fn html_item() -> ItemDetail {
@@ -1585,6 +1603,16 @@ mod tests {
         assert!(script.contains("article-body"));
         assert!(script.contains("editRole"));
         assert!(script.contains("content"));
+    }
+
+    #[test]
+    fn html_runtime_shortcut_dispatches_each_keyboard_event_once() {
+        let script = html_runtime_shortcut_script("CmdOrCtrl+Z");
+
+        assert_eq!(script.matches("dispatchEvent?.(keydown)").count(), 1);
+        assert_eq!(script.matches("dispatchEvent?.(keyup)").count(), 1);
+        assert!(!script.contains("document.dispatchEvent(keydown)"));
+        assert!(!script.contains("window.dispatchEvent(keydown)"));
     }
 
     #[test]

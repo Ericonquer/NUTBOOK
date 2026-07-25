@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const HTML_EDIT_COPY_MAX_BYTES: usize = 8 * 1024 * 1024;
 pub const HTML_EDIT_COPY_MAX_FIELDS: u32 = 500;
+pub const HTML_EDIT_COMMIT_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +102,45 @@ pub struct SaveHtmlEditPatchRequest {
     pub replace_changes: bool,
     pub changes: BTreeMap<String, HtmlEditChange>,
 }
+
+/// Commits the current canonical edit state into the real HTML file.  The
+/// client never chooses a destination: it can only commit the active item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitHtmlEditRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub artifact_edit_id: String,
+    pub expected_file_hash: String,
+    pub expected_modified_at: i64,
+    #[serde(default)]
+    pub changes: BTreeMap<String, HtmlEditChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitHtmlEditResponse {
+    pub source_file_hash: String,
+    pub source_modified_at: i64,
+    pub source_size: u64,
+    pub normalized_changes: BTreeMap<String, HtmlEditChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveHtmlEditConflictCopyRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub artifact_edit_id: String,
+    #[serde(default)]
+    pub changes: BTreeMap<String, HtmlEditChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveHtmlEditConflictCopyResponse { pub file_path: String }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -222,6 +262,13 @@ pub struct HtmlEditChange {
     pub width_permille: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height_permille: Option<u16>,
+    /// Pixel canvas dimensions at the moment the user positioned an inserted
+    /// image. They make the saved static layer stable if the document later
+    /// reflows to a different height.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canvas_width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canvas_height: Option<u32>,
     /// Only valid for an `inserted-image` change.  It is a transient tombstone
     /// accepted by the save boundary and removed from the persisted patch.
     #[serde(default, skip_serializing_if = "is_false")]

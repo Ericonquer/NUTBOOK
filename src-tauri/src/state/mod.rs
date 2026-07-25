@@ -29,7 +29,9 @@ pub struct AppState {
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<Vec<PollWatcher>>,
     html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
+    html_edit_path_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     html_edit_session_leases: Mutex<HtmlEditSessionLeases>,
+    pub active_html_edit_item: Mutex<Option<i64>>,
     thumbnail_settings_path: PathBuf,
     update_settings_path: PathBuf,
     system_chrome_thumbnails_enabled: Mutex<bool>,
@@ -62,7 +64,9 @@ impl AppState {
             watched_libraries: Mutex::new(HashSet::new()),
             active_watchers: Mutex::new(Vec::new()),
             html_edit_manifest_locks: Mutex::new(HashMap::new()),
+            html_edit_path_locks: Mutex::new(HashMap::new()),
             html_edit_session_leases: Mutex::new(HtmlEditSessionLeases::default()),
+            active_html_edit_item: Mutex::new(None),
             thumbnail_settings_path,
             update_settings_path,
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
@@ -173,6 +177,21 @@ impl AppState {
             .clone())
     }
 
+    /// Serializes commits by canonical file path, including the case where the
+    /// same file has been indexed by two libraries. The hash check remains
+    /// authoritative for other processes and external applications.
+    pub fn html_edit_path_lock(&self, path: &std::path::Path) -> Result<Arc<Mutex<()>>, AppError> {
+        let canonical = path.canonicalize().map_err(|_| AppError::IoError)?;
+        let mut locks = self
+            .html_edit_path_locks
+            .lock()
+            .map_err(|_| AppError::InternalError)?;
+        Ok(locks
+            .entry(canonical)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
+    }
+
     /// Replacing a lease is atomic per item.  A return value is intentionally
     /// not exposed: a session is valid only if it exactly matches the current
     /// item lease at the point an operation begins.
@@ -189,6 +208,7 @@ impl AppState {
             .lock()
             .map_err(|_| AppError::InternalError)?
             .register(item_id, runtime_session_id, generation);
+        *self.active_html_edit_item.lock().map_err(|_| AppError::InternalError)? = Some(item_id);
         Ok(())
     }
 
@@ -227,10 +247,15 @@ impl AppState {
         runtime_session_id: &str,
         generation: u64,
     ) -> Result<bool, AppError> {
-        Ok(self.html_edit_session_leases
+        let invalidated = self.html_edit_session_leases
             .lock()
             .map_err(|_| AppError::InternalError)?
-            .invalidate(item_id, runtime_session_id, generation))
+            .invalidate(item_id, runtime_session_id, generation);
+        if invalidated {
+            let mut active = self.active_html_edit_item.lock().map_err(|_| AppError::InternalError)?;
+            if *active == Some(item_id) { *active = None; }
+        }
+        Ok(invalidated)
     }
 }
 

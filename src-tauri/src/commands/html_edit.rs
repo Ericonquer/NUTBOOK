@@ -3,6 +3,9 @@ use std::{fs::{self, OpenOptions}, io::Write, path::PathBuf};
 use crate::{
     core::html_edit::{
         get_html_edit_patch_for_file as get_patch_for_file,
+        commit_html_edit_for_file, HtmlEditCommit,
+        save_html_edit_conflict_copy_for_file,
+        recover_html_edit_commit_journal,
         import_html_edit_asset as import_asset,
         load_html_edit_manifest,
         populate_runtime_asset_urls,
@@ -12,7 +15,7 @@ use crate::{
     },
     db::repositories::{ItemRepository, LibraryRepository},
     errors::AppError,
-    models::{GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, ListItemsQuery, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS},
+    models::{CommitHtmlEditRequest, CommitHtmlEditResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, ListItemsQuery, SaveHtmlEditConflictCopyRequest, SaveHtmlEditConflictCopyResponse, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS},
     state::AppState,
 };
 
@@ -45,6 +48,11 @@ pub fn get_html_edit_patch(
     let library = library_for_item(&state, item.summary.library_id)?;
     let title_hint = title_hint(&item);
     let library_root = html_edit_library_root(&library)?;
+    // Recovery is intentionally before inspecting sidecars or source hashes:
+    // a process crash may have replaced the source but not retired its patch.
+    let manifest_lock = state.html_edit_manifest_lock(library.id)?;
+    let _manifest_guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+    recover_html_edit_commit_journal(&library_root)?;
     let lookup = HtmlEditPatchLookup {
         library_id: library.id,
         library_root: library_root.clone(),
@@ -253,6 +261,70 @@ pub fn save_html_edit_patch(
     } else {
         save_patch_for_file(&save)
     }
+}
+
+/// Materializes the active canonical patch into the source HTML.  The frontend
+/// only receives a success response after the source file has been atomically
+/// replaced and its old sidecar state has been retired.
+#[tauri::command]
+pub fn commit_html_edit(
+    state: tauri::State<'_, AppState>,
+    payload: CommitHtmlEditRequest,
+) -> Result<CommitHtmlEditResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(
+        item.summary.id, &payload.runtime_session_id, payload.generation,
+    )?)?;
+    let library = library_for_item(&state, item.summary.library_id)?;
+    let file_path = PathBuf::from(&item.summary.file_path);
+    let path_lock = state.html_edit_path_lock(&file_path)?;
+    let _path_guard = path_lock.lock().map_err(|_| AppError::InternalError)?;
+    let manifest_lock = state.html_edit_manifest_lock(library.id)?;
+    let _manifest_guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+    let library_root = html_edit_library_root(&library)?;
+    let commit = HtmlEditCommit {
+        library_root,
+        file_path,
+        artifact_edit_id: payload.artifact_edit_id,
+        expected_file_hash: payload.expected_file_hash,
+        expected_modified_at: payload.expected_modified_at,
+        changes: payload.changes,
+    };
+    let committed = match commit_html_edit_for_file(&commit) {
+        Ok(committed) => committed,
+        Err(error) => {
+            // Temporary, host-readable diagnostic for the repeated editor
+            // save failure. Remove after the rejected field is fixed.
+            if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("nutbook-html-edit-debug.log")) {
+                let _ = writeln!(log, "event=commit-html-edit-rejected error={error:?} artifact_edit_id={} changes={:?}", commit.artifact_edit_id, commit.changes);
+            }
+            return Err(error);
+        }
+    };
+    // The commit is already durable. A best-effort refresh must never turn it
+    // into an apparent failed save that the user might retry.
+    let _ = crate::commands::library::scan_library_once(&state.database, library.id);
+    Ok(CommitHtmlEditResponse {
+        source_file_hash: committed.source_file_hash,
+        source_modified_at: committed.source_modified_at,
+        source_size: committed.source_size,
+        normalized_changes: committed.normalized_changes,
+    })
+}
+
+#[tauri::command]
+pub fn save_html_edit_conflict_copy(state: tauri::State<'_, AppState>, payload: SaveHtmlEditConflictCopyRequest) -> Result<SaveHtmlEditConflictCopyResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(item.summary.id, &payload.runtime_session_id, payload.generation)?)?;
+    let library = library_for_item(&state, item.summary.library_id)?;
+    let path = PathBuf::from(&item.summary.file_path);
+    let path_lock = state.html_edit_path_lock(&path)?; let _path_guard = path_lock.lock().map_err(|_| AppError::InternalError)?;
+    let target = save_html_edit_conflict_copy_for_file(&HtmlEditCommit { library_root: html_edit_library_root(&library)?, file_path: path, artifact_edit_id: payload.artifact_edit_id, expected_file_hash: String::new(), expected_modified_at: 0, changes: payload.changes })?;
+    // The conflict copy is already durable. Keep refresh failure from
+    // misleading the user into retrying and creating a second copy.
+    let _ = crate::commands::library::scan_library_once(&state.database, library.id);
+    Ok(SaveHtmlEditConflictCopyResponse { file_path: target.to_string_lossy().into_owned() })
 }
 
 fn library_for_item(state: &AppState, library_id: i64) -> Result<Library, AppError> {

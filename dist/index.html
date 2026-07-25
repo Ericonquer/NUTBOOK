@@ -6481,6 +6481,21 @@
         return { saved, canLeave, sessionChanged };
       }
 
+      function logHtmlEditSaveCoordinator(session, event) {
+        if (!session?.runtimeSessionId) return;
+        invoke("html_edit_runtime_message_command", {
+          payload: {
+            type: "html_edit_host_save_debug",
+            runtimeSessionId: session.runtimeSessionId,
+            event,
+            documentRevision: session.documentRevision,
+            dirty: Boolean(session.dirty),
+            changeIds: Object.keys(session.changes || {}).join(","),
+            saveInFlight: Boolean(session.saveInFlight)
+          }
+        }).catch(() => {});
+      }
+
       function nextHtmlEditSessionGeneration() {
         appState.htmlEditSessionGeneration += 1;
         return appState.htmlEditSessionGeneration;
@@ -6862,48 +6877,71 @@
         // fresh snapshot so an immediately-clicked Save cannot silently skip a
         // just-imported image.
         const refreshed = await refreshHtmlEditRuntimeState(session, session.documentRevision);
+        logHtmlEditSaveCoordinator(session, `host-save-refreshed:${refreshed ? "accepted" : "rejected"}`);
         if (appState.htmlEditSession !== session) return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
         if (!refreshed && !htmlEditLeaveRequiresSave(session)) {
+          logHtmlEditSaveCoordinator(session, "host-save-retry-needed");
           setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
           return htmlEditSaveResult();
         }
-        if (!htmlEditLeaveRequiresSave(session)) return htmlEditSaveResult({ saved: true, canLeave: true });
-        if (session.saveInFlight) return session.saveInFlight;
+        if (!htmlEditLeaveRequiresSave(session)) {
+          logHtmlEditSaveCoordinator(session, "host-save-already-clean");
+          return htmlEditSaveResult({ saved: true, canLeave: true });
+        }
+        if (session.saveInFlight) {
+          logHtmlEditSaveCoordinator(session, "host-save-waiting-for-prior");
+          // Never return an earlier Save's result for a newer document state.
+          // In particular, Undo can make the document dirty while the prior
+          // save request is unwinding. Wait for it, release a stale lock, then
+          // start over from a fresh child snapshot.
+          const activeSave = session.saveInFlight;
+          await activeSave;
+          if (appState.htmlEditSession !== session) return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
+          if (session.saveInFlight === activeSave) session.saveInFlight = null;
+          return saveActiveHtmlEditPatch();
+        }
         const runtimeSessionId = session.runtimeSessionId;
         const generation = session.generation;
         const savedChangesJson = stableHtmlEditJson(session.changes || {});
-        const replaceChanges = Boolean(session.requiresPatchReconciliation || Object.values(session.changes || {}).some((change) => change?.type === "inserted-image" && change.deleted === true));
+        const savedDocumentRevision = session.documentRevision;
         const candidatePersistedChanges = mergeHtmlEditPatchChanges(session.persistedChanges, session.changes);
-        const changesForSave = replaceChanges ? candidatePersistedChanges : session.changes || {};
+        // Commit needs the full canonical state: an older sidecar may contain
+        // changes this runtime did not touch during the current save.
+        const changesForSave = candidatePersistedChanges;
         let savePromise;
         savePromise = (async () => {
           try {
-            const result = await invoke("save_html_edit_patch", {
+            logHtmlEditSaveCoordinator(session, "host-save-commit-start");
+            const result = await invoke("commit_html_edit", {
               itemId: session.itemId,
               runtimeSessionId,
               generation,
               artifactEditId: session.artifactEditId,
               expectedFileHash: session.sourceFileHash,
               expectedModifiedAt: session.sourceModifiedAt,
-              expectedPatchRevision: session.patchRevision,
-              replaceChanges,
               changes: changesForSave
             });
+            logHtmlEditSaveCoordinator(session, "host-save-commit-success");
             if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
               return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
             }
-            session.patchRevision = result.patchRevision ?? (session.patchRevision + 1);
+            session.patchRevision = 0;
+            session.sourceCommitted = true;
             session.sourceFileHash = result.sourceFileHash ?? session.sourceFileHash;
             session.sourceModifiedAt = result.sourceModifiedAt ?? session.sourceModifiedAt;
             if (markHtmlEditPatchOutOfSync(session, savedChangesJson)) {
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
-              await syncHtmlEditToolbar();
+              // Toolbar presentation is deliberately outside the persistence
+              // critical section.  The overlay is another WebView and can be
+              // delayed while a modal is visible; keeping the save lock until
+              // it answers made a completed Save permanently block the next
+              // Save after Undo.
+              syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
               return htmlEditSaveResult({ saved: true, canLeave: false });
             }
             const preMarkSavedRevision = session.documentRevision;
             const markSavedRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const markSavedResult = waitForHtmlEditMarkSavedResult(runtimeSessionId, markSavedRequestId);
-            const cleanRevisionWaiter = waitForHtmlEditCleanRevision(runtimeSessionId, preMarkSavedRevision + 1);
             try {
               await invoke("eval_html_runtime_script_command", {
                 itemId: session.itemId,
@@ -6914,7 +6952,7 @@
                     var saved = false;
                     try {
                       if (window.__NUTBOOK_HTML_EDIT__) {
-                        saved = Boolean(window.__NUTBOOK_HTML_EDIT__.markSaved(${JSON.stringify({ runtimeSessionId, expectedChangesJson: savedChangesJson })}));
+                        saved = Boolean(window.__NUTBOOK_HTML_EDIT__.markSaved(${JSON.stringify({ runtimeSessionId, expectedDocumentRevision: savedDocumentRevision })}));
                       }
                     } catch (_) {
                       saved = false;
@@ -6931,34 +6969,58 @@
                 `
               });
             } catch (error) {
-              cleanRevisionWaiter.cancel();
-              throw error;
+              session.requiresPatchReconciliation = true;
+              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              return htmlEditSaveResult({ saved: true, canLeave: false });
             }
             const markSavedOk = await markSavedResult;
             if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
-              cleanRevisionWaiter.cancel();
               return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
             }
             if (!markSavedOk) {
-              cleanRevisionWaiter.cancel();
+              session.requiresPatchReconciliation = true;
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
-              await syncHtmlEditToolbar();
+              syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
               return htmlEditSaveResult({ saved: true, canLeave: false });
             }
-            const cleanRevision = await cleanRevisionWaiter.promise;
-            if (cleanRevision == null || session.documentRevision !== cleanRevision || session.dirty) {
-              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
-              await syncHtmlEditToolbar();
-              return htmlEditSaveResult({ saved: true, canLeave: false });
-            }
+            // `markSaved` is the child runtime's authoritative acknowledgement
+            // that this exact revision has become its baseline. Do not hold the
+            // save lock waiting for a second asynchronous state message: a user
+            // can undo before that message arrives, which otherwise makes every
+            // later Save reuse this stale in-flight promise.
+            session.documentRevision = Math.max(session.documentRevision, preMarkSavedRevision + 1);
+            session.documentStateKey = htmlEditDocumentStateKey({ dirty: false, changes: {} });
+            session.dirty = false;
+            session.changes = {};
             session.requiresPatchReconciliation = false;
-            session.persistedChanges = result.normalizedChanges && typeof result.normalizedChanges === "object"
-              ? structuredClone(result.normalizedChanges)
-              : candidatePersistedChanges;
+            session.persistedChanges = {};
             setStatus(t("htmlEdit.saved"), "ok");
-            await syncHtmlEditToolbar();
+            // This is the terminal acknowledgement of the persistence
+            // transaction.  Clear the exact lock here as well as in `finally`:
+            // a later UI sync must never retain a completed save and cause the
+            // next Save (after Undo or a frame drag) to reuse stale success.
+            if (session.saveInFlight === savePromise) session.saveInFlight = null;
+            // Do not await a best-effort overlay update here.  Once the child
+            // has acknowledged markSaved, the persistence transaction is
+            // complete and later undo/save must be able to open a new one.
+            syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
             return htmlEditSaveResult({ saved: true, canLeave: true });
           } catch (error) {
+            logHtmlEditSaveCoordinator(session, `host-save-commit-error:${normalizeError(error).slice(0, 120)}`);
+            const message = normalizeError(error);
+            if ((message.includes("EDIT_CONFLICT") || message.includes("edit conflict")) && window.confirm(t("htmlEdit.saveConflictCopyPrompt"))) {
+              try {
+                const copied = await invoke("save_html_edit_conflict_copy", { itemId: session.itemId, runtimeSessionId, generation, artifactEditId: session.artifactEditId, changes: candidatePersistedChanges });
+                setStatus(`${t("htmlEdit.saveConflictCopySaved")}${copied.filePath}`, "warn");
+                // The recovery file is a new artifact. Do not leave an active
+                // editor bound to the externally changed original path.
+                await exitHtmlEditMode({ itemId: session.itemId, runtimeSessionId, discard: true });
+                return htmlEditSaveResult({ saved: true, canLeave: true });
+              } catch (copyError) {
+                setStatus(htmlEditSaveErrorStatus(copyError), "error");
+                return htmlEditSaveResult();
+              }
+            }
             setStatus(htmlEditSaveErrorStatus(error), "error");
             return htmlEditSaveResult();
           } finally {
@@ -6979,6 +7041,11 @@
         const runtimeSessionId = options.runtimeSessionId || session.runtimeSessionId;
         const generation = session.generation;
         const discard = Boolean(options.discard);
+        // The source file is the durable baseline in both Save and Discard
+        // exits. Reload it rather than trying to reuse an edit-only overlay;
+        // otherwise the current runtime can lose an inserted frame until the
+        // user manually reopens the document.
+        const reloadCommittedSource = true;
         if (session.itemId !== itemId) return;
         if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
         cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
@@ -7013,6 +7080,9 @@
         // incorrectly treats the just-removed read-only layer as still shown.
         appState.runtimePatchAppliedKeys.delete(itemId);
         await applyHtmlEditPatchToRuntime(itemId).catch(() => {});
+        if (reloadCommittedSource) {
+          await invoke("eval_html_runtime_script_command", { itemId, script: "window.location.reload();" }).catch(() => {});
+        }
         refocusActiveRuntimeHost(itemId);
       }
 
@@ -7175,6 +7245,12 @@
           const resolveMarkSaved = appState.htmlEditMarkSavedWaiters.get(key);
           if (resolveMarkSaved) {
             appState.htmlEditMarkSavedWaiters.delete(key);
+            // The child has finished the terminal markSaved transition.  The
+            // commit is already on disk, so this acknowledgement—not an
+            // unrelated toolbar promise—is the durable boundary for releasing
+            // the save lock.  Otherwise a resolved save can remain cached and
+            // make the next Save after Undo silently do nothing.
+            if (session.saveInFlight) session.saveInFlight = null;
             resolveMarkSaved(Boolean(data.saved));
           }
           return;
@@ -8018,7 +8094,7 @@
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -9388,6 +9464,15 @@
             sourceModifiedAt: payload.expectedModifiedAt,
             sourceSize: 0,
             updatedAt: Math.floor(Date.now() / 1000)
+          };
+        }
+        if (command === "commit_html_edit") {
+          const payload = args.payload || args;
+          return {
+            sourceFileHash: payload.expectedFileHash,
+            sourceModifiedAt: payload.expectedModifiedAt,
+            sourceSize: 0,
+            normalizedChanges: payload.changes || {}
           };
         }
         if (command === "dispatch_html_runtime_shortcut_command") {
@@ -12336,7 +12421,21 @@
         setStatus(els.fileTypeSelect.value ? statusWithValue("status.typeFilterPrefix", els.fileTypeSelect.value) : t("status.typeFilterCleared"), "ok");
       }
 
-      function handleNativeEditHistory(action) {
+      async function handleNativeEditHistory(action) {
+        const htmlSession = appState.htmlEditSession;
+        if (htmlSession) {
+          try {
+            // This enters the child WebView through the host runtime shortcut
+            // command. `window.eval` on the main WebView is not a reliable
+            // forwarding boundary for a native macOS accelerator.
+            return Boolean(await invoke("dispatch_html_runtime_shortcut_command", {
+              itemId: htmlSession.itemId,
+              key: action === "redo" ? "CmdOrCtrl+Shift+Z" : "CmdOrCtrl+Z"
+            }));
+          } catch (_) {
+            return false;
+          }
+        }
         const active = document.activeElement;
         const tag = active?.tagName;
         const isFormField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
@@ -12360,7 +12459,7 @@
       async function handleNativeMenuAction(action) {
         try {
           if (action === "undo" || action === "redo") {
-            if (!handleNativeEditHistory(action)) {
+            if (!(await handleNativeEditHistory(action))) {
               setStatus(action === "undo" ? "当前没有可撤销的编辑" : "当前没有可重做的编辑", "warn");
             }
             return;

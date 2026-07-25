@@ -28,10 +28,10 @@ for (const marker of [
 ]) {
   assert.match(htmlEditRuntime, new RegExp(marker), `HTML image runtime must include ${marker}`);
 }
-const imageRequest = runtimeSection("requestImageReplacement", "applyImportedAsset");
+const imageRequest = runtimeSection("requestImageReplacement", "imageActionIcon");
 assert.match(imageRequest, /targetState/, "image replace requests must report target state");
 assert.doesNotMatch(imageRequest, /currentSrc|FileReader/, "image replace requests must not leak URLs or read files");
-const importedAsset = runtimeSection("applyImportedAsset", "applyPictureSources");
+const importedAsset = runtimeSection("applyImportedAsset", "canApplyPictureSources");
 assert.doesNotMatch(importedAsset, /FileReader|clientX|clientY/, "imported assets must not use FileReader or free-coordinate insertion");
 const runtimeSha256 = htmlEditRuntime.match(/async function sha256HexUtf8\(value\) \{([^\n]+)\}/);
 assert.ok(runtimeSha256, "runtime must define a Web Crypto SHA-256 function");
@@ -62,7 +62,7 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /const pictureSources = baseline\.pictureSources\.map\([\s\S]*?if \(pictureSources\.length\) change\.pictureSources = pictureSources;/,
+  /const pictureSources = baseline\.pictureSources\.map\([\s\S]*?if \(sourceChanged && pictureSources\.length\) change\.pictureSources = pictureSources;/,
   "ordinary images must omit pictureSources instead of persisting an invalid empty responsive-source set"
 );
 assert.match(
@@ -346,8 +346,8 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /stableChangesJson\(collectChanges\(\)\) !== saveOptions\.expectedChangesJson/,
-  "markSaved must compare rich-text changes canonically after crossing the runtime IPC boundary"
+  /saveOptions\.expectedDocumentRevision !== null && STATE\.documentRevision !== saveOptions\.expectedDocumentRevision/,
+  "markSaved must reject a stale save acknowledgement after the runtime document advances"
 );
 assert.match(
   previewCommandsRust,
@@ -426,8 +426,8 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /const candidatePersistedChanges = mergeHtmlEditPatchChanges\(session\.persistedChanges, session\.changes\);[\s\S]*?const changesForSave = replaceChanges \? candidatePersistedChanges : session\.changes \|\| \{\};[\s\S]*?replaceChanges,\s*changes: changesForSave/,
-  "the reconciliation save must explicitly replace a full persisted-patch snapshot rather than merge or erase unrelated fields"
+  /const candidatePersistedChanges = mergeHtmlEditPatchChanges\(session\.persistedChanges, session\.changes\);[\s\S]*?const changesForSave = candidatePersistedChanges;[\s\S]*?commit_html_edit[\s\S]*?changes: changesForSave/,
+  "every source commit must send the full canonical snapshot rather than erase untouched persisted fields"
 );
 
 assert.doesNotMatch(

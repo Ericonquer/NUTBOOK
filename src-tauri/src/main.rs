@@ -2,6 +2,7 @@ use std::{fs, io, path::{Path, PathBuf}, sync::Mutex};
 
 use nutbook_backend::{
     commands,
+    core::html_runtime::dispatch_html_runtime_shortcut,
     db::Database,
     state::AppState,
 };
@@ -171,6 +172,18 @@ fn main() {
                 .build()
         })
         .on_menu_event(|app, event| {
+            let native_history_key = match event.id().as_ref() {
+                MENU_UNDO_ID => Some("CmdOrCtrl+Z"),
+                MENU_REDO_ID => Some("CmdOrCtrl+Shift+Z"),
+                _ => None,
+            };
+            if let Some(key) = native_history_key {
+                let active_item = app.state::<AppState>().active_html_edit_item.lock().ok().and_then(|item| *item);
+                if let Some(item_id) = active_item {
+                    let _ = dispatch_html_runtime_shortcut(app, item_id, key);
+                    return;
+                }
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let script = match event.id().as_ref() {
                     EXIT_PRESENTATION_MENU_ID => {
@@ -259,6 +272,8 @@ fn main() {
             commands::html_edit::get_html_edit_converter_script,
             commands::html_edit::get_html_edit_patch,
             commands::html_edit::save_html_edit_patch,
+            commands::html_edit::commit_html_edit,
+            commands::html_edit::save_html_edit_conflict_copy,
             commands::html_edit::import_html_edit_asset,
             commands::html_edit::register_html_edit_session_lease,
             commands::html_edit::invalidate_html_edit_session_lease,
