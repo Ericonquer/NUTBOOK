@@ -184,6 +184,7 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
     } else {
         rendered
     };
+    let content = protocolize_editable_markup(&content, "nutbook-reading-content", None);
     let warnings_html = render_warnings(&embedder.warnings);
 
     let html = input
@@ -206,6 +207,134 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
         html,
         warnings: embedder.warnings,
     })
+}
+
+fn protocolize_editable_markup(markup: &str, field_prefix: &str, page_id: Option<&str>) -> String {
+    let mut output = String::with_capacity(markup.len() + 512);
+    let mut offset = 0usize;
+    let mut field_index = 0usize;
+    let mut skip_stack: Vec<(String, bool)> = Vec::new();
+
+    while let Some(relative_start) = markup[offset..].find('<') {
+        let start = offset + relative_start;
+        output.push_str(&markup[offset..start]);
+        let Some(relative_end) = markup[start..].find('>') else {
+            output.push_str(&markup[start..]);
+            break;
+        };
+        let end = start + relative_end + 1;
+        let tag = &markup[start..end];
+        let trimmed = tag.trim_start_matches('<').trim();
+
+        if trimmed.starts_with('!') || trimmed.starts_with('?') {
+            output.push_str(tag);
+            offset = end;
+            continue;
+        }
+
+        let closing = trimmed.starts_with('/');
+        let name_start = if closing { 1 } else { 0 };
+        let name = trimmed[name_start..]
+            .split(|character: char| character.is_ascii_whitespace() || character == '>' || character == '/')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let void = matches!(name.as_str(), "img" | "br" | "hr" | "meta" | "link" | "input");
+
+        if closing {
+            output.push_str(tag);
+            if !void {
+                let _ = skip_stack.pop();
+            }
+            offset = end;
+            continue;
+        }
+
+        let inherited_skip = skip_stack.last().map(|(_, skip)| *skip).unwrap_or(false);
+        let class_is_protected = tag.contains("deck-footer")
+            || tag.contains("footer-logo")
+            || tag.contains("thanks-logo")
+            || tag.contains("export-warnings")
+            || tag.contains("export-outline")
+            || tag.contains("code-copy")
+            || tag.contains("presentation-controls");
+        let protected = inherited_skip
+            || class_is_protected
+            || matches!(name.as_str(), "pre" | "code" | "table" | "blockquote" | "footer" | "a");
+        let is_slide = page_id.is_some() && name == "section" && tag.contains("class=\"slide");
+        let candidate = !protected
+            && matches!(name.as_str(), "h1" | "h2" | "h3" | "h4" | "p" | "ul" | "ol" | "img")
+            && !editable_element_has_readonly_descendant(markup, end, &name);
+
+        if is_slide || candidate {
+            let tag_without_end = &tag[..tag.len() - 1];
+            let self_closing = tag_without_end.trim_end().ends_with('/');
+            let attribute_end = if self_closing {
+                tag_without_end.rfind('/').expect("self-closing tag has slash")
+            } else {
+                tag_without_end.len()
+            };
+            let mut replacement = tag_without_end[..attribute_end].to_string();
+            if is_slide {
+                replacement.push_str(" data-nutbook-page-id=\"");
+                replacement.push_str(page_id.expect("page id is present for slides"));
+                replacement.push('"');
+            }
+            if candidate {
+                field_index += 1;
+                let role = if matches!(name.as_str(), "h1" | "h2" | "h3" | "h4") || tag.contains("kicker") {
+                    "short"
+                } else {
+                    "content"
+                };
+                replacement.push_str(" data-id=\"");
+                replacement.push_str(field_prefix);
+                replacement.push_str(&format!("-field-{field_index:03}\""));
+                if name == "img" {
+                    replacement.push_str(" data-editable=\"image\"");
+                } else {
+                    replacement.push_str(" data-editable=\"rich-text\" data-edit-role=\"");
+                    replacement.push_str(role);
+                    replacement.push('"');
+                }
+            }
+            if self_closing {
+                replacement.push_str(" /");
+            }
+            replacement.push('>');
+            output.push_str(&replacement);
+        } else {
+            output.push_str(tag);
+        }
+
+        if !void {
+            skip_stack.push((name, protected));
+        }
+        offset = end;
+    }
+
+    if offset < markup.len() {
+        output.push_str(&markup[offset..]);
+    }
+    output
+}
+
+fn editable_element_has_readonly_descendant(markup: &str, content_start: usize, name: &str) -> bool {
+    if name == "img" {
+        return false;
+    }
+    let closing = format!("</{name}");
+    let Some(relative_end) = markup[content_start..].find(&closing) else {
+        return true;
+    };
+    let content = &markup[content_start..content_start + relative_end];
+    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol"]
+        .iter()
+        .any(|needle| content.contains(needle))
+}
+
+fn presentation_page_id(index: usize) -> String {
+    format!("nutbook-page-{index:03}")
 }
 
 pub fn render_presentation_html(
@@ -3678,7 +3807,7 @@ fn render_presentation_slide(
 ) -> String {
     let active = if index == 1 { " is-active" } else { "" };
     let rhythm_cls = rhythm.map(|r| format!(" {}", r.class_name())).unwrap_or_default();
-    match plan {
+    let rendered = match plan {
         PresentationSlidePlan::Cover { title } => format!(
             r#"<section class="slide cover density-{density}{active}{rhythm_cls}" data-slide-kind="cover" data-density="{density}" data-slide-index="{index}" data-page-index="{index}" data-title="{title_attr}">
   <div class="cover-copy">
@@ -4061,7 +4190,9 @@ fn render_presentation_slide(
             source = escape_html_text(&input.source_file),
             total = total,
         ),
-    }
+    };
+    let page_id = presentation_page_id(index);
+    protocolize_editable_markup(&rendered, &page_id, Some(&page_id))
 }
 
 fn render_content_slide(
@@ -4411,7 +4542,7 @@ mod tests {
 
     use super::{
         assign_evidence_to_items, default_markdown_html_file_name, fallback_presentation_dark_template,
-        fallback_presentation_light_template, fallback_reading_light_template, parse_presentation_blocks,
+        fallback_presentation_light_template, fallback_reading_dark_template, fallback_reading_light_template, parse_presentation_blocks,
         landscape_card_chunks_with_capacity, list_layout_capacity_hint, plan_list_card_layout,
         presentation_budget, render_presentation_html, render_reading_html, should_render_as_list_cards, text_slide_markdown,
         semantic_relation_plan, try_overview_detail_split, MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationBlock,
@@ -4439,6 +4570,18 @@ mod tests {
                 rest.get(..end)?.parse::<usize>().ok()
             })
             .collect()
+    }
+
+    fn contains_tag_text(html: &str, tag: &str, class_name: Option<&str>, text: &str) -> bool {
+        let opening = match class_name {
+            Some(class_name) => format!(r#"<{tag} class="{class_name}""#),
+            None => format!("<{tag}"),
+        };
+        let closing = format!(">{text}</{tag}>");
+        html.match_indices(&opening).any(|(index, _)| {
+            let remainder = &html[index..];
+            remainder.find('>').is_some_and(|end| remainder[end..].starts_with(&closing))
+        })
     }
 
     fn png_header(width: u32, height: u32) -> Vec<u8> {
@@ -4473,6 +4616,36 @@ mod tests {
         assert!(output.html.contains("<title>Title</title>"));
         assert!(output.html.contains("123 plan.md"));
         assert!(!output.html.contains("export-warnings"));
+    }
+
+    #[test]
+    fn reading_html_emits_editable_protocol_without_marking_protected_blocks() {
+        let input = || MarkdownHtmlExportInput {
+            title: "Protocol reading".to_string(),
+            source_file: "protocol.md".to_string(),
+            source_path: temp_path("reading-protocol").with_extension("md"),
+            markdown: "# Protocol reading\n\nA plain paragraph.\n\n- First item\n- Second item\n\n> Quoted text\n\n[Read only link](https://example.com)\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n```text\nlet value = 1;\n```".to_string(),
+            generated_at: "now".to_string(),
+            template_html: fallback_reading_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        };
+
+        for template in [fallback_reading_light_template(), fallback_reading_dark_template()] {
+            let mut next = input();
+            next.template_html = template.to_string();
+            let output = render_reading_html(next).expect("reading html should render");
+            assert!(output.html.contains(r#"data-nutbook-editable-protocol="1""#));
+            assert!(output.html.contains(r#"data-nutbook-artifact-kind="reading""#));
+            assert!(output.html.contains(r#"data-id="nutbook-reading-title" data-editable="rich-text" data-edit-role="short""#));
+            assert!(output.html.contains(r#"data-id="nutbook-reading-content-field-001""#));
+            assert!(output.html.contains("<blockquote>\n<p>Quoted text</p>\n</blockquote>"));
+            assert!(output.html.contains(r#"<a href="https://example.com">Read only link</a>"#));
+            assert!(output.html.contains(r#"<table>"#));
+            assert!(output.html.contains(r#"<pre><code class="language-text">let value = 1;"#));
+            assert!(!output.html.contains("<table data-id="));
+            assert!(!output.html.contains("<pre data-id="));
+            assert!(!output.html.contains("<a data-id="));
+        }
     }
 
     #[test]
@@ -4745,6 +4918,52 @@ mod tests {
     }
 
     #[test]
+    fn presentation_html_emits_page_protocol_and_bridge_for_all_templates() {
+        let input = || MarkdownHtmlExportInput {
+            title: "Protocol deck".to_string(),
+            source_file: "protocol.md".to_string(),
+            source_path: temp_path("presentation-protocol").with_extension("md"),
+            markdown: "# Protocol deck\n\n## First page\n\nA paragraph.\n\n- Card one\n- Card two\n\n## Second page\n\n> Read only quote\n\n```text\nlet value = 1;\n```".to_string(),
+            generated_at: "now".to_string(),
+            template_html: fallback_presentation_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        };
+
+        for template in [fallback_presentation_light_template(), fallback_presentation_dark_template()] {
+            for output_kind in ["static", "dynamic"] {
+                let mut next = input();
+                next.template_html = template.to_string();
+                let output = render_presentation_html(next, PresentationHtmlExportPreferences {
+                    aspect_ratio: "16-9".to_string(),
+                    density: PresentationDensity::Balanced,
+                    output_kind: output_kind.to_string(),
+                }).expect("presentation html should render");
+
+                assert!(output.html.contains(r#"data-nutbook-editable-protocol="1""#));
+                assert!(output.html.contains(r#"data-nutbook-artifact-kind="presentation""#));
+                assert!(output.html.contains(r#"data-nutbook-page-id="nutbook-page-001""#));
+                assert!(output.html.contains("window.__NUTBOOK_PRESENTATION__"));
+                assert!(output.html.contains("goTo(pageId)"));
+                assert!(output.html.contains("setEditMode(enabled)"));
+                assert!(output.html.contains("subscribe(listener)"));
+                assert!(output.html.contains(r#"data-id="nutbook-page-001-field-001""#));
+                assert!(output.html.contains("Read only quote"));
+                assert!(output.html.contains("<pre class=\"code-frame"));
+                assert!(!output.html.contains("<blockquote class=\"presentation-quote\" data-id="));
+                assert!(!output.html.contains("<pre class=\"code-frame data-id="));
+                assert!(!output.html.contains("{{"));
+                assert!(!output.html.contains("}}"));
+
+                let page_ids = output.html.match_indices("data-nutbook-page-id=\"")
+                    .filter_map(|(index, needle)| output.html[index + needle.len()..].split('"').next())
+                    .collect::<Vec<_>>();
+                assert!(page_ids.len() >= 3);
+                assert_eq!(page_ids.len(), page_ids.iter().collect::<std::collections::HashSet<_>>().len());
+            }
+        }
+    }
+
+    #[test]
     fn presentation_html_static_and_dynamic_motion_are_isolated() {
         let input = || MarkdownHtmlExportInput {
             title: "Motion Deck".to_string(),
@@ -4910,9 +5129,9 @@ mod tests {
         )
         .expect("presentation html should render");
 
-        assert!(output.html.contains(r#"<h1 class="cover-title">内文标题</h1>"#));
-        assert!(!output.html.contains(r#"<h1 class="cover-title">README.md</h1>"#));
-        assert!(!output.html.contains(r#"<h2 class="slide-title">内文标题</h2>"#));
+        assert!(contains_tag_text(&output.html, "h1", Some("cover-title"), "内文标题"));
+        assert!(!contains_tag_text(&output.html, "h1", Some("cover-title"), "README.md"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("slide-title"), "内文标题"));
     }
 
     #[test]
@@ -5500,8 +5719,8 @@ mod tests {
 
         assert!(output.html.contains(r#"data-card-count="4""#));
         assert_eq!(output.html.matches(r#"data-slide-kind="list-cards""#).count(), 1);
-        assert!(output.html.contains(r#"<h3 class="list-card-title">1. 用户能把当前 Markdown 导出为可独立打开的 HTML</h3>"#));
-        assert!(output.html.contains(r#"<h3 class="list-card-title">4. 导出中心入口清晰可见</h3>"#));
+        assert!(contains_tag_text(&output.html, "h3", Some("list-card-title"), "1. 用户能把当前 Markdown 导出为可独立打开的 HTML"));
+        assert!(contains_tag_text(&output.html, "h3", Some("list-card-title"), "4. 导出中心入口清晰可见"));
     }
 
     #[test]
@@ -5550,9 +5769,9 @@ mod tests {
 
         assert!(output.html.contains(r#"data-slide-kind="list-cards""#));
         assert_eq!(list_card_counts(&output.html), vec![4, 3]);
-        assert!(output.html.contains(r#"<h3 class="list-card-title">1. 将“项目目录”统一改为“Workspace 工作区目录”</h3>"#));
-        assert!(output.html.contains(r#"<div class="list-card-body"><p>QSkills 不只服务代码项目"#));
-        assert!(output.html.contains(r#"<h3 class="list-card-title">7. 补齐 Tauri v2 权限、文件路径、打包签名风险</h3>"#));
+        assert!(contains_tag_text(&output.html, "h3", Some("list-card-title"), "1. 将“项目目录”统一改为“Workspace 工作区目录”"));
+        assert!(output.html.contains("QSkills 不只服务代码项目"));
+        assert!(contains_tag_text(&output.html, "h3", Some("list-card-title"), "7. 补齐 Tauri v2 权限、文件路径、打包签名风险"));
         assert!(output.html.contains("前端不直接做任意文件系统写入"));
     }
 
@@ -5576,7 +5795,7 @@ mod tests {
         )
         .expect("presentation html should render");
 
-        assert!(output.html.contains(r#"<h2 class="slide-title">2. 产品目标</h2>"#));
+        assert!(contains_tag_text(&output.html, "h2", Some("slide-title"), "2. 产品目标"));
         assert!(!output.html.contains(r#"<p class="kicker">2. 产品目标</p>"#));
     }
 
@@ -5726,10 +5945,10 @@ mod tests {
         assert!(output.html.contains(r#"data-slide-kind="statement""#));
         assert!(!output.html.contains(r#"data-slide-kind="list-cards""#));
         assert!(!output.html.contains(r#"data-slide-kind="topic-cards""#));
-        assert!(output.html.contains(r#"<h2 class="statement-title">1. 内容统一管理</h2>"#));
-        assert!(output.html.contains(r#"<h2 class="statement-title">2. 强化阅读体验</h2>"#));
-        assert!(!output.html.contains(r#"<h2 class="statement-title">接入 skill 产物目录</h2>"#));
-        assert!(!output.html.contains(r#"<h2 class="statement-title">统一管理 Markdown / HTML 内容</h2>"#));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "1. 内容统一管理"));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "2. 强化阅读体验"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("statement-title"), "接入 skill 产物目录"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("statement-title"), "统一管理 Markdown / HTML 内容"));
     }
 
     #[test]
@@ -5752,9 +5971,9 @@ mod tests {
         )
         .expect("master presentation html should render");
 
-        assert!(output.html.contains(r#"<h2 class="statement-title">商业人群</h2>"#));
-        assert!(output.html.contains(r#"<h2 class="statement-title">高校与研究人群</h2>"#));
-        assert!(output.html.contains(r#"<h2 class="statement-title">内容策划</h2>"#));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "商业人群"));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "高校与研究人群"));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "内容策划"));
         assert!(!output.html.contains("客户方案、会议材料"));
         assert!(!output.html.contains("研究过程产物"));
         assert!(!output.html.contains("沉淀选题分析"));
@@ -5780,8 +5999,8 @@ mod tests {
         )
         .expect("master presentation html should render");
 
-        assert!(output.html.contains(r#"<h2 class="statement-title">我最近有个很荒诞的感受。</h2>"#));
-        assert_eq!(output.html.matches(r#"<h2 class="statement-title">AI 让我的电脑变成了“垃圾场”</h2>"#).count(), 0);
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "我最近有个很荒诞的感受。"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("statement-title"), "AI 让我的电脑变成了“垃圾场”"));
     }
 
     #[test]
@@ -5834,8 +6053,8 @@ mod tests {
 
         assert_eq!(output.html.matches(r#"data-slide-kind="text""#).count(), 1);
         assert!(output.html.contains(r#"data-title="第一章""#));
-        assert!(output.html.contains("<h3>摘要</h3>"));
-        assert!(output.html.contains("<h3>结论</h3>"));
+        assert!(contains_tag_text(&output.html, "h3", None, "摘要"));
+        assert!(contains_tag_text(&output.html, "h3", None, "结论"));
         assert!(output.html.contains("只有一句话"));
         assert!(output.html.contains("再补一句话"));
     }
@@ -5863,7 +6082,7 @@ mod tests {
         assert!(output.html.contains(r#"data-title="适合谁""#));
         assert!(output.html.contains(r#"data-title="典型场景""#));
         assert!(output.html.contains(r#"data-title="当前支持什么""#));
-        assert!(output.html.contains("<h3>阅读报告</h3>"));
+        assert!(contains_tag_text(&output.html, "h3", None, "阅读报告"));
     }
 
     #[test]
@@ -5959,8 +6178,8 @@ mod tests {
         .expect("presentation html should render");
 
         assert!(output.html.contains(r#"data-slide-kind="list-cards""#));
-        assert!(output.html.contains(r#"<h3 class="list-card-title">1. 打开系统设置</h3>"#));
-        assert!(!output.html.contains(r#"<h3 class="list-card-title">方式一：DMG 安装（推荐）</h3>"#));
+        assert!(contains_tag_text(&output.html, "h3", Some("list-card-title"), "1. 打开系统设置"));
+        assert!(!contains_tag_text(&output.html, "h3", Some("list-card-title"), "方式一：DMG 安装（推荐）"));
         let guide_index = output
             .html
             .find("如果遇到“无法打开”或“未受信任开发者”之类的提示，可以这样处理")
@@ -6063,9 +6282,9 @@ mod tests {
         )
         .expect("master presentation html should render");
 
-        assert!(output.html.contains(r#"<h2 class="statement-title">阅读一份 AI 生成的 竞品分析报告</h2>"#));
-        assert!(!output.html.contains(r#"<h2 class="statement-title">把 竞品分析报告.md 导出成 HTML 演示。</h2>"#));
-        assert!(!output.html.contains(r#"<h2 class="statement-title">保留关键信息</h2>"#));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "阅读一份 AI 生成的 竞品分析报告"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("statement-title"), "把 竞品分析报告.md 导出成 HTML 演示。"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("statement-title"), "保留关键信息"));
         assert!(!output.html.contains("`AI`"));
         assert!(!output.html.contains("**保留关键信息"));
         assert!(!output.html.contains("[打开预览]("));
@@ -6091,10 +6310,10 @@ mod tests {
         )
         .expect("master faq presentation html should render");
 
-        assert!(output.html.contains(r#"<h2 class="statement-title">NUTBOOK 是不是知识库？</h2>"#));
-        assert!(output.html.contains(r#"<h2 class="statement-title">能不能管理普通文件？</h2>"#));
-        assert!(output.html.contains(r#"<h2 class="statement-title">现在适合团队大规模协作吗？</h2>"#));
-        assert!(!output.html.contains(r#"<h2 class="statement-title">常见问题</h2>"#));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "NUTBOOK 是不是知识库？"));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "能不能管理普通文件？"));
+        assert!(contains_tag_text(&output.html, "h2", Some("statement-title"), "现在适合团队大规模协作吗？"));
+        assert!(!contains_tag_text(&output.html, "h2", Some("statement-title"), "常见问题"));
     }
 
     #[test]
@@ -6486,7 +6705,7 @@ mod tests {
             "修改一份学术研究的 AI 分析报告",
             "在会议或提案中展示 HTML 文档",
         ] {
-            assert!(output.html.contains(&format!(r#"<h2 class="slide-title">{title}</h2>"#)));
+            assert!(contains_tag_text(&output.html, "h2", Some("slide-title"), title));
         }
     }
 

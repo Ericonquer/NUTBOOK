@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-nutbook-editable-protocol="1" data-nutbook-artifact-kind="presentation">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -171,6 +171,9 @@
     (() => {
       const slides = [...document.querySelectorAll(".slide")];
       const counter = document.querySelector("[data-counter]");
+      const controls = document.querySelector("[data-presentation-controls]");
+      const subscribers = new Set();
+      let editMode = false;
       let index = Math.max(0, slides.findIndex((slide) => slide.classList.contains("is-active")));
       function isEditableTarget(target) {
         return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
@@ -206,9 +209,11 @@
         resetFragments(activeSlide, restoreFragments);
         window.NutbookPresentationMotion?.sync?.(activeSlide);
         window.NutbookPresentationMotion?.replay?.(activeSlide);
+        const pageId = activeSlide?.dataset.nutbookPageId;
+        if (pageId) subscribers.forEach((listener) => listener(pageId));
       }
-      function next() { if (!revealNext()) show(index + 1); }
-      function previous() { if (!revealPrevious()) show(index - 1, true); }
+      function next() { if (!editMode && !revealNext()) show(index + 1); }
+      function previous() { if (!editMode && !revealPrevious()) show(index - 1, true); }
       document.querySelector("[data-prev]")?.addEventListener("click", previous);
       document.querySelector("[data-next]")?.addEventListener("click", next);
       document.querySelector("[data-fullscreen]")?.addEventListener("click", () => {
@@ -217,7 +222,7 @@
         else target.requestFullscreen?.();
       });
       window.addEventListener("keydown", (event) => {
-        if (isEditableTarget(event.target)) return;
+        if (editMode || isEditableTarget(event.target)) return;
         if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
           event.preventDefault();
           next();
@@ -228,6 +233,33 @@
         }
         if (event.key.toLowerCase() === "f") document.querySelector("[data-fullscreen]")?.click();
       });
+      window.__NUTBOOK_PRESENTATION__ = {
+        version: 1,
+        pages: slides.map((slide, pageIndex) => ({
+          id: slide.dataset.nutbookPageId,
+          index: pageIndex + 1,
+          title: slide.dataset.title || "",
+          kind: slide.dataset.slideKind || ""
+        })),
+        get activePageId() { return slides[index]?.dataset.nutbookPageId || ""; },
+        goTo(pageId) {
+          const nextIndex = slides.findIndex((slide) => slide.dataset.nutbookPageId === pageId);
+          if (nextIndex < 0) return false;
+          show(nextIndex);
+          return true;
+        },
+        subscribe(listener) {
+          if (typeof listener !== "function") return () => {};
+          subscribers.add(listener);
+          return () => subscribers.delete(listener);
+        },
+        setEditMode(enabled) {
+          editMode = Boolean(enabled);
+          controls?.toggleAttribute("hidden", editMode);
+          return true;
+        },
+        whenReady() { return Promise.resolve(); }
+      };
       show(index);
     })();
   </script>
