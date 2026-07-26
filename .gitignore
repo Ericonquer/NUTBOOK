@@ -53,3 +53,10 @@ node_modules/
 backup/
 /*.png
 /*.html
+docs/html-edit-acceptance/editable-basic.html
+docs/html-edit-acceptance/editable-duplicate-id.html
+docs/html-edit-acceptance/editable-image-brief.html
+docs/html-edit-acceptance/editable-rich-text.html
+docs/html-edit-acceptance/README.md
+docs/html-edit-acceptance/.nutbook/html-edit/manifest.json
+docs/html-edit-acceptance/.nutbook/html-edit/patches/html-edit-a012c506-5707-4573-bd28-1cc752b2eced.json
