@@ -878,12 +878,22 @@ struct HtmlElementSpan { name: String, open_start: usize, open_end: usize, inner
 fn apply_html_edit_changes_to_source(source: &str, library_root: &Path, artifact_id: &str, changes: &BTreeMap<String, HtmlEditChange>) -> Result<String, AppError> {
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
     let mut inserted = Vec::new();
+    let mut presentation_inserted: BTreeMap<&str, Vec<(&str, &HtmlEditChange)>> = BTreeMap::new();
     for (field_id, change) in changes {
         if matches!(change.change_type, HtmlEditChangeType::InsertedImage) {
-            if !change.deleted { inserted.push((field_id.as_str(), change)); }
+            if let Some(page_id) = change.page_id.as_deref() {
+                // Keep the page key even for a tombstone so save removes the
+                // old page-local layer rather than silently resurrecting it.
+                presentation_inserted.entry(page_id).or_default();
+                if !change.deleted { presentation_inserted.get_mut(page_id).expect("page group exists").push((field_id.as_str(), change)); }
+            } else if !change.deleted { inserted.push((field_id.as_str(), change)); }
             continue;
         }
         let target = find_unique_data_id(source, field_id)?;
+        if let Some(page_id) = change.page_id.as_deref() {
+            let page = find_unique_attribute(source, "data-nutbook-page-id", page_id)?.ok_or(AppError::EditConflict)?;
+            if target.open_start < page.inner_start || target.close_end > page.inner_end { return Err(AppError::EditConflict); }
+        }
         match change.change_type {
             HtmlEditChangeType::Text => {
                 if target.name.is_empty() || attribute_value(&source[target.open_start..target.open_end], "data-editable").as_deref() != Some("text") { return Err(AppError::EditConflict); }
@@ -949,7 +959,7 @@ fn apply_html_edit_changes_to_source(source: &str, library_root: &Path, artifact
             HtmlEditChangeType::InsertedImage => unreachable!(),
         }
     }
-    if !inserted.is_empty() || changes.values().any(|change| matches!(change.change_type, HtmlEditChangeType::InsertedImage)) {
+    if !inserted.is_empty() || changes.values().any(|change| matches!(change.change_type, HtmlEditChangeType::InsertedImage) && change.page_id.is_none()) {
         if let Some(root) = find_unique_attribute(source, "data-nutbook-inserted-image-layer", "1")? { edits.push((root.open_start, root.close_end, String::new())); }
         let body = find_unique_tag(source, "body")?;
         let body_tag = &source[body.open_start..body.open_end];
@@ -957,34 +967,47 @@ fn apply_html_edit_changes_to_source(source: &str, library_root: &Path, artifact
         if !body_style.split(';').any(|declaration| declaration.trim_start().starts_with("position:")) {
             edits.push((body.open_start, body.open_end, set_html_attribute(body_tag, "style", &format!("{}{}position:relative", body_style.trim_end_matches(';'), if body_style.trim().is_empty() { "" } else { ";" }))));
         }
-        // This is final document content, not editor chrome. Keep only the
-        // geometry and hit-testing constraints Nutbook owns; page-authored
-        // visual rules for images intentionally continue to apply.
-        let mut html = String::from("<div data-nutbook-inserted-image-layer=\"1\" aria-hidden=\"true\" style=\"position:absolute;left:0;top:0;width:100%;height:100%;z-index:2147483645;pointer-events:none\">");
-        for (id, change) in inserted {
-            let src = html_edit_asset_data_url(library_root, artifact_id, change.src.as_deref().ok_or(AppError::InvalidParams)?)?;
-            let canvas_width = change.canvas_width.ok_or(AppError::InvalidParams)?;
-            let canvas_height = change.canvas_height.ok_or(AppError::InvalidParams)?;
-            let crop = inserted_image_crop(change)?;
-            let (crop_attributes, object_fit, transform) = if let Some((scale, x, y)) = crop {
-                let factor = (f64::from(scale) - 1000.0) / 1000.0;
-                let translate_x = (500.0 - f64::from(x)) / 1000.0 * factor * 100.0;
-                let translate_y = (500.0 - f64::from(y)) / 1000.0 * factor * 100.0;
-                (format!(" data-nutbook-crop-scale=\"{scale}\" data-nutbook-crop-x=\"{x}\" data-nutbook-crop-y=\"{y}\""), "contain", format!("translate({translate_x:.3}%,{translate_y:.3}%) scale({:.3})", f64::from(scale) / 1000.0))
-            } else { (String::new(), "cover", "none".to_string()) };
-            // The runtime records frame geometry in permille.  Emit that same
-            // responsive geometry into the saved document instead of freezing
-            // the frame in the window's old pixel dimensions.  This is also
-            // the coordinate system used when the runtime rehydrates it.
-            html.push_str(&format!("<span data-nutbook-inserted-image-frame=\"{}\" style=\"position:absolute;left:{}%;top:{}%;width:{}%;height:{}%;overflow:hidden\"><img data-nutbook-inserted-image-id=\"{}\" data-nutbook-asset-relative-path=\"{}\" data-nutbook-left-permille=\"{}\" data-nutbook-top-permille=\"{}\" data-nutbook-width-permille=\"{}\" data-nutbook-height-permille=\"{}\" data-nutbook-canvas-width=\"{}\" data-nutbook-canvas-height=\"{}\"{} src=\"{}\" alt=\"{}\" style=\"position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;box-sizing:border-box;border:0;box-shadow:none;object-fit:{};transform-origin:center;transform:{}\"></span>", escape_html_attr(id), f64::from(change.left_permille.unwrap_or(0)) / 10.0, f64::from(change.top_permille.unwrap_or(0)) / 10.0, f64::from(change.width_permille.unwrap_or(0)) / 10.0, f64::from(change.height_permille.unwrap_or(0)) / 10.0, escape_html_attr(id), escape_html_attr(change.src.as_deref().unwrap_or("")), change.left_permille.unwrap_or(0), change.top_permille.unwrap_or(0), change.width_permille.unwrap_or(0), change.height_permille.unwrap_or(0), canvas_width, canvas_height, crop_attributes, escape_html_attr(&src), escape_html_attr(change.alt.as_deref().unwrap_or("")), object_fit, transform));
-        }
-        html.push_str("</div>");
+        let html = inserted_image_layer_html(library_root, artifact_id, inserted)?;
         edits.push((body.inner_end, body.inner_end, html));
+    }
+    for (page_id, images) in presentation_inserted {
+        let page = find_unique_attribute(source, "data-nutbook-page-id", page_id)?.ok_or(AppError::EditConflict)?;
+        let page_source = &source[page.inner_start..page.inner_end];
+        if let Some(layer) = find_unique_attribute(page_source, "data-nutbook-inserted-image-layer", "1")? {
+            edits.push((page.inner_start + layer.open_start, page.inner_start + layer.close_end, String::new()));
+        }
+        let page_tag = &source[page.open_start..page.open_end];
+        let page_style = attribute_value(page_tag, "style").unwrap_or_default();
+        if !page_style.split(';').any(|declaration| declaration.trim_start().starts_with("position:")) {
+            edits.push((page.open_start, page.open_end, set_html_attribute(page_tag, "style", &format!("{}{}position:relative", page_style.trim_end_matches(';'), if page_style.trim().is_empty() { "" } else { ";" }))));
+        }
+        edits.push((page.inner_end, page.inner_end, inserted_image_layer_html(library_root, artifact_id, images)?));
     }
     edits.sort_by(|a, b| b.0.cmp(&a.0));
     let mut output = source.to_string(); let mut last = source.len() + 1;
     for (start, end, value) in edits { if start > end || end > last { return Err(AppError::EditConflict); } output.replace_range(start..end, &value); last = start; }
     Ok(output)
+}
+
+fn inserted_image_layer_html(library_root: &Path, artifact_id: &str, inserted: Vec<(&str, &HtmlEditChange)>) -> Result<String, AppError> {
+    // This is final document content, not editor chrome. Page-local callers
+    // insert it inside their slide; ordinary documents still insert it in body.
+    let mut html = String::from("<div data-nutbook-inserted-image-layer=\"1\" aria-hidden=\"true\" style=\"position:absolute;left:0;top:0;width:100%;height:100%;z-index:2147483645;pointer-events:none\">");
+    for (id, change) in inserted {
+        let src = html_edit_asset_data_url(library_root, artifact_id, change.src.as_deref().ok_or(AppError::InvalidParams)?)?;
+        let canvas_width = change.canvas_width.ok_or(AppError::InvalidParams)?;
+        let canvas_height = change.canvas_height.ok_or(AppError::InvalidParams)?;
+        let crop = inserted_image_crop(change)?;
+        let (crop_attributes, object_fit, transform) = if let Some((scale, x, y)) = crop {
+            let factor = (f64::from(scale) - 1000.0) / 1000.0;
+            let translate_x = (500.0 - f64::from(x)) / 1000.0 * factor * 100.0;
+            let translate_y = (500.0 - f64::from(y)) / 1000.0 * factor * 100.0;
+            (format!(" data-nutbook-crop-scale=\"{scale}\" data-nutbook-crop-x=\"{x}\" data-nutbook-crop-y=\"{y}\""), "contain", format!("translate({translate_x:.3}%,{translate_y:.3}%) scale({:.3})", f64::from(scale) / 1000.0))
+        } else { (String::new(), "cover", "none".to_string()) };
+        html.push_str(&format!("<span data-nutbook-inserted-image-frame=\"{}\" style=\"position:absolute;left:{}%;top:{}%;width:{}%;height:{}%;overflow:hidden\"><img data-nutbook-inserted-image-id=\"{}\" data-nutbook-asset-relative-path=\"{}\" data-nutbook-left-permille=\"{}\" data-nutbook-top-permille=\"{}\" data-nutbook-width-permille=\"{}\" data-nutbook-height-permille=\"{}\" data-nutbook-canvas-width=\"{}\" data-nutbook-canvas-height=\"{}\"{} src=\"{}\" alt=\"{}\" style=\"position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;box-sizing:border-box;border:0;box-shadow:none;object-fit:{};transform-origin:center;transform:{}\"></span>", escape_html_attr(id), f64::from(change.left_permille.unwrap_or(0)) / 10.0, f64::from(change.top_permille.unwrap_or(0)) / 10.0, f64::from(change.width_permille.unwrap_or(0)) / 10.0, f64::from(change.height_permille.unwrap_or(0)) / 10.0, escape_html_attr(id), escape_html_attr(change.src.as_deref().unwrap_or("")), change.left_permille.unwrap_or(0), change.top_permille.unwrap_or(0), change.width_permille.unwrap_or(0), change.height_permille.unwrap_or(0), canvas_width, canvas_height, crop_attributes, escape_html_attr(&src), escape_html_attr(change.alt.as_deref().unwrap_or("")), object_fit, transform));
+    }
+    html.push_str("</div>");
+    Ok(html)
 }
 
 fn html_edit_asset_data_url(root: &Path, artifact: &str, relative: &str) -> Result<String, AppError> {
@@ -1392,6 +1415,7 @@ pub fn normalize_html_edit_change(
     change: &HtmlEditChange,
 ) -> Result<HtmlEditChange, AppError> {
     validate_artifact_edit_id(artifact_edit_id)?;
+    if let Some(page_id) = change.page_id.as_deref() { validate_presentation_page_id(page_id)?; }
     if matches!(change.change_type, HtmlEditChangeType::InsertedImage) {
         return normalize_inserted_image_change(library_root, artifact_edit_id, field_id, change);
     }
@@ -1425,6 +1449,7 @@ fn normalize_inserted_image_change(
     field_id: &str,
     change: &HtmlEditChange,
 ) -> Result<HtmlEditChange, AppError> {
+    if let Some(page_id) = change.page_id.as_deref() { validate_presentation_page_id(page_id)?; }
     let inserted_image_id = change.inserted_image_id.as_deref().ok_or(AppError::InvalidParams)?;
     let uuid = inserted_image_id.strip_prefix("inserted-image-").ok_or(AppError::InvalidParams)?;
     uuid::Uuid::parse_str(uuid).map_err(|_| AppError::InvalidParams)?;
@@ -1483,6 +1508,13 @@ fn normalize_inserted_image_change(
     }
     validate_html_edit_asset_reference(library_root, artifact_edit_id, change.src.as_deref().expect("checked above"))?;
     Ok(change.clone())
+}
+
+fn validate_presentation_page_id(page_id: &str) -> Result<(), AppError> {
+    if page_id.is_empty() || page_id.len() > 128 || page_id.chars().any(|character| !character.is_ascii_alphanumeric() && !matches!(character, '-' | '_' | ':')) {
+        return Err(AppError::InvalidParams);
+    }
+    Ok(())
 }
 
 fn normalize_image_change(

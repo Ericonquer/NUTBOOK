@@ -486,7 +486,7 @@ fn html_edit_patch_model_serializes_text_change() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -531,7 +531,7 @@ fn html_edit_patch_model_serializes_rich_text_change() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: Some(HtmlEditRole::Content),
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -559,7 +559,7 @@ fn image_change(src: &str) -> HtmlEditChange {
             index: 0,
             original_srcset_hash: "source-srcset-hash".to_string(),
         }]),
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     }
 }
 
@@ -571,7 +571,7 @@ fn inserted_image_change(src: &str) -> HtmlEditChange {
         original_text_hash: None, original_src_hash: None, original_style_hash: None,
         text: None, src: Some(src.to_string()), alt: Some("补充证据".to_string()), html: None,
         text_align: None, edit_role: None, picture_sources: None,
-        inserted_image_id: Some(id.to_string()), left_permille: Some(120), top_permille: Some(480), width_permille: Some(320), height_permille: Some(180), canvas_width: Some(1200), canvas_height: Some(1800), deleted: false,
+        inserted_image_id: Some(id.to_string()), left_permille: Some(120), top_permille: Some(480), width_permille: Some(320), height_permille: Some(180), canvas_width: Some(1200), canvas_height: Some(1800), page_id: None, deleted: false,
     }
 }
 
@@ -622,7 +622,7 @@ fn html_edit_inserted_image_round_trips_storage_and_rejects_invalid_geometry() {
         original_text_hash: None, original_src_hash: None, original_style_hash: None,
         text: None, src: None, alt: None, html: None, text_align: None, edit_role: None,
         picture_sources: None, inserted_image_id: Some(id.clone()), left_permille: None,
-        top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: true,
+        top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: true,
     };
     let removed = save_html_edit_patch_replacing_changes_for_file(&HtmlEditPatchSave {
         library_id: 1,
@@ -826,7 +826,7 @@ fn html_edit_mixed_image_patch_keeps_source_and_survives_library_move() {
         original_text_hash: None, original_src_hash: Some("a".repeat(64)), original_style_hash: None,
         text: None, src: Some(relative(name)), alt: Some("imported".to_string()), html: None,
         text_align: None, edit_role: None, picture_sources: sources,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     };
     let mut changes = std::collections::BTreeMap::new();
     changes.insert("brief-body".to_string(), HtmlEditChange {
@@ -834,7 +834,7 @@ fn html_edit_mixed_image_patch_keeps_source_and_survives_library_move() {
         original_text_hash: Some("b".repeat(64)), original_src_hash: None, original_style_hash: None,
         text: None, src: None, alt: None, html: Some("<p>Updated body</p>".to_string()),
         text_align: None, edit_role: Some(HtmlEditRole::Content), picture_sources: None,
-    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     });
     changes.insert("brief-hero".to_string(), image("brief-hero", "hero.png", None));
     changes.insert("brief-evidence".to_string(), image("brief-evidence", "evidence.png", Some(vec![HtmlEditPictureSource { index: 0, original_srcset_hash: "c".repeat(64) }])));
@@ -843,7 +843,7 @@ fn html_edit_mixed_image_patch_keeps_source_and_survives_library_move() {
         original_text_hash: None, original_src_hash: None, original_style_hash: Some("d".repeat(64)),
         text: None, src: Some(relative("background.png")), alt: None, html: None,
         text_align: None, edit_role: None, picture_sources: None,
-    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     });
     save_html_edit_patch_for_file(&HtmlEditPatchSave {
         library_id: 1, library_root: original.path().to_path_buf(), item_id: 1, file_path: html_path.clone(),
@@ -898,7 +898,7 @@ fn html_edit_load_keeps_valid_legacy_text_and_rich_text_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     changes.insert(
@@ -916,7 +916,7 @@ fn html_edit_load_keeps_valid_legacy_text_and_rich_text_changes() {
             text_align: Some(HtmlEditTextAlign::Left),
             edit_role: Some(HtmlEditRole::Content),
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     save_patch_file(
@@ -983,7 +983,7 @@ fn html_edit_rejects_rich_text_with_disallowed_markup() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         };
 
         assert!(normalize_rich_text_change(&change).is_err(), "{html}");
@@ -1005,7 +1005,7 @@ fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
         text_align: Some(HtmlEditTextAlign::Center),
         edit_role: Some(role),
         picture_sources: None,
-    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     };
 
     assert!(normalize_rich_text_change(&rich_change(
@@ -1059,7 +1059,7 @@ fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
         text_align: None,
         edit_role: Some(HtmlEditRole::Plain),
         picture_sources: None,
-    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+    inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     };
     assert!(normalize_rich_text_change(&plain).is_ok());
 
@@ -1097,7 +1097,7 @@ fn html_edit_save_persists_canonical_rich_text_and_returns_normalized_changes() 
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1159,7 +1159,7 @@ fn html_edit_reopen_preserves_rich_text_and_text_alignment() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1219,7 +1219,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     initial_changes.insert(
@@ -1237,7 +1237,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             text_align: Some(HtmlEditTextAlign::Center),
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1272,7 +1272,7 @@ fn html_edit_incremental_save_preserves_text_and_rich_text_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     save_html_edit_patch_for_file(&HtmlEditPatchSave {
@@ -1336,7 +1336,7 @@ fn html_edit_save_rejects_mixed_invalid_rich_text_without_writing_sidecar() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     changes.insert(
@@ -1354,7 +1354,7 @@ fn html_edit_save_rejects_mixed_invalid_rich_text_without_writing_sidecar() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1409,7 +1409,7 @@ fn html_edit_save_rejects_rich_text_requiring_cleaning() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1457,7 +1457,7 @@ fn html_edit_get_drops_stored_rich_text_requiring_recleaning() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     save_patch_file(
@@ -1594,7 +1594,7 @@ fn html_edit_save_initializes_manifest_and_rejects_stale_revision() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1661,7 +1661,7 @@ fn html_edit_reopen_loads_saved_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1727,7 +1727,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     initial_changes.insert(
@@ -1745,7 +1745,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1782,7 +1782,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1830,7 +1830,7 @@ fn html_edit_second_save_merges_incremental_changes_with_existing_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
     let reconciled = save_html_edit_patch_replacing_changes_for_file(&HtmlEditPatchSave {
@@ -1884,7 +1884,7 @@ fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1929,7 +1929,7 @@ fn html_edit_save_rejects_missing_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -1981,7 +1981,7 @@ fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -2027,7 +2027,7 @@ fn html_edit_save_rejects_unparseable_patch_when_manifest_entry_exists() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -2078,7 +2078,7 @@ fn html_edit_get_marks_saved_patch_stale_when_source_hash_changes() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -2210,7 +2210,7 @@ fn html_edit_save_rejects_file_hash_mismatch_without_creating_patch() {
             text_align: None,
             edit_role: None,
             picture_sources: None,
-        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
         },
     );
 
@@ -2289,7 +2289,7 @@ fn html_edit_commit_rejects_text_when_the_target_changed_externally() {
     let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "basic".to_string() }).expect("open");
     std::fs::write(&html_path, std::fs::read_to_string(&html_path).expect("read").replace("Original Title", "External Title")).expect("external change");
     let hash = |value: &str| format!("{:x}", Sha256::digest(value.as_bytes()));
-    let change = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"cover-title\"]".to_string(), original_text_hash: Some(hash("Original Title")), original_src_hash: None, original_style_hash: None, text: Some("My Title".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false };
+    let change = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"cover-title\"]".to_string(), original_text_hash: Some(hash("Original Title")), original_src_hash: None, original_style_hash: None, text: Some("My Title".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
     let error = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path, artifact_edit_id: opened.artifact_edit_id, expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), change)]) }).expect_err("external edit blocks commit");
     assert!(matches!(error, AppError::EditConflict));
 }
@@ -2300,7 +2300,7 @@ fn html_edit_commit_allows_a_second_save_in_the_same_session() {
     let html_path = root.path().join("editable-basic.html");
     std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
     let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "basic".to_string() }).expect("open");
-    let make_change = |id: &str, value: &str| HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: format!("[data-id=\"{id}\"]"), original_text_hash: Some("runtime-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some(value.to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false };
+    let make_change = |id: &str, value: &str| HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: format!("[data-id=\"{id}\"]"), original_text_hash: Some("runtime-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some(value.to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
     let first = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), make_change("cover-title", "First"))]) }).expect("first save");
     commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id, expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("cover-body".to_string(), make_change("cover-body", "Second"))]) }).expect("second save");
     let output = std::fs::read_to_string(&html_path).expect("saved source");
@@ -2322,7 +2322,7 @@ fn html_edit_commit_keeps_reopened_inserted_images_when_saving_text() {
     inserted.original_style_hash = Some("nutbook-inserted-crop:v1:1750:320:680".to_string());
     let inserted_id = inserted.inserted_image_id.clone().expect("id");
     let first = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([(inserted_id.clone(), inserted.clone())]) }).expect("inserted save");
-    let title = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"cover-title\"]".to_string(), original_text_hash: Some("ignored-after-source-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some("Changed title".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false };
+    let title = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"cover-title\"]".to_string(), original_text_hash: Some("ignored-after-source-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some("Changed title".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
     commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), title)]) }).expect("text save preserves layer");
     let output = std::fs::read_to_string(&html_path).expect("output");
     assert!(output.contains(&inserted_id));
@@ -2333,6 +2333,26 @@ fn html_edit_commit_keeps_reopened_inserted_images_when_saving_text() {
     assert!(output.contains("left:12%;top:48%;width:32%;height:18%"), "saved inserted-frame geometry must remain responsive rather than inherit the editor window's pixels");
     assert!(output.contains("data-nutbook-crop-scale=\"1750\""));
     assert!(output.contains("data-nutbook-inserted-image-frame="));
+}
+
+#[test]
+fn html_edit_commit_scopes_inserted_images_to_the_declared_presentation_page() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("deck.html");
+    std::fs::write(&html_path, "<html><body><section data-nutbook-page-id=\"slide-a\"><p data-id=\"a\" data-editable=\"text\">A</p></section><section data-nutbook-page-id=\"slide-b\"><p data-id=\"b\" data-editable=\"text\">B</p></section></body></html>").expect("deck source");
+    let artifact = "html-edit-acceptance";
+    let assets = root.path().join(format!(".nutbook/html-edit/assets/{artifact}"));
+    std::fs::create_dir_all(&assets).expect("assets");
+    std::fs::write(assets.join("asset.png"), MINIMAL_PNG).expect("asset");
+    let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "deck".to_string() }).expect("open");
+    let mut inserted = inserted_image_change(".nutbook/html-edit/assets/html-edit-acceptance/asset.png");
+    inserted.page_id = Some("slide-b".to_string());
+    let id = inserted.inserted_image_id.clone().expect("id");
+    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([(id.clone(), inserted)]) }).expect("page-local save");
+    let output = std::fs::read_to_string(&html_path).expect("output");
+    let before_b = output.split("data-nutbook-page-id=\"slide-b\"").next().expect("page split");
+    assert!(!before_b.contains(&id), "the first page must not receive slide-b's layer");
+    assert!(output.split("data-nutbook-page-id=\"slide-b\"").nth(1).expect("page b").contains(&id));
 }
 
 #[test]
@@ -2361,7 +2381,7 @@ fn html_edit_commit_persists_image_crop_without_replacing_the_source_asset() {
         change_type: HtmlEditChangeType::Image, selector: "[data-id=\"brief-hero\"]".to_string(),
         original_text_hash: None, original_src_hash: Some("runtime-hash".to_string()), original_style_hash: None,
         text: None, src: None, alt: None, html: None, text_align: None, edit_role: None, picture_sources: None,
-        inserted_image_id: None, left_permille: Some(1750), top_permille: Some(320), width_permille: Some(680), height_permille: None, canvas_width: Some(640), canvas_height: Some(230), deleted: false,
+        inserted_image_id: None, left_permille: Some(1750), top_permille: Some(320), width_permille: Some(680), height_permille: None, canvas_width: Some(640), canvas_height: Some(230), page_id: None, deleted: false,
     };
     let first = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), crop.clone())]) }).expect("crop save");
     let first_output = std::fs::read_to_string(&html_path).expect("first output");
@@ -2389,7 +2409,7 @@ fn html_edit_commit_persists_image_crop_without_replacing_the_source_asset() {
         change_type: HtmlEditChangeType::Image, selector: "[data-id=\"brief-hero\"]".to_string(),
         original_text_hash: None, original_src_hash: Some("runtime-hash".to_string()), original_style_hash: None,
         text: None, src: Some(format!(".nutbook/html-edit/assets/{}/asset.png", opened.artifact_edit_id)), alt: Some("replacement".to_string()), html: None, text_align: None, edit_role: None, picture_sources: None,
-        inserted_image_id: None, left_permille: Some(0), top_permille: Some(0), width_permille: Some(0), height_permille: None, canvas_width: None, canvas_height: None, deleted: false,
+        inserted_image_id: None, left_permille: Some(0), top_permille: Some(0), width_permille: Some(0), height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     };
     commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: second.source_file_hash, expected_modified_at: second.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), replacement)]) }).expect("replacement resets crop");
     let replacement_output = std::fs::read_to_string(&html_path).expect("replacement output");
@@ -2408,7 +2428,7 @@ fn html_edit_commit_replaces_spaced_attribute_without_duplicate_src() {
     let assets = root.path().join(format!(".nutbook/html-edit/assets/{artifact}"));
     std::fs::create_dir_all(&assets).expect("assets"); std::fs::write(assets.join("asset.png"), MINIMAL_PNG).expect("asset");
     let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "spaced".to_string() }).expect("open");
-    let change = HtmlEditChange { change_type: HtmlEditChangeType::Image, selector: "[data-id=\"brief-hero\"]".to_string(), original_text_hash: None, original_src_hash: Some("ignored".to_string()), original_style_hash: None, text: None, src: Some(".nutbook/html-edit/assets/html-edit-acceptance/asset.png".to_string()), alt: Some("new".to_string()), html: None, text_align: None, edit_role: None, picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, deleted: false };
+    let change = HtmlEditChange { change_type: HtmlEditChangeType::Image, selector: "[data-id=\"brief-hero\"]".to_string(), original_text_hash: None, original_src_hash: Some("ignored".to_string()), original_style_hash: None, text: None, src: Some(".nutbook/html-edit/assets/html-edit-acceptance/asset.png".to_string()), alt: Some("new".to_string()), html: None, text_align: None, edit_role: None, picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
     commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), change)]) }).expect("save");
     let output = std::fs::read_to_string(html_path).expect("output");
     assert_eq!(output.matches("src=").count(), 1);

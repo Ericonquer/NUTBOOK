@@ -269,6 +269,12 @@ pub struct HtmlEditChange {
     pub canvas_width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canvas_height: Option<u32>,
+    /// Stable identity of the presentation page that owns this change.
+    ///
+    /// Absent for ordinary HTML documents, where inserted images continue to
+    /// live in the document-level layer for backwards compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
     /// Only valid for an `inserted-image` change.  It is a transient tombstone
     /// accepted by the save boundary and removed from the persisted patch.
     #[serde(default, skip_serializing_if = "is_false")]
