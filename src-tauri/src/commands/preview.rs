@@ -11,12 +11,14 @@ use crate::{
         },
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
-            attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
-            close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay, close_html_runtime_window,
+            attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
+            close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay,
+            close_html_presentation_preview, close_html_runtime_window,
             dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
             log_html_edit_debug,
             focus_main_webview, open_html_runtime_window,
             set_html_edit_toolbar_overlay_visibility,
+            set_html_presentation_preview_visibility, set_html_presentation_preview_active,
             set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
             HtmlRuntimeSession,
         },
@@ -24,7 +26,7 @@ use crate::{
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
-        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlRuntimeControlsOverlayRequest,
+        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest,
         AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
@@ -32,6 +34,7 @@ use crate::{
         GetItemPreviewRequest, HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
+        HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
         SetHtmlRuntimeHostVisibilityRequest,
     },
     state::AppState,
@@ -53,6 +56,22 @@ pub fn attach_settings_overlay_command(
     payload: AttachSettingsOverlayRequest,
 ) -> Result<bool, AppError> {
     attach_settings_overlay(&app, &window, payload.bounds, payload.tab, payload.mode)
+}
+
+#[tauri::command]
+pub fn close_html_presentation_preview_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: HtmlPresentationPreviewControlRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(
+        payload.item_id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )? {
+        return Err(AppError::InvalidSession);
+    }
+    close_html_presentation_preview(&app, payload.item_id, &payload.preview_instance_id)
 }
 
 #[tauri::command]
@@ -133,6 +152,61 @@ pub fn attach_html_runtime_host_command(
 }
 
 #[tauri::command]
+pub fn attach_html_presentation_preview_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlPresentationPreviewRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(
+        payload.item_id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )? {
+        return Err(AppError::InvalidSession);
+    }
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
+    attach_html_presentation_preview(
+        &app,
+        &window,
+        &session,
+        payload.bounds,
+        &payload.runtime_session_id,
+        payload.generation,
+        &payload.active_page_id, &payload.preview_instance_id,
+    )
+}
+
+#[tauri::command]
+pub fn set_html_presentation_preview_visibility_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: HtmlPresentationPreviewControlRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(payload.item_id, &payload.runtime_session_id, payload.generation)? {
+        return Err(AppError::InvalidSession);
+    }
+    set_html_presentation_preview_visibility(&app, payload.item_id, &payload.preview_instance_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn set_html_presentation_preview_active_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: SetHtmlPresentationPreviewActiveRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(payload.item_id, &payload.runtime_session_id, payload.generation)? {
+        return Err(AppError::InvalidSession);
+    }
+    set_html_presentation_preview_active(&app, payload.item_id, &payload.preview_instance_id, &payload.page_id, payload.follow, payload.focus)
+}
+
+#[tauri::command]
 pub fn set_html_runtime_host_visibility_command(
     app: tauri::AppHandle,
     payload: SetHtmlRuntimeHostVisibilityRequest,
@@ -161,6 +235,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.bounds,
         payload.is_favorite,
         payload.is_fullscreen,
+        payload.is_editing,
         payload.custom_tag,
         payload.available_tags,
         payload.skill_tag,
@@ -319,6 +394,7 @@ pub fn attach_markdown_controls_overlay_command(
         payload.bounds,
         payload.is_favorite,
         payload.is_fullscreen,
+        payload.is_editing,
         payload.custom_tag,
         payload.available_tags,
         payload.skill_tag,

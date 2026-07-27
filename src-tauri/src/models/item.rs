@@ -325,11 +325,48 @@ pub struct AttachHtmlRuntimeHostRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AttachHtmlPresentationPreviewRequest {
+    pub item_id: i64,
+    pub bounds: RuntimeHostBounds,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub active_page_id: String,
+    pub preview_instance_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlPresentationPreviewControlRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub preview_instance_id: String,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetHtmlPresentationPreviewActiveRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub preview_instance_id: String,
+    pub page_id: String,
+    #[serde(default)]
+    pub follow: bool,
+    #[serde(default)]
+    pub focus: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachHtmlRuntimeControlsOverlayRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
     pub is_favorite: bool,
     pub is_fullscreen: bool,
+    #[serde(default)]
+    pub is_editing: bool,
     pub custom_tag: Option<Tag>,
     pub available_tags: Vec<Tag>,
     pub skill_tag: Option<String>,

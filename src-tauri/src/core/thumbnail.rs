@@ -1,10 +1,16 @@
 use std::{
     fs,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, Stdio},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use std::{fs::File, os::fd::{FromRawFd, RawFd}, os::unix::process::CommandExt};
+use std::sync::{Mutex, OnceLock};
+
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use serde_json::{json, Value};
 
 const HTML_SCREENSHOT_WIDTH: i32 = 1280;
 const HTML_SCREENSHOT_HEIGHT: i32 = 720;
@@ -35,6 +41,25 @@ pub struct ChromiumScreenshotInput {
     pub width: i32,
     pub height: i32,
 }
+
+/// A deliberately narrow CDP capture request for one verified presentation
+/// page. The command never accepts a caller-provided browser path or arbitrary
+/// JavaScript, which keeps the desktop IPC boundary scoped to the active item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationScreenshotInput {
+    pub chromium_path: PathBuf,
+    pub url: String,
+    pub page_id: String,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationThumbnailWorkerInput {
+    pub screenshot: PresentationScreenshotInput,
+    pub source_revision: String,
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbnailBackend {
@@ -195,6 +220,272 @@ pub fn capture_html_thumbnail_with_chromium(
     })
 }
 
+/// Capture one page of a Nutbook presentation through its public bridge.
+/// Unlike the legacy CLI screenshot this does not guess the active slide or
+/// rely on a virtual-time budget: CDP waits for navigation, invokes the bridge,
+/// waits for local images, and only then captures the viewport.
+pub fn capture_presentation_thumbnail_with_chromium(
+    input: PresentationScreenshotInput,
+) -> Result<GeneratedThumbnailAsset, String> {
+    if !input.chromium_path.is_file() {
+        return Err("chromium executable not found".to_string());
+    }
+    if !valid_presentation_page_id(&input.page_id) {
+        return Err("invalid presentation page id".to_string());
+    }
+
+    let mut worker = PresentationThumbnailWorker::new(&input, "one-shot")?;
+    let result = worker.capture(&input.page_id);
+    worker.close();
+    result
+}
+
+static PRESENTATION_THUMBNAIL_WORKER: OnceLock<Mutex<Option<PresentationThumbnailWorker>>> = OnceLock::new();
+
+/// Reuses a single hidden Chromium process for all thumbnails from one
+/// presentation revision. This is deliberately separate from the old document
+/// thumbnail CLI: restarting Chrome for each slide made five initial cards take
+/// 10–15 seconds on real desktops.
+pub fn capture_presentation_thumbnail_with_worker(
+    input: PresentationThumbnailWorkerInput,
+) -> Result<GeneratedThumbnailAsset, String> {
+    let worker_slot = PRESENTATION_THUMBNAIL_WORKER.get_or_init(|| Mutex::new(None));
+    let mut slot = worker_slot.lock().map_err(|_| "presentation thumbnail worker lock poisoned")?;
+    let needs_restart = slot.as_mut().map(|worker| !worker.matches(&input)).unwrap_or(true);
+    if needs_restart {
+        if let Some(mut previous) = slot.take() { previous.close(); }
+        *slot = Some(PresentationThumbnailWorker::new(&input.screenshot, &input.source_revision)?);
+    }
+    let worker = slot.as_mut().ok_or("presentation thumbnail worker unavailable")?;
+    worker.capture(&input.screenshot.page_id)
+}
+
+struct PresentationThumbnailWorker {
+    pipe: CdpPipe,
+    profile_path: PathBuf,
+    chromium_path: PathBuf,
+    url: String,
+    source_revision: String,
+    width: i32,
+    height: i32,
+    session_id: String,
+}
+
+impl PresentationThumbnailWorker {
+    fn new(input: &PresentationScreenshotInput, source_revision: &str) -> Result<Self, String> {
+        let profile_path = temp_chromium_profile_path();
+        fs::create_dir_all(&profile_path).map_err(|error| format!("failed to create chromium profile: {error}"))?;
+        let mut pipe = match CdpPipe::launch(&input.chromium_path, &profile_path) {
+            Ok(pipe) => pipe,
+            Err(error) => { let _ = fs::remove_dir_all(&profile_path); return Err(error); }
+        };
+        let setup = (|| {
+            let target_id = pipe.call("Target.createTarget", json!({ "url": "about:blank" }), None)?
+                .get("targetId").and_then(Value::as_str).ok_or("CDP target id missing")?.to_string();
+            let session_id = pipe.call("Target.attachToTarget", json!({ "targetId": target_id, "flatten": true }), None)?
+                .get("sessionId").and_then(Value::as_str).ok_or("CDP session id missing")?.to_string();
+            pipe.call("Page.enable", json!({}), Some(&session_id))?;
+            pipe.call("Emulation.setDeviceMetricsOverride", json!({
+                "width": input.width, "height": input.height, "deviceScaleFactor": 1, "mobile": false,
+            }), Some(&session_id))?;
+            pipe.call("Page.navigate", json!({ "url": input.url }), Some(&session_id))?;
+            pipe.wait_for_event("Page.loadEventFired", &session_id, Duration::from_secs(8))?;
+            Ok(session_id)
+        })();
+        match setup {
+            Ok(session_id) => Ok(Self { pipe, profile_path, chromium_path: input.chromium_path.clone(), url: input.url.clone(), source_revision: source_revision.to_string(), width: input.width, height: input.height, session_id }),
+            Err(error) => { pipe.close(); let _ = fs::remove_dir_all(&profile_path); Err(error) }
+        }
+    }
+
+    fn matches(&mut self, input: &PresentationThumbnailWorkerInput) -> bool {
+        self.chromium_path == input.screenshot.chromium_path
+            && self.url == input.screenshot.url
+            && self.source_revision == input.source_revision
+            && self.width == input.screenshot.width
+            && self.height == input.screenshot.height
+            && self.pipe.is_running()
+    }
+
+    fn capture(&mut self, page_id: &str) -> Result<GeneratedThumbnailAsset, String> {
+        let setup = presentation_thumbnail_setup_script(page_id);
+        self.pipe.call("Runtime.evaluate", json!({
+            "expression": setup, "awaitPromise": true, "returnByValue": true,
+        }), Some(&self.session_id))?;
+        let captured = self.pipe.call("Page.captureScreenshot", json!({ "format": "png", "fromSurface": true }), Some(&self.session_id))?;
+        let encoded = captured.get("data").and_then(Value::as_str).ok_or("CDP screenshot payload missing")?;
+        let bytes = BASE64.decode(encoded).map_err(|error| format!("invalid CDP screenshot: {error}"))?;
+        if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") { return Err("CDP did not produce a PNG screenshot".to_string()); }
+        Ok(GeneratedThumbnailAsset { backend: "presentation-cdp-worker", content_type: "image/png", file_extension: "png", bytes, svg: String::new(), width: self.width, height: self.height })
+    }
+
+    fn close(&mut self) { self.pipe.close(); let _ = fs::remove_dir_all(&self.profile_path); }
+}
+
+fn valid_presentation_page_id(page_id: &str) -> bool {
+    !page_id.is_empty() && page_id.len() <= 160 && page_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn presentation_thumbnail_setup_script(page_id: &str) -> String {
+    let page_id = serde_json::to_string(page_id).unwrap_or_else(|_| "\"\"".to_string());
+    format!(r#"(async()=>{{
+      const pageId={page_id};
+      const bridge=window.__NUTBOOK_PRESENTATION__;
+      if(!bridge || typeof bridge.goTo!=="function" || typeof bridge.whenReady!=="function") throw new Error("presentation bridge unavailable");
+      await bridge.whenReady();
+      await bridge.setEditMode?.(false);
+      const moved=await bridge.goTo(pageId);
+      if(moved===false) throw new Error("presentation page navigation failed");
+      const root=document.querySelector(`[data-nutbook-page-id="${{CSS.escape(pageId)}}"]`);
+      if(!root) throw new Error("presentation page root missing");
+      const targetDisplay=getComputedStyle(root).display === "none" ? "block" : getComputedStyle(root).display;
+      document.documentElement.dataset.nutbookThumbnailMode="1";
+      // `hidden` alone loses to a deck's author rule such as `.slide {{display:flex}}`.
+      // Force every non-target root out of the paint tree so transition frames
+      // from the previous cover page cannot bleed into chapter thumbnails.
+      document.querySelectorAll("[data-nutbook-page-id]").forEach((node)=>{{
+        const target=node===root;
+        node.hidden=!target;
+        node.style.setProperty("display",target?targetDisplay:"none","important");
+        node.style.setProperty("opacity",target?"1":"0","important");
+        node.style.setProperty("transform","none","important");
+        node.style.setProperty("transition","none","important");
+      }});
+      root.hidden=false; root.classList.add("is-active");
+      document.querySelectorAll(".deck-controls,.presentation-controls,[data-nutbook-presentation-controls]").forEach((node)=>{{ node.style.setProperty("display","none","important"); }});
+      await Promise.all(Array.from(root.querySelectorAll("img")).map(async(image)=>{{ try {{ if(!image.complete) await new Promise((resolve)=>{{ image.addEventListener("load",resolve,{{once:true}}); image.addEventListener("error",resolve,{{once:true}}); }}); if(image.decode) await image.decode(); }} catch(_) {{}} }}));
+      await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      return true;
+    }})()"#)
+}
+
+struct CdpPipe {
+    child: Child,
+    input: File,
+    output: BufReader<File>,
+    next_id: u64,
+}
+
+impl CdpPipe {
+    fn launch(chromium_path: &Path, profile_path: &Path) -> Result<Self, String> {
+        let (browser_read, host_write) = cdp_os_pipe()?;
+        let (host_read, browser_write) = cdp_os_pipe()?;
+        let mut command = Command::new(chromium_path);
+        command
+            .args([
+                "--headless=new", "--remote-debugging-pipe", "--no-first-run", "--no-default-browser-check",
+                "--disable-background-networking", "--disable-component-update", "--disable-extensions", "--disable-sync",
+                "--disable-gpu", "--hide-scrollbars", "--mute-audio", "--run-all-compositor-stages-before-draw",
+            ])
+            .arg(format!("--user-data-dir={}", profile_path.to_string_lossy()))
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // Chrome's remote-debugging-pipe transport uses file descriptors 3/4,
+        // not stdin/stdout. Keeping this wiring here avoids a WebSocket client
+        // and lets the backend terminate the whole capture process reliably.
+        unsafe {
+            command.pre_exec(move || {
+                libc::close(host_write);
+                libc::close(host_read);
+                if (browser_read != 3 && libc::dup2(browser_read, 3) < 0)
+                    || (browser_write != 4 && libc::dup2(browser_write, 4) < 0) {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if browser_read != 3 && browser_read != 4 { libc::close(browser_read); }
+                if browser_write != 3 && browser_write != 4 { libc::close(browser_write); }
+                Ok(())
+            });
+        }
+        let child = command.spawn().map_err(|error| format!("failed to launch Chromium CDP: {error}"))?;
+        unsafe { libc::close(browser_read); libc::close(browser_write); }
+        set_nonblocking(host_read)?;
+        Ok(Self {
+            input: unsafe { File::from_raw_fd(host_write) },
+            output: BufReader::new(unsafe { File::from_raw_fd(host_read) }),
+            child,
+            next_id: 1,
+        })
+    }
+
+    fn call(&mut self, method: &str, params: Value, session_id: Option<&str>) -> Result<Value, String> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let mut message = json!({ "id": id, "method": method, "params": params });
+        if let Some(session_id) = session_id { message["sessionId"] = Value::String(session_id.to_string()); }
+        self.write_message(&message)?;
+        loop {
+            let response = self.read_message(Duration::from_secs(10))?;
+            if response.get("id").and_then(Value::as_u64) != Some(id) { continue; }
+            if let Some(error) = response.get("error") { return Err(format!("CDP {method} failed: {error}")); }
+            return response.get("result").cloned().ok_or_else(|| format!("CDP {method} missing result"));
+        }
+    }
+
+    fn wait_for_event(&mut self, method: &str, session_id: &str, timeout: Duration) -> Result<(), String> {
+        let started = Instant::now();
+        while started.elapsed() < timeout {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            let message = self.read_message(remaining)?;
+            if message.get("method").and_then(Value::as_str) == Some(method)
+                && message.get("sessionId").and_then(Value::as_str) == Some(session_id) { return Ok(()); }
+        }
+        Err(format!("CDP timed out waiting for {method}"))
+    }
+
+    fn write_message(&mut self, message: &Value) -> Result<(), String> {
+        let json = serde_json::to_vec(message).map_err(|error| format!("failed to encode CDP message: {error}"))?;
+        self.input.write_all(&json).and_then(|_| self.input.write_all(&[0])).and_then(|_| self.input.flush())
+            .map_err(|error| format!("failed to write CDP message: {error}"))
+    }
+
+    fn read_message(&mut self, timeout: Duration) -> Result<Value, String> {
+        // CDP's pipe transport is NUL-delimited. The timeout is checked before
+        // each blocking read; Chromium exits on all terminal failures.
+        let started = Instant::now();
+        let mut bytes = Vec::new();
+        loop {
+            if started.elapsed() >= timeout { return Err("CDP response timed out".to_string()); }
+            let available = match self.output.fill_buf() {
+                Ok(available) => available,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                Err(error) => return Err(format!("failed to read CDP response: {error}")),
+            };
+            if available.is_empty() { return Err("Chromium CDP closed unexpectedly".to_string()); }
+            if let Some(position) = available.iter().position(|byte| *byte == 0) {
+                bytes.extend_from_slice(&available[..position]);
+                self.output.consume(position + 1);
+                break;
+            }
+            bytes.extend_from_slice(available);
+            let consumed = available.len();
+            self.output.consume(consumed);
+        }
+        serde_json::from_slice(&bytes).map_err(|error| format!("invalid CDP response: {error}"))
+    }
+
+    fn close(&mut self) { let _ = self.child.kill(); let _ = self.child.wait(); }
+
+    fn is_running(&mut self) -> bool { self.child.try_wait().ok().flatten().is_none() }
+}
+
+fn cdp_os_pipe() -> Result<(RawFd, RawFd), String> {
+    let mut fds = [-1; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(format!("failed to create CDP pipe: {}", std::io::Error::last_os_error()));
+    }
+    Ok((fds[0], fds[1]))
+}
+
+fn set_nonblocking(fd: RawFd) -> Result<(), String> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(format!("failed to configure CDP pipe: {}", std::io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
 fn should_launch_system_browser_via_open(chromium_path: &Path) -> bool {
     chromium_path.starts_with("/Applications/") && chromium_app_bundle_path(chromium_path).is_some()
 }
@@ -324,9 +615,9 @@ pub fn build_placeholder_html_thumbnail(input: HtmlThumbnailInput) -> GeneratedT
 mod tests {
     use super::{
         build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
-        chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
+        capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
         playwright_chromium_executable_candidates, system_chrome_thumbnails_enabled,
-        should_launch_system_browser_via_open, thumbnail_backend_status, ChromiumScreenshotInput,
+        should_launch_system_browser_via_open, thumbnail_backend_status, ChromiumScreenshotInput, PresentationScreenshotInput, PresentationThumbnailWorkerInput,
         HtmlThumbnailInput, ThumbnailBackend, HTML_SCREENSHOT_HEIGHT, HTML_SCREENSHOT_WIDTH,
     };
     use std::{fs, path::{Path, PathBuf}};
@@ -395,6 +686,50 @@ mod tests {
         assert!(asset.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert_eq!(asset.width, HTML_SCREENSHOT_WIDTH);
         assert_eq!(asset.height, HTML_SCREENSHOT_HEIGHT);
+    }
+
+    #[test]
+    #[ignore = "launches local Chromium CDP; run manually when validating presentation thumbnails"]
+    fn presentation_cdp_capture_selects_a_verified_page() {
+        let Some(chromium_path) = find_local_chromium_executable() else { return; };
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let source = directory.path().join("deck.html");
+        fs::write(&source, r#"<!doctype html><html><body>
+          <section data-nutbook-page-id="page-one" class="is-active" style="width:480px;height:270px;background:#f00">one</section>
+          <section data-nutbook-page-id="page-two" style="display:none;width:480px;height:270px;background:#00f">two</section>
+          <script>
+            const pages=[...document.querySelectorAll('[data-nutbook-page-id]')];
+            window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{for(const page of pages){page.hidden=page.dataset.nutbookPageId!==id;page.style.display=page.hidden?'none':'block';}return true;}};
+          </script>
+        </body></html>"#).expect("presentation fixture should be written");
+        let asset = capture_presentation_thumbnail_with_chromium(PresentationScreenshotInput {
+            chromium_path,
+            url: url::Url::from_file_path(&source).expect("file url").to_string(),
+            page_id: "page-two".to_string(),
+            width: 480,
+            height: 270,
+        }).expect("presentation screenshot should succeed");
+        assert_eq!(asset.backend, "presentation-cdp");
+        assert!(asset.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
+    #[ignore = "launches a persistent local Chromium CDP worker; run manually"]
+    fn presentation_cdp_worker_reuses_one_deck_for_multiple_pages() {
+        let Some(chromium_path) = find_local_chromium_executable() else { return; };
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let source = directory.path().join("deck.html");
+        fs::write(&source, r#"<!doctype html><html><body>
+          <section data-nutbook-page-id="page-one" class="is-active">one</section><section data-nutbook-page-id="page-two">two</section>
+          <script>let active="page-one";window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{active=id;for(const page of document.querySelectorAll('[data-nutbook-page-id]'))page.classList.toggle('is-active',page.dataset.nutbookPageId===id);return true;}};</script>
+        </body></html>"#).expect("presentation fixture should be written");
+        let url = url::Url::from_file_path(&source).expect("file url").to_string();
+        let request = |page_id: &str| PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput { chromium_path: chromium_path.clone(), url: url.clone(), page_id: page_id.to_string(), width: 480, height: 270 }, source_revision: "worker-test-v1".to_string() };
+        let first = capture_presentation_thumbnail_with_worker(request("page-one")).expect("first worker screenshot");
+        let second = capture_presentation_thumbnail_with_worker(request("page-two")).expect("second worker screenshot");
+        assert_eq!(first.backend, "presentation-cdp-worker");
+        assert_eq!(second.backend, "presentation-cdp-worker");
+        assert!(second.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
     }
 
     #[test]

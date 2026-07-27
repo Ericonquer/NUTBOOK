@@ -1,5 +1,7 @@
 use std::{fs::{self, OpenOptions}, io::Write, path::PathBuf};
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
 use crate::{
     core::html_edit::{
         get_html_edit_patch_for_file as get_patch_for_file,
@@ -13,9 +15,10 @@ use crate::{
         save_html_edit_patch_replacing_changes_for_file as replace_patch_for_file, HtmlEditPatchLookup,
         HtmlEditPatchResponse, HtmlEditPatchSave, HtmlEditPatchSaveResponse,
     },
+    core::thumbnail::{capture_presentation_thumbnail_with_worker, find_local_chromium_executable, PresentationScreenshotInput, PresentationThumbnailWorkerInput},
     db::repositories::{ItemRepository, LibraryRepository},
     errors::AppError,
-    models::{CommitHtmlEditRequest, CommitHtmlEditResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, ListItemsQuery, SaveHtmlEditConflictCopyRequest, SaveHtmlEditConflictCopyResponse, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS},
+    models::{CommitHtmlEditRequest, CommitHtmlEditResponse, GeneratePresentationThumbnailRequest, GeneratePresentationThumbnailResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditSessionLeaseRequest, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, Library, ListItemsQuery, SaveHtmlEditConflictCopyRequest, SaveHtmlEditConflictCopyResponse, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS},
     state::AppState,
 };
 
@@ -26,6 +29,43 @@ use crate::{
 #[tauri::command]
 pub fn get_html_edit_converter_script() -> &'static str {
     include_str!("../../../dist/assets/html-edit-converter.js")
+}
+
+#[tauri::command]
+pub async fn generate_presentation_thumbnail(
+    state: tauri::State<'_, AppState>,
+    payload: GeneratePresentationThumbnailRequest,
+) -> Result<GeneratePresentationThumbnailResponse, AppError> {
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(
+        payload.item_id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )?)?;
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
+    let chromium_path = find_local_chromium_executable().ok_or(AppError::ThumbnailGenerationFailed)?;
+    let url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let page_id = payload.page_id;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        capture_presentation_thumbnail_with_worker(PresentationThumbnailWorkerInput {
+            screenshot: PresentationScreenshotInput {
+                chromium_path,
+                url,
+                page_id: page_id.clone(),
+                width: 480,
+                height: 270,
+            },
+            source_revision: payload.source_file_hash,
+        }).map(|asset| (page_id, asset))
+    }).await.map_err(|_| AppError::InternalError)?;
+    let (page_id, asset) = result.map_err(|_| AppError::ThumbnailGenerationFailed)?;
+    Ok(GeneratePresentationThumbnailResponse {
+        page_id,
+        data_url: format!("data:{};base64,{}", asset.content_type, BASE64.encode(asset.bytes)),
+        width: asset.width,
+        height: asset.height,
+        backend: asset.backend.to_string(),
+    })
 }
 
 #[tauri::command]

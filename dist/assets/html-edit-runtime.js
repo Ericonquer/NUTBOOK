@@ -7,7 +7,7 @@
   const ALLOWED_RICH_TAGS = new Set(["P", "BR", "STRONG", "EM", "H1", "H2", "H3", "H4", "UL", "OL", "LI"]);
   const ALLOWED_SHORT_RICH_TAGS = new Set(["BR", "STRONG", "EM"]);
   const STATE = {
-    sessionId: "", editing: false, dirty: false, selectedDataId: null,
+    sessionId: "", generation: 0, editing: false, dirty: false, selectedDataId: null,
     baseline: new Map(), changes: new Map(), savedSelection: null, formatState: emptyFormatState(), composing: false, pendingInlineMarks: new Map(),
     insertedImages: new Map(), insertedImageBaseline: new Map(), insertedImageSessionCreatedIds: new Set(), deletedInsertedImageIds: new Map(),
     selectedInsertedImageId: "", draftInsertedImage: null, insertFrameMode: false, insertedImageLayerHost: null, insertedImageLayerRoot: null,
@@ -63,17 +63,20 @@
     if (!bridge || typeof bridge.goTo !== "function" || typeof bridge.subscribe !== "function" || typeof bridge.setEditMode !== "function") return false;
     try {
       await bridge.whenReady?.();
-      const pages = Array.isArray(bridge.pages) ? bridge.pages : [];
-      const ids = pages.map((page) => typeof page === "string" ? page : page?.id).filter(Boolean);
+      const rawPages = Array.isArray(bridge.pages) ? bridge.pages : [];
+      const pages = rawPages.map((page, index) => typeof page === "string"
+        ? { id: page, index: index + 1, title: "", kind: "" }
+        : { id: page?.id, index: Number.isInteger(page?.index) ? page.index : index + 1, title: String(page?.title || ""), kind: String(page?.kind || "") });
+      const ids = pages.map((page) => page.id).filter(Boolean);
       if (!ids.length || new Set(ids).size !== ids.length || ids.some((id) => !presentationPageRoot(id))) return false;
       const disabled = await bridge.setEditMode(true);
       if (disabled !== true) return false;
-      STATE.presentation = { bridge, pageIds: ids };
+      STATE.presentation = { bridge, pages, pageIds: ids };
       STATE.activePresentationPageId = typeof bridge.activePageId === "string" && ids.includes(bridge.activePageId) ? bridge.activePageId : ids[0];
       STATE.presentationUnsubscribe = bridge.subscribe((nextPageId) => {
         if (!STATE.editing || !STATE.presentation?.pageIds.includes(nextPageId)) return;
-        STATE.activePresentationPageId = nextPageId; layoutInsertedImages();
-        emitHostMessage({ type: "html_edit_presentation_page_changed", runtimeSessionId: STATE.sessionId, pageId: nextPageId });
+        STATE.activePresentationPageId = nextPageId; layoutInsertedImages(); layoutImageActions();
+        emitHostMessage({ type: "html_edit_presentation_page_changed", runtimeSessionId: STATE.sessionId, generation: STATE.generation, pageId: nextPageId });
       });
       return true;
     } catch (_) { try { await bridge?.setEditMode?.(false); } catch (_) {} return false; }
@@ -122,7 +125,7 @@
     // own the only inserted-image layer, otherwise reopening a saved document
     // shows the read-only image underneath its editable counterpart.
     window.__NUTBOOK_INSERTED_IMAGE_READONLY__?.dispose?.();
-    STATE.sessionId = payload.runtimeSessionId; STATE.editing = true; STATE.dirty = false; STATE.selectedDataId = null;
+    STATE.sessionId = payload.runtimeSessionId; STATE.generation = Number(payload.generation || 0); STATE.editing = true; STATE.dirty = false; STATE.selectedDataId = null;
     STATE.documentRevision = 0; STATE.lastCommittedChangesJson = "{}"; STATE.isMutatingDocument = false;
     STATE.inlineToolbarEnabled = Boolean(payload.inlineToolbar);
     STATE.locale = payload.locale || document.documentElement.lang || navigator.language || "";
@@ -212,7 +215,7 @@
   // as the stable identity and resolve its current frame on every layout;
   // retaining the old wrapper makes body-level fixed controls drift on scroll.
   function imageActionAnchor(element) { return element?.parentElement?.getAttribute("data-nutbook-crop-frame") === "1" ? element.parentElement : element; }
-  function layoutImageActions() { for (const actions of STATE.imageButtons) { const anchor = imageActionAnchor(actions.__nutbookImageActionElement); if (!anchor?.isConnected || !actions.isConnected) { actions.style.display = "none"; continue; } const rect = anchor.getBoundingClientRect(); actions.style.display = "inline-flex"; actions.style.left = `${Math.round(rect.left)}px`; actions.style.top = `${Math.round(rect.bottom + 7)}px`; } }
+  function layoutImageActions() { for (const actions of STATE.imageButtons) { const anchor = imageActionAnchor(actions.__nutbookImageActionElement); if (!anchor?.isConnected || !actions.isConnected || (STATE.presentation && pageIdFor(anchor) !== STATE.activePresentationPageId)) { actions.style.display = "none"; continue; } const rect = anchor.getBoundingClientRect(); if (rect.width < 2 || rect.height < 2) { actions.style.display = "none"; continue; } actions.style.display = "inline-flex"; actions.style.left = `${Math.round(rect.left)}px`; actions.style.top = `${Math.round(rect.bottom + 7)}px`; } }
   function addImageAffordance(element, editableType) { const actions = document.createElement("span"); actions.className = "nutbook-html-edit-image-actions"; const replace = document.createElement("button"); replace.type = "button"; replace.className = "nutbook-html-edit-image-action"; setImageActionIcon(replace, "replace", imageTargetState(element) === "empty" ? "插入图片" : "替换图片"); replace.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); requestImageReplacement(element, editableType); }); actions.append(replace); if (editableType === "image") { const crop = document.createElement("button"); crop.type = "button"; crop.className = "nutbook-html-edit-image-action"; setImageActionIcon(crop, "crop", "裁切显示"); crop.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); beginImageCrop(element); }); actions.append(crop); } actions.__nutbookImageActionElement = element; document.body.append(actions); STATE.imageButtons.push(actions); layoutImageActions(); }
   // v2 keeps the source image's normal `cover` presentation as its zero point.
   // The old model scaled a `contain` image, which is why entering crop could
@@ -921,27 +924,34 @@
     const style = document.createElement("style"); style.id = "nutbook-html-edit-affordance";
     style.textContent = '[data-nutbook-editing]{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative}[data-nutbook-editing="text"]:hover,[data-nutbook-editing="rich-text"]:hover{outline-color:#a99f9f;background:#f3f3f5}[data-nutbook-editing]:focus{outline-color:#000;box-shadow:0 4px 12px rgba(26,28,29,.12)}[data-nutbook-editing="text"]:focus::after{content:attr(data-nutbook-plain-text-hint);position:absolute;z-index:3;right:0;bottom:calc(100% + 8px);box-sizing:border-box;min-height:24px;padding:4px 9px 4px 29px;border:1px solid #111;border-radius:999px;background:#fff url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%278%27 fill=%27%23000%27/%3E%3Cpath d=%27M8 3.6v5.1M8 11.7v.2%27 fill=%27none%27 stroke=%27%23fff%27 stroke-width=%271.5%27 stroke-linecap=%27round%27/%3E%3C/svg%3E") no-repeat 8px 50%;color:#111;font:500 12px/16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;pointer-events:none}[data-nutbook-editing="image"]{cursor:pointer}.nutbook-html-edit-image-actions{position:fixed;z-index:2147483646;display:inline-flex;gap:4px;margin:0}.nutbook-html-edit-image-action{border:1px solid #bbb;border-radius:6px;background:#fff;padding:5px 8px;font:12px sans-serif;cursor:pointer}.nutbook-html-edit-cropping{outline:2px solid #111;outline-offset:2px;cursor:grab}.nutbook-html-edit-crop-overlay{position:fixed;z-index:2147483646;box-sizing:border-box;border:2px solid #111;pointer-events:none}.nutbook-html-edit-crop-overlay [data-crop-viewport]{position:fixed;display:block;box-sizing:border-box;border:1px dashed rgba(17,17,17,.62);pointer-events:none}.nutbook-html-edit-crop-overlay .nutbook-html-edit-crop-toolbar{position:fixed;z-index:2147483647;left:50%;bottom:24px;transform:translateX(-50%);display:flex;gap:4px;align-items:center;padding:7px 8px;border-radius:8px;background:#111;color:#fff;white-space:nowrap;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.24);pointer-events:auto}.nutbook-html-edit-crop-toolbar button{border:1px solid #fff;border-radius:4px;background:#fff;color:#111;padding:4px 7px;font:12px sans-serif;cursor:pointer}.nutbook-html-edit-crop-toolbar button[data-action="done"]{background:#111;color:#fff}.nutbook-html-edit-crop-overlay i{position:absolute;display:block;width:10px;height:10px;box-sizing:border-box;border:1px solid #111;border-radius:1px;background:#fff;pointer-events:auto}.nutbook-html-edit-crop-overlay i[data-handle="nw"]{left:-6px;top:-6px;cursor:nwse-resize}.nutbook-html-edit-crop-overlay i[data-handle="n"]{left:calc(50% - 5px);top:-6px;cursor:ns-resize}.nutbook-html-edit-crop-overlay i[data-handle="ne"]{right:-6px;top:-6px;cursor:nesw-resize}.nutbook-html-edit-crop-overlay i[data-handle="e"]{right:-6px;top:calc(50% - 5px);cursor:ew-resize}.nutbook-html-edit-crop-overlay i[data-handle="se"]{right:-6px;bottom:-6px;cursor:nwse-resize}.nutbook-html-edit-crop-overlay i[data-handle="s"]{left:calc(50% - 5px);bottom:-6px;cursor:ns-resize}.nutbook-html-edit-crop-overlay i[data-handle="sw"]{left:-6px;bottom:-6px;cursor:nesw-resize}.nutbook-html-edit-crop-overlay i[data-handle="w"]{left:-6px;top:calc(50% - 5px);cursor:ew-resize}';
     document.head.append(style);
+    // A presentation can expose dozens of independently editable blocks.
+    // Permanent outlines turn those blocks into visual noise, so retain the
+    // affordance only for the field under the pointer or keyboard focus.
+    const quietAffordanceStyle = document.createElement("style"); quietAffordanceStyle.id = "nutbook-html-edit-affordance-quiet";
+    quietAffordanceStyle.textContent = '[data-nutbook-editing]{outline:none!important}[data-nutbook-editing]::before{content:"";position:absolute;z-index:2;inset:-4px;border:1px dashed transparent;border-radius:10px;pointer-events:none}[data-nutbook-editing="text"]:hover,[data-nutbook-editing="rich-text"]:hover{background:#f8f8f9!important}[data-nutbook-editing="text"]:hover::before,[data-nutbook-editing="rich-text"]:hover::before{border-color:#b9b0b0}[data-nutbook-editing]:focus::before{border:2px solid #111;box-shadow:0 4px 12px rgba(26,28,29,.12)}';
+    document.head.append(quietAffordanceStyle);
     const imageTooltipStyle = document.createElement("style"); imageTooltipStyle.textContent = '.nutbook-html-edit-icon-action{position:relative}.nutbook-html-edit-icon-action::after{content:attr(data-tooltip);position:absolute;z-index:2147483647;left:50%;bottom:calc(100% + 7px);transform:translate(-50%,3px);padding:5px 7px;border-radius:6px;background:#111;color:#fff;font:500 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .14s ease,transform .14s ease}.nutbook-html-edit-icon-action:hover::after,.nutbook-html-edit-icon-action:focus-visible::after{opacity:1;transform:translate(-50%,0)}.nutbook-html-edit-crop-toolbar button.nutbook-html-edit-icon-action{background:#111!important;color:#fff!important;border:0!important;padding:0!important}.nutbook-html-edit-source-crop-overlay,.nutbook-html-edit-inserted-crop-overlay{inset:0!important;border:0!important;overflow:visible!important}.nutbook-html-edit-source-crop-overlay [data-crop-context-part],.nutbook-html-edit-inserted-crop-overlay [data-crop-context-part]{position:fixed;display:block;overflow:hidden;pointer-events:none}.nutbook-html-edit-source-crop-overlay [data-crop-context-part] img,.nutbook-html-edit-inserted-crop-overlay [data-crop-context-part] img{position:absolute;display:block;max-width:none;object-fit:fill;opacity:.42;pointer-events:none}.nutbook-html-edit-source-crop-overlay [data-crop-viewport],.nutbook-html-edit-inserted-crop-overlay [data-crop-viewport]{position:fixed!important;display:block!important;overflow:hidden!important;border:1px dashed rgba(17,17,17,.62)!important;pointer-events:none!important}.nutbook-html-edit-source-crop-overlay [data-crop-viewport]{pointer-events:auto!important}.nutbook-html-edit-source-crop-overlay [data-crop-content]{position:absolute;display:block;max-width:none;object-fit:fill;pointer-events:auto}.nutbook-html-edit-source-crop-overlay [data-crop-edge],.nutbook-html-edit-inserted-crop-overlay [data-crop-edge]{position:fixed;box-sizing:border-box;border:2px solid #111;pointer-events:none}.nutbook-html-edit-source-crop-overlay [data-crop-edge] i,.nutbook-html-edit-inserted-crop-overlay [data-crop-edge] i{pointer-events:auto}'; document.head.append(imageTooltipStyle);
   }
-  function removeEditAffordanceStyles() { document.getElementById("nutbook-html-edit-affordance")?.remove(); }
+  function removeEditAffordanceStyles() { document.getElementById("nutbook-html-edit-affordance")?.remove(); document.getElementById("nutbook-html-edit-affordance-quiet")?.remove(); }
   function installShortcutCapture() { window.removeEventListener("keydown", onKeyDownCapture, true); window.addEventListener("keydown", onKeyDownCapture, true); }
-  function onKeyDownCapture(event) { if (!STATE.editing) return; const key = event.key; const blocked = ["f", "F", "s", "S", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", "Enter"]; if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "s") { event.preventDefault(); event.stopImmediatePropagation(); emitHostMessage({ type: "html_edit_save_requested_from_runtime", runtimeSessionId: STATE.sessionId }); return; } if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "z") { event.preventDefault(); event.stopImmediatePropagation(); if (event.repeat) return false; return event.shiftKey ? redoHistory() : undoHistory(); } if (event.metaKey || event.ctrlKey || event.altKey || isEditableEventTarget(event.target) || STATE.presentation) return; if (blocked.includes(key)) { event.preventDefault(); event.stopImmediatePropagation(); } }
+  function onKeyDownCapture(event) { if (!STATE.editing) return; const key = event.key; const blocked = ["f", "F", "s", "S", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", "Enter"]; if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "s") { event.preventDefault(); event.stopImmediatePropagation(); emitHostMessage({ type: "html_edit_save_requested_from_runtime", runtimeSessionId: STATE.sessionId }); return; } if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "z") { event.preventDefault(); event.stopImmediatePropagation(); if (event.repeat) return false; return event.shiftKey ? redoHistory() : undoHistory(); } if (STATE.presentation && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableEventTarget(event.target) && (key === "ArrowUp" || key === "ArrowDown")) { event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) void goToAdjacentPresentationPage(key === "ArrowUp" ? -1 : 1); return; } if (event.metaKey || event.ctrlKey || event.altKey || isEditableEventTarget(event.target) || STATE.presentation) return; if (blocked.includes(key)) { event.preventDefault(); event.stopImmediatePropagation(); } }
   function isEditableEventTarget(target) { for (let node = target; node; node = node.parentElement) if (node.getAttribute?.("data-nutbook-editing")) return true; return false; }
   async function goToPresentationPage(pageId) {
     if (!STATE.presentation?.pageIds.includes(pageId)) return false;
     const result = await STATE.presentation.bridge.goTo(pageId);
     if (result === false) return false;
-    STATE.activePresentationPageId = pageId; layoutInsertedImages();
+    STATE.activePresentationPageId = pageId; layoutInsertedImages(); layoutImageActions();
     return true;
   }
-  function presentationSnapshot() { return STATE.presentation ? { pages: STATE.presentation.pageIds, activePageId: STATE.activePresentationPageId } : null; }
+  async function goToAdjacentPresentationPage(offset) { const pages = STATE.presentation?.pageIds || []; const index = pages.indexOf(STATE.activePresentationPageId); const next = pages[index + offset]; return next ? goToPresentationPage(next) : false; }
+  function presentationSnapshot() { return STATE.presentation ? { pages: STATE.presentation.pages, activePageId: STATE.activePresentationPageId } : null; }
   function stateSnapshot() { return { runtimeSessionId: STATE.sessionId, documentRevision: STATE.documentRevision, dirty: STATE.dirty, selectedDataId: STATE.selectedDataId, formatState: STATE.formatState, changes: collectChanges() }; }
   function getSnapshot() { recomputeChanges(); return stateSnapshot(); }
   function reportState(options = {}) {
     const requestId = typeof options === "string" ? options : options?.requestId || "";
     emitHostMessage({ type: "html_edit_state_snapshot", requestId, ...getSnapshot() });
   }
-  function notifyReady() { emitHostMessage({ type: "html_edit_ready", runtimeSessionId: STATE.sessionId, ...scanEditableElements(), shortcutsIntercepted: true }); }
+  function notifyReady() { emitHostMessage({ type: "html_edit_ready", runtimeSessionId: STATE.sessionId, ...scanEditableElements(), presentation: presentationSnapshot(), shortcutsIntercepted: true }); }
   function emitHostMessage(payload) {
     const invoke = window.__TAURI_INTERNALS__?.invoke;
     if (typeof invoke === "function") {
@@ -954,5 +964,5 @@
     if (!STATE._messageSeq) STATE._messageSeq = 0;
     document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...payload, _s: ++STATE._messageSeq })}`;
   }
-  window.__NUTBOOK_HTML_EDIT__ = { scanEditableElements, isEditing: () => STATE.editing, enter, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, beginInsertedImageDraft, commitInsertedImageDraft, cancelInsertedImageDraft, applyInsertedImageAsset, requestInsertedImageReplacement, resumeInsertedImageDraft, resumeInsertedImageReplacement, beginInsertedImageCrop, deleteInsertedImage, undoHistory, redoHistory, goToPresentationPage, presentationSnapshot, getSnapshot, reportState, emitHostMessage };
+  window.__NUTBOOK_HTML_EDIT__ = { scanEditableElements, isEditing: () => STATE.editing, enter, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, beginInsertedImageDraft, commitInsertedImageDraft, cancelInsertedImageDraft, applyInsertedImageAsset, requestInsertedImageReplacement, resumeInsertedImageDraft, resumeInsertedImageReplacement, beginInsertedImageCrop, deleteInsertedImage, undoHistory, redoHistory, goToPresentationPage, goToAdjacentPresentationPage, presentationSnapshot, getSnapshot, reportState, emitHostMessage };
 })();

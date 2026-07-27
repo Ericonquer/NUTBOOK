@@ -14,6 +14,31 @@ const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8
 const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
 const mainRust = readFileSync("src-tauri/src/main.rs", "utf8");
 
+assert.match(indexHtml, /attach_html_presentation_preview_command[\s\S]*?runtimeSessionId[\s\S]*?activePageId/, "presentation editing must attach a dedicated read-only preview child with the current session lease and page");
+assert.match(indexHtml, /html_edit_presentation_preview_clicked[\s\S]*?selectHtmlEditPresentationPage/, "preview-card clicks must navigate through the established editor coordinator");
+assert.match(indexHtml, /set_html_presentation_preview_visibility_command[\s\S]*?visible: false/, "leaving or hiding a runtime must hide the presentation preview child");
+assert.match(indexHtml, /previewBoundsKey === key[\s\S]*?set_html_presentation_preview_visibility_command[\s\S]*?visible: true/, "restoring unchanged runtime bounds must re-show a suspended presentation preview child");
+assert.match(indexHtml, /suspendRuntimeSurfaces[\s\S]*?preservePresentationPreview: true/, "minimising must preserve the read-only presentation preview child instead of hiding it");
+assert.match(indexHtml, /resumeRuntimeSurfaces[\s\S]*?delete editSession\.presentation\.previewBoundsKey/, "restoring must force a preview child bounds update and ready handshake");
+assert.match(indexHtml, /toggleActiveHtmlRuntimePresentationMode[\s\S]*?编辑模式下不可进入演示全屏/, "presentation fullscreen must be blocked while an HTML edit session is active");
+assert.match(indexHtml, /html_edit_presentation_page_changed[\s\S]*?pendingPageId[\s\S]*?data\.pageId !== pendingPageId/, "late presentation page events must not overwrite a newer navigation intent");
+assert.match(indexHtml, /html_edit_presentation_preview_ready[\s\S]*?follow: false, focus: true/, "entering or restoring an edit session must focus the ready presentation rail without forcing it to scroll");
+assert.match(indexHtml, /action === "edit"[\s\S]*?confirmHtmlEditLeaveIfNeeded/, "the runtime overlay edit action must become a safe exit path while editing");
+assert.match(htmlRuntimeRust, /html-presentation-preview-\{item_id\}/, "presentation previews must use a stable child-WebView label");
+assert.match(htmlRuntimeRust, /isEditing: \{\}/, "runtime control overlay state must carry the HTML edit-mode guard");
+assert.match(i18n, /htmlEdit:[\s\S]*?exit: "退出编辑"/, "HTML editing must expose a localized explicit exit action");
+assert.match(htmlRuntimeRust, /nb-preview-canvas[\s\S]*?cloneNode\(true\)[\s\S]*?scale/, "presentation previews must render a scaled DOM clone rather than wait for a screenshot");
+assert.match(htmlRuntimeRust, /\.nb-preview-stage\{[^}]*display:block[^}]*height:104px!important/, "preview stages must use an explicit height so host-WebView button layout cannot collapse the scaled canvas");
+assert.match(htmlRuntimeRust, /nb-preview-meta[\s\S]*?pageMeta\.title/, "visual preview cards must retain page number, title, and kind metadata");
+assert.match(htmlRuntimeRust, /nb-preview-canvas\.deck[\s\S]*?data-nutbook-page-id/, "preview clones must restore deck positioning without overriding source slide alignment");
+assert.match(htmlRuntimeRust, /\.nb-preview-card\{[^}]*text-align:initial/, "preview-card button defaults must not center inherited deck text");
+assert.match(htmlRuntimeRust, /padding:58px 76px 62px!important/, "a narrow preview child must restore desktop slide padding");
+assert.match(htmlRuntimeRust, /keepCardVisible[\s\S]*?root\.scrollTop/, "a preview child must keep keyboard-navigated cards visible without browser focus scrolling");
+assert.match(htmlRuntimeRust, /manualScrollUntil[\s\S]*?wheel/, "manual rail scrolling must temporarily suppress automatic active-card following");
+assert.match(htmlRuntimeRust, /select = \(id, follow = false\)[\s\S]*?if \(follow\) keepCardVisible/, "only an explicit navigation intent may auto-follow the active preview card");
+assert.match(htmlRuntimeRust, /Array\.from\(document\.body\.children\)[\s\S]*?display", "none"/, "preview boot must isolate exported deck controls outside the deck shell");
+assert.match(htmlRuntimeRust, /document\.addEventListener\("keydown"[\s\S]*?ArrowDown[\s\S]*?html_edit_presentation_preview_navigate/, "a focused preview rail must relay vertical navigation without taking over presentation shortcuts");
+
 function runtimeSection(name, nextName) {
   const start = htmlEditRuntime.indexOf(`  function ${name}`);
   const end = htmlEditRuntime.indexOf(`  function ${nextName}`, start + 1);

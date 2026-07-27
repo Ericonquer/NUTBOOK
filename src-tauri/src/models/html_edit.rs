@@ -78,6 +78,29 @@ pub struct HtmlEditSessionLeaseRequest {
     pub generation: u64,
 }
 
+/// Requests one visual thumbnail for a verified page in the active
+/// presentation edit session. `page_id` is validated by the backend before it
+/// is inserted into the bridge-only CDP setup script.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratePresentationThumbnailRequest {
+    pub item_id: i64,
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub source_file_hash: String,
+    pub page_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratePresentationThumbnailResponse {
+    pub page_id: String,
+    pub data_url: String,
+    pub width: i32,
+    pub height: i32,
+    pub backend: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetHtmlEditPatchRequest {

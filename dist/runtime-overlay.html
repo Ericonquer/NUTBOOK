@@ -387,6 +387,7 @@
       itemId: null,
       isFavorite: false,
       isFullscreen: false,
+      isEditing: false,
       menuOpen: false,
       tagMenuOpen: false,
       customTag: null,
@@ -592,8 +593,10 @@
       els.moreButton.classList.toggle("menu-open", state.menuOpen);
       els.menu.classList.toggle("open", state.menuOpen);
       document.querySelector(".panel").classList.toggle("hidden", state.isFullscreen);
-      els.editButton.textContent = t("htmlEdit.edit");
+      els.editButton.textContent = state.isEditing ? t("htmlEdit.exit") : t("htmlEdit.edit");
       els.presentationButton.textContent = state.isFullscreen ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut");
+      els.presentationButton.disabled = state.isEditing;
+      els.presentationButton.hidden = state.isEditing;
       updateTagChips();
       if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");
     }
@@ -625,6 +628,7 @@
       state.itemId = next.itemId;
       state.isFavorite = !!next.isFavorite;
       state.isFullscreen = !!next.isFullscreen;
+      state.isEditing = !!next.isEditing;
       state.customTag = next.customTag || null;
       state.availableTags = Array.isArray(next.availableTags) ? next.availableTags : [];
       state.skillTag = next.skillTag || null;
@@ -689,6 +693,7 @@
         e.preventDefault();
         e.stopPropagation();
       }
+      if (state.isEditing) return;
       const now = Date.now();
       if (now - lastPresentationActivationAt < 180) return;
       lastPresentationActivationAt = now;

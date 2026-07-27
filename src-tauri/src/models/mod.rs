@@ -6,13 +6,13 @@ pub mod tag;
 pub mod update;
 
 pub use html_edit::{
-    CommitHtmlEditRequest, CommitHtmlEditResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
+    CommitHtmlEditRequest, CommitHtmlEditResponse, GeneratePresentationThumbnailRequest, GeneratePresentationThumbnailResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
     HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus,
     HtmlEditRole, HtmlEditSessionLeaseRequest, HtmlEditTextAlign, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, SaveHtmlEditConflictCopyRequest, SaveHtmlEditConflictCopyResponse, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_ASSET_MAX_BYTES, HTML_EDIT_COMMIT_MAX_BYTES, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS,
 };
 pub use item::{
     AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,
-    AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+    AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
     CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteLibraryRequest, DeleteMarkdownImageAssetRequest,
     DispatchHtmlRuntimeShortcutRequest,
     EvalHtmlRuntimeScriptRequest,
@@ -24,7 +24,9 @@ pub use item::{
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,
     SaveMarkdownContentRequest, SaveMarkdownContentResponse, ScanLibraryRequest, ScanLibraryResponse, SelectLibraryRequest,
     SetHtmlEditToolbarOverlayVisibilityRequest,
-    SetHtmlRuntimeControlsOverlayVisibilityRequest, SetHtmlRuntimeHostVisibilityRequest, ThumbnailInfo, ThumbnailBackendStatusPayload,
+    HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
+    SetHtmlRuntimeControlsOverlayVisibilityRequest,
+    SetHtmlRuntimeHostVisibilityRequest, ThumbnailInfo, ThumbnailBackendStatusPayload,
     ToggleFavoriteRequest, WatchLibraryRequest, WatchLibraryResponse, ExportMarkdownRequest,
 };
 pub use library::Library;

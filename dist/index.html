@@ -2787,6 +2787,66 @@
         background: #fff;
       }
 
+      .runtime-host-page.presentation-editing {
+        display: flex;
+        min-width: 0;
+      }
+
+      .presentation-edit-rail {
+        display: none;
+        width: 224px;
+        flex: 0 0 224px;
+        box-sizing: border-box;
+        overflow: auto;
+        padding: 12px 10px;
+        border-right: 1px solid #e4e4e8;
+        background: #f7f7f8;
+      }
+
+      .runtime-host-page.presentation-editing .presentation-edit-rail {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+
+      .presentation-edit-rail-title {
+        padding: 3px 5px 8px;
+        color: #696971;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .presentation-edit-page {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #25252a;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .presentation-edit-page:hover { background: #eeeeF1; }
+      .presentation-edit-page.is-active { border-color: #222; background: #fff; }
+      .presentation-edit-page-thumbnail { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #dedee3; border-radius: 5px; background: linear-gradient(135deg, #ededf0, #f8f8fa); }
+      .presentation-edit-page-thumbnail.is-structure { display: grid; align-content: center; gap: 4px; padding: 10px; box-sizing: border-box; background: #fff; color: #2a2a2f; font-size: 13px; font-weight: 700; line-height: 1.2; }
+      .presentation-edit-page-thumbnail.is-structure small { color: #85858c; font-size: 10px; font-weight: 600; }
+      .presentation-edit-page-thumbnail.is-loading::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 28%, rgba(255,255,255,.7) 48%, transparent 68%); transform: translateX(-100%); animation: presentation-thumb-loading 1.25s ease-in-out infinite; }
+      .presentation-edit-page-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .presentation-edit-page-meta { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; align-items: baseline; }
+      .presentation-edit-page-index { color: #777780; font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .presentation-edit-page-copy { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: baseline; }
+      .presentation-edit-page-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+      .presentation-edit-page-kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #85858c; font-size: 10px; }
+      @keyframes presentation-thumb-loading { to { transform: translateX(100%); } }
+
+      .runtime-host-page.presentation-editing .runtime-host-shell { flex: 1 1 auto; min-width: 0; }
+
       .runtime-card-inner {
         max-width: 520px;
         display: grid;
@@ -5102,6 +5162,18 @@
         thumbnailInstallCommandCopiedTimer: null,
         language: currentLanguage()
       };
+      // Page thumbnails are intentionally session-local. Their source is the
+      // committed HTML file, so showing a stale image for unsaved DOM edits is
+      // worse than keeping the lightweight loading card until the next save.
+      const presentationThumbnailCache = new Map();
+      const presentationThumbnailPending = new Set();
+      let presentationThumbnailActive = 0;
+      const presentationThumbnailQueue = [];
+      const PRESENTATION_THUMBNAIL_CONCURRENCY = 3;
+      // Do not let background PNG work steal time from a live editor. Visual
+      // page previews return only with an independent preview runtime; Phase
+      // 2A keeps the reliable, zero-latency structural rail meanwhile.
+      const PRESENTATION_VISUAL_THUMBNAILS_ENABLED = false;
 
       const els = {
         appShell: document.getElementById("appShell"),
@@ -6608,6 +6680,203 @@
         return Boolean(session?.inlineToolbar);
       }
 
+      async function navigateHtmlEditPresentationPage(session, pageId) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pageIds?.includes(pageId)) return false;
+        const runtimeSessionId = session.runtimeSessionId;
+        const generation = session.generation;
+        const applied = await invoke("eval_html_runtime_script_command", {
+          itemId: session.itemId,
+          script: `;(async()=>{let ok=false;try{ok=Boolean(await window.__NUTBOOK_HTML_EDIT__?.goToPresentationPage(${JSON.stringify(pageId)}));}catch(_){}window.__NUTBOOK_HTML_EDIT__?.emitHostMessage?.({type:"html_edit_presentation_navigation_result",runtimeSessionId:${JSON.stringify(runtimeSessionId)},generation:${generation},pageId:${JSON.stringify(pageId)},ok});})();`
+        }).catch(() => false);
+        return Boolean(applied);
+      }
+
+      function selectHtmlEditPresentationPage(session, pageId) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pageIds?.includes(pageId) || session.presentation.activePageId === pageId) return;
+        const previousPageId = session.presentation.activePageId;
+        session.presentation.activePageId = pageId;
+        session.presentation.pendingNavigationPageId = pageId;
+        renderHtmlEditPresentationRail(session);
+        syncPresentationPreviewActive(session, pageId);
+        navigateHtmlEditPresentationPage(session, pageId).then((applied) => {
+          if (!applied && isCurrentHtmlEditSession(session) && session.presentation.activePageId === pageId) {
+            session.presentation.activePageId = previousPageId;
+            renderHtmlEditPresentationRail(session);
+          }
+        }).catch((error) => {
+          if (isCurrentHtmlEditSession(session) && session.presentation.activePageId === pageId) {
+            session.presentation.activePageId = previousPageId;
+            renderHtmlEditPresentationRail(session);
+          }
+          setStatus(htmlEditSaveErrorStatus(error), "error");
+        });
+      }
+
+      function syncPresentationPreviewActive(session, pageId, options = {}) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.previewInstanceId || !session.presentation.pageIds?.includes(pageId)) return;
+        invoke("set_html_presentation_preview_active_command", { itemId: session.itemId, runtimeSessionId: session.runtimeSessionId, generation: session.generation, previewInstanceId: session.presentation.previewInstanceId, pageId, follow: options.follow !== false, focus: Boolean(options.focus) }).catch(() => false);
+      }
+
+      async function syncHtmlEditPresentationPreview(session, runId) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pages?.length) return false;
+        const rail = document.getElementById("presentationEditRail");
+        if (!rail) return false;
+        const bounds = runtimeHostBounds(rail);
+        if (bounds.width < 40 || bounds.height < 40) return false;
+        if (!session.presentation.previewInstanceId) session.presentation.previewInstanceId = `presentation-preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}:${session.runtimeSessionId}:${session.generation}:${session.presentation.previewInstanceId}`;
+        if (session.presentation.previewBoundsKey === key) {
+          // Suspension hides the child WebView but intentionally preserves the
+          // bounds cache.  A focus/restore sync with unchanged bounds must
+          // still show it again; otherwise the structural fallback rail is
+          // left visible after minimising and restoring the window.
+          const restored = await invoke("set_html_presentation_preview_visibility_command", {
+            itemId: session.itemId,
+            runtimeSessionId: session.runtimeSessionId,
+            generation: session.generation,
+            previewInstanceId: session.presentation.previewInstanceId,
+            visible: true
+          }).catch(() => false);
+          if (restored) syncPresentationPreviewActive(session, session.presentation.activePageId, { follow: false });
+          return Boolean(restored);
+        }
+        const attached = await invoke("attach_html_presentation_preview_command", {
+          itemId: session.itemId,
+          bounds,
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          activePageId: session.presentation.activePageId,
+          previewInstanceId: session.presentation.previewInstanceId
+        }).catch(() => false);
+        if (!isCurrentHtmlEditSession(session) || !isRuntimeHostSyncCurrent(runId, session.itemId)) return false;
+        if (attached) session.presentation.previewBoundsKey = key;
+        return Boolean(attached);
+      }
+
+      function presentationThumbnailKey(session, pageId) {
+        return `${session.itemId}:${session.sourceFileHash}:${session.patchRevision}:${pageId}`;
+      }
+
+      function discardPresentationThumbnailsForItem(itemId) {
+        const prefix = `${itemId}:`;
+        for (const key of presentationThumbnailCache.keys()) {
+          if (key.startsWith(prefix)) presentationThumbnailCache.delete(key);
+        }
+      }
+
+      function pumpPresentationThumbnailQueue() {
+        while (presentationThumbnailActive < PRESENTATION_THUMBNAIL_CONCURRENCY && presentationThumbnailQueue.length) {
+          const task = presentationThumbnailQueue.shift();
+          if (!isCurrentHtmlEditSession(task.session) || presentationThumbnailCache.has(task.key)) {
+            presentationThumbnailPending.delete(task.key);
+            continue;
+          }
+          presentationThumbnailActive += 1;
+          invoke("generate_presentation_thumbnail", {
+            itemId: task.session.itemId,
+            runtimeSessionId: task.session.runtimeSessionId,
+            generation: task.session.generation,
+            sourceFileHash: task.session.sourceFileHash,
+            pageId: task.pageId
+          }).then((thumbnail) => {
+            if (!thumbnail?.dataUrl || thumbnail.pageId !== task.pageId) throw new Error("缩略图响应无效");
+            presentationThumbnailCache.set(task.key, { dataUrl: thumbnail.dataUrl });
+          }).catch(() => {
+            // A missing screenshot backend is a recoverable presentation
+            // fallback; retain metadata navigation and do not retry forever.
+            presentationThumbnailCache.set(task.key, { failed: true });
+          }).finally(() => {
+            presentationThumbnailActive -= 1;
+            presentationThumbnailPending.delete(task.key);
+            if (isCurrentHtmlEditSession(task.session)) renderHtmlEditPresentationRail(task.session);
+            pumpPresentationThumbnailQueue();
+          });
+        }
+      }
+
+      function requestPresentationThumbnail(session, pageId) {
+        if (!PRESENTATION_VISUAL_THUMBNAILS_ENABLED) return;
+        if (!isCurrentHtmlEditSession(session)) return;
+        const key = presentationThumbnailKey(session, pageId);
+        if (presentationThumbnailCache.has(key) || presentationThumbnailPending.has(key)) return;
+        presentationThumbnailPending.add(key);
+        presentationThumbnailQueue.push({ session, pageId, key });
+        pumpPresentationThumbnailQueue();
+      }
+
+      function prefetchPresentationThumbnails(session) {
+        if (!PRESENTATION_VISUAL_THUMBNAILS_ENABLED) return;
+        const pages = session.presentation?.pages || [];
+        const activeIndex = Math.max(0, pages.findIndex((page) => page.id === session.presentation.activePageId));
+        // Capture the active page first, followed by the immediately useful
+        // neighbours. Scrolling a card into view requests the remaining pages.
+        for (let offset = 0; offset <= 4; offset += 1) {
+          const page = pages[activeIndex + offset] || pages[activeIndex - offset];
+          if (page) requestPresentationThumbnail(session, page.id);
+        }
+      }
+
+      function renderHtmlEditPresentationRail(session = appState.htmlEditSession) {
+        const page = document.querySelector(".runtime-host-page");
+        const rail = document.getElementById("presentationEditRail");
+        if (!page || !rail) return;
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pages?.length) {
+          page.classList.remove("presentation-editing");
+          rail.replaceChildren();
+          return;
+        }
+        page.classList.add("presentation-editing");
+        const previousScrollTop = rail.scrollTop;
+        rail.replaceChildren();
+        const heading = document.createElement("div");
+        heading.className = "presentation-edit-rail-title";
+        heading.textContent = `页面 · ${session.presentation.pages.length}`;
+        rail.append(heading);
+        for (const presentationPage of session.presentation.pages) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "presentation-edit-page";
+          button.classList.toggle("is-active", presentationPage.id === session.presentation.activePageId);
+          button.setAttribute("aria-current", presentationPage.id === session.presentation.activePageId ? "page" : "false");
+          const cachedThumbnail = presentationThumbnailCache.get(presentationThumbnailKey(session, presentationPage.id));
+          const thumbnail = document.createElement("span");
+          thumbnail.className = "presentation-edit-page-thumbnail";
+          if (!PRESENTATION_VISUAL_THUMBNAILS_ENABLED) {
+            thumbnail.classList.add("is-structure");
+            thumbnail.innerHTML = `<span>${escapeHtml(presentationPage.title || "未命名页面")}</span><small>${escapeHtml(presentationPage.kind || "presentation")}</small>`;
+          } else if (cachedThumbnail?.dataUrl) {
+            const image = document.createElement("img");
+            image.src = cachedThumbnail.dataUrl;
+            image.alt = `${presentationPage.title || "未命名页面"} 缩略图`;
+            thumbnail.append(image);
+          } else if (!cachedThumbnail?.failed) {
+            thumbnail.classList.add("is-loading");
+          }
+          const meta = document.createElement("span");
+          meta.className = "presentation-edit-page-meta";
+          meta.innerHTML = `<span class="presentation-edit-page-index">${escapeHtml(String(presentationPage.index))}</span><span class="presentation-edit-page-copy"><span class="presentation-edit-page-title">${escapeHtml(presentationPage.title || "未命名页面")}</span><span class="presentation-edit-page-kind">${escapeHtml(presentationPage.kind || "presentation")}</span></span>`;
+          button.append(thumbnail, meta);
+          button.addEventListener("click", () => selectHtmlEditPresentationPage(session, presentationPage.id));
+          button.addEventListener("mouseenter", () => requestPresentationThumbnail(session, presentationPage.id), { once: true });
+          rail.append(button);
+        }
+        rail.scrollTop = previousScrollTop;
+        const requestVisibleThumbnails = () => {
+          const railRect = rail.getBoundingClientRect();
+          for (const card of rail.querySelectorAll(".presentation-edit-page")) {
+            const rect = card.getBoundingClientRect();
+            const cardIndex = [...rail.children].indexOf(card) - 1;
+            const pageId = session.presentation.pages[cardIndex]?.id;
+            if (pageId && rect.bottom >= railRect.top - 120 && rect.top <= railRect.bottom + 120) requestPresentationThumbnail(session, pageId);
+          }
+        };
+        if (rail.__nutbookPresentationScrollHandler) rail.removeEventListener("scroll", rail.__nutbookPresentationScrollHandler);
+        rail.__nutbookPresentationScrollHandler = requestVisibleThumbnails;
+        rail.addEventListener("scroll", requestVisibleThumbnails, { passive: true });
+        requestVisibleThumbnails();
+        prefetchPresentationThumbnails(session);
+      }
+
       async function injectHtmlEditRuntime(itemId, runtimeSessionId, patchResponse, isCurrent) {
         if (!isCurrent()) return false;
         const runtimeScript = await loadHtmlEditRuntimeScript();
@@ -6636,6 +6905,7 @@
                   fieldApplyResults: patchResponse.fieldApplyResults || {},
                   runtimeAssetUrls: patchResponse.runtimeAssetUrls || {},
                   patchRevision: patchResponse.patchRevision || 0,
+                  generation: appState.htmlEditSession?.runtimeSessionId === runtimeSessionId ? appState.htmlEditSession.generation : 0,
                   inlineToolbar: Boolean(appState.htmlEditSession?.runtimeSessionId === runtimeSessionId && usesInlineHtmlEditToolbarForSession(appState.htmlEditSession)),
                   locale: appState.language
                 })});
@@ -6713,7 +6983,8 @@
           requiresPatchReconciliation: false,
           persistedChanges: response.patch?.changes && typeof response.patch.changes === "object" ? structuredClone(response.patch.changes) : {},
           shortcutsIntercepted: false,
-          inlineToolbar: true
+          inlineToolbar: true,
+          presentation: null
         };
         const session = appState.htmlEditSession;
         const isCurrent = () => isCurrentHtmlEditSession(session);
@@ -6929,6 +7200,9 @@
             session.sourceCommitted = true;
             session.sourceFileHash = result.sourceFileHash ?? session.sourceFileHash;
             session.sourceModifiedAt = result.sourceModifiedAt ?? session.sourceModifiedAt;
+            // The commit is now the source of truth for presentation pixels.
+            // Do not show a previous page bitmap after a successful save.
+            discardPresentationThumbnailsForItem(session.itemId);
             if (markHtmlEditPatchOutOfSync(session, savedChangesJson)) {
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
               // Toolbar presentation is deliberately outside the persistence
@@ -6995,6 +7269,24 @@
             session.requiresPatchReconciliation = false;
             session.persistedChanges = {};
             setStatus(t("htmlEdit.saved"), "ok");
+            if (session.presentation) {
+              // The preview is a separate, read-only document.  Recreate it
+              // only after Rust has committed the source so it cannot keep a
+              // stale clone of saved text or images.
+              session.presentation.previewReady = false;
+              const previousPreviewInstanceId = session.presentation.previewInstanceId || "";
+              delete session.presentation.previewBoundsKey;
+              await invoke("close_html_presentation_preview_command", {
+                itemId: session.itemId,
+                runtimeSessionId,
+                generation,
+                previewInstanceId: previousPreviewInstanceId,
+                visible: false
+              }).catch(() => false);
+              session.presentation.previewInstanceId = `presentation-preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              renderHtmlEditPresentationRail(session);
+              scheduleRuntimeHostSync();
+            }
             // This is the terminal acknowledgement of the persistence
             // transaction.  Clear the exact lock here as well as in `finally`:
             // a later UI sync must never retain a completed save and cause the
@@ -7052,6 +7344,7 @@
         nextHtmlEditSessionGeneration();
         session.assetRequestEpoch += 1;
         session.activeAssetRequestId = "";
+        await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId, generation, previewInstanceId: session.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
         await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
         appState.htmlEditToolbarSyncPending = false;
         try {
@@ -7073,6 +7366,8 @@
         resolveHtmlEditLeaveChoice("keep", runtimeSessionId);
         closeHtmlEditLeaveConfirmOverlay(itemId);
         if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
+        renderHtmlEditPresentationRail(null);
+        scheduleRuntimeHostSync();
         appState.htmlEditToolbarVisible = false;
         appState.htmlEditToolbarSyncPending = false;
         // Exiting removes the editable image layer.  Reapply the sidecar to
@@ -7124,6 +7419,49 @@
         const session = appState.htmlEditSession;
         if (!session || session.runtimeSessionId !== data.runtimeSessionId) return;
         if (!isCurrentHtmlEditSession(session)) return;
+        if (data.type === "html_edit_presentation_preview_ready") {
+          if (data.generation === session.generation && data.previewInstanceId === session.presentation?.previewInstanceId && session.presentation?.pageIds?.includes(data.pageId)) {
+            session.presentation.previewReady = true;
+            invoke("set_html_presentation_preview_visibility_command", { itemId: session.itemId, runtimeSessionId: session.runtimeSessionId, generation: session.generation, previewInstanceId: session.presentation.previewInstanceId, visible: true }).then((visible) => {
+              if (visible) syncPresentationPreviewActive(session, data.pageId, { follow: false, focus: true });
+            }).catch(() => false);
+          }
+          return;
+        }
+        if (data.type === "html_edit_presentation_preview_clicked") {
+          if (data.generation === session.generation && session.presentation?.pageIds?.includes(data.pageId)) {
+            selectHtmlEditPresentationPage(session, data.pageId);
+          }
+          return;
+        }
+        if (data.type === "html_edit_presentation_preview_navigate") {
+          const currentIndex = session.presentation?.pageIds?.indexOf(session.presentation.activePageId) ?? -1;
+          const pageId = session.presentation?.pageIds?.[currentIndex + (data.pageId === "previous" ? -1 : 1)];
+          if (pageId) selectHtmlEditPresentationPage(session, pageId);
+          return;
+        }
+        if (data.type === "html_edit_presentation_navigation_result") {
+          const pendingPageId = session.presentation?.pendingNavigationPageId;
+          if (data.generation === session.generation && pendingPageId && data.pageId !== pendingPageId) return;
+          if (data.generation === session.generation && data.ok === true && session.presentation?.pageIds?.includes(data.pageId)) {
+            session.presentation.activePageId = data.pageId;
+            session.presentation.pendingNavigationPageId = null;
+            renderHtmlEditPresentationRail(session);
+            syncPresentationPreviewActive(session, data.pageId);
+          }
+          return;
+        }
+        if (data.type === "html_edit_presentation_page_changed") {
+          const pendingPageId = session.presentation?.pendingNavigationPageId;
+          if (data.generation === session.generation && pendingPageId && data.pageId !== pendingPageId) return;
+          if (data.generation === session.generation && session.presentation?.pageIds?.includes(data.pageId)) {
+            session.presentation.activePageId = data.pageId;
+            session.presentation.pendingNavigationPageId = null;
+            renderHtmlEditPresentationRail(session);
+            syncPresentationPreviewActive(session, data.pageId);
+          }
+          return;
+        }
         if (data.type === "html_edit_ready") {
           if (Array.isArray(data.duplicates) && data.duplicates.length) {
             setStatus(t("htmlEdit.duplicateDataId"), "error");
@@ -7141,6 +7479,19 @@
             return;
           }
           session.shortcutsIntercepted = true;
+          if (data.presentation && Array.isArray(data.presentation.pages)
+            && data.presentation.pages.length
+            && typeof data.presentation.activePageId === "string"
+            && data.presentation.pages.every((page) => page && typeof page.id === "string" && page.id)) {
+            session.presentation = {
+              pages: data.presentation.pages.map((page, index) => ({ id: page.id, index: Number.isInteger(page.index) ? page.index : index + 1, title: String(page.title || ""), kind: String(page.kind || "") })),
+              pageIds: data.presentation.pages.map((page) => page.id),
+              activePageId: data.presentation.activePageId,
+              pendingNavigationPageId: null
+            };
+            renderHtmlEditPresentationRail(session);
+            scheduleRuntimeHostSync();
+          }
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
         }
@@ -8094,7 +8445,8 @@
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -9426,6 +9778,9 @@
             detached: false
           };
         }
+        if (command === "attach_html_presentation_preview_command" || command === "set_html_presentation_preview_visibility_command" || command === "close_html_presentation_preview_command" || command === "set_html_presentation_preview_active_command") {
+          return true;
+        }
         if (command === "set_html_runtime_host_visibility_command") {
           return true;
         }
@@ -9561,6 +9916,15 @@
             height: 1,
             lastGeneratedAt: new Date().toISOString(),
             errorMessage: null
+          };
+        }
+        if (command === "generate_presentation_thumbnail") {
+          return {
+            pageId: args.pageId,
+            dataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Crect width='480' height='270' fill='%23efeff2'/%3E%3C/svg%3E",
+            width: 480,
+            height: 270,
+            backend: "mock"
           };
         }
         if (command === "get_thumbnail_backend_status") {
@@ -10214,6 +10578,10 @@
       async function toggleActiveHtmlRuntimePresentationMode() {
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") return;
+        if (appState.htmlEditSession?.itemId === tab.id) {
+          setStatus("编辑模式下不可进入演示全屏", "warn");
+          return;
+        }
         const nextEnabled = appState.runtimeFullscreenItemId !== tab.id;
         clearHostFocus();
         setRuntimeFullscreenState(tab.id, nextEnabled);
@@ -10248,6 +10616,10 @@
         }
         if (action === "edit") {
           if (appState.activeTabId !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+          if (appState.htmlEditSession?.itemId === itemId) {
+            await confirmHtmlEditLeaveIfNeeded(itemId, { source: "runtime-overlay" });
+            return;
+          }
           try {
             await requestHtmlEdit(itemId);
           } catch (error) {
@@ -10657,6 +11029,7 @@
           appState.activeHtmlRuntimeUrl = tab.preview.runtimeUrl || null;
           els.viewerBody.innerHTML = `
             <section class="runtime-host-page">
+              <aside id="presentationEditRail" class="presentation-edit-rail" aria-label="演示页面"></aside>
               <section id="runtimeHostShell" class="runtime-host-shell">
                 <div id="runtimeHostMount" class="runtime-host-mount"></div>
               </section>
@@ -10799,6 +11172,11 @@
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         await setRuntimeControlsOverlayVisibility(itemId, false);
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
+        const previewSession = appState.htmlEditSession;
+        if (!options.preservePresentationPreview && previewSession?.itemId === itemId) {
+          await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId: previewSession.runtimeSessionId, generation: previewSession.generation, previewInstanceId: previewSession.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
+        }
+        if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         await setRuntimeHostVisibility(itemId, false);
       }
 
@@ -10825,7 +11203,7 @@
           cancelPendingRuntimeSurfaceHide(session.id);
           const token = nextRuntimeSurfaceToken(session.id);
           await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
-          await hideRuntimeSessionSurfaces(session.id, { force: true, token });
+          await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
         }));
         appState.runtimeSurfaceSuspendPromise = suspendPromise;
         try {
@@ -10848,6 +11226,11 @@
           }
         }
         if (appState.runtimeSurfacesSuspended) return;
+        const editSession = appState.htmlEditSession;
+        if (isCurrentHtmlEditSession(editSession) && editSession.presentation?.pages?.length) {
+          editSession.presentation.previewReady = false;
+          delete editSession.presentation.previewBoundsKey;
+        }
         scheduleRuntimeHostSync();
       }
 
@@ -10997,6 +11380,11 @@
         }
         appState.activeRuntimeHostId = tab.id;
         applyHtmlEditPatchToRuntime(tab.id).catch(() => {});
+        const editSession = appState.htmlEditSession;
+        if (editSession?.itemId === tab.id && editSession.presentation?.pages?.length) {
+          await syncHtmlEditPresentationPreview(editSession, runId);
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+        }
 
         if (appState.runtimeFullscreenItemId === tab.id) {
           await invoke("attach_html_runtime_controls_overlay_command", {
@@ -11004,6 +11392,7 @@
             bounds: runtimeFullscreenHintOverlayBounds(bounds),
             isFavorite: Boolean(tab.item?.isFavorite),
             isFullscreen: true,
+            isEditing: appState.htmlEditSession?.itemId === tab.id,
             customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
             availableTags: appState.tags,
             skillTag: tab.item?.skillBinding?.displayName ?? null,
@@ -11028,6 +11417,7 @@
           bounds: controlsBounds,
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: appState.runtimeFullscreenItemId === tab.id,
+          isEditing: appState.htmlEditSession?.itemId === tab.id,
           customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
           availableTags: appState.tags,
           skillTag: tab.item?.skillBinding?.displayName ?? null,
@@ -11789,6 +12179,14 @@
         if (!tab || (tab.preview?.fileType !== "html" && tab.preview?.fileType !== "html-runtime")) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (tab.preview?.fileType === "html-runtime" && appState.htmlEditSession?.itemId === tab.id) {
+          const session = appState.htmlEditSession;
+          const hostEditable = Boolean(event.target?.closest?.("input, textarea, select, [contenteditable='true']"));
+          if (!hostEditable && (event.key === "ArrowUp" || event.key === "ArrowDown") && session.presentation?.pageIds?.length) {
+            event.preventDefault();
+            const currentIndex = session.presentation.pageIds.indexOf(session.presentation.activePageId);
+            const pageId = session.presentation.pageIds[currentIndex + (event.key === "ArrowUp" ? -1 : 1)];
+            if (pageId && !event.repeat) selectHtmlEditPresentationPage(session, pageId);
+          }
           return;
         }
         if (tab.preview?.fileType === "html-runtime") {

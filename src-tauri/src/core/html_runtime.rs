@@ -5,9 +5,11 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::HashMap,
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
+    sync::{Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
@@ -29,6 +31,15 @@ const HTML_EDIT_LEAVE_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_LEAVE__:";
 const HTML_EDIT_LEAVE_READY_PREFIX: &str = "__NUTBOOK_HTML_EDIT_LEAVE_READY__:";
 const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 const HTML_EDIT_DEBUG_LOG_PATH: &str = "/tmp/nutbook-html-edit-debug.log";
+static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+
+fn presentation_preview_instances() -> &'static Mutex<HashMap<i64, String>> {
+    PRESENTATION_PREVIEW_INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn presentation_preview_instance_matches(item_id: i64, instance_id: &str) -> bool {
+    presentation_preview_instances().lock().ok().and_then(|instances| instances.get(&item_id).cloned()).as_deref() == Some(instance_id)
+}
 
 /// Temporary Phase 1 format-action diagnostic. This stays at the host boundary so it
 /// remains readable when a child runtime webview covers the main UI.
@@ -201,6 +212,19 @@ pub fn close_html_runtime_window(
         closed = true;
     }
 
+    let presentation_preview_label = html_presentation_preview_label(item_id);
+    if let Some(webview) = app.get_webview(&presentation_preview_label) {
+        let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }));
+        let _ = webview.hide();
+        webview.close().map_err(|_| AppError::InternalError)?;
+        closed = true;
+    }
+
     let controls_label = html_runtime_controls_label(item_id);
     if let Some(webview) = app.get_webview(&controls_label) {
         let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
@@ -278,6 +302,132 @@ pub fn set_html_runtime_host_visibility(
     Ok(true)
 }
 
+/// The presentation rail has its own read-only child WebView.  It intentionally
+/// stays separate from the editable runtime: hiding it never reloads or changes
+/// the document being edited on the right.
+pub fn set_html_presentation_preview_visibility(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    preview_instance_id: &str,
+    visible: bool,
+) -> Result<bool, AppError> {
+    if !presentation_preview_instance_matches(item_id, preview_instance_id) { return Ok(false); }
+    let label = html_presentation_preview_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+
+    if visible {
+        webview.show().map_err(|_| AppError::InternalError)?;
+    } else {
+        let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }));
+        webview.hide().map_err(|_| AppError::InternalError)?;
+    }
+    Ok(true)
+}
+
+pub fn close_html_presentation_preview(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    preview_instance_id: &str,
+) -> Result<bool, AppError> {
+    if !presentation_preview_instance_matches(item_id, preview_instance_id) { return Ok(false); }
+    let label = html_presentation_preview_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+    let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
+        x: 0.0,
+        y: 0.0,
+        width: 1.0,
+        height: 1.0,
+    }));
+    let _ = webview.hide();
+    webview.close().map_err(|_| AppError::InternalError)?;
+    if let Ok(mut instances) = presentation_preview_instances().lock() { instances.remove(&item_id); }
+    Ok(true)
+}
+
+pub fn set_html_presentation_preview_active(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    preview_instance_id: &str,
+    page_id: &str,
+    follow: bool,
+    focus: bool,
+) -> Result<bool, AppError> {
+    if !presentation_preview_instance_matches(item_id, preview_instance_id) { return Ok(false); }
+    let Some(webview) = app.get_webview(&html_presentation_preview_label(item_id)) else { return Ok(false); };
+    webview.eval(&format!("window.__NUTBOOK_PRESENTATION_PREVIEW__?.select?.({page_id:?}, {follow});"))
+        .map_err(|_| AppError::InternalError)?;
+    if focus {
+        webview.set_focus().map_err(|_| AppError::InternalError)?;
+    }
+    Ok(true)
+}
+
+pub fn attach_html_presentation_preview(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    session: &HtmlRuntimeSession,
+    bounds: RuntimeHostBounds,
+    runtime_session_id: &str,
+    generation: u64,
+    active_page_id: &str,
+    preview_instance_id: &str,
+) -> Result<bool, AppError> {
+    if preview_instance_id.is_empty() { return Err(AppError::InvalidParams); }
+    let label = html_presentation_preview_label(session.item_id);
+    presentation_preview_instances()
+        .lock()
+        .map_err(|_| AppError::InternalError)?
+        .insert(session.item_id, preview_instance_id.to_string());
+    if let Some(webview) = app.get_webview(&label) {
+        webview
+            .set_bounds(runtime_host_rect(bounds))
+            .map_err(|_| AppError::InternalError)?;
+        // Refresh the message lease when this child WebView is reused by a new
+        // editor session; source markup itself remains loaded and read-only.
+        let update_script = presentation_preview_update_script(
+            runtime_session_id,
+            generation,
+            active_page_id,
+            preview_instance_id,
+        );
+        webview.eval(&update_script).map_err(|_| AppError::InternalError)?;
+        return Ok(true);
+    }
+
+    let builder = build_presentation_preview_webview_builder(
+        app,
+        &label,
+        session,
+        runtime_session_id,
+        generation,
+        active_page_id,
+        preview_instance_id,
+    )?;
+    let webview = window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(bounds.x, bounds.y),
+            tauri::LogicalSize::new(bounds.width, bounds.height),
+        )
+        .map_err(|_| AppError::InternalError)?;
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
+    // A child must prove that it mounted usable cards before it covers the
+    // structural fallback rail in the main WebView.
+    webview.hide().map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
 pub fn attach_html_runtime_controls_overlay(
     app: &tauri::AppHandle,
     window: &tauri::Window,
@@ -285,6 +435,7 @@ pub fn attach_html_runtime_controls_overlay(
     bounds: RuntimeHostBounds,
     is_favorite: bool,
     is_fullscreen: bool,
+    is_editing: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
@@ -297,6 +448,7 @@ pub fn attach_html_runtime_controls_overlay(
         bounds,
         is_favorite,
         is_fullscreen,
+        is_editing,
         custom_tag,
         available_tags,
         skill_tag,
@@ -311,6 +463,7 @@ pub fn attach_controls_overlay(
     bounds: RuntimeHostBounds,
     is_favorite: bool,
     is_fullscreen: bool,
+    is_editing: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
@@ -325,6 +478,7 @@ pub fn attach_controls_overlay(
             item_id,
             is_favorite,
             is_fullscreen,
+            is_editing,
             custom_tag.clone(),
             available_tags.clone(),
             skill_tag.clone(),
@@ -340,6 +494,7 @@ pub fn attach_controls_overlay(
         item_id,
         is_favorite,
         is_fullscreen,
+        is_editing,
         custom_tag,
         available_tags,
         skill_tag,
@@ -790,6 +945,10 @@ pub fn html_runtime_host_label(item_id: i64) -> String {
     format!("html-host-{item_id}")
 }
 
+pub fn html_presentation_preview_label(item_id: i64) -> String {
+    format!("html-presentation-preview-{item_id}")
+}
+
 pub fn html_runtime_controls_label(item_id: i64) -> String {
     format!("html-controls-{item_id}")
 }
@@ -857,12 +1016,175 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
     )
 }
 
+fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    session: &HtmlRuntimeSession,
+    runtime_session_id: &str,
+    generation: u64,
+    active_page_id: &str,
+    preview_instance_id: &str,
+) -> Result<WebviewBuilder<R>, AppError> {
+    let webview_url = tauri::WebviewUrl::External(
+        session
+            .runtime_url
+            .parse()
+            .map_err(|_| AppError::PreviewLoadFailed)?,
+    );
+    Ok(
+        WebviewBuilder::new(label, webview_url)
+            .initialization_script(html_runtime_compatibility_script())
+            .initialization_script(&presentation_preview_init_script(
+                runtime_session_id,
+                generation,
+                active_page_id,
+                preview_instance_id,
+            ))
+            .on_new_window(detached_new_window_handler(app))
+            .on_document_title_changed(detached_embedded_fullscreen_handler(app)),
+    )
+}
+
+fn presentation_preview_update_script(
+    runtime_session_id: &str,
+    generation: u64,
+    active_page_id: &str,
+    preview_instance_id: &str,
+) -> String {
+    format!(
+        "window.__NUTBOOK_PRESENTATION_PREVIEW__?.updateSession?.({{runtimeSessionId:{runtime_session_id:?},generation:{generation},activePageId:{active_page_id:?},previewInstanceId:{preview_instance_id:?}}});"
+    )
+}
+
+fn presentation_preview_init_script(
+    runtime_session_id: &str,
+    generation: u64,
+    active_page_id: &str,
+    preview_instance_id: &str,
+) -> String {
+    format!(r#"
+(() => {{
+  const initialSession = {{ runtimeSessionId: {runtime_session_id:?}, generation: {generation}, activePageId: {active_page_id:?}, previewInstanceId: {preview_instance_id:?} }};
+  const titlePrefix = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
+  const report = async (type, pageId) => {{
+    const state = window.__NUTBOOK_PRESENTATION_PREVIEW__?.state || initialSession;
+    const payload = {{ type, pageId, runtimeSessionId: state.runtimeSessionId, generation: state.generation, previewInstanceId: state.previewInstanceId }};
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke === "function") {{
+      try {{ await invoke("html_edit_runtime_message_command", {{ payload }}); return; }} catch (_) {{}}
+    }}
+    document.title = titlePrefix + JSON.stringify(payload);
+  }};
+  const boot = async () => {{
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    if (!bridge || bridge.version !== 1 || !Array.isArray(bridge.pages) || typeof bridge.goTo !== "function") return;
+    try {{ await bridge.whenReady?.(); await bridge.setEditMode?.(true); }} catch (_) {{ return; }}
+    const pages = Array.from(document.querySelectorAll("[data-nutbook-page-id]")).filter((node) => node instanceof HTMLElement);
+    const pageIds = pages.map((page) => page.dataset.nutbookPageId || "");
+    if (!pages.length || pageIds.some((id) => !id) || new Set(pageIds).size !== pageIds.length) return;
+    const deckRoot = pages[0].closest(".deck-shell") || pages[0].parentElement || document.body;
+    const root = document.createElement("main");
+    root.id = "nutbook-presentation-preview-root";
+    root.setAttribute("aria-label", "演示页面缩略图");
+    const style = document.createElement("style");
+    style.textContent = `
+      html,body{{margin:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#f7f7f8!important;}}
+      #nutbook-presentation-preview-root{{position:relative;z-index:2147483647;box-sizing:border-box;display:grid;align-content:start;gap:8px;width:100%;height:100%;overflow:auto;padding:12px 10px;background:#f7f7f8;}}
+      .nb-preview-heading{{padding:3px 5px 4px;color:#696971;font:650 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}}
+      .nb-preview-card{{display:block;box-sizing:border-box;width:100%;height:142px!important;padding:6px;border:1px solid transparent;border-radius:8px;background:transparent;color:#25252a;cursor:pointer;overflow:hidden;text-align:initial;}}
+      .nb-preview-card:hover{{background:#eeeeF1;}} .nb-preview-card.is-active{{border-color:#222;background:#fff;}}
+      .nb-preview-stage{{position:relative;display:block;width:100%;height:104px!important;overflow:hidden;border:1px solid #dedee3;border-radius:5px;background:#fff;}}
+      .nb-preview-stage *{{pointer-events:none!important;}}
+      .nb-preview-canvas{{position:absolute;inset:0 auto auto 0;width:1024px;height:576px;transform-origin:top left;overflow:hidden;}}
+      .nb-preview-canvas.deck{{position:absolute!important;width:1024px!important;height:576px!important;aspect-ratio:16 / 9!important;}}
+      .nb-preview-canvas > [data-nutbook-page-id]{{position:absolute!important;inset:0!important;width:1024px!important;height:576px!important;display:flex!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;pointer-events:none!important;}}
+      /* The child preview is physically narrow, so source @media rules would
+         otherwise turn every cloned desktop slide into its mobile layout. */
+      .nb-preview-canvas > .slide{{padding:58px 76px 62px!important;}}
+      .nb-preview-canvas .cover-title,.nb-preview-canvas .chapter-title{{font-size:58px!important;}}
+      .nb-preview-canvas .slide-title{{font-size:40px!important;}}
+      .nb-preview-canvas .slide-content{{font-size:19px!important;}}
+      .nb-preview-placeholder{{display:grid;place-items:center;width:100%;height:100%;color:#777;font:600 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}}
+      .nb-preview-meta{{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:5px;align-items:baseline;padding:4px 2px 0;color:#25252a;font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:left;}}
+      .nb-preview-meta-index{{color:#777780;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}} .nb-preview-meta-title{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}} .nb-preview-meta-kind{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#85858c;font-size:9px;font-weight:550;}}
+    `;
+    // Exported decks often put controls beside (not inside) the deck shell.
+    // Isolate every original body node so narrow child-WebView responsive
+    // layout and native deck controls cannot leak into the thumbnail rail.
+    Array.from(document.body.children).forEach((node) => {{
+      if (node.tagName !== "SCRIPT") node.style.setProperty("display", "none", "important");
+    }});
+    document.head.append(style);
+    document.body.append(root);
+    const cards = new Map();
+    const mount = (card) => {{
+      if (card.dataset.mounted) return;
+      const source = pages.find((page) => page.dataset.nutbookPageId === card.dataset.pageId);
+      if (!source) return;
+      const stage = card.querySelector(".nb-preview-stage");
+      const canvas = document.createElement("span"); canvas.className = "nb-preview-canvas deck aspect-16-9";
+      const clone = source.cloneNode(true);
+      clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+      clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
+      canvas.append(clone); stage.replaceChildren(canvas);
+      const fit = () => {{ canvas.style.transform = `scale(${{stage.clientWidth / 1024}})`; }};
+      fit(); new ResizeObserver(fit).observe(stage);
+      card.dataset.mounted = "true";
+    }};
+    const heading = document.createElement("div"); heading.className = "nb-preview-heading"; heading.textContent = `页面 · ${{pages.length}}`; root.append(heading);
+    pages.forEach((page, index) => {{
+      const id = page.dataset.nutbookPageId;
+      const pageMeta = bridge.pages.find((entry) => entry?.id === id) || {{}};
+      const card = document.createElement("button"); card.type = "button"; card.className = "nb-preview-card"; card.dataset.pageId = id;
+      card.setAttribute("aria-label", `第 ${{index + 1}} 页`);
+      card.innerHTML = '<span class="nb-preview-stage"><span class="nb-preview-placeholder">加载页面</span></span>';
+      const meta = document.createElement("span"); meta.className = "nb-preview-meta";
+      const metaIndex = document.createElement("span"); metaIndex.className = "nb-preview-meta-index"; metaIndex.textContent = String(pageMeta.index || index + 1);
+      const metaTitle = document.createElement("span"); metaTitle.className = "nb-preview-meta-title"; metaTitle.textContent = String(pageMeta.title || "未命名页面");
+      const metaKind = document.createElement("span"); metaKind.className = "nb-preview-meta-kind"; metaKind.textContent = String(pageMeta.kind || "presentation");
+      meta.append(metaIndex, metaTitle, metaKind); card.append(meta);
+      card.addEventListener("click", () => {{ card.blur(); report("html_edit_presentation_preview_clicked", id); }});
+      root.append(card); cards.set(id, card);
+    }});
+    const observer = new IntersectionObserver((entries) => entries.forEach((entry) => {{ if (entry.isIntersecting) mount(entry.target); }}), {{ root, rootMargin: "360px 0px" }});
+    cards.forEach((card) => observer.observe(card));
+    Array.from(cards.values()).slice(0, 4).forEach(mount);
+    let manualScrollUntil = 0;
+    const keepCardVisible = (card) => {{
+      if (!card || performance.now() < manualScrollUntil) return;
+      const top = card.offsetTop, bottom = top + card.offsetHeight;
+      const viewTop = root.scrollTop, viewBottom = viewTop + root.clientHeight;
+      if (top < viewTop) root.scrollTop = Math.max(0, top - 8);
+      else if (bottom > viewBottom) root.scrollTop = Math.max(0, bottom - root.clientHeight + 8);
+    }};
+    root.addEventListener("wheel", () => {{ manualScrollUntil = performance.now() + 650; }}, {{ passive: true }});
+    root.addEventListener("touchmove", () => {{ manualScrollUntil = performance.now() + 650; }}, {{ passive: true }});
+    const select = (id, follow = false) => {{
+      cards.forEach((card, pageId) => card.classList.toggle("is-active", pageId === id));
+      if (follow) keepCardVisible(cards.get(id));
+    }};
+    try {{ select(initialSession.activePageId || await bridge.getActivePageId?.()); bridge.subscribe?.((id) => select(id)); }} catch (_) {{}}
+    document.addEventListener("keydown", (event) => {{
+      if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      report("html_edit_presentation_preview_navigate", event.key === "ArrowUp" ? "previous" : "next");
+    }}, true);
+    window.__NUTBOOK_PRESENTATION_PREVIEW__ = {{ state: initialSession, updateSession(next) {{ this.state = next; select(next.activePageId); report("html_edit_presentation_preview_ready", next.activePageId); }}, select }};
+    report("html_edit_presentation_preview_ready", initialSession.activePageId);
+  }};
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, {{ once: true }}); else boot();
+}})();
+"#)
+}
+
 fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
     item_id: i64,
     is_favorite: bool,
     is_fullscreen: bool,
+    is_editing: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
@@ -873,6 +1195,7 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
         item_id,
         is_favorite,
         is_fullscreen,
+        is_editing,
         custom_tag,
         available_tags,
         skill_tag,
@@ -1387,6 +1710,7 @@ fn html_runtime_controls_overlay_init_script(
     item_id: i64,
     is_favorite: bool,
     is_fullscreen: bool,
+    is_editing: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
@@ -1397,9 +1721,10 @@ fn html_runtime_controls_overlay_init_script(
     let skill_tag_json = serde_json::to_string(&skill_tag).unwrap_or_else(|_| "null".to_string());
     let type_tag_json = serde_json::to_string(&type_tag).unwrap_or_else(|_| "null".to_string());
     format!(
-        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json} }};",
+        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json} }};",
         if is_favorite { "true" } else { "false" },
-        if is_fullscreen { "true" } else { "false" }
+        if is_fullscreen { "true" } else { "false" },
+        if is_editing { "true" } else { "false" }
     )
 }
 
@@ -1465,6 +1790,7 @@ fn html_runtime_controls_overlay_update_script(
     item_id: i64,
     is_favorite: bool,
     is_fullscreen: bool,
+    is_editing: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
@@ -1475,9 +1801,10 @@ fn html_runtime_controls_overlay_update_script(
     let skill_tag_json = serde_json::to_string(&skill_tag).unwrap_or_else(|_| "null".to_string());
     let type_tag_json = serde_json::to_string(&type_tag).unwrap_or_else(|_| "null".to_string());
     format!(
-        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json} }});",
+        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json} }});",
         if is_favorite { "true" } else { "false" },
-        if is_fullscreen { "true" } else { "false" }
+        if is_fullscreen { "true" } else { "false" },
+        if is_editing { "true" } else { "false" }
     )
 }
 
@@ -1487,8 +1814,8 @@ mod tests {
 
     use super::{
         html_edit_toolbar_label, html_edit_toolbar_update_script, html_runtime_compatibility_script,
-        html_runtime_shortcut_script, html_runtime_window_label, HTML_EDIT_RUNTIME_ACTION_PREFIX,
-        HtmlRuntimeSession,
+        html_runtime_shortcut_script, html_runtime_window_label, presentation_preview_init_script,
+        presentation_preview_update_script, HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlRuntimeSession,
     };
 
     fn html_item() -> ItemDetail {
@@ -1569,6 +1896,23 @@ mod tests {
     #[test]
     fn html_edit_toolbar_label_is_stable() {
         assert_eq!(html_edit_toolbar_label(7), "html-edit-toolbar-7");
+    }
+
+    #[test]
+    fn presentation_preview_scripts_keep_the_editor_lease_and_scaled_canvas() {
+        let init = presentation_preview_init_script("html-edit-42-1", 7, "nutbook-page-003", "preview-1");
+        let update = presentation_preview_update_script("html-edit-42-2", 8, "nutbook-page-004", "preview-2");
+
+        assert!(init.contains("html-edit-42-1"));
+        assert!(init.contains("nutbook-page-003"));
+        assert!(init.contains("preview-1"));
+        assert!(init.contains("html_edit_presentation_preview_clicked"));
+        assert!(init.contains("html_edit_presentation_preview_navigate"));
+        assert!(init.contains("nb-preview-canvas"));
+        assert!(init.contains("scale("));
+        assert!(update.contains("html-edit-42-2"));
+        assert!(update.contains("nutbook-page-004"));
+        assert!(update.contains("preview-2"));
     }
 
     #[test]

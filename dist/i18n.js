@@ -200,6 +200,7 @@
       },
       htmlEdit: {
         edit: "编辑",
+        exit: "退出编辑",
         toolbar: "HTML 编辑工具栏",
         save: "保存",
         done: "完成",
@@ -605,6 +606,7 @@
       },
       htmlEdit: {
         edit: "Edit",
+        exit: "Exit editing",
         toolbar: "HTML Edit Toolbar",
         save: "Save",
         done: "Done",

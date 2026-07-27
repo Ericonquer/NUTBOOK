@@ -6,7 +6,7 @@
   "scripts": {
     "build:frontend": "vite build --config vite.config.mjs && node scripts/patch-markdown-editor-bundle.mjs",
     "check:frontend": "node --check dist/assets/markdown-editor.js",
-    "check:regressions": "node scripts/test-html-edit-image-acceptance-artifact.mjs && node scripts/test-html-edit-converter.mjs && node scripts/test-html-edit-free-image-runtime.mjs && node scripts/test-regressions.mjs",
+    "check:regressions": "node scripts/test-html-edit-image-acceptance-artifact.mjs && node scripts/test-html-edit-converter.mjs && node scripts/test-html-edit-free-image-runtime.mjs && node scripts/test-html-edit-presentation-runtime.mjs && node scripts/test-regressions.mjs",
     "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
