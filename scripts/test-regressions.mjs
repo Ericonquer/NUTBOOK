@@ -9,6 +9,7 @@ const htmlEditToolbar = readFileSync("dist/html-edit-toolbar.html", "utf8");
 const runtimeOverlay = readFileSync("dist/runtime-overlay.html", "utf8");
 const markdownEditor = readFileSync("src/markdown-editor.js", "utf8");
 const htmlEditRuntime = readFileSync("dist/assets/html-edit-runtime.js", "utf8");
+const htmlEditConverter = readFileSync("dist/assets/html-edit-converter.js", "utf8");
 const richTextFixture = readFileSync("src-tauri/tests/fixtures/html-edit/editable-rich-text.html", "utf8");
 const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8");
 const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
@@ -38,6 +39,18 @@ assert.match(htmlRuntimeRust, /manualScrollUntil[\s\S]*?wheel/, "manual rail scr
 assert.match(htmlRuntimeRust, /select = \(id, follow = false\)[\s\S]*?if \(follow\) keepCardVisible/, "only an explicit navigation intent may auto-follow the active preview card");
 assert.match(htmlRuntimeRust, /Array\.from\(document\.body\.children\)[\s\S]*?display", "none"/, "preview boot must isolate exported deck controls outside the deck shell");
 assert.match(htmlRuntimeRust, /document\.addEventListener\("keydown"[\s\S]*?ArrowDown[\s\S]*?html_edit_presentation_preview_navigate/, "a focused preview rail must relay vertical navigation without taking over presentation shortcuts");
+assert.match(htmlEditConverter, /function detectVerticalStructure[\s\S]*?data-nutbook-structure-profile[\s\S]*?vertical-sections-v1/, "ordinary vertical HTML conversion must write inert structure metadata into its detached clone");
+assert.doesNotMatch(htmlEditConverter, /__NUTBOOK_PRESENTATION__\s*=/, "the converter must never inject or simulate a full presentation bridge");
+assert.match(htmlEditRuntime, /function activateSectionNavigationAdapter[\s\S]*?STATE\.presentation[\s\S]*?data-nutbook-structure-profile/, "section navigation must remain an adapter distinct from presentation control");
+assert.match(htmlEditRuntime, /function sectionScrollRoot[\s\S]*?overflowY[\s\S]*?scrollHeight[\s\S]*?document\.scrollingElement/, "section navigation must validate one explicit document or element scroll root");
+assert.match(htmlEditRuntime, /function goToSection[\s\S]*?itemId[\s\S]*?runtimeSessionId[\s\S]*?generation[\s\S]*?requestId/, "section navigation commands must carry full session and request identity");
+assert.doesNotMatch(htmlEditRuntime, /background:#(?:f8f8f9|f3f3f5)(?:!important)?/, "edit focus affordance must not force a light background over source text");
+assert.match(htmlEditRuntime, /function onCompositionStart\(\) \{ STATE\.composing = true; \}/, "plain and rich text must both suspend mutation bookkeeping during IME composition");
+assert.doesNotMatch(runtimeSection("onKeyDownCapture", "isEditableEventTarget"), /const blocked = \[/, "ordinary and section HTML editing must not globally swallow source navigation keys");
+assert.match(indexHtml, /function renderHtmlEditSectionNavigationRail[\s\S]*?sectionNavigationRail/, "converted section navigation must use its own host rail renderer and DOM boundary");
+assert.match(indexHtml, /isStrictRuntimeMessage[\s\S]*?Number\(data\.itemId\) !== session\.itemId[\s\S]*?Number\(data\.generation\) !== session\.generation/, "section and ready messages must be rejected before handling when their item or generation is stale");
+assert.match(indexHtml, /function refreshHtmlEditSectionNavigation[\s\S]*?sectionNavigationEpoch[\s\S]*?refreshSectionNavigation/, "restoring or resizing must refresh section geometry under a monotonic epoch");
+assert.match(i18n, /sectionNavigationTitle: "页面导航"[\s\S]*?sectionNavigationFailed:/, "section navigation host UI must use a user-facing navigation label");
 
 function runtimeSection(name, nextName) {
   const start = htmlEditRuntime.indexOf(`  function ${name}`);
@@ -361,8 +374,8 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /function emitHostMessage\(payload\) \{[\s\S]*?window\.__TAURI_INTERNALS__\?\.invoke[\s\S]*?invoke\("html_edit_runtime_message_command", \{ payload \}\)/,
-  "runtime messages must use Tauri IPC so formatted HTML is never encoded in document.title"
+  /function emitHostMessage\(payload\) \{[\s\S]*?itemId: STATE\.itemId[\s\S]*?runtimeSessionId: STATE\.sessionId[\s\S]*?generation: STATE\.generation[\s\S]*?invoke\("html_edit_runtime_message_command", \{ payload: message \}\)/,
+  "runtime messages must use Tauri IPC with immutable item/session/generation identity so formatted HTML is never encoded in document.title"
 );
 assert.match(
   htmlEditRuntime,
@@ -580,13 +593,13 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /window\.addEventListener\("focus", \(\) => \{\n          if \(!document\.hidden\) scheduleRuntimeHostSync\(\);\n        \}\);/,
-  "restoring a macOS window must re-sync the child runtime after the host regains focus"
+  /window\.addEventListener\("focus", \(\) => \{[\s\S]*?if \(!document\.hidden\) \{[\s\S]*?scheduleRuntimeHostSync\(\);[\s\S]*?refreshHtmlEditSectionNavigation\(\);/,
+  "restoring a macOS window must re-sync the child runtime and section geometry after the host regains focus"
 );
 assert.match(
   indexHtml,
-  /window\.addEventListener\("resize", \(\) => \{\n          if \(!document\.hidden\) scheduleRuntimeHostSync\(\);\n        \}\);/,
-  "a restored host layout must re-sync the child runtime bounds after resize"
+  /window\.addEventListener\("resize", \(\) => \{[\s\S]*?if \(!document\.hidden\) \{[\s\S]*?scheduleRuntimeHostSync\(\);[\s\S]*?refreshHtmlEditSectionNavigation\(\);/,
+  "a restored host layout must re-sync child runtime bounds and section geometry after resize"
 );
 
 const runtimeHostSync = indexHtml.match(/async function syncActiveRuntimeHost\(runId = null\) \{([\s\S]*?)\n      \}/);
@@ -736,8 +749,32 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative.*outline-color:#a99f9f;background:#f3f3f5.*outline-color:#000;box-shadow:0 4px 12px/,
-  "editing affordances must use the monochrome DESIGN.md dashed outline, off-white hover, black focus, and no visual role badge"
+  /outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative.*outline-color:#a99f9f.*outline-color:currentColor;box-shadow:0 4px 12px/,
+  "editing affordances must preserve source colors while using a monochrome dashed outline and inherited focus color"
+);
+assert.match(
+  indexHtml,
+  /function waitForHtmlRuntimeOverlayPriority[\s\S]*?runtimeHostSyncInFlight[\s\S]*?runtimeHostSyncFrame[\s\S]*?runtimeHostSyncPending[\s\S]*?function showHtmlEditCreateCopyConfirmOverlay[\s\S]*?waitForHtmlRuntimeOverlayPriority[\s\S]*?attach_html_edit_leave_confirm_overlay_command/,
+  "create-copy confirmation must wait for child WebView synchronization before attaching the full-window host overlay"
+);
+const overlayPrioritySection = indexHtml.match(
+  /async function waitForHtmlRuntimeOverlayPriority\(itemId\) \{([\s\S]*?)\n      \}/
+);
+assert.ok(overlayPrioritySection, "runtime overlay priority coordinator must exist");
+assert.doesNotMatch(
+  overlayPrioritySection[1],
+  /hideRuntimeSessionSurfaces|setRuntimeHostVisibility/,
+  "blocking overlays must preserve the visible HTML page behind the confirmation scrim"
+);
+assert.match(
+  indexHtml,
+  /function waitForHtmlEditableRuntimeDocument\(itemId, runtimeSessionId, generation, isCurrent\)[\s\S]*?document\.readyState !== "complete"[\s\S]*?\[data-editable\]\[data-id\][\s\S]*?html_edit_runtime_document_ready[\s\S]*?runtimeSessionId[\s\S]*?generation/,
+  "fresh editable copies must complete a real document and protocol readiness handshake before runtime injection"
+);
+assert.match(
+  indexHtml,
+  /create-copy-choice[\s\S]*?htmlEditCreateCopyPromptItemId !== itemId[\s\S]*?getActiveTab\(\)\?\.id !== itemId[\s\S]*?await closeHtmlEditLeaveConfirmOverlay\(itemId\)[\s\S]*?getActiveTab\(\)\?\.id !== itemId[\s\S]*?createEditableCopyForActiveHtml\(itemId\)/,
+  "late create-copy overlay actions must be rejected before and after closing the prompt"
 );
 assert.doesNotMatch(
   htmlEditRuntime,
@@ -794,8 +831,8 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /function onCompositionEnd\(event\) \{[\s\S]*?STATE\.composing = false;[\s\S]*?commitDocumentMutation\(element\)[\s\S]*?function onInput\(event\) \{[\s\S]*?if \(STATE\.composing\) return;/,
-  "rich IME composition must defer its one document transaction until composition ends"
+  /function onCompositionStart\(\) \{ STATE\.composing = true; \}[\s\S]*?function onCompositionEnd\(event\) \{ STATE\.composing = false; commitDocumentMutation\(event\.currentTarget\); \}[\s\S]*?function onInput\(event\) \{[\s\S]*?if \(STATE\.composing\) return;/,
+  "plain and rich IME composition must defer their one document transaction until composition ends"
 );
 assert.doesNotMatch(
   htmlEditRuntime,

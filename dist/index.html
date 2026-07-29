@@ -2792,6 +2792,11 @@
         min-width: 0;
       }
 
+      .runtime-host-page.section-navigation-editing {
+        display: flex;
+        min-width: 0;
+      }
+
       .presentation-edit-rail {
         display: none;
         width: 224px;
@@ -2808,6 +2813,25 @@
         align-content: start;
         gap: 6px;
       }
+
+      .section-navigation-rail {
+        display: none;
+        width: 224px;
+        flex: 0 0 224px;
+        box-sizing: border-box;
+        overflow: auto;
+        padding: 12px 10px;
+        border-right: 1px solid #e4e4e8;
+        background: #f7f7f8;
+      }
+
+      .runtime-host-page.section-navigation-editing .section-navigation-rail {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+
+      .runtime-host-page.section-navigation-editing .runtime-host-shell { flex: 1 1 auto; min-width: 0; }
 
       .presentation-edit-rail-title {
         padding: 3px 5px 8px;
@@ -2833,6 +2857,7 @@
 
       .presentation-edit-page:hover { background: #eeeeF1; }
       .presentation-edit-page.is-active { border-color: #222; background: #fff; }
+      .presentation-edit-page.is-pending { opacity: .62; }
       .presentation-edit-page-thumbnail { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #dedee3; border-radius: 5px; background: linear-gradient(135deg, #ededf0, #f8f8fa); }
       .presentation-edit-page-thumbnail.is-structure { display: grid; align-content: center; gap: 4px; padding: 10px; box-sizing: border-box; background: #fff; color: #2a2a2f; font-size: 13px; font-weight: 700; line-height: 1.2; }
       .presentation-edit-page-thumbnail.is-structure small { color: #85858c; font-size: 10px; font-weight: 600; }
@@ -5060,9 +5085,11 @@
         htmlEditToolbarSyncPending: false,
         htmlEditDirtyLeaveIntent: null,
         htmlEditLeavePromptOpen: false,
+        htmlEditCreateCopyPromptItemId: null,
         htmlEditMarkSavedWaiters: new Map(),
         htmlEditStateRefreshWaiters: new Map(),
         htmlEditCleanRevisionWaiters: new Map(),
+        htmlEditRuntimeDocumentReadyWaiters: new Map(),
         activeLibraryId: null,
         activeTabId: null,
         activeTagFilterIds: [],
@@ -6236,9 +6263,75 @@
         };
       }
 
-      function closeHtmlEditLeaveConfirmOverlay(itemId) {
+      function isHtmlEditBlockingOverlayForItem(itemId) {
+        return appState.htmlEditCreateCopyPromptItemId === itemId
+          || Boolean(
+            appState.htmlEditLeavePromptOpen
+            && appState.htmlEditDirtyLeaveIntent?.itemId === itemId
+          );
+      }
+
+      async function waitForHtmlRuntimeOverlayPriority(itemId) {
+        if (itemId == null) return false;
+        cancelPendingRuntimeSurfaceHide(itemId);
+        nextRuntimeSurfaceToken(itemId);
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (
+            getActiveTab()?.id !== itemId
+            || !isHtmlEditBlockingOverlayForItem(itemId)
+          ) return false;
+          if (
+            !appState.runtimeHostSyncInFlight
+            && !appState.runtimeHostSyncFrame
+            && !appState.runtimeHostSyncPending
+          ) return true;
+          await new Promise((resolve) => window.setTimeout(resolve, 20));
+        }
+        return false;
+      }
+
+      async function restoreHtmlRuntimeAfterBlockingOverlay(itemId) {
+        const activeTab = getActiveTab();
+        if (
+          activeTab?.id !== itemId
+          || activeTab.preview?.fileType !== "html-runtime"
+          || appState.runtimeSurfacesSuspended
+          || isHtmlEditBlockingOverlayForItem(itemId)
+        ) return;
+        await setRuntimeHostVisibility(itemId, true);
+        scheduleRuntimeHostSync();
+      }
+
+      async function closeHtmlEditLeaveConfirmOverlay(itemId) {
         if (itemId == null) return;
-        invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+        await invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+        if (appState.htmlEditCreateCopyPromptItemId === itemId) {
+          appState.htmlEditCreateCopyPromptItemId = null;
+        }
+        await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+      }
+
+      async function showHtmlEditCreateCopyConfirmOverlay(itemId) {
+        if (getActiveTab()?.id !== itemId) return false;
+        appState.htmlEditCreateCopyPromptItemId = itemId;
+        try {
+          const ready = await waitForHtmlRuntimeOverlayPriority(itemId);
+          if (!ready || getActiveTab()?.id !== itemId || appState.htmlEditCreateCopyPromptItemId !== itemId) return false;
+          await invoke("attach_html_edit_leave_confirm_overlay_command", {
+            payload: {
+              itemId,
+              bounds: htmlEditLeaveConfirmBounds(),
+              mode: "create-copy"
+            }
+          });
+          return true;
+        } catch (error) {
+          if (appState.htmlEditCreateCopyPromptItemId === itemId) {
+            appState.htmlEditCreateCopyPromptItemId = null;
+          }
+          await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+          throw error;
+        }
       }
 
       function htmlEditStateRefreshWaiterKey(runtimeSessionId, requestId) {
@@ -6321,6 +6414,8 @@
         };
         appState.htmlEditLeavePromptOpen = true;
         try {
+          const ready = await waitForHtmlRuntimeOverlayPriority(session.itemId);
+          if (!ready) throw new Error("HTML 确认层未能取得前景");
           await invoke("attach_html_edit_leave_confirm_overlay_command", {
             payload: {
               itemId: session.itemId,
@@ -6331,6 +6426,7 @@
           if (appState.htmlEditDirtyLeaveIntent?.runtimeSessionId !== session.runtimeSessionId) return;
           appState.htmlEditDirtyLeaveIntent = null;
           appState.htmlEditLeavePromptOpen = false;
+          await restoreHtmlRuntimeAfterBlockingOverlay(session.itemId);
           setStatus(htmlEditSaveErrorStatus(error), "error");
           syncHtmlEditToolbar().catch(() => {});
           throw error;
@@ -6645,6 +6741,55 @@
         return false;
       }
 
+      async function waitForHtmlEditableRuntimeDocument(itemId, runtimeSessionId, generation, isCurrent) {
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (!isCurrent()) return false;
+          const requestId = `html-edit-document-ready-${itemId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const ready = await new Promise((resolve) => {
+            const finish = (accepted) => {
+              appState.htmlEditRuntimeDocumentReadyWaiters.delete(requestId);
+              resolve(Boolean(accepted));
+            };
+            const timeoutId = window.setTimeout(() => finish(false), 120);
+            appState.htmlEditRuntimeDocumentReadyWaiters.set(requestId, (data) => {
+              window.clearTimeout(timeoutId);
+              finish(
+                Number(data?.itemId) === itemId
+                && data?.runtimeSessionId === runtimeSessionId
+                && Number(data?.generation) === generation
+              );
+            });
+            invoke("eval_html_runtime_script_command", {
+              itemId,
+              script: `(function () {
+                if (
+                  location.href === "about:blank"
+                  || document.readyState !== "complete"
+                  || !document.querySelector("[data-editable][data-id]")
+                ) return;
+                const payload = {
+                  type: "html_edit_runtime_document_ready",
+                  itemId: ${itemId},
+                  requestId: ${JSON.stringify(requestId)},
+                  runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                  generation: ${generation}
+                };
+                const invoke = window.__TAURI_INTERNALS__?.invoke;
+                if (typeof invoke === "function") {
+                  Promise.resolve(invoke("html_edit_runtime_message_command", { payload })).catch(function () {});
+                }
+              })();`
+            }).catch(() => {
+              window.clearTimeout(timeoutId);
+              finish(false);
+            });
+          });
+          if (ready) return true;
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+        }
+        return false;
+      }
+
       async function createEditableCopyForActiveHtml(itemId) {
         const tab = getOpenTab(itemId);
         if (!tab || tab.preview?.fileType !== "html-runtime") throw new Error("HTML 预览已不再可用");
@@ -6877,6 +7022,125 @@
         prefetchPresentationThumbnails(session);
       }
 
+      async function navigateHtmlEditSection(session, pageId, requestId) {
+        if (!isCurrentHtmlEditSession(session) || !session.sectionNavigation?.pageIds?.includes(pageId)) return false;
+        const payload = {
+          itemId: session.itemId,
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          pageId,
+          requestId,
+          requestEpoch: session.sectionNavigationEpoch
+        };
+        return Boolean(await invoke("eval_html_runtime_script_command", {
+          itemId: session.itemId,
+          script: `;(function(payload){let accepted=false;try{accepted=Boolean(window.__NUTBOOK_HTML_EDIT__?.goToSection(payload));}catch(_){}if(!accepted)window.__NUTBOOK_HTML_EDIT__?.emitHostMessage?.({type:"html_edit_section_navigation_result",requestId:payload.requestId,pageId:payload.pageId,requestEpoch:payload.requestEpoch,ok:false,reason:"rejected"});})(${JSON.stringify(payload)});`
+        }).catch(() => false));
+      }
+
+      function selectHtmlEditSection(session, pageId) {
+        const navigation = session.sectionNavigation;
+        if (!isCurrentHtmlEditSession(session) || !navigation?.pageIds?.includes(pageId) || navigation.pendingRequestId || navigation.activePageId === pageId) return;
+        const requestId = `section-${session.generation}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        navigation.pendingRequestId = requestId;
+        navigation.pendingPageId = pageId;
+        renderHtmlEditSectionNavigationRail(session);
+        navigateHtmlEditSection(session, pageId, requestId).then((applied) => {
+          if (!applied && isCurrentHtmlEditSession(session) && navigation.pendingRequestId === requestId) {
+            navigation.pendingRequestId = null;
+            navigation.pendingPageId = null;
+            renderHtmlEditSectionNavigationRail(session);
+            setStatus(t("htmlEdit.sectionNavigationFailed"), "warn");
+          }
+        });
+      }
+
+      function applyHtmlEditSectionNavigationReady(session, snapshot, requestEpoch = null) {
+        if (!isCurrentHtmlEditSession(session) || !snapshot || !Array.isArray(snapshot.pages) || snapshot.pages.length < 2) return false;
+        const pages = snapshot.pages.map((page, index) => ({
+          id: String(page?.id || ""),
+          index: Number.isInteger(page?.index) ? page.index : index + 1,
+          title: String(page?.title || ""),
+          kind: page?.kind === "scroll-snap" ? "scroll-snap" : "section"
+        }));
+        const pageIds = pages.map((page) => page.id);
+        if (pageIds.some((id) => !id) || new Set(pageIds).size !== pageIds.length || !pageIds.includes(snapshot.activePageId)) return false;
+        const epoch = Number.isInteger(requestEpoch) ? requestEpoch : Number.isInteger(snapshot.requestEpoch) ? snapshot.requestEpoch : session.sectionNavigationEpoch;
+        if (epoch < session.sectionNavigationEpoch) return false;
+        session.sectionNavigationEpoch = epoch;
+        session.sectionNavigation = {
+          pages,
+          pageIds,
+          activePageId: snapshot.activePageId,
+          pendingRequestId: null,
+          pendingPageId: null
+        };
+        renderHtmlEditSectionNavigationRail(session);
+        return true;
+      }
+
+      function renderHtmlEditSectionNavigationRail(session = appState.htmlEditSession) {
+        const page = document.querySelector(".runtime-host-page");
+        const rail = document.getElementById("sectionNavigationRail");
+        if (!page || !rail) return;
+        if (!isCurrentHtmlEditSession(session) || !session.sectionNavigation?.pages?.length) {
+          page.classList.remove("section-navigation-editing");
+          rail.replaceChildren();
+          return;
+        }
+        page.classList.add("section-navigation-editing");
+        const previousScrollTop = rail.scrollTop;
+        rail.replaceChildren();
+        const heading = document.createElement("div");
+        heading.className = "presentation-edit-rail-title";
+        heading.textContent = `${t("htmlEdit.sectionNavigationTitle")} · ${session.sectionNavigation.pages.length}`;
+        rail.append(heading);
+        for (const section of session.sectionNavigation.pages) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "presentation-edit-page";
+          button.classList.toggle("is-active", section.id === session.sectionNavigation.activePageId);
+          button.classList.toggle("is-pending", section.id === session.sectionNavigation.pendingPageId);
+          button.setAttribute("aria-current", section.id === session.sectionNavigation.activePageId ? "location" : "false");
+          const meta = document.createElement("span");
+          meta.className = "presentation-edit-page-meta";
+          const index = document.createElement("span");
+          index.className = "presentation-edit-page-index";
+          index.textContent = String(section.index).padStart(2, "0");
+          const copy = document.createElement("span");
+          copy.className = "presentation-edit-page-copy";
+          const title = document.createElement("span");
+          title.className = "presentation-edit-page-title";
+          title.textContent = section.title || `第 ${section.index} 段`;
+          const kind = document.createElement("span");
+          kind.className = "presentation-edit-page-kind";
+          kind.textContent = section.kind;
+          copy.append(title, kind);
+          meta.append(index, copy);
+          button.append(meta);
+          button.addEventListener("click", () => selectHtmlEditSection(session, section.id));
+          rail.append(button);
+        }
+        rail.scrollTop = previousScrollTop;
+      }
+
+      function refreshHtmlEditSectionNavigation(session = appState.htmlEditSession) {
+        if (!isCurrentHtmlEditSession(session) || !session.sectionNavigation) return;
+        const requestEpoch = ++session.sectionNavigationEpoch;
+        const script = `window.__NUTBOOK_HTML_EDIT__?.refreshSectionNavigation(${JSON.stringify({
+          itemId: session.itemId,
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          requestEpoch
+        })});`;
+        const apply = (remainingAttempts) => invoke("eval_html_runtime_script_command", { itemId: session.itemId, script }).then((applied) => {
+          if (!applied && remainingAttempts > 0 && isCurrentHtmlEditSession(session) && session.sectionNavigationEpoch === requestEpoch) {
+            window.setTimeout(() => apply(remainingAttempts - 1), 80);
+          }
+        }).catch(() => false);
+        apply(2);
+      }
+
       async function injectHtmlEditRuntime(itemId, runtimeSessionId, patchResponse, isCurrent) {
         if (!isCurrent()) return false;
         const runtimeScript = await loadHtmlEditRuntimeScript();
@@ -6899,6 +7163,7 @@
               if (window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ !== ${JSON.stringify(runtimeSessionId)}) return;
               if (window.__NUTBOOK_HTML_EDIT__) {
                 window.__NUTBOOK_HTML_EDIT__.enter(${JSON.stringify({
+                  itemId,
                   runtimeSessionId,
                   patch: patchResponse.patch || null,
                   patchApplyStatus: patchResponse.patchApplyStatus,
@@ -6918,7 +7183,9 @@
                 window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
                 document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
                   type: "html_edit_ready",
+                  itemId: ${itemId},
                   runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                  generation: ${appState.htmlEditSession?.runtimeSessionId === runtimeSessionId ? appState.htmlEditSession.generation : 0},
                   count: 0,
                   duplicates: [],
                   shortcutsIntercepted: false
@@ -6984,13 +7251,28 @@
           persistedChanges: response.patch?.changes && typeof response.patch.changes === "object" ? structuredClone(response.patch.changes) : {},
           shortcutsIntercepted: false,
           inlineToolbar: true,
-          presentation: null
+          presentation: null,
+          sectionNavigation: null,
+          sectionNavigationEpoch: 0
         };
         const session = appState.htmlEditSession;
         const isCurrent = () => isCurrentHtmlEditSession(session);
         try {
           if (!isCurrent()) {
             await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+            return;
+          }
+          const documentReady = await waitForHtmlEditableRuntimeDocument(
+            itemId,
+            runtimeSessionId,
+            generation,
+            isCurrent
+          );
+          if (!documentReady || !isCurrent()) {
+            await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+            if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
+              appState.htmlEditSession = null;
+            }
             return;
           }
           const injected = await injectHtmlEditRuntime(itemId, runtimeSessionId, response, isCurrent);
@@ -7367,6 +7649,7 @@
         closeHtmlEditLeaveConfirmOverlay(itemId);
         if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
         renderHtmlEditPresentationRail(null);
+        renderHtmlEditSectionNavigationRail(null);
         scheduleRuntimeHostSync();
         appState.htmlEditToolbarVisible = false;
         appState.htmlEditToolbarSyncPending = false;
@@ -7383,6 +7666,15 @@
 
       window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__ = function handleHtmlEditRuntimeMessage(data) {
         if (!data || typeof data !== "object") return;
+        if (data.type === "html_edit_runtime_document_ready") {
+          const requestId = String(data.requestId || "");
+          const resolveReady = appState.htmlEditRuntimeDocumentReadyWaiters.get(requestId);
+          if (resolveReady) {
+            appState.htmlEditRuntimeDocumentReadyWaiters.delete(requestId);
+            resolveReady(data);
+          }
+          return;
+        }
         if (data.type === "html_edit_conversion_probe") {
           const itemId = Number(data.sourceItemId);
           if (getActiveTab()?.id !== itemId) return;
@@ -7394,7 +7686,9 @@
             script: "if(window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__!==undefined){document.title=window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__;delete window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__;}"
           }).catch(() => false);
           if (data.hasProtocol) enterHtmlEditMode(itemId).catch((error) => console.warn("[html-edit] protocol entry failed", normalizeError(error)));
-          else invoke("attach_html_edit_leave_confirm_overlay_command", { payload: { itemId, bounds: htmlEditLeaveConfirmBounds(), mode: "create-copy" } });
+          else showHtmlEditCreateCopyConfirmOverlay(itemId).catch((error) => {
+            console.warn("[html-edit] create-copy prompt failed", normalizeError(error));
+          });
           return;
         }
         if (data.type === "html_edit_conversion_result") {
@@ -7419,6 +7713,32 @@
         const session = appState.htmlEditSession;
         if (!session || session.runtimeSessionId !== data.runtimeSessionId) return;
         if (!isCurrentHtmlEditSession(session)) return;
+        const isStrictRuntimeMessage = data.type === "html_edit_ready" || String(data.type || "").startsWith("html_edit_section_navigation_");
+        if (isStrictRuntimeMessage && (Number(data.itemId) !== session.itemId || Number(data.generation) !== session.generation)) return;
+        if (data.type === "html_edit_section_navigation_ready") {
+          applyHtmlEditSectionNavigationReady(session, data.sectionNavigation, Number(data.requestEpoch));
+          return;
+        }
+        if (data.type === "html_edit_section_navigation_changed") {
+          const navigation = session.sectionNavigation;
+          if (!navigation || Number(data.requestEpoch) !== session.sectionNavigationEpoch || !navigation.pageIds.includes(data.pageId)) return;
+          if (navigation.pendingRequestId && navigation.pendingPageId !== data.pageId) return;
+          if (!navigation.pendingRequestId) {
+            navigation.activePageId = data.pageId;
+            renderHtmlEditSectionNavigationRail(session);
+          }
+          return;
+        }
+        if (data.type === "html_edit_section_navigation_result") {
+          const navigation = session.sectionNavigation;
+          if (!navigation || Number(data.requestEpoch) !== session.sectionNavigationEpoch || data.requestId !== navigation.pendingRequestId || data.pageId !== navigation.pendingPageId) return;
+          navigation.pendingRequestId = null;
+          navigation.pendingPageId = null;
+          if (data.ok === true && navigation.pageIds.includes(data.pageId)) navigation.activePageId = data.pageId;
+          else setStatus(t("htmlEdit.sectionNavigationFailed"), "warn");
+          renderHtmlEditSectionNavigationRail(session);
+          return;
+        }
         if (data.type === "html_edit_presentation_preview_ready") {
           if (data.generation === session.generation && data.previewInstanceId === session.presentation?.previewInstanceId && session.presentation?.pageIds?.includes(data.pageId)) {
             session.presentation.previewReady = true;
@@ -7492,6 +7812,7 @@
             renderHtmlEditPresentationRail(session);
             scheduleRuntimeHostSync();
           }
+          if (data.sectionNavigation) applyHtmlEditSectionNavigationReady(session, data.sectionNavigation);
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
           return;
         }
@@ -7648,12 +7969,18 @@
       window.__NUTBOOK_HANDLE_HTML_EDIT_LEAVE_CONFIRM_ACTION__ = function handleHtmlEditLeaveConfirmAction(data) {
         if (data?.action === "create-copy-choice") {
           const itemId = Number(data.itemId);
-          closeHtmlEditLeaveConfirmOverlay(itemId);
-          if (data.choice === "create") {
-            window.setTimeout(() => {
-              createEditableCopyForActiveHtml(itemId).catch((error) => console.warn("[html-edit] conversion start failed", normalizeError(error)));
-            }, 0);
-          }
+          if (
+            appState.htmlEditCreateCopyPromptItemId !== itemId
+            || getActiveTab()?.id !== itemId
+            || getActiveTab()?.preview?.fileType !== "html-runtime"
+          ) return;
+          (async () => {
+            await closeHtmlEditLeaveConfirmOverlay(itemId);
+            if (data.choice === "create") {
+              if (getActiveTab()?.id !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+              await createEditableCopyForActiveHtml(itemId);
+            }
+          })().catch((error) => console.warn("[html-edit] conversion start failed", normalizeError(error)));
           return;
         }
         const intent = appState.htmlEditDirtyLeaveIntent;
@@ -11029,6 +11356,7 @@
           appState.activeHtmlRuntimeUrl = tab.preview.runtimeUrl || null;
           els.viewerBody.innerHTML = `
             <section class="runtime-host-page">
+              <aside id="sectionNavigationRail" class="section-navigation-rail" aria-label="页面导航"></aside>
               <aside id="presentationEditRail" class="presentation-edit-rail" aria-label="演示页面"></aside>
               <section id="runtimeHostShell" class="runtime-host-shell">
                 <div id="runtimeHostMount" class="runtime-host-mount"></div>
@@ -11196,6 +11524,13 @@
       async function suspendRuntimeSurfaces() {
         if (appState.runtimeSurfacesSuspended) return appState.runtimeSurfaceSuspendPromise;
         appState.runtimeSurfacesSuspended = true;
+        const editSession = appState.htmlEditSession;
+        if (isCurrentHtmlEditSession(editSession) && editSession.sectionNavigation) {
+          editSession.sectionNavigationEpoch += 1;
+          editSession.sectionNavigation.pendingRequestId = null;
+          editSession.sectionNavigation.pendingPageId = null;
+          renderHtmlEditSectionNavigationRail(editSession);
+        }
         cleanupRuntimeHostSync();
         appState.activeRuntimeHostId = null;
         appState.runtimeHostLastBoundsKey = null;
@@ -11232,6 +11567,7 @@
           delete editSession.presentation.previewBoundsKey;
         }
         scheduleRuntimeHostSync();
+        refreshHtmlEditSectionNavigation(editSession);
       }
 
       var _runtimeSurfaceHideTimers = {};
@@ -11349,6 +11685,11 @@
         }
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+        if (isHtmlEditBlockingOverlayForItem(tab.id)) {
+          cancelPendingRuntimeSurfaceHide(tab.id);
+          nextRuntimeSurfaceToken(tab.id);
+          return;
+        }
         cancelPendingRuntimeSurfaceHide(tab.id);
         await markRuntimeSurfaceActive(tab.id);
         const mount = document.getElementById("runtimeHostMount");
@@ -12950,10 +13291,16 @@
         // This keeps the child surface inside the current host mount instead of
         // leaving it at the coordinates it had before minimization.
         window.addEventListener("focus", () => {
-          if (!document.hidden) scheduleRuntimeHostSync();
+          if (!document.hidden) {
+            scheduleRuntimeHostSync();
+            refreshHtmlEditSectionNavigation();
+          }
         });
         window.addEventListener("resize", () => {
-          if (!document.hidden) scheduleRuntimeHostSync();
+          if (!document.hidden) {
+            scheduleRuntimeHostSync();
+            refreshHtmlEditSectionNavigation();
+          }
         });
         els.viewerBody.addEventListener("scroll", () => {
           captureActiveMarkdownScroll();

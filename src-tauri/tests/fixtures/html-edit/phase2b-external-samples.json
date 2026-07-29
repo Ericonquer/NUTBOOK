@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "path": "/Users/hayley/.openclaw/workspace/agent-architecture-slides.html",
+      "sha256": "d8e2c92b9414299d07cc51c1659781b0ff0be6ddffe0f87af1da302effb26094",
+      "expectedSectionCount": 8,
+      "expectedScrollRoot": "body",
+      "expectedKind": "scroll-snap",
+      "manualShortcutAuditRequired": true
+    },
+    {
+      "path": "/Users/hayley/Downloads/html-anything-1779098308976.html",
+      "sha256": "6ffc4e40f4c74abe70d0ffcc638bcb7bdb42bb62a534de16fbe88e7cb4c97490",
+      "expectedSectionCount": 7,
+      "expectedScrollRoot": "document",
+      "expectedKind": "section",
+      "manualShortcutAuditRequired": true
+    }
+  ]
+}

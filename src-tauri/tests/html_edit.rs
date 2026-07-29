@@ -2266,6 +2266,54 @@ fn html_edit_commit_retires_sidecar_and_keeps_unedited_source_bytes() {
 }
 
 #[test]
+fn html_edit_commit_preserves_vertical_structure_metadata_for_reopen() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("phase2b.nutbook-editable.html");
+    std::fs::write(
+        &html_path,
+        r#"<!doctype html><html data-nutbook-structure-profile="vertical-sections-v1" data-nutbook-structure-origin="converted"><body>
+<main>
+<section data-nutbook-page-id="nutbook-section-1" data-nutbook-page-title="First" data-nutbook-page-kind="section"><div data-id="first-copy" data-editable="text">Original first</div></section>
+<section data-nutbook-page-id="nutbook-section-2" data-nutbook-page-title="Second" data-nutbook-page-kind="section"><div data-id="second-copy" data-editable="text">Original second</div></section>
+</main></body></html>"#,
+    ).expect("write phase2b source");
+    let lookup = HtmlEditPatchLookup {
+        library_id: 1, library_root: root.path().to_path_buf(), item_id: 22,
+        file_path: html_path.clone(), title_hint: "Phase 2B".to_string(),
+    };
+    let opened = get_html_edit_patch_for_file(&lookup).expect("open structured copy");
+    let before_hash = opened.source_file_hash.clone();
+    let change = HtmlEditChange {
+        change_type: HtmlEditChangeType::Text,
+        selector: "[data-id=\"first-copy\"]".to_string(),
+        original_text_hash: Some("runtime-hash".to_string()),
+        original_src_hash: None, original_style_hash: None,
+        text: Some("Saved first".to_string()), src: None, alt: None, html: None,
+        text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None,
+        inserted_image_id: None, left_permille: None, top_permille: None,
+        width_permille: None, height_permille: None, canvas_width: None, canvas_height: None,
+        page_id: None, deleted: false,
+    };
+    let committed = commit_html_edit_for_file(&HtmlEditCommit {
+        library_root: root.path().to_path_buf(), file_path: html_path.clone(),
+        artifact_edit_id: opened.artifact_edit_id, expected_file_hash: opened.source_file_hash,
+        expected_modified_at: opened.source_modified_at,
+        changes: std::collections::BTreeMap::from([("first-copy".to_string(), change)]),
+    }).expect("commit structured copy");
+    assert_ne!(committed.source_file_hash, before_hash, "saving must change the editable copy hash");
+    let output = std::fs::read_to_string(&html_path).expect("read committed copy");
+    assert!(output.contains("Saved first"));
+    assert!(output.contains("data-nutbook-structure-profile=\"vertical-sections-v1\""));
+    assert!(output.contains("data-nutbook-structure-origin=\"converted\""));
+    assert_eq!(output.matches("data-nutbook-page-id=").count(), 2);
+    assert!(output.contains("data-nutbook-page-title=\"First\""));
+    assert!(output.contains("data-nutbook-page-title=\"Second\""));
+    let reopened = get_html_edit_patch_for_file(&lookup).expect("reopen committed copy");
+    assert_eq!(reopened.source_file_hash, committed.source_file_hash);
+    assert_eq!(reopened.patch_apply_status, HtmlEditPatchApplyStatus::Clean);
+}
+
+#[test]
 fn html_edit_conflict_copy_never_replaces_the_external_source() {
     let root = tempfile::tempdir().expect("temp dir");
     let html_path = root.path().join("editable-basic.html");

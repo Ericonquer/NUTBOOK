@@ -15,7 +15,8 @@
     inlineToolbar: null, inlineToolbarEnabled: false, inlineToolbarDock: "bottom", inlineToolbarDrag: null, locale: "", saveNotice: "",
     documentRevision: 0, lastCommittedChangesJson: "{}", isMutatingDocument: false, imageButtons: [], sourceHashes: new Map(), runtimeAssetUrls: new Map(),
     history: [], historyScopes: [], historySelections: [], historyCursor: -1, savedHistoryCursor: -1, historyTimer: null, pendingHistorySelection: null, pendingInputSelection: null, restoringHistory: false, lastHistoryJson: "", cropFrames: new Map(), activeCrop: null, activeInsertedImageCrop: null,
-    presentation: null, presentationUnsubscribe: null, activePresentationPageId: ""
+    itemId: 0, presentation: null, presentationUnsubscribe: null, activePresentationPageId: "",
+    sectionNavigation: null
   };
 
   function emptyFormatState(editRole = "plain") {
@@ -87,6 +88,153 @@
     STATE.presentationUnsubscribe = null; STATE.presentation = null; STATE.activePresentationPageId = "";
     try { bridge?.setEditMode?.(false); } catch (_) {}
   }
+  function unsupportedSectionScrollStyle(element) {
+    if (!element) return true;
+    const style = getComputedStyle(element);
+    return (style.transform && style.transform !== "none")
+      || (style.filter && style.filter !== "none")
+      || (style.perspective && style.perspective !== "none")
+      || /\b(layout|paint|strict|content)\b/.test(style.contain || "");
+  }
+  function sectionScrollRoot(sections) {
+    const roots = new Set();
+    for (const section of sections) {
+      let found = null;
+      for (let node = section.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1) {
+          if (found) return null;
+          found = node;
+        }
+      }
+      roots.add(found || document.scrollingElement);
+    }
+    if (roots.size !== 1) return null;
+    const root = [...roots][0];
+    if (!root) return null;
+    if (root === document.scrollingElement) {
+      if (unsupportedSectionScrollStyle(document.documentElement) || unsupportedSectionScrollStyle(document.body)) return null;
+      return root;
+    }
+    if (!sections.every((section) => section.parentElement === root) || unsupportedSectionScrollStyle(root)) return null;
+    return root;
+  }
+  function sectionNavigationSnapshot() {
+    const navigation = STATE.sectionNavigation;
+    return navigation ? { pages: navigation.pages, activePageId: navigation.activeSectionId, requestEpoch: navigation.requestEpoch } : null;
+  }
+  function sectionRootViewport(navigation) {
+    return navigation.root === document.scrollingElement
+      ? { top: 0, bottom: window.innerHeight, height: window.innerHeight }
+      : navigation.root.getBoundingClientRect();
+  }
+  function settleSectionNavigation(navigation, ok, reason = "") {
+    const pending = navigation.pendingNavigation;
+    if (!pending) return;
+    window.clearTimeout(pending.timeout);
+    navigation.pendingNavigation = null;
+    emitHostMessage({ type: "html_edit_section_navigation_result", requestId: pending.requestId, pageId: pending.sectionId, ok, reason, requestEpoch: navigation.requestEpoch });
+  }
+  function recomputeSectionActivity(options = {}) {
+    const navigation = STATE.sectionNavigation;
+    if (!STATE.editing || !navigation) return "";
+    const viewport = sectionRootViewport(navigation);
+    let best = null;
+    for (const section of navigation.sections) {
+      const rect = section.getBoundingClientRect();
+      const visibleHeight = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top));
+      const ratio = visibleHeight / Math.max(1, Math.min(rect.height, viewport.height));
+      const distance = Math.abs(rect.top - viewport.top);
+      if (!best || ratio > best.ratio + 0.0001 || (Math.abs(ratio - best.ratio) <= 0.0001 && distance < best.distance)) best = { section, ratio, distance };
+    }
+    if (!best || best.ratio <= 0) return "";
+    const pageId = best.section.getAttribute("data-nutbook-page-id") || "";
+    if (!pageId) return "";
+    const changed = navigation.activeSectionId !== pageId;
+    navigation.activeSectionId = pageId;
+    if (changed && options.emit !== false) emitHostMessage({ type: "html_edit_section_navigation_changed", pageId, requestEpoch: navigation.requestEpoch });
+    if (navigation.pendingNavigation?.sectionId === pageId) settleSectionNavigation(navigation, true);
+    return pageId;
+  }
+  function scheduleSectionActivity() {
+    const navigation = STATE.sectionNavigation;
+    if (!navigation || navigation.frame) return;
+    navigation.frame = requestAnimationFrame(() => {
+      if (STATE.sectionNavigation !== navigation) return;
+      navigation.frame = 0;
+      recomputeSectionActivity();
+    });
+  }
+  function deactivateSectionNavigationAdapter() {
+    const navigation = STATE.sectionNavigation;
+    if (!navigation) return;
+    navigation.observer?.disconnect();
+    navigation.eventTarget.removeEventListener("scroll", navigation.scrollHandler, true);
+    window.removeEventListener("resize", navigation.resizeHandler);
+    if (navigation.frame) cancelAnimationFrame(navigation.frame);
+    if (navigation.pendingNavigation) window.clearTimeout(navigation.pendingNavigation.timeout);
+    STATE.sectionNavigation = null;
+  }
+  function activateSectionNavigationAdapter() {
+    if (STATE.presentation || document.documentElement.getAttribute("data-nutbook-structure-profile") !== "vertical-sections-v1") return false;
+    const roots = [...document.querySelectorAll("[data-nutbook-page-id]")];
+    const ids = roots.map((root) => root.getAttribute("data-nutbook-page-id") || "");
+    if (roots.length < 2 || ids.some((id) => !id) || new Set(ids).size !== ids.length || roots.some((root) => root.getClientRects().length === 0)) return false;
+    const root = sectionScrollRoot(roots);
+    if (!root) return false;
+    const pages = roots.map((section, index) => ({
+      id: ids[index],
+      index: index + 1,
+      title: String(section.getAttribute("data-nutbook-page-title") || `第 ${index + 1} 段`),
+      kind: section.getAttribute("data-nutbook-page-kind") === "scroll-snap" ? "scroll-snap" : "section"
+    }));
+    const navigation = {
+      root, eventTarget: root === document.scrollingElement ? document : root, sections: roots, pages, pageIds: ids, activeSectionId: "", requestToken: 0,
+      pendingNavigation: null, requestEpoch: 0, observer: null, frame: 0,
+      scrollHandler: scheduleSectionActivity, resizeHandler: scheduleSectionActivity
+    };
+    STATE.sectionNavigation = navigation;
+    const observerRoot = root === document.scrollingElement ? null : root;
+    if (typeof IntersectionObserver === "function") {
+      navigation.observer = new IntersectionObserver(scheduleSectionActivity, { root: observerRoot, threshold: [0, 0.25, 0.5, 0.75, 1] });
+      roots.forEach((section) => navigation.observer.observe(section));
+    }
+    navigation.eventTarget.addEventListener("scroll", navigation.scrollHandler, { passive: true, capture: true });
+    window.addEventListener("resize", navigation.resizeHandler, { passive: true });
+    recomputeSectionActivity({ emit: false });
+    return true;
+  }
+  function refreshSectionNavigation({ itemId, runtimeSessionId, generation, requestEpoch } = {}) {
+    const navigation = STATE.sectionNavigation;
+    if (!navigation || Number(itemId) !== STATE.itemId || runtimeSessionId !== STATE.sessionId || Number(generation) !== STATE.generation) return false;
+    const nextEpoch = Number.isInteger(requestEpoch) ? requestEpoch : navigation.requestEpoch + 1;
+    if (nextEpoch < navigation.requestEpoch) return false;
+    navigation.requestEpoch = nextEpoch;
+    const activePageId = recomputeSectionActivity({ emit: false });
+    emitHostMessage({ type: "html_edit_section_navigation_ready", sectionNavigation: sectionNavigationSnapshot(), requestEpoch: navigation.requestEpoch, activePageId });
+    return true;
+  }
+  function goToSection({ itemId, runtimeSessionId, generation, pageId, requestId, requestEpoch } = {}) {
+    const navigation = STATE.sectionNavigation;
+    if (!navigation || Number(itemId) !== STATE.itemId || runtimeSessionId !== STATE.sessionId || Number(generation) !== STATE.generation || !navigation.pageIds.includes(pageId) || !requestId) return false;
+    if (Number.isInteger(requestEpoch) && requestEpoch !== navigation.requestEpoch) return false;
+    if (navigation.pendingNavigation) settleSectionNavigation(navigation, false, "superseded");
+    const token = ++navigation.requestToken;
+    const section = navigation.sections[navigation.pageIds.indexOf(pageId)];
+    navigation.pendingNavigation = {
+      token, requestId, sectionId: pageId,
+      timeout: window.setTimeout(() => {
+        if (STATE.sectionNavigation === navigation && navigation.pendingNavigation?.token === token) settleSectionNavigation(navigation, false, "timeout");
+      }, 1800)
+    };
+    const top = navigation.root === document.scrollingElement
+      ? navigation.root.scrollTop + section.getBoundingClientRect().top
+      : navigation.root.scrollTop + section.getBoundingClientRect().top - navigation.root.getBoundingClientRect().top;
+    navigation.root.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    scheduleSectionActivity();
+    if (navigation.activeSectionId === pageId) settleSectionNavigation(navigation, true);
+    return true;
+  }
   function textOf(element) { return element.textContent || ""; }
   function selectorFor(dataId) { return `[data-id="${CSS.escape(dataId)}"]`; }
   function canonicalHash(value) { let hash = 2166136261; for (const char of String(value || "")) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(16); }
@@ -125,12 +273,13 @@
     // own the only inserted-image layer, otherwise reopening a saved document
     // shows the read-only image underneath its editable counterpart.
     window.__NUTBOOK_INSERTED_IMAGE_READONLY__?.dispose?.();
-    STATE.sessionId = payload.runtimeSessionId; STATE.generation = Number(payload.generation || 0); STATE.editing = true; STATE.dirty = false; STATE.selectedDataId = null;
+    STATE.itemId = Number(payload.itemId || 0); STATE.sessionId = payload.runtimeSessionId; STATE.generation = Number(payload.generation || 0); STATE.editing = true; STATE.dirty = false; STATE.selectedDataId = null;
     STATE.documentRevision = 0; STATE.lastCommittedChangesJson = "{}"; STATE.isMutatingDocument = false;
     STATE.inlineToolbarEnabled = Boolean(payload.inlineToolbar);
     STATE.locale = payload.locale || document.documentElement.lang || navigator.language || "";
     STATE.baseline.clear(); STATE.changes.clear(); STATE.sourceHashes.clear(); STATE.runtimeAssetUrls.clear(); STATE.pendingInlineMarks.clear(); STATE.insertedImages.clear(); STATE.insertedImageBaseline.clear(); STATE.insertedImageSessionCreatedIds.clear(); STATE.deletedInsertedImageIds.clear(); clearSavedSelection(); STATE.inlineToolbarDock = "bottom"; STATE.inlineToolbarDrag = null;
     await activatePresentationAdapter();
+    if (!STATE.presentation) activateSectionNavigationAdapter();
     installEditAffordanceStyles();
     for (const element of editableTextElements()) setupEditable(element, "text");
     for (const element of editableRichTextElements()) setupEditable(element, "rich-text");
@@ -354,7 +503,7 @@
     STATE.imageButtons.splice(0).forEach((button) => button.remove());
     if (STATE.imageActionLayoutHandler) { window.removeEventListener("scroll", STATE.imageActionLayoutHandler, true); window.removeEventListener("resize", STATE.imageActionLayoutHandler); STATE.imageActionLayoutHandler = null; }
     removeInsertedImageLayer(); STATE.insertedImages.clear(); STATE.insertedImageBaseline.clear(); STATE.insertedImageSessionCreatedIds.clear(); STATE.deletedInsertedImageIds.clear(); STATE.runtimeAssetUrls.clear(); STATE.pendingInsertedImageRequest = null;
-    unmountInlineToolbar(); removeEditAffordanceStyles(); deactivatePresentationAdapter();
+    unmountInlineToolbar(); removeEditAffordanceStyles(); deactivateSectionNavigationAdapter(); deactivatePresentationAdapter();
     STATE.editing = false; STATE.dirty = false; STATE.selectedDataId = null; STATE.changes.clear(); STATE.composing = false; STATE.pendingInlineMarks.clear(); STATE.isMutatingDocument = false; STATE.inlineToolbarDock = "bottom"; STATE.inlineToolbarDrag = null; clearSavedSelection();
     document.title = STATE.runtimeTitle || document.location.pathname.split("/").pop() || "Nutbook Runtime";
     window.removeEventListener("keydown", onKeyDownCapture, true); document.removeEventListener("selectionchange", onSelectionChange, true); document.removeEventListener("beforeinput", onBeforeInput, true);
@@ -756,13 +905,11 @@
     const pendingMarks = pendingInlineMarks(field);
     return { canFormat: isRichEditRole(editRoleOf(field)), bold: pendingMarks.has("strong") || ancestors.some((entry) => entry.tagName === "STRONG" || entry.tagName === "B"), italic: pendingMarks.has("em") || ancestors.some((entry) => entry.tagName === "EM" || entry.tagName === "I"), block: blockTag === "p" ? "paragraph" : `heading-${blockTag.slice(1)}`, textAlign: normalizeTextAlign(getComputedStyle(blockElement || field).textAlign), list: listTag === "ul" ? "unordered-list" : listTag === "ol" ? "ordered-list" : null, editRole: editRoleOf(field) };
   }
-  function onCompositionStart(event) { if (isRichEditRole(editRoleOf(event.currentTarget))) STATE.composing = true; }
-  function onCompositionEnd(event) { const element = event.currentTarget; if (!isRichEditRole(editRoleOf(element))) return; STATE.composing = false; commitDocumentMutation(element); }
+  function onCompositionStart() { STATE.composing = true; }
+  function onCompositionEnd(event) { STATE.composing = false; commitDocumentMutation(event.currentTarget); }
   function onInput(event) {
     const element = event.currentTarget;
-    if (isRichEditRole(editRoleOf(element))) {
-      if (STATE.composing) return;
-    }
+    if (STATE.composing) return;
     commitDocumentMutation(element);
   }
   function updateChange(element) {
@@ -922,19 +1069,19 @@
   function installEditAffordanceStyles() {
     if (document.getElementById("nutbook-html-edit-affordance")) return;
     const style = document.createElement("style"); style.id = "nutbook-html-edit-affordance";
-    style.textContent = '[data-nutbook-editing]{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative}[data-nutbook-editing="text"]:hover,[data-nutbook-editing="rich-text"]:hover{outline-color:#a99f9f;background:#f3f3f5}[data-nutbook-editing]:focus{outline-color:#000;box-shadow:0 4px 12px rgba(26,28,29,.12)}[data-nutbook-editing="text"]:focus::after{content:attr(data-nutbook-plain-text-hint);position:absolute;z-index:3;right:0;bottom:calc(100% + 8px);box-sizing:border-box;min-height:24px;padding:4px 9px 4px 29px;border:1px solid #111;border-radius:999px;background:#fff url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%278%27 fill=%27%23000%27/%3E%3Cpath d=%27M8 3.6v5.1M8 11.7v.2%27 fill=%27none%27 stroke=%27%23fff%27 stroke-width=%271.5%27 stroke-linecap=%27round%27/%3E%3C/svg%3E") no-repeat 8px 50%;color:#111;font:500 12px/16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;pointer-events:none}[data-nutbook-editing="image"]{cursor:pointer}.nutbook-html-edit-image-actions{position:fixed;z-index:2147483646;display:inline-flex;gap:4px;margin:0}.nutbook-html-edit-image-action{border:1px solid #bbb;border-radius:6px;background:#fff;padding:5px 8px;font:12px sans-serif;cursor:pointer}.nutbook-html-edit-cropping{outline:2px solid #111;outline-offset:2px;cursor:grab}.nutbook-html-edit-crop-overlay{position:fixed;z-index:2147483646;box-sizing:border-box;border:2px solid #111;pointer-events:none}.nutbook-html-edit-crop-overlay [data-crop-viewport]{position:fixed;display:block;box-sizing:border-box;border:1px dashed rgba(17,17,17,.62);pointer-events:none}.nutbook-html-edit-crop-overlay .nutbook-html-edit-crop-toolbar{position:fixed;z-index:2147483647;left:50%;bottom:24px;transform:translateX(-50%);display:flex;gap:4px;align-items:center;padding:7px 8px;border-radius:8px;background:#111;color:#fff;white-space:nowrap;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.24);pointer-events:auto}.nutbook-html-edit-crop-toolbar button{border:1px solid #fff;border-radius:4px;background:#fff;color:#111;padding:4px 7px;font:12px sans-serif;cursor:pointer}.nutbook-html-edit-crop-toolbar button[data-action="done"]{background:#111;color:#fff}.nutbook-html-edit-crop-overlay i{position:absolute;display:block;width:10px;height:10px;box-sizing:border-box;border:1px solid #111;border-radius:1px;background:#fff;pointer-events:auto}.nutbook-html-edit-crop-overlay i[data-handle="nw"]{left:-6px;top:-6px;cursor:nwse-resize}.nutbook-html-edit-crop-overlay i[data-handle="n"]{left:calc(50% - 5px);top:-6px;cursor:ns-resize}.nutbook-html-edit-crop-overlay i[data-handle="ne"]{right:-6px;top:-6px;cursor:nesw-resize}.nutbook-html-edit-crop-overlay i[data-handle="e"]{right:-6px;top:calc(50% - 5px);cursor:ew-resize}.nutbook-html-edit-crop-overlay i[data-handle="se"]{right:-6px;bottom:-6px;cursor:nwse-resize}.nutbook-html-edit-crop-overlay i[data-handle="s"]{left:calc(50% - 5px);bottom:-6px;cursor:ns-resize}.nutbook-html-edit-crop-overlay i[data-handle="sw"]{left:-6px;bottom:-6px;cursor:nesw-resize}.nutbook-html-edit-crop-overlay i[data-handle="w"]{left:-6px;top:calc(50% - 5px);cursor:ew-resize}';
+    style.textContent = '[data-nutbook-editing]{outline:2px dashed #c5bbbb;outline-offset:3px;border-radius:8px;cursor:text;position:relative}[data-nutbook-editing="text"]:hover,[data-nutbook-editing="rich-text"]:hover{outline-color:#a99f9f}[data-nutbook-editing]:focus{outline-color:currentColor;box-shadow:0 4px 12px rgba(26,28,29,.12)}[data-nutbook-editing="text"]:focus::after{content:attr(data-nutbook-plain-text-hint);position:absolute;z-index:3;right:0;bottom:calc(100% + 8px);box-sizing:border-box;min-height:24px;padding:4px 9px 4px 29px;border:1px solid #111;border-radius:999px;background:#fff url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%278%27 fill=%27%23000%27/%3E%3Cpath d=%27M8 3.6v5.1M8 11.7v.2%27 fill=%27none%27 stroke=%27%23fff%27 stroke-width=%271.5%27 stroke-linecap=%27round%27/%3E%3C/svg%3E") no-repeat 8px 50%;color:#111;font:500 12px/16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;pointer-events:none}[data-nutbook-editing="image"]{cursor:pointer}.nutbook-html-edit-image-actions{position:fixed;z-index:2147483646;display:inline-flex;gap:4px;margin:0}.nutbook-html-edit-image-action{border:1px solid #bbb;border-radius:6px;background:#fff;padding:5px 8px;font:12px sans-serif;cursor:pointer}.nutbook-html-edit-cropping{outline:2px solid #111;outline-offset:2px;cursor:grab}.nutbook-html-edit-crop-overlay{position:fixed;z-index:2147483646;box-sizing:border-box;border:2px solid #111;pointer-events:none}.nutbook-html-edit-crop-overlay [data-crop-viewport]{position:fixed;display:block;box-sizing:border-box;border:1px dashed rgba(17,17,17,.62);pointer-events:none}.nutbook-html-edit-crop-overlay .nutbook-html-edit-crop-toolbar{position:fixed;z-index:2147483647;left:50%;bottom:24px;transform:translateX(-50%);display:flex;gap:4px;align-items:center;padding:7px 8px;border-radius:8px;background:#111;color:#fff;white-space:nowrap;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.24);pointer-events:auto}.nutbook-html-edit-crop-toolbar button{border:1px solid #fff;border-radius:4px;background:#fff;color:#111;padding:4px 7px;font:12px sans-serif;cursor:pointer}.nutbook-html-edit-crop-toolbar button[data-action="done"]{background:#111;color:#fff}.nutbook-html-edit-crop-overlay i{position:absolute;display:block;width:10px;height:10px;box-sizing:border-box;border:1px solid #111;border-radius:1px;background:#fff;pointer-events:auto}.nutbook-html-edit-crop-overlay i[data-handle="nw"]{left:-6px;top:-6px;cursor:nwse-resize}.nutbook-html-edit-crop-overlay i[data-handle="n"]{left:calc(50% - 5px);top:-6px;cursor:ns-resize}.nutbook-html-edit-crop-overlay i[data-handle="ne"]{right:-6px;top:-6px;cursor:nesw-resize}.nutbook-html-edit-crop-overlay i[data-handle="e"]{right:-6px;top:calc(50% - 5px);cursor:ew-resize}.nutbook-html-edit-crop-overlay i[data-handle="se"]{right:-6px;bottom:-6px;cursor:nwse-resize}.nutbook-html-edit-crop-overlay i[data-handle="s"]{left:calc(50% - 5px);bottom:-6px;cursor:ns-resize}.nutbook-html-edit-crop-overlay i[data-handle="sw"]{left:-6px;bottom:-6px;cursor:nesw-resize}.nutbook-html-edit-crop-overlay i[data-handle="w"]{left:-6px;top:calc(50% - 5px);cursor:ew-resize}';
     document.head.append(style);
     // A presentation can expose dozens of independently editable blocks.
     // Permanent outlines turn those blocks into visual noise, so retain the
     // affordance only for the field under the pointer or keyboard focus.
     const quietAffordanceStyle = document.createElement("style"); quietAffordanceStyle.id = "nutbook-html-edit-affordance-quiet";
-    quietAffordanceStyle.textContent = '[data-nutbook-editing]{outline:none!important}[data-nutbook-editing]::before{content:"";position:absolute;z-index:2;inset:-4px;border:1px dashed transparent;border-radius:10px;pointer-events:none}[data-nutbook-editing="text"]:hover,[data-nutbook-editing="rich-text"]:hover{background:#f8f8f9!important}[data-nutbook-editing="text"]:hover::before,[data-nutbook-editing="rich-text"]:hover::before{border-color:#b9b0b0}[data-nutbook-editing]:focus::before{border:2px solid #111;box-shadow:0 4px 12px rgba(26,28,29,.12)}';
+    quietAffordanceStyle.textContent = '[data-nutbook-editing]{outline:none!important}[data-nutbook-editing]::before{content:"";position:absolute;z-index:2;inset:-4px;border:1px dashed transparent;border-radius:10px;pointer-events:none}[data-nutbook-editing="text"]:hover::before,[data-nutbook-editing="rich-text"]:hover::before{border-color:currentColor;opacity:.62}[data-nutbook-editing]:focus::before{border:2px solid currentColor;box-shadow:0 0 0 1px rgba(128,128,128,.55),0 4px 12px rgba(26,28,29,.12)}';
     document.head.append(quietAffordanceStyle);
     const imageTooltipStyle = document.createElement("style"); imageTooltipStyle.textContent = '.nutbook-html-edit-icon-action{position:relative}.nutbook-html-edit-icon-action::after{content:attr(data-tooltip);position:absolute;z-index:2147483647;left:50%;bottom:calc(100% + 7px);transform:translate(-50%,3px);padding:5px 7px;border-radius:6px;background:#111;color:#fff;font:500 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .14s ease,transform .14s ease}.nutbook-html-edit-icon-action:hover::after,.nutbook-html-edit-icon-action:focus-visible::after{opacity:1;transform:translate(-50%,0)}.nutbook-html-edit-crop-toolbar button.nutbook-html-edit-icon-action{background:#111!important;color:#fff!important;border:0!important;padding:0!important}.nutbook-html-edit-source-crop-overlay,.nutbook-html-edit-inserted-crop-overlay{inset:0!important;border:0!important;overflow:visible!important}.nutbook-html-edit-source-crop-overlay [data-crop-context-part],.nutbook-html-edit-inserted-crop-overlay [data-crop-context-part]{position:fixed;display:block;overflow:hidden;pointer-events:none}.nutbook-html-edit-source-crop-overlay [data-crop-context-part] img,.nutbook-html-edit-inserted-crop-overlay [data-crop-context-part] img{position:absolute;display:block;max-width:none;object-fit:fill;opacity:.42;pointer-events:none}.nutbook-html-edit-source-crop-overlay [data-crop-viewport],.nutbook-html-edit-inserted-crop-overlay [data-crop-viewport]{position:fixed!important;display:block!important;overflow:hidden!important;border:1px dashed rgba(17,17,17,.62)!important;pointer-events:none!important}.nutbook-html-edit-source-crop-overlay [data-crop-viewport]{pointer-events:auto!important}.nutbook-html-edit-source-crop-overlay [data-crop-content]{position:absolute;display:block;max-width:none;object-fit:fill;pointer-events:auto}.nutbook-html-edit-source-crop-overlay [data-crop-edge],.nutbook-html-edit-inserted-crop-overlay [data-crop-edge]{position:fixed;box-sizing:border-box;border:2px solid #111;pointer-events:none}.nutbook-html-edit-source-crop-overlay [data-crop-edge] i,.nutbook-html-edit-inserted-crop-overlay [data-crop-edge] i{pointer-events:auto}'; document.head.append(imageTooltipStyle);
   }
   function removeEditAffordanceStyles() { document.getElementById("nutbook-html-edit-affordance")?.remove(); document.getElementById("nutbook-html-edit-affordance-quiet")?.remove(); }
   function installShortcutCapture() { window.removeEventListener("keydown", onKeyDownCapture, true); window.addEventListener("keydown", onKeyDownCapture, true); }
-  function onKeyDownCapture(event) { if (!STATE.editing) return; const key = event.key; const blocked = ["f", "F", "s", "S", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", "Enter"]; if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "s") { event.preventDefault(); event.stopImmediatePropagation(); emitHostMessage({ type: "html_edit_save_requested_from_runtime", runtimeSessionId: STATE.sessionId }); return; } if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "z") { event.preventDefault(); event.stopImmediatePropagation(); if (event.repeat) return false; return event.shiftKey ? redoHistory() : undoHistory(); } if (STATE.presentation && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableEventTarget(event.target) && (key === "ArrowUp" || key === "ArrowDown")) { event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) void goToAdjacentPresentationPage(key === "ArrowUp" ? -1 : 1); return; } if (event.metaKey || event.ctrlKey || event.altKey || isEditableEventTarget(event.target) || STATE.presentation) return; if (blocked.includes(key)) { event.preventDefault(); event.stopImmediatePropagation(); } }
+  function onKeyDownCapture(event) { if (!STATE.editing) return; const key = event.key; if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "s") { event.preventDefault(); event.stopImmediatePropagation(); emitHostMessage({ type: "html_edit_save_requested_from_runtime" }); return; } if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "z") { event.preventDefault(); event.stopImmediatePropagation(); if (event.repeat) return false; return event.shiftKey ? redoHistory() : undoHistory(); } if (STATE.presentation && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableEventTarget(event.target) && (key === "ArrowUp" || key === "ArrowDown")) { event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) void goToAdjacentPresentationPage(key === "ArrowUp" ? -1 : 1); } }
   function isEditableEventTarget(target) { for (let node = target; node; node = node.parentElement) if (node.getAttribute?.("data-nutbook-editing")) return true; return false; }
   async function goToPresentationPage(pageId) {
     if (!STATE.presentation?.pageIds.includes(pageId)) return false;
@@ -951,18 +1098,19 @@
     const requestId = typeof options === "string" ? options : options?.requestId || "";
     emitHostMessage({ type: "html_edit_state_snapshot", requestId, ...getSnapshot() });
   }
-  function notifyReady() { emitHostMessage({ type: "html_edit_ready", runtimeSessionId: STATE.sessionId, ...scanEditableElements(), presentation: presentationSnapshot(), shortcutsIntercepted: true }); }
+  function notifyReady() { emitHostMessage({ type: "html_edit_ready", ...scanEditableElements(), presentation: presentationSnapshot(), sectionNavigation: sectionNavigationSnapshot(), shortcutsIntercepted: true }); }
   function emitHostMessage(payload) {
+    const message = { ...payload, itemId: STATE.itemId, runtimeSessionId: STATE.sessionId, generation: STATE.generation };
     const invoke = window.__TAURI_INTERNALS__?.invoke;
     if (typeof invoke === "function") {
-      Promise.resolve(invoke("html_edit_runtime_message_command", { payload })).catch(() => {
+      Promise.resolve(invoke("html_edit_runtime_message_command", { payload: message })).catch(() => {
         if (!STATE._messageSeq) STATE._messageSeq = 0;
-        document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...payload, _s: ++STATE._messageSeq })}`;
+        document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...message, _s: ++STATE._messageSeq })}`;
       });
       return;
     }
     if (!STATE._messageSeq) STATE._messageSeq = 0;
-    document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...payload, _s: ++STATE._messageSeq })}`;
+    document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...message, _s: ++STATE._messageSeq })}`;
   }
-  window.__NUTBOOK_HTML_EDIT__ = { scanEditableElements, isEditing: () => STATE.editing, enter, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, beginInsertedImageDraft, commitInsertedImageDraft, cancelInsertedImageDraft, applyInsertedImageAsset, requestInsertedImageReplacement, resumeInsertedImageDraft, resumeInsertedImageReplacement, beginInsertedImageCrop, deleteInsertedImage, undoHistory, redoHistory, goToPresentationPage, goToAdjacentPresentationPage, presentationSnapshot, getSnapshot, reportState, emitHostMessage };
+  window.__NUTBOOK_HTML_EDIT__ = { scanEditableElements, isEditing: () => STATE.editing, enter, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, beginInsertedImageDraft, commitInsertedImageDraft, cancelInsertedImageDraft, applyInsertedImageAsset, requestInsertedImageReplacement, resumeInsertedImageDraft, resumeInsertedImageReplacement, beginInsertedImageCrop, deleteInsertedImage, undoHistory, redoHistory, goToPresentationPage, goToAdjacentPresentationPage, presentationSnapshot, goToSection, refreshSectionNavigation, sectionNavigationSnapshot, getSnapshot, reportState, emitHostMessage };
 })();

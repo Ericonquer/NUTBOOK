@@ -878,6 +878,10 @@ pub fn focus_html_runtime_host(
     ));
     let _ = webview.window().set_focus();
     webview.set_focus().map_err(|_| AppError::InternalError)?;
+    #[cfg(target_os = "macos")]
+    {
+        recover_webview_focus_native(webview.clone());
+    }
     Ok(true)
 }
 
@@ -902,7 +906,7 @@ fn recover_main_webview_focus<R: tauri::Runtime>(
 
     #[cfg(target_os = "macos")]
     {
-        recover_main_webview_focus_native(webview.clone());
+        recover_webview_focus_native(webview.clone());
     }
 
     let app_handle = window.app_handle().clone();
@@ -914,14 +918,14 @@ fn recover_main_webview_focus<R: tauri::Runtime>(
             let _ = main_webview.set_focus();
             #[cfg(target_os = "macos")]
             {
-                recover_main_webview_focus_native(main_webview.clone());
+                recover_webview_focus_native(main_webview.clone());
             }
         }
     });
 }
 
 #[cfg(target_os = "macos")]
-fn recover_main_webview_focus_native<R: tauri::Runtime>(
+fn recover_webview_focus_native<R: tauri::Runtime>(
     webview: tauri::Webview<R>,
 ) {
     let webview_for_main = webview.clone();
@@ -1595,7 +1599,12 @@ pub fn html_runtime_compatibility_script() -> &'static str {
 
   const focusRuntimeTarget = () => {
     try {
-      ensureRuntimeFocusTarget()?.focus?.({ preventScroll: true });
+      const active = document.activeElement;
+      const editable = active && (
+        active.isContentEditable ||
+        active.matches?.('input, textarea, select, [data-nutbook-editing]')
+      );
+      (editable ? active : ensureRuntimeFocusTarget())?.focus?.({ preventScroll: true });
     } catch (_) {}
   };
 
@@ -1967,6 +1976,8 @@ mod tests {
         assert!(script.contains("__NUTBOOK_TOGGLE_FULLSCREEN__"));
         assert!(script.contains("[contenteditable]"));
         assert!(script.contains("__NUTBOOK_HTML_EDIT__?.isEditing"));
+        assert!(script.contains("document.activeElement"));
+        assert!(script.contains("active.isContentEditable"));
         assert_eq!(HTML_EDIT_RUNTIME_ACTION_PREFIX, "__NUTBOOK_HTML_EDIT_RUNTIME__:");
         assert!(script.contains("stopImmediatePropagation"));
         assert!(!script.contains("root.requestFullscreen"));
