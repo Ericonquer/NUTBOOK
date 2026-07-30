@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Structure map</title>
+  <desc id="desc">Three document sections connected from source to edit and reopen.</desc>
+  <rect width="960" height="540" rx="24" fill="#f3f3f5"/>
+  <g fill="#fff" stroke="#1a1c1d" stroke-width="3">
+    <rect x="72" y="104" width="224" height="116" rx="14"/>
+    <rect x="368" y="104" width="224" height="116" rx="14"/>
+    <rect x="664" y="104" width="224" height="116" rx="14"/>
+  </g>
+  <g fill="#1a1c1d" font-family="-apple-system, BlinkMacSystemFont, sans-serif" text-anchor="middle">
+    <text x="184" y="154" font-size="18" font-weight="700">01 · SOURCE</text>
+    <text x="184" y="184" font-size="15">保留原始文件</text>
+    <text x="480" y="154" font-size="18" font-weight="700">02 · EDIT</text>
+    <text x="480" y="184" font-size="15">编辑协议化副本</text>
+    <text x="776" y="154" font-size="18" font-weight="700">03 · REOPEN</text>
+    <text x="776" y="184" font-size="15">从磁盘恢复结构</text>
+  </g>
+  <g fill="none" stroke="#7e7576" stroke-width="4" stroke-linecap="round">
+    <path d="M296 162h56"/>
+    <path d="M592 162h56"/>
+  </g>
+  <g fill="#1a1c1d">
+    <path d="m350 154 14 8-14 8z"/>
+    <path d="m646 154 14 8-14 8z"/>
+  </g>
+  <rect x="72" y="290" width="816" height="154" rx="18" fill="#1a1c1d"/>
+  <g fill="#fff" font-family="-apple-system, BlinkMacSystemFont, sans-serif">
+    <text x="112" y="338" font-size="14" font-weight="700" letter-spacing="2">PHASE 2B ACCEPTANCE</text>
+    <text x="112" y="382" font-size="26" font-weight="700">结构段是导航事实，不是演示控制权。</text>
+    <text x="112" y="416" font-size="16" fill="#d9dadc">点击、滚动、保存、关闭、重开，每一步都必须可验证。</text>
+  </g>
+</svg>

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>普通 HTML 转换验收样本</title>
+  <style>
+    body { margin: 0; background: #f7f7f5; color: #20201e; font: 16px/1.65 Inter, PingFang SC, sans-serif; }
+    main { max-width: 860px; margin: 48px auto; padding: 40px; background: #fff; border: 1px solid #deded9; border-radius: 8px; box-shadow: 0 8px 24px #0000000d; }
+    img { display: block; width: 100%; max-width: 720px; border-radius: 8px; }
+    .cover { min-height: 180px; background-image: url("editable-image-assets/delivery.png"); background-position: center; background-size: cover; border-radius: 8px; }
+    .tiny-icon { width: 12px; height: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="cover"></div>
+    <h1>转换后可编辑的项目标题</h1>
+    <p>这是可进行加粗、标题和对齐操作的正文，用于验证普通 HTML 的安全转换路径。</p>
+    <ul><li>第一条可编辑事项</li><li>第二条可编辑事项</li></ul>
+    <picture><source media="(min-width: 600px)" srcset="editable-image-assets/evidence.png"><img alt="可替换图片" src="editable-image-assets/evidence.png"></picture>
+    <img class="tiny-icon" alt="装饰图标" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3C/svg%3E">
+    <canvas width="300" height="120"></canvas>
+  </main>
+</body>
+</html>

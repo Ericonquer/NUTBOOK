@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>自由插图验收页</title>
+  <style>
+    :root { color:#161616; background:#f6f6f4; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:48px 24px 96px; }
+    main { max-width:840px; margin:auto; padding:40px; border:1px solid #d6d6d2; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(0,0,0,.06); }
+    h1 { margin:0 0 12px; font-size:30px; letter-spacing:-.04em; }
+    p { color:#555; line-height:1.75; }
+    .brief-image { width:100%; max-height:230px; object-fit:cover; border-radius:8px; margin:20px 0; }
+    .free-image-space { min-height:300px; margin:28px 0; padding:26px; border:1px dashed #9b9b96; border-radius:8px; background:linear-gradient(135deg,#fafaf8,#f2f2ef); }
+    /* Hostile source-page rules: the insertion frame must stay isolated in its closed shadow root. */
+    img, button { filter:grayscale(1); border:5px solid #222; border-radius:0; font:900 24px serif; }
+  </style>
+</head>
+<body>
+  <main>
+    <p data-id="free-kicker" data-editable="text">NUTBOOK · Phase 1D</p>
+    <h1 data-id="free-title" data-editable="rich-text" data-edit-role="content">补充证据与页面叙事</h1>
+    <p data-id="free-body" data-editable="rich-text" data-edit-role="content">这是一个可从资料库扫描和打开的验收页面。编辑态中可在下方区域主动框选图片，而不是由系统猜测留白。</p>
+    <img class="brief-image" data-id="free-existing-image" data-editable="image" src="editable-image-assets/hero.png" alt="既有离线图片">
+    <section class="free-image-space" aria-label="自由插图区">
+      <h2>补充图片区域</h2>
+      <p>编辑态可在这里框选补充图片。普通预览不会出现虚线框或操作按钮。</p>
+    </section>
+    <p data-id="free-footer" data-editable="text">保存、关闭并重开后，已保存的插图应保留。</p>
+  </main>
+</body>
+</html>

@@ -1,4 +1,5 @@
 pub mod document;
+pub mod html_edit;
 pub mod html_runtime;
 pub mod library;
 pub mod local_server;

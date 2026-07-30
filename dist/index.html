@@ -2787,6 +2787,91 @@
         background: #fff;
       }
 
+      .runtime-host-page.presentation-editing {
+        display: flex;
+        min-width: 0;
+      }
+
+      .runtime-host-page.section-navigation-editing {
+        display: flex;
+        min-width: 0;
+      }
+
+      .presentation-edit-rail {
+        display: none;
+        width: 224px;
+        flex: 0 0 224px;
+        box-sizing: border-box;
+        overflow: auto;
+        padding: 12px 10px;
+        border-right: 1px solid #e4e4e8;
+        background: #f7f7f8;
+      }
+
+      .runtime-host-page.presentation-editing .presentation-edit-rail {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+
+      .section-navigation-rail {
+        display: none;
+        width: 224px;
+        flex: 0 0 224px;
+        box-sizing: border-box;
+        overflow: auto;
+        padding: 12px 10px;
+        border-right: 1px solid #e4e4e8;
+        background: #f7f7f8;
+      }
+
+      .runtime-host-page.section-navigation-editing .section-navigation-rail {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+
+      .runtime-host-page.section-navigation-editing .runtime-host-shell { flex: 1 1 auto; min-width: 0; }
+
+      .presentation-edit-rail-title {
+        padding: 3px 5px 8px;
+        color: #696971;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .presentation-edit-page {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #25252a;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .presentation-edit-page:hover { background: #eeeeF1; }
+      .presentation-edit-page.is-active { border-color: #222; background: #fff; }
+      .presentation-edit-page.is-pending { opacity: .62; }
+      .presentation-edit-page-thumbnail { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #dedee3; border-radius: 5px; background: linear-gradient(135deg, #ededf0, #f8f8fa); }
+      .presentation-edit-page-thumbnail.is-structure { display: grid; align-content: center; gap: 4px; padding: 10px; box-sizing: border-box; background: #fff; color: #2a2a2f; font-size: 13px; font-weight: 700; line-height: 1.2; }
+      .presentation-edit-page-thumbnail.is-structure small { color: #85858c; font-size: 10px; font-weight: 600; }
+      .presentation-edit-page-thumbnail.is-loading::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 28%, rgba(255,255,255,.7) 48%, transparent 68%); transform: translateX(-100%); animation: presentation-thumb-loading 1.25s ease-in-out infinite; }
+      .presentation-edit-page-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .presentation-edit-page-meta { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; align-items: baseline; }
+      .presentation-edit-page-index { color: #777780; font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .presentation-edit-page-copy { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: baseline; }
+      .presentation-edit-page-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+      .presentation-edit-page-kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #85858c; font-size: 10px; }
+      @keyframes presentation-thumb-loading { to { transform: translateX(100%); } }
+
+      .runtime-host-page.presentation-editing .runtime-host-shell { flex: 1 1 auto; min-width: 0; }
+
       .runtime-card-inner {
         max-width: 520px;
         display: grid;
@@ -4993,6 +5078,18 @@
         discoveredSkillScannedCount: 0,
         tabs: [],
         runtimeSessions: [],
+        htmlEditSession: null,
+        htmlEditSessionGeneration: 0,
+        htmlEditToolbarVisible: false,
+        htmlEditToolbarSyncInFlight: false,
+        htmlEditToolbarSyncPending: false,
+        htmlEditDirtyLeaveIntent: null,
+        htmlEditLeavePromptOpen: false,
+        htmlEditCreateCopyPromptItemId: null,
+        htmlEditMarkSavedWaiters: new Map(),
+        htmlEditStateRefreshWaiters: new Map(),
+        htmlEditCleanRevisionWaiters: new Map(),
+        htmlEditRuntimeDocumentReadyWaiters: new Map(),
         activeLibraryId: null,
         activeTabId: null,
         activeTagFilterIds: [],
@@ -5040,7 +5137,11 @@
         runtimeHostSyncRunId: 0,
         runtimeHostSyncInFlight: false,
         runtimeHostSyncPending: false,
+        runtimeSurfacesSuspended: false,
+        runtimeSurfaceSuspendPromise: null,
         runtimeSurfaceTokens: new Map(),
+        runtimePatchAppliedKeys: new Map(),
+        runtimePatchSurfaceLanes: new Map(),
         itemOpenTokens: new Map(),
         runtimeControlsOverlayExpanded: false,
         runtimeControlsOverlayMode: "default",
@@ -5088,6 +5189,18 @@
         thumbnailInstallCommandCopiedTimer: null,
         language: currentLanguage()
       };
+      // Page thumbnails are intentionally session-local. Their source is the
+      // committed HTML file, so showing a stale image for unsaved DOM edits is
+      // worse than keeping the lightweight loading card until the next save.
+      const presentationThumbnailCache = new Map();
+      const presentationThumbnailPending = new Set();
+      let presentationThumbnailActive = 0;
+      const presentationThumbnailQueue = [];
+      const PRESENTATION_THUMBNAIL_CONCURRENCY = 3;
+      // Do not let background PNG work steal time from a live editor. Visual
+      // page previews return only with an independent preview runtime; Phase
+      // 2A keeps the reliable, zero-latency structural rail meanwhile.
+      const PRESENTATION_VISUAL_THUMBNAILS_ENABLED = false;
 
       const els = {
         appShell: document.getElementById("appShell"),
@@ -6067,6 +6180,1836 @@
         });
       }
 
+      // NUTBOOK_HTML_EDIT_DOCUMENT_STATE_START
+      function stableHtmlEditJson(value) {
+        const normalize = (entry) => {
+          if (Array.isArray(entry)) return entry.map(normalize);
+          if (!entry || typeof entry !== "object") return entry;
+          const sorted = {};
+          for (const key of Object.keys(entry).sort()) sorted[key] = normalize(entry[key]);
+          return sorted;
+        };
+        return JSON.stringify(normalize(value));
+      }
+
+      function htmlEditDocumentStateKey(data) {
+        return `${data.dirty ? "1" : "0"}:${stableHtmlEditJson(data.changes)}`;
+      }
+
+      function isCompleteHtmlEditDocumentSnapshot(data) {
+        if (!Number.isInteger(data?.documentRevision) || data.documentRevision < 0) return false;
+        if (typeof data.dirty !== "boolean" || !data.changes || typeof data.changes !== "object" || Array.isArray(data.changes)) return false;
+        if (data.dirty !== (Object.keys(data.changes).length > 0)) return false;
+        return data.documentRevision !== 0 || (!data.dirty && Object.keys(data.changes).length === 0);
+      }
+
+      function acceptHtmlEditDocumentSnapshot(session, data) {
+        if (!isCompleteHtmlEditDocumentSnapshot(data)) return false;
+        if (data.documentRevision < session.documentRevision) return false;
+        const incomingKey = htmlEditDocumentStateKey(data);
+        if (data.documentRevision === session.documentRevision && incomingKey !== session.documentStateKey) return false;
+        session.documentRevision = data.documentRevision;
+        session.documentStateKey = incomingKey;
+        session.dirty = data.dirty;
+        session.changes = data.changes;
+        if (Object.prototype.hasOwnProperty.call(data, "selectedDataId")) session.selectedDataId = data.selectedDataId || null;
+        if (data.formatState && typeof data.formatState === "object") session.formatState = data.formatState;
+        return true;
+      }
+
+      function applyHtmlEditDoneSnapshot(session, data) {
+        const revision = data?.documentRevision;
+        if (!Number.isInteger(revision)) return { action: "refresh", minimumRevision: session.documentRevision, protocolError: true };
+        if (revision < session.documentRevision) return { action: "use-current" };
+        if (revision === session.documentRevision) return { action: "use-current", protocolError: !acceptHtmlEditDocumentSnapshot(session, data) };
+        if (acceptHtmlEditDocumentSnapshot(session, data)) return { action: "accepted" };
+        return { action: "refresh", minimumRevision: revision, protocolError: true };
+      }
+
+      function isHtmlEditCleanRevisionSatisfied(session, minimumRevision) {
+        return Boolean(session) && session.dirty === false && Number.isInteger(session.documentRevision) && session.documentRevision >= minimumRevision;
+      }
+
+      function htmlEditLeaveRequiresSave(session) {
+        return Boolean(session?.dirty || session?.requiresPatchReconciliation);
+      }
+
+      function canProceedHtmlEditLeaveAfterSnapshotRefresh(session, refreshed) {
+        return Boolean(refreshed || htmlEditLeaveRequiresSave(session));
+      }
+
+      function markHtmlEditPatchOutOfSync(session, savedChangesJson) {
+        if (!session || stableHtmlEditJson(session.changes || {}) === savedChangesJson) return false;
+        session.requiresPatchReconciliation = true;
+        return true;
+      }
+
+      function mergeHtmlEditPatchChanges(persistedChanges, deltaChanges) {
+        const merged = { ...(persistedChanges || {}) };
+        for (const [fieldId, change] of Object.entries(deltaChanges || {})) {
+          if (change?.type === "inserted-image" && change.deleted === true) delete merged[fieldId];
+          else merged[fieldId] = change;
+        }
+        return merged;
+      }
+      // NUTBOOK_HTML_EDIT_DOCUMENT_STATE_END
+
+      function htmlEditLeaveConfirmBounds() {
+        return {
+          x: 0,
+          y: 0,
+          width: window.innerWidth,
+          height: window.innerHeight
+        };
+      }
+
+      function isHtmlEditBlockingOverlayForItem(itemId) {
+        return appState.htmlEditCreateCopyPromptItemId === itemId
+          || Boolean(
+            appState.htmlEditLeavePromptOpen
+            && appState.htmlEditDirtyLeaveIntent?.itemId === itemId
+          );
+      }
+
+      async function waitForHtmlRuntimeOverlayPriority(itemId) {
+        if (itemId == null) return false;
+        cancelPendingRuntimeSurfaceHide(itemId);
+        nextRuntimeSurfaceToken(itemId);
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (
+            getActiveTab()?.id !== itemId
+            || !isHtmlEditBlockingOverlayForItem(itemId)
+          ) return false;
+          if (
+            !appState.runtimeHostSyncInFlight
+            && !appState.runtimeHostSyncFrame
+            && !appState.runtimeHostSyncPending
+          ) return true;
+          await new Promise((resolve) => window.setTimeout(resolve, 20));
+        }
+        return false;
+      }
+
+      async function restoreHtmlRuntimeAfterBlockingOverlay(itemId) {
+        const activeTab = getActiveTab();
+        if (
+          activeTab?.id !== itemId
+          || activeTab.preview?.fileType !== "html-runtime"
+          || appState.runtimeSurfacesSuspended
+          || isHtmlEditBlockingOverlayForItem(itemId)
+        ) return;
+        await setRuntimeHostVisibility(itemId, true);
+        scheduleRuntimeHostSync();
+      }
+
+      async function closeHtmlEditLeaveConfirmOverlay(itemId) {
+        if (itemId == null) return;
+        await invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+        if (appState.htmlEditCreateCopyPromptItemId === itemId) {
+          appState.htmlEditCreateCopyPromptItemId = null;
+        }
+        await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+      }
+
+      async function showHtmlEditCreateCopyConfirmOverlay(itemId) {
+        if (getActiveTab()?.id !== itemId) return false;
+        appState.htmlEditCreateCopyPromptItemId = itemId;
+        try {
+          const ready = await waitForHtmlRuntimeOverlayPriority(itemId);
+          if (!ready || getActiveTab()?.id !== itemId || appState.htmlEditCreateCopyPromptItemId !== itemId) return false;
+          await invoke("attach_html_edit_leave_confirm_overlay_command", {
+            payload: {
+              itemId,
+              bounds: htmlEditLeaveConfirmBounds(),
+              mode: "create-copy"
+            }
+          });
+          return true;
+        } catch (error) {
+          if (appState.htmlEditCreateCopyPromptItemId === itemId) {
+            appState.htmlEditCreateCopyPromptItemId = null;
+          }
+          await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+          throw error;
+        }
+      }
+
+      function htmlEditStateRefreshWaiterKey(runtimeSessionId, requestId) {
+        return `${runtimeSessionId}:${requestId}`;
+      }
+
+      function htmlEditRuntimeSnapshotScript(runtimeSessionId, requestId) {
+        return `(function () {
+          window.setTimeout(function () {
+            try {
+              if (window.__NUTBOOK_HTML_EDIT__?.reportState) {
+                window.__NUTBOOK_HTML_EDIT__.reportState({ requestId: ${JSON.stringify(requestId)} });
+                return;
+              }
+              document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
+                type: "html_edit_state_snapshot",
+                runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                requestId: ${JSON.stringify(requestId)},
+                runtimeSnapshotMissing: true
+              });
+            } catch (error) {
+              document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
+                type: "html_edit_state_snapshot_error",
+                runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                requestId: ${JSON.stringify(requestId)},
+                error: String(error?.message || error || "unknown")
+              });
+            }
+          }, 0);
+        })();`;
+      }
+
+      async function refreshHtmlEditRuntimeState(session, minimumRevision = session?.documentRevision ?? 0) {
+        if (!session) return false;
+        const runtimeSessionId = session.runtimeSessionId;
+        const requestId = `leave-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const key = htmlEditStateRefreshWaiterKey(runtimeSessionId, requestId);
+        return new Promise((resolve) => {
+          const finish = (refreshed) => {
+            appState.htmlEditStateRefreshWaiters.delete(key);
+            resolve(Boolean(refreshed));
+          };
+          const timeoutId = window.setTimeout(() => finish(false), 500);
+          appState.htmlEditStateRefreshWaiters.set(key, (accepted = false, revision = -1) => {
+            window.clearTimeout(timeoutId);
+            finish(accepted && revision >= minimumRevision);
+          });
+          invoke("eval_html_runtime_script_command", {
+            itemId: session.itemId,
+            script: htmlEditRuntimeSnapshotScript(runtimeSessionId, requestId)
+          }).catch(() => {
+            window.clearTimeout(timeoutId);
+            finish(false);
+          });
+        });
+      }
+
+      function resolveHtmlEditLeaveChoice(choice, runtimeSessionId = "") {
+        const intent = appState.htmlEditDirtyLeaveIntent;
+        if (!intent || (runtimeSessionId && intent.runtimeSessionId !== runtimeSessionId)) return false;
+        appState.htmlEditDirtyLeaveIntent = null;
+        appState.htmlEditLeavePromptOpen = false;
+        closeHtmlEditLeaveConfirmOverlay(intent.itemId);
+        intent.resolve(choice);
+        return true;
+      }
+
+      async function showHtmlEditLeaveConfirmOverlay(session) {
+        const existingIntent = appState.htmlEditDirtyLeaveIntent;
+        if (existingIntent?.runtimeSessionId === session?.runtimeSessionId && existingIntent.promise) {
+          return existingIntent.promise;
+        }
+        let resolveChoice = () => {};
+        const promise = new Promise((resolve) => { resolveChoice = resolve; });
+        appState.htmlEditDirtyLeaveIntent = {
+          itemId: session.itemId,
+          runtimeSessionId: session.runtimeSessionId,
+          promise,
+          resolve: resolveChoice
+        };
+        appState.htmlEditLeavePromptOpen = true;
+        try {
+          const ready = await waitForHtmlRuntimeOverlayPriority(session.itemId);
+          if (!ready) throw new Error("HTML 确认层未能取得前景");
+          await invoke("attach_html_edit_leave_confirm_overlay_command", {
+            payload: {
+              itemId: session.itemId,
+              bounds: htmlEditLeaveConfirmBounds()
+            }
+          });
+        } catch (error) {
+          if (appState.htmlEditDirtyLeaveIntent?.runtimeSessionId !== session.runtimeSessionId) return;
+          appState.htmlEditDirtyLeaveIntent = null;
+          appState.htmlEditLeavePromptOpen = false;
+          await restoreHtmlRuntimeAfterBlockingOverlay(session.itemId);
+          setStatus(htmlEditSaveErrorStatus(error), "error");
+          syncHtmlEditToolbar().catch(() => {});
+          throw error;
+        }
+        return promise;
+      }
+
+      async function promptHtmlEditLeaveChoice(tab, session) {
+        if (tab?.preview?.fileType === "html-runtime") {
+          return showHtmlEditLeaveConfirmOverlay(session);
+        }
+        const existingIntent = appState.htmlEditDirtyLeaveIntent;
+        if (
+          existingIntent &&
+          typeof existingIntent === "object" &&
+          existingIntent.runtimeSessionId === session?.runtimeSessionId &&
+          existingIntent.promise
+        ) {
+          return existingIntent.promise;
+        }
+        if (!els.confirmScrim) {
+          return Promise.resolve(window.confirm(t("htmlEdit.confirmLeave")) ? "save" : "keep");
+        }
+        let closePrompt = () => {};
+        const promise = new Promise((resolve) => {
+          closePrompt = (value) => {
+            els.confirmScrim.classList.remove("open");
+            els.confirmScrim.setAttribute("aria-hidden", "true");
+            els.confirmScrim.innerHTML = "";
+            if (appState.htmlEditDirtyLeaveIntent?.runtimeSessionId === session?.runtimeSessionId) {
+              appState.htmlEditDirtyLeaveIntent = null;
+            }
+            resolve(value);
+          };
+        });
+        appState.htmlEditDirtyLeaveIntent = {
+          itemId: session?.itemId ?? tab?.id ?? null,
+          runtimeSessionId: session?.runtimeSessionId ?? "",
+          promise
+        };
+        els.confirmScrim.innerHTML = `
+            <div class="confirm-card" role="dialog" aria-modal="true">
+              <h3 class="confirm-title">${escapeHtml(t("htmlEdit.confirmLeave"))}</h3>
+              <p class="confirm-message">${escapeHtml(tab?.item?.fileName || tab?.preview?.title || "HTML")}</p>
+              <div class="confirm-actions">
+                <button class="button button-secondary" type="button" data-html-edit-keep>${escapeHtml(t("htmlEdit.keepEditing"))}</button>
+                <button class="button button-secondary" type="button" data-html-edit-discard>${escapeHtml(t("htmlEdit.discardAndContinue"))}</button>
+                <button class="button button-primary" type="button" data-html-edit-save>${escapeHtml(t("htmlEdit.saveAndContinue"))}</button>
+              </div>
+            </div>
+          `;
+        els.confirmScrim.classList.add("open");
+        els.confirmScrim.setAttribute("aria-hidden", "false");
+        els.confirmScrim.querySelector("[data-html-edit-keep]")?.addEventListener("click", () => closePrompt("keep"));
+        els.confirmScrim.querySelector("[data-html-edit-discard]")?.addEventListener("click", () => closePrompt("discard"));
+        els.confirmScrim.querySelector("[data-html-edit-save]")?.addEventListener("click", () => closePrompt("save"));
+        els.confirmScrim.addEventListener("click", (event) => {
+          if (event.target === els.confirmScrim) closePrompt("keep");
+        }, { once: true });
+        return promise;
+      }
+
+      async function confirmHtmlEditLeaveIfNeeded(tabId = appState.activeTabId, options = {}) {
+        const session = appState.htmlEditSession;
+        if (!session || session.itemId !== tabId) return true;
+        if (appState.htmlEditSession?.runtimeSessionId !== session.runtimeSessionId) return true;
+        if (!htmlEditLeaveRequiresSave(session)) {
+          await exitHtmlEditMode({ runtimeSessionId: session.runtimeSessionId, discard: false });
+          return true;
+        }
+        const tab = getOpenTab(session.itemId);
+        const choice = await promptHtmlEditLeaveChoice(tab, session);
+        if (appState.htmlEditSession?.runtimeSessionId !== session.runtimeSessionId) return true;
+        if (choice === "keep") return false;
+        if (choice === "save") {
+          const saveResult = await saveActiveHtmlEditPatch();
+          if (!saveResult?.saved || !saveResult.canLeave) return false;
+          if (appState.htmlEditSession?.runtimeSessionId !== session.runtimeSessionId) return true;
+        }
+        await exitHtmlEditMode({ runtimeSessionId: session.runtimeSessionId, discard: choice === "discard" });
+        return true;
+      }
+
+      let htmlEditRuntimeScriptCache = null;
+      let htmlEditConverterScriptCache = null;
+      let htmlEditConversionGeneration = 0;
+
+      function htmlEditReadonlyPatchScript(patch, runtimeAssetUrls, surfaceToken) {
+        return `(function (changes, runtimeAssetUrls, surfaceToken) {
+          var existingSurfaceToken = Number(window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ || 0);
+          var incomingSurfaceToken = Number(surfaceToken || 0);
+          if (incomingSurfaceToken >= existingSurfaceToken) window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken;
+          function isCurrentSurface() { return window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ === surfaceToken; }
+          function constrainImportedImageLayout(element) {
+            if (!element || element.getAttribute('data-editable') !== 'image') return;
+            element.style.setProperty('max-width', '100%', 'important');
+            element.style.setProperty('box-sizing', 'border-box', 'important');
+            if (element.getAttribute('data-image-slot') !== 'empty') return;
+            var parentHeight = Math.round(element.parentElement ? element.parentElement.getBoundingClientRect().height : 0);
+            var height = Math.min(320, Math.max(120, parentHeight || 180));
+            element.style.setProperty('display', 'block', 'important');
+            element.style.setProperty('width', '100%', 'important');
+            element.style.setProperty('height', height + 'px', 'important');
+            element.style.setProperty('object-fit', 'cover', 'important');
+          }
+          function isValidatedRichHtml(html) {
+            if (typeof html !== 'string') return false;
+            var holder = document.createElement('div');
+            holder.innerHTML = html;
+            var allowed = { P: true, BR: true, STRONG: true, EM: true, H1: true, H2: true, H3: true, H4: true, UL: true, OL: true, LI: true };
+            return Array.prototype.every.call(holder.querySelectorAll('*'), function (node) {
+              return allowed[node.tagName] && !node.attributes.length;
+            }) && holder.innerHTML === html;
+          }
+          function sha256(value) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || ''))).then(function (digest) { return Array.prototype.map.call(new Uint8Array(digest), function (byte) { return byte.toString(16).padStart(2, '0'); }).join(''); }); }
+          function layoutInsertedImages(holder) { if (!holder || !holder.frames) return; var scroll = document.scrollingElement, width = Math.max(scroll.scrollWidth, scroll.clientWidth), height = Math.max(scroll.scrollHeight, scroll.clientHeight), scrollLeft = scroll.scrollLeft || window.scrollX || 0, scrollTop = scroll.scrollTop || window.scrollY || 0; Object.keys(holder.frames).forEach(function (id) { var entry = holder.frames[id], change = entry.change, node = entry.node; if (!change || !node) return; node.style.left = (change.leftPermille * width / 1000 - scrollLeft) + 'px'; node.style.top = (change.topPermille * height / 1000 - scrollTop) + 'px'; node.style.width = (change.widthPermille * width / 1000) + 'px'; node.style.height = (change.heightPermille * height / 1000) + 'px'; }); }
+          function insertedRoot() { var holder = window.__NUTBOOK_INSERTED_IMAGE_READONLY__; if (holder && holder.root) return holder; var host = document.createElement('div'); host.style.cssText = 'position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;overflow:visible!important'; var root = host.attachShadow({ mode: 'closed' }); root.innerHTML = '<style>:host{all:initial}.frame{position:fixed;box-sizing:border-box;pointer-events:none}.frame img{display:block;width:100%;height:100%;object-fit:cover}</style>'; document.documentElement.append(host); holder = { host: host, root: root, frames: {}, layout: null, scheduleLayout: null, resizeObserver: null, dispose: null }; holder.layout = function () { layoutInsertedImages(holder); }; holder.scheduleLayout = function () { holder.layout(); requestAnimationFrame(holder.layout); setTimeout(holder.layout, 0); setTimeout(holder.layout, 80); setTimeout(holder.layout, 260); }; holder.resizeObserver = new ResizeObserver(holder.scheduleLayout); holder.resizeObserver.observe(document.documentElement); holder.resizeObserver.observe(document.body); holder.dispose = function () { window.removeEventListener('scroll', holder.layout, true); document.removeEventListener('scroll', holder.layout, true); window.removeEventListener('resize', holder.layout); holder.resizeObserver.disconnect(); host.remove(); if (window.__NUTBOOK_INSERTED_IMAGE_READONLY__ === holder) delete window.__NUTBOOK_INSERTED_IMAGE_READONLY__; }; window.addEventListener('scroll', holder.layout, true); document.addEventListener('scroll', holder.layout, true); window.addEventListener('resize', holder.scheduleLayout); window.__NUTBOOK_INSERTED_IMAGE_READONLY__ = holder; return holder; }
+          function applyInsertedImage(change, id) { if (!change || !change.src || !runtimeAssetUrls[change.src] || change.insertedImageId !== id) return false; var holder = insertedRoot(), root = holder.root, node = root.querySelector('[data-nutbook-inserted-image-id="' + CSS.escape(id) + '"]'); if (!node) { node = document.createElement('div'); node.className = 'frame'; node.setAttribute('data-nutbook-inserted-image-id', id); node.innerHTML = '<img>'; root.append(node); } holder.frames[id] = { change: change, node: node }; var image = node.firstElementChild; image.onload = holder.scheduleLayout; image.src = runtimeAssetUrls[change.src]; image.alt = change.alt || ''; holder.scheduleLayout(); return true; }
+          async function apply() {
+            var count = 0;
+            for (var id of Object.keys(changes || {})) {
+              var change = changes[id];
+              if (change.type === 'inserted-image') { if (applyInsertedImage(change, id)) count += 1; continue; }
+              var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
+              if (!element) continue;
+              if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
+                element.textContent = change.text || '';
+              } else if ((change.type === 'rich_text' || change.type === 'rich-text') && element.getAttribute('data-editable') === 'rich-text' && isValidatedRichHtml(change.html)) {
+                var baselineTextAlign = element.getAttribute('data-nutbook-original-text-align');
+                if (!baselineTextAlign) {
+                  baselineTextAlign = getComputedStyle(element).textAlign === 'center' || getComputedStyle(element).textAlign === 'right' ? getComputedStyle(element).textAlign : 'left';
+                  element.setAttribute('data-nutbook-original-text-align', baselineTextAlign);
+                }
+                element.innerHTML = change.html;
+                element.style.textAlign = change.textAlign || baselineTextAlign;
+              } else if (change.type === 'image' && element.getAttribute('data-editable') === 'image' && runtimeAssetUrls[change.src]) {
+                var picture = element.closest('picture');
+                var sources = picture ? Array.prototype.filter.call(picture.children, function (node) { return node.tagName === 'SOURCE' && node.hasAttribute('srcset'); }) : [];
+                var expected = change.pictureSources || [];
+                if (sources.length !== expected.length || !sources.every(function (source, index) { return expected[index] && expected[index].index === index && source.srcset && source.srcset.indexOf(',') < 0 && !/\\s[0-9]+(?:w|x)(?:\\s|$)/.test(source.srcset); })) continue;
+                var hashes = await Promise.all(sources.map(function (source) { return sha256(source.getAttribute('srcset') || ''); }));
+                if (!hashes.every(function (hash, index) { return hash === expected[index].originalSrcsetHash; })) continue;
+                constrainImportedImageLayout(element);
+                element.src = runtimeAssetUrls[change.src];
+                sources.forEach(function (source) { source.setAttribute('srcset', runtimeAssetUrls[change.src]); });
+              } else if (change.type === 'background-image' && element.getAttribute('data-editable') === 'background-image' && runtimeAssetUrls[change.src]) {
+                element.style.backgroundImage = 'url(' + JSON.stringify(runtimeAssetUrls[change.src]) + ')';
+              } else {
+                continue;
+              }
+              count += 1;
+            }
+            return count;
+          }
+          (function wait(attempt) { if (!isCurrentSurface()) return; Promise.resolve(apply()).then(function (count) { if (!isCurrentSurface() || count || attempt > 40) return; setTimeout(function () { if (isCurrentSurface()) wait(attempt + 1); }, 50); }); })(0);
+        })(${JSON.stringify(patch?.changes || {})}, ${JSON.stringify(runtimeAssetUrls || {})}, ${JSON.stringify(surfaceToken)});`;
+      }
+
+      function enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, work) {
+        const previous = appState.runtimePatchSurfaceLanes.get(itemId) || Promise.resolve();
+        const lane = previous.catch(() => {}).then(work);
+        appState.runtimePatchSurfaceLanes.set(itemId, lane);
+        return lane;
+      }
+
+      function writeHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken) {
+        return invoke("eval_html_runtime_script_command", {
+          itemId,
+          script: `(function (nextSurfaceToken) {
+            var existingSurfaceToken = Number(window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ || 0);
+            if (nextSurfaceToken >= existingSurfaceToken) window.__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = nextSurfaceToken;
+          })(${JSON.stringify(surfaceToken)});`
+        });
+      }
+
+      function syncHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken) {
+        return enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, () => writeHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken));
+      }
+
+      async function applyHtmlEditPatchToRuntime(itemId) {
+        const generation = appState.htmlEditSessionGeneration;
+        const surfaceToken = currentRuntimeSurfaceToken(itemId);
+        return enqueueHtmlEditReadonlyPatchSurfaceLane(itemId, async () => {
+          if (!appState.isTauri || !isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
+          await writeHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken);
+          if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
+          const response = await invoke("get_html_edit_patch", { itemId });
+          const patchRevision = response.patchRevision || 0;
+          if ((appState.runtimePatchAppliedKeys.get(itemId) || 0) >= patchRevision) return;
+          if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken) || response.patchApplyStatus !== "clean" || !Object.keys(response.patch?.changes || {}).length) return;
+          await invoke("eval_html_runtime_script_command", { itemId, script: htmlEditReadonlyPatchScript(response.patch, response.runtimeAssetUrls || {}, surfaceToken) });
+          if (!isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken)) return;
+          appState.runtimePatchAppliedKeys.set(itemId, patchRevision);
+        });
+      }
+
+      function htmlEditSaveErrorStatus(error) {
+        const message = normalizeError(error);
+        if (message.includes("EDIT_CONFLICT") || message.includes("edit conflict")) {
+          return t("htmlEdit.revisionStale");
+        }
+        return `${t("htmlEdit.saveFailed")}${message}`;
+      }
+
+      function htmlEditAssetImportErrorStatus(error) {
+        const message = normalizeError(error);
+        if (message.includes("ASSET_INVALID_TYPE")) return t("htmlEdit.imageInvalidType");
+        if (message.includes("ASSET_TOO_LARGE")) return t("htmlEdit.imageTooLarge");
+        if (message.includes("INVALID_SESSION")) return t("htmlEdit.imageSessionExpired");
+        return `${t("htmlEdit.imageImportFailed")} ${message}`;
+      }
+
+      function htmlEditSaveNeedsRetryStatus() {
+        return appState.language === "en-US"
+          ? "Saved this batch, but new edits were made while saving. Save again before leaving."
+          : "已保存本次修改，但保存期间又产生了新修改，请再次保存。";
+      }
+
+      function htmlEditSaveResult({ saved = false, canLeave = false, sessionChanged = false } = {}) {
+        return { saved, canLeave, sessionChanged };
+      }
+
+      function logHtmlEditSaveCoordinator(session, event) {
+        if (!session?.runtimeSessionId) return;
+        invoke("html_edit_runtime_message_command", {
+          payload: {
+            type: "html_edit_host_save_debug",
+            runtimeSessionId: session.runtimeSessionId,
+            event,
+            documentRevision: session.documentRevision,
+            dirty: Boolean(session.dirty),
+            changeIds: Object.keys(session.changes || {}).join(","),
+            saveInFlight: Boolean(session.saveInFlight)
+          }
+        }).catch(() => {});
+      }
+
+      function nextHtmlEditSessionGeneration() {
+        appState.htmlEditSessionGeneration += 1;
+        return appState.htmlEditSessionGeneration;
+      }
+
+      function defaultHtmlEditToolbarFormatState() {
+        return {
+          canFormat: false,
+          bold: false,
+          italic: false,
+          block: "paragraph",
+          textAlign: "left",
+          list: null,
+          editRole: "plain"
+        };
+      }
+
+      function isHtmlEditEnterCurrent(itemId, generation) {
+        return appState.htmlEditSessionGeneration === generation && getActiveTab()?.id === itemId;
+      }
+
+      function isCurrentHtmlEditSession(session, { requireActive = true } = {}) {
+        if (!session || appState.htmlEditSession !== session) return false;
+        if (appState.htmlEditSessionGeneration !== session.generation) return false;
+        if (requireActive && getActiveTab()?.id !== session.itemId) return false;
+        return true;
+      }
+
+      async function closeStaleHtmlEditToolbar(itemId) {
+        const session = appState.htmlEditSession;
+        if (session?.itemId === itemId && isCurrentHtmlEditSession(session)) return;
+        await invoke("close_html_edit_toolbar_overlay_command", { itemId }).catch(() => false);
+        if (appState.htmlEditSession?.itemId !== itemId || !isCurrentHtmlEditSession(appState.htmlEditSession)) {
+          appState.htmlEditToolbarVisible = false;
+        }
+      }
+
+      async function loadHtmlEditRuntimeScript() {
+        if (htmlEditRuntimeScriptCache) return htmlEditRuntimeScriptCache;
+        const response = await fetch("./assets/html-edit-runtime.js");
+        if (!response.ok) throw new Error(`Failed to load html edit runtime: ${response.status}`);
+        htmlEditRuntimeScriptCache = await response.text();
+        return htmlEditRuntimeScriptCache;
+      }
+
+      async function loadHtmlEditConverterScript() {
+        if (htmlEditConverterScriptCache) return htmlEditConverterScriptCache;
+        // The conversion request happens before the editable runtime is
+        // installed. Fetching a second frontend asset here can remain pending
+        // behind a child WebView transition, leaving the confirmation action
+        // with no result. The host ships this static source over the same IPC
+        // path that has already registered the conversion lease and read the
+        // source patch.
+        htmlEditConverterScriptCache = await invoke("get_html_edit_converter_script");
+        if (typeof htmlEditConverterScriptCache !== "string" || !htmlEditConverterScriptCache.includes("__NUTBOOK_HTML_EDIT_CONVERTER__")) {
+          throw new Error("HTML 转换器不可用");
+        }
+        return htmlEditConverterScriptCache;
+      }
+
+      async function waitForHtmlRuntimeHost(itemId, isCurrent) {
+        // openItem resolves once the tab state is rendered, while its child
+        // WebView is attached by the subsequent runtime-surface sync. Do not
+        // enter editing against that gap: eval returns false before the host
+        // exists and leaves a superficially opened, read-only copy behind.
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (!isCurrent()) return false;
+          const attached = await invoke("eval_html_runtime_script_command", {
+            itemId,
+            script: "void 0;"
+          }).catch(() => false);
+          if (attached) return true;
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+        }
+        return false;
+      }
+
+      async function waitForHtmlEditableRuntimeDocument(itemId, runtimeSessionId, generation, isCurrent) {
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (!isCurrent()) return false;
+          const requestId = `html-edit-document-ready-${itemId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const ready = await new Promise((resolve) => {
+            const finish = (accepted) => {
+              appState.htmlEditRuntimeDocumentReadyWaiters.delete(requestId);
+              resolve(Boolean(accepted));
+            };
+            const timeoutId = window.setTimeout(() => finish(false), 120);
+            appState.htmlEditRuntimeDocumentReadyWaiters.set(requestId, (data) => {
+              window.clearTimeout(timeoutId);
+              finish(
+                Number(data?.itemId) === itemId
+                && data?.runtimeSessionId === runtimeSessionId
+                && Number(data?.generation) === generation
+              );
+            });
+            invoke("eval_html_runtime_script_command", {
+              itemId,
+              script: `(function () {
+                if (
+                  location.href === "about:blank"
+                  || document.readyState !== "complete"
+                  || !document.querySelector("[data-editable][data-id]")
+                ) return;
+                const payload = {
+                  type: "html_edit_runtime_document_ready",
+                  itemId: ${itemId},
+                  requestId: ${JSON.stringify(requestId)},
+                  runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                  generation: ${generation}
+                };
+                const invoke = window.__TAURI_INTERNALS__?.invoke;
+                if (typeof invoke === "function") {
+                  Promise.resolve(invoke("html_edit_runtime_message_command", { payload })).catch(function () {});
+                }
+              })();`
+            }).catch(() => {
+              window.clearTimeout(timeoutId);
+              finish(false);
+            });
+          });
+          if (ready) return true;
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+        }
+        return false;
+      }
+
+      async function createEditableCopyForActiveHtml(itemId) {
+        const tab = getOpenTab(itemId);
+        if (!tab || tab.preview?.fileType !== "html-runtime") throw new Error("HTML 预览已不再可用");
+        const generation = ++htmlEditConversionGeneration;
+        const runtimeSessionId = `html-convert-${itemId}-${Date.now()}`;
+        try {
+          await invoke("register_html_edit_session_lease", { itemId, runtimeSessionId, generation });
+          const patch = await invoke("get_html_edit_patch", { itemId, runtimeSessionId, generation });
+          if (generation !== htmlEditConversionGeneration) return;
+          const converter = await loadHtmlEditConverterScript();
+          const script = `;(async()=>{const base={runtimeSessionId:${JSON.stringify(runtimeSessionId)},generation:${generation},sourceItemId:${itemId}}; const report=async(payload)=>{const message={type:'html_edit_conversion_result',...base,...payload}; const invoke=window.__TAURI_INTERNALS__?.invoke; if(typeof invoke==='function'){try{await invoke('html_edit_runtime_message_command',{payload:message});return;}catch(_){}} document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify(message);}; try { ${converter}\n const result=window.__NUTBOOK_HTML_EDIT_CONVERTER__.convert(); if(!result.ok){await report({status:result.reason});return;} const invoke=window.__TAURI_INTERNALS__?.invoke; if(typeof invoke!=='function'){await report({status:'failed',error:'runtime_invoke_unavailable'});return;} const saved=await invoke('write_editable_html_copy',{payload:{itemId:${itemId},runtimeSessionId:${JSON.stringify(runtimeSessionId)},generation:${generation},expectedSourceFileHash:${JSON.stringify(patch.sourceFileHash)},protocolizedHtml:result.protocolizedHtml,textCount:result.textCount,imageCount:result.imageCount,backgroundImageCount:result.backgroundImageCount}}); await report(saved); } catch(error) { await report({status:'failed',error:String(error)}); } })();`;
+          const applied = await invoke("eval_html_runtime_script_command", { itemId, script });
+          if (!applied) throw new Error("HTML 运行时未就绪，请稍候重试");
+        } catch (error) {
+          if (generation === htmlEditConversionGeneration) console.warn("[html-edit-conversion] start failed", normalizeError(error));
+          throw error;
+        } finally {
+          if (generation !== htmlEditConversionGeneration || getActiveTab()?.id !== itemId) await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+        }
+      }
+
+      async function requestHtmlEdit(itemId) {
+        const tab = getOpenTab(itemId);
+        if (!tab || getActiveTab()?.id !== itemId) return;
+        const probeId = `html-edit-probe-${itemId}-${Date.now()}`;
+        await invoke("eval_html_runtime_script_command", {
+          itemId,
+          script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},hasProtocol:Boolean(document.querySelector('[data-editable]'))});`
+        });
+      }
+
+      function usesInlineHtmlEditToolbarForSession(session) {
+        return Boolean(session?.inlineToolbar);
+      }
+
+      async function navigateHtmlEditPresentationPage(session, pageId) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pageIds?.includes(pageId)) return false;
+        const runtimeSessionId = session.runtimeSessionId;
+        const generation = session.generation;
+        const applied = await invoke("eval_html_runtime_script_command", {
+          itemId: session.itemId,
+          script: `;(async()=>{let ok=false;try{ok=Boolean(await window.__NUTBOOK_HTML_EDIT__?.goToPresentationPage(${JSON.stringify(pageId)}));}catch(_){}window.__NUTBOOK_HTML_EDIT__?.emitHostMessage?.({type:"html_edit_presentation_navigation_result",runtimeSessionId:${JSON.stringify(runtimeSessionId)},generation:${generation},pageId:${JSON.stringify(pageId)},ok});})();`
+        }).catch(() => false);
+        return Boolean(applied);
+      }
+
+      function selectHtmlEditPresentationPage(session, pageId) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pageIds?.includes(pageId) || session.presentation.activePageId === pageId) return;
+        const previousPageId = session.presentation.activePageId;
+        session.presentation.activePageId = pageId;
+        session.presentation.pendingNavigationPageId = pageId;
+        renderHtmlEditPresentationRail(session);
+        syncPresentationPreviewActive(session, pageId);
+        navigateHtmlEditPresentationPage(session, pageId).then((applied) => {
+          if (!applied && isCurrentHtmlEditSession(session) && session.presentation.activePageId === pageId) {
+            session.presentation.activePageId = previousPageId;
+            renderHtmlEditPresentationRail(session);
+          }
+        }).catch((error) => {
+          if (isCurrentHtmlEditSession(session) && session.presentation.activePageId === pageId) {
+            session.presentation.activePageId = previousPageId;
+            renderHtmlEditPresentationRail(session);
+          }
+          setStatus(htmlEditSaveErrorStatus(error), "error");
+        });
+      }
+
+      function syncPresentationPreviewActive(session, pageId, options = {}) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.previewInstanceId || !session.presentation.pageIds?.includes(pageId)) return;
+        invoke("set_html_presentation_preview_active_command", { itemId: session.itemId, runtimeSessionId: session.runtimeSessionId, generation: session.generation, previewInstanceId: session.presentation.previewInstanceId, pageId, follow: options.follow !== false, focus: Boolean(options.focus) }).catch(() => false);
+      }
+
+      async function syncHtmlEditPresentationPreview(session, runId) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pages?.length) return false;
+        const rail = document.getElementById("presentationEditRail");
+        if (!rail) return false;
+        const bounds = runtimeHostBounds(rail);
+        if (bounds.width < 40 || bounds.height < 40) return false;
+        if (!session.presentation.previewInstanceId) session.presentation.previewInstanceId = `presentation-preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}:${session.runtimeSessionId}:${session.generation}:${session.presentation.previewInstanceId}`;
+        if (session.presentation.previewBoundsKey === key) {
+          // Suspension hides the child WebView but intentionally preserves the
+          // bounds cache.  A focus/restore sync with unchanged bounds must
+          // still show it again; otherwise the structural fallback rail is
+          // left visible after minimising and restoring the window.
+          const restored = await invoke("set_html_presentation_preview_visibility_command", {
+            itemId: session.itemId,
+            runtimeSessionId: session.runtimeSessionId,
+            generation: session.generation,
+            previewInstanceId: session.presentation.previewInstanceId,
+            visible: true
+          }).catch(() => false);
+          if (restored) syncPresentationPreviewActive(session, session.presentation.activePageId, { follow: false });
+          return Boolean(restored);
+        }
+        const attached = await invoke("attach_html_presentation_preview_command", {
+          itemId: session.itemId,
+          bounds,
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          activePageId: session.presentation.activePageId,
+          previewInstanceId: session.presentation.previewInstanceId
+        }).catch(() => false);
+        if (!isCurrentHtmlEditSession(session) || !isRuntimeHostSyncCurrent(runId, session.itemId)) return false;
+        if (attached) session.presentation.previewBoundsKey = key;
+        return Boolean(attached);
+      }
+
+      function presentationThumbnailKey(session, pageId) {
+        return `${session.itemId}:${session.sourceFileHash}:${session.patchRevision}:${pageId}`;
+      }
+
+      function discardPresentationThumbnailsForItem(itemId) {
+        const prefix = `${itemId}:`;
+        for (const key of presentationThumbnailCache.keys()) {
+          if (key.startsWith(prefix)) presentationThumbnailCache.delete(key);
+        }
+      }
+
+      function pumpPresentationThumbnailQueue() {
+        while (presentationThumbnailActive < PRESENTATION_THUMBNAIL_CONCURRENCY && presentationThumbnailQueue.length) {
+          const task = presentationThumbnailQueue.shift();
+          if (!isCurrentHtmlEditSession(task.session) || presentationThumbnailCache.has(task.key)) {
+            presentationThumbnailPending.delete(task.key);
+            continue;
+          }
+          presentationThumbnailActive += 1;
+          invoke("generate_presentation_thumbnail", {
+            itemId: task.session.itemId,
+            runtimeSessionId: task.session.runtimeSessionId,
+            generation: task.session.generation,
+            sourceFileHash: task.session.sourceFileHash,
+            pageId: task.pageId
+          }).then((thumbnail) => {
+            if (!thumbnail?.dataUrl || thumbnail.pageId !== task.pageId) throw new Error("缩略图响应无效");
+            presentationThumbnailCache.set(task.key, { dataUrl: thumbnail.dataUrl });
+          }).catch(() => {
+            // A missing screenshot backend is a recoverable presentation
+            // fallback; retain metadata navigation and do not retry forever.
+            presentationThumbnailCache.set(task.key, { failed: true });
+          }).finally(() => {
+            presentationThumbnailActive -= 1;
+            presentationThumbnailPending.delete(task.key);
+            if (isCurrentHtmlEditSession(task.session)) renderHtmlEditPresentationRail(task.session);
+            pumpPresentationThumbnailQueue();
+          });
+        }
+      }
+
+      function requestPresentationThumbnail(session, pageId) {
+        if (!PRESENTATION_VISUAL_THUMBNAILS_ENABLED) return;
+        if (!isCurrentHtmlEditSession(session)) return;
+        const key = presentationThumbnailKey(session, pageId);
+        if (presentationThumbnailCache.has(key) || presentationThumbnailPending.has(key)) return;
+        presentationThumbnailPending.add(key);
+        presentationThumbnailQueue.push({ session, pageId, key });
+        pumpPresentationThumbnailQueue();
+      }
+
+      function prefetchPresentationThumbnails(session) {
+        if (!PRESENTATION_VISUAL_THUMBNAILS_ENABLED) return;
+        const pages = session.presentation?.pages || [];
+        const activeIndex = Math.max(0, pages.findIndex((page) => page.id === session.presentation.activePageId));
+        // Capture the active page first, followed by the immediately useful
+        // neighbours. Scrolling a card into view requests the remaining pages.
+        for (let offset = 0; offset <= 4; offset += 1) {
+          const page = pages[activeIndex + offset] || pages[activeIndex - offset];
+          if (page) requestPresentationThumbnail(session, page.id);
+        }
+      }
+
+      function renderHtmlEditPresentationRail(session = appState.htmlEditSession) {
+        const page = document.querySelector(".runtime-host-page");
+        const rail = document.getElementById("presentationEditRail");
+        if (!page || !rail) return;
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pages?.length) {
+          page.classList.remove("presentation-editing");
+          rail.replaceChildren();
+          return;
+        }
+        page.classList.add("presentation-editing");
+        const previousScrollTop = rail.scrollTop;
+        rail.replaceChildren();
+        const heading = document.createElement("div");
+        heading.className = "presentation-edit-rail-title";
+        heading.textContent = `页面 · ${session.presentation.pages.length}`;
+        rail.append(heading);
+        for (const presentationPage of session.presentation.pages) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "presentation-edit-page";
+          button.classList.toggle("is-active", presentationPage.id === session.presentation.activePageId);
+          button.setAttribute("aria-current", presentationPage.id === session.presentation.activePageId ? "page" : "false");
+          const cachedThumbnail = presentationThumbnailCache.get(presentationThumbnailKey(session, presentationPage.id));
+          const thumbnail = document.createElement("span");
+          thumbnail.className = "presentation-edit-page-thumbnail";
+          if (!PRESENTATION_VISUAL_THUMBNAILS_ENABLED) {
+            thumbnail.classList.add("is-structure");
+            thumbnail.innerHTML = `<span>${escapeHtml(presentationPage.title || "未命名页面")}</span><small>${escapeHtml(presentationPage.kind || "presentation")}</small>`;
+          } else if (cachedThumbnail?.dataUrl) {
+            const image = document.createElement("img");
+            image.src = cachedThumbnail.dataUrl;
+            image.alt = `${presentationPage.title || "未命名页面"} 缩略图`;
+            thumbnail.append(image);
+          } else if (!cachedThumbnail?.failed) {
+            thumbnail.classList.add("is-loading");
+          }
+          const meta = document.createElement("span");
+          meta.className = "presentation-edit-page-meta";
+          meta.innerHTML = `<span class="presentation-edit-page-index">${escapeHtml(String(presentationPage.index))}</span><span class="presentation-edit-page-copy"><span class="presentation-edit-page-title">${escapeHtml(presentationPage.title || "未命名页面")}</span><span class="presentation-edit-page-kind">${escapeHtml(presentationPage.kind || "presentation")}</span></span>`;
+          button.append(thumbnail, meta);
+          button.addEventListener("click", () => selectHtmlEditPresentationPage(session, presentationPage.id));
+          button.addEventListener("mouseenter", () => requestPresentationThumbnail(session, presentationPage.id), { once: true });
+          rail.append(button);
+        }
+        rail.scrollTop = previousScrollTop;
+        const requestVisibleThumbnails = () => {
+          const railRect = rail.getBoundingClientRect();
+          for (const card of rail.querySelectorAll(".presentation-edit-page")) {
+            const rect = card.getBoundingClientRect();
+            const cardIndex = [...rail.children].indexOf(card) - 1;
+            const pageId = session.presentation.pages[cardIndex]?.id;
+            if (pageId && rect.bottom >= railRect.top - 120 && rect.top <= railRect.bottom + 120) requestPresentationThumbnail(session, pageId);
+          }
+        };
+        if (rail.__nutbookPresentationScrollHandler) rail.removeEventListener("scroll", rail.__nutbookPresentationScrollHandler);
+        rail.__nutbookPresentationScrollHandler = requestVisibleThumbnails;
+        rail.addEventListener("scroll", requestVisibleThumbnails, { passive: true });
+        requestVisibleThumbnails();
+        prefetchPresentationThumbnails(session);
+      }
+
+      async function navigateHtmlEditSection(session, pageId, requestId) {
+        if (!isCurrentHtmlEditSession(session) || !session.sectionNavigation?.pageIds?.includes(pageId)) return false;
+        const payload = {
+          itemId: session.itemId,
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          pageId,
+          requestId,
+          requestEpoch: session.sectionNavigationEpoch
+        };
+        return Boolean(await invoke("eval_html_runtime_script_command", {
+          itemId: session.itemId,
+          script: `;(function(payload){let accepted=false;try{accepted=Boolean(window.__NUTBOOK_HTML_EDIT__?.goToSection(payload));}catch(_){}if(!accepted)window.__NUTBOOK_HTML_EDIT__?.emitHostMessage?.({type:"html_edit_section_navigation_result",requestId:payload.requestId,pageId:payload.pageId,requestEpoch:payload.requestEpoch,ok:false,reason:"rejected"});})(${JSON.stringify(payload)});`
+        }).catch(() => false));
+      }
+
+      function selectHtmlEditSection(session, pageId) {
+        const navigation = session.sectionNavigation;
+        if (!isCurrentHtmlEditSession(session) || !navigation?.pageIds?.includes(pageId) || navigation.pendingRequestId || navigation.activePageId === pageId) return;
+        const requestId = `section-${session.generation}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        navigation.pendingRequestId = requestId;
+        navigation.pendingPageId = pageId;
+        renderHtmlEditSectionNavigationRail(session);
+        navigateHtmlEditSection(session, pageId, requestId).then((applied) => {
+          if (!applied && isCurrentHtmlEditSession(session) && navigation.pendingRequestId === requestId) {
+            navigation.pendingRequestId = null;
+            navigation.pendingPageId = null;
+            renderHtmlEditSectionNavigationRail(session);
+            setStatus(t("htmlEdit.sectionNavigationFailed"), "warn");
+          }
+        });
+      }
+
+      function applyHtmlEditSectionNavigationReady(session, snapshot, requestEpoch = null) {
+        if (!isCurrentHtmlEditSession(session) || !snapshot || !Array.isArray(snapshot.pages) || snapshot.pages.length < 2) return false;
+        const pages = snapshot.pages.map((page, index) => ({
+          id: String(page?.id || ""),
+          index: Number.isInteger(page?.index) ? page.index : index + 1,
+          title: String(page?.title || ""),
+          kind: page?.kind === "scroll-snap" ? "scroll-snap" : "section"
+        }));
+        const pageIds = pages.map((page) => page.id);
+        if (pageIds.some((id) => !id) || new Set(pageIds).size !== pageIds.length || !pageIds.includes(snapshot.activePageId)) return false;
+        const epoch = Number.isInteger(requestEpoch) ? requestEpoch : Number.isInteger(snapshot.requestEpoch) ? snapshot.requestEpoch : session.sectionNavigationEpoch;
+        if (epoch < session.sectionNavigationEpoch) return false;
+        session.sectionNavigationEpoch = epoch;
+        session.sectionNavigation = {
+          pages,
+          pageIds,
+          activePageId: snapshot.activePageId,
+          pendingRequestId: null,
+          pendingPageId: null
+        };
+        renderHtmlEditSectionNavigationRail(session);
+        return true;
+      }
+
+      function renderHtmlEditSectionNavigationRail(session = appState.htmlEditSession) {
+        const page = document.querySelector(".runtime-host-page");
+        const rail = document.getElementById("sectionNavigationRail");
+        if (!page || !rail) return;
+        if (!isCurrentHtmlEditSession(session) || !session.sectionNavigation?.pages?.length) {
+          page.classList.remove("section-navigation-editing");
+          rail.replaceChildren();
+          return;
+        }
+        page.classList.add("section-navigation-editing");
+        const previousScrollTop = rail.scrollTop;
+        rail.replaceChildren();
+        const heading = document.createElement("div");
+        heading.className = "presentation-edit-rail-title";
+        heading.textContent = `${t("htmlEdit.sectionNavigationTitle")} · ${session.sectionNavigation.pages.length}`;
+        rail.append(heading);
+        for (const section of session.sectionNavigation.pages) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "presentation-edit-page";
+          button.classList.toggle("is-active", section.id === session.sectionNavigation.activePageId);
+          button.classList.toggle("is-pending", section.id === session.sectionNavigation.pendingPageId);
+          button.setAttribute("aria-current", section.id === session.sectionNavigation.activePageId ? "location" : "false");
+          const meta = document.createElement("span");
+          meta.className = "presentation-edit-page-meta";
+          const index = document.createElement("span");
+          index.className = "presentation-edit-page-index";
+          index.textContent = String(section.index).padStart(2, "0");
+          const copy = document.createElement("span");
+          copy.className = "presentation-edit-page-copy";
+          const title = document.createElement("span");
+          title.className = "presentation-edit-page-title";
+          title.textContent = section.title || `第 ${section.index} 段`;
+          const kind = document.createElement("span");
+          kind.className = "presentation-edit-page-kind";
+          kind.textContent = section.kind;
+          copy.append(title, kind);
+          meta.append(index, copy);
+          button.append(meta);
+          button.addEventListener("click", () => selectHtmlEditSection(session, section.id));
+          rail.append(button);
+        }
+        rail.scrollTop = previousScrollTop;
+      }
+
+      function refreshHtmlEditSectionNavigation(session = appState.htmlEditSession) {
+        if (!isCurrentHtmlEditSession(session) || !session.sectionNavigation) return;
+        const requestEpoch = ++session.sectionNavigationEpoch;
+        const script = `window.__NUTBOOK_HTML_EDIT__?.refreshSectionNavigation(${JSON.stringify({
+          itemId: session.itemId,
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          requestEpoch
+        })});`;
+        const apply = (remainingAttempts) => invoke("eval_html_runtime_script_command", { itemId: session.itemId, script }).then((applied) => {
+          if (!applied && remainingAttempts > 0 && isCurrentHtmlEditSession(session) && session.sectionNavigationEpoch === requestEpoch) {
+            window.setTimeout(() => apply(remainingAttempts - 1), 80);
+          }
+        }).catch(() => false);
+        apply(2);
+      }
+
+      async function injectHtmlEditRuntime(itemId, runtimeSessionId, patchResponse, isCurrent) {
+        if (!isCurrent()) return false;
+        const runtimeScript = await loadHtmlEditRuntimeScript();
+        if (!isCurrent()) return false;
+        await invoke("eval_html_runtime_script_command", {
+          itemId,
+          script: `
+            (function (source) {
+              if (window.__NUTBOOK_HTML_EDIT__) return;
+              (0, eval)(source);
+            })(${JSON.stringify(runtimeScript)});
+          `
+        });
+        if (!isCurrent()) return false;
+        await invoke("eval_html_runtime_script_command", {
+          itemId,
+          script: `
+            window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = ${JSON.stringify(runtimeSessionId)};
+            (function waitForHtmlEditRuntime(attempt) {
+              if (window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ !== ${JSON.stringify(runtimeSessionId)}) return;
+              if (window.__NUTBOOK_HTML_EDIT__) {
+                window.__NUTBOOK_HTML_EDIT__.enter(${JSON.stringify({
+                  itemId,
+                  runtimeSessionId,
+                  patch: patchResponse.patch || null,
+                  patchApplyStatus: patchResponse.patchApplyStatus,
+                  fieldApplyResults: patchResponse.fieldApplyResults || {},
+                  runtimeAssetUrls: patchResponse.runtimeAssetUrls || {},
+                  patchRevision: patchResponse.patchRevision || 0,
+                  generation: appState.htmlEditSession?.runtimeSessionId === runtimeSessionId ? appState.htmlEditSession.generation : 0,
+                  inlineToolbar: Boolean(appState.htmlEditSession?.runtimeSessionId === runtimeSessionId && usesInlineHtmlEditToolbarForSession(appState.htmlEditSession)),
+                  locale: appState.language
+                })});
+                if (window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ === ${JSON.stringify(runtimeSessionId)}) {
+                  window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
+                }
+                return;
+              }
+              if (attempt > 40) {
+                window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
+                document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify({
+                  type: "html_edit_ready",
+                  itemId: ${itemId},
+                  runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+                  generation: ${appState.htmlEditSession?.runtimeSessionId === runtimeSessionId ? appState.htmlEditSession.generation : 0},
+                  count: 0,
+                  duplicates: [],
+                  shortcutsIntercepted: false
+                });
+                return;
+              }
+              setTimeout(function () { waitForHtmlEditRuntime(attempt + 1); }, 50);
+            })(0);
+          `
+        });
+        if (!isCurrent()) return false;
+        return true;
+      }
+
+      async function enterHtmlEditMode(itemId) {
+        const tab = getOpenTab(itemId);
+        if (!tab || tab.preview?.fileType !== "html-runtime") return;
+        if (appState.htmlEditSession?.itemId === itemId) {
+          await syncHtmlEditToolbar();
+          return;
+        }
+        if (appState.htmlEditSession && !(await confirmHtmlEditLeaveIfNeeded(appState.htmlEditSession.itemId))) return;
+        const generation = nextHtmlEditSessionGeneration();
+        if (!isHtmlEditEnterCurrent(itemId, generation)) return;
+        const runtimeSessionId = `html-edit-${itemId}-${Date.now()}`;
+        let response;
+        try {
+          await invoke("register_html_edit_session_lease", { itemId, runtimeSessionId, generation });
+          response = await invoke("get_html_edit_patch", { itemId, runtimeSessionId, generation });
+        } catch (error) {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+          throw error;
+        }
+        if (!isHtmlEditEnterCurrent(itemId, generation)) {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+          return;
+        }
+        if (response.patchApplyStatus !== "clean") {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+          setStatus(t("htmlEdit.sourceChanged"), "warn");
+          return;
+        }
+        appState.htmlEditSession = {
+          itemId,
+          runtimeSessionId,
+          artifactEditId: response.artifactEditId,
+          sourceFileHash: response.sourceFileHash,
+          sourceModifiedAt: response.sourceModifiedAt,
+          patchRevision: response.patchRevision || 0,
+          generation,
+          state: "editing",
+          documentRevision: 0,
+          assetImportGeneration: 0,
+          assetRequestEpoch: 0,
+          activeAssetRequestId: "",
+          documentStateKey: htmlEditDocumentStateKey({ dirty: false, changes: {} }),
+          dirty: false,
+          changes: {},
+          selectedDataId: null,
+          formatState: defaultHtmlEditToolbarFormatState(),
+          saveInFlight: null,
+          requiresPatchReconciliation: false,
+          persistedChanges: response.patch?.changes && typeof response.patch.changes === "object" ? structuredClone(response.patch.changes) : {},
+          shortcutsIntercepted: false,
+          inlineToolbar: true,
+          presentation: null,
+          sectionNavigation: null,
+          sectionNavigationEpoch: 0
+        };
+        const session = appState.htmlEditSession;
+        const isCurrent = () => isCurrentHtmlEditSession(session);
+        try {
+          if (!isCurrent()) {
+            await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+            return;
+          }
+          const documentReady = await waitForHtmlEditableRuntimeDocument(
+            itemId,
+            runtimeSessionId,
+            generation,
+            isCurrent
+          );
+          if (!documentReady || !isCurrent()) {
+            await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+            if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
+              appState.htmlEditSession = null;
+            }
+            return;
+          }
+          const injected = await injectHtmlEditRuntime(itemId, runtimeSessionId, response, isCurrent);
+          if (!injected || !isCurrent()) {
+            await closeStaleHtmlEditToolbar(itemId);
+            await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+            if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
+              appState.htmlEditSession = null;
+              appState.htmlEditToolbarVisible = false;
+              appState.htmlEditToolbarSyncPending = false;
+            }
+            return;
+          }
+          await syncHtmlEditToolbar();
+          if (!isCurrent()) {
+            await closeStaleHtmlEditToolbar(itemId);
+          }
+        } catch (error) {
+          await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+          await invoke("close_html_edit_toolbar_overlay_command", { itemId }).catch(() => false);
+          if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) {
+            appState.htmlEditSession = null;
+          }
+          appState.htmlEditToolbarVisible = false;
+          appState.htmlEditToolbarSyncPending = false;
+          throw error;
+        }
+      }
+
+      function htmlEditToolbarBounds(formatState) {
+        const preferredWidth = formatState?.editRole === "content" ? 640 : formatState?.editRole === "short" ? 360 : 260;
+        const width = Math.max(0, Math.min(preferredWidth, window.innerWidth - 16));
+        const height = 56;
+        return {
+          x: Math.max(0, Math.round((window.innerWidth - width) / 2)),
+          y: Math.max(0, Math.round(window.innerHeight - height - 24)),
+          width,
+          height
+        };
+      }
+
+      async function syncHtmlEditToolbar() {
+        if (appState.htmlEditToolbarSyncInFlight) {
+          appState.htmlEditToolbarSyncPending = true;
+          return;
+        }
+        appState.htmlEditToolbarSyncInFlight = true;
+        appState.htmlEditToolbarSyncPending = false;
+        try {
+          await syncHtmlEditToolbarNow();
+        } finally {
+          appState.htmlEditToolbarSyncInFlight = false;
+          if (appState.htmlEditToolbarSyncPending) {
+            appState.htmlEditToolbarSyncPending = false;
+            syncHtmlEditToolbar().catch((error) => {
+              setStatus(htmlEditSaveErrorStatus(error), "error");
+            });
+          }
+        }
+      }
+
+      async function syncHtmlEditToolbarNow() {
+        const session = appState.htmlEditSession;
+        if (!session) return;
+        const isCurrent = (options) => isCurrentHtmlEditSession(session, options);
+        if (usesInlineHtmlEditToolbarForSession(session)) {
+          await invoke("close_html_edit_toolbar_overlay_command", { itemId: session.itemId }).catch(() => false);
+          if (isCurrent({ requireActive: false })) appState.htmlEditToolbarVisible = false;
+          return;
+        }
+        if (getActiveTab()?.id !== session.itemId) {
+          if (appState.htmlEditToolbarVisible) {
+            if (!isCurrent({ requireActive: false })) return;
+            await invoke("set_html_edit_toolbar_overlay_visibility_command", {
+              itemId: session.itemId,
+              visible: false
+            }).catch(() => false);
+            if (!isCurrent({ requireActive: false })) return;
+            appState.htmlEditToolbarVisible = false;
+            if (getActiveTab()?.id === session.itemId) {
+              appState.htmlEditToolbarSyncPending = true;
+            }
+          }
+          return;
+        }
+        if (!isCurrent()) return;
+        await invoke("attach_html_edit_toolbar_overlay_command", {
+          itemId: session.itemId,
+          bounds: htmlEditToolbarBounds(session.formatState),
+          runtimeSessionId: session.runtimeSessionId,
+          generation: session.generation,
+          dirty: Boolean(session.dirty),
+          selectedDataId: session.selectedDataId || null,
+          formatState: session.formatState || defaultHtmlEditToolbarFormatState()
+        });
+        if (!isCurrent()) {
+          await closeStaleHtmlEditToolbar(session.itemId);
+          return;
+        }
+        appState.htmlEditToolbarVisible = true;
+      }
+
+      function htmlEditMarkSavedWaiterKey(runtimeSessionId, requestId) {
+        return `${runtimeSessionId || ""}:${requestId || ""}`;
+      }
+
+      function waitForHtmlEditMarkSavedResult(runtimeSessionId, requestId) {
+        const key = htmlEditMarkSavedWaiterKey(runtimeSessionId, requestId);
+        return new Promise((resolve) => {
+          const timeoutId = window.setTimeout(() => {
+            appState.htmlEditMarkSavedWaiters.delete(key);
+            resolve(false);
+          }, 1200);
+          appState.htmlEditMarkSavedWaiters.set(key, (saved) => {
+            window.clearTimeout(timeoutId);
+            resolve(Boolean(saved));
+          });
+        });
+      }
+
+      function cancelHtmlEditCleanRevisionWaiter(runtimeSessionId) {
+        const waiter = appState.htmlEditCleanRevisionWaiters.get(runtimeSessionId);
+        if (!waiter) return;
+        appState.htmlEditCleanRevisionWaiters.delete(runtimeSessionId);
+        window.clearTimeout(waiter.timeoutId);
+        waiter.resolve(null);
+      }
+
+      function waitForHtmlEditCleanRevision(runtimeSessionId, minimumRevision) {
+        cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
+        let resolvePromise = () => {};
+        const promise = new Promise((resolve) => { resolvePromise = resolve; });
+        const waiter = {
+          minimumRevision,
+          resolve: resolvePromise,
+          timeoutId: window.setTimeout(() => cancelHtmlEditCleanRevisionWaiter(runtimeSessionId), 1200)
+        };
+        appState.htmlEditCleanRevisionWaiters.set(runtimeSessionId, waiter);
+        return { promise, cancel: () => cancelHtmlEditCleanRevisionWaiter(runtimeSessionId) };
+      }
+
+      function resolveHtmlEditCleanRevisionWaiter(session) {
+        const waiter = appState.htmlEditCleanRevisionWaiters.get(session?.runtimeSessionId);
+        if (!waiter || !isHtmlEditCleanRevisionSatisfied(session, waiter.minimumRevision)) return;
+        appState.htmlEditCleanRevisionWaiters.delete(session.runtimeSessionId);
+        window.clearTimeout(waiter.timeoutId);
+        waiter.resolve(session.documentRevision);
+      }
+
+      async function saveActiveHtmlEditPatch() {
+        const session = appState.htmlEditSession;
+        if (!session) return htmlEditSaveResult();
+        // The image picker and the child runtime communicate asynchronously.  Do
+        // not treat a host-side clean cache as authoritative: first request a
+        // fresh snapshot so an immediately-clicked Save cannot silently skip a
+        // just-imported image.
+        const refreshed = await refreshHtmlEditRuntimeState(session, session.documentRevision);
+        logHtmlEditSaveCoordinator(session, `host-save-refreshed:${refreshed ? "accepted" : "rejected"}`);
+        if (appState.htmlEditSession !== session) return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
+        if (!refreshed && !htmlEditLeaveRequiresSave(session)) {
+          logHtmlEditSaveCoordinator(session, "host-save-retry-needed");
+          setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+          return htmlEditSaveResult();
+        }
+        if (!htmlEditLeaveRequiresSave(session)) {
+          logHtmlEditSaveCoordinator(session, "host-save-already-clean");
+          return htmlEditSaveResult({ saved: true, canLeave: true });
+        }
+        if (session.saveInFlight) {
+          logHtmlEditSaveCoordinator(session, "host-save-waiting-for-prior");
+          // Never return an earlier Save's result for a newer document state.
+          // In particular, Undo can make the document dirty while the prior
+          // save request is unwinding. Wait for it, release a stale lock, then
+          // start over from a fresh child snapshot.
+          const activeSave = session.saveInFlight;
+          await activeSave;
+          if (appState.htmlEditSession !== session) return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
+          if (session.saveInFlight === activeSave) session.saveInFlight = null;
+          return saveActiveHtmlEditPatch();
+        }
+        const runtimeSessionId = session.runtimeSessionId;
+        const generation = session.generation;
+        const savedChangesJson = stableHtmlEditJson(session.changes || {});
+        const savedDocumentRevision = session.documentRevision;
+        const candidatePersistedChanges = mergeHtmlEditPatchChanges(session.persistedChanges, session.changes);
+        // Commit needs the full canonical state: an older sidecar may contain
+        // changes this runtime did not touch during the current save.
+        const changesForSave = candidatePersistedChanges;
+        let savePromise;
+        savePromise = (async () => {
+          try {
+            logHtmlEditSaveCoordinator(session, "host-save-commit-start");
+            const result = await invoke("commit_html_edit", {
+              itemId: session.itemId,
+              runtimeSessionId,
+              generation,
+              artifactEditId: session.artifactEditId,
+              expectedFileHash: session.sourceFileHash,
+              expectedModifiedAt: session.sourceModifiedAt,
+              changes: changesForSave
+            });
+            logHtmlEditSaveCoordinator(session, "host-save-commit-success");
+            if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
+              return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
+            }
+            session.patchRevision = 0;
+            session.sourceCommitted = true;
+            session.sourceFileHash = result.sourceFileHash ?? session.sourceFileHash;
+            session.sourceModifiedAt = result.sourceModifiedAt ?? session.sourceModifiedAt;
+            // The commit is now the source of truth for presentation pixels.
+            // Do not show a previous page bitmap after a successful save.
+            discardPresentationThumbnailsForItem(session.itemId);
+            if (markHtmlEditPatchOutOfSync(session, savedChangesJson)) {
+              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              // Toolbar presentation is deliberately outside the persistence
+              // critical section.  The overlay is another WebView and can be
+              // delayed while a modal is visible; keeping the save lock until
+              // it answers made a completed Save permanently block the next
+              // Save after Undo.
+              syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+              return htmlEditSaveResult({ saved: true, canLeave: false });
+            }
+            const preMarkSavedRevision = session.documentRevision;
+            const markSavedRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const markSavedResult = waitForHtmlEditMarkSavedResult(runtimeSessionId, markSavedRequestId);
+            try {
+              await invoke("eval_html_runtime_script_command", {
+                itemId: session.itemId,
+                script: `
+                  (function () {
+                    var runtimeSessionId = ${JSON.stringify(runtimeSessionId)};
+                    var requestId = ${JSON.stringify(markSavedRequestId)};
+                    var saved = false;
+                    try {
+                      if (window.__NUTBOOK_HTML_EDIT__) {
+                        saved = Boolean(window.__NUTBOOK_HTML_EDIT__.markSaved(${JSON.stringify({ runtimeSessionId, expectedDocumentRevision: savedDocumentRevision })}));
+                      }
+                    } catch (_) {
+                      saved = false;
+                    }
+                    if (window.__NUTBOOK_HTML_EDIT__?.emitHostMessage) {
+                      window.__NUTBOOK_HTML_EDIT__.emitHostMessage({
+                        type: "html_edit_mark_saved_result",
+                        runtimeSessionId: runtimeSessionId,
+                        requestId: requestId,
+                        saved: saved
+                      });
+                    }
+                  })();
+                `
+              });
+            } catch (error) {
+              session.requiresPatchReconciliation = true;
+              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              return htmlEditSaveResult({ saved: true, canLeave: false });
+            }
+            const markSavedOk = await markSavedResult;
+            if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
+              return htmlEditSaveResult({ saved: true, canLeave: true, sessionChanged: true });
+            }
+            if (!markSavedOk) {
+              session.requiresPatchReconciliation = true;
+              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+              return htmlEditSaveResult({ saved: true, canLeave: false });
+            }
+            // `markSaved` is the child runtime's authoritative acknowledgement
+            // that this exact revision has become its baseline. Do not hold the
+            // save lock waiting for a second asynchronous state message: a user
+            // can undo before that message arrives, which otherwise makes every
+            // later Save reuse this stale in-flight promise.
+            session.documentRevision = Math.max(session.documentRevision, preMarkSavedRevision + 1);
+            session.documentStateKey = htmlEditDocumentStateKey({ dirty: false, changes: {} });
+            session.dirty = false;
+            session.changes = {};
+            session.requiresPatchReconciliation = false;
+            session.persistedChanges = {};
+            setStatus(t("htmlEdit.saved"), "ok");
+            if (session.presentation) {
+              // The preview is a separate, read-only document.  Recreate it
+              // only after Rust has committed the source so it cannot keep a
+              // stale clone of saved text or images.
+              session.presentation.previewReady = false;
+              const previousPreviewInstanceId = session.presentation.previewInstanceId || "";
+              delete session.presentation.previewBoundsKey;
+              await invoke("close_html_presentation_preview_command", {
+                itemId: session.itemId,
+                runtimeSessionId,
+                generation,
+                previewInstanceId: previousPreviewInstanceId,
+                visible: false
+              }).catch(() => false);
+              session.presentation.previewInstanceId = `presentation-preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              renderHtmlEditPresentationRail(session);
+              scheduleRuntimeHostSync();
+            }
+            // This is the terminal acknowledgement of the persistence
+            // transaction.  Clear the exact lock here as well as in `finally`:
+            // a later UI sync must never retain a completed save and cause the
+            // next Save (after Undo or a frame drag) to reuse stale success.
+            if (session.saveInFlight === savePromise) session.saveInFlight = null;
+            // Do not await a best-effort overlay update here.  Once the child
+            // has acknowledged markSaved, the persistence transaction is
+            // complete and later undo/save must be able to open a new one.
+            syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+            return htmlEditSaveResult({ saved: true, canLeave: true });
+          } catch (error) {
+            logHtmlEditSaveCoordinator(session, `host-save-commit-error:${normalizeError(error).slice(0, 120)}`);
+            const message = normalizeError(error);
+            if ((message.includes("EDIT_CONFLICT") || message.includes("edit conflict")) && window.confirm(t("htmlEdit.saveConflictCopyPrompt"))) {
+              try {
+                const copied = await invoke("save_html_edit_conflict_copy", { itemId: session.itemId, runtimeSessionId, generation, artifactEditId: session.artifactEditId, changes: candidatePersistedChanges });
+                setStatus(`${t("htmlEdit.saveConflictCopySaved")}${copied.filePath}`, "warn");
+                // The recovery file is a new artifact. Do not leave an active
+                // editor bound to the externally changed original path.
+                await exitHtmlEditMode({ itemId: session.itemId, runtimeSessionId, discard: true });
+                return htmlEditSaveResult({ saved: true, canLeave: true });
+              } catch (copyError) {
+                setStatus(htmlEditSaveErrorStatus(copyError), "error");
+                return htmlEditSaveResult();
+              }
+            }
+            setStatus(htmlEditSaveErrorStatus(error), "error");
+            return htmlEditSaveResult();
+          } finally {
+            if (session.saveInFlight === savePromise) {
+              session.saveInFlight = null;
+            }
+          }
+        })();
+        session.saveInFlight = savePromise;
+        return savePromise;
+      }
+
+      async function exitHtmlEditMode(itemOrOptions = {}) {
+        const session = appState.htmlEditSession;
+        if (!session) return;
+        const options = itemOrOptions && typeof itemOrOptions === "object" ? itemOrOptions : {};
+        const itemId = typeof itemOrOptions === "number" ? itemOrOptions : (options.itemId ?? session.itemId);
+        const runtimeSessionId = options.runtimeSessionId || session.runtimeSessionId;
+        const generation = session.generation;
+        const discard = Boolean(options.discard);
+        // The source file is the durable baseline in both Save and Discard
+        // exits. Reload it rather than trying to reuse an edit-only overlay;
+        // otherwise the current runtime can lose an inserted frame until the
+        // user manually reopens the document.
+        const reloadCommittedSource = true;
+        if (session.itemId !== itemId) return;
+        if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
+        cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
+        nextHtmlEditSessionGeneration();
+        session.assetRequestEpoch += 1;
+        session.activeAssetRequestId = "";
+        await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId, generation, previewInstanceId: session.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
+        await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+        appState.htmlEditToolbarSyncPending = false;
+        try {
+          await invoke("eval_html_runtime_script_command", {
+            itemId,
+            script: `
+              window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
+              if (window.__NUTBOOK_HTML_EDIT__) {
+                window.__NUTBOOK_HTML_EDIT__.exit(${JSON.stringify({ runtimeSessionId, discard })});
+              }
+            `
+          });
+        } catch (_) {
+        }
+        try {
+          await invoke("close_html_edit_toolbar_overlay_command", { itemId });
+        } catch (_) {
+        }
+        resolveHtmlEditLeaveChoice("keep", runtimeSessionId);
+        closeHtmlEditLeaveConfirmOverlay(itemId);
+        if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
+        renderHtmlEditPresentationRail(null);
+        renderHtmlEditSectionNavigationRail(null);
+        scheduleRuntimeHostSync();
+        appState.htmlEditToolbarVisible = false;
+        appState.htmlEditToolbarSyncPending = false;
+        // Exiting removes the editable image layer.  Reapply the sidecar to
+        // the same child runtime immediately; otherwise its revision cache
+        // incorrectly treats the just-removed read-only layer as still shown.
+        appState.runtimePatchAppliedKeys.delete(itemId);
+        await applyHtmlEditPatchToRuntime(itemId).catch(() => {});
+        if (reloadCommittedSource) {
+          await invoke("eval_html_runtime_script_command", { itemId, script: "window.location.reload();" }).catch(() => {});
+        }
+        refocusActiveRuntimeHost(itemId);
+      }
+
+      window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__ = function handleHtmlEditRuntimeMessage(data) {
+        if (!data || typeof data !== "object") return;
+        if (data.type === "html_edit_runtime_document_ready") {
+          const requestId = String(data.requestId || "");
+          const resolveReady = appState.htmlEditRuntimeDocumentReadyWaiters.get(requestId);
+          if (resolveReady) {
+            appState.htmlEditRuntimeDocumentReadyWaiters.delete(requestId);
+            resolveReady(data);
+          }
+          return;
+        }
+        if (data.type === "html_edit_conversion_probe") {
+          const itemId = Number(data.sourceItemId);
+          if (getActiveTab()?.id !== itemId) return;
+          // The title bridge is the established runtime-to-host signal. Once
+          // its message is already in the main WebView, restore the page title
+          // through the same host eval channel before showing any overlay.
+          invoke("eval_html_runtime_script_command", {
+            itemId,
+            script: "if(window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__!==undefined){document.title=window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__;delete window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__;}"
+          }).catch(() => false);
+          if (data.hasProtocol) enterHtmlEditMode(itemId).catch((error) => console.warn("[html-edit] protocol entry failed", normalizeError(error)));
+          else showHtmlEditCreateCopyConfirmOverlay(itemId).catch((error) => {
+            console.warn("[html-edit] create-copy prompt failed", normalizeError(error));
+          });
+          return;
+        }
+        if (data.type === "html_edit_conversion_result") {
+          if (Number(data.generation) !== htmlEditConversionGeneration || getActiveTab()?.id !== Number(data.sourceItemId)) return;
+          const itemId = Number(data.sourceItemId);
+          const finish = () => invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId: data.runtimeSessionId, generation: data.generation }).catch(() => false);
+          if (data.status === "protocol_present") { finish(); enterHtmlEditMode(itemId).catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error")); return; }
+          if (data.status === "created" || data.status === "already_exists") {
+            (async () => {
+              if (!Number.isInteger(data.itemId)) throw new Error("宿主未返回副本索引");
+              await loadItems();
+              await finish();
+              await openItem(data.itemId);
+              if (getActiveTab()?.id !== data.itemId || getActiveTab()?.preview?.fileType !== "html-runtime") throw new Error("副本运行时未就绪");
+              const attached = await waitForHtmlRuntimeHost(data.itemId, () => getActiveTab()?.id === data.itemId && Number(data.generation) === htmlEditConversionGeneration);
+              if (!attached) throw new Error("副本运行时未能启动");
+              await enterHtmlEditMode(data.itemId);
+            })().catch((error) => console.warn("[html-edit-conversion] open copy failed", normalizeError(error))); return;
+          }
+          finish(); console.warn("[html-edit-conversion] failed", data.status, data.error || ""); return;
+        }
+        const session = appState.htmlEditSession;
+        if (!session || session.runtimeSessionId !== data.runtimeSessionId) return;
+        if (!isCurrentHtmlEditSession(session)) return;
+        const isStrictRuntimeMessage = data.type === "html_edit_ready" || String(data.type || "").startsWith("html_edit_section_navigation_");
+        if (isStrictRuntimeMessage && (Number(data.itemId) !== session.itemId || Number(data.generation) !== session.generation)) return;
+        if (data.type === "html_edit_section_navigation_ready") {
+          applyHtmlEditSectionNavigationReady(session, data.sectionNavigation, Number(data.requestEpoch));
+          return;
+        }
+        if (data.type === "html_edit_section_navigation_changed") {
+          const navigation = session.sectionNavigation;
+          if (!navigation || Number(data.requestEpoch) !== session.sectionNavigationEpoch || !navigation.pageIds.includes(data.pageId)) return;
+          if (navigation.pendingRequestId && navigation.pendingPageId !== data.pageId) return;
+          if (!navigation.pendingRequestId) {
+            navigation.activePageId = data.pageId;
+            renderHtmlEditSectionNavigationRail(session);
+          }
+          return;
+        }
+        if (data.type === "html_edit_section_navigation_result") {
+          const navigation = session.sectionNavigation;
+          if (!navigation || Number(data.requestEpoch) !== session.sectionNavigationEpoch || data.requestId !== navigation.pendingRequestId || data.pageId !== navigation.pendingPageId) return;
+          navigation.pendingRequestId = null;
+          navigation.pendingPageId = null;
+          if (data.ok === true && navigation.pageIds.includes(data.pageId)) navigation.activePageId = data.pageId;
+          else setStatus(t("htmlEdit.sectionNavigationFailed"), "warn");
+          renderHtmlEditSectionNavigationRail(session);
+          return;
+        }
+        if (data.type === "html_edit_presentation_preview_ready") {
+          if (data.generation === session.generation && data.previewInstanceId === session.presentation?.previewInstanceId && session.presentation?.pageIds?.includes(data.pageId)) {
+            session.presentation.previewReady = true;
+            invoke("set_html_presentation_preview_visibility_command", { itemId: session.itemId, runtimeSessionId: session.runtimeSessionId, generation: session.generation, previewInstanceId: session.presentation.previewInstanceId, visible: true }).then((visible) => {
+              if (visible) syncPresentationPreviewActive(session, data.pageId, { follow: false, focus: true });
+            }).catch(() => false);
+          }
+          return;
+        }
+        if (data.type === "html_edit_presentation_preview_clicked") {
+          if (data.generation === session.generation && session.presentation?.pageIds?.includes(data.pageId)) {
+            selectHtmlEditPresentationPage(session, data.pageId);
+          }
+          return;
+        }
+        if (data.type === "html_edit_presentation_preview_navigate") {
+          const currentIndex = session.presentation?.pageIds?.indexOf(session.presentation.activePageId) ?? -1;
+          const pageId = session.presentation?.pageIds?.[currentIndex + (data.pageId === "previous" ? -1 : 1)];
+          if (pageId) selectHtmlEditPresentationPage(session, pageId);
+          return;
+        }
+        if (data.type === "html_edit_presentation_navigation_result") {
+          const pendingPageId = session.presentation?.pendingNavigationPageId;
+          if (data.generation === session.generation && pendingPageId && data.pageId !== pendingPageId) return;
+          if (data.generation === session.generation && data.ok === true && session.presentation?.pageIds?.includes(data.pageId)) {
+            session.presentation.activePageId = data.pageId;
+            session.presentation.pendingNavigationPageId = null;
+            renderHtmlEditPresentationRail(session);
+            syncPresentationPreviewActive(session, data.pageId);
+          }
+          return;
+        }
+        if (data.type === "html_edit_presentation_page_changed") {
+          const pendingPageId = session.presentation?.pendingNavigationPageId;
+          if (data.generation === session.generation && pendingPageId && data.pageId !== pendingPageId) return;
+          if (data.generation === session.generation && session.presentation?.pageIds?.includes(data.pageId)) {
+            session.presentation.activePageId = data.pageId;
+            session.presentation.pendingNavigationPageId = null;
+            renderHtmlEditPresentationRail(session);
+            syncPresentationPreviewActive(session, data.pageId);
+          }
+          return;
+        }
+        if (data.type === "html_edit_ready") {
+          if (Array.isArray(data.duplicates) && data.duplicates.length) {
+            setStatus(t("htmlEdit.duplicateDataId"), "error");
+            exitHtmlEditMode({ discard: true }).catch(() => {});
+            return;
+          }
+          if (!Number(data.count || 0)) {
+            setStatus(t("htmlEdit.noEditableFields"), "warn");
+            exitHtmlEditMode({ runtimeSessionId: data.runtimeSessionId, discard: true }).catch(() => {});
+            return;
+          }
+          if (!data.shortcutsIntercepted) {
+            setStatus(t("htmlEdit.shortcutCaptureFailed"), "error");
+            exitHtmlEditMode({ discard: true }).catch(() => {});
+            return;
+          }
+          session.shortcutsIntercepted = true;
+          if (data.presentation && Array.isArray(data.presentation.pages)
+            && data.presentation.pages.length
+            && typeof data.presentation.activePageId === "string"
+            && data.presentation.pages.every((page) => page && typeof page.id === "string" && page.id)) {
+            session.presentation = {
+              pages: data.presentation.pages.map((page, index) => ({ id: page.id, index: Number.isInteger(page.index) ? page.index : index + 1, title: String(page.title || ""), kind: String(page.kind || "") })),
+              pageIds: data.presentation.pages.map((page) => page.id),
+              activePageId: data.presentation.activePageId,
+              pendingNavigationPageId: null
+            };
+            renderHtmlEditPresentationRail(session);
+            scheduleRuntimeHostSync();
+          }
+          if (data.sectionNavigation) applyHtmlEditSectionNavigationReady(session, data.sectionNavigation);
+          syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_inserted_image_confirmed" || data.type === "html_edit_inserted_image_replace_requested") {
+          const insertedImageId = String(data.insertedImageId || "");
+          if (!insertedImageId) return;
+          const operation = data.type === "html_edit_inserted_image_confirmed" ? "create" : "replace";
+          const assetRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const generation = session.generation;
+          const assetRequestEpoch = ++session.assetRequestEpoch;
+          const assetImportGeneration = ++session.assetImportGeneration;
+          session.activeAssetRequestId = assetRequestId;
+          const isCurrentRequest = () => appState.htmlEditSession === session
+            && isCurrentHtmlEditSession(session)
+            && session.runtimeSessionId === data.runtimeSessionId
+            && session.generation === generation
+            && session.assetRequestEpoch === assetRequestEpoch
+            && session.assetImportGeneration === assetImportGeneration
+            && session.activeAssetRequestId === assetRequestId;
+          (async () => {
+            const sourcePath = await invoke("open_html_edit_image_file_dialog");
+            if (!sourcePath) {
+              if (isCurrentRequest()) await invoke("eval_html_runtime_script_command", { itemId: session.itemId, script: `window.__NUTBOOK_HTML_EDIT__?.${operation === "create" ? "resumeInsertedImageDraft" : "resumeInsertedImageReplacement"}(${JSON.stringify({ runtimeSessionId: session.runtimeSessionId, insertedImageId, assetRequestId })});` });
+              return;
+            }
+            if (!isCurrentRequest()) return;
+            setStatus(t("htmlEdit.importingImage"), "info");
+            const imported = await invoke("import_html_edit_asset", { itemId: session.itemId, runtimeSessionId: session.runtimeSessionId, generation: session.generation, assetRequestId, artifactEditId: session.artifactEditId, expectedPatchRevision: session.patchRevision, sourcePath });
+            if (!isCurrentRequest() || !imported?.relativePath || !imported?.runtimeUrl) return;
+            await invoke("eval_html_runtime_script_command", { itemId: session.itemId, script: `window.__NUTBOOK_HTML_EDIT__?.applyInsertedImageAsset(${JSON.stringify({ runtimeSessionId: session.runtimeSessionId, insertedImageId, assetRequestId, relativePath: imported.relativePath, runtimeUrl: imported.runtimeUrl })});` });
+          })().catch((error) => { if (isCurrentRequest()) setStatus(htmlEditAssetImportErrorStatus(error), "error"); });
+          return;
+        }
+        if (data.type === "html_edit_inserted_image_unsupported") {
+          setStatus(t("htmlEdit.insertedImageUnsupported") || "This page layout does not support free image insertion.", "warn");
+          return;
+        }
+        if (data.type === "html_edit_asset_replace_requested") {
+          const editableType = data.editableType;
+          if ((editableType !== "image" && editableType !== "background-image") || !String(data.dataId || "")) return;
+          const assetRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const generation = session.generation;
+          const assetRequestEpoch = ++session.assetRequestEpoch;
+          const assetImportGeneration = ++session.assetImportGeneration;
+          session.activeAssetRequestId = assetRequestId;
+          const isCurrentRequest = () => appState.htmlEditSession === session
+            && isCurrentHtmlEditSession(session)
+            && session.runtimeSessionId === data.runtimeSessionId
+            && session.generation === generation
+            && session.assetRequestEpoch === assetRequestEpoch
+            && session.assetImportGeneration === assetImportGeneration
+            && session.activeAssetRequestId === assetRequestId;
+          (async () => {
+            const sourcePath = await invoke("open_html_edit_image_file_dialog");
+            if (!sourcePath || !isCurrentRequest()) return;
+            setStatus(t("htmlEdit.importingImage"), "info");
+            const imported = await invoke("import_html_edit_asset", {
+              itemId: session.itemId,
+              runtimeSessionId: session.runtimeSessionId,
+              generation: session.generation,
+              assetRequestId,
+              artifactEditId: session.artifactEditId,
+              expectedPatchRevision: session.patchRevision,
+              sourcePath
+            });
+            if (!isCurrentRequest() || !imported?.relativePath || !imported?.runtimeUrl) return;
+            await invoke("eval_html_runtime_script_command", {
+              itemId: session.itemId,
+              script: `window.__NUTBOOK_HTML_EDIT__?.applyImportedAsset(${JSON.stringify({ runtimeSessionId: session.runtimeSessionId, dataId: data.dataId, editableType, relativePath: imported.relativePath, runtimeUrl: imported.runtimeUrl })});`
+            });
+          })().catch((error) => {
+            if (isCurrentRequest()) setStatus(htmlEditAssetImportErrorStatus(error), "error");
+          });
+          return;
+        }
+        if (data.type === "html_edit_patch_field_result") {
+          if (data.reason === "picture_source_mismatch") setStatus(t("htmlEdit.pictureSourceMismatch"), "warn");
+          return;
+        }
+        if (data.type === "html_edit_document_changed") {
+          if (!acceptHtmlEditDocumentSnapshot(session, data)) return;
+          resolveHtmlEditCleanRevisionWaiter(session);
+          syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_state_snapshot") {
+          const key = htmlEditStateRefreshWaiterKey(data.runtimeSessionId, data.requestId || "");
+          const resolveStateRefresh = appState.htmlEditStateRefreshWaiters.get(key);
+          if (data.runtimeSnapshotMissing) {
+            if (resolveStateRefresh) resolveStateRefresh(false, -1);
+            return;
+          }
+          const accepted = acceptHtmlEditDocumentSnapshot(session, data);
+          if (resolveStateRefresh) resolveStateRefresh(accepted, accepted ? session.documentRevision : -1);
+          if (!accepted) return;
+          resolveHtmlEditCleanRevisionWaiter(session);
+          syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_mark_saved_result") {
+          const key = htmlEditMarkSavedWaiterKey(data.runtimeSessionId, data.requestId);
+          const resolveMarkSaved = appState.htmlEditMarkSavedWaiters.get(key);
+          if (resolveMarkSaved) {
+            appState.htmlEditMarkSavedWaiters.delete(key);
+            // The child has finished the terminal markSaved transition.  The
+            // commit is already on disk, so this acknowledgement—not an
+            // unrelated toolbar promise—is the durable boundary for releasing
+            // the save lock.  Otherwise a resolved save can remain cached and
+            // make the next Save after Undo silently do nothing.
+            if (session.saveInFlight) session.saveInFlight = null;
+            resolveMarkSaved(Boolean(data.saved));
+          }
+          return;
+        }
+        if (data.type === "html_edit_save_requested_from_runtime") {
+          saveActiveHtmlEditPatch().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data.type === "html_edit_done_requested_from_runtime") {
+          const done = applyHtmlEditDoneSnapshot(session, data);
+          if (done.protocolError) console.warn("[html-edit] rejected Done document snapshot", { itemId: session.itemId, generation: session.generation, runtimeSessionId: session.runtimeSessionId, documentRevision: data.documentRevision });
+          const proceed = async () => {
+            if (done.action === "refresh") {
+              const refreshed = await refreshHtmlEditRuntimeState(session, done.minimumRevision);
+              if (!canProceedHtmlEditLeaveAfterSnapshotRefresh(session, refreshed)) {
+                setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+                return;
+              }
+            }
+            await confirmHtmlEditLeaveIfNeeded(session.itemId, { source: "runtime-done" });
+          };
+          proceed().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+        }
+      };
+
+      window.__NUTBOOK_HANDLE_HTML_EDIT_TOOLBAR_ACTION__ = function handleHtmlEditToolbarAction(data) {
+        const session = appState.htmlEditSession;
+        if (!session) return;
+        if (appState.htmlEditSessionGeneration !== session.generation) return;
+        if (Number(data?.itemId) !== session.itemId) return;
+        if (data?.runtimeSessionId !== session.runtimeSessionId) return;
+        if (Number(data?.generation) !== session.generation) return;
+        if (data?.action === "save") {
+          saveActiveHtmlEditPatch().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (data?.action === "done") {
+          confirmHtmlEditLeaveIfNeeded(session.itemId)
+            .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+      };
+
+      window.__NUTBOOK_HANDLE_HTML_EDIT_LEAVE_CONFIRM_ACTION__ = function handleHtmlEditLeaveConfirmAction(data) {
+        if (data?.action === "create-copy-choice") {
+          const itemId = Number(data.itemId);
+          if (
+            appState.htmlEditCreateCopyPromptItemId !== itemId
+            || getActiveTab()?.id !== itemId
+            || getActiveTab()?.preview?.fileType !== "html-runtime"
+          ) return;
+          (async () => {
+            await closeHtmlEditLeaveConfirmOverlay(itemId);
+            if (data.choice === "create") {
+              if (getActiveTab()?.id !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+              await createEditableCopyForActiveHtml(itemId);
+            }
+          })().catch((error) => console.warn("[html-edit] conversion start failed", normalizeError(error)));
+          return;
+        }
+        const intent = appState.htmlEditDirtyLeaveIntent;
+        if (!intent || Number(data?.itemId) !== intent.itemId) return;
+        const choice = data?.choice;
+        if (choice !== "keep" && choice !== "discard" && choice !== "save") return;
+        resolveHtmlEditLeaveChoice(choice, intent.runtimeSessionId);
+        if (choice === "keep") syncHtmlEditToolbar().catch(() => {});
+      };
+
+      let htmlEditAppExitRequestInFlight = false;
+      window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__ = function requestHtmlEditAppExit() {
+        if (htmlEditAppExitRequestInFlight) return;
+        htmlEditAppExitRequestInFlight = true;
+        const session = appState.htmlEditSession;
+        const leave = session
+          ? confirmHtmlEditLeaveIfNeeded(session.itemId, { source: "app-exit" })
+          : Promise.resolve(true);
+        leave
+          .then((canExit) => {
+            if (!canExit) return false;
+            return invoke("finalize_html_edit_app_exit_command");
+          })
+          .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"))
+          .finally(() => {
+            htmlEditAppExitRequestInFlight = false;
+          });
+      };
+
       function normalizeMarkdownSelectionText(value) {
         return String(value || "")
           .replace(/\s+/g, " ")
@@ -6824,12 +8767,13 @@
       }
 
       function commandVariants(command, args = {}) {
-        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
+        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -8161,8 +10105,57 @@
             detached: false
           };
         }
+        if (command === "attach_html_presentation_preview_command" || command === "set_html_presentation_preview_visibility_command" || command === "close_html_presentation_preview_command" || command === "set_html_presentation_preview_active_command") {
+          return true;
+        }
         if (command === "set_html_runtime_host_visibility_command") {
           return true;
+        }
+        if (command === "attach_html_runtime_controls_overlay_command") {
+          return true;
+        }
+        if (command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command") {
+          return true;
+        }
+        if (command === "get_html_edit_converter_script") {
+          return "window.__NUTBOOK_HTML_EDIT_CONVERTER__={convert:function(){return {ok:false,reason:'no_candidates'};}};";
+        }
+        if (command === "get_html_edit_patch") {
+          const payload = args.payload || args;
+          const itemId = payload.itemId;
+          return {
+            libraryId: 1,
+            itemId,
+            artifactEditId: `html-edit-mock-${itemId}`,
+            sourceRelativePath: mockData.items.find((entry) => entry.id === itemId)?.fileName || "mock.html",
+            sourceFileHash: mockData.details[itemId]?.fileHash || `mock-source-${itemId}`,
+            sourceModifiedAt: Number(mockData.items.find((entry) => entry.id === itemId)?.modifiedAt || Math.floor(Date.now() / 1000)),
+            sourceSize: 0,
+            patchRevision: 0,
+            patchApplyStatus: "clean",
+            fieldApplyResults: {},
+            patch: { version: 1, changes: {} }
+          };
+        }
+        if (command === "save_html_edit_patch") {
+          const payload = args.payload || args;
+          return {
+            artifactEditId: payload.artifactEditId,
+            patchRevision: Number(payload.expectedPatchRevision || 0) + 1,
+            sourceFileHash: payload.expectedFileHash,
+            sourceModifiedAt: payload.expectedModifiedAt,
+            sourceSize: 0,
+            updatedAt: Math.floor(Date.now() / 1000)
+          };
+        }
+        if (command === "commit_html_edit") {
+          const payload = args.payload || args;
+          return {
+            sourceFileHash: payload.expectedFileHash,
+            sourceModifiedAt: payload.expectedModifiedAt,
+            sourceSize: 0,
+            normalizedChanges: payload.changes || {}
+          };
         }
         if (command === "dispatch_html_runtime_shortcut_command") {
           return true;
@@ -8252,6 +10245,15 @@
             errorMessage: null
           };
         }
+        if (command === "generate_presentation_thumbnail") {
+          return {
+            pageId: args.pageId,
+            dataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Crect width='480' height='270' fill='%23efeff2'/%3E%3C/svg%3E",
+            width: 480,
+            height: 270,
+            backend: "mock"
+          };
+        }
         if (command === "get_thumbnail_backend_status") {
           return {
             screenshotAvailable: true,
@@ -8309,6 +10311,10 @@
       }
 
       async function closeOpenTab(tabId) {
+        if (appState.htmlEditSession?.itemId === tabId) {
+          const canLeaveHtmlEdit = await confirmHtmlEditLeaveIfNeeded(tabId);
+          if (!canLeaveHtmlEdit) return;
+        }
         captureActiveMarkdownScroll();
         invalidateItemOpenToken(tabId);
         const tab = getOpenTab(tabId);
@@ -8357,7 +10363,8 @@
           }
           cleanupRuntimeHostSync();
           cancelPendingRuntimeSurfaceHide(tabId);
-          nextRuntimeSurfaceToken(tabId);
+          const closingSurfaceToken = nextRuntimeSurfaceToken(tabId);
+          await syncHtmlEditReadonlyPatchSurfaceToken(tabId, closingSurfaceToken).catch(() => {});
           await hideRuntimeSessionSurfaces(tabId, { force: true });
           await releaseRuntimeShellState({ itemId: tabId });
           await hideRuntimeSessionSurfaces(tabId, { force: true });
@@ -8367,7 +10374,6 @@
             setStatus(`关闭 HTML Runtime 失败：${normalizeError(error)}`, "error");
           }
           cancelPendingRuntimeSurfaceHide(tabId);
-          appState.runtimeSurfaceTokens.delete(tabId);
           appState.runtimeSessions = appState.runtimeSessions.filter((session) => session.id !== tabId);
         } else {
           appState.tabs = appState.tabs.filter((tab) => tab.id !== tabId);
@@ -8527,8 +10533,9 @@
             renderTabs();
             renderViewer();
           });
-          els.tabsWrap.querySelector("[data-home-tab]")?.addEventListener("click", () => {
+          els.tabsWrap.querySelector("[data-home-tab]")?.addEventListener("click", async () => {
             const previousTabId = appState.activeTabId;
+            if (!(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
             captureActiveMarkdownScroll();
             appState.homeTabOpen = true;
             appState.activeTabId = null;
@@ -8559,8 +10566,9 @@
           )
         ].join("");
 
-        els.tabsWrap.querySelector("[data-home-tab]")?.addEventListener("click", () => {
+        els.tabsWrap.querySelector("[data-home-tab]")?.addEventListener("click", async () => {
           const previousTabId = appState.activeTabId;
+          if (!(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
           captureActiveMarkdownScroll();
           appState.homeTabOpen = true;
           appState.activeTabId = null;
@@ -8582,10 +10590,12 @@
         });
 
         els.tabsWrap.querySelectorAll("[data-tab-id]").forEach((node) => {
-          node.addEventListener("click", (event) => {
+          node.addEventListener("click", async (event) => {
             if (event.target.matches("[data-close-tab]")) return;
             const tabId = Number(node.dataset.tabId);
             const previousTabId = appState.activeTabId;
+            if (tabId === previousTabId) return;
+            if (!(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
             captureActiveMarkdownScroll();
             captureActiveMarkdownDraft();
             appState.activeTabId = tabId;
@@ -8895,6 +10905,10 @@
       async function toggleActiveHtmlRuntimePresentationMode() {
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") return;
+        if (appState.htmlEditSession?.itemId === tab.id) {
+          setStatus("编辑模式下不可进入演示全屏", "warn");
+          return;
+        }
         const nextEnabled = appState.runtimeFullscreenItemId !== tab.id;
         clearHostFocus();
         setRuntimeFullscreenState(tab.id, nextEnabled);
@@ -8925,6 +10939,19 @@
         }
         if (action === "remove") {
           await removeItemFromNutbook(itemId);
+          return;
+        }
+        if (action === "edit") {
+          if (appState.activeTabId !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+          if (appState.htmlEditSession?.itemId === itemId) {
+            await confirmHtmlEditLeaveIfNeeded(itemId, { source: "runtime-overlay" });
+            return;
+          }
+          try {
+            await requestHtmlEdit(itemId);
+          } catch (error) {
+            setStatus(htmlEditSaveErrorStatus(error), "error");
+          }
           return;
         }
         if (action === "toggle-presentation") {
@@ -9329,6 +11356,8 @@
           appState.activeHtmlRuntimeUrl = tab.preview.runtimeUrl || null;
           els.viewerBody.innerHTML = `
             <section class="runtime-host-page">
+              <aside id="sectionNavigationRail" class="section-navigation-rail" aria-label="页面导航"></aside>
+              <aside id="presentationEditRail" class="presentation-edit-rail" aria-label="演示页面"></aside>
               <section id="runtimeHostShell" class="runtime-host-shell">
                 <div id="runtimeHostMount" class="runtime-host-mount"></div>
               </section>
@@ -9440,16 +11469,24 @@
         return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
       }
 
+      function isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken) {
+        return isRuntimeSurfaceActive(itemId)
+          && appState.htmlEditSession?.itemId !== itemId
+          && appState.htmlEditSessionGeneration === generation
+          && currentRuntimeSurfaceToken(itemId) === surfaceToken;
+      }
+
       function isRuntimeSurfaceHideCurrent(itemId, token, force = false) {
         if (force) return true;
         if (isRuntimeSurfaceActive(itemId)) return false;
         return token == null || currentRuntimeSurfaceToken(itemId) === token;
       }
 
-      function markRuntimeSurfaceActive(itemId) {
+      async function markRuntimeSurfaceActive(itemId) {
         if (!itemId) return;
         cancelPendingRuntimeSurfaceHide(itemId);
-        nextRuntimeSurfaceToken(itemId);
+        const surfaceToken = nextRuntimeSurfaceToken(itemId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken).catch(() => {});
       }
 
       async function hideRuntimeSessionSurfaces(itemId, options = {}) {
@@ -9463,14 +11500,82 @@
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         await setRuntimeControlsOverlayVisibility(itemId, false);
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
+        const previewSession = appState.htmlEditSession;
+        if (!options.preservePresentationPreview && previewSession?.itemId === itemId) {
+          await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId: previewSession.runtimeSessionId, generation: previewSession.generation, previewInstanceId: previewSession.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
+        }
+        if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         await setRuntimeHostVisibility(itemId, false);
       }
 
+      async function hideStaleRuntimeHostSync(runId, itemId) {
+        if (!appState.runtimeSurfacesSuspended && isRuntimeHostSyncCurrent(runId, itemId)) return false;
+        cancelPendingRuntimeSurfaceHide(itemId);
+        const token = nextRuntimeSurfaceToken(itemId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
+        await hideRuntimeSessionSurfaces(itemId, { force: true, token });
+        if (appState.activeRuntimeHostId === itemId) {
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+        }
+        return true;
+      }
+
+      async function suspendRuntimeSurfaces() {
+        if (appState.runtimeSurfacesSuspended) return appState.runtimeSurfaceSuspendPromise;
+        appState.runtimeSurfacesSuspended = true;
+        const editSession = appState.htmlEditSession;
+        if (isCurrentHtmlEditSession(editSession) && editSession.sectionNavigation) {
+          editSession.sectionNavigationEpoch += 1;
+          editSession.sectionNavigation.pendingRequestId = null;
+          editSession.sectionNavigation.pendingPageId = null;
+          renderHtmlEditSectionNavigationRail(editSession);
+        }
+        cleanupRuntimeHostSync();
+        appState.activeRuntimeHostId = null;
+        appState.runtimeHostLastBoundsKey = null;
+        const suspendPromise = Promise.all(appState.runtimeSessions.map(async (session) => {
+          cancelPendingRuntimeSurfaceHide(session.id);
+          const token = nextRuntimeSurfaceToken(session.id);
+          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
+          await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
+        }));
+        appState.runtimeSurfaceSuspendPromise = suspendPromise;
+        try {
+          await suspendPromise;
+        } finally {
+          if (appState.runtimeSurfaceSuspendPromise === suspendPromise) {
+            appState.runtimeSurfaceSuspendPromise = null;
+          }
+        }
+      }
+
+      async function resumeRuntimeSurfaces() {
+        if (!appState.runtimeSurfacesSuspended) return;
+        appState.runtimeSurfacesSuspended = false;
+        const suspendPromise = appState.runtimeSurfaceSuspendPromise;
+        if (suspendPromise) {
+          try {
+            await suspendPromise;
+          } catch (_) {
+          }
+        }
+        if (appState.runtimeSurfacesSuspended) return;
+        const editSession = appState.htmlEditSession;
+        if (isCurrentHtmlEditSession(editSession) && editSession.presentation?.pages?.length) {
+          editSession.presentation.previewReady = false;
+          delete editSession.presentation.previewBoundsKey;
+        }
+        scheduleRuntimeHostSync();
+        refreshHtmlEditSectionNavigation(editSession);
+      }
+
       var _runtimeSurfaceHideTimers = {};
-      function scheduleRuntimeSurfaceHide(itemId) {
+      async function scheduleRuntimeSurfaceHide(itemId) {
         if (!itemId) return;
         cancelPendingRuntimeSurfaceHide(itemId);
         var token = nextRuntimeSurfaceToken(itemId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
         var runId = `${token}:${Date.now()}:${Math.random()}`;
         var timers = [];
         [0, 80, 240, 520].forEach(function(delay) {
@@ -9493,8 +11598,9 @@
       async function hideInactiveRuntimeHosts(activeItemId = null, options = {}) {
         cleanupRuntimeHostSync({ invalidate: options.invalidate !== false });
         const sessionsToHide = appState.runtimeSessions.filter((session) => activeItemId == null || session.id !== activeItemId);
-        await Promise.all(sessionsToHide.map((session) => {
+        await Promise.all(sessionsToHide.map(async (session) => {
           const token = nextRuntimeSurfaceToken(session.id);
+          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
           return hideRuntimeSessionSurfaces(session.id, { token });
         }));
         const activeTab = getActiveTab();
@@ -9568,6 +11674,7 @@
       }
 
       async function syncActiveRuntimeHost(runId = null) {
+        if (appState.runtimeSurfacesSuspended) return;
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") {
           appState.runtimeControlsOverlayExpanded = false;
@@ -9578,8 +11685,13 @@
         }
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+        if (isHtmlEditBlockingOverlayForItem(tab.id)) {
+          cancelPendingRuntimeSurfaceHide(tab.id);
+          nextRuntimeSurfaceToken(tab.id);
+          return;
+        }
         cancelPendingRuntimeSurfaceHide(tab.id);
-        markRuntimeSurfaceActive(tab.id);
+        await markRuntimeSurfaceActive(tab.id);
         const mount = document.getElementById("runtimeHostMount");
         if (!mount) return;
         let bounds = runtimeHostBounds(mount);
@@ -9604,10 +11716,16 @@
             itemId: tab.id,
             bounds
           });
-          if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           appState.runtimeHostLastBoundsKey = boundsKey;
         }
         appState.activeRuntimeHostId = tab.id;
+        applyHtmlEditPatchToRuntime(tab.id).catch(() => {});
+        const editSession = appState.htmlEditSession;
+        if (editSession?.itemId === tab.id && editSession.presentation?.pages?.length) {
+          await syncHtmlEditPresentationPreview(editSession, runId);
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+        }
 
         if (appState.runtimeFullscreenItemId === tab.id) {
           await invoke("attach_html_runtime_controls_overlay_command", {
@@ -9615,13 +11733,15 @@
             bounds: runtimeFullscreenHintOverlayBounds(bounds),
             isFavorite: Boolean(tab.item?.isFavorite),
             isFullscreen: true,
+            isEditing: appState.htmlEditSession?.itemId === tab.id,
             customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
             availableTags: appState.tags,
             skillTag: tab.item?.skillBinding?.displayName ?? null,
             typeTag: "HTML"
           });
-          if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           await setRuntimeControlsOverlayVisibility(tab.id, true);
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           if (!appState.runtimeHostResizeObserver) {
             appState.runtimeHostResizeObserver = new ResizeObserver(() => {
               scheduleRuntimeHostSync();
@@ -9638,13 +11758,15 @@
           bounds: controlsBounds,
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: appState.runtimeFullscreenItemId === tab.id,
+          isEditing: appState.htmlEditSession?.itemId === tab.id,
           customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
           availableTags: appState.tags,
           skillTag: tab.item?.skillBinding?.displayName ?? null,
           typeTag: "HTML"
         });
-        if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
         await setRuntimeControlsOverlayVisibility(tab.id, true);
+        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
 
         if (!appState.runtimeHostResizeObserver) {
           appState.runtimeHostResizeObserver = new ResizeObserver(() => {
@@ -9656,6 +11778,7 @@
       }
 
       function scheduleRuntimeHostSync() {
+        if (appState.runtimeSurfacesSuspended) return;
         if (appState.runtimeHostSyncInFlight) {
           appState.runtimeHostSyncPending = true;
           return;
@@ -10045,6 +12168,7 @@
         }
 
         appState.activeTabId = detail.id;
+        appState.runtimePatchAppliedKeys.delete(detail.id);
         appState.activeHtmlRuntimeUrl = null;
         appState.isEditing = false;
         appState.markdownEditMode = "rich";
@@ -10148,6 +12272,8 @@
       }
 
       async function openItem(itemId) {
+        const previousTabId = appState.activeTabId;
+        if (previousTabId !== itemId && !(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
         const openToken = nextItemOpenToken(itemId);
         try {
           const item = appState.items.find((entry) => entry.id === itemId);
@@ -10393,6 +12519,17 @@
         }
         if (!tab || (tab.preview?.fileType !== "html" && tab.preview?.fileType !== "html-runtime")) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
+        if (tab.preview?.fileType === "html-runtime" && appState.htmlEditSession?.itemId === tab.id) {
+          const session = appState.htmlEditSession;
+          const hostEditable = Boolean(event.target?.closest?.("input, textarea, select, [contenteditable='true']"));
+          if (!hostEditable && (event.key === "ArrowUp" || event.key === "ArrowDown") && session.presentation?.pageIds?.length) {
+            event.preventDefault();
+            const currentIndex = session.presentation.pageIds.indexOf(session.presentation.activePageId);
+            const pageId = session.presentation.pageIds[currentIndex + (event.key === "ArrowUp" ? -1 : 1)];
+            if (pageId && !event.repeat) selectHtmlEditPresentationPage(session, pageId);
+          }
+          return;
+        }
         if (tab.preview?.fileType === "html-runtime") {
           if (HOST_FORWARDED_RUNTIME_KEYS.has(event.key) || (event.code === "Space" && event.key === " ")) {
             event.preventDefault();
@@ -10971,7 +13108,11 @@
         });
       }
 
-      async function handleBrowseModeChange(mode) {
+      async function handleBrowseModeChange(mode, options = {}) {
+        if (options.confirmHtmlEdit !== false) {
+          const previousTabId = appState.activeTabId;
+          if (!(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return false;
+        }
         appState.browseMode = mode;
         if (mode === "all") {
           appState.activeTagFilterIds = [];
@@ -10986,9 +13127,12 @@
         renderNavState();
         await loadItems();
         setStatus(mode === "all" ? t("status.browseAll") : mode === "recent" ? t("status.browseRecent") : t("status.browseStarred"), "ok");
+        return true;
       }
 
       async function showAllFilesHome(options = {}) {
+        const previousTabId = appState.activeTabId;
+        if (options.confirmHtmlEdit !== false && !(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
         const reload = options.reload !== false;
         const updateStatus = options.updateStatus !== false;
         appState.homeTabOpen = true;
@@ -11016,7 +13160,21 @@
         setStatus(els.fileTypeSelect.value ? statusWithValue("status.typeFilterPrefix", els.fileTypeSelect.value) : t("status.typeFilterCleared"), "ok");
       }
 
-      function handleNativeEditHistory(action) {
+      async function handleNativeEditHistory(action) {
+        const htmlSession = appState.htmlEditSession;
+        if (htmlSession) {
+          try {
+            // This enters the child WebView through the host runtime shortcut
+            // command. `window.eval` on the main WebView is not a reliable
+            // forwarding boundary for a native macOS accelerator.
+            return Boolean(await invoke("dispatch_html_runtime_shortcut_command", {
+              itemId: htmlSession.itemId,
+              key: action === "redo" ? "CmdOrCtrl+Shift+Z" : "CmdOrCtrl+Z"
+            }));
+          } catch (_) {
+            return false;
+          }
+        }
         const active = document.activeElement;
         const tag = active?.tagName;
         const isFormField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
@@ -11040,7 +13198,7 @@
       async function handleNativeMenuAction(action) {
         try {
           if (action === "undo" || action === "redo") {
-            if (!handleNativeEditHistory(action)) {
+            if (!(await handleNativeEditHistory(action))) {
               setStatus(action === "undo" ? "当前没有可撤销的编辑" : "当前没有可重做的编辑", "warn");
             }
             return;
@@ -11119,6 +13277,31 @@
 
       function wireEvents() {
         setupWindowDragRegions();
+        document.addEventListener("visibilitychange", () => {
+          if (appState.htmlEditLeavePromptOpen) return;
+          if (document.hidden) {
+            suspendRuntimeSurfaces().catch(() => {});
+          } else {
+            resumeRuntimeSurfaces().catch(() => {});
+          }
+        });
+        // On macOS, `visibilitychange` can arrive while a restored window still
+        // reports its pre-restore layout. Re-sync the native child webview once
+        // the host window has regained focus or delivered its final resize.
+        // This keeps the child surface inside the current host mount instead of
+        // leaving it at the coordinates it had before minimization.
+        window.addEventListener("focus", () => {
+          if (!document.hidden) {
+            scheduleRuntimeHostSync();
+            refreshHtmlEditSectionNavigation();
+          }
+        });
+        window.addEventListener("resize", () => {
+          if (!document.hidden) {
+            scheduleRuntimeHostSync();
+            refreshHtmlEditSectionNavigation();
+          }
+        });
         els.viewerBody.addEventListener("scroll", () => {
           captureActiveMarkdownScroll();
         }, { passive: true });
@@ -11187,21 +13370,25 @@
         els.fileTypeSelect.addEventListener("change", loadItems);
         document.querySelectorAll("[data-nav-group='browse']").forEach((node) => {
           node.addEventListener("click", async () => {
+            const previousTabId = appState.activeTabId;
+            if (!(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
             captureActiveMarkdownScroll();
             captureActiveMarkdownDraft();
             if (node.dataset.navValue === "all") {
-              await showAllFilesHome();
+              await showAllFilesHome({ confirmHtmlEdit: false });
               return;
             }
             appState.activeTabId = null;
             appState.isEditing = false;
-            await handleBrowseModeChange(node.dataset.navValue);
+            await handleBrowseModeChange(node.dataset.navValue, { confirmHtmlEdit: false });
             renderTabs();
             renderViewer();
           });
         });
         document.querySelectorAll("[data-nav-group='type']").forEach((node) => {
           node.addEventListener("click", async () => {
+            const previousTabId = appState.activeTabId;
+            if (!(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
             captureActiveMarkdownScroll();
             captureActiveMarkdownDraft();
             appState.activeTabId = null;

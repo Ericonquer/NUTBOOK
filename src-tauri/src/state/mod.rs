@@ -1,4 +1,9 @@
-use std::{collections::HashSet, fs, path::PathBuf, sync::Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use notify::PollWatcher;
 
@@ -23,6 +28,10 @@ pub struct AppState {
     local_content_server: LocalContentServer,
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<Vec<PollWatcher>>,
+    html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
+    html_edit_path_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
+    html_edit_session_leases: Mutex<HtmlEditSessionLeases>,
+    pub active_html_edit_item: Mutex<Option<i64>>,
     thumbnail_settings_path: PathBuf,
     update_settings_path: PathBuf,
     system_chrome_thumbnails_enabled: Mutex<bool>,
@@ -54,6 +63,10 @@ impl AppState {
             local_content_server,
             watched_libraries: Mutex::new(HashSet::new()),
             active_watchers: Mutex::new(Vec::new()),
+            html_edit_manifest_locks: Mutex::new(HashMap::new()),
+            html_edit_path_locks: Mutex::new(HashMap::new()),
+            html_edit_session_leases: Mutex::new(HtmlEditSessionLeases::default()),
+            active_html_edit_item: Mutex::new(None),
             thumbnail_settings_path,
             update_settings_path,
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
@@ -151,6 +164,137 @@ impl AppState {
 
     pub fn sync_filesystem_state(&self) -> Result<SyncFilesystemStateResponse, AppError> {
         self.database.sync_filesystem_state()
+    }
+
+    pub fn html_edit_manifest_lock(&self, library_id: i64) -> Result<Arc<Mutex<()>>, AppError> {
+        let mut locks = self
+            .html_edit_manifest_locks
+            .lock()
+            .map_err(|_| AppError::InternalError)?;
+        Ok(locks
+            .entry(library_id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
+    }
+
+    /// Serializes commits by canonical file path, including the case where the
+    /// same file has been indexed by two libraries. The hash check remains
+    /// authoritative for other processes and external applications.
+    pub fn html_edit_path_lock(&self, path: &std::path::Path) -> Result<Arc<Mutex<()>>, AppError> {
+        let canonical = path.canonicalize().map_err(|_| AppError::IoError)?;
+        let mut locks = self
+            .html_edit_path_locks
+            .lock()
+            .map_err(|_| AppError::InternalError)?;
+        Ok(locks
+            .entry(canonical)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
+    }
+
+    /// Replacing a lease is atomic per item.  A return value is intentionally
+    /// not exposed: a session is valid only if it exactly matches the current
+    /// item lease at the point an operation begins.
+    pub fn register_html_edit_session_lease(
+        &self,
+        item_id: i64,
+        runtime_session_id: String,
+        generation: u64,
+    ) -> Result<(), AppError> {
+        if runtime_session_id.is_empty() {
+            return Err(AppError::InvalidParams);
+        }
+        self.html_edit_session_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .register(item_id, runtime_session_id, generation);
+        *self.active_html_edit_item.lock().map_err(|_| AppError::InternalError)? = Some(item_id);
+        Ok(())
+    }
+
+    pub fn html_edit_session_lease_matches(
+        &self,
+        item_id: i64,
+        runtime_session_id: &str,
+        generation: u64,
+    ) -> Result<bool, AppError> {
+        Ok(self.html_edit_session_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .matches(item_id, runtime_session_id, generation))
+    }
+
+    /// The provisional identity is generated once when the session lease is
+    /// registered. It remains stable for that exact lease, but is never
+    /// persisted until a patch save creates the manifest entry.
+    pub fn html_edit_session_provisional_identity(
+        &self,
+        item_id: i64,
+        runtime_session_id: &str,
+        generation: u64,
+    ) -> Result<Option<String>, AppError> {
+        Ok(self.html_edit_session_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .provisional_identity(item_id, runtime_session_id, generation))
+    }
+
+    /// Invalidate only the exact lease so an old exit cannot erase a newer
+    /// session for the same item.
+    pub fn invalidate_html_edit_session_lease(
+        &self,
+        item_id: i64,
+        runtime_session_id: &str,
+        generation: u64,
+    ) -> Result<bool, AppError> {
+        let invalidated = self.html_edit_session_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .invalidate(item_id, runtime_session_id, generation);
+        if invalidated {
+            let mut active = self.active_html_edit_item.lock().map_err(|_| AppError::InternalError)?;
+            if *active == Some(item_id) { *active = None; }
+        }
+        Ok(invalidated)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HtmlEditSessionLease {
+    pub runtime_session_id: String,
+    pub generation: u64,
+    pub provisional_artifact_edit_id: String,
+}
+
+#[derive(Debug, Default)]
+pub struct HtmlEditSessionLeases {
+    by_item: HashMap<i64, HtmlEditSessionLease>,
+}
+
+impl HtmlEditSessionLeases {
+    pub fn register(&mut self, item_id: i64, runtime_session_id: String, generation: u64) {
+        self.by_item.insert(item_id, HtmlEditSessionLease {
+            runtime_session_id,
+            generation,
+            provisional_artifact_edit_id: crate::core::html_edit::new_artifact_edit_id(),
+        });
+    }
+
+    pub fn matches(&self, item_id: i64, runtime_session_id: &str, generation: u64) -> bool {
+        self.by_item.get(&item_id)
+            .is_some_and(|lease| lease.runtime_session_id == runtime_session_id && lease.generation == generation)
+    }
+
+    pub fn invalidate(&mut self, item_id: i64, runtime_session_id: &str, generation: u64) -> bool {
+        if !self.matches(item_id, runtime_session_id, generation) { return false; }
+        self.by_item.remove(&item_id);
+        true
+    }
+
+    pub fn provisional_identity(&self, item_id: i64, runtime_session_id: &str, generation: u64) -> Option<String> {
+        self.by_item.get(&item_id)
+            .filter(|lease| lease.runtime_session_id == runtime_session_id && lease.generation == generation)
+            .map(|lease| lease.provisional_artifact_edit_id.clone())
     }
 }
 

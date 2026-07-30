@@ -33,6 +33,12 @@ pub enum AppError {
     MarkdownSaveFailed,
     #[error("thumbnail generation failed")]
     ThumbnailGenerationFailed,
+    #[error("invalid image asset type")]
+    AssetInvalidType,
+    #[error("image asset exceeds the 20 MiB limit")]
+    AssetTooLarge,
+    #[error("HTML edit session is no longer active")]
+    InvalidSession,
     #[error("database error")]
     DatabaseError,
     #[error("io error")]
@@ -69,6 +75,9 @@ impl AppError {
             AppError::EditConflict => "EDIT_CONFLICT",
             AppError::MarkdownSaveFailed => "MARKDOWN_SAVE_FAILED",
             AppError::ThumbnailGenerationFailed => "THUMBNAIL_GENERATION_FAILED",
+            AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
+            AppError::AssetTooLarge => "ASSET_TOO_LARGE",
+            AppError::InvalidSession => "INVALID_SESSION",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",
             AppError::InternalError => "INTERNAL_ERROR",

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rich Text Acceptance</title>
+  </head>
+  <body>
+    <article data-slide-id="article">
+      <h1 data-editable="rich-text" data-edit-role="short" data-id="article-title">一封可编辑的产品说明</h1>
+
+      <div data-editable="rich-text" data-edit-role="content" data-id="article-body">
+        <h2>从想法到可交付体验</h2>
+        <p>一段好的产品说明，需要让读者知道<strong>现在最重要的事情</strong>，并在需要时提供<em>恰到好处的上下文</em>。</p>
+        <p>Nutbook keeps AI-generated artifacts close to the work that created them.</p>
+
+        <h3>本次编辑建议</h3>
+        <ul>
+          <li>把任意一句改成更短、更有判断力的表达。</li>
+          <li>为一个关键短语加粗，再为另一个短语添加斜体。</li>
+          <li>将列表转为有序列表，并尝试把一段正文改成标题。</li>
+        </ul>
+
+        <h3>完成前的检查顺序</h3>
+        <ol>
+          <li>确认工具台只在富文本字段有有效选区时可用。</li>
+          <li>选中一段正文，执行一次居中、左对齐或右对齐操作。</li>
+          <li>保存后切换到另一份 Markdown，再回到本页面。</li>
+          <li>关闭并重开页面，确认<strong>strong</strong> 与 <em>em</em>、对齐和列表都仍然存在。</li>
+        </ol>
+
+        <p>最后，请在这里补上一句中文备注：这能覆盖中文输入后立即保存的路径。</p>
+      </div>
+
+      <button type="button" data-editable="rich-text" data-edit-role="short" data-id="article-action">开始整理</button>
+    </article>
+  </body>
+</html>

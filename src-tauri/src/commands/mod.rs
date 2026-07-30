@@ -1,3 +1,4 @@
+pub mod html_edit;
 pub mod items;
 pub mod library;
 pub mod preview;

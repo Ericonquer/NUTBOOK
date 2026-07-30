@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 2B · 纵向结构编辑验收</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1a1c1d; background: #f9f9fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f9f9fb; }
+    main { width: min(920px, calc(100% - 48px)); margin: 0 auto; padding: 40px 0 96px; }
+    section { min-height: 72vh; margin: 0 0 32px; padding: 48px; border: 1px solid #cfc4c5; border-radius: 12px; background: #fff; box-shadow: 0 12px 36px rgba(26, 28, 29, .06); }
+    .eyebrow { margin: 0 0 20px; color: #5e5e63; font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+    h1, h2 { margin: 0; letter-spacing: -.025em; }
+    h1 { max-width: 760px; font-size: clamp(36px, 6vw, 68px); line-height: 1.04; }
+    h2 { font-size: clamp(28px, 4vw, 44px); line-height: 1.1; }
+    p, li { font-size: 17px; line-height: 1.75; }
+    .lead { max-width: 700px; margin: 28px 0 0; color: #4c4546; font-size: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+    .card { min-height: 160px; padding: 24px; border-radius: 8px; background: #f3f3f5; }
+    .card strong { display: block; margin-bottom: 16px; font-size: 24px; }
+    figure { margin: 40px 0 0; }
+    img { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid #cfc4c5; }
+    figcaption { margin-top: 12px; color: #5e5e63; font-size: 13px; }
+    .long-copy { max-width: 720px; }
+    .checklist { margin: 36px 0 0; padding: 0; list-style: none; }
+    .checklist li { padding: 16px 0; border-top: 1px solid #e2e2e4; }
+    .checklist li::before { content: "✓"; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 12px; border-radius: 999px; background: #1a1c1d; color: #fff; font-size: 13px; }
+    @media (max-width: 720px) {
+      main { width: min(100% - 24px, 920px); padding-top: 16px; }
+      section { min-height: 0; padding: 28px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section data-title="从原件开始">
+      <p class="eyebrow">01 · Source boundary</p>
+      <h1>从真实 HTML 开始，始终保留原件。</h1>
+      <p class="lead">这个样本用于验证 Nutbook 能从普通纵向页面创建结构化副本，并且不会把未来 NBskill 当作前置条件。</p>
+      <div class="grid">
+        <div class="card"><strong>扫描</strong><p>从真实资料库入口发现文件。</p></div>
+        <div class="card"><strong>转换</strong><p>只在 detached clone 写入结构与编辑 metadata。</p></div>
+        <div class="card"><strong>验证</strong><p>用原件与副本 SHA-256 证明边界。</p></div>
+      </div>
+    </section>
+    <section>
+      <p class="eyebrow">02 · Long section</p>
+      <h2>长段仍然只有一张结构卡</h2>
+      <div class="long-copy">
+        <p>结构导航描述的是文档语义，而不是屏幕切片。无论这个段落占据一个视口还是三个视口，左侧 rail 都只能出现一个条目。</p>
+        <p>用户滚动页面时，活动段由真实滚动位置和可见比例计算。点击结构卡时，运行时必须滚动正确的 root，并等待目标段真正成为活动段后再确认。</p>
+        <p>如果页面拥有多个滚动祖先、变换后的根节点或无法测量的布局，结构适配器应安全降级为普通 HTML 编辑，而不是猜测坐标。</p>
+        <p>保存不是内存里的成功。Rust 原子提交当前 `.nutbook-editable.html` 副本之后，关闭并重开必须从磁盘文件恢复文字、图片和结构 metadata。</p>
+        <p>快速点击、最小化恢复、切换标签和晚到消息，都不能让旧会话覆盖当前活动段。这是 Phase 2B 的运行面完成标准。</p>
+      </div>
+    </section>
+    <section data-title="保存并重开">
+      <p class="eyebrow">03 · Commit and reopen</p>
+      <h2>修改图片，然后从磁盘重开</h2>
+      <p class="lead">这张本地图片是稳定验收对象。替换它、保存副本、关闭并重开后，结构卡数量和页面 ID 必须保持一致。</p>
+      <figure>
+        <img src="phase2b-vertical-sections-assets/structure-map.svg" alt="从原件到编辑副本再到重开的三段结构图">
+        <figcaption>本地离线资产，不依赖网络字体、远程图片或未来生成器。</figcaption>
+      </figure>
+      <ul class="checklist">
+        <li>原件 SHA-256 未改变</li>
+        <li>副本内容与 SHA-256 已更新</li>
+        <li>关闭并重开后仍有三张结构卡</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

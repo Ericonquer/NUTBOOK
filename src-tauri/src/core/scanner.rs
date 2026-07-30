@@ -118,12 +118,12 @@ pub fn scan_file_source(
     }
 
     let parent = path.parent().ok_or(AppError::InvalidParams)?;
-    Ok(vec![build_item_record(
-        library_id,
-        parent,
-        path.to_path_buf(),
-        now,
-    )?])
+    let mut paths = vec![path.to_path_buf()];
+    if let Some(stem) = path.file_stem().and_then(|value| value.to_str()) {
+        let companion = parent.join(format!("{stem}.nutbook-editable.html"));
+        if companion.is_file() { paths.push(companion); }
+    }
+    paths.into_iter().map(|entry| build_item_record(library_id, parent, entry, now)).collect()
 }
 
 #[cfg(test)]

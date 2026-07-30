@@ -1,24 +1,41 @@
 use std::path::Component;
 
+use serde_json::Value;
+use tauri::Manager;
+
 use crate::{
     core::{
-        document::{content_hash, load_document_payload, markdown_document_title, markdown_summary, render_markdown_as_html},
+        document::{
+            content_hash, load_document_payload, markdown_document_title, markdown_summary,
+            render_markdown_as_html,
+        },
         html_runtime::{
-            attach_controls_overlay, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay, close_html_runtime_window, dispatch_html_runtime_shortcut,
-            focus_html_runtime_host, focus_main_webview,
-            open_html_runtime_window, set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
+            attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
+            attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
+            close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay,
+            close_html_presentation_preview, close_html_runtime_window,
+            dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
+            log_html_edit_debug,
+            focus_main_webview, open_html_runtime_window,
+            set_html_edit_toolbar_overlay_visibility,
+            set_html_presentation_preview_visibility, set_html_presentation_preview_active,
+            set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
             HtmlRuntimeSession,
         },
     },
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
-        AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest, GetItemPreviewRequest,
-        DispatchHtmlRuntimeShortcutRequest,
-        CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteMarkdownImageAssetRequest, FocusHtmlRuntimeHostRequest,
-        HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload, ExportMarkdownRequest,
+        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest,
+        AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+        CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
+        DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
+        EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
+        GetItemPreviewRequest, HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
-        SetHtmlRuntimeControlsOverlayVisibilityRequest, SetHtmlRuntimeHostVisibilityRequest,
+        SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
+        HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
+        SetHtmlRuntimeHostVisibilityRequest,
     },
     state::AppState,
 };
@@ -42,6 +59,22 @@ pub fn attach_settings_overlay_command(
 }
 
 #[tauri::command]
+pub fn close_html_presentation_preview_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: HtmlPresentationPreviewControlRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(
+        payload.item_id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )? {
+        return Err(AppError::InvalidSession);
+    }
+    close_html_presentation_preview(&app, payload.item_id, &payload.preview_instance_id)
+}
+
+#[tauri::command]
 pub fn get_local_server_origin(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, AppError> {
@@ -53,6 +86,17 @@ pub fn open_image_file_dialog() -> Option<String> {
     rfd::FileDialog::new()
         .set_title("选择图片")
         .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+/// HTML edit imports intentionally exclude SVG. The Markdown image picker
+/// continues to accept it, so this must remain a separate command.
+#[tauri::command]
+pub fn open_html_edit_image_file_dialog() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("选择图片")
+        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp"])
         .pick_file()
         .map(|path| path.to_string_lossy().to_string())
 }
@@ -108,6 +152,61 @@ pub fn attach_html_runtime_host_command(
 }
 
 #[tauri::command]
+pub fn attach_html_presentation_preview_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlPresentationPreviewRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(
+        payload.item_id,
+        &payload.runtime_session_id,
+        payload.generation,
+    )? {
+        return Err(AppError::InvalidSession);
+    }
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
+    attach_html_presentation_preview(
+        &app,
+        &window,
+        &session,
+        payload.bounds,
+        &payload.runtime_session_id,
+        payload.generation,
+        &payload.active_page_id, &payload.preview_instance_id,
+    )
+}
+
+#[tauri::command]
+pub fn set_html_presentation_preview_visibility_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: HtmlPresentationPreviewControlRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(payload.item_id, &payload.runtime_session_id, payload.generation)? {
+        return Err(AppError::InvalidSession);
+    }
+    set_html_presentation_preview_visibility(&app, payload.item_id, &payload.preview_instance_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn set_html_presentation_preview_active_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: SetHtmlPresentationPreviewActiveRequest,
+) -> Result<bool, AppError> {
+    if !state.html_edit_session_lease_matches(payload.item_id, &payload.runtime_session_id, payload.generation)? {
+        return Err(AppError::InvalidSession);
+    }
+    set_html_presentation_preview_active(&app, payload.item_id, &payload.preview_instance_id, &payload.page_id, payload.follow, payload.focus)
+}
+
+#[tauri::command]
 pub fn set_html_runtime_host_visibility_command(
     app: tauri::AppHandle,
     payload: SetHtmlRuntimeHostVisibilityRequest,
@@ -136,6 +235,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.bounds,
         payload.is_favorite,
         payload.is_fullscreen,
+        payload.is_editing,
         payload.custom_tag,
         payload.available_tags,
         payload.skill_tag,
@@ -150,6 +250,130 @@ pub fn set_html_runtime_controls_overlay_visibility_command(
     payload: SetHtmlRuntimeControlsOverlayVisibilityRequest,
 ) -> Result<bool, AppError> {
     set_html_runtime_controls_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn attach_html_edit_toolbar_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlEditToolbarOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    attach_html_edit_toolbar_overlay(
+        &app,
+        &window,
+        payload.item_id,
+        payload.bounds,
+        payload.runtime_session_id,
+        payload.generation,
+        payload.dirty,
+        payload.selected_data_id,
+        payload.format_state,
+    )
+}
+
+#[tauri::command]
+pub fn attach_html_edit_leave_confirm_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlEditLeaveConfirmOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    attach_html_edit_leave_confirm_overlay(&app, &window, payload.item_id, payload.bounds, payload.mode.as_deref().unwrap_or("leave"))
+}
+
+#[tauri::command]
+pub fn set_html_edit_toolbar_overlay_visibility_command(
+    app: tauri::AppHandle,
+    payload: SetHtmlEditToolbarOverlayVisibilityRequest,
+) -> Result<bool, AppError> {
+    set_html_edit_toolbar_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn close_html_edit_toolbar_overlay_command(
+    app: tauri::AppHandle,
+    payload: CloseHtmlWindowRequest,
+) -> Result<bool, AppError> {
+    close_html_edit_toolbar_overlay(&app, payload.item_id)
+}
+
+#[tauri::command]
+pub fn close_html_edit_leave_confirm_overlay_command(
+    app: tauri::AppHandle,
+    payload: CloseHtmlWindowRequest,
+) -> Result<bool, AppError> {
+    close_html_edit_leave_confirm_overlay(&app, payload.item_id)
+}
+
+#[tauri::command]
+pub fn eval_html_runtime_script_command(
+    app: tauri::AppHandle,
+    payload: EvalHtmlRuntimeScriptRequest,
+) -> Result<bool, AppError> {
+    let action = if payload.script.contains(".applyFormat(") {
+        "format"
+    } else if payload.script.contains(".reportState(") || payload.script.contains(".getSnapshot()") {
+        "state-refresh"
+    } else if payload.script.contains(".__NUTBOOK_HTML_EDIT__.exit(") {
+        "leave"
+    } else {
+        "runtime-script"
+    };
+    if action != "runtime-script" {
+        log_html_edit_debug(
+            "eval-request",
+            format!("item={} action={action}", payload.item_id),
+        );
+    }
+    let result = eval_html_runtime_script(&app, payload.item_id, &payload.script);
+    if action != "runtime-script" {
+        match &result {
+            Ok(applied) => log_html_edit_debug(
+                "eval-result",
+                format!("item={} action={action} result=ok applied={applied}", payload.item_id),
+            ),
+            Err(error) => log_html_edit_debug(
+                "eval-result",
+                format!("item={} action={action} result=error error={error:?}", payload.item_id),
+            ),
+        }
+    }
+    result
+}
+
+#[tauri::command]
+pub fn html_edit_runtime_message_command(
+    app: tauri::AppHandle,
+    payload: Value,
+) -> Result<bool, AppError> {
+    let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+    let runtime_session_id = payload
+        .get("runtimeSessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !message_type.starts_with("html_edit_") || runtime_session_id.is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+    let main_webview = app.get_webview("main").ok_or(AppError::InternalError)?;
+    let payload_json = serde_json::to_string(&payload).map_err(|_| AppError::InternalError)?;
+    main_webview
+        .eval(&format!(
+            "window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__?.({payload_json});"
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    log_html_edit_debug("runtime-ipc-forward", crate::core::html_runtime::html_edit_debug_payload_fields(&payload));
+    Ok(true)
 }
 
 #[tauri::command]
@@ -170,6 +394,7 @@ pub fn attach_markdown_controls_overlay_command(
         payload.bounds,
         payload.is_favorite,
         payload.is_fullscreen,
+        payload.is_editing,
         payload.custom_tag,
         payload.available_tags,
         payload.skill_tag,

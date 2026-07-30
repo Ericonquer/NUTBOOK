@@ -9,10 +9,9 @@ AGENTS.md
 MEMORY.md
 DESIGN.md
 docs/videos/
+docs/html-edit-acceptance/
 docs/superpowers/
 docs/plans
-docs/html-edit-acceptance/
-src-tauri/tests/
 
 # Build outputs
 src-tauri/target/
@@ -28,6 +27,8 @@ src-tauri/target/release/bundle/
 
 # Local databases, logs, and temporary runtime state
 src-tauri/.cache/
+src-tauri/tests/fixtures/html-edit/.nutbook/
+src-tauri/tests/fixtures/html-edit/*.nutbook-editable.html
 *.sqlite
 *.sqlite3
 *.db

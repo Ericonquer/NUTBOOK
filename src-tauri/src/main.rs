@@ -1,7 +1,8 @@
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{fs, io, path::{Path, PathBuf}, sync::Mutex};
 
 use nutbook_backend::{
     commands,
+    core::html_runtime::dispatch_html_runtime_shortcut,
     db::Database,
     state::AppState,
 };
@@ -22,6 +23,40 @@ const MENU_SHOW_STARRED_ID: &str = "nutbook_show_starred";
 const MENU_TOGGLE_OUTLINE_ID: &str = "nutbook_toggle_outline";
 const MENU_UNDO_ID: &str = "nutbook_undo";
 const MENU_REDO_ID: &str = "nutbook_redo";
+
+#[derive(Default)]
+struct HtmlEditAppExitState {
+    allow_exit_once: Mutex<bool>,
+}
+
+fn consume_html_edit_app_exit_allowance(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<HtmlEditAppExitState>();
+    let Ok(mut allow_exit_once) = state.allow_exit_once.lock() else {
+        return false;
+    };
+    if !*allow_exit_once {
+        return false;
+    }
+    *allow_exit_once = false;
+    true
+}
+
+fn request_html_edit_app_exit_decision(app: &tauri::AppHandle) {
+    if let Some(webview) = app.get_webview("main") {
+        let _ = webview.eval("window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__?.();");
+    }
+}
+
+#[tauri::command]
+fn finalize_html_edit_app_exit_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, HtmlEditAppExitState>,
+) {
+    if let Ok(mut allow_exit_once) = state.allow_exit_once.lock() {
+        *allow_exit_once = true;
+    }
+    app.exit(0);
+}
 
 fn main() {
     tauri::Builder::default()
@@ -137,6 +172,18 @@ fn main() {
                 .build()
         })
         .on_menu_event(|app, event| {
+            let native_history_key = match event.id().as_ref() {
+                MENU_UNDO_ID => Some("CmdOrCtrl+Z"),
+                MENU_REDO_ID => Some("CmdOrCtrl+Shift+Z"),
+                _ => None,
+            };
+            if let Some(key) = native_history_key {
+                let active_item = app.state::<AppState>().active_html_edit_item.lock().ok().and_then(|item| *item);
+                if let Some(item_id) = active_item {
+                    let _ = dispatch_html_runtime_shortcut(app, item_id, key);
+                    return;
+                }
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let script = match event.id().as_ref() {
                     EXIT_PRESENTATION_MENU_ID => {
@@ -167,6 +214,7 @@ fn main() {
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
             app.manage(AppState::new(database, app_data_dir));
+            app.manage(HtmlEditAppExitState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -203,16 +251,38 @@ fn main() {
             commands::preview::open_html_window,
             commands::preview::open_html_detached_window,
             commands::preview::open_image_file_dialog,
+            commands::preview::open_html_edit_image_file_dialog,
             commands::preview::attach_html_runtime_host_command,
+            commands::preview::attach_html_presentation_preview_command,
+            commands::preview::set_html_presentation_preview_visibility_command,
+            commands::preview::set_html_presentation_preview_active_command,
+            commands::preview::close_html_presentation_preview_command,
             commands::preview::attach_html_runtime_controls_overlay_command,
+            commands::preview::attach_html_edit_toolbar_overlay_command,
+            commands::preview::attach_html_edit_leave_confirm_overlay_command,
             commands::preview::attach_settings_overlay_command,
             commands::preview::attach_markdown_controls_overlay_command,
             commands::preview::set_html_runtime_host_visibility_command,
             commands::preview::set_html_runtime_controls_overlay_visibility_command,
+            commands::preview::set_html_edit_toolbar_overlay_visibility_command,
+            commands::preview::close_html_edit_toolbar_overlay_command,
+            commands::preview::close_html_edit_leave_confirm_overlay_command,
+            commands::preview::eval_html_runtime_script_command,
+            commands::preview::html_edit_runtime_message_command,
             commands::preview::set_window_fullscreen_command,
             commands::preview::dispatch_html_runtime_shortcut_command,
             commands::preview::focus_html_runtime_host_command,
             commands::preview::focus_main_webview_command,
+            commands::html_edit::get_html_edit_converter_script,
+            commands::html_edit::generate_presentation_thumbnail,
+            commands::html_edit::get_html_edit_patch,
+            commands::html_edit::save_html_edit_patch,
+            commands::html_edit::commit_html_edit,
+            commands::html_edit::save_html_edit_conflict_copy,
+            commands::html_edit::import_html_edit_asset,
+            commands::html_edit::register_html_edit_session_lease,
+            commands::html_edit::invalidate_html_edit_session_lease,
+            commands::html_edit::write_editable_html_copy,
             commands::preview::save_markdown_content,
             commands::preview::export_markdown_file,
             commands::tags::list_tags,
@@ -228,9 +298,31 @@ fn main() {
             commands::updates::check_for_updates,
             commands::window::start_window_drag_command,
             commands::window::open_external_url_command,
+            finalize_html_edit_app_exit_command,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                if consume_html_edit_app_exit_allowance(app) {
+                    return;
+                }
+                api.prevent_close();
+                request_html_edit_app_exit_decision(app);
+            }
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if consume_html_edit_app_exit_allowance(app) {
+                    return;
+                }
+                api.prevent_exit();
+                request_html_edit_app_exit_decision(app);
+            }
+            _ => {}
+        });
 }
 
 fn prepare_app_data_dir(app: &tauri::AppHandle) -> io::Result<PathBuf> {

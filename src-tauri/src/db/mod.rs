@@ -1154,7 +1154,9 @@ impl ItemRepository for Database {
             .find(|entry| entry.id == item.summary.library_id)
             .ok_or(AppError::LibraryNotFound)?;
 
-        if library.source_kind == "file" {
+        if library.source_kind == "file"
+            && Path::new(&item.summary.file_path) == Path::new(&library.root_path)
+        {
             self.delete_library(library.id)?;
             return Ok(());
         }
@@ -1249,7 +1251,9 @@ impl ItemRepository for Database {
             .find(|entry| entry.id == item.summary.library_id)
             .ok_or(AppError::LibraryNotFound)?;
 
-        if library.source_kind == "file" {
+        if library.source_kind == "file"
+            && Path::new(&item.summary.file_path) == Path::new(&library.root_path)
+        {
             self.delete_library(library.id)?;
             return Ok(());
         }

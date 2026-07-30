@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nutbook HTML Edit Toolbar</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, "PingFang SC", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .toolbar { display: flex; align-items: center; gap: 7px; width: min(632px, calc(100vw - 8px)); height: 44px; padding: 0 7px; border: 1px solid rgba(0, 0, 0, .08); border-radius: 8px; background: rgba(255, 255, 255, .98); box-shadow: 0 10px 24px rgba(0, 0, 0, .07); box-sizing: border-box; pointer-events: auto; }
+    :root[data-edit-role="short"] .toolbar { width: min(352px, calc(100vw - 8px)); }
+    :root[data-edit-role="plain"] .toolbar { width: min(252px, calc(100vw - 8px)); }
+    .status { min-width: 0; flex: 0 0 auto; color: #6b6b6b; font-size: 11px; font-weight: 500; white-space: nowrap; }
+    .status.dirty { color: #000; }
+    .format-commands { display: inline-flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+    .format-commands[hidden] { display: none; }
+    .format-commands::-webkit-scrollbar { display: none; }
+    .text-editing-state { min-width: 0; flex: 1 1 auto; color: #6b6b6b; font-size: 12px; font-weight: 500; white-space: nowrap; }
+    .format-divider { width: 1px; height: 18px; margin: 0 3px; flex: 0 0 auto; background: #e4e4e4; }
+    button { height: 30px; border: 0; border-radius: 7px; padding: 0 9px; background: #ededed; color: #000; font: inherit; font-size: 12px; font-weight: 600; line-height: 30px; letter-spacing: 0; cursor: pointer; white-space: nowrap; }
+    button:hover, button:focus-visible { background: #e2e2e2; outline: none; }
+    .format-commands button { width: 28px; min-width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; }
+    .format-commands button[hidden], .format-divider[hidden] { display: none; }
+    .format-commands button:hover, .format-commands button:focus-visible, .format-commands button[aria-pressed="true"] { background: #e9e9e9; }
+    .format-commands button:disabled { color: #b5b5b5; cursor: not-allowed; background: transparent; }
+    .format-commands svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .format-commands .text-icon { fill: currentColor; stroke: none; font-size: 12px; font-weight: 700; font-family: Georgia, serif; }
+    .actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+    button.primary { background: #000; color: #fff; }
+    button.primary:hover, button.primary:focus-visible { background: #252525; }
+    @media (max-width: 390px) { .toolbar { gap: 4px; padding: 0 5px; } .actions { gap: 4px; } .actions button { padding: 0 7px; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar" role="toolbar" aria-label="HTML 编辑工具台">
+    <div id="status" class="status" aria-live="polite">已保存</div>
+    <div class="format-commands" aria-label="文本格式工具">
+      <button data-format-command="bold" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3h5a3 3 0 0 1 0 6H6zm0 6h6a3 3 0 0 1 0 6H6z"/></svg></button>
+      <button data-format-command="italic" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 3H7.5M12.5 17h-5M11.5 3 8.5 17"/></svg></button>
+      <span class="format-divider" data-format-divider="after-emphasis" aria-hidden="true"></span>
+      <button data-format-command="paragraph" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h8a4 4 0 0 1 0 8H8M8 4v13M12 4v13"/></svg></button>
+      <button data-format-command="heading-1" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4v12M10 4v12M3 10h7M14 6h2v10"/></svg></button>
+      <button data-format-command="heading-2" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4v12M10 4v12M3 10h7M14 7a2 2 0 1 1 3 1.5L14 16h4"/></svg></button>
+      <button data-format-command="heading-3" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4v12M10 4v12M3 10h7M14 6h2a2 2 0 0 1 0 4h-2m2 0a2 2 0 0 1 0 4h-2"/></svg></button>
+      <button data-format-command="heading-4" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4v12M10 4v12M3 10h7M16 16V5l-3 7h5"/></svg></button>
+      <span class="format-divider" data-format-divider="after-block" aria-hidden="true"></span>
+      <button data-format-command="align-left" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 8h10M3 11h14M3 14h8"/></svg></button>
+      <button data-format-command="align-center" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M5 8h10M3 11h14M6 14h8"/></svg></button>
+      <button data-format-command="align-right" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M7 8h10M3 11h14M9 14h8"/></svg></button>
+      <span class="format-divider" data-format-divider="after-alignment" aria-hidden="true"></span>
+      <button data-format-command="unordered-list" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10"/><path d="M3.5 5h.01M3.5 10h.01M3.5 15h.01" stroke-width="3"/></svg></button>
+      <button data-format-command="ordered-list" type="button" aria-label="" title=""><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5h9M8 10h9M8 15h9"/><path d="M3 4h1v2M3 9h1v2M3 14h1v2"/></svg></button>
+    </div>
+    <div id="textEditingState" class="text-editing-state" hidden></div>
+    <div class="actions">
+      <button id="saveButton" class="primary" type="button" aria-label="保存">保存</button>
+      <button id="doneButton" type="button" aria-label="完成">完成</button>
+    </div>
+  </div>
+  <script src="./i18n.js?v=20260715-html-edit-roles"></script>
+  <script>
+    const i18n = window.NutbookI18n;
+    const t = (key, fallback) => i18n?.lookup(key) ?? fallback;
+    const FORMAT_COMMANDS = [
+      { command: "bold", key: "htmlEdit.format.bold", active: (format) => format.bold },
+      { command: "italic", key: "htmlEdit.format.italic", active: (format) => format.italic },
+      { command: "paragraph", key: "htmlEdit.format.paragraph", active: (format) => format.block === "paragraph" },
+      { command: "heading-1", key: "htmlEdit.format.heading1", active: (format) => format.block === "heading-1" },
+      { command: "heading-2", key: "htmlEdit.format.heading2", active: (format) => format.block === "heading-2" },
+      { command: "heading-3", key: "htmlEdit.format.heading3", active: (format) => format.block === "heading-3" },
+      { command: "heading-4", key: "htmlEdit.format.heading4", active: (format) => format.block === "heading-4" },
+      { command: "align-left", key: "htmlEdit.format.alignLeft", active: (format) => format.textAlign === "left" },
+      { command: "align-center", key: "htmlEdit.format.alignCenter", active: (format) => format.textAlign === "center" },
+      { command: "align-right", key: "htmlEdit.format.alignRight", active: (format) => format.textAlign === "right" },
+      { command: "unordered-list", key: "htmlEdit.format.bulletList", active: (format) => format.list === "unordered-list" },
+      { command: "ordered-list", key: "htmlEdit.format.orderedList", active: (format) => format.list === "ordered-list" }
+    ];
+    const SHORT_FORMAT_COMMANDS = new Set(["bold", "italic", "align-left", "align-center", "align-right"]);
+    const CONTENT_FORMAT_COMMANDS = new Set(FORMAT_COMMANDS.map((format) => format.command));
+    const SHORT_VISIBLE_DIVIDERS = new Set(["after-emphasis"]);
+    function defaultFormatState() { return { canFormat: false, bold: false, italic: false, block: "paragraph", textAlign: "left", list: null, editRole: "plain" }; }
+    const state = { itemId: null, runtimeSessionId: null, generation: null, dirty: false, selectedDataId: null, formatState: defaultFormatState() };
+    const els = { status: document.getElementById("status"), saveButton: document.getElementById("saveButton"), doneButton: document.getElementById("doneButton"), formatCommands: document.querySelector(".format-commands"), textEditingState: document.getElementById("textEditingState"), formatButtons: Array.from(document.querySelectorAll("[data-format-command]")), formatDividers: Array.from(document.querySelectorAll("[data-format-divider]")) };
+    const formatByCommand = new Map(FORMAT_COMMANDS.map((format) => [format.command, format]));
+    function apply(next) {
+      if (!next) return;
+      if (Object.prototype.hasOwnProperty.call(next, "itemId")) state.itemId = next.itemId;
+      if (Object.prototype.hasOwnProperty.call(next, "runtimeSessionId")) state.runtimeSessionId = next.runtimeSessionId;
+      if (Object.prototype.hasOwnProperty.call(next, "generation")) state.generation = next.generation;
+      if (Object.prototype.hasOwnProperty.call(next, "dirty")) state.dirty = Boolean(next.dirty);
+      if (Object.prototype.hasOwnProperty.call(next, "selectedDataId")) state.selectedDataId = next.selectedDataId || null;
+      if (Object.prototype.hasOwnProperty.call(next, "formatState")) state.formatState = next.formatState || defaultFormatState();
+      render();
+    }
+    function activeEditRole() {
+      const editRole = state.formatState?.editRole;
+      return editRole === "short" || editRole === "content" ? editRole : "plain";
+    }
+    function render() {
+      const statusText = state.dirty ? t("htmlEdit.unsaved", "未保存") : t("htmlEdit.saved", "已保存");
+      els.status.textContent = statusText; els.status.classList.toggle("dirty", state.dirty);
+      const saveLabel = t("htmlEdit.save", "保存"); const doneLabel = t("htmlEdit.done", "完成");
+      els.saveButton.textContent = saveLabel; els.saveButton.setAttribute("aria-label", saveLabel); els.saveButton.setAttribute("title", saveLabel);
+      els.doneButton.textContent = doneLabel; els.doneButton.setAttribute("aria-label", doneLabel); els.doneButton.setAttribute("title", doneLabel);
+      const editRole = activeEditRole(); const isRichTextRole = editRole === "short" || editRole === "content";
+      document.documentElement.dataset.editRole = editRole;
+      const allowedCommands = editRole === "short" ? SHORT_FORMAT_COMMANDS : CONTENT_FORMAT_COMMANDS;
+      els.formatCommands.hidden = !isRichTextRole;
+      els.textEditingState.hidden = isRichTextRole;
+      els.textEditingState.textContent = t("htmlEdit.format.textEditing", "文本编辑");
+      const canFormat = Boolean(state.formatState?.canFormat); const unavailable = t("htmlEdit.format.formatUnavailable", "请选择富文本字段中的文本");
+      for (const button of els.formatButtons) {
+        const command = button.dataset.formatCommand; const format = formatByCommand.get(command); if (!format) continue;
+        const label = t(format.key, command); const isActive = canFormat && Boolean(format.active(state.formatState));
+        button.hidden = !allowedCommands.has(command); button.disabled = !canFormat; button.setAttribute("aria-pressed", String(isActive)); button.setAttribute("aria-label", label); button.setAttribute("title", canFormat ? label : `${label} — ${unavailable}`);
+      }
+      for (const divider of els.formatDividers) divider.hidden = editRole === "short" && !SHORT_VISIBLE_DIVIDERS.has(divider.dataset.formatDivider);
+      i18n?.apply?.(document);
+      emitRenderDiagnostic();
+    }
+    function emitRenderDiagnostic() {
+      const visibleFormatCommands = els.formatButtons.filter((button) => !button.hidden).map((button) => button.dataset.formatCommand);
+      const enabledFormatCommands = els.formatButtons.filter((button) => !button.hidden && !button.disabled).map((button) => button.dataset.formatCommand);
+      const payload = {
+        type: "html_edit_toolbar_render_state",
+        itemId: state.itemId,
+        runtimeSessionId: state.runtimeSessionId,
+        generation: state.generation,
+        dirty: state.dirty,
+        formatState: state.formatState,
+        formatToolbarVisible: !els.formatCommands.hidden,
+        visibleFormatCommands,
+        enabledFormatCommands
+      };
+      const diagnosticTitle = "__NUTBOOK_HTML_EDIT_TOOLBAR_DIAGNOSTIC__:" + JSON.stringify(payload);
+      // WebKit can coalesce a title set during the initial render. Match the
+      // action bridge's delayed transition so host diagnostics prove what the
+      // toolbar actually rendered, rather than merely that eval returned.
+      document.title = "Nutbook HTML Edit Toolbar";
+      setTimeout(function() { document.title = diagnosticTitle; }, 16);
+      setTimeout(function() { if (document.title === diagnosticTitle) document.title = "Nutbook HTML Edit Toolbar"; }, 96);
+    }
+    function emit(action, details = {}) {
+      const payload = { action, ...details }; if (state.itemId != null) payload.itemId = state.itemId;
+      payload.runtimeSessionId = state.runtimeSessionId; payload.generation = state.generation;
+      payload.dirty = state.dirty; payload.selectedDataId = state.selectedDataId; payload.formatState = state.formatState;
+      const nextTitle = "__NUTBOOK_HTML_EDIT_TOOLBAR__:" + JSON.stringify(payload); document.title = "Nutbook HTML Edit Toolbar";
+      setTimeout(function() { document.title = nextTitle; }, 16);
+      setTimeout(function() { if (document.title === nextTitle) document.title = "Nutbook HTML Edit Toolbar"; }, 96);
+    }
+    let lastPointerFormatAt = -Infinity;
+    let lastPointerFormatCommand = null;
+    function emitFormatFromPointerDown(event) {
+      const button = event.currentTarget;
+      const command = button.dataset.formatCommand;
+      if (!command || button.disabled) return;
+      // A normal click fires after the runtime field blurs. That blur can
+      // synchronously refresh this child toolbar and remove the clicked
+      // control before click dispatches, so preserve the selection and send
+      // the intent while the button still exists.
+      event.preventDefault();
+      lastPointerFormatAt = performance.now();
+      lastPointerFormatCommand = command;
+      emit("format", { command });
+    }
+    function emitFormatFromClick(event) {
+      const button = event.currentTarget;
+      const command = button.dataset.formatCommand;
+      if (!command || button.disabled) return;
+      if (command === lastPointerFormatCommand && performance.now() - lastPointerFormatAt < 700) {
+        event.preventDefault();
+        return;
+      }
+      emit("format", { command });
+    }
+    els.saveButton.addEventListener("click", function() { emit("save"); });
+    els.doneButton.addEventListener("click", function() { emit("done"); });
+    for (const button of els.formatButtons) {
+      button.addEventListener("pointerdown", emitFormatFromPointerDown);
+      button.addEventListener("click", emitFormatFromClick);
+    }
+    window.__NUTBOOK_HTML_EDIT_TOOLBAR_UPDATE__ = apply;
+    apply(window.__NUTBOOK_HTML_EDIT_TOOLBAR__ || {});
+    i18n?.observe?.();
+  </script>
+</body>
+</html>

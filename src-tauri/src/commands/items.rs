@@ -273,6 +273,218 @@ mod tests {
     }
 
     #[test]
+    fn repository_removes_editable_companion_without_deleting_single_file_source() {
+        let path = temp_db_path();
+        let database = Database::new(&path).expect("db should initialize");
+
+        database
+            .upsert_library(Library {
+                id: 1,
+                name: "Deck".to_string(),
+                root_path: "/tmp/deck.html".to_string(),
+                source_kind: "file".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "now".to_string(),
+                updated_at: "now".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        database
+            .replace_items_for_library(
+                1,
+                &[
+                    IndexedItemRecord {
+                        library_id: 1,
+                        file_path: "/tmp/deck.html".to_string(),
+                        relative_path: "deck.html".to_string(),
+                        file_name: "deck.html".to_string(),
+                        file_ext: "html".to_string(),
+                        file_type: "html".to_string(),
+                        file_size: 10,
+                        modified_at: "1".to_string(),
+                        created_at: "now".to_string(),
+                        updated_at: "now".to_string(),
+                    },
+                    IndexedItemRecord {
+                        library_id: 1,
+                        file_path: "/tmp/deck.nutbook-editable.html".to_string(),
+                        relative_path: "deck.nutbook-editable.html".to_string(),
+                        file_name: "deck.nutbook-editable.html".to_string(),
+                        file_ext: "html".to_string(),
+                        file_type: "html".to_string(),
+                        file_size: 20,
+                        modified_at: "1".to_string(),
+                        created_at: "now".to_string(),
+                        updated_at: "now".to_string(),
+                    },
+                ],
+            )
+            .expect("source and companion should be inserted");
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(1),
+                ..ListItemsQuery::default()
+            })
+            .expect("items should list");
+        let companion = listed
+            .items
+            .iter()
+            .find(|item| item.file_name == "deck.nutbook-editable.html")
+            .expect("companion should be indexed");
+
+        database
+            .remove_item_from_nutbook(companion.id, "later")
+            .expect("companion removal should succeed");
+
+        let libraries = database.list_libraries().expect("libraries should load");
+        assert_eq!(libraries.len(), 1, "source library must remain");
+        let remaining = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(1),
+                ..ListItemsQuery::default()
+            })
+            .expect("remaining items should list");
+        assert_eq!(remaining.total, 1);
+        assert_eq!(remaining.items[0].file_path, "/tmp/deck.html");
+        let ignored = database
+            .list_ignored_items()
+            .expect("ignored companion should list");
+        assert_eq!(ignored.len(), 1);
+        assert_eq!(
+            ignored[0].file_path,
+            "/tmp/deck.nutbook-editable.html"
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn repository_trashes_editable_companion_without_deleting_single_file_source() {
+        let path = temp_db_path();
+        let database = Database::new(&path).expect("db should initialize");
+        let unique = path
+            .file_stem()
+            .expect("db path should have a stem")
+            .to_string_lossy();
+        let source_path = std::env::temp_dir().join(format!("{unique}.html"));
+        let companion_path =
+            std::env::temp_dir().join(format!("{unique}.nutbook-editable.html"));
+        std::fs::write(&source_path, "<main>source</main>").expect("source should be written");
+        std::fs::write(&companion_path, "<main>companion</main>")
+            .expect("companion should be written");
+        let trash_path = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .expect("home should exist")
+            .join(".Trash")
+            .join(
+                companion_path
+                    .file_name()
+                    .expect("companion should have a file name"),
+            );
+        assert!(!trash_path.exists(), "unique trash target should not exist");
+
+        database
+            .upsert_library(Library {
+                id: 1,
+                name: "Deck".to_string(),
+                root_path: source_path.to_string_lossy().to_string(),
+                source_kind: "file".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "now".to_string(),
+                updated_at: "now".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        database
+            .replace_items_for_library(
+                1,
+                &[
+                    IndexedItemRecord {
+                        library_id: 1,
+                        file_path: source_path.to_string_lossy().to_string(),
+                        relative_path: source_path
+                            .file_name()
+                            .expect("source should have a file name")
+                            .to_string_lossy()
+                            .to_string(),
+                        file_name: source_path
+                            .file_name()
+                            .expect("source should have a file name")
+                            .to_string_lossy()
+                            .to_string(),
+                        file_ext: "html".to_string(),
+                        file_type: "html".to_string(),
+                        file_size: 19,
+                        modified_at: "1".to_string(),
+                        created_at: "now".to_string(),
+                        updated_at: "now".to_string(),
+                    },
+                    IndexedItemRecord {
+                        library_id: 1,
+                        file_path: companion_path.to_string_lossy().to_string(),
+                        relative_path: companion_path
+                            .file_name()
+                            .expect("companion should have a file name")
+                            .to_string_lossy()
+                            .to_string(),
+                        file_name: companion_path
+                            .file_name()
+                            .expect("companion should have a file name")
+                            .to_string_lossy()
+                            .to_string(),
+                        file_ext: "html".to_string(),
+                        file_type: "html".to_string(),
+                        file_size: 22,
+                        modified_at: "1".to_string(),
+                        created_at: "now".to_string(),
+                        updated_at: "now".to_string(),
+                    },
+                ],
+            )
+            .expect("source and companion should be inserted");
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(1),
+                ..ListItemsQuery::default()
+            })
+            .expect("items should list");
+        let companion = listed
+            .items
+            .iter()
+            .find(|item| item.file_path == companion_path.to_string_lossy())
+            .expect("companion should be indexed");
+        database
+            .move_item_to_trash(companion.id, "later")
+            .expect("companion should move to trash");
+
+        assert!(source_path.exists(), "source file must remain on disk");
+        assert!(!companion_path.exists(), "companion must leave its original path");
+        assert!(trash_path.exists(), "companion must exist in Trash");
+        let libraries = database.list_libraries().expect("libraries should load");
+        assert_eq!(libraries.len(), 1, "source library must remain");
+        let remaining = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(1),
+                ..ListItemsQuery::default()
+            })
+            .expect("remaining items should list");
+        assert_eq!(remaining.total, 1);
+        assert_eq!(remaining.items[0].file_path, source_path.to_string_lossy());
+
+        let _ = std::fs::remove_file(trash_path);
+        let _ = std::fs::remove_file(source_path);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn repository_returns_item_detail() {
         let path = temp_db_path();
         let database = Database::new(&path).expect("db should initialize");
