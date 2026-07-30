@@ -18,15 +18,20 @@ jobs:
       matrix:
         include:
           - label: macOS Intel
-            artifact-name: NUTBOOK-macos-intel
+            artifact-name: NUTBOOK-macos-intel-dmg
+            artifact-path: src-tauri/target/release/bundle/dmg/*.dmg
+            expected-architecture: x86_64
             runner: macos-15-intel
             args: --bundles dmg
           - label: macOS Apple Silicon
-            artifact-name: NUTBOOK-macos-apple-silicon
+            artifact-name: NUTBOOK-macos-apple-silicon-dmg
+            artifact-path: src-tauri/target/release/bundle/dmg/*.dmg
+            expected-architecture: arm64
             runner: macos-14
             args: --bundles dmg
           - label: Windows
-            artifact-name: NUTBOOK-windows
+            artifact-name: NUTBOOK-windows-nsis
+            artifact-path: src-tauri/target/release/bundle/nsis/*.exe
             runner: windows-latest
             args: --bundles nsis
 
@@ -48,9 +53,46 @@ jobs:
 
       - name: Build Tauri package
         uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: ${{ matrix.artifact-name }}-[bundle]
+
+      - name: Verify macOS package
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          dmg_files=(src-tauri/target/release/bundle/dmg/*.dmg)
+          test "${#dmg_files[@]}" -eq 1
+          hdiutil verify "${dmg_files[0]}"
+
+          mount_dir="$(mktemp -d "$RUNNER_TEMP/nutbook-dmg.XXXXXX")"
+          cleanup() {
+            hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
+            rmdir "$mount_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${dmg_files[0]}"
+          app_path="$mount_dir/NUTBOOK.app"
+          binary_path="$app_path/Contents/MacOS/NUTBOOK"
+
+          test -d "$app_path"
+          test -x "$binary_path"
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          signature_info="$(codesign -dvv "$app_path" 2>&1)"
+          printf '%s\n' "$signature_info"
+          grep -q '^Signature=adhoc$' <<<"$signature_info"
+
+          binary_info="$(file "$binary_path")"
+          printf '%s\n' "$binary_info"
+          grep -q '${{ matrix.expected-architecture }}' <<<"$binary_info"
+
+      - name: Upload verified package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+          if-no-files-found: error
+          compression-level: 0

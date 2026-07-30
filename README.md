@@ -12,22 +12,6 @@ It helps you bring scattered Markdown reports, HTML presentation documents, AI a
 
 <https://github.com/user-attachments/assets/45dcfef4-44c4-4ec1-888a-c47404995a72>
 
-## Version 0.6: Lightweight HTML Editing
-
-NUTBOOK 0.6 adds a lightweight editing workflow for supported AI-generated HTML while preserving the original artifact and its runtime behavior.
-
-* Edit protocol-marked text and rich text directly in the HTML runtime.
-
-* Replace, crop, reposition, and add images with undo / redo support.
-
-* Navigate editable presentation pages or supported vertical HTML through a page rail.
-
-* Save, close, and reopen edits through a session-checked persistence workflow.
-
-* Convert ordinary HTML into a same-directory `.nutbook-editable.html` companion instead of rewriting the original file.
-
-HTML editing remains intentionally lightweight. NUTBOOK does not try to become a general visual page builder: responsive layout reconstruction, arbitrary component dragging, page restructuring, table structure editing, and code-block authoring are better handled by the source generator or an AI-assisted revision workflow.
-
 ## What Is It
 
 Many people are no longer just chatting with AI. They are asking AI to produce real files:
@@ -178,7 +162,7 @@ In short, the current version is already suitable for collecting, browsing, filt
 
 Recommended for regular users.
 
-1. Download the current `dmg` installer.
+1. Download the current `dmg` installer. Choose Apple Silicon for M1 / M2 / M3 / M4 Macs, and Intel for Intel-based Macs.
 2. Open the installer and drag `NUTBOOK` into the `Applications` folder.
 3. On first launch, macOS may show a security warning.
 
@@ -188,6 +172,8 @@ If you see a warning such as “cannot be opened” or “unidentified developer
 2. Go to Privacy & Security.
 3. Find the blocked app notice near the bottom.
 4. Choose Open Anyway / Allow.
+
+Current GitHub builds use a complete ad-hoc signature because the project does not yet use a paid Apple Developer ID. macOS therefore still requires explicit approval, but the app bundle must pass strict signature verification. If macOS reports that NUTBOOK is “damaged” and does not offer an approval option, please report the exact package name instead of removing its quarantine attribute.
 
 ### Option 2: Run from Source (git clone)
 
@@ -308,21 +294,36 @@ NUTBOOK is still an MVP with a focused scope:
 
 At this stage, NUTBOOK is closer to an “AI artifact desk” and a “local presentation library” than a full team content platform.
 
+## Version 0.6: Lightweight HTML Editing
+
+NUTBOOK 0.6 adds a lightweight editing workflow for supported AI-generated HTML while preserving the original artifact and its runtime behavior.
+
+* Edit protocol-marked text and rich text directly in the HTML runtime.
+
+* Replace, crop, reposition, and add images with undo / redo support.
+
+* Navigate editable presentation pages or supported vertical HTML through a page rail.
+
+* Save, close, and reopen edits through a session-checked persistence workflow.
+
+* Convert ordinary HTML into a same-directory `.nutbook-editable.html` companion instead of rewriting the original file.
+
+HTML editing remains intentionally lightweight. NUTBOOK does not try to become a general visual page builder: responsive layout reconstruction, arbitrary component dragging, page restructuring, table structure editing, and code-block authoring are better handled by the source generator or an AI-assisted revision workflow.
+
 ## Roadmap
 
-NUTBOOK will continue moving in the direction of making AI artifacts easier to read, present, collect, and reuse:
+NUTBOOK will continue moving in the direction of making AI artifacts easier to discover, read, present, collect, and reuse:
 
-* **Markdown Export Center:** first support exporting Markdown as reading-style HTML and showcase-style HTML, then gradually add PDF, long image export, and watermarking.
-
-* **HTML to Markdown:** extract text and structure from HTML and convert them into Markdown that can be further organized.
-
-* **AI-Assisted Artifact Refinement:** let upstream AI workflows revise structure and layout while NUTBOOK focuses on deterministic local review and lightweight corrections.
-
-* **Drawing Tool:** provide screen annotation for Markdown and HTML presentation scenarios, useful for meetings, classes, and proposals.
-
-* **Third File View:** add a cleaner file-name list with a thumbnail preview column on the right for faster browsing across large libraries.
-
-* **Core Experience Improvements:** continue improving tags, source classification, automatic scanning, path mapping, and support for content-generation skills.
+| Status | Direction | Goal |
+| --- | --- | --- |
+| Implemented | **Lightweight Markdown editing** | Refine generated Markdown directly while reading, with formatting, history, save, and recovery support. |
+| Implemented | **Lightweight HTML editing** | Correct protocol-marked text and images while preserving the source artifact and its runtime behavior. |
+| Next | **Agent project artifact discovery** | Discover useful Markdown, HTML, and related outputs directly from agent project directories and bring them into the library. |
+| Next | **NBSkill protocol constraints** | Define stable artifact metadata, directory, identity, and lifecycle contracts for skill outputs consumed by NUTBOOK. |
+| Next | **Markdown Export Center** | Export Markdown as reading-style or presentation-style HTML, then extend the pipeline toward PDF, long images, and watermarks. |
+| Next | **Native HTML presentation mode** | Provide a NUTBOOK-controlled presentation runtime for suitable HTML artifacts, with deterministic navigation and presentation behavior. |
+| Next | **Presentation drawing tool** | Add temporary on-screen annotation for presentations, meetings, classes, proposals, and reviews. |
+| Next | **AI feature development** | Introduce AI-assisted discovery, understanding, and revision workflows while keeping user files and deterministic editing boundaries explicit. |
 
 All of these directions share the same goal: make AI artifacts not just generated, but easier to see, explain, organize, and use again.
 
