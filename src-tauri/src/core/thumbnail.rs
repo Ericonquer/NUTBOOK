@@ -1,15 +1,27 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::Command,
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
-use std::{fs::File, os::fd::{FromRawFd, RawFd}, os::unix::process::CommandExt};
-use std::sync::{Mutex, OnceLock};
 
+#[cfg(unix)]
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    os::{
+        fd::{FromRawFd, RawFd},
+        unix::process::CommandExt,
+    },
+    process::{Child, Stdio},
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
+
+#[cfg(unix)]
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+#[cfg(unix)]
 use serde_json::{json, Value};
 
 const HTML_SCREENSHOT_WIDTH: i32 = 1280;
@@ -227,6 +239,13 @@ pub fn capture_html_thumbnail_with_chromium(
 pub fn capture_presentation_thumbnail_with_chromium(
     input: PresentationScreenshotInput,
 ) -> Result<GeneratedThumbnailAsset, String> {
+    capture_presentation_thumbnail_with_chromium_impl(input)
+}
+
+#[cfg(unix)]
+fn capture_presentation_thumbnail_with_chromium_impl(
+    input: PresentationScreenshotInput,
+) -> Result<GeneratedThumbnailAsset, String> {
     if !input.chromium_path.is_file() {
         return Err("chromium executable not found".to_string());
     }
@@ -240,6 +259,14 @@ pub fn capture_presentation_thumbnail_with_chromium(
     result
 }
 
+#[cfg(not(unix))]
+fn capture_presentation_thumbnail_with_chromium_impl(
+    _input: PresentationScreenshotInput,
+) -> Result<GeneratedThumbnailAsset, String> {
+    Err("presentation thumbnail CDP capture is not supported on this platform".to_string())
+}
+
+#[cfg(unix)]
 static PRESENTATION_THUMBNAIL_WORKER: OnceLock<Mutex<Option<PresentationThumbnailWorker>>> = OnceLock::new();
 
 /// Reuses a single hidden Chromium process for all thumbnails from one
@@ -247,6 +274,13 @@ static PRESENTATION_THUMBNAIL_WORKER: OnceLock<Mutex<Option<PresentationThumbnai
 /// thumbnail CLI: restarting Chrome for each slide made five initial cards take
 /// 10–15 seconds on real desktops.
 pub fn capture_presentation_thumbnail_with_worker(
+    input: PresentationThumbnailWorkerInput,
+) -> Result<GeneratedThumbnailAsset, String> {
+    capture_presentation_thumbnail_with_worker_impl(input)
+}
+
+#[cfg(unix)]
+fn capture_presentation_thumbnail_with_worker_impl(
     input: PresentationThumbnailWorkerInput,
 ) -> Result<GeneratedThumbnailAsset, String> {
     let worker_slot = PRESENTATION_THUMBNAIL_WORKER.get_or_init(|| Mutex::new(None));
@@ -260,6 +294,14 @@ pub fn capture_presentation_thumbnail_with_worker(
     worker.capture(&input.screenshot.page_id)
 }
 
+#[cfg(not(unix))]
+fn capture_presentation_thumbnail_with_worker_impl(
+    _input: PresentationThumbnailWorkerInput,
+) -> Result<GeneratedThumbnailAsset, String> {
+    Err("presentation thumbnail CDP worker is not supported on this platform".to_string())
+}
+
+#[cfg(unix)]
 struct PresentationThumbnailWorker {
     pipe: CdpPipe,
     profile_path: PathBuf,
@@ -271,6 +313,7 @@ struct PresentationThumbnailWorker {
     session_id: String,
 }
 
+#[cfg(unix)]
 impl PresentationThumbnailWorker {
     fn new(input: &PresentationScreenshotInput, source_revision: &str) -> Result<Self, String> {
         let profile_path = temp_chromium_profile_path();
@@ -359,6 +402,7 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
     }})()"#)
 }
 
+#[cfg(unix)]
 struct CdpPipe {
     child: Child,
     input: File,
@@ -366,6 +410,7 @@ struct CdpPipe {
     next_id: u64,
 }
 
+#[cfg(unix)]
 impl CdpPipe {
     fn launch(chromium_path: &Path, profile_path: &Path) -> Result<Self, String> {
         let (browser_read, host_write) = cdp_os_pipe()?;
@@ -470,6 +515,7 @@ impl CdpPipe {
     fn is_running(&mut self) -> bool { self.child.try_wait().ok().flatten().is_none() }
 }
 
+#[cfg(unix)]
 fn cdp_os_pipe() -> Result<(RawFd, RawFd), String> {
     let mut fds = [-1; 2];
     if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
@@ -478,6 +524,7 @@ fn cdp_os_pipe() -> Result<(RawFd, RawFd), String> {
     Ok((fds[0], fds[1]))
 }
 
+#[cfg(unix)]
 fn set_nonblocking(fd: RawFd) -> Result<(), String> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
