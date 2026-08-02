@@ -14,6 +14,81 @@ const richTextFixture = readFileSync("src-tauri/tests/fixtures/html-edit/editabl
 const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8");
 const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
 const mainRust = readFileSync("src-tauri/src/main.rs", "utf8");
+const skillDiscoveryRust = readFileSync("src-tauri/src/core/skill_discovery.rs", "utf8");
+
+function indexFunctionSection(name, nextName) {
+  const start = indexHtml.indexOf(`function ${name}`);
+  const end = indexHtml.indexOf(`function ${nextName}`, start + 1);
+  assert.ok(start >= 0 && end > start, `${name} must be followed by ${nextName}`);
+  return indexHtml.slice(start, end);
+}
+
+const connectAgentScopes = indexFunctionSection("connectAgentScopesInSettings", "toggleAgentScopeDetails");
+
+assert.match(indexHtml, /data-settings-tab="skills">产物接入<[\s\S]*?id="settingsSkillsSection"[\s\S]*?>项目产物接入<[\s\S]*?>skill 产物接入</, "settings must expose one Artifact Access section containing project and skill artifact access");
+assert.match(indexHtml, /id="settingsSkillsSection"[\s\S]*?id="settingsDiscoverAgentsButton"[\s\S]*?id="settingsAgentProjectList"/, "project discovery must live inside Artifact Access");
+assert.doesNotMatch(indexHtml, /id="settingsLibrariesSection"[\s\S]{0,1200}id="settingsDiscoverAgentsButton"/, "File Management must not rediscover Agent projects");
+assert.match(indexHtml, /projectLibraries = filteredLibraries\.filter\(\(library\) => library\.sourceKind === "agent_project"\)[\s\S]*?title: "项目来源"/, "File Management must manage connected project sources in their own group");
+assert.match(indexHtml, /data-settings-open-artifact-access="projects"[\s\S]*?settingsArtifactSection = node\.dataset\.settingsOpenArtifactAccess/, "Project source management must link back to Artifact Access instead of rescanning from File Management");
+assert.match(indexHtml, /data-settings-artifact-section="projects"[\s\S]*?data-settings-artifact-section="skills"[\s\S]*?data-settings-library-section="projects"/, "Artifact Access and File Management must use compact top-level source switches");
+assert.match(indexHtml, /function bindSettingsSectionSwitchesOnce\(\)[\s\S]*?settingsSectionSwitchesBound[\s\S]*?settingsScrim\.addEventListener\("click"/, "settings source switches must use one delegated listener instead of accumulating handlers after rerenders");
+assert.match(indexHtml, /\.settings-section\[hidden\],[\s\S]*?\.settings-subsection\[hidden\][\s\S]*?display:\s*none\s*!important/, "settings source switches must make inactive sections actually hidden even when section layout sets display grid");
+assert.match(indexHtml, /\.settings-section-switch button[\s\S]*?transition:[\s\S]*?background-color 160ms ease[\s\S]*?@media \(prefers-reduced-motion: reduce\)/, "settings source switches must animate gently while respecting reduced-motion preferences");
+assert.match(indexHtml, /function syncAgentScopeSummariesFromPreview[\s\S]*?summary\.pendingCount = Number\(preview\.pendingCount/, "expanded project details must expose one local summary synchronization path");
+assert.match(indexHtml, /agentArtifactPreviewByScope\.set\(scopeKey, appState\.agentArtifactPreview\);[\s\S]*?syncAgentScopeSummariesFromPreview\(scopeIndexes, appState\.agentArtifactPreview\)/, "expanded project details must synchronize current candidate counts back into the project row without another discovery scan");
+assert.match(indexHtml, /\.settings-agent-scope-row > \.button-row > \.settings-agent-scope-action\.button[\s\S]*?min-height:\s*28px !important[\s\S]*?padding:\s*0 10px !important[\s\S]*?font-size:\s*11px[\s\S]*?data-settings-agent-connect-suggested/, "project row actions must form a readable middle tier beneath the top-level Discover Projects action");
+assert.match(indexHtml, /\.agent-inline-actions \.settings-inline-link[\s\S]*?min-height:\s*24px[\s\S]*?padding:\s*0 6px[\s\S]*?\.agent-inline-actions \.settings-inline-link:hover[\s\S]*?background:\s*rgba\(20, 20, 20, 0\.07\)/, "per-file Agent decisions must retain compact hit targets and show a gray hover state");
+assert.match(indexHtml, /function decideSingleArtifactInSettings[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadItems\(\);[\s\S]*?agentDiscoveryPayload = await invoke\("discover_agent_projects"\)/, "individual project artifact decisions must refresh project sources, items, and project summaries together");
+assert.match(indexHtml, /function removeItemFromNutbook[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadItems\(\);[\s\S]*?await loadAgentProjectsInSettings\(\)/, "removing an artifact must refresh project source visibility and any loaded discovery summary");
+assert.match(indexHtml, /function restoreIgnoredItem[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadIgnoredItems\(\);[\s\S]*?await loadAgentProjectsInSettings\(\)/, "restoring an artifact must refresh project source visibility and any loaded discovery summary");
+assert.match(indexHtml, /读取已验证的 Codex 项目记录与 WorkBuddy 任务范围，不进行全盘扫描/, "Artifact Access must explain that project discovery uses verified Agent records instead of a full-disk scan");
+assert.match(indexHtml, /function loadAgentProjectsInSettings\(\)[\s\S]*?invoke\("discover_agent_projects"\)[\s\S]*?renderSettingsPanel\(\)/, "Artifact Access must render read-only Agent scopes inline without opening a secondary modal");
+assert.match(indexHtml, /id="emptyStateOpenArtifactAccessButton"[\s\S]*?openSettingsTab\("skills"\)/, "the All Files empty state must open Artifact Access directly");
+assert.doesNotMatch(indexHtml, /emptyState(?:DiscoverAgents|OpenSkills)Button/, "the empty state must not retain separate Agent-discovery or Skill-scan entries");
+assert.match(mainRust, /commands::agent_projects::discover_agent_projects/, "the read-only Agent discovery command must be registered with Tauri");
+assert.match(indexHtml, /agentDiscoveryPayload\?\.scopes[\s\S]*?agentDiscoveryPayload\?\.installations/, "Agent discovery must consume the unified installations and project\/task scopes payload");
+assert.match(indexHtml, /scope\.scopeKind === "task"[\s\S]*?`task:\$\{scope\.adapterId\}:\$\{scope\.externalScopeId\}`/, "WorkBuddy tasks must remain distinct dated task scopes while projects aggregate by root");
+assert.doesNotMatch(indexHtml, /agentDiscoveryPayload\?\.(?:installation(?!s)|projects)/, "the retired single-installation and projects-only discovery DTO must not return");
+assert.match(indexHtml, /groupedAgentScopesForSettings[\s\S]*?scope\.scopeKind === "task"[\s\S]*?new Set\(group\.scopes\.map\(\(scope\) => scope\.adapterId\)\)/, "Artifact Access must aggregate projects by root while rendering multi-Agent ownership and distinct WorkBuddy tasks");
+assert.match(indexHtml, /providerIssues[\s\S]*?installation\.status !== "ready"[\s\S]*?issueMarkup/, "a provider-specific discovery failure must remain visible inline instead of silently dropping its scopes");
+assert.match(indexHtml, /suggestedCount[\s\S]*?pendingCount[\s\S]*?excludedCount/, "the Agent scan summary must distinguish recommended, pending, and excluded files");
+assert.match(indexHtml, /reviewCandidates[\s\S]*?agentArtifactBadge\(candidate, content\)/, "expanded Agent scope must show every reviewable file with a compact discovery badge");
+assert.match(indexHtml, /filter\(\(group\) => group\.status === "suggested"\)[\s\S]*?accept_agent_artifact_groups/, "the primary Agent action must batch only suggested groups");
+assert.match(indexHtml, /agent-inline-section[\s\S]*?data-settings-agent-decision="accept"[\s\S]*?data-settings-agent-decision="ignore"/, "expanded artifacts must support compact per-file decisions");
+assert.match(indexHtml, /const indexedPaths = \[\.\.\.new Set\(group\.alreadyIndexedPaths \|\| \[\]\)\][\s\S]*?escapeHtml\(content\.indexed\)[\s\S]*?indexedRows/, "expanded project details must list connected artifact paths even when no review candidates remain");
+assert.match(indexHtml, /data-settings-agent-details[\s\S]*?toggleAgentScopeDetails/, "details must expand inline from a text action on the project row");
+assert.match(indexHtml, /agentArtifactPreviewByScope\.get\(scopeKey\)[\s\S]*?cachedPreview[\s\S]*?renderSettingsPanel/, "expanded project details must be cached for the current session");
+assert.doesNotMatch(indexHtml, /agent-artifact-summary-grid|agent-artifact-summary-count|agent-artifact-group|为什么这样判断/, "the retired detail page, large summary cards, and verbose reason copy must be deleted");
+assert.doesNotMatch(indexHtml, /agentDiscoveryScrim|agentDiscoveryPanel|agent-discovery-modal/, "the retired secondary Agent discovery modal must be deleted");
+assert.match(indexHtml, /data-settings-agent-details[\s\S]*?renderAgentScopeInlineDetail/, "project and task inspection must stay inside the project row");
+assert.match(indexHtml, /artifactSummaries[\s\S]*?suggestedCount[\s\S]*?pendingCount/, "the first read-only project scan must return candidate counts on the project list");
+assert.match(indexHtml, /alreadyIndexedPaths[\s\S]*?content\.indexed/, "project rows must disclose files already connected elsewhere without duplicating them as candidates");
+assert.match(indexHtml, /data-settings-agent-connect-suggested[\s\S]*?connectAgentScopesInSettings\(indexes, true\)/, "the project row must offer one-click default connection without requiring details");
+assert.match(connectAgentScopes, /acceptSuggestedImmediately[\s\S]*?accept_agent_artifact_groups[\s\S]*?discover_agent_projects/, "the default project action must connect, accept suggested groups, and refresh the row in one user decision");
+assert.match(indexHtml, /acceptSuggestedShort: "接入建议（\{count\}）"[\s\S]*?noSuggestionsShort: "无建议"/, "project rows must use concise primary-action labels");
+assert.match(indexHtml, /lastScanStatus === "partial"[\s\S]*?content\.scanIncomplete/, "partial scans must be explained without treating unvisited files as missing");
+assert.doesNotMatch(indexHtml, /artifact-access-open/, "Artifact Access must use the same settings panel size as every other tab");
+assert.match(connectAgentScopes, /invoke\("connect_agent_project", \{[\s\S]*?adapterId: scope\.adapterId/, "Agent project connection must pass the command fields at the invoke boundary");
+assert.doesNotMatch(connectAgentScopes, /invoke\("connect_agent_project", \{\s*payload:/, "Agent project connection must not double-wrap the Tauri payload");
+assert.match(indexHtml, /command === "select_library"[\s\S]*?command === "connect_agent_project"[\s\S]*?return \[\{ payload: args \}\]/, "the shared invoke adapter must be the only layer wrapping Agent command payloads");
+assert.match(indexHtml, /data-settings-refresh-skills="true">\$\{t\("actions\.scanSkillOutputs"\)\}/, "Skill Artifact Access must present refresh as an explicit local skill scan");
+assert.match(skillDiscoveryRust, /parse_artifact_output_dir[\s\S]*?frontmatter_value\(content, "artifact_output_dir"\)/, "Skill Artifacts must preserve explicit artifact_output_dir discovery");
+assert.match(skillDiscoveryRust, /discover_artifact_skills_uses_whitelisted_fallback_directories/, "Skill Artifacts must preserve the standard-output allowlist fallback");
+assert.match(skillDiscoveryRust, /normaliz[\s\S]*?duplicate_count/i, "Skill Artifacts must preserve logical Skill deduplication");
+assert.match(indexHtml, /data-settings-exclude-selected-skills[\s\S]*?exclude_skill_from_nutbook[\s\S]*?data-settings-restore-skill[\s\S]*?restore_excluded_skill/, "Skill Artifacts must preserve exclusion and restoration");
+assert.match(indexHtml, /function attachDiscoveredSkillSource[\s\S]*?addLibrary\("folder"\)[\s\S]*?bindLibraryToSkill/, "Skill Artifacts must still connect an output directory as a folder source and persist its binding");
+for (const command of [
+  "connect_agent_project",
+  "preview_agent_project_artifacts",
+  "accept_agent_artifact_groups",
+  "accept_agent_artifact",
+  "ignore_agent_artifact",
+  "set_agent_project_discovery_rule",
+  "refresh_agent_project",
+  "merge_agent_task_scope"
+]) {
+  assert.match(mainRust, new RegExp(`commands::agent_projects::${command}`), `${command} must be registered with Tauri`);
+}
 
 assert.match(indexHtml, /attach_html_presentation_preview_command[\s\S]*?runtimeSessionId[\s\S]*?activePageId/, "presentation editing must attach a dedicated read-only preview child with the current session lease and page");
 assert.match(indexHtml, /html_edit_presentation_preview_clicked[\s\S]*?selectHtmlEditPresentationPage/, "preview-card clicks must navigate through the established editor coordinator");

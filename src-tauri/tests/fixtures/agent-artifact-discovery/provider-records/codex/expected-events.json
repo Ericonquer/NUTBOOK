@@ -1,0 +1,39 @@
+[
+  {
+    "eventId": "codex:fixture-call-1:docs/delivered-report.md:write",
+    "projectRoot": "/workspace/sample-agent-project",
+    "path": "docs/delivered-report.md",
+    "kind": "created_by_agent_tool",
+    "observedAt": "2026-07-30T06:02:01Z",
+    "runReference": "00000000-0000-7000-8000-000000000001",
+    "evidenceSource": "successful_patch_apply_end"
+  },
+  {
+    "eventId": "codex:fixture-call-1:presentation/index.html:write",
+    "projectRoot": "/workspace/sample-agent-project",
+    "path": "presentation/index.html",
+    "kind": "created_by_agent_tool",
+    "observedAt": "2026-07-30T06:02:01Z",
+    "runReference": "00000000-0000-7000-8000-000000000001",
+    "evidenceSource": "successful_patch_apply_end"
+  },
+  {
+    "eventId": "codex:fixture-item-2:docs/delivered-report.md:delivery",
+    "projectRoot": "/workspace/sample-agent-project",
+    "path": "docs/delivered-report.md",
+    "kind": "mentioned_in_final_response",
+    "observedAt": "2026-07-30T06:03:00Z",
+    "runReference": "00000000-0000-7000-8000-000000000001",
+    "evidenceSource": "final_answer_file_link"
+  },
+  {
+    "eventId": "codex:fixture-item-2:presentation/index.html:delivery",
+    "projectRoot": "/workspace/sample-agent-project",
+    "path": "presentation/index.html",
+    "kind": "mentioned_in_final_response",
+    "observedAt": "2026-07-30T06:03:00Z",
+    "runReference": "00000000-0000-7000-8000-000000000001",
+    "evidenceSource": "final_answer_file_link"
+  }
+]
+

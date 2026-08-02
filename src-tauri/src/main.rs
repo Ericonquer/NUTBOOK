@@ -218,6 +218,15 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::agent_projects::discover_agent_projects,
+            commands::agent_projects::connect_agent_project,
+            commands::agent_projects::preview_agent_project_artifacts,
+            commands::agent_projects::accept_agent_artifact_groups,
+            commands::agent_projects::accept_agent_artifact,
+            commands::agent_projects::ignore_agent_artifact,
+            commands::agent_projects::set_agent_project_discovery_rule,
+            commands::agent_projects::refresh_agent_project,
+            commands::agent_projects::merge_agent_task_scope,
             commands::library::list_libraries,
             commands::library::delete_library,
             commands::library::open_folder_dialog,

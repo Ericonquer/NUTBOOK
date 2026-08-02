@@ -1,12 +1,17 @@
+pub mod agent_artifacts;
+pub mod migrations;
 pub mod repositories;
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{params, params_from_iter, types::Value, Connection, Transaction};
+use rusqlite::{
+    params, params_from_iter, types::Value, Connection, OptionalExtension, Transaction,
+};
 use url::Url;
 
 use crate::{
@@ -17,9 +22,10 @@ use crate::{
     db::repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
     errors::AppError,
     models::{
-        CreateTagRequest, DeleteTagResponse, GenerateThumbnailResponse, IgnoredItemSummary,
-        IndexedItemRecord, ItemDetail, ItemSummary, Library, ListItemsQuery, PagedResult,
-        SetItemTagsResponse, SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
+        ArtifactCandidate, ArtifactCandidateGroupSummary, CreateTagRequest, DeleteTagResponse,
+        GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord, ItemDetail, ItemSummary,
+        Library, ListItemsQuery, PagedResult, SetItemTagsResponse, SkillBindingSummary, Tag,
+        ThumbnailInfo, UpdateTagRequest,
     },
 };
 
@@ -34,10 +40,48 @@ pub struct Database {
     path: PathBuf,
 }
 
+pub(crate) fn canonical_root_key_for_path(
+    root_path: &str,
+    require_exists: bool,
+) -> Result<String, AppError> {
+    let path = Path::new(root_path);
+    if !path.is_absolute() {
+        return Err(AppError::InvalidParams);
+    }
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return Ok(canonical.to_string_lossy().into_owned());
+    }
+    if require_exists {
+        return Err(AppError::InvalidParams);
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(component.as_os_str()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(AppError::InvalidParams);
+                }
+            }
+            std::path::Component::Normal(part) => normalized.push(part),
+        }
+    }
+    Ok(normalized.to_string_lossy().into_owned())
+}
+
 impl Database {
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, AppError> {
         let database = Self { path: path.into() };
-        database.initialize()?;
+        let database_existed_before_startup = database.path.exists()
+            && database
+                .path
+                .metadata()
+                .map(|metadata| metadata.len() > 0)
+                .unwrap_or(false);
+        database.initialize(database_existed_before_startup)?;
         Ok(database)
     }
 
@@ -45,36 +89,51 @@ impl Database {
         &self.path
     }
 
-    fn initialize(&self) -> Result<(), AppError> {
-        let connection = self.connection()?;
+    fn initialize(&self, database_existed_before_startup: bool) -> Result<(), AppError> {
+        let mut connection = self.connection()?;
         connection
             .execute_batch(initial_schema_sql())
             .map_err(|_| AppError::DatabaseError)?;
-        let _ = connection.execute(
+        Self::ensure_baseline_column(
+            &connection,
+            "libraries",
+            "source_kind",
             "ALTER TABLE libraries ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'folder' CHECK (source_kind IN ('folder', 'file'))",
-            [],
-        );
-        let _ = connection.execute(
+        )?;
+        Self::ensure_baseline_column(
+            &connection,
+            "libraries",
+            "path_state",
             "ALTER TABLE libraries ADD COLUMN path_state TEXT NOT NULL DEFAULT 'valid' CHECK (path_state IN ('valid', 'missing'))",
-            [],
-        );
-        let _ = connection.execute(
+        )?;
+        Self::ensure_baseline_column(
+            &connection,
+            "items",
+            "path_state",
             "ALTER TABLE items ADD COLUMN path_state TEXT NOT NULL DEFAULT 'valid' CHECK (path_state IN ('valid', 'missing'))",
-            [],
-        );
-        let _ = connection.execute(
+        )?;
+        Self::ensure_baseline_column(
+            &connection,
+            "items",
+            "is_favorite",
             "ALTER TABLE items ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0, 1))",
-            [],
-        );
-        let _ = connection.execute("ALTER TABLE items ADD COLUMN last_opened_at TEXT", []);
-        let _ = connection.execute(
+        )?;
+        Self::ensure_baseline_column(
+            &connection,
+            "items",
+            "last_opened_at",
+            "ALTER TABLE items ADD COLUMN last_opened_at TEXT",
+        )?;
+        connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_items_is_favorite ON items(is_favorite)",
             [],
-        );
-        let _ = connection.execute(
+        )
+        .map_err(|_| AppError::DatabaseError)?;
+        connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_items_last_opened_at ON items(last_opened_at DESC)",
             [],
-        );
+        )
+        .map_err(|_| AppError::DatabaseError)?;
         connection
             .execute_batch(
                 "
@@ -90,6 +149,11 @@ impl Database {
                 ",
             )
             .map_err(|_| AppError::DatabaseError)?;
+        migrations::apply_pending_migrations(
+            &mut connection,
+            &self.path,
+            database_existed_before_startup,
+        )?;
         connection
             .execute_batch(
                 "
@@ -143,7 +207,36 @@ impl Database {
     }
 
     fn connection(&self) -> Result<Connection, AppError> {
-        Connection::open(&self.path).map_err(|_| AppError::DatabaseError)
+        let connection =
+            Connection::open(&self.path).map_err(|_| AppError::DatabaseError)?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(connection)
+    }
+
+    fn ensure_baseline_column(
+        connection: &Connection,
+        table: &str,
+        column: &str,
+        alter_sql: &str,
+    ) -> Result<(), AppError> {
+        let pragma = format!("PRAGMA table_info({table})");
+        let mut statement = connection
+            .prepare(&pragma)
+            .map_err(|_| AppError::DatabaseError)?;
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<BTreeSet<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        drop(statement);
+        if !columns.contains(column) {
+            connection
+                .execute(alter_sql, [])
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+        Ok(())
     }
 
     fn rebuild_fts_index(transaction: &Transaction<'_>) -> Result<(), AppError> {
@@ -632,6 +725,237 @@ impl Database {
             .map_err(|_| AppError::DatabaseError)?;
         Ok(())
     }
+
+    pub fn upsert_artifact_candidates(
+        &self,
+        project_library_id: i64,
+        candidates: &[ArtifactCandidate],
+        discovered_at: &str,
+    ) -> Result<Vec<ArtifactCandidate>, AppError> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+        let source_kind = transaction
+            .query_row(
+                "SELECT source_kind FROM libraries WHERE id = ?1",
+                params![project_library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|_| AppError::LibraryNotFound)?;
+        if source_kind != "agent_project" {
+            return Err(AppError::InvalidParams);
+        }
+
+        let mut persisted = Vec::new();
+        for candidate in candidates {
+            if candidate.project_library_id != project_library_id {
+                return Err(AppError::InvalidParams);
+            }
+            let previous = transaction
+                .query_row(
+                    "SELECT id, discovery_fingerprint
+                     FROM artifact_candidates
+                     WHERE project_library_id = ?1 AND primary_path = ?2",
+                    params![project_library_id, candidate.primary_path],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?;
+            let reasons_json =
+                serde_json::to_string(&candidate.reasons).map_err(|_| AppError::DatabaseError)?;
+            transaction
+                .execute(
+                    "INSERT INTO artifact_candidates (
+                       project_library_id, agent_kind, primary_path, artifact_kind, status,
+                       batch_key, reasons_json, discovery_fingerprint,
+                       file_size, modified_at, first_discovered_at, last_discovered_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                     ON CONFLICT(project_library_id, primary_path) DO UPDATE SET
+                       agent_kind = excluded.agent_kind,
+                       artifact_kind = excluded.artifact_kind,
+                       status = CASE
+                         WHEN artifact_candidates.status IN ('accepted', 'ignored')
+                           THEN artifact_candidates.status
+                         ELSE excluded.status
+                       END,
+                       batch_key = excluded.batch_key,
+                       reasons_json = excluded.reasons_json,
+                       discovery_fingerprint = excluded.discovery_fingerprint,
+                       file_size = excluded.file_size,
+                       modified_at = excluded.modified_at,
+                       last_discovered_at = CASE
+                         WHEN artifact_candidates.discovery_fingerprint
+                              <> excluded.discovery_fingerprint
+                           THEN excluded.last_discovered_at
+                         ELSE artifact_candidates.last_discovered_at
+                       END",
+                    params![
+                        project_library_id,
+                        candidate.agent_kind,
+                        candidate.primary_path,
+                        candidate.artifact_kind,
+                        candidate.status,
+                        candidate.batch_key,
+                        reasons_json,
+                        candidate.discovery_fingerprint,
+                        i64::try_from(candidate.file_size).unwrap_or(i64::MAX),
+                        candidate.modified_at,
+                        discovered_at,
+                    ],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let candidate_id = previous
+                .as_ref()
+                .map(|(id, _)| *id)
+                .unwrap_or_else(|| transaction.last_insert_rowid());
+
+            for evidence in &candidate.evidence {
+                transaction
+                    .execute(
+                        "INSERT OR IGNORE INTO artifact_candidate_evidence (
+                           candidate_id, evidence_fingerprint, agent_kind,
+                           reason_kind, event_id, run_reference_hash, observed_at
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![
+                            candidate_id,
+                            evidence.fingerprint,
+                            evidence.agent_kind,
+                            evidence.reason.as_str(),
+                            evidence.event_id,
+                            evidence.run_reference_hash,
+                            evidence.observed_at,
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+
+            let facts_changed = previous
+                .as_ref()
+                .is_none_or(|(_, fingerprint)| fingerprint != &candidate.discovery_fingerprint);
+            if facts_changed {
+                transaction
+                    .execute(
+                        "DELETE FROM artifact_candidate_related_files
+                         WHERE candidate_id = ?1",
+                        params![candidate_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                for related in &candidate.related_files {
+                    transaction
+                        .execute(
+                            "INSERT INTO artifact_candidate_related_files (
+                               candidate_id, file_path, role
+                             ) VALUES (?1, ?2, ?3)",
+                            params![candidate_id, related.path, related.role],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                }
+            }
+
+            let mut stored = candidate.clone();
+            stored.id = Some(candidate_id);
+            if let Some((_, _)) = previous {
+                let preserved_status: String = transaction
+                    .query_row(
+                        "SELECT status FROM artifact_candidates WHERE id = ?1",
+                        params![candidate_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                stored.status = preserved_status;
+            }
+            persisted.push(stored);
+        }
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(persisted)
+    }
+
+    pub fn list_artifact_candidate_groups(
+        &self,
+        project_library_id: i64,
+    ) -> Result<Vec<ArtifactCandidateGroupSummary>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT batch_key, status, primary_path
+                 FROM artifact_candidates
+                 WHERE project_library_id = ?1
+                   AND status IN ('suggested', 'pending', 'excluded')
+                 ORDER BY batch_key, status, primary_path",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map(params![project_library_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        let candidates = rows
+            .into_iter()
+            .map(|(batch_key, status, primary_path)| ArtifactCandidate {
+                id: None,
+                project_library_id,
+                agent_kind: String::new(),
+                primary_path,
+                artifact_kind: String::new(),
+                status,
+                batch_key,
+                reasons: Vec::new(),
+                discovery_fingerprint: String::new(),
+                file_size: 0,
+                modified_at: None,
+                related_files: Vec::new(),
+                evidence: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        Ok(crate::core::artifact_discovery::summarize_candidate_groups(
+            &candidates,
+        ))
+    }
+
+    pub fn list_artifact_candidates_for_review(
+        &self,
+        project_library_id: i64,
+    ) -> Result<Vec<ArtifactCandidate>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, batch_key, status
+                 FROM artifact_candidates
+                 WHERE project_library_id = ?1
+                   AND status IN ('suggested', 'pending')
+                 ORDER BY batch_key, status, primary_path",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map(params![project_library_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        let mut candidates = Vec::new();
+        for (candidate_id, _batch_key, _status) in rows {
+            if let Some(candidate) = crate::db::agent_artifacts::load_candidate(
+                &connection,
+                project_library_id,
+                candidate_id,
+            )? {
+                candidates.push(candidate);
+            }
+        }
+        Ok(candidates)
+    }
 }
 
 impl LibraryRepository for Database {
@@ -641,6 +965,14 @@ impl LibraryRepository for Database {
             .prepare(
                 "SELECT id, name, root_path, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at
                  FROM libraries
+                 WHERE source_kind <> 'agent_project'
+                    OR EXISTS (
+                      SELECT 1
+                      FROM item_sources
+                      INNER JOIN items ON items.id = item_sources.item_id
+                      WHERE item_sources.library_id = libraries.id
+                        AND items.is_deleted = 0
+                    )
                  ORDER BY id ASC",
             )
             .map_err(|_| AppError::DatabaseError)?;
@@ -676,13 +1008,14 @@ impl LibraryRepository for Database {
 
     fn upsert_library(&self, library: Library) -> Result<Library, AppError> {
         let connection = self.connection()?;
+        let canonical_root_key = canonical_root_key_for_path(&library.root_path, false)?;
         connection
             .execute(
-                "INSERT INTO libraries (id, name, root_path, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                 ON CONFLICT(root_path) DO UPDATE SET
+                "INSERT INTO libraries (id, name, root_path, canonical_root_key, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT(canonical_root_key, source_kind) DO UPDATE SET
                    name = excluded.name,
-                   source_kind = excluded.source_kind,
+                   root_path = excluded.root_path,
                    path_state = excluded.path_state,
                    is_active = excluded.is_active,
                    updated_at = excluded.updated_at,
@@ -691,6 +1024,7 @@ impl LibraryRepository for Database {
                     library.id,
                     library.name,
                     library.root_path,
+                    canonical_root_key,
                     library.source_kind,
                     library.path_state,
                     if library.is_active { 1 } else { 0 },
@@ -706,21 +1040,24 @@ impl LibraryRepository for Database {
 
     fn update_library(&self, library: Library) -> Result<Library, AppError> {
         let connection = self.connection()?;
+        let canonical_root_key = canonical_root_key_for_path(&library.root_path, false)?;
         let changed = connection
             .execute(
                 "UPDATE libraries
                  SET name = ?2,
                      root_path = ?3,
-                     source_kind = ?4,
-                     path_state = ?5,
-                     is_active = ?6,
-                     updated_at = ?7,
-                     last_scanned_at = ?8
+                     canonical_root_key = ?4,
+                     source_kind = ?5,
+                     path_state = ?6,
+                     is_active = ?7,
+                     updated_at = ?8,
+                     last_scanned_at = ?9
                  WHERE id = ?1",
                 params![
                     library.id,
                     library.name,
                     library.root_path,
+                    canonical_root_key,
                     library.source_kind,
                     library.path_state,
                     if library.is_active { 1 } else { 0 },
@@ -763,33 +1100,105 @@ impl LibraryRepository for Database {
             return Err(AppError::LibraryNotFound);
         }
 
-        transaction
-            .execute(
-                "DELETE FROM thumbnail_cache
-                 WHERE item_id IN (SELECT id FROM items WHERE library_id = ?1)",
-                params![library_id],
-            )
-            .map_err(|_| AppError::DatabaseError)?;
-        transaction
-            .execute(
-                "DELETE FROM item_tags
-                 WHERE item_id IN (SELECT id FROM items WHERE library_id = ?1)",
-                params![library_id],
-            )
-            .map_err(|_| AppError::DatabaseError)?;
-        transaction
-            .execute(
-                "DELETE FROM item_content
-                 WHERE item_id IN (SELECT id FROM items WHERE library_id = ?1)",
-                params![library_id],
-            )
-            .map_err(|_| AppError::DatabaseError)?;
-        transaction
-            .execute("DELETE FROM items WHERE library_id = ?1", params![library_id])
-            .map_err(|_| AppError::DatabaseError)?;
-        transaction
-            .execute("DELETE FROM ignored_items WHERE library_id = ?1", params![library_id])
-            .map_err(|_| AppError::DatabaseError)?;
+        let source_links = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT item_id, is_owner
+                     FROM item_sources
+                     WHERE library_id = ?1
+                     ORDER BY item_id",
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map(params![library_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? != 0))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+
+        for (item_id, is_owner) in source_links {
+            if !is_owner {
+                transaction
+                    .execute(
+                        "DELETE FROM item_sources
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "UPDATE ignored_items
+                         SET library_id = (
+                           SELECT library_id FROM items WHERE id = ?1
+                         )
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                continue;
+            }
+
+            let replacement = transaction
+                .query_row(
+                    "SELECT library_id
+                     FROM item_sources
+                     WHERE item_id = ?1 AND library_id <> ?2
+                     ORDER BY CASE link_kind
+                       WHEN 'manifest' THEN 0
+                       WHEN 'discovered' THEN 1
+                       ELSE 2
+                     END, library_id
+                     LIMIT 1",
+                    params![item_id, library_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?;
+
+            if let Some(replacement_library_id) = replacement {
+                transaction
+                    .execute(
+                        "UPDATE item_sources SET is_owner = 0
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "UPDATE item_sources SET is_owner = 1
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, replacement_library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "UPDATE items SET library_id = ?2 WHERE id = ?1",
+                        params![item_id, replacement_library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "UPDATE ignored_items SET library_id = ?2
+                         WHERE item_id = ?1",
+                        params![item_id, replacement_library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "DELETE FROM item_sources
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            } else {
+                transaction
+                    .execute("DELETE FROM items WHERE id = ?1", params![item_id])
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+        }
+
         transaction
             .execute("DELETE FROM libraries WHERE id = ?1", params![library_id])
             .map_err(|_| AppError::DatabaseError)?;
@@ -811,14 +1220,17 @@ impl ItemRepository for Database {
             .transaction()
             .map_err(|_| AppError::DatabaseError)?;
 
-        transaction
-            .execute(
-                "UPDATE items
-                 SET is_deleted = 1
-                 WHERE library_id = ?1 AND is_deleted = 0",
+        let source_kind: String = transaction
+            .query_row(
+                "SELECT source_kind FROM libraries WHERE id = ?1",
                 params![library_id],
+                |row| row.get(0),
             )
-            .map_err(|_| AppError::DatabaseError)?;
+            .map_err(|_| AppError::LibraryNotFound)?;
+        if source_kind == "agent_project" {
+            return Err(AppError::InvalidParams);
+        }
+        let link_kind = "legacy";
 
         let ignored_paths = {
             let mut statement = transaction
@@ -831,48 +1243,200 @@ impl ItemRepository for Database {
                 .map_err(|_| AppError::DatabaseError)?
         };
 
-        let mut inserted = 0_u64;
+        let existing_links = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT item_sources.item_id, items.file_path, item_sources.is_owner
+                     FROM item_sources
+                     INNER JOIN items ON items.id = item_sources.item_id
+                     WHERE item_sources.library_id = ?1",
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map(params![library_id], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)? != 0,
+                    ))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+        let mut existing_by_path = {
+            let mut statement = transaction
+                .prepare("SELECT id, file_path, is_deleted FROM items")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(1)?,
+                        (row.get::<_, i64>(0)?, row.get::<_, i64>(2)? != 0),
+                    ))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            rows.collect::<Result<BTreeMap<_, _>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+
+        let mut created = 0_u64;
+        let mut updated = 0_u64;
+        let mut scanned_paths = BTreeSet::new();
         for item in items {
             if ignored_paths.iter().any(|path| path == &item.file_path) {
                 continue;
             }
-            transaction
-                .execute(
+            scanned_paths.insert(item.file_path.clone());
+            if let Some((item_id, _was_deleted)) = existing_by_path.get(&item.file_path) {
+                transaction
+                    .execute(
+                        "UPDATE items SET
+                           relative_path = ?2,
+                           file_name = ?3,
+                           file_ext = ?4,
+                           file_type = ?5,
+                           file_size = ?6,
+                           modified_at = ?7,
+                           path_state = 'valid',
+                           is_deleted = 0,
+                           updated_at = ?8
+                         WHERE id = ?1",
+                        params![
+                            item_id,
+                            item.relative_path,
+                            item.file_name,
+                            item.file_ext,
+                            item.file_type,
+                            item.file_size,
+                            item.modified_at,
+                            item.updated_at,
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (
+                           item_id, library_id, link_kind, is_owner, created_at
+                         ) VALUES (?1, ?2, ?3, 0, ?4)
+                         ON CONFLICT(item_id, library_id) DO UPDATE SET
+                           link_kind = CASE
+                             WHEN item_sources.link_kind = 'manifest' THEN 'manifest'
+                             ELSE excluded.link_kind
+                           END",
+                        params![item_id, library_id, link_kind, item.created_at],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                updated += 1;
+            } else {
+                transaction
+                    .execute(
                     "INSERT INTO items (
                         library_id, file_path, relative_path, file_name, file_ext, file_type,
                         file_size, modified_at, file_hash, title, summary, path_state, is_favorite, last_opened_at, is_deleted, created_at, updated_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, 'valid', 0, NULL, 0, ?9, ?10)
-                     ON CONFLICT(file_path) DO UPDATE SET
-                        library_id = excluded.library_id,
-                        relative_path = excluded.relative_path,
-                        file_name = excluded.file_name,
-                        file_ext = excluded.file_ext,
-                        file_type = excluded.file_type,
-                        file_size = excluded.file_size,
-                        modified_at = excluded.modified_at,
-                        path_state = 'valid',
-                        is_deleted = 0,
-                        updated_at = excluded.updated_at",
-                    params![
-                        item.library_id,
-                        item.file_path,
-                        item.relative_path,
-                        item.file_name,
-                        item.file_ext,
-                        item.file_type,
-                        item.file_size,
-                        item.modified_at,
-                        item.created_at,
-                        item.updated_at,
-                    ],
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, 'valid', 0, NULL, 0, ?9, ?10)",
+                        params![
+                            library_id,
+                            item.file_path,
+                            item.relative_path,
+                            item.file_name,
+                            item.file_ext,
+                            item.file_type,
+                            item.file_size,
+                            item.modified_at,
+                            item.created_at,
+                            item.updated_at,
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                let item_id = transaction.last_insert_rowid();
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (
+                           item_id, library_id, link_kind, is_owner, created_at
+                         ) VALUES (?1, ?2, ?3, 1, ?4)",
+                        params![item_id, library_id, link_kind, item.created_at],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                existing_by_path.insert(item.file_path.clone(), (item_id, false));
+                created += 1;
+            }
+        }
+
+        let mut deleted = 0_u64;
+        for (item_id, file_path, is_owner) in existing_links {
+            if scanned_paths.contains(&file_path) {
+                continue;
+            }
+            if !is_owner {
+                transaction
+                    .execute(
+                        "DELETE FROM item_sources
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                continue;
+            }
+
+            let replacement = transaction
+                .query_row(
+                    "SELECT library_id
+                     FROM item_sources
+                     WHERE item_id = ?1 AND library_id <> ?2
+                     ORDER BY CASE link_kind
+                       WHEN 'manifest' THEN 0
+                       WHEN 'discovered' THEN 1
+                       ELSE 2
+                     END, library_id
+                     LIMIT 1",
+                    params![item_id, library_id],
+                    |row| row.get::<_, i64>(0),
                 )
+                .optional()
                 .map_err(|_| AppError::DatabaseError)?;
-            inserted += 1;
+            if let Some(replacement_library_id) = replacement {
+                transaction
+                    .execute(
+                        "UPDATE item_sources SET is_owner = 0
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "UPDATE item_sources SET is_owner = 1
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, replacement_library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "UPDATE items SET library_id = ?2 WHERE id = ?1",
+                        params![item_id, replacement_library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "DELETE FROM item_sources
+                         WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            } else {
+                deleted += transaction
+                    .execute(
+                        "UPDATE items SET is_deleted = 1
+                         WHERE id = ?1 AND is_deleted = 0",
+                        params![item_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)? as u64;
+            }
         }
 
         Self::rebuild_fts_index(&transaction)?;
         transaction.commit().map_err(|_| AppError::DatabaseError)?;
-        Ok((inserted, 0, 0))
+        Ok((created, updated, deleted))
     }
 
     fn list_items(&self, query: &ListItemsQuery) -> Result<PagedResult<ItemSummary>, AppError> {
@@ -898,7 +1462,12 @@ impl ItemRepository for Database {
         let mut args = Vec::new();
 
         if let Some(library_id) = query.library_id {
-            where_clauses.push("library_id = ?".to_string());
+            where_clauses.push(
+                "id IN (
+                   SELECT item_id FROM item_sources WHERE library_id = ?
+                 )"
+                .to_string(),
+            );
             args.push(Value::Integer(library_id));
         }
 
@@ -1177,6 +1746,27 @@ impl ItemRepository for Database {
         transaction
             .execute("UPDATE items SET is_deleted = 1 WHERE id = ?1", params![item_id])
             .map_err(|_| AppError::DatabaseError)?;
+        if library.source_kind == "agent_project" {
+            let project_root = fs::canonicalize(&library.root_path)
+                .map_err(|_| AppError::InvalidParams)?;
+            let item_path = fs::canonicalize(&item.summary.file_path)
+                .map_err(|_| AppError::InvalidParams)?;
+            if let Ok(relative_path) = item_path.strip_prefix(project_root) {
+                transaction
+                    .execute(
+                        "UPDATE artifact_candidates
+                         SET status = 'pending'
+                         WHERE project_library_id = ?1
+                           AND primary_path = ?2
+                           AND status = 'accepted'",
+                        params![
+                            library.id,
+                            relative_path.to_string_lossy().replace('\\', "/")
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+        }
         Self::rebuild_fts_index(&transaction)?;
         transaction.commit().map_err(|_| AppError::DatabaseError)?;
         Ok(())
@@ -1855,13 +2445,20 @@ fn current_timestamp() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+    use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::Database;
+    use rusqlite::{params, Connection};
+
+    use super::{migrations, Database};
     use crate::{
         db::repositories::{ItemRepository, LibraryRepository},
-        models::{IndexedItemRecord, Library, ListItemsQuery},
+        models::{
+            ArtifactCandidate, DiscoveryEvidence, DiscoveryReasonKind, IndexedItemRecord,
+            Library, ListItemsQuery, RelatedArtifactFile,
+        },
     };
 
     fn unique_db_path() -> PathBuf {
@@ -1870,6 +2467,871 @@ mod tests {
             .expect("system time should be after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("nutbook-test-{nanos}.sqlite3"))
+    }
+
+    fn sample_library(id: i64, root_path: &str, source_kind: &str) -> Library {
+        Library {
+            id,
+            name: format!("{source_kind}-{id}"),
+            root_path: root_path.to_string(),
+            source_kind: source_kind.to_string(),
+            path_state: "valid".to_string(),
+            is_active: true,
+            created_at: "2026-07-30T00:00:00Z".to_string(),
+            updated_at: "2026-07-30T00:00:00Z".to_string(),
+            last_scanned_at: None,
+            skill_binding: None,
+        }
+    }
+
+    fn sample_item(library_id: i64, file_path: &str) -> IndexedItemRecord {
+        IndexedItemRecord {
+            library_id,
+            file_path: file_path.to_string(),
+            relative_path: "report.md".to_string(),
+            file_name: "report.md".to_string(),
+            file_ext: "md".to_string(),
+            file_type: "markdown".to_string(),
+            file_size: 42,
+            modified_at: "1".to_string(),
+            created_at: "2026-07-30T00:00:00Z".to_string(),
+            updated_at: "2026-07-30T00:00:00Z".to_string(),
+        }
+    }
+
+    fn schema_objects(connection: &Connection) -> BTreeSet<(String, String)> {
+        let mut statement = connection
+            .prepare(
+                "SELECT type, name
+                 FROM sqlite_master
+                 WHERE name NOT LIKE 'sqlite_%'
+                   AND name NOT LIKE 'items_fts_%'
+                 ORDER BY type, name",
+            )
+            .expect("schema query");
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("schema rows")
+            .collect::<Result<BTreeSet<_>, _>>()
+            .expect("schema objects")
+    }
+
+    fn assert_item_owner_consistency(connection: &Connection, item_id: i64) {
+        let (owner_count, owner_library, item_library): (i64, i64, i64) = connection
+            .query_row(
+                "SELECT
+                   SUM(item_sources.is_owner),
+                   MAX(CASE WHEN item_sources.is_owner = 1 THEN item_sources.library_id END),
+                   items.library_id
+                 FROM items
+                 INNER JOIN item_sources ON item_sources.item_id = items.id
+                 WHERE items.id = ?1
+                 GROUP BY items.id",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("owner consistency row");
+        assert_eq!(owner_count, 1);
+        assert_eq!(owner_library, item_library);
+    }
+
+    #[test]
+    fn database_migrates_published_0_6_schema_with_backup_and_idempotency() {
+        let path = unique_db_path();
+        let connection = Connection::open(&path).expect("published 0.6 database");
+        connection
+            .execute_batch(include_str!(
+                "../../tests/fixtures/database/nutbook-0.6.0-schema.sql"
+            ))
+            .expect("published schema fixture");
+        drop(connection);
+
+        let database = Database::new(&path).expect("published 0.6 database should migrate");
+        let connection = database.connection().expect("migrated connection");
+        let versions = connection
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .expect("migration versions")
+            .query_map([], |row| row.get::<_, i64>(0))
+            .expect("version rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("versions");
+        assert_eq!(versions, vec![1, 2, migrations::LATEST_SCHEMA_VERSION]);
+
+        let preserved: (i64, String, i64) = connection
+            .query_row(
+                "SELECT items.id, items.title, items.is_favorite
+                 FROM items WHERE items.id = 11",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("preserved item");
+        assert_eq!(preserved, (11, "Published report".to_string(), 1));
+        assert_item_owner_consistency(&connection, 11);
+        let preserved_user_state: (i64, i64, i64, i64, i64, i64) = connection
+            .query_row(
+                "SELECT
+                   EXISTS(SELECT 1 FROM ignored_items WHERE item_id = 12),
+                   EXISTS(SELECT 1 FROM excluded_skills WHERE normalized_name = 'review-only'),
+                   EXISTS(SELECT 1 FROM skill_visibility_overrides WHERE normalized_name = 'html-ppt'),
+                   EXISTS(SELECT 1 FROM library_skill_bindings WHERE library_id = 7),
+                   EXISTS(SELECT 1 FROM item_tags WHERE item_id = 11 AND tag_id = 3),
+                   EXISTS(SELECT 1 FROM thumbnail_cache WHERE item_id = 11 AND thumb_status = 'ready')",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("0.6 user state should remain");
+        assert_eq!(preserved_user_state, (1, 1, 1, 1, 1, 1));
+        let canonical_root_key: String = connection
+            .query_row(
+                "SELECT canonical_root_key FROM libraries WHERE id = 7",
+                [],
+                |row| row.get(0),
+            )
+            .expect("canonical root key should be backfilled");
+        assert_eq!(canonical_root_key, "/fixture/published-0.6");
+        let source_columns = connection
+            .prepare("PRAGMA table_info(agent_project_sources)")
+            .expect("agent project source columns")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("agent project source column rows")
+            .collect::<Result<BTreeSet<_>, _>>()
+            .expect("agent project source column names");
+        assert!(source_columns.contains("scope_kind"));
+        assert!(!source_columns.contains("adapter_id"));
+        assert!(!source_columns.contains("external_project_id"));
+        drop(connection);
+
+        let backup_prefix = format!(
+            "{}.pre-migration-0002-",
+            path.file_name().unwrap().to_string_lossy()
+        );
+        let backups = fs::read_dir(path.parent().unwrap())
+            .expect("backup directory")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|candidate| {
+                candidate
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&backup_prefix))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1);
+        let backup_connection =
+            Connection::open_with_flags(&backups[0], rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .expect("migration backup should be readable");
+        let backup_item: String = backup_connection
+            .query_row("SELECT title FROM items WHERE id = 11", [], |row| row.get(0))
+            .expect("backup should preserve the original item");
+        assert_eq!(backup_item, "Published report");
+        let backup_has_v2_tables: i64 = backup_connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM sqlite_master
+                   WHERE type = 'table' AND name = 'item_sources'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("backup schema lookup");
+        assert_eq!(backup_has_v2_tables, 0);
+        drop(backup_connection);
+
+        Database::new(&path).expect("second startup should be idempotent");
+        let backup_count_after_second_start = fs::read_dir(path.parent().unwrap())
+            .expect("backup directory")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(&backup_prefix))
+            })
+            .count();
+        assert_eq!(backup_count_after_second_start, 1);
+
+        for backup in backups {
+            let _ = fs::remove_file(backup);
+        }
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn fresh_and_upgraded_databases_finish_with_equivalent_schema() {
+        let fresh_path = unique_db_path();
+        let upgraded_path = unique_db_path();
+        let fresh = Database::new(&fresh_path).expect("fresh database");
+        let published_0_6 =
+            Connection::open(&upgraded_path).expect("published 0.6 database");
+        published_0_6
+            .execute_batch(include_str!(
+                "../../tests/fixtures/database/nutbook-0.6.0-schema.sql"
+            ))
+            .expect("published schema fixture");
+        drop(published_0_6);
+        let upgraded = Database::new(&upgraded_path).expect("upgraded database");
+
+        assert_eq!(
+            schema_objects(&fresh.connection().unwrap()),
+            schema_objects(&upgraded.connection().unwrap())
+        );
+
+        let prefix = format!(
+            "{}.pre-migration-0002-",
+            upgraded_path.file_name().unwrap().to_string_lossy()
+        );
+        for entry in fs::read_dir(upgraded_path.parent().unwrap())
+            .expect("backup directory")
+            .filter_map(Result::ok)
+        {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with(&prefix))
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+        let _ = fs::remove_file(fresh_path);
+        let _ = fs::remove_file(upgraded_path);
+    }
+
+    #[test]
+    fn draft_v2_database_repairs_without_losing_project_binding() {
+        let path = unique_db_path();
+        let connection = Connection::open(&path).expect("draft v2 database");
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                   version INTEGER PRIMARY KEY,
+                   name TEXT NOT NULL UNIQUE,
+                   applied_at TEXT NOT NULL
+                 );
+                 INSERT INTO schema_migrations VALUES
+                   (1, 'initial_0_6_baseline', '2026-07-30T00:00:00Z'),
+                   (2, 'agent_artifact_sources', '2026-07-30T01:00:00Z');
+                 CREATE TABLE libraries (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   name TEXT NOT NULL,
+                   root_path TEXT NOT NULL,
+                   source_kind TEXT NOT NULL,
+                   path_state TEXT NOT NULL,
+                   is_active INTEGER NOT NULL,
+                   created_at TEXT NOT NULL,
+                   updated_at TEXT NOT NULL,
+                   last_scanned_at TEXT
+                 );
+                 INSERT INTO libraries VALUES (
+                   7, 'Draft project', '/fixture/draft-project', 'agent_project',
+                   'valid', 1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z', NULL
+                 );
+                 CREATE TABLE agent_project_sources (
+                   library_id INTEGER PRIMARY KEY,
+                   adapter_id TEXT NOT NULL,
+                   external_project_id TEXT,
+                   discovery_mode TEXT NOT NULL,
+                   manifest_path TEXT,
+                   auto_import_mode TEXT NOT NULL,
+                   adapter_version TEXT,
+                   last_discovered_at TEXT,
+                   last_manifest_ok_at TEXT,
+                   last_error_kind TEXT,
+                   last_error_message TEXT
+                 );
+                 INSERT INTO agent_project_sources VALUES (
+                   7, 'codex', 'codex:draft', 'adapter', NULL, 'explicit',
+                   'codex-local-0.146', '2026-07-30T02:00:00Z', NULL, NULL, NULL
+                 );
+                 CREATE TABLE agent_project_adapters (
+                   library_id INTEGER NOT NULL,
+                   adapter_id TEXT NOT NULL,
+                   external_project_id TEXT,
+                   adapter_version TEXT,
+                   last_discovered_at TEXT,
+                   PRIMARY KEY (library_id, adapter_id)
+                 );
+                 INSERT INTO agent_project_adapters VALUES (
+                   7, 'codex', 'codex:draft', 'codex-local-0.146',
+                   '2026-07-30T02:00:00Z'
+                 );
+                 CREATE TABLE artifact_candidates (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   project_library_id INTEGER NOT NULL,
+                   primary_path TEXT NOT NULL,
+                   artifact_kind TEXT NOT NULL,
+                   status TEXT NOT NULL,
+                   batch_key TEXT NOT NULL,
+                   reasons_json TEXT NOT NULL,
+                   discovery_fingerprint TEXT NOT NULL,
+                   file_size INTEGER NOT NULL,
+                   modified_at TEXT,
+                   first_discovered_at TEXT NOT NULL,
+                   last_discovered_at TEXT NOT NULL,
+                   UNIQUE (project_library_id, primary_path)
+                 );
+                 CREATE TABLE artifact_candidate_evidence (
+                   candidate_id INTEGER NOT NULL,
+                   evidence_fingerprint TEXT NOT NULL,
+                   reason_kind TEXT NOT NULL,
+                   event_id TEXT NOT NULL,
+                   run_reference_hash TEXT,
+                   observed_at TEXT,
+                   PRIMARY KEY (candidate_id, evidence_fingerprint)
+                 );",
+            )
+            .expect("draft v2 schema");
+        drop(connection);
+
+        let mut connection = Connection::open(&path).expect("draft connection");
+        let backup = migrations::apply_pending_migrations(&mut connection, &path, true)
+            .expect("draft v2 repair")
+            .expect("repair backup");
+        let repaired: (String, String, String, String) = connection
+            .query_row(
+                "SELECT
+                   libraries.canonical_root_key,
+                   agent_project_sources.scope_kind,
+                   agent_project_adapters.external_scope_id,
+                   agent_project_adapters.adapter_profile
+                 FROM libraries
+                 INNER JOIN agent_project_sources
+                   ON agent_project_sources.library_id = libraries.id
+                 INNER JOIN agent_project_adapters
+                   ON agent_project_adapters.library_id = libraries.id
+                 WHERE libraries.id = 7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("repaired project binding");
+        assert_eq!(repaired.0, "/fixture/draft-project");
+        assert_eq!(repaired.1, "project");
+        assert_eq!(repaired.2, "codex:draft");
+        assert_eq!(repaired.3, "codex-local-0.146");
+        let versions = connection
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .expect("versions")
+            .query_map([], |row| row.get::<_, i64>(0))
+            .expect("version rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("version list");
+        assert_eq!(versions, vec![1, 2, 3]);
+        drop(connection);
+
+        let backup_connection = Connection::open(&backup).expect("repair backup");
+        let backup_has_canonical: i64 = backup_connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM pragma_table_info('libraries')
+                   WHERE name = 'canonical_root_key'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("backup schema");
+        assert_eq!(backup_has_canonical, 0);
+        drop(backup_connection);
+        let _ = fs::remove_file(backup);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_schema_and_registry() {
+        let mut connection = Connection::open_in_memory().expect("memory database");
+        migrations::ensure_migration_registry(&connection).expect("migration registry");
+
+        let result = migrations::apply_test_migration(
+            &mut connection,
+            3,
+            "intentional_failure",
+            "CREATE TABLE must_rollback (id INTEGER PRIMARY KEY);
+             INSERT INTO missing_table VALUES (1);",
+        );
+
+        assert!(result.is_err());
+        let table_exists: i64 = connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM sqlite_master
+                   WHERE type = 'table' AND name = 'must_rollback'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("table lookup");
+        assert_eq!(table_exists, 0);
+        let version_exists: i64 = connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM schema_migrations WHERE version = 3
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("version lookup");
+        assert_eq!(version_exists, 0);
+    }
+
+    #[test]
+    fn database_rejects_unknown_future_migration_version() {
+        let path = unique_db_path();
+        let mut connection = Connection::open(&path).expect("database");
+        migrations::ensure_migration_registry(&connection).expect("migration registry");
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, name, applied_at)
+                 VALUES (99, 'future_schema', '2026-07-30T00:00:00Z')",
+                [],
+            )
+            .expect("future version marker");
+
+        let result = migrations::apply_pending_migrations(&mut connection, &path, true);
+
+        assert!(result.is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn artifact_candidate_persistence_is_idempotent_and_keeps_distinct_runs() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        database
+            .upsert_library(sample_library(
+                1,
+                "/fixture/candidate-project",
+                "agent_project",
+            ))
+            .expect("Agent source");
+        let candidate = ArtifactCandidate {
+            id: None,
+            project_library_id: 1,
+            agent_kind: "codex".to_string(),
+            primary_path: "reports/final.md".to_string(),
+            artifact_kind: "markdown".to_string(),
+            status: "suggested".to_string(),
+            batch_key: "run:fixture".to_string(),
+            reasons: vec![DiscoveryReasonKind::MentionedInFinalResponse],
+            discovery_fingerprint: "candidate-fingerprint-1".to_string(),
+            file_size: 42,
+            modified_at: Some("2026-07-30T06:03:00Z".to_string()),
+            related_files: vec![RelatedArtifactFile {
+                path: "reports/assets/cover.png".to_string(),
+                role: "asset".to_string(),
+            }],
+            evidence: vec![
+                DiscoveryEvidence {
+                    fingerprint: "evidence-run-1".to_string(),
+                    agent_kind: "codex".to_string(),
+                    reason: DiscoveryReasonKind::MentionedInFinalResponse,
+                    event_id: "delivery-1".to_string(),
+                    run_reference_hash: Some("run-hash-1".to_string()),
+                    observed_at: Some("2026-07-30T06:03:00Z".to_string()),
+                },
+                DiscoveryEvidence {
+                    fingerprint: "evidence-run-2".to_string(),
+                    agent_kind: "codex".to_string(),
+                    reason: DiscoveryReasonKind::MentionedInFinalResponse,
+                    event_id: "delivery-2".to_string(),
+                    run_reference_hash: Some("run-hash-2".to_string()),
+                    observed_at: Some("2026-07-30T07:03:00Z".to_string()),
+                },
+            ],
+        };
+
+        database
+            .upsert_artifact_candidates(
+                1,
+                &[candidate.clone()],
+                "2026-07-30T08:00:00Z",
+            )
+            .expect("first discovery");
+        database
+            .upsert_artifact_candidates(
+                1,
+                &[candidate.clone()],
+                "2026-07-30T09:00:00Z",
+            )
+            .expect("repeated discovery");
+
+        let connection = database.connection().expect("connection");
+        let counts: (i64, i64, i64, String) = connection
+            .query_row(
+                "SELECT
+                   (SELECT COUNT(*) FROM artifact_candidates),
+                   (SELECT COUNT(*) FROM artifact_candidate_evidence),
+                   (SELECT COUNT(*) FROM artifact_candidate_related_files),
+                   (SELECT last_discovered_at FROM artifact_candidates LIMIT 1)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("candidate counts");
+        assert_eq!(counts, (1, 2, 1, "2026-07-30T08:00:00Z".to_string()));
+        connection
+            .execute(
+                "UPDATE artifact_candidates SET status = 'ignored' WHERE id = 1",
+                [],
+            )
+            .expect("user ignore state");
+        drop(connection);
+
+        let mut rediscovered = candidate;
+        rediscovered.discovery_fingerprint = "candidate-fingerprint-2".to_string();
+        let stored = database
+            .upsert_artifact_candidates(
+                1,
+                &[rediscovered],
+                "2026-07-30T10:00:00Z",
+            )
+            .expect("changed rediscovery");
+        assert_eq!(stored[0].status, "ignored");
+        let last_discovered: String = database
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT last_discovered_at FROM artifact_candidates WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(last_discovered, "2026-07-30T10:00:00Z");
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn artifact_candidate_group_query_keeps_two_hundred_file_payload_compact() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        database
+            .upsert_library(sample_library(
+                1,
+                "/fixture/large-candidate-project",
+                "agent_project",
+            ))
+            .expect("Agent source");
+        let candidates = (0..200)
+            .map(|index| ArtifactCandidate {
+                id: None,
+                project_library_id: 1,
+                agent_kind: "codex".to_string(),
+                primary_path: format!("reports/report-{index:03}.md"),
+                artifact_kind: "markdown".to_string(),
+                status: "pending".to_string(),
+                batch_key: "run-window:large".to_string(),
+                reasons: vec![DiscoveryReasonKind::AppearedDuringAgentRun],
+                discovery_fingerprint: format!("fingerprint-{index}"),
+                file_size: 10,
+                modified_at: None,
+                related_files: Vec::new(),
+                evidence: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        database
+            .upsert_artifact_candidates(1, &candidates, "2026-07-30T08:00:00Z")
+            .expect("persist candidates");
+
+        let groups = database
+            .list_artifact_candidate_groups(1)
+            .expect("group summaries");
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].count, 200);
+        assert_eq!(groups[0].representative_paths.len(), 3);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn overlapping_sources_do_not_steal_owner_and_owner_deletion_promotes_link() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        let root = "/fixture/shared-project";
+        let file_path = "/fixture/shared-project/report.md";
+        database
+            .upsert_library(sample_library(1, root, "folder"))
+            .expect("folder source");
+        database
+            .upsert_library(sample_library(2, root, "agent_project"))
+            .expect("Agent source at same root");
+        database
+            .replace_items_for_library(1, &[sample_item(1, file_path)])
+            .expect("folder scan");
+
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO item_sources (
+                   item_id, library_id, link_kind, is_owner, created_at
+                 ) VALUES (1, 2, 'discovered', 0, '2026-07-30T00:00:00Z')",
+                [],
+            )
+            .expect("Agent source link");
+        drop(connection);
+
+        database
+            .replace_items_for_library(1, &[sample_item(1, file_path)])
+            .expect("folder rescan must not steal or duplicate");
+        assert_item_owner_consistency(&database.connection().unwrap(), 1);
+        assert_eq!(
+            database.get_item_detail(1).unwrap().summary.library_id,
+            1
+        );
+        assert_eq!(
+            database
+                .list_items(&ListItemsQuery {
+                    library_id: Some(2),
+                    ..ListItemsQuery::default()
+                })
+                .expect("Agent source filter")
+                .total,
+            1
+        );
+
+        database.delete_library(1).expect("delete folder owner");
+        let detail = database.get_item_detail(1).expect("item should survive");
+        assert_eq!(detail.summary.library_id, 2);
+        assert_item_owner_consistency(&database.connection().unwrap(), 1);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn deleting_owner_uses_manifest_then_discovered_priority() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        database
+            .upsert_library(sample_library(1, "/fixture/legacy", "folder"))
+            .expect("legacy owner");
+        database
+            .upsert_library(sample_library(
+                2,
+                "/fixture/discovered",
+                "agent_project",
+            ))
+            .expect("discovered source");
+        database
+            .upsert_library(sample_library(
+                3,
+                "/fixture/manifest",
+                "agent_project",
+            ))
+            .expect("manifest source");
+        database
+            .replace_items_for_library(
+                1,
+                &[sample_item(1, "/fixture/shared-priority.md")],
+            )
+            .expect("legacy item");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute_batch(
+                "INSERT INTO item_sources (
+                   item_id, library_id, link_kind, is_owner, created_at
+                 ) VALUES
+                   (1, 2, 'discovered', 0, '2026-07-30T00:00:00Z'),
+                   (1, 3, 'manifest', 0, '2026-07-30T00:00:00Z');",
+            )
+            .expect("alternative sources");
+        drop(connection);
+
+        database.delete_library(1).expect("delete legacy owner");
+        assert_eq!(
+            database.get_item_detail(1).unwrap().summary.library_id,
+            3
+        );
+        assert_item_owner_consistency(&database.connection().unwrap(), 1);
+
+        database.delete_library(3).expect("delete manifest owner");
+        assert_eq!(
+            database.get_item_detail(1).unwrap().summary.library_id,
+            2
+        );
+        assert_item_owner_consistency(&database.connection().unwrap(), 1);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reverse_overlap_order_keeps_agent_owner_until_it_is_deleted() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        let root = "/fixture/reverse-project";
+        let file_path = "/fixture/reverse-project/report.md";
+        database
+            .upsert_library(sample_library(1, root, "agent_project"))
+            .expect("Agent source");
+        database
+            .upsert_library(sample_library(2, root, "folder"))
+            .expect("folder source at same root");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO items (
+                   id, library_id, file_path, relative_path, file_name, file_ext,
+                   file_type, file_size, modified_at, path_state, is_favorite,
+                   is_deleted, created_at, updated_at
+                 ) VALUES (
+                   1, 1, ?1, 'report.md', 'report.md', 'md', 'markdown',
+                   42, '1', 'valid', 0, 0,
+                   '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+                 )",
+                params![file_path],
+            )
+            .expect("Agent-owned item");
+        connection
+            .execute(
+                "INSERT INTO item_sources (
+                   item_id, library_id, link_kind, is_owner, created_at
+                 ) VALUES (1, 1, 'discovered', 1, '2026-07-30T00:00:00Z')",
+                [],
+            )
+            .expect("Agent owner link");
+        drop(connection);
+
+        database
+            .replace_items_for_library(2, &[sample_item(2, file_path)])
+            .expect("folder scan");
+        assert_eq!(
+            database.get_item_detail(1).unwrap().summary.library_id,
+            1
+        );
+        assert_item_owner_consistency(&database.connection().unwrap(), 1);
+
+        database.delete_library(1).expect("delete Agent owner");
+        assert_eq!(
+            database.get_item_detail(1).unwrap().summary.library_id,
+            2
+        );
+        assert_item_owner_consistency(&database.connection().unwrap(), 1);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn database_rejects_recursive_replace_for_agent_project_source() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        database
+            .upsert_library(sample_library(
+                1,
+                "/fixture/agent-project",
+                "agent_project",
+            ))
+            .expect("Agent source");
+
+        let result = database.replace_items_for_library(
+            1,
+            &[sample_item(1, "/fixture/agent-project/internal.md")],
+        );
+
+        assert!(matches!(result, Err(crate::errors::AppError::InvalidParams)));
+        assert_eq!(
+            database
+                .list_items(&ListItemsQuery::default())
+                .expect("list items")
+                .total,
+            0
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn deleting_owner_preserves_shared_ignored_item_metadata_and_caches() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        let root = "/fixture/preserved-project";
+        let file_path = "/fixture/preserved-project/report.md";
+        database
+            .upsert_library(sample_library(1, root, "folder"))
+            .expect("folder source");
+        database
+            .upsert_library(sample_library(2, root, "agent_project"))
+            .expect("Agent source");
+        database
+            .replace_items_for_library(1, &[sample_item(1, file_path)])
+            .expect("folder item");
+        database
+            .set_item_favorite(1, true)
+            .expect("favorite item");
+        database
+            .update_markdown_item_content(
+                1,
+                "Preserved summary",
+                "2",
+                "preserved-hash",
+                "# Preserved",
+                "Preserved raw text",
+                "<h1>Preserved</h1>",
+            )
+            .expect("content cache");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO item_sources (
+                   item_id, library_id, link_kind, is_owner, created_at
+                 ) VALUES (1, 2, 'manifest', 0, '2026-07-30T00:00:00Z')",
+                [],
+            )
+            .expect("manifest source link");
+        connection
+            .execute(
+                "INSERT INTO thumbnail_cache (
+                   item_id, thumb_status, thumb_path, generated_from_hash
+                 ) VALUES (1, 'ready', '/fixture/thumb.png', 'preserved-hash')",
+                [],
+            )
+            .expect("thumbnail cache");
+        drop(connection);
+        database
+            .remove_item_from_nutbook(1, "2026-07-30T01:00:00Z")
+            .expect("ignore item");
+
+        database.delete_library(1).expect("delete original owner");
+
+        let connection = database.connection().expect("connection");
+        let preserved: (i64, i64, String, String, String, i64) = connection
+            .query_row(
+                "SELECT
+                   items.library_id,
+                   items.is_favorite,
+                   item_content.source_text,
+                   item_content.rendered_cache,
+                   thumbnail_cache.thumb_path,
+                   ignored_items.library_id
+                 FROM items
+                 INNER JOIN item_content ON item_content.item_id = items.id
+                 INNER JOIN thumbnail_cache ON thumbnail_cache.item_id = items.id
+                 INNER JOIN ignored_items ON ignored_items.item_id = items.id
+                 WHERE items.id = 1 AND items.is_deleted = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("shared ignored item should retain metadata");
+        assert_eq!(preserved.0, 2);
+        assert_eq!(preserved.1, 1);
+        assert_eq!(preserved.2, "# Preserved");
+        assert_eq!(preserved.3, "<h1>Preserved</h1>");
+        assert_eq!(preserved.4, "/fixture/thumb.png");
+        assert_eq!(preserved.5, 2);
+        assert_item_owner_consistency(&connection, 1);
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]
@@ -1900,6 +3362,83 @@ mod tests {
         assert_eq!(libraries[0].root_path, "/tmp/clips");
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn file_management_lists_only_project_sources_with_connected_items() {
+        let path = unique_db_path();
+        let project_root = path.with_extension("project");
+        fs::create_dir_all(&project_root).expect("project root");
+        let report = project_root.join("report.md");
+        fs::write(&report, "# Report").expect("report");
+        let database = Database::new(&path).expect("database should initialize");
+        let project = database
+            .connect_agent_project_source(
+                "codex",
+                Some("5.0.0"),
+                "scope:project",
+                "project",
+                "project-only",
+                project_root.to_str().expect("project path"),
+                Some("Project"),
+                "now",
+            )
+            .expect("project source");
+
+        assert!(database
+            .list_libraries()
+            .expect("empty project source list")
+            .is_empty());
+
+        let candidates = database
+            .upsert_artifact_candidates(
+                project.library_id,
+                &[ArtifactCandidate {
+                    id: None,
+                    project_library_id: project.library_id,
+                    agent_kind: "codex".to_string(),
+                    primary_path: "report.md".to_string(),
+                    artifact_kind: "markdown".to_string(),
+                    status: "suggested".to_string(),
+                    batch_key: "run:project".to_string(),
+                    reasons: vec![DiscoveryReasonKind::MentionedInFinalResponse],
+                    discovery_fingerprint: "project-report".to_string(),
+                    file_size: 8,
+                    modified_at: Some("now".to_string()),
+                    related_files: Vec::new(),
+                    evidence: Vec::new(),
+                }],
+                "now",
+            )
+            .expect("project candidate");
+        database
+            .accept_agent_artifact_candidates(
+                project.library_id,
+                &[candidates[0].id.expect("candidate id")],
+                "now",
+            )
+            .expect("connected project item");
+        let libraries = database
+            .list_libraries()
+            .expect("connected project source list");
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].id, project.library_id);
+
+        let item_id = database
+            .list_items(&ListItemsQuery::default())
+            .expect("project items")
+            .items[0]
+            .id;
+        database
+            .remove_item_from_nutbook(item_id, "later")
+            .expect("remove project item");
+        assert!(database
+            .list_libraries()
+            .expect("removed project source list")
+            .is_empty());
+
+        let _ = fs::remove_dir_all(project_root);
+        let _ = fs::remove_file(path);
     }
 
     #[test]

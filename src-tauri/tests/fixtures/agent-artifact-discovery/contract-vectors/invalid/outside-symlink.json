@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "outside-symlink",
+      "path": "presentation/index.html",
+      "state": "active",
+      "skill": {
+        "name": "html-ppt"
+      },
+      "kind": "presentation",
+      "relatedFiles": [
+        {
+          "path": "presentation/assets/outside-project-link.txt",
+          "role": "attachment"
+        }
+      ]
+    }
+  ]
+}
+

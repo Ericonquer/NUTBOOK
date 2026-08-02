@@ -199,6 +199,9 @@ pub fn watch_library(
         .into_iter()
         .find(|library| library.id == payload.library_id)
         .ok_or(AppError::LibraryNotFound)?;
+    if library.source_kind == "agent_project" {
+        return Err(AppError::InvalidParams);
+    }
     let watcher = build_library_watcher(state.database.clone(), library.clone())?;
     state.watch_library(payload.library_id, watcher)?;
 
@@ -228,8 +231,10 @@ pub fn scan_library_once(database: &Database, library_id: i64) -> Result<Library
     let started_at = current_timestamp();
     let scanned_items = if library.source_kind == "file" {
         scan_file_source(library_id, &library.root_path, &started_at)?
-    } else {
+    } else if library.source_kind == "folder" {
         scan_library_files(library_id, &library.root_path, &started_at)?
+    } else {
+        return Err(AppError::InvalidParams);
     };
     let scanned_count = scanned_items.len() as u64;
     let (created_count, updated_count, deleted_count) =

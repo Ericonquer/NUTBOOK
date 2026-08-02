@@ -1,3 +1,4 @@
+pub mod agent_projects;
 pub mod html_edit;
 pub mod items;
 pub mod library;

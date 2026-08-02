@@ -3209,6 +3209,86 @@
         fill: currentColor;
       }
 
+      .agent-discovery-actions,
+      .agent-project-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .agent-discovery-copy {
+        margin: 14px 0 0;
+        color: #48484f;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .agent-discovery-notice,
+      .agent-discovery-error,
+      .agent-installation-summary {
+        margin-top: 16px;
+        padding: 14px;
+        border-radius: 14px;
+        background: #f5f5f7;
+        color: #45454b;
+        font-size: 12px;
+        line-height: 1.65;
+      }
+
+      .agent-discovery-error {
+        background: #fff1f0;
+        color: #8a201b;
+      }
+
+      .agent-discovery-actions {
+        justify-content: flex-end;
+        margin-top: 20px;
+      }
+
+      .agent-project-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .agent-project-card {
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .agent-project-card-action {
+        margin-top: 12px;
+      }
+
+      .agent-project-name {
+        min-width: 0;
+        overflow: hidden;
+        color: #1d1d20;
+        font-size: 13px;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .agent-project-path {
+        margin-top: 6px;
+        overflow-wrap: anywhere;
+        color: #67676e;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .agent-project-activity {
+        flex: 0 0 auto;
+        color: #85858c;
+        font-size: 11px;
+      }
+
       .confirm-card {
         width: min(360px, calc(100vw - 48px));
         padding: 18px;
@@ -3437,6 +3517,11 @@
         gap: 12px;
       }
 
+      .settings-section[hidden],
+      .settings-subsection[hidden] {
+        display: none !important;
+      }
+
       .settings-subsection + .settings-subsection {
         padding-top: 2px;
       }
@@ -3448,8 +3533,63 @@
         background: var(--paper);
       }
 
+      #settingsSkillsSection .settings-subsection-card + .settings-subsection-card {
+        padding-top: 18px;
+      }
+
       .settings-subsection-card .settings-list.scrollable {
         padding-right: 0;
+      }
+
+      .settings-section-switch {
+        display: flex;
+        width: 100%;
+        max-width: 100%;
+        min-height: 42px;
+        box-sizing: border-box;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.7);
+        overflow-x: auto;
+        align-items: center;
+        align-self: start;
+      }
+
+      .settings-section-switch button {
+        flex: 1 0 max-content;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        height: 34px;
+        box-sizing: border-box;
+        padding: 0 13px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--ink-soft);
+        font: 600 11px/1 var(--font-ui);
+        white-space: nowrap;
+        cursor: pointer;
+        transition:
+          background-color 160ms ease,
+          color 160ms ease,
+          box-shadow 160ms ease,
+          transform 160ms ease;
+      }
+
+      .settings-section-switch button.active {
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 1px 3px rgba(17, 17, 17, 0.16);
+        transform: translateY(-1px);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .settings-section-switch button {
+          transition: none;
+        }
       }
 
       .settings-tools {
@@ -3578,6 +3718,138 @@
       .settings-row > .button-row {
         flex: 0 0 auto;
         flex-wrap: nowrap;
+      }
+
+      .settings-agent-scope-row {
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+
+      .settings-agent-scope-row > .button-row {
+        align-items: center;
+      }
+
+      .settings-agent-scope-row > .button-row > .settings-agent-scope-action.button {
+        min-height: 28px !important;
+        height: 28px !important;
+        padding: 0 10px !important;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      .settings-inline-link {
+        display: inline;
+        width: fit-content;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #64646b;
+        font: inherit;
+        font-size: 11px;
+        line-height: inherit;
+        text-decoration: underline;
+        text-decoration-color: transparent;
+        text-underline-offset: 2px;
+        cursor: pointer;
+      }
+
+      .settings-inline-link:hover,
+      .settings-inline-link:focus-visible {
+        color: #1d1d20;
+        text-decoration-color: currentColor;
+      }
+
+      .agent-scope-inline-detail {
+        flex: 0 0 100%;
+        min-width: 0;
+        margin-top: 6px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(20, 20, 20, 0.08);
+        display: grid;
+        gap: 12px;
+      }
+
+      .agent-inline-section {
+        min-width: 0;
+        display: grid;
+        gap: 5px;
+      }
+
+      .agent-inline-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: #333339;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .agent-inline-file {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 24px;
+        color: #5a5a61;
+        font-size: 11px;
+      }
+
+      .agent-inline-path {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .agent-reason-badge {
+        flex: 0 0 auto;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: #eeeef1;
+        color: #686870;
+        font-size: 10px;
+        line-height: 18px;
+      }
+
+      .agent-inline-actions {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: auto;
+      }
+
+      .agent-inline-actions .settings-inline-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        padding: 0 6px;
+        border-radius: 6px;
+        font-size: 11px;
+        line-height: 1;
+        text-decoration: none;
+        transition: background-color 140ms ease, color 140ms ease;
+      }
+
+      .agent-inline-actions .settings-inline-link:hover,
+      .agent-inline-actions .settings-inline-link:focus-visible {
+        background: rgba(20, 20, 20, 0.07);
+        text-decoration: none;
+      }
+
+      .agent-inline-empty,
+      .agent-inline-more,
+      .agent-inline-feedback {
+        color: #85858c;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .agent-inline-feedback {
+        color: #3d6f49;
       }
 
       .preference-list {
@@ -4900,7 +5172,7 @@
     </div>
 
     <div id="hostSettingsMenu" class="host-settings-menu" aria-hidden="true">
-      <button class="popover-option" type="button" data-host-settings-tab="skills">Skill 接入</button>
+      <button class="popover-option" type="button" data-host-settings-tab="skills">产物接入</button>
       <button class="popover-option" type="button" data-host-settings-tab="libraries">文件管理</button>
       <button class="popover-option" type="button" data-host-settings-tab="tags">标签管理</button>
       <button class="popover-option" type="button" data-host-settings-tab="preferences">偏好设定</button>
@@ -4919,22 +5191,49 @@
           </button>
         </div>
         <div class="settings-tabbar">
-          <button class="settings-tab active" type="button" data-settings-tab="skills">Skill 接入</button>
+          <button class="settings-tab active" type="button" data-settings-tab="skills">产物接入</button>
           <button class="settings-tab" type="button" data-settings-tab="libraries">文件管理</button>
           <button class="settings-tab" type="button" data-settings-tab="tags">标签管理</button>
           <button class="settings-tab" type="button" data-settings-tab="preferences">偏好设定</button>
           <button class="settings-tab" type="button" data-settings-tab="thumbnails">缩略图</button>
         </div>
           <section id="settingsSkillsSection" class="settings-section">
-            <div class="settings-subsection settings-subsection-card">
-              <div class="settings-header settings-header-compact">
-                <h3 class="settings-section-title">Skill 接入</h3>
+            <div class="settings-section-switch" role="tablist" aria-label="产物接入内容">
+              <button class="active" type="button" data-settings-artifact-section="projects">项目产物接入</button>
+              <button type="button" data-settings-artifact-section="skills">skill 产物接入</button>
+            </div>
+            <div id="settingsProjectArtifactsSubsection" class="settings-subsection settings-subsection-card">
+              <div class="settings-header">
+                <div>
+                  <h3 class="settings-section-title" data-i18n-key="settings.projectArtifacts">项目产物接入</h3>
+                  <div class="settings-row-meta" data-i18n-key="settings.projectArtifactsDescription">读取已验证的 Codex 项目记录与 WorkBuddy 任务范围，不进行全盘扫描；确认接入前不会导入任何文件。</div>
+                </div>
+                <button
+                  id="settingsDiscoverAgentsButton"
+                  class="button button-primary button-small"
+                  type="button"
+                  aria-label="发现项目产物"
+                  title="发现项目产物"
+                  data-i18n-key="actions.discoverProjects"
+                >发现项目</button>
               </div>
-              <div class="settings-row-meta" data-i18n-key="settings.skillDescription">这里接入的是 skill 生成产物目录，不是安装、启用或运行 skill 本身。</div>
+              <div id="settingsAgentProjectList" class="settings-list"></div>
+            </div>
+            <div id="settingsSkillArtifactsSubsection" class="settings-subsection settings-subsection-card">
+              <div class="settings-header settings-header-compact">
+                <h3 class="settings-section-title" data-i18n-key="settings.skillArtifacts">skill 产物接入</h3>
+              </div>
+              <div class="settings-row-meta" data-i18n-key="settings.skillDescription">扫描本机 skills，发现并接入已声明或常用的产物目录。</div>
               <div id="settingsSkillList" class="settings-list scrollable"></div>
             </div>
           </section>
           <section id="settingsLibrariesSection" class="settings-section">
+            <div class="settings-section-switch" role="tablist" aria-label="文件管理内容">
+              <button class="active" type="button" data-settings-library-section="folders">文件夹来源</button>
+              <button type="button" data-settings-library-section="files">单文件来源</button>
+              <button type="button" data-settings-library-section="projects">项目来源</button>
+              <button type="button" data-settings-library-section="removed">已移除</button>
+            </div>
             <div class="settings-subsection settings-subsection-card">
               <div class="settings-header settings-header-compact">
                 <h3 class="settings-section-title">文件来源</h3>
@@ -5104,6 +5403,8 @@
         homeTabOpen: true,
         sortMode: "modifiedAtDesc",
         settingsTab: "skills",
+        settingsArtifactSection: "projects",
+        settingsLibrarySection: "folders",
         settingsSourceSearch: "",
         settingsSourceSort: "nameAsc",
         settingsIgnoredSelection: new Set(),
@@ -5149,6 +5450,16 @@
         localServerOrigin: null,
         isSettingsOpen: false,
         isAboutOpen: false,
+        agentDiscoveryStep: "intro",
+        agentDiscoveryPayload: null,
+        settingsArtifactView: "list",
+        agentArtifactPreview: null,
+        agentArtifactPreviewByScope: new Map(),
+        expandedAgentScopeKey: "",
+        agentDiscoveryLoadingScopeKey: "",
+        agentDiscoveryFeedback: null,
+        agentDiscoveryActionResult: null,
+        agentDiscoveryError: "",
         isSortMenuOpen: false,
         isSettingsMenuOpen: false,
         isSettingsSourceSortMenuOpen: false,
@@ -5271,10 +5582,12 @@
         aboutGithubStarButton: document.getElementById("aboutGithubStarButton"),
         aboutGithubStarLabel: document.getElementById("aboutGithubStarLabel"),
         settingsSourceSearchInput: document.getElementById("settingsSourceSearchInput"),
+        settingsDiscoverAgentsButton: document.getElementById("settingsDiscoverAgentsButton"),
         settingsSourceSortButton: document.getElementById("settingsSourceSortButton"),
         settingsSourceSortMenu: document.getElementById("settingsSourceSortMenu"),
         settingsLibraryList: document.getElementById("settingsLibraryList"),
         settingsIgnoredList: document.getElementById("settingsIgnoredList"),
+        settingsAgentProjectList: document.getElementById("settingsAgentProjectList"),
         settingsSkillList: document.getElementById("settingsSkillList"),
         settingsNewTagName: document.getElementById("settingsNewTagName"),
         settingsCreateTagButton: document.getElementById("settingsCreateTagButton"),
@@ -8767,13 +9080,13 @@
       }
 
       function commandVariants(command, args = {}) {
-        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
+        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "discover_agent_projects" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "ignore_agent_artifact" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -9103,7 +9416,7 @@
 
       function renderSettingsMenu() {
         els.settingsMenu.innerHTML = `
-          <button class="popover-option" type="button" data-open-settings-tab="skills">Skill 接入</button>
+          <button class="popover-option" type="button" data-open-settings-tab="skills">产物接入</button>
           <button class="popover-option" type="button" data-open-settings-tab="libraries">文件管理</button>
           <button class="popover-option" type="button" data-open-settings-tab="tags">标签管理</button>
           <button class="popover-option" type="button" data-open-settings-tab="preferences">偏好设定</button>
@@ -9225,6 +9538,325 @@
         }
       }
 
+      const AGENT_DISCOVERY_CONTENT = {
+        "zh-CN": {
+          title: "项目产物接入",
+          close: "关闭项目产物",
+          intro: "NUTBOOK 可以从本机 Agent 的已验证索引中发现项目，以及 WorkBuddy 的日期任务目录。此步骤只展示范围，不会接入目录、导入文件或修改 NUTBOOK 资料库。",
+          privacy: "隐私说明：点击“查看本机范围”后，NUTBOOK 只在本机读取已验证的项目索引与 WorkBuddy 日期目录名；不会上传数据，也不会读取 WorkBuddy 任务内容。",
+          inspect: "查看本机范围",
+          cancel: "取消",
+          loading: "正在读取本机项目并生成只读接入概况…",
+          ready: "已识别 Codex",
+          notFound: "未找到可读取的 Codex 项目索引",
+          unavailable: "Codex 项目索引暂时无法读取",
+          unsupported: "当前 Codex 元数据版本尚未支持",
+          projectOnly: "仅项目发现",
+          verifiedEvents: "项目发现与已验证事件",
+          projects: "发现的项目",
+          scopes: "发现的项目与任务",
+          task: "任务",
+          project: "项目",
+          scopeOnly: "只识别范围，暂不扫描内容",
+          noProjects: "没有找到符合当前安全契约的本机项目。",
+          lastActive: "最近活动",
+          connect: "选择并扫描这个项目",
+          connecting: "正在连接所选项目并检查 Markdown / HTML 产物…",
+          scanSummary: "扫描总结",
+          suggested: "建议接入",
+          pending: "备选",
+          indexed: "已接入",
+          excluded: "不会接入",
+          acceptSuggested: "接入建议的 {count} 个文件",
+          noSuggestions: "当前没有建议直接接入的文件",
+          acceptSuggestedShort: "接入建议（{count}）",
+          noSuggestionsShort: "无建议",
+          adjustScope: "调整范围",
+          hideDetails: "收起范围",
+          later: "稍后处理",
+          acceptFile: "接入",
+          ignoreFile: "忽略",
+          ignored: "已忽略当前文件",
+          accepted: "已接入 {count} 个文件",
+          partial: "另有 {skipped} 个跳过，{failed} 个失败",
+          finish: "完成并查看资料库",
+          backToProjects: "返回项目产物",
+          inspectScope: "查看详情",
+          collapseScope: "收起详情",
+          loadingScope: "正在扫描这个项目…",
+          moreFiles: "另有 {count} 个文件未展开",
+          emptyList: "无",
+          badge: {
+            nbskill_registered: "已登记",
+            created_by_agent_tool: "Agent 生成",
+            mentioned_in_final_response: "Agent 生成",
+            explicit_export_event: "Agent 生成",
+            opened_from_agent_delivery: "Agent 生成",
+            inside_user_confirmed_output: "Agent 生成",
+            appeared_during_agent_run: "运行期间",
+            inside_provider_task_scope: "任务文件",
+            inside_project_root: "项目文件",
+            supported_extension_only: "备选"
+          },
+          autoExcluded: "已自动排除 {count} 个内部或关联文件",
+          scanIncomplete: "本次结果不完整，可先处理已发现的文件；刷新不会把未遍历文件判为删除。",
+          viewConnected: "查看已接入产物",
+          continuePending: "继续检查待确认",
+          projectInvalid: "项目路径已失效或不再可访问",
+          readOnly: "先选择一个明确项目；NUTBOOK 只扫描该项目根目录，不会扫描整个主目录。",
+          refresh: "重新读取",
+          done: "完成",
+          failed: "操作失败",
+          reason: {
+            nbskill_registered: "nbskill 已登记",
+            mentioned_in_final_response: "Agent 在最终回复中交付",
+            explicit_export_event: "Agent 明确导出",
+            created_by_agent_tool: "Agent 工具写入",
+            opened_from_agent_delivery: "从 Agent 交付打开",
+            inside_user_confirmed_output: "位于已确认的产物目录",
+            appeared_during_agent_run: "在 Agent 工作期间出现，需要确认",
+            inside_provider_task_scope: "位于 WorkBuddy 的这次任务目录中",
+            supported_extension_only: "仅文件类型匹配，证据不足"
+          }
+        },
+        "en-US": {
+          title: "Project Artifact Access",
+          close: "Close Agent artifact discovery",
+          intro: "NUTBOOK can discover projects from verified local Agent indexes and dated WorkBuddy task folders. This step only lists scopes; it does not connect folders, import files, or modify your NUTBOOK library.",
+          privacy: "Privacy: after you choose “View Local Scopes,” NUTBOOK locally reads verified project indexes and WorkBuddy date-folder names. It uploads nothing and does not read WorkBuddy task contents.",
+          inspect: "View Local Scopes",
+          cancel: "Cancel",
+          loading: "Reading local projects and preparing a read-only connection summary…",
+          ready: "Codex detected",
+          notFound: "No readable Codex project index was found",
+          unavailable: "The Codex project index is currently unavailable",
+          unsupported: "This Codex metadata version is not supported yet",
+          projectOnly: "Project discovery only",
+          verifiedEvents: "Projects and verified events",
+          projects: "Discovered projects",
+          scopes: "Discovered projects and tasks",
+          task: "Task",
+          project: "Project",
+          scopeOnly: "Scope detected; contents are not scanned yet",
+          noProjects: "No local projects matched the current safety contract.",
+          lastActive: "Last active",
+          connect: "Select and Scan This Project",
+          connecting: "Connecting the selected project and checking Markdown / HTML artifacts…",
+          scanSummary: "Scan Summary",
+          suggested: "Recommended",
+          pending: "Optional",
+          indexed: "Connected",
+          excluded: "Will not be connected",
+          acceptSuggested: "Connect {count} Recommended Files",
+          noSuggestions: "No files are currently recommended for direct connection",
+          acceptSuggestedShort: "Connect Suggested ({count})",
+          noSuggestionsShort: "No Suggestions",
+          adjustScope: "Adjust Scope",
+          hideDetails: "Hide Scope",
+          later: "Review Later",
+          acceptFile: "Connect",
+          ignoreFile: "Ignore",
+          ignored: "This file was ignored",
+          accepted: "Connected {count} files",
+          partial: "{skipped} skipped and {failed} failed",
+          finish: "Finish and View Library",
+          backToProjects: "Back to Project Artifacts",
+          inspectScope: "View Details",
+          collapseScope: "Hide Details",
+          loadingScope: "Scanning this project…",
+          moreFiles: "{count} more files are not expanded",
+          emptyList: "None",
+          badge: {
+            nbskill_registered: "Registered",
+            created_by_agent_tool: "Agent generated",
+            mentioned_in_final_response: "Agent generated",
+            explicit_export_event: "Agent generated",
+            opened_from_agent_delivery: "Agent generated",
+            inside_user_confirmed_output: "Agent generated",
+            appeared_during_agent_run: "During run",
+            inside_provider_task_scope: "Task file",
+            inside_project_root: "Project file",
+            supported_extension_only: "Optional"
+          },
+          autoExcluded: "Automatically excluded {count} internal or related files",
+          scanIncomplete: "These results are incomplete. You can process discovered files now; refresh will not mark unvisited files as missing.",
+          viewConnected: "View Connected Artifacts",
+          continuePending: "Continue Reviewing",
+          projectInvalid: "The project path is no longer available",
+          readOnly: "Choose one explicit project. NUTBOOK scans only that project root, never your entire home directory.",
+          refresh: "Read Again",
+          done: "Done",
+          failed: "Action failed",
+          reason: {
+            nbskill_registered: "Registered by nbskill",
+            mentioned_in_final_response: "Delivered in the Agent final response",
+            explicit_export_event: "Explicitly exported by the Agent",
+            created_by_agent_tool: "Written by an Agent tool",
+            opened_from_agent_delivery: "Opened from Agent delivery",
+            inside_user_confirmed_output: "Inside a confirmed artifact directory",
+            appeared_during_agent_run: "Appeared during an Agent run and needs review",
+            inside_provider_task_scope: "Inside this WorkBuddy task folder",
+            supported_extension_only: "Only the file type matches; evidence is insufficient"
+          }
+        }
+      };
+
+      function currentAgentDiscoveryContent() {
+        return AGENT_DISCOVERY_CONTENT[appState.language] || AGENT_DISCOVERY_CONTENT["zh-CN"];
+      }
+
+      function agentInstallationLabel(installation, content) {
+        if (installation?.status === "ready") return content.ready;
+        if (installation?.status === "not-found") return content.notFound;
+        if (installation?.status === "unsupported") return content.unsupported;
+        return content.unavailable;
+      }
+
+      async function loadAgentProjectsInSettings() {
+        appState.settingsArtifactView = "list";
+        appState.agentArtifactPreview = null;
+        appState.agentArtifactPreviewByScope.clear();
+        appState.expandedAgentScopeKey = "";
+        appState.agentDiscoveryLoadingScopeKey = "";
+        appState.agentDiscoveryFeedback = null;
+        appState.agentDiscoveryStep = "loading";
+        appState.agentDiscoveryError = "";
+        renderSettingsPanel();
+        try {
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+        } catch (error) {
+          appState.agentDiscoveryPayload = null;
+          appState.agentDiscoveryError = normalizeError(error);
+        }
+        appState.agentDiscoveryStep = "results";
+        renderSettingsPanel();
+      }
+
+      async function connectAgentScopesInSettings(scopeIndexes, acceptSuggestedImmediately = false) {
+        const scopeKey = (scopeIndexes || []).join(",");
+        const scopes = (scopeIndexes || [])
+          .map((scopeIndex) => appState.agentDiscoveryPayload?.scopes?.[scopeIndex])
+          .filter(Boolean);
+        if (!scopes.length) return;
+        appState.agentDiscoveryLoadingScopeKey = scopeKey;
+        appState.agentDiscoveryFeedback = null;
+        if (!acceptSuggestedImmediately) appState.expandedAgentScopeKey = scopeKey;
+        appState.agentDiscoveryError = "";
+        renderSettingsPanel();
+        try {
+          let connected = null;
+          for (const scope of scopes) {
+            connected = await invoke("connect_agent_project", {
+              adapterId: scope.adapterId,
+              adapterProfile: scope.adapterProfile,
+              externalScopeId: scope.externalScopeId,
+              scopeKind: scope.scopeKind,
+              capability: scope.capability,
+              rootPath: scope.rootPath,
+              displayName: scope.displayName
+            });
+          }
+          appState.agentArtifactPreview = await invoke("preview_agent_project_artifacts", {
+            projectLibraryId: connected.libraryId
+          });
+          appState.agentArtifactPreviewByScope.set(scopeKey, appState.agentArtifactPreview);
+          syncAgentScopeSummariesFromPreview(scopeIndexes, appState.agentArtifactPreview);
+          const batchKeys = (appState.agentArtifactPreview.groups || [])
+            .filter((group) => group.status === "suggested")
+            .map((group) => group.batchKey);
+          if (acceptSuggestedImmediately && batchKeys.length) {
+            appState.agentDiscoveryActionResult = await invoke("accept_agent_artifact_groups", {
+              projectLibraryId: appState.agentArtifactPreview.project.libraryId,
+              batchKeys
+            });
+            await loadLibraries();
+            await loadItems();
+            appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+            appState.agentArtifactPreviewByScope.delete(scopeKey);
+            appState.agentDiscoveryFeedback = {
+              scopeKey,
+              message: currentAgentDiscoveryContent().accepted.replace("{count}", appState.agentDiscoveryActionResult.accepted.length)
+            };
+          }
+        } catch (error) {
+          appState.agentDiscoveryError = normalizeError(error);
+        }
+        appState.agentDiscoveryLoadingScopeKey = "";
+        appState.agentDiscoveryStep = "results";
+        renderSettingsPanel();
+      }
+
+      function syncAgentScopeSummariesFromPreview(scopeIndexes, preview) {
+        const summaries = appState.agentDiscoveryPayload?.artifactSummaries;
+        const scopes = appState.agentDiscoveryPayload?.scopes;
+        if (!Array.isArray(summaries) || !Array.isArray(scopes) || !preview) return;
+        for (const scopeIndex of scopeIndexes || []) {
+          const scope = scopes[scopeIndex];
+          if (!scope) continue;
+          const summary = summaries.find((entry) =>
+            entry.adapterId === scope.adapterId && entry.externalScopeId === scope.externalScopeId
+          );
+          if (!summary) continue;
+          summary.suggestedCount = Number(preview.suggestedCount || 0);
+          summary.pendingCount = Number(preview.pendingCount || 0);
+          summary.excludedCount = Number(preview.excludedCount || 0);
+        }
+      }
+
+      function toggleAgentScopeDetails(scopeIndexes) {
+        const scopeKey = (scopeIndexes || []).join(",");
+        if (!scopeKey) return;
+        if (appState.expandedAgentScopeKey === scopeKey) {
+          appState.expandedAgentScopeKey = "";
+          appState.agentArtifactPreview = null;
+          appState.agentDiscoveryError = "";
+          renderSettingsPanel();
+          return;
+        }
+        const cachedPreview = appState.agentArtifactPreviewByScope.get(scopeKey);
+        if (cachedPreview) {
+          appState.expandedAgentScopeKey = scopeKey;
+          appState.agentArtifactPreview = cachedPreview;
+          appState.agentDiscoveryError = "";
+          renderSettingsPanel();
+          return;
+        }
+        connectAgentScopesInSettings(scopeIndexes, false);
+      }
+
+      async function decideSingleArtifactInSettings(candidateId, action) {
+        const projectLibraryId = appState.agentArtifactPreview?.project?.libraryId;
+        if (!projectLibraryId) return;
+        try {
+          if (action === "accept") {
+            await invoke("accept_agent_artifact", {
+              projectLibraryId,
+              candidateId
+            });
+          } else {
+            await invoke("ignore_agent_artifact", {
+              projectLibraryId,
+              candidateId
+            });
+          }
+          appState.agentArtifactPreview = await invoke("preview_agent_project_artifacts", {
+            projectLibraryId
+          });
+          if (appState.expandedAgentScopeKey) {
+            appState.agentArtifactPreviewByScope.set(
+              appState.expandedAgentScopeKey,
+              appState.agentArtifactPreview
+            );
+          }
+          await loadLibraries();
+          await loadItems();
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+        } catch (error) {
+          appState.agentDiscoveryError = normalizeError(error);
+        }
+        renderSettingsPanel();
+      }
+
       async function openSettingsOverlay(tab = "skills", mode = "menu") {
         if (!appState.isTauri) {
           openSettingsTab(tab);
@@ -9252,6 +9884,8 @@
 
       function closeSettingsOverlay() {
         cancelHostSettingsOverlayClose();
+        appState.settingsArtifactView = "list";
+        appState.agentArtifactPreview = null;
         document.title = "__NUTBOOK_SETTINGS_OVERLAY__:close";
       }
 
@@ -9283,6 +9917,9 @@
           await invoke("set_system_chrome_thumbnail_enabled", { enabled: true });
         }
         await loadThumbnailBackendStatus();
+        if (tab === "skills" && appState.settingsArtifactSection === "projects" && appState.agentDiscoveryPayload) {
+          await loadAgentProjectsInSettings();
+        }
         renderSettingsPanel();
       }
 
@@ -9443,9 +10080,236 @@
         });
       }
 
+      function groupedAgentScopesForSettings() {
+        const groups = new Map();
+        const summaries = appState.agentDiscoveryPayload?.artifactSummaries || [];
+        (appState.agentDiscoveryPayload?.scopes || []).forEach((scope, index) => {
+          const summary = summaries.find((entry) =>
+            entry.adapterId === scope.adapterId && entry.externalScopeId === scope.externalScopeId
+          );
+          const key = scope.scopeKind === "task"
+            ? `task:${scope.adapterId}:${scope.externalScopeId}`
+            : `project:${scope.rootPath}`;
+          const existing = groups.get(key);
+          if (existing) {
+            existing.scopes.push(scope);
+            existing.scopeIndexes.push(index);
+            existing.suggestedCount = Math.max(existing.suggestedCount, Number(summary?.suggestedCount || 0));
+            existing.pendingCount = Math.max(existing.pendingCount, Number(summary?.pendingCount || 0));
+            existing.excludedCount = Math.max(existing.excludedCount, Number(summary?.excludedCount || 0));
+            existing.alreadyIndexedPaths = [...new Set([
+              ...existing.alreadyIndexedPaths,
+              ...(summary?.alreadyIndexedPaths || [])
+            ])];
+            existing.scanPartial ||= summary?.scanStatus === "partial";
+            existing.scanIssue ||= summary?.scanIssue || "";
+            if (String(scope.lastActivityAt) > String(existing.lastActivityAt)) {
+              existing.lastActivityAt = scope.lastActivityAt;
+            }
+            return;
+          }
+          groups.set(key, {
+            rootPath: scope.rootPath,
+            displayName: scope.displayName,
+            scopeKind: scope.scopeKind,
+            lastActivityAt: scope.lastActivityAt,
+            scopes: [scope],
+            scopeIndexes: [index],
+            suggestedCount: Number(summary?.suggestedCount || 0),
+            pendingCount: Number(summary?.pendingCount || 0),
+            excludedCount: Number(summary?.excludedCount || 0),
+            alreadyIndexedPaths: [...(summary?.alreadyIndexedPaths || [])],
+            scanPartial: summary?.scanStatus === "partial",
+            scanIssue: summary?.scanIssue || ""
+          });
+        });
+        return [...groups.values()];
+      }
+
+      function agentArtifactBadge(candidate, content) {
+        const reasons = candidate?.reasons || [];
+        const priority = [
+          "nbskill_registered",
+          "created_by_agent_tool",
+          "mentioned_in_final_response",
+          "explicit_export_event",
+          "opened_from_agent_delivery",
+          "inside_user_confirmed_output",
+          "inside_project_root",
+          "inside_provider_task_scope",
+          "appeared_during_agent_run",
+          "supported_extension_only"
+        ];
+        const reason = priority.find((key) => reasons.includes(key));
+        return content.badge[reason] || content.badge.supported_extension_only;
+      }
+
+      function renderAgentScopeInlineDetail(group, content) {
+        const scopeKey = group.scopeIndexes.join(",");
+        if (appState.agentDiscoveryLoadingScopeKey === scopeKey) {
+          return `<div class="agent-scope-inline-detail"><div class="agent-inline-empty" role="status">${escapeHtml(content.loadingScope)}</div></div>`;
+        }
+        if (appState.expandedAgentScopeKey !== scopeKey) return "";
+        if (appState.agentDiscoveryError) {
+          return `<div class="agent-scope-inline-detail"><div class="agent-discovery-error" role="alert">${escapeHtml(content.failed)}：${escapeHtml(appState.agentDiscoveryError)}</div></div>`;
+        }
+        const preview = appState.agentArtifactPreview;
+        if (!preview) return "";
+        const seen = new Set();
+        const candidates = (preview.reviewCandidates || []).filter((candidate) => {
+          const key = candidate.id || candidate.primaryPath;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        const renderSection = (status, total) => {
+          const sectionCandidates = candidates.filter((candidate) => candidate.status === status);
+          const heading = status === "suggested" ? content.suggested : content.pending;
+          const rows = sectionCandidates.map((candidate) => `
+            <div class="agent-inline-file">
+              <span class="agent-inline-path">${escapeHtml(candidate.primaryPath)}</span>
+              <span class="agent-reason-badge">${escapeHtml(agentArtifactBadge(candidate, content))}</span>
+              <span class="agent-inline-actions">
+                <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="accept" aria-label="${escapeAttribute(content.acceptFile)}">${escapeHtml(content.acceptFile)}</button>
+                <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="ignore" aria-label="${escapeAttribute(content.ignoreFile)}">${escapeHtml(content.ignoreFile)}</button>
+              </span>
+            </div>
+          `).join("");
+          const remaining = Math.max(0, Number(total || 0) - sectionCandidates.length);
+          return `
+            <section class="agent-inline-section">
+              <div class="agent-inline-heading"><span>${escapeHtml(heading)}</span><span>${Number(total || 0)}</span></div>
+              ${rows || `<div class="agent-inline-empty">${escapeHtml(content.emptyList)}</div>`}
+              ${remaining ? `<div class="agent-inline-more">${escapeHtml(content.moreFiles.replace("{count}", remaining))}</div>` : ""}
+            </section>
+          `;
+        };
+        const indexedPaths = [...new Set(group.alreadyIndexedPaths || [])];
+        const indexedRows = indexedPaths.map((path) => `
+          <div class="agent-inline-file">
+            <span class="agent-inline-path">${escapeHtml(path)}</span>
+          </div>
+        `).join("");
+        return `
+          <div class="agent-scope-inline-detail">
+            ${renderSection("suggested", preview.suggestedCount)}
+            ${renderSection("pending", preview.pendingCount)}
+            <section class="agent-inline-section">
+              <div class="agent-inline-heading"><span>${escapeHtml(content.indexed)}</span><span>${indexedPaths.length}</span></div>
+              ${indexedRows || `<div class="agent-inline-empty">${escapeHtml(content.emptyList)}</div>`}
+            </section>
+            ${preview.project?.lastScanStatus === "partial" ? `<div class="agent-inline-more">${escapeHtml(content.scanIncomplete)}</div>` : ""}
+          </div>
+        `;
+      }
+
+      function renderSettingsAgentProjectContent() {
+        const content = currentAgentDiscoveryContent();
+        if (appState.agentDiscoveryStep === "loading") {
+          return `<div class="settings-empty" role="status">${escapeHtml(content.loading)}</div>`;
+        }
+        const installations = appState.agentDiscoveryPayload?.installations || [];
+        const providerIssues = installations
+          .filter((installation) => installation.status !== "ready")
+          .map((installation) => `${installation.adapterId}${installation.cliVersion ? ` ${installation.cliVersion}` : ""}：${agentInstallationLabel(installation, content)}`);
+        const issueMarkup = providerIssues.length
+          ? `<div class="agent-discovery-notice" role="status">${escapeHtml(providerIssues.join("；"))}</div>`
+          : "";
+        const errorMarkup = appState.agentDiscoveryError && !appState.expandedAgentScopeKey
+          ? `<div class="agent-discovery-error" role="alert">${escapeHtml(content.failed)}：${escapeHtml(appState.agentDiscoveryError)}</div>`
+          : "";
+        const groups = groupedAgentScopesForSettings();
+        if (!groups.length) {
+          return `${issueMarkup}${errorMarkup}<div class="settings-empty">${escapeHtml(appState.agentDiscoveryPayload ? content.noProjects : "点击“发现项目”只读扫描本机项目与任务。")}</div>`;
+        }
+        return issueMarkup + errorMarkup + groups.map((group) => {
+          const kindLabel = group.scopeKind === "task" ? content.task : content.project;
+          const adapters = [...new Set(group.scopes.map((scope) => scope.adapterId))];
+          const defaultConnectLabel = group.suggestedCount
+            ? content.acceptSuggestedShort.replace("{count}", group.suggestedCount)
+            : content.noSuggestionsShort;
+          const scopeKey = group.scopeIndexes.join(",");
+          const expanded = appState.expandedAgentScopeKey === scopeKey;
+          const feedback = appState.agentDiscoveryFeedback?.scopeKey === scopeKey
+            ? `<div class="agent-inline-feedback" role="status">${escapeHtml(appState.agentDiscoveryFeedback.message)}</div>`
+            : "";
+          return `
+            <div class="settings-row settings-agent-scope-row">
+              <div class="settings-row-copy">
+                <div class="settings-row-copy-top">
+                  <div class="settings-row-title">${escapeHtml(group.displayName)}</div>
+                  ${group.scopeKind === "task" ? `<span class="source-kind-badge">${escapeHtml(kindLabel)}</span>` : ""}
+                  ${adapters.map((adapter) => `<span class="source-kind-badge">${escapeHtml(adapter)}</span>`).join("")}
+                </div>
+                <div class="settings-row-meta settings-row-path">${escapeHtml(group.rootPath)}</div>
+                <div class="settings-row-meta">${escapeHtml(formatTimestamp(group.lastActivityAt))} · ${escapeHtml(content.suggested)} ${group.suggestedCount} · ${escapeHtml(content.pending)} ${group.pendingCount} · ${escapeHtml(content.indexed)} ${group.alreadyIndexedPaths.length} · <button class="settings-inline-link" type="button" data-settings-agent-details="${scopeKey}" aria-expanded="${expanded}">${escapeHtml(expanded ? content.collapseScope : content.inspectScope)}</button></div>
+                ${group.scanPartial ? `<div class="settings-row-meta">${escapeHtml(content.scanIncomplete)}${group.scanIssue ? ` (${escapeHtml(group.scanIssue)})` : ""}</div>` : ""}
+                ${feedback}
+              </div>
+              <div class="button-row">
+                <button class="button button-primary button-small settings-agent-scope-action" type="button" data-settings-agent-connect-suggested="${group.scopeIndexes.join(",")}" ${group.suggestedCount ? "" : "disabled"} aria-label="${escapeAttribute(defaultConnectLabel)}" title="${escapeAttribute(defaultConnectLabel)}">${escapeHtml(defaultConnectLabel)}</button>
+              </div>
+              ${renderAgentScopeInlineDetail(group, content)}
+            </div>
+          `;
+        }).join("");
+      }
+
+      function bindSettingsAgentProjectActions() {
+        if (!els.settingsAgentProjectList) return;
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-details]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const indexes = String(button.dataset.settingsAgentDetails || "")
+              .split(",")
+              .map(Number)
+              .filter(Number.isInteger);
+            toggleAgentScopeDetails(indexes);
+          });
+        });
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-connect-suggested]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const indexes = String(button.dataset.settingsAgentConnectSuggested || "")
+              .split(",")
+              .map(Number)
+              .filter(Number.isInteger);
+            connectAgentScopesInSettings(indexes, true);
+          });
+        });
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-candidate]").forEach((button) => {
+          button.addEventListener("click", () => decideSingleArtifactInSettings(Number(button.dataset.settingsAgentCandidate), button.dataset.settingsAgentDecision));
+        });
+      }
+
+      let settingsSectionSwitchesBound = false;
+
+      function bindSettingsSectionSwitchesOnce() {
+        if (settingsSectionSwitchesBound || !els.settingsScrim) return;
+        settingsSectionSwitchesBound = true;
+        els.settingsScrim.addEventListener("click", (event) => {
+          const artifactButton = event.target.closest("[data-settings-artifact-section]");
+          if (artifactButton) {
+            appState.settingsArtifactSection = artifactButton.dataset.settingsArtifactSection || "projects";
+            renderSettingsPanel();
+            return;
+          }
+          const libraryButton = event.target.closest("[data-settings-library-section]");
+          if (libraryButton) {
+            appState.settingsLibrarySection = libraryButton.dataset.settingsLibrarySection || "folders";
+            renderSettingsPanel();
+          }
+        });
+      }
+
       function renderSettingsPanel() {
         els.settingsScrim.classList.toggle("open", appState.isSettingsOpen);
         if (!appState.isSettingsOpen) return;
+        bindSettingsSectionSwitchesOnce();
+        if (els.settingsDiscoverAgentsButton) {
+          const discoverProjectsLabel = t("actions.discoverProjects");
+          els.settingsDiscoverAgentsButton.textContent = discoverProjectsLabel;
+          els.settingsDiscoverAgentsButton.setAttribute("aria-label", discoverProjectsLabel);
+          els.settingsDiscoverAgentsButton.title = discoverProjectsLabel;
+        }
         els.settingsSkillsSection.hidden = appState.settingsTab !== "skills";
         els.settingsLibrariesSection.hidden = appState.settingsTab !== "libraries";
         els.settingsTagsSection.hidden = appState.settingsTab !== "tags";
@@ -9459,6 +10323,19 @@
         document.querySelectorAll("[data-settings-tab]").forEach((node) => {
           node.classList.toggle("active", node.dataset.settingsTab === appState.settingsTab);
         });
+        document.querySelectorAll("[data-settings-artifact-section]").forEach((node) => {
+          node.classList.toggle("active", node.dataset.settingsArtifactSection === appState.settingsArtifactSection);
+        });
+        document.getElementById("settingsProjectArtifactsSubsection").hidden = appState.settingsArtifactSection !== "projects";
+        document.getElementById("settingsSkillArtifactsSubsection").hidden = appState.settingsArtifactSection !== "skills";
+        document.querySelectorAll("[data-settings-library-section]").forEach((node) => {
+          node.classList.toggle("active", node.dataset.settingsLibrarySection === appState.settingsLibrarySection);
+        });
+
+        if (els.settingsAgentProjectList) {
+          els.settingsAgentProjectList.innerHTML = renderSettingsAgentProjectContent();
+          bindSettingsAgentProjectActions();
+        }
 
         const sourceKeyword = appState.settingsSourceSearch.trim().toLowerCase();
         const filteredLibraries = [...appState.libraries]
@@ -9467,8 +10344,9 @@
             return `${library.name}\n${library.rootPath}`.toLowerCase().includes(sourceKeyword);
           })
           .sort(sourceSortComparator(appState.settingsSourceSort));
-        const folderLibraries = filteredLibraries.filter((library) => library.sourceKind !== "file");
+        const folderLibraries = filteredLibraries.filter((library) => library.sourceKind === "folder");
         const fileLibraries = filteredLibraries.filter((library) => library.sourceKind === "file");
+        const projectLibraries = filteredLibraries.filter((library) => library.sourceKind === "agent_project");
         const filteredIgnoredItems = [...appState.ignoredItems]
           .filter((item) => {
             if (!sourceKeyword) return true;
@@ -9502,22 +10380,24 @@
                 <div class="settings-row-copy">
                   <div class="settings-row-copy-top">
                     <div class="settings-row-title">${escapeHtml(library.name)}</div>
-                    <span class="source-kind-badge">${library.sourceKind === "file" ? t("settings.singleFile") : t("settings.folder")}</span>
+                    <span class="source-kind-badge">${library.sourceKind === "agent_project" ? "项目来源" : (library.sourceKind === "file" ? t("settings.singleFile") : t("settings.folder"))}</span>
                     ${library.skillBinding ? `<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>` : ""}
                     ${library.pathState === "missing" ? `<span class="source-kind-badge">路径失效</span>` : ""}
                   </div>
                   <div class="settings-row-meta settings-row-path">${escapeHtml(library.rootPath)}</div>
                 </div>
                 <div class="button-row">
-                  <button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.pathState === "missing" ? "修正路径" : (library.sourceKind === "file" ? t("actions.index") : t("actions.scan"))}</button>
+                  ${library.sourceKind === "agent_project"
+                    ? `<button class="button button-secondary" type="button" data-settings-open-artifact-access="projects">查看产物接入</button>`
+                    : `<button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.pathState === "missing" ? "修正路径" : (library.sourceKind === "file" ? t("actions.index") : t("actions.scan"))}</button>`}
                   <button class="button button-ghost" type="button" data-settings-delete-library="${library.id}">${t("actions.remove")}</button>
                 </div>
               </div>
             `).join("")
           : `<div class="settings-empty">${t("settings.noGroupContent")}</div>`;
 
-        els.settingsLibraryList.innerHTML = [
-          renderSettingsGroup({
+        const libraryGroups = {
+          folders: renderSettingsGroup({
             key: "folders",
             title: "文件夹来源",
             count: countText(folderLibraries.length),
@@ -9531,7 +10411,7 @@
               ${renderLibraryRows(folderLibraries)}
             `
           }),
-          renderSettingsGroup({
+          files: renderSettingsGroup({
             key: "files",
             title: "单文件来源",
             count: countText(fileLibraries.length),
@@ -9544,8 +10424,20 @@
               </div>
               ${renderLibraryRows(fileLibraries)}
             `
+          }),
+          projects: renderSettingsGroup({
+            key: "projects",
+            title: "项目来源",
+            count: countText(projectLibraries.length),
+            bodyHtml: `
+              <div class="settings-header">
+                <div class="muted">管理已从项目产物接入的来源；发现和候选确认仍在“产物接入”。</div>
+              </div>
+              ${renderLibraryRows(projectLibraries)}
+            `
           })
-        ].join("");
+        };
+        els.settingsLibraryList.innerHTML = libraryGroups[appState.settingsLibrarySection] || libraryGroups.folders;
 
         const ignoredBody = filteredIgnoredItems.length
           ? `
@@ -9580,6 +10472,8 @@
           count: countText(filteredIgnoredItems.length),
           bodyHtml: ignoredBody
         });
+        els.settingsLibraryList.closest(".settings-subsection").hidden = appState.settingsLibrarySection === "removed";
+        els.settingsIgnoredList.closest(".settings-subsection").hidden = appState.settingsLibrarySection !== "removed";
 
         const skillButtonLabel = (skill) => {
           switch (skill.status) {
@@ -9643,7 +10537,7 @@
             <div class="muted">${skillScanSummaryText(appState.discoveredSkillScannedCount, filteredSkills.length)}</div>
             <div class="button-row">
               ${appState.settingsSkillRefreshFeedback ? `<span class="settings-inline-feedback">${escapeHtml(appState.settingsSkillRefreshFeedback)}</span>` : ""}
-              <button class="button button-secondary button-small" type="button" data-settings-refresh-skills="true">${t("actions.refresh")}</button>
+              <button class="button button-primary button-small" type="button" data-settings-refresh-skills="true">${t("actions.scanSkillOutputs")}</button>
               <button class="button button-ghost button-small" type="button" data-settings-exclude-selected-skills="true" ${appState.settingsSkillSelection.size === 0 ? "disabled" : ""}>${t("actions.excludeSelected")}</button>
             </div>
           </div>
@@ -9810,6 +10704,13 @@
         els.settingsLibraryList.querySelectorAll("[data-settings-add-file]").forEach((node) => {
           node.addEventListener("click", addSingleFileFromSettings);
         });
+        els.settingsLibraryList.querySelectorAll("[data-settings-open-artifact-access]").forEach((node) => {
+          node.addEventListener("click", () => {
+            appState.settingsTab = "skills";
+            appState.settingsArtifactSection = node.dataset.settingsOpenArtifactAccess || "projects";
+            renderSettingsPanel();
+          });
+        });
         els.settingsLibraryList.querySelectorAll("[data-settings-scan-library]").forEach((node) => {
           node.addEventListener("click", async () => {
             const libraryId = Number(node.dataset.settingsScanLibrary);
@@ -9941,6 +10842,74 @@
 
       async function invokeMock(command, args = {}) {
         if (command === "list_libraries") return structuredClone(mockData.libraries);
+        if (command === "discover_agent_projects") {
+          return {
+            installations: [
+              {
+                adapterId: "codex",
+                adapterProfile: "codex-local-0.146",
+                status: "ready",
+                capability: "project-and-verified-events",
+                cliVersion: "0.146.0-alpha.3.1",
+                errorKind: null,
+                errorMessage: null
+              },
+              {
+                adapterId: "workbuddy",
+                adapterProfile: "workbuddy-local-5.3",
+                status: "ready",
+                capability: "scope-only",
+                cliVersion: "5.3.5",
+                errorKind: null,
+                errorMessage: null
+              }
+            ],
+            scopes: [
+              {
+                adapterId: "codex",
+                adapterProfile: "codex-local-0.146",
+                externalScopeId: "codex-project-demo",
+                scopeKind: "project",
+                rootPath: "/workspace/sample-agent-project",
+                displayName: "sample-agent-project",
+                lastActivityAt: "2026-07-28T09:45:00Z",
+                capability: "project-and-verified-events",
+                sourceRecordCount: 1
+              },
+              {
+                adapterId: "workbuddy",
+                adapterProfile: "workbuddy-local-5.3",
+                externalScopeId: "workbuddy:task:2026-06-26-22-31-57:outputs",
+                scopeKind: "task",
+                rootPath: "/Users/name/Workbuddy/2026-06-26-22-31-57/outputs",
+                displayName: "outputs",
+                lastActivityAt: "2026-06-26T22:31:57+08:00",
+                capability: "scope-only",
+                sourceRecordCount: 1
+              }
+            ],
+            artifactSummaries: [
+              {
+                adapterId: "codex",
+                externalScopeId: "codex-project-demo",
+                suggestedCount: 2,
+                pendingCount: 1,
+                excludedCount: 4,
+                scanStatus: "complete",
+                scanIssue: null
+              },
+              {
+                adapterId: "workbuddy",
+                externalScopeId: "workbuddy:task:2026-06-26-22-31-57:outputs",
+                suggestedCount: 0,
+                pendingCount: 1,
+                excludedCount: 0,
+                scanStatus: "complete",
+                scanIssue: null
+              }
+            ]
+          };
+        }
         if (command === "list_discovered_artifact_skills") {
           return {
             scannedSkills: 0,
@@ -10786,16 +11755,16 @@
                 <div>${emptyBody}</div>
                 ${showAddButton ? `
                   <div class="button-row" style="justify-content:center; margin-top:14px;">
-                    <button id="emptyStateOpenSkillsButton" class="empty-state-action primary" type="button">${t("actions.scanSkillOutputs")}</button>
-                    <button id="emptyStateAddFolderButton" class="empty-state-action" type="button">${t("actions.addFolder")}</button>
+                    <button id="emptyStateOpenArtifactAccessButton" class="empty-state-action primary" type="button" aria-label="${escapeAttribute(t("settings.skills"))}" title="${escapeAttribute(t("settings.skills"))}">${t("settings.skills")}</button>
+                    <button id="emptyStateAddFolderButton" class="empty-state-action" type="button" aria-label="${escapeAttribute(t("actions.addFolder"))}" title="${escapeAttribute(t("actions.addFolder"))}">${t("actions.addFolder")}</button>
                   </div>
                 ` : ""}
               </div>
             </div>
           `;
           if (showAddButton) {
+            document.getElementById("emptyStateOpenArtifactAccessButton")?.addEventListener("click", () => openSettingsTab("skills"));
             document.getElementById("emptyStateAddFolderButton")?.addEventListener("click", addFolderFromMenu);
-            document.getElementById("emptyStateOpenSkillsButton")?.addEventListener("click", () => openSettingsTab("skills"));
           }
           return;
         }
@@ -12350,6 +13319,9 @@
           await closeOpenTab(itemId).catch(() => {});
           await loadLibraries();
           await loadItems();
+          if (appState.agentDiscoveryPayload) {
+            await loadAgentProjectsInSettings();
+          }
           renderTabs();
           renderViewer();
           setStatus(statusWithValue("status.itemRemovedPrefix", fileName), "ok");
@@ -12381,6 +13353,9 @@
           await closeOpenTab(tab.id).catch(() => {});
           await loadLibraries();
           await loadItems();
+          if (appState.agentDiscoveryPayload) {
+            await loadAgentProjectsInSettings();
+          }
           renderTabs();
           renderViewer();
           setStatus(statusWithValue("status.movedToTrashPrefix", tab.item.fileName), "ok");
@@ -12747,8 +13722,12 @@
         try {
           await invoke("restore_ignored_item", { itemId });
           appState.settingsIgnoredSelection.delete(itemId);
+          await loadLibraries();
           await loadIgnoredItems();
           await loadItems();
+          if (appState.agentDiscoveryPayload) {
+            await loadAgentProjectsInSettings();
+          }
           renderViewer();
           setStatus("文件已恢复到 Nutbook", "ok");
         } catch (error) {
@@ -12764,8 +13743,12 @@
             await invoke("restore_ignored_item", { itemId });
           }
           appState.settingsIgnoredSelection.clear();
+          await loadLibraries();
           await loadIgnoredItems();
           await loadItems();
+          if (appState.agentDiscoveryPayload) {
+            await loadAgentProjectsInSettings();
+          }
           renderViewer();
           setStatus(`已恢复 ${ids.length} 个文件`, "ok");
         } catch (error) {
@@ -12799,6 +13782,9 @@
           }
           await loadLibraries();
           await loadItems();
+          if (appState.agentDiscoveryPayload) {
+            await loadAgentProjectsInSettings();
+          }
           renderTabs();
           renderViewer();
           renderSettingsPanel();
@@ -13466,6 +14452,7 @@
           event.stopPropagation();
           openSettingsTab("thumbnails");
         });
+        els.settingsDiscoverAgentsButton?.addEventListener("click", loadAgentProjectsInSettings);
         els.settingsSourceSortButton?.addEventListener("click", (event) => {
           event.stopPropagation();
           appState.isSettingsSourceSortMenuOpen = !appState.isSettingsSourceSortMenuOpen;
@@ -13476,6 +14463,8 @@
             closeSettingsOverlay();
             return;
           }
+          appState.settingsArtifactView = "list";
+          appState.agentArtifactPreview = null;
           appState.isSettingsOpen = false;
           renderSettingsPanel();
         });
@@ -13485,6 +14474,8 @@
               closeSettingsOverlay();
               return;
             }
+            appState.settingsArtifactView = "list";
+            appState.agentArtifactPreview = null;
             appState.isSettingsOpen = false;
             renderSettingsPanel();
           }

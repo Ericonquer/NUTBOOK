@@ -1,3 +1,5 @@
+pub mod agent_project;
+pub mod artifact_candidate;
 pub mod html_edit;
 pub mod item;
 pub mod library;
@@ -5,6 +7,19 @@ pub mod skill;
 pub mod tag;
 pub mod update;
 
+pub use agent_project::{
+    AcceptAgentArtifactGroupsRequest, AcceptAgentArtifactRequest, AgentArtifactAcceptanceResult,
+    AgentArtifactActionItem, AgentArtifactEvent, AgentArtifactPreviewPayload, AgentInstallation,
+    AgentProjectAdapterBinding, AgentProjectSourceSummary, AgentScopeDiscoveryPayload,
+    ConnectAgentProjectRequest, DiscoveredAgentScope, DiscoveredScopeArtifactSummary,
+    IgnoreAgentArtifactRequest, PreviewAgentProjectArtifactsRequest,
+    RefreshAgentProjectRequest, MergeAgentTaskScopeRequest,
+    SetAgentProjectDiscoveryRuleRequest,
+};
+pub use artifact_candidate::{
+    ArtifactCandidate, ArtifactCandidateGroupSummary, DiscoveryEvidence, DiscoveryReasonKind,
+    RelatedArtifactFile,
+};
 pub use html_edit::{
     CommitHtmlEditRequest, CommitHtmlEditResponse, GeneratePresentationThumbnailRequest, GeneratePresentationThumbnailResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
     HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus,

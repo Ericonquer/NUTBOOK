@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "absolute-path",
+      "path": "/tmp/report.md",
+      "state": "active",
+      "skill": {
+        "name": "report-writer"
+      },
+      "kind": "report"
+    }
+  ]
+}
+

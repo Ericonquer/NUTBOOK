@@ -8,6 +8,8 @@
 AGENTS.md
 MEMORY.md
 DESIGN.md
+!src-tauri/tests/fixtures/agent-artifact-discovery/projects/sample-agent-project/AGENTS.md
+!src-tauri/tests/fixtures/agent-artifact-discovery/projects/sample-agent-project/MEMORY.md
 docs/videos/
 docs/html-edit-acceptance/
 docs/superpowers/

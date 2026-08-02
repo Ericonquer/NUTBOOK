@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "missing-contract",
+      "path": "presentation/index.html",
+      "state": "active",
+      "skill": {
+        "name": "html-ppt"
+      },
+      "kind": "presentation",
+      "savePolicy": "managed-source"
+    }
+  ]
+}
+

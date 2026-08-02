@@ -1,0 +1,249 @@
+use std::{
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use rusqlite::{backup::Backup, Connection, Transaction};
+
+use crate::errors::AppError;
+
+pub const LATEST_SCHEMA_VERSION: i64 = 3;
+const MIGRATION_0002_SQL: &str =
+    include_str!("../../migrations/0002_agent_artifact_sources.sql");
+const MIGRATION_0003_SQL: &str =
+    include_str!("../../migrations/0003_agent_artifact_sources_draft_repair.sql");
+
+#[derive(Clone, Copy)]
+struct Migration {
+    version: i64,
+    name: &'static str,
+    sql: &'static str,
+}
+
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 2,
+        name: "agent_artifact_sources",
+        sql: MIGRATION_0002_SQL,
+    },
+    Migration {
+        version: 3,
+        name: "agent_artifact_sources_draft_repair",
+        sql: MIGRATION_0003_SQL,
+    },
+];
+
+pub fn ensure_migration_registry(connection: &Connection) -> Result<(), AppError> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+               version INTEGER PRIMARY KEY,
+               name TEXT NOT NULL UNIQUE,
+               applied_at TEXT NOT NULL
+             );
+             INSERT OR IGNORE INTO schema_migrations (version, name, applied_at)
+             VALUES (1, 'initial_0_6_baseline', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));",
+        )
+        .map_err(|_| AppError::DatabaseError)
+}
+
+pub fn apply_pending_migrations(
+    connection: &mut Connection,
+    database_path: &Path,
+    database_existed_before_startup: bool,
+) -> Result<Option<PathBuf>, AppError> {
+    ensure_migration_registry(connection)?;
+    let current_version: i64 = connection
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::DatabaseError)?;
+    if current_version > LATEST_SCHEMA_VERSION {
+        return Err(AppError::DatabaseError);
+    }
+
+    let pending = MIGRATIONS
+        .iter()
+        .copied()
+        .filter(|migration| migration.version > current_version)
+        .collect::<Vec<_>>();
+    if pending.is_empty() {
+        return Ok(None);
+    }
+
+    let backup_path = if database_existed_before_startup {
+        Some(create_migration_backup(
+            connection,
+            database_path,
+            pending[0].version,
+        )?)
+    } else {
+        None
+    };
+
+    connection
+        .pragma_update(None, "foreign_keys", "OFF")
+        .map_err(|_| AppError::DatabaseError)?;
+    let result = apply_migrations_transaction(connection, &pending);
+    let foreign_keys_result = connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .map_err(|_| AppError::DatabaseError);
+
+    result?;
+    foreign_keys_result?;
+    Ok(backup_path)
+}
+
+fn apply_migrations_transaction(
+    connection: &mut Connection,
+    migrations: &[Migration],
+) -> Result<(), AppError> {
+    let transaction = connection
+        .transaction()
+        .map_err(|_| AppError::DatabaseError)?;
+    for migration in migrations {
+        let already_has_final_agent_schema = migration.version == 3
+            && table_has_column(&transaction, "libraries", "canonical_root_key")?
+            && table_has_column(&transaction, "agent_project_sources", "last_scan_status")?
+            && table_has_column(&transaction, "agent_project_adapters", "external_scope_id")?;
+        if !already_has_final_agent_schema {
+            transaction
+                .execute_batch(migration.sql)
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+        if migration.version == 2 {
+            normalize_library_root_keys(&transaction)?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations (version, name, applied_at)
+                 VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+                (migration.version, migration.name),
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+    }
+    verify_migrated_database(&transaction)?;
+    transaction.commit().map_err(|_| AppError::DatabaseError)
+}
+
+fn table_has_column(
+    transaction: &Transaction<'_>,
+    table: &str,
+    expected_column: &str,
+) -> Result<bool, AppError> {
+    let mut statement = transaction
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|_| AppError::DatabaseError)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|_| AppError::DatabaseError)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| AppError::DatabaseError)?;
+    Ok(columns.iter().any(|column| column == expected_column))
+}
+
+fn normalize_library_root_keys(transaction: &Transaction<'_>) -> Result<(), AppError> {
+    let libraries = {
+        let mut statement = transaction
+            .prepare("SELECT id, root_path FROM libraries ORDER BY id")
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        rows
+    };
+    for (library_id, root_path) in libraries {
+        let canonical_root_key = crate::db::canonical_root_key_for_path(&root_path, false)?;
+        transaction
+            .execute(
+                "UPDATE libraries SET canonical_root_key = ?2 WHERE id = ?1",
+                (library_id, canonical_root_key),
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+    }
+    Ok(())
+}
+
+fn verify_migrated_database(transaction: &Transaction<'_>) -> Result<(), AppError> {
+    let foreign_key_violation: i64 = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::DatabaseError)?;
+    if foreign_key_violation != 0 {
+        return Err(AppError::DatabaseError);
+    }
+
+    let quick_check: String = transaction
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|_| AppError::DatabaseError)?;
+    if quick_check != "ok" {
+        return Err(AppError::DatabaseError);
+    }
+    Ok(())
+}
+
+fn create_migration_backup(
+    connection: &Connection,
+    database_path: &Path,
+    target_version: i64,
+) -> Result<PathBuf, AppError> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let file_name = database_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("nutbook.sqlite3");
+    let mut suffix = 0_u32;
+    let backup_path = loop {
+        let suffix_text = if suffix == 0 {
+            String::new()
+        } else {
+            format!("-{suffix}")
+        };
+        let candidate = database_path.with_file_name(format!(
+            "{file_name}.pre-migration-{target_version:04}-{timestamp}{suffix_text}.bak"
+        ));
+        if !candidate.exists() {
+            break candidate;
+        }
+        suffix = suffix.saturating_add(1);
+    };
+    let mut backup_connection =
+        Connection::open(&backup_path).map_err(|_| AppError::DatabaseError)?;
+    let backup =
+        Backup::new(connection, &mut backup_connection).map_err(|_| AppError::DatabaseError)?;
+    backup
+        .run_to_completion(64, std::time::Duration::from_millis(10), None)
+        .map_err(|_| AppError::DatabaseError)?;
+    drop(backup);
+    backup_connection
+        .close()
+        .map_err(|_| AppError::DatabaseError)?;
+    Ok(backup_path)
+}
+
+#[cfg(test)]
+pub(super) fn apply_test_migration(
+    connection: &mut Connection,
+    version: i64,
+    name: &'static str,
+    sql: &'static str,
+) -> Result<(), AppError> {
+    apply_migrations_transaction(
+        connection,
+        &[Migration {
+            version,
+            name,
+            sql,
+        }],
+    )
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "00000000-0000-7000-8000-000000000001",
+    "rollout_path": "/codex-home/sessions/2026/07/30/rollout-fixture.jsonl",
+    "created_at": 1785391200,
+    "updated_at": 1785391800,
+    "source": "vscode",
+    "cwd": "/workspace/sample-agent-project",
+    "title": "Prepare the sample Agent deliverables",
+    "git_sha": "1111111111111111111111111111111111111111",
+    "git_branch": "main",
+    "git_origin_url": "https://example.invalid/sample-agent-project.git",
+    "cli_version": "0.146.0-alpha.3.1",
+    "thread_source": "user"
+  }
+]
+

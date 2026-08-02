@@ -1,0 +1,32 @@
+{
+  "collectedAt": "2026-07-30",
+  "producer": "WorkBuddy Desktop",
+  "bundleIdentifier": "com.workbuddy.workbuddy",
+  "version": "5.3.5",
+  "reverified": {
+    "at": "2026-08-01",
+    "version": "5.3.8",
+    "result": "bundle identifier and trusted root unchanged; product verification clarified that direct non-.workbuddy folders below each date container are the task scopes"
+  },
+  "adapterProfile": "workbuddy-local-5.3",
+  "sourceKind": "real-local-directory-shape-redacted",
+  "trustedRootPlaceholder": "/workspace/sample-workbuddy-root",
+  "sourceScopesInspected": [
+    "$HOME/Workbuddy/2026-06-26-22-31-57",
+    "$HOME/Workbuddy/2026-07-17-10-41-23"
+  ],
+  "redactions": [
+    "home path replaced",
+    "task file bodies omitted",
+    "memory content omitted",
+    "generated article names replaced",
+    "only directory shape and generic file roles retained"
+  ],
+  "unsupported": [
+    "date directory membership does not prove file authorship",
+    "the date directory is a container and is not itself a user-facing task scope",
+    "only direct child folders other than .workbuddy become task scopes",
+    "internal directory names do not prove artifact status",
+    "no stable file-level delivery event was verified for this profile"
+  ]
+}

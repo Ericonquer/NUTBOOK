@@ -1,3 +1,5 @@
+pub mod agent_adapters;
+pub mod artifact_discovery;
 pub mod document;
 pub mod html_edit;
 pub mod html_runtime;

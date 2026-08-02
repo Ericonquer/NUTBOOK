@@ -1,0 +1,40 @@
+{
+  "withoutManifest": {
+    "suggested": [
+      "docs/delivered-report.md",
+      "presentation/index.html"
+    ],
+    "pending": [
+      "docs/uncertain-plan.md"
+    ],
+    "excluded": [
+      "AGENTS.md",
+      "MEMORY.md",
+      "docs/internal-debug.md",
+      "tests/preview.html"
+    ],
+    "relatedOnly": [
+      "presentation/assets/runtime.js",
+      "presentation/assets/cover.png"
+    ]
+  },
+  "withManifest": {
+    "registered": [
+      "docs/delivered-report.md",
+      "presentation/index.html",
+      ".agent-outputs/nbskill/editable-report.html"
+    ],
+    "pending": [
+      "docs/uncertain-plan.md"
+    ],
+    "relatedOnly": [
+      "presentation/assets/runtime.js",
+      "presentation/assets/cover.png"
+    ],
+    "mustNotDuplicate": [
+      "docs/delivered-report.md",
+      "presentation/index.html"
+    ]
+  }
+}
+
