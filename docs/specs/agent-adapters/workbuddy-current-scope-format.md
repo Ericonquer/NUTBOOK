@@ -1,8 +1,8 @@
 # WorkBuddy current local scope profile
 
-> Collected: 2026-07-30; reverified: 2026-08-01
+> Collected: 2026-07-30; reverified: 2026-08-08
 >
-> Verified local producers: WorkBuddy Desktop `5.3.5`, `5.3.8`
+> Verified local producers: WorkBuddy Desktop `5.3.5`, `5.3.8`, `5.3.11`
 >
 > Bundle identifier: `com.workbuddy.workbuddy`
 >
@@ -12,7 +12,9 @@
 
 This document records the local task-directory layout observed on this
 machine. It is not a claim that WorkBuddy exposes a stable public storage API.
-Unknown versions or layouts must fail closed.
+The bundle version is diagnostic metadata, not a compatibility gate. Scope
+discovery follows the verified structural markers below and fails closed when
+those markers are absent or unsafe.
 
 On 2026-08-01 the installed application had upgraded to `5.3.8`. The bundle
 identifier, trusted root, direct date-container convention, and the task-folder
@@ -20,7 +22,9 @@ shape below were reverified. Product verification on 2026-08-01 clarified that
 the date directory is only a container: its direct child folders are the real
 task scopes, except for WorkBuddy's internal `.workbuddy` folder. The adapter
 therefore accepts the exact observed versions `5.3.5` and `5.3.8`; it does not
-assume that every `5.3.x` release is compatible.
+assume that every `5.3.x` release is compatible. On 2026-08-08, WorkBuddy
+`5.3.11` plus nbskill also demonstrated the explicit manifest-marked dated
+workspace shape documented below.
 
 The installed application was verified from
 `/Applications/WorkBuddy.app/Contents/Info.plist`. The observed user task root
@@ -63,7 +67,22 @@ Each direct child folder other than `.workbuddy` is a task scope. Its folder
 name is the task display name, and the folder itself is the bounded scan root.
 `outputs`, `output`, `result`, or any other name has no special meaning: it is
 accepted only because it is a direct child folder, not because of the word it
-contains. Files placed directly in the date container are not separate scopes.
+contains. Files placed directly in an unmarked date container are not separate
+scopes.
+
+WorkBuddy with nbskill can use the dated workspace itself as the confirmed
+project root. When that date directory contains a real, non-symlink
+`.agent-outputs/manifest.json`, the explicit manifest marker takes precedence:
+
+- the date directory becomes one `scope_kind = "task"` scan root;
+- root-level artifacts and child-folder artifacts share that manifest;
+- direct child folders are not emitted as duplicate task scopes;
+- an invalid manifest still selects the same scope so Nutbook can report and
+  recover the manifest error without silently falling back to a different
+  project boundary.
+
+This exception is based on the explicit nbskill marker, not on the WorkBuddy
+version or on names such as `output`.
 
 Directories such as `Claw/` or malformed date names beside valid tasks are not
 task scopes.
@@ -93,6 +112,8 @@ The first implementation:
 
 - scans only direct children of the trusted root to find date containers, then
   only their direct child folders to discover task scopes;
+- promotes a manifest-marked date directory to a single task scope and does not
+  also emit its child folders;
 - does not follow directory symlinks;
 - excludes `.workbuddy` and ignores direct files in the date container;
 - uses the task folder itself as the task boundary and display name;

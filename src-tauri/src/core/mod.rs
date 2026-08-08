@@ -1,10 +1,12 @@
 pub mod agent_adapters;
+pub mod agent_output_manifest;
 pub mod artifact_discovery;
 pub mod document;
 pub mod html_edit;
 pub mod html_runtime;
 pub mod library;
 pub mod local_server;
+pub mod nbskill_package;
 pub mod preview_protocol;
 pub mod scanner;
 pub mod skill_discovery;

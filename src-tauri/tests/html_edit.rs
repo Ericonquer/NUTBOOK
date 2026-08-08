@@ -969,6 +969,7 @@ fn html_edit_rejects_rich_text_with_disallowed_markup() {
         "<p onclick=\"alert(1)\">unsafe</p>",
         "<a href=\"javascript:alert(1)\">unsafe</a>",
         "<p style=\"color:red\">unsafe</p>",
+        "<code class=\"mono\">unsafe attribute</code>",
     ] {
         let change = HtmlEditChange {
             change_type: HtmlEditChangeType::RichText,
@@ -1010,7 +1011,7 @@ fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
 
     assert!(normalize_rich_text_change(&rich_change(
         HtmlEditRole::Short,
-        "<strong>Short</strong><br><em>copy</em>",
+        "<strong>Short</strong><br><em>copy</em><code>nbskill</code>",
     ))
     .is_ok());
     for html in ["<p>Paragraph</p>", "<h1>Heading</h1>", "<ul><li>Item</li></ul>"] {
@@ -1019,7 +1020,7 @@ fn html_edit_rich_text_roles_enforce_their_markup_profiles() {
 
     assert!(normalize_rich_text_change(&rich_change(
         HtmlEditRole::Content,
-        "<h2>Heading</h2><p><strong>Body</strong></p><ul><li>Item</li></ul>",
+        "<h2>Heading</h2><p><strong>Body</strong> <code>nbskill</code></p><ul><li>Item</li></ul>",
     ))
     .is_ok());
     assert!(normalize_rich_text_change(&rich_change(

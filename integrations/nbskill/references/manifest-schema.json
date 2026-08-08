@@ -181,6 +181,43 @@
               "editContract"
             ]
           }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "state": {
+                    "const": "active"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              },
+              {
+                "properties": {
+                  "path": {
+                    "pattern": "\\.[Hh][Tt][Mm][Ll]?$"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "editContract",
+              "savePolicy"
+            ],
+            "properties": {
+              "savePolicy": {
+                "const": "managed-source"
+              }
+            }
+          }
         }
       ]
     }

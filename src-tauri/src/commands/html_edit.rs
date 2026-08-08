@@ -15,6 +15,7 @@ use crate::{
         save_html_edit_patch_replacing_changes_for_file as replace_patch_for_file, HtmlEditPatchLookup,
         HtmlEditPatchResponse, HtmlEditPatchSave, HtmlEditPatchSaveResponse,
     },
+    core::agent_output_manifest::{read_agent_output_manifest, ValidatedAgentOutputManifest},
     core::thumbnail::{capture_presentation_thumbnail_with_worker, find_local_chromium_executable, PresentationScreenshotInput, PresentationThumbnailWorkerInput},
     db::repositories::{ItemRepository, LibraryRepository},
     errors::AppError,
@@ -97,10 +98,15 @@ pub fn get_html_edit_patch(
         library_id: library.id,
         library_root: library_root.clone(),
         item_id: item.summary.id,
-        file_path: PathBuf::from(item.summary.file_path),
+        file_path: PathBuf::from(&item.summary.file_path),
         title_hint,
     };
     let mut response = get_patch_for_file(&lookup)?;
+    response.managed_source_allowed = manifest_managed_source_allowed(
+        &state,
+        item.summary.id,
+        &item.summary.file_path,
+    )?;
     let manifest = load_html_edit_manifest(&library_root)?;
     if has_session && !manifest.entries.contains_key(&response.source_relative_path) {
         response.artifact_edit_id = state
@@ -316,6 +322,9 @@ pub fn commit_html_edit(
     require_html_edit_session_lease(state.html_edit_session_lease_matches(
         item.summary.id, &payload.runtime_session_id, payload.generation,
     )?)?;
+    if !manifest_managed_source_allowed(&state, item.summary.id, &item.summary.file_path)? {
+        return Err(AppError::InvalidParams);
+    }
     let library = library_for_item(&state, item.summary.library_id)?;
     let file_path = PathBuf::from(&item.summary.file_path);
     let path_lock = state.html_edit_path_lock(&file_path)?;
@@ -373,6 +382,65 @@ fn library_for_item(state: &AppState, library_id: i64) -> Result<Library, AppErr
         .into_iter()
         .find(|library| library.id == library_id)
         .ok_or(AppError::LibraryNotFound)
+}
+
+fn manifest_managed_source_allowed(
+    state: &AppState,
+    item_id: i64,
+    item_path: &str,
+) -> Result<bool, AppError> {
+    let declarations = state.database.manifest_html_edit_declarations_for_item(item_id)?;
+    if declarations.is_empty() {
+        // Existing non-Agent protocol HTML keeps its established managed
+        // source behavior. Manifest-owned items use the stricter branch below.
+        return Ok(true);
+    }
+    let item_path = fs::canonicalize(item_path).map_err(|_| AppError::IoError)?;
+    let libraries = state.list_libraries()?;
+    for declaration in declarations {
+        if declaration.edit_contract.as_deref() != Some("nutbook-html/v1")
+            || declaration.save_policy.as_deref() != Some("managed-source")
+        {
+            continue;
+        }
+        let Some(project) = libraries
+            .iter()
+            .find(|library| library.id == declaration.project_library_id)
+        else {
+            continue;
+        };
+        let project_root = PathBuf::from(&project.root_path);
+        let Ok(Some(manifest)) = read_agent_output_manifest(&project_root) else {
+            continue;
+        };
+        if active_manifest_authorizes_managed_source(
+            &manifest,
+            &declaration.manifest_entry_id,
+            &project_root,
+            &item_path,
+        ) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn active_manifest_authorizes_managed_source(
+    manifest: &ValidatedAgentOutputManifest,
+    entry_id: &str,
+    project_root: &std::path::Path,
+    canonical_item_path: &std::path::Path,
+) -> bool {
+    let Some(entry) = manifest.entries.iter().find(|entry| {
+        entry.id == entry_id
+            && entry.state == "active"
+            && entry.edit_contract.as_deref() == Some("nutbook-html/v1")
+            && entry.save_policy.as_deref() == Some("managed-source")
+    }) else {
+        return false;
+    };
+    fs::canonicalize(project_root.join(&entry.path))
+        .is_ok_and(|entry_path| entry_path == canonical_item_path)
 }
 
 fn html_edit_library_root(library: &Library) -> Result<PathBuf, AppError> {
@@ -438,11 +506,42 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{
-        core::html_edit::import_html_edit_asset,
+        core::{agent_output_manifest::read_agent_output_manifest, html_edit::import_html_edit_asset},
         models::{HtmlEditAssetImport, Library},
     };
 
-    use super::{html_edit_library_root, import_asset_for_active_session, require_html_edit_session_lease, validate_html_edit_asset_import_identity};
+    use super::{active_manifest_authorizes_managed_source, html_edit_library_root, import_asset_for_active_session, require_html_edit_session_lease, validate_html_edit_asset_import_identity};
+
+    #[test]
+    fn manifest_managed_source_requires_current_active_entry_and_exact_path() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/agent-artifact-discovery/projects/sample-agent-project");
+        let manifest = read_agent_output_manifest(&root)
+            .expect("valid manifest")
+            .expect("manifest exists");
+        let editable = root
+            .join(".agent-outputs/nbskill/editable-report.html")
+            .canonicalize()
+            .expect("editable fixture");
+        assert!(active_manifest_authorizes_managed_source(
+            &manifest,
+            "editable-report-v1",
+            &root,
+            &editable,
+        ));
+        assert!(!active_manifest_authorizes_managed_source(
+            &manifest,
+            "discovery-presentation-v1",
+            &root,
+            &editable,
+        ));
+        assert!(!active_manifest_authorizes_managed_source(
+            &manifest,
+            "editable-report-v1",
+            &root,
+            &root.join("presentation/index.html").canonicalize().expect("presentation"),
+        ));
+    }
 
     #[test]
     fn html_edit_asset_import_accepts_provisional_identity_only_at_revision_zero() {

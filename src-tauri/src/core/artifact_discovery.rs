@@ -28,6 +28,10 @@ pub struct ManifestArtifactFact {
     pub state: String,
     pub kind: String,
     pub generated_at: Option<String>,
+    pub skill_name: String,
+    pub skill_version: Option<String>,
+    pub edit_contract: Option<String>,
+    pub save_policy: Option<String>,
     pub related_files: Vec<RelatedArtifactFile>,
 }
 
@@ -432,6 +436,8 @@ fn is_internal_project_path(path: &str) -> bool {
                     | "fixtures"
                     | "cache"
                     | ".cache"
+                    | ".workbuddy"
+                    | ".agent-outputs"
                     | "node_modules"
                     | "target"
                     | "vendor"
@@ -535,6 +541,11 @@ fn event_evidence(
         event_id: event.event_id.clone(),
         run_reference_hash,
         observed_at: Some(event.observed_at.clone()),
+        skill_normalized_name: None,
+        skill_display_name: None,
+        manifest_entry_id: None,
+        edit_contract: None,
+        save_policy: None,
     }
 }
 
@@ -552,6 +563,11 @@ fn manifest_evidence(entry: &ManifestArtifactFact, agent_kind: &str) -> Discover
         event_id: format!("manifest:{}", entry.id),
         run_reference_hash: None,
         observed_at: entry.generated_at.clone(),
+        skill_normalized_name: Some(entry.skill_name.clone()),
+        skill_display_name: Some(entry.skill_name.clone()),
+        manifest_entry_id: Some(entry.id.clone()),
+        edit_contract: entry.edit_contract.clone(),
+        save_policy: entry.save_policy.clone(),
     }
 }
 
@@ -709,8 +725,9 @@ mod tests {
     };
 
     use super::{
-        classify_artifact_candidates, observe_project_files_bounded, summarize_candidate_groups,
-        ArtifactDiscoveryInput, ArtifactScanLimits, ManifestArtifactFact, ObservedProjectFile,
+        classify_artifact_candidates, is_internal_project_path, observe_project_files_bounded,
+        summarize_candidate_groups, ArtifactDiscoveryInput, ArtifactScanLimits,
+        ManifestArtifactFact, ObservedProjectFile,
     };
 
     #[derive(Deserialize)]
@@ -727,8 +744,17 @@ mod tests {
         state: String,
         kind: String,
         generated_at: Option<String>,
+        skill: FixtureSkill,
+        edit_contract: Option<String>,
+        save_policy: Option<String>,
         #[serde(default)]
         related_files: Vec<RelatedArtifactFile>,
+    }
+
+    #[derive(Deserialize)]
+    struct FixtureSkill {
+        name: String,
+        version: Option<String>,
     }
 
     fn fixture_root() -> PathBuf {
@@ -794,6 +820,10 @@ mod tests {
                 state: entry.state,
                 kind: entry.kind,
                 generated_at: entry.generated_at,
+                skill_name: entry.skill.name,
+                skill_version: entry.skill.version,
+                edit_contract: entry.edit_contract,
+                save_policy: entry.save_policy,
                 related_files: entry.related_files,
             })
             .collect()
@@ -1244,6 +1274,14 @@ mod tests {
         assert!(!candidates[0]
             .reasons
             .contains(&DiscoveryReasonKind::CreatedByAgentTool));
+    }
+
+    #[test]
+    fn provider_internal_directories_are_not_artifact_candidates() {
+        assert!(is_internal_project_path(".workbuddy/memory/2026-08-02.md"));
+        assert!(is_internal_project_path(".agent-outputs/unregistered.md"));
+        assert!(!is_internal_project_path("nbskill-intro.md"));
+        assert!(!is_internal_project_path("output/nbskill-intro.html"));
     }
 
     #[test]

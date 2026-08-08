@@ -16,6 +16,13 @@
       "rootPath": "/workspace/sample-workbuddy-root/2026-07-17-10-41-23/codexquota",
       "displayName": "codexquota",
       "lastActivityAt": "2026-07-17T10:41:23"
+    },
+    {
+      "externalScopeId": "workbuddy:manifest-task:2026-08-02-21-02-36",
+      "scopeKind": "task",
+      "rootPath": "/workspace/sample-workbuddy-root/2026-08-02-21-02-36",
+      "displayName": "2026-08-02-21-02-36",
+      "lastActivityAt": "2026-08-02T21:02:36"
     }
   ],
   "excludedDirectChildren": [

@@ -1,0 +1,41 @@
+{
+  "skill": "nbskill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I created dist/customer-summary.md for the confirmed project. Register it as a report produced by report-writer, then validate the manifest.",
+      "expected_output": "Uses register.mjs with the confirmed absolute project root, a stable entry ID, a project-relative Markdown path, skill name and report kind; validates afterward and reports the ID, path, related-file count and result.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Replace the active quarterly-dashboard-v1 artifact with public/quarterly-dashboard-v2.html. Its local CSS and chart data must remain related resources, not separate artifacts.",
+      "expected_output": "First makes every visible text field and image satisfy nutbook-html/v1 with layout-safe semantic targets, then uses supersede.mjs rather than editing JSON or recycling the old ID. If the legacy active page fails the current HTML validator, supersede.mjs structurally reads and retires that entry before strictly validating the final manifest. It passes both related resources with explicit roles and validates the managed-source result.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Create and register report.html as a user-facing nbskill deliverable. The draft has headings, cards, a table, a caption, a footer and two images.",
+      "expected_output": "Adds the nutbook-html/v1 root marker; puts stable unique targets on each heading, card field, table cell, caption and footer element plus both images; uses short rich-text only for supported inline emphasis; never wraps the page, section, card grid or table in one rich-text target; lets the registrar supply managed-source metadata and validates the result.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Make this styled HTML editable in Nutbook. A section contains a heading with a class, three card divs, inline code labels, a table and an image. Register it with nbskill.",
+      "expected_output": "Preserves the section, card and table layout outside rich-text. Marks the semantic text elements and image individually; preserves attribute-free inline code inside short rich-text, but splits styled code or spans into separate plain-text fields when necessary; uses only Nutbook-preserved rich-text descendants; runs the registrar and fixes any exact layout-safety validation error instead of enclosing the section in one content rich-text block.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "I upgraded nbskill and validate now says an older active HTML artifact is incompatible. I still need to register a new Markdown report and then replace the old HTML safely. Do not hand-edit the manifest.",
+      "expected_output": "Reads the manifest structure successfully despite the legacy HTML compatibility issue, registers the Markdown through register.mjs, reports the incompatible HTML by ID and path, repairs its source or replaces it through supersede.mjs, and finishes with structural plus active-HTML validation. It never edits manifest.json by hand.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "In the active WorkBuddy dated workspace, use the humanizer-zh Skill to create nbskill-intro.md at the workspace root and output/nbskill-intro.html as the two user-facing deliverables. The user only asked for the files and did not mention Nutbook or registration.",
+      "expected_output": "Treats registration as part of delivery without waiting for another request. Uses the dated WorkBuddy workspace containing .workbuddy as the one project root, registers both Markdown and fully contract-compliant HTML as separate active entries in that root manifest, records humanizer-zh as the producing Skill rather than nbskill, keeps any HTML resources related rather than separate, validates once all writes finish, and reports both registered IDs and paths.",
+      "files": []
+    }
+  ]
+}

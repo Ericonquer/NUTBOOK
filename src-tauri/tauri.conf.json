@@ -38,6 +38,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../integrations/nbskill/": "nbskill/"
+    },
     "macOS": {
       "signingIdentity": "-"
     },

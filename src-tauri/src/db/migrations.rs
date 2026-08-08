@@ -7,11 +7,15 @@ use rusqlite::{backup::Backup, Connection, Transaction};
 
 use crate::errors::AppError;
 
-pub const LATEST_SCHEMA_VERSION: i64 = 3;
+pub const LATEST_SCHEMA_VERSION: i64 = 5;
 const MIGRATION_0002_SQL: &str =
     include_str!("../../migrations/0002_agent_artifact_sources.sql");
 const MIGRATION_0003_SQL: &str =
     include_str!("../../migrations/0003_agent_artifact_sources_draft_repair.sql");
+const MIGRATION_0004_SQL: &str =
+    include_str!("../../migrations/0004_agent_manifest_provenance.sql");
+const MIGRATION_0005_SQL: &str =
+    include_str!("../../migrations/0005_agent_discovery_cache.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -30,6 +34,16 @@ const MIGRATIONS: &[Migration] = &[
         version: 3,
         name: "agent_artifact_sources_draft_repair",
         sql: MIGRATION_0003_SQL,
+    },
+    Migration {
+        version: 4,
+        name: "agent_manifest_provenance",
+        sql: MIGRATION_0004_SQL,
+    },
+    Migration {
+        version: 5,
+        name: "agent_discovery_cache",
+        sql: MIGRATION_0005_SQL,
     },
 ];
 
@@ -108,7 +122,9 @@ fn apply_migrations_transaction(
             && table_has_column(&transaction, "libraries", "canonical_root_key")?
             && table_has_column(&transaction, "agent_project_sources", "last_scan_status")?
             && table_has_column(&transaction, "agent_project_adapters", "external_scope_id")?;
-        if !already_has_final_agent_schema {
+        if migration.version == 4 {
+            apply_manifest_provenance_migration(&transaction)?;
+        } else if !already_has_final_agent_schema {
             transaction
                 .execute_batch(migration.sql)
                 .map_err(|_| AppError::DatabaseError)?;
@@ -126,6 +142,51 @@ fn apply_migrations_transaction(
     }
     verify_migrated_database(&transaction)?;
     transaction.commit().map_err(|_| AppError::DatabaseError)
+}
+
+fn apply_manifest_provenance_migration(transaction: &Transaction<'_>) -> Result<(), AppError> {
+    // One pre-release v2 draft omitted item_provenance entirely. Keep the
+    // published ALTER migration as the normal contract, while repairing that
+    // known draft before adding the v4 columns.
+    transaction
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS item_provenance (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               item_id INTEGER NOT NULL,
+               project_library_id INTEGER NOT NULL,
+               agent_kind TEXT NOT NULL,
+               skill_normalized_name TEXT,
+               skill_display_name TEXT,
+               evidence_kind TEXT NOT NULL,
+               run_reference_hash TEXT,
+               evidence_fingerprint TEXT NOT NULL,
+               generated_at TEXT,
+               created_at TEXT NOT NULL,
+               UNIQUE (item_id, project_library_id, evidence_fingerprint),
+               FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+               FOREIGN KEY (project_library_id) REFERENCES libraries(id) ON DELETE CASCADE
+             );
+             CREATE INDEX IF NOT EXISTS idx_item_provenance_project_library
+               ON item_provenance(project_library_id);",
+        )
+        .map_err(|_| AppError::DatabaseError)?;
+    for (table, column, sql_type) in [
+        ("artifact_candidate_evidence", "skill_normalized_name", "TEXT"),
+        ("artifact_candidate_evidence", "skill_display_name", "TEXT"),
+        ("artifact_candidate_evidence", "manifest_entry_id", "TEXT"),
+        ("artifact_candidate_evidence", "edit_contract", "TEXT"),
+        ("artifact_candidate_evidence", "save_policy", "TEXT"),
+        ("item_provenance", "manifest_entry_id", "TEXT"),
+        ("item_provenance", "edit_contract", "TEXT"),
+        ("item_provenance", "save_policy", "TEXT"),
+    ] {
+        if !table_has_column(transaction, table, column)? {
+            transaction
+                .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {sql_type};"))
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+    }
+    Ok(())
 }
 
 fn table_has_column(

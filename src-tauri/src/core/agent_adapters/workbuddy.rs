@@ -10,7 +10,6 @@ use crate::{
 
 const ADAPTER_ID: &str = "workbuddy";
 const ADAPTER_PROFILE: &str = "workbuddy-local-5.3";
-const VERIFIED_APP_VERSIONS: &[&str] = &["5.3.5", "5.3.8"];
 const CAPABILITY_SCOPES: &str = "scope-only";
 
 #[derive(Debug, Clone)]
@@ -24,7 +23,6 @@ enum DiscoveryFailure {
     NotInstalled,
     RootNotFound,
     Unreadable,
-    UnsupportedFormat,
 }
 
 impl WorkBuddyAdapter {
@@ -52,7 +50,7 @@ impl WorkBuddyAdapter {
                     adapter_profile: Some(ADAPTER_PROFILE.to_string()),
                     status: "ready".to_string(),
                     capability: CAPABILITY_SCOPES.to_string(),
-                    cli_version: Some(version),
+                    cli_version: version,
                     error_kind: None,
                     error_message: None,
                 }],
@@ -76,11 +74,6 @@ impl WorkBuddyAdapter {
                         "unreadable",
                         "The WorkBuddy task root could not be read.",
                     ),
-                    DiscoveryFailure::UnsupportedFormat => (
-                        "unsupported",
-                        "unsupported_format",
-                        "This WorkBuddy version or task layout is not supported yet.",
-                    ),
                 };
                 AgentScopeDiscoveryPayload {
                     installations: vec![AgentInstallation {
@@ -101,15 +94,11 @@ impl WorkBuddyAdapter {
 
     fn discover_scopes_internal(
         &self,
-    ) -> Result<(Vec<DiscoveredAgentScope>, String), DiscoveryFailure> {
+    ) -> Result<(Vec<DiscoveredAgentScope>, Option<String>), DiscoveryFailure> {
         if !self.app_path.is_dir() {
             return Err(DiscoveryFailure::NotInstalled);
         }
-        let version = read_bundle_version(&self.app_path)
-            .ok_or(DiscoveryFailure::UnsupportedFormat)?;
-        if !VERIFIED_APP_VERSIONS.contains(&version.as_str()) {
-            return Err(DiscoveryFailure::UnsupportedFormat);
-        }
+        let version = read_bundle_version(&self.app_path);
         if !self.task_root.exists() {
             return Err(DiscoveryFailure::RootNotFound);
         }
@@ -142,6 +131,20 @@ impl WorkBuddyAdapter {
                 .earliest()
                 .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
                 .unwrap_or_else(|| task_time.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true));
+            if has_local_manifest_marker(&canonical_date_directory) {
+                scopes.push(DiscoveredAgentScope {
+                    adapter_id: ADAPTER_ID.to_string(),
+                    adapter_profile: ADAPTER_PROFILE.to_string(),
+                    external_scope_id: format!("workbuddy:manifest-task:{name}"),
+                    scope_kind: "task".to_string(),
+                    root_path: canonical_date_directory.to_string_lossy().into_owned(),
+                    display_name: name,
+                    last_activity_at,
+                    capability: CAPABILITY_SCOPES.to_string(),
+                    source_record_count: 1,
+                });
+                continue;
+            }
             let task_entries = fs::read_dir(&canonical_date_directory)
                 .map_err(|_| DiscoveryFailure::Unreadable)?;
             for task_entry in task_entries {
@@ -154,7 +157,7 @@ impl WorkBuddyAdapter {
                 let Some(task_name) = task_entry.file_name().to_str().map(str::to_string) else {
                     continue;
                 };
-                if task_name == ".workbuddy" {
+                if task_name.starts_with('.') {
                     continue;
                 }
                 let canonical_scope = fs::canonicalize(task_entry.path())
@@ -183,6 +186,20 @@ impl WorkBuddyAdapter {
         });
         Ok((scopes, version))
     }
+}
+
+fn has_local_manifest_marker(date_directory: &Path) -> bool {
+    let metadata_directory = date_directory.join(".agent-outputs");
+    let Ok(metadata) = fs::symlink_metadata(&metadata_directory) else {
+        return false;
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return false;
+    }
+    let Ok(manifest) = fs::symlink_metadata(metadata_directory.join("manifest.json")) else {
+        return false;
+    };
+    !manifest.file_type().is_symlink() && manifest.is_file()
 }
 
 impl AgentWorkspaceAdapter for WorkBuddyAdapter {
@@ -256,6 +273,8 @@ mod tests {
             .expect("first task");
         fs::create_dir_all(root.join("2026-06-26-22-31-57/.workbuddy/memory"))
             .expect("internal metadata");
+        fs::create_dir_all(root.join("2026-06-26-22-31-57/.agent-outputs"))
+            .expect("agent output metadata");
         fs::create_dir_all(root.join("2026-07-17-10-41-23/codexquota"))
             .expect("second task");
         fs::write(
@@ -284,14 +303,17 @@ mod tests {
             .any(|scope| scope.external_scope_id.ends_with("2026-07-17-10-41-23:codexquota")
                 && scope.display_name == "codexquota"
                 && scope.root_path.ends_with("2026-07-17-10-41-23/codexquota")));
-        assert!(payload.scopes.iter().all(|scope| scope.display_name != ".workbuddy"));
+        assert!(payload
+            .scopes
+            .iter()
+            .all(|scope| !scope.display_name.starts_with('.')));
     }
 
     #[test]
-    fn workbuddy_adapter_accepts_current_verified_5_3_8_scope_format() {
+    fn workbuddy_adapter_uses_version_as_metadata_not_as_a_gate() {
         let directory = tempdir().expect("tempdir");
         let app = directory.path().join("WorkBuddy.app");
-        create_app(&app, "5.3.8");
+        create_app(&app, "5.3.11");
         let root = directory.path().join("Workbuddy");
         fs::create_dir_all(root.join("2026-07-17-10-41-23/codexquota"))
             .expect("current task shape");
@@ -299,11 +321,41 @@ mod tests {
         let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
 
         assert_eq!(payload.installations[0].status, "ready");
-        assert_eq!(payload.installations[0].cli_version.as_deref(), Some("5.3.8"));
+        assert_eq!(payload.installations[0].cli_version.as_deref(), Some("5.3.11"));
         assert_eq!(payload.scopes.len(), 1);
         assert_eq!(payload.scopes[0].scope_kind, "task");
         assert_eq!(payload.scopes[0].display_name, "codexquota");
         assert!(payload.scopes[0].root_path.ends_with("2026-07-17-10-41-23/codexquota"));
+    }
+
+    #[test]
+    fn workbuddy_adapter_uses_manifest_marked_date_directory_as_one_task_scope() {
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("WorkBuddy.app");
+        create_app(&app, "5.3.11");
+        let root = directory.path().join("Workbuddy");
+        let date_root = root.join("2026-08-02-21-02-36");
+        fs::create_dir_all(date_root.join(".agent-outputs")).expect("manifest directory");
+        fs::create_dir_all(date_root.join("output")).expect("output directory");
+        fs::write(date_root.join(".agent-outputs/manifest.json"), "{broken")
+            .expect("manifest marker");
+        fs::write(date_root.join("nbskill-intro.md"), "# nbskill").expect("root artifact");
+
+        let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
+
+        assert_eq!(payload.scopes.len(), 1);
+        assert_eq!(
+            payload.scopes[0].external_scope_id,
+            "workbuddy:manifest-task:2026-08-02-21-02-36"
+        );
+        assert_eq!(payload.scopes[0].display_name, "2026-08-02-21-02-36");
+        assert_eq!(payload.scopes[0].scope_kind, "task");
+        assert_eq!(
+            payload.scopes[0].root_path,
+            fs::canonicalize(date_root)
+                .expect("canonical date root")
+                .to_string_lossy()
+        );
     }
 
     #[test]
@@ -349,17 +401,48 @@ mod tests {
     }
 
     #[test]
-    fn workbuddy_adapter_rejects_unknown_version() {
+    fn workbuddy_adapter_accepts_new_versions_when_the_task_contract_still_matches() {
         let directory = tempdir().expect("tempdir");
         let app = directory.path().join("WorkBuddy.app");
         create_app(&app, "6.0.0");
         let root = directory.path().join("Workbuddy");
-        fs::create_dir_all(root.join("2026-06-26-22-31-57")).expect("task");
+        fs::create_dir_all(root.join("2026-06-26-22-31-57/task")).expect("task");
 
         let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
 
-        assert_eq!(payload.installations[0].status, "unsupported");
-        assert!(payload.scopes.is_empty());
+        assert_eq!(payload.installations[0].status, "ready");
+        assert_eq!(payload.installations[0].cli_version.as_deref(), Some("6.0.0"));
+        assert_eq!(payload.scopes.len(), 1);
+    }
+
+    #[test]
+    fn workbuddy_adapter_accepts_new_minor_versions_when_the_task_contract_still_matches() {
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("WorkBuddy.app");
+        create_app(&app, "5.4.0");
+        let root = directory.path().join("Workbuddy");
+        fs::create_dir_all(root.join("2026-06-26-22-31-57/task")).expect("task");
+
+        let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
+
+        assert_eq!(payload.installations[0].status, "ready");
+        assert_eq!(payload.installations[0].cli_version.as_deref(), Some("5.4.0"));
+        assert_eq!(payload.scopes.len(), 1);
+    }
+
+    #[test]
+    fn workbuddy_adapter_does_not_require_version_metadata_to_read_valid_tasks() {
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("WorkBuddy.app");
+        fs::create_dir_all(app.join("Contents")).expect("app contents");
+        let root = directory.path().join("Workbuddy");
+        fs::create_dir_all(root.join("2026-06-26-22-31-57/task")).expect("task");
+
+        let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
+
+        assert_eq!(payload.installations[0].status, "ready");
+        assert_eq!(payload.installations[0].cli_version, None);
+        assert_eq!(payload.scopes.len(), 1);
     }
 
     #[cfg(unix)]
@@ -399,5 +482,28 @@ mod tests {
         let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
 
         assert!(payload.scopes.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workbuddy_adapter_does_not_promote_a_symlinked_manifest_marker() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("WorkBuddy.app");
+        create_app(&app, "5.3.11");
+        let root = directory.path().join("Workbuddy");
+        let date_root = root.join("2026-08-02-21-02-36");
+        let outside = directory.path().join("outside-agent-outputs");
+        fs::create_dir_all(date_root.join("output")).expect("task folder");
+        fs::create_dir_all(&outside).expect("outside manifest directory");
+        fs::write(outside.join("manifest.json"), "{}").expect("outside manifest");
+        symlink(&outside, date_root.join(".agent-outputs")).expect("manifest symlink");
+
+        let payload = WorkBuddyAdapter::with_paths(app, root).discovery_payload();
+
+        assert_eq!(payload.scopes.len(), 1);
+        assert_eq!(payload.scopes[0].display_name, "output");
+        assert!(payload.scopes[0].root_path.ends_with("2026-08-02-21-02-36/output"));
     }
 }

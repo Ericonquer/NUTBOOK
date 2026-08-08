@@ -35,7 +35,8 @@
           "role": "asset"
         }
       ],
-      "savePolicy": "copy"
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
     },
     {
       "id": "editable-report-v1",
@@ -59,4 +60,3 @@
     }
   ]
 }
-

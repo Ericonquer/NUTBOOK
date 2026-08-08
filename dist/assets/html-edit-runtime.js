@@ -4,8 +4,8 @@
     "align-left", "align-center", "align-right", "unordered-list", "ordered-list"
   ]);
   const SHORT_FORMAT_COMMANDS = new Set(["bold", "italic", "align-left", "align-center", "align-right"]);
-  const ALLOWED_RICH_TAGS = new Set(["P", "BR", "STRONG", "EM", "H1", "H2", "H3", "H4", "UL", "OL", "LI"]);
-  const ALLOWED_SHORT_RICH_TAGS = new Set(["BR", "STRONG", "EM"]);
+  const ALLOWED_RICH_TAGS = new Set(["P", "BR", "STRONG", "EM", "CODE", "H1", "H2", "H3", "H4", "UL", "OL", "LI"]);
+  const ALLOWED_SHORT_RICH_TAGS = new Set(["BR", "STRONG", "EM", "CODE"]);
   const STATE = {
     sessionId: "", generation: 0, editing: false, dirty: false, selectedDataId: null,
     baseline: new Map(), changes: new Map(), savedSelection: null, formatState: emptyFormatState(), composing: false, pendingInlineMarks: new Map(),

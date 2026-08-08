@@ -92,6 +92,10 @@ pub struct HtmlEditPatchResponse {
     pub source_size: u64,
     pub patch_revision: u64,
     pub patch_apply_status: HtmlEditPatchApplyStatus,
+    /// False only when an Agent manifest owns this item but its current active
+    /// entry does not authorize the managed-source contract. The child runtime
+    /// protocol is probed separately and remains mandatory.
+    pub managed_source_allowed: bool,
     pub field_apply_results: BTreeMap<String, HtmlEditFieldApplyResult>,
     /// Ephemeral local-content-server URLs keyed by persisted asset-relative
     /// path.  This is deliberately outside `HtmlEditPatch`.
@@ -633,6 +637,7 @@ pub fn get_html_edit_patch_for_file(
         source_size,
         patch_revision,
         patch_apply_status,
+        managed_source_allowed: true,
         field_apply_results,
         runtime_asset_urls: BTreeMap::new(),
         patch,
@@ -1644,9 +1649,9 @@ fn validate_html_edit_asset_reference(
 
 fn rich_text_allowed_tags(role: &HtmlEditRole) -> &'static [&'static str] {
     match role {
-        HtmlEditRole::Short => &["br", "strong", "em"],
+        HtmlEditRole::Short => &["br", "strong", "em", "code"],
         HtmlEditRole::Content => &[
-            "p", "br", "strong", "em", "h1", "h2", "h3", "h4", "ul", "ol", "li",
+            "p", "br", "strong", "em", "code", "h1", "h2", "h3", "h4", "ul", "ol", "li",
         ],
         HtmlEditRole::Plain => &[],
     }

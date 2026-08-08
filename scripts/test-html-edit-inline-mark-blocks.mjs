@@ -62,6 +62,23 @@ try {
     }, command);
   }
   assert.equal(await page.locator('[data-id="article-body"] > :first-child').evaluate((node) => node.outerHTML), "<p>从想法到可交付体验</p>", "the real acceptance fixture heading must survive heading, paragraph, bold, and italic round trips without invalid wrapper blocks");
+
+  await page.setContent('<p data-editable="rich-text" data-edit-role="short" data-id="legacy-code">Run <code>nbskill</code> safely.</p>');
+  await page.addScriptTag({ content: runtime });
+  await page.evaluate(() => {
+    window.__TAURI_INTERNALS__ = { invoke: async () => true };
+    window.__NUTBOOK_HTML_EDIT__.enter({ runtimeSessionId: "legacy-inline-code", inlineToolbar: false, locale: "en-US", patch: { changes: {} } });
+  });
+  await page.evaluate(() => {
+    const field = document.querySelector('[data-id="legacy-code"]');
+    field.append(document.createTextNode(" Updated."));
+    field.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: " Updated.", bubbles: true }));
+  });
+  assert.equal(
+    await page.locator('[data-id="legacy-code"]').innerHTML(),
+    "Run <code>nbskill</code> safely. Updated.",
+    "editing an accepted v1 short rich-text field must preserve attribute-free inline code"
+  );
 } finally {
   await browser.close();
 }

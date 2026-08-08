@@ -3,6 +3,7 @@ pub mod artifact_candidate;
 pub mod html_edit;
 pub mod item;
 pub mod library;
+pub mod nbskill;
 pub mod skill;
 pub mod tag;
 pub mod update;
@@ -45,6 +46,7 @@ pub use item::{
     ToggleFavoriteRequest, WatchLibraryRequest, WatchLibraryResponse, ExportMarkdownRequest,
 };
 pub use library::Library;
+pub use nbskill::{NbskillAgentStatus, NbskillInstallPromptResponse, PrepareNbskillInstallPromptRequest};
 pub use skill::{
     BindLibrarySkillRequest, DiscoveredSkill, ExcludeSkillRequest, RestoreExcludedSkillRequest,
     SkillBindingSummary, SkillDiscoveryPayload,

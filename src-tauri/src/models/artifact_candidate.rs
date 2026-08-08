@@ -57,6 +57,11 @@ pub struct DiscoveryEvidence {
     pub event_id: String,
     pub run_reference_hash: Option<String>,
     pub observed_at: Option<String>,
+    pub skill_normalized_name: Option<String>,
+    pub skill_display_name: Option<String>,
+    pub manifest_entry_id: Option<String>,
+    pub edit_contract: Option<String>,
+    pub save_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

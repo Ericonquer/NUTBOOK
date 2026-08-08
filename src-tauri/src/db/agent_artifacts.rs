@@ -12,8 +12,8 @@ use crate::{
     errors::AppError,
     models::{
         AgentArtifactAcceptanceResult, AgentArtifactActionItem, AgentProjectAdapterBinding,
-        AgentProjectSourceSummary, ArtifactCandidate, DiscoveryEvidence, DiscoveryReasonKind,
-        RelatedArtifactFile,
+        AgentProjectSourceSummary, AgentScopeDiscoveryPayload, ArtifactCandidate,
+        DiscoveryEvidence, DiscoveryReasonKind, RelatedArtifactFile,
     },
 };
 
@@ -36,7 +36,82 @@ struct FileIdentity {
     len: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestHtmlEditDeclaration {
+    pub project_library_id: i64,
+    pub manifest_entry_id: String,
+    pub edit_contract: Option<String>,
+    pub save_policy: Option<String>,
+}
+
 impl Database {
+    pub fn save_agent_discovery_cache(
+        &self,
+        payload: &AgentScopeDiscoveryPayload,
+        discovered_at: &str,
+    ) -> Result<(), AppError> {
+        let payload_json = serde_json::to_string(payload).map_err(|_| AppError::DatabaseError)?;
+        let connection = self.connection()?;
+        connection
+            .execute(
+                "INSERT INTO agent_discovery_cache (id, payload_json, discovered_at)
+                 VALUES (1, ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET
+                   payload_json = excluded.payload_json,
+                   discovered_at = excluded.discovered_at",
+                params![payload_json, discovered_at],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(())
+    }
+
+    pub fn load_agent_discovery_cache(
+        &self,
+    ) -> Result<Option<AgentScopeDiscoveryPayload>, AppError> {
+        let connection = self.connection()?;
+        let payload_json = connection
+            .query_row(
+                "SELECT payload_json FROM agent_discovery_cache WHERE id = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        payload_json
+            .map(|payload| {
+                serde_json::from_str(&payload).map_err(|_| AppError::DatabaseError)
+            })
+            .transpose()
+    }
+
+    pub fn manifest_html_edit_declarations_for_item(
+        &self,
+        item_id: i64,
+    ) -> Result<Vec<ManifestHtmlEditDeclaration>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT DISTINCT project_library_id, manifest_entry_id,
+                        edit_contract, save_policy
+                 FROM item_provenance
+                 WHERE item_id = ?1 AND manifest_entry_id IS NOT NULL
+                 ORDER BY project_library_id, manifest_entry_id",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map(params![item_id], |row| {
+                Ok(ManifestHtmlEditDeclaration {
+                    project_library_id: row.get(0)?,
+                    manifest_entry_id: row.get(1)?,
+                    edit_contract: row.get(2)?,
+                    save_policy: row.get(3)?,
+                })
+            })
+            .map_err(|_| AppError::DatabaseError)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)
+    }
+
     pub fn known_artifact_paths_for_root(
         &self,
         root_path: &str,
@@ -290,6 +365,8 @@ impl Database {
                    libraries.name,
                    agent_project_sources.scope_kind,
                    agent_project_sources.discovery_mode,
+                   agent_project_sources.manifest_path,
+                   agent_project_sources.last_manifest_ok_at,
                    agent_project_sources.auto_import_mode,
                    agent_project_sources.last_scan_status,
                    agent_project_sources.last_scan_issue
@@ -306,9 +383,11 @@ impl Database {
                         display_name: row.get(2)?,
                         scope_kind: row.get(3)?,
                         discovery_mode: row.get(4)?,
-                        auto_import_mode: row.get(5)?,
-                        last_scan_status: row.get(6)?,
-                        last_scan_issue: row.get(7)?,
+                        manifest_path: row.get(5)?,
+                        last_manifest_ok_at: row.get(6)?,
+                        auto_import_mode: row.get(7)?,
+                        last_scan_status: row.get(8)?,
+                        last_scan_issue: row.get(9)?,
                         adapters: Vec::new(),
                     })
                 },
@@ -519,9 +598,13 @@ impl Database {
                     .execute(
                         "INSERT OR IGNORE INTO artifact_candidate_evidence (
                            candidate_id, evidence_fingerprint, agent_kind, reason_kind,
-                           event_id, run_reference_hash, observed_at
+                           event_id, run_reference_hash, observed_at,
+                           skill_normalized_name, skill_display_name,
+                           manifest_entry_id, edit_contract, save_policy
                          ) SELECT ?1, evidence_fingerprint, agent_kind, reason_kind,
-                                  event_id, run_reference_hash, observed_at
+                                  event_id, run_reference_hash, observed_at,
+                                  skill_normalized_name, skill_display_name,
+                                  manifest_entry_id, edit_contract, save_policy
                            FROM artifact_candidate_evidence WHERE candidate_id = ?2",
                         params![target_candidate_id, task_candidate_id],
                     )
@@ -632,11 +715,13 @@ impl Database {
                    item_id, project_library_id, agent_kind,
                    skill_normalized_name, skill_display_name,
                    evidence_kind, run_reference_hash, evidence_fingerprint,
-                   generated_at, created_at
+                   generated_at, created_at,
+                   manifest_entry_id, edit_contract, save_policy
                  ) SELECT item_id, ?1, agent_kind,
                           skill_normalized_name, skill_display_name,
                           evidence_kind, run_reference_hash, evidence_fingerprint,
-                          generated_at, created_at
+                          generated_at, created_at,
+                          manifest_entry_id, edit_contract, save_policy
                    FROM item_provenance WHERE project_library_id = ?2",
                 params![project_library_id, task_library_id],
             )
@@ -707,6 +792,27 @@ impl Database {
         Ok(())
     }
 
+    pub fn record_agent_project_manifest_success(
+        &self,
+        project_library_id: i64,
+        manifest_path: &str,
+        read_at: &str,
+    ) -> Result<(), AppError> {
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                "UPDATE agent_project_sources
+                 SET discovery_mode = 'hybrid', manifest_path = ?2, last_manifest_ok_at = ?3
+                 WHERE library_id = ?1",
+                params![project_library_id, manifest_path, read_at],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        if changed == 0 {
+            return Err(AppError::LibraryNotFound);
+        }
+        Ok(())
+    }
+
     pub fn candidate_ids_for_batches(
         &self,
         project_library_id: i64,
@@ -737,6 +843,31 @@ impl Database {
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| AppError::DatabaseError)
+    }
+
+    pub fn candidate_ids_for_manifest_registration(
+        &self,
+        project_library_id: i64,
+    ) -> Result<Vec<i64>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT DISTINCT artifact_candidates.id
+                 FROM artifact_candidates
+                 INNER JOIN artifact_candidate_evidence
+                   ON artifact_candidate_evidence.candidate_id = artifact_candidates.id
+                 WHERE artifact_candidates.project_library_id = ?1
+                   AND artifact_candidates.status = 'suggested'
+                   AND artifact_candidate_evidence.manifest_entry_id IS NOT NULL
+                 ORDER BY artifact_candidates.id",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let candidate_ids = statement
+            .query_map(params![project_library_id], |row| row.get::<_, i64>(0))
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(candidate_ids)
     }
 
     pub fn ignore_agent_artifact_candidate(
@@ -1075,19 +1206,25 @@ fn write_valid_candidates(
                        item_id, project_library_id, agent_kind,
                        skill_normalized_name, skill_display_name,
                        evidence_kind, run_reference_hash,
-                       evidence_fingerprint, generated_at, created_at
+                       evidence_fingerprint, generated_at, created_at,
+                       manifest_entry_id, edit_contract, save_policy
                      ) VALUES (
-                       ?1, ?2, ?3, NULL, NULL, ?4, ?5, ?6, ?7, ?8
+                       ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
                      )",
                     params![
                         item_id,
                         project.library_id,
                         evidence.agent_kind,
+                        evidence.skill_normalized_name,
+                        evidence.skill_display_name,
                         evidence.reason.as_str(),
                         evidence.run_reference_hash,
                         evidence.fingerprint,
                         evidence.observed_at,
                         now,
+                        evidence.manifest_entry_id,
+                        evidence.edit_contract,
+                        evidence.save_policy,
                     ],
                 )
                 .map_err(|_| AppError::DatabaseError)?;
@@ -1178,7 +1315,9 @@ pub(super) fn load_candidate(
         .prepare(
             "SELECT
                evidence_fingerprint, agent_kind, reason_kind, event_id,
-               run_reference_hash, observed_at
+               run_reference_hash, observed_at,
+               skill_normalized_name, skill_display_name,
+               manifest_entry_id, edit_contract, save_policy
              FROM artifact_candidate_evidence
              WHERE candidate_id = ?1
              ORDER BY evidence_fingerprint",
@@ -1195,6 +1334,11 @@ pub(super) fn load_candidate(
                 row.get::<_, String>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })
         .map_err(|_| AppError::DatabaseError)?
@@ -1202,7 +1346,7 @@ pub(super) fn load_candidate(
         .map_err(|_| AppError::DatabaseError)?
         .into_iter()
         .map(
-            |(fingerprint, agent_kind, reason, event_id, run_reference_hash, observed_at)| {
+            |(fingerprint, agent_kind, reason, event_id, run_reference_hash, observed_at, skill_normalized_name, skill_display_name, manifest_entry_id, edit_contract, save_policy)| {
                 Ok(DiscoveryEvidence {
                     fingerprint,
                     agent_kind,
@@ -1211,6 +1355,11 @@ pub(super) fn load_candidate(
                     event_id,
                     run_reference_hash,
                     observed_at,
+                    skill_normalized_name,
+                    skill_display_name,
+                    manifest_entry_id,
+                    edit_contract,
+                    save_policy,
                 })
             },
         )
@@ -1276,6 +1425,11 @@ fn candidate_provenance(candidate: &ArtifactCandidate) -> Vec<DiscoveryEvidence>
             ),
             run_reference_hash: None,
             observed_at: candidate.modified_at.clone(),
+            skill_normalized_name: None,
+            skill_display_name: None,
+            manifest_entry_id: None,
+            edit_contract: None,
+            save_policy: None,
         })
         .collect()
 }
@@ -1418,8 +1572,38 @@ mod tests {
                 event_id: format!("delivery-{fingerprint}"),
                 run_reference_hash: Some(format!("run-{fingerprint}")),
                 observed_at: Some("2026-07-30T08:00:00Z".to_string()),
+                skill_normalized_name: None,
+                skill_display_name: None,
+                manifest_entry_id: None,
+                edit_contract: None,
+                save_policy: None,
             }],
         }
+    }
+
+    #[test]
+    fn agent_discovery_cache_round_trips_the_last_scan_snapshot() {
+        let directory = tempdir().expect("tempdir");
+        let database = Database::new(directory.path().join("cache.sqlite3"))
+            .expect("database");
+        assert_eq!(
+            database.load_agent_discovery_cache().expect("empty cache"),
+            None
+        );
+
+        let payload = AgentScopeDiscoveryPayload {
+            installations: Vec::new(),
+            scopes: Vec::new(),
+            artifact_summaries: Vec::new(),
+        };
+        database
+            .save_agent_discovery_cache(&payload, "2026-08-08T00:00:00Z")
+            .expect("save discovery cache");
+
+        assert_eq!(
+            database.load_agent_discovery_cache().expect("load cache"),
+            Some(payload)
+        );
     }
 
     #[cfg(unix)]
@@ -2076,6 +2260,114 @@ mod tests {
             )
             .expect("accepted counts");
         assert_eq!(counts, (2, 2, 2));
+    }
+
+    #[test]
+    fn manifest_provenance_survives_candidate_acceptance() {
+        let directory = tempdir().expect("temporary directory");
+        let database = Database::new(directory.path().join("nutbook.sqlite3"))
+            .expect("database");
+        let project_root = directory.path().join("project");
+        fs::create_dir_all(&project_root).expect("project root");
+        let registered_path = project_root.join("registered.html");
+        fs::write(&registered_path, "<main data-editable>Report</main>")
+            .expect("registered artifact");
+        let canonical_registered = fs::canonicalize(&registered_path).expect("canonical artifact");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO libraries (
+                   name, root_path, canonical_root_key, source_kind, path_state,
+                   is_active, created_at, updated_at
+                 ) VALUES ('registered.html', ?1, ?1, 'file', 'valid', 1, 'now', 'now')",
+                params![canonical_registered.to_string_lossy()],
+            )
+            .expect("single-file library");
+        let file_library_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO items (
+                   library_id, file_path, relative_path, file_name, file_ext,
+                   file_type, file_size, modified_at, path_state, is_deleted,
+                   created_at, updated_at
+                 ) VALUES (?1, ?2, 'registered.html', 'registered.html', 'html',
+                           'html', 33, 'now', 'valid', 0, 'now', 'now')",
+                params![file_library_id, canonical_registered.to_string_lossy()],
+            )
+            .expect("single-file item");
+        let existing_item_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO item_sources (
+                   item_id, library_id, link_kind, is_owner, created_at
+                 ) VALUES (?1, ?2, 'legacy', 1, 'now')",
+                params![existing_item_id, file_library_id],
+            )
+            .expect("single-file source");
+        drop(connection);
+        let project = connected_project(&database, &project_root);
+        let mut registered = candidate(
+            project.library_id,
+            "registered.html",
+            "suggested",
+            "manifest:report-v1",
+            "manifest-report-v1",
+        );
+        registered.artifact_kind = "html".to_string();
+        registered.reasons = vec![DiscoveryReasonKind::NbskillRegistered];
+        let evidence = &mut registered.evidence[0];
+        evidence.reason = DiscoveryReasonKind::NbskillRegistered;
+        evidence.skill_normalized_name = Some("report-writer".to_string());
+        evidence.skill_display_name = Some("report-writer".to_string());
+        evidence.manifest_entry_id = Some("report-v1".to_string());
+        evidence.edit_contract = Some("nutbook-html/v1".to_string());
+        evidence.save_policy = Some("managed-source".to_string());
+        let stored = database
+            .upsert_artifact_candidates(project.library_id, &[registered], "now")
+            .expect("candidate");
+        database
+            .accept_agent_artifact_candidates(
+                project.library_id,
+                &[stored[0].id.expect("candidate id")],
+                "now",
+            )
+            .expect("accept candidate");
+
+        let connection = database.connection().expect("connection");
+        let provenance: (String, String, String, String) = connection
+            .query_row(
+                "SELECT skill_normalized_name, manifest_entry_id, edit_contract, save_policy
+                 FROM item_provenance WHERE project_library_id = ?1",
+                params![project.library_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("manifest provenance");
+        let item_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM items WHERE file_path = ?1",
+                params![canonical_registered.to_string_lossy()],
+                |row| row.get(0),
+            )
+            .expect("item count");
+        let manifest_link_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM item_sources
+                 WHERE item_id = ?1 AND library_id = ?2 AND link_kind = 'manifest'",
+                params![existing_item_id, project.library_id],
+                |row| row.get(0),
+            )
+            .expect("manifest source link");
+        assert_eq!(item_count, 1);
+        assert_eq!(manifest_link_count, 1);
+        assert_eq!(
+            provenance,
+            (
+                "report-writer".to_string(),
+                "report-v1".to_string(),
+                "nutbook-html/v1".to_string(),
+                "managed-source".to_string(),
+            )
+        );
     }
 
     #[test]

@@ -3537,6 +3537,10 @@
         padding-top: 18px;
       }
 
+      #settingsLibrariesSection .settings-subsection-card + .settings-subsection-card {
+        padding-top: 14px;
+      }
+
       .settings-subsection-card .settings-list.scrollable {
         padding-right: 0;
       }
@@ -3739,6 +3743,24 @@
         line-height: 1;
       }
 
+      .settings-modal .settings-skill-summary > .button-row > .button {
+        min-height: 30px;
+        height: 30px;
+        padding: 0 12px;
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .settings-modal .settings-skill-row > .button-row > .settings-skill-action.button {
+        min-height: 28px;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+      }
+
       .settings-inline-link {
         display: inline;
         width: fit-content;
@@ -3850,6 +3872,263 @@
 
       .agent-inline-feedback {
         color: #3d6f49;
+      }
+
+      .artifact-access-switchbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 42px;
+        padding: 3px 6px 3px 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.7);
+      }
+
+      .artifact-access-switchbar > .settings-section-switch {
+        width: auto;
+        min-height: 34px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        overflow: visible;
+      }
+
+      .artifact-access-switchbar > .settings-section-switch button {
+        flex: 0 0 auto;
+      }
+
+      .nbskill-agent-toolbar {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: auto;
+      }
+
+      .nbskill-enhancement-hint {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        width: 17px;
+        height: 17px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: #111;
+        color: #fff;
+        font: 700 11px/1 var(--font-ui);
+        cursor: help;
+      }
+
+      .nbskill-enhancement-hint:not([hidden]) {
+        animation: nbskill-enhancement-pulse 2.6s ease-in-out infinite;
+      }
+
+      @keyframes nbskill-enhancement-pulse {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(17, 17, 17, 0);
+          transform: scale(1);
+        }
+        50% {
+          box-shadow: 0 0 0 4px rgba(17, 17, 17, 0.12);
+          transform: scale(1.06);
+        }
+      }
+
+      .nbskill-enhancement-hint[hidden] {
+        display: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .nbskill-enhancement-hint:not([hidden]) {
+          animation: none;
+        }
+      }
+
+      .nbskill-enhancement-hint::after,
+      .nbskill-agent-button::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        z-index: 40;
+        left: 50%;
+        top: calc(100% + 7px);
+        width: max-content;
+        max-width: 260px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        background: #202024;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: normal;
+        text-align: left;
+        pointer-events: none;
+        opacity: 0;
+        transform: translate(-50%, -2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .nbskill-enhancement-hint:hover::after,
+      .nbskill-enhancement-hint:focus-visible::after,
+      .nbskill-agent-button:hover::after,
+      .nbskill-agent-button:focus-visible::after {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .nbskill-agent-strip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .nbskill-enhancement-label {
+        flex: 0 0 auto;
+        color: #5f5f66;
+        font-size: 10px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      #settingsDiscoverAgentsButton {
+        flex: 0 0 auto;
+        width: max-content;
+        white-space: nowrap;
+      }
+
+      .nbskill-agent-button {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 27px;
+        height: 26px;
+        padding: 0 5px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: #8a8a90;
+        cursor: pointer;
+        transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .nbskill-agent-button:hover,
+      .nbskill-agent-button:focus-visible {
+        background: rgba(20, 20, 20, 0.07);
+        color: #333339;
+      }
+
+      .nbskill-agent-button.compatible {
+        color: #202024;
+      }
+
+      .nbskill-agent-button img {
+        display: block;
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        filter: grayscale(1);
+        opacity: 0.42;
+        transition: filter 140ms ease, opacity 140ms ease;
+      }
+
+      .nbskill-agent-button.compatible img {
+        filter: none;
+        opacity: 1;
+      }
+
+      .nbskill-agent-button.selected {
+        background: #fff;
+        color: #111114;
+        box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.16), 0 1px 3px rgba(20, 20, 20, 0.08);
+      }
+
+      .nbskill-agent-button.stale {
+        outline: 1px dashed rgba(20, 20, 20, 0.34);
+        outline-offset: -2px;
+      }
+
+      .nbskill-action-buttons {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: 3px;
+        padding-left: 6px;
+        border-left: 1px solid rgba(20, 20, 20, 0.1);
+      }
+
+      .nbskill-icon-button {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: #68686f;
+        cursor: pointer;
+        transition: background-color 140ms ease, color 140ms ease;
+      }
+
+      .nbskill-icon-button:hover,
+      .nbskill-icon-button:focus-visible {
+        background: rgba(20, 20, 20, 0.07);
+        color: #17171a;
+      }
+
+      .nbskill-icon-button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .nbskill-icon-button::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        z-index: 30;
+        right: 0;
+        top: calc(100% + 7px);
+        width: max-content;
+        max-width: 260px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        background: #202024;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1.35;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(-2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .nbskill-icon-button:hover::after,
+      .nbskill-icon-button:focus-visible::after {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .nbskill-install-feedback {
+        color: #74747b;
+        font-size: 10px;
+        line-height: 1.4;
+        padding: 0 4px;
+      }
+
+      .nbskill-install-feedback:empty {
+        display: none;
       }
 
       .preference-list {
@@ -5198,25 +5477,41 @@
           <button class="settings-tab" type="button" data-settings-tab="thumbnails">缩略图</button>
         </div>
           <section id="settingsSkillsSection" class="settings-section">
-            <div class="settings-section-switch" role="tablist" aria-label="产物接入内容">
-              <button class="active" type="button" data-settings-artifact-section="projects">项目产物接入</button>
-              <button type="button" data-settings-artifact-section="skills">skill 产物接入</button>
+            <div class="artifact-access-switchbar">
+              <div class="settings-section-switch" role="tablist" aria-label="产物接入内容" data-i18n-aria-label="settings.artifactAccessSections">
+                <button class="active" type="button" data-settings-artifact-section="projects">项目产物接入</button>
+                <button type="button" data-settings-artifact-section="skills">skill 产物接入</button>
+              </div>
+              <div class="nbskill-agent-toolbar" aria-label="NBskill 增强接入" data-i18n-aria-label="settings.nbskillEnhancementAria">
+                <button id="settingsNbskillEnhancementHint" class="nbskill-enhancement-hint" type="button" aria-label="安装 nbskill 可增强产物识别，并让支持协议的 HTML 原生可编辑。" data-i18n-aria-label="settings.nbskillEnhancementHint" data-tooltip="安装 nbskill 可增强产物识别，并让支持协议的 HTML 原生可编辑。">!</button>
+                <span class="nbskill-enhancement-label" data-i18n-key="settings.nbskillEnhancement">NBskill 增强接入：</span>
+                <div id="settingsNbskillAgentStrip" class="nbskill-agent-strip" role="radiogroup" aria-label="nbskill Agent"></div>
+                <div class="nbskill-action-buttons">
+                  <button id="settingsRefreshNbskillStatusButton" class="nbskill-icon-button" type="button" aria-label="重新检测 nbskill" data-i18n-aria-label="actions.refreshNbskill" data-tooltip="重新检测 nbskill">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.8 6.8A6.5 6.5 0 1 0 16 13"/><path d="M15.8 3.5v3.8h-3.8"/></svg>
+                  </button>
+                  <button id="settingsCopyNbskillPromptButton" class="nbskill-icon-button" type="button" aria-label="复制安装提示" data-i18n-aria-label="actions.copyNbskillInstallPrompt" data-tooltip="复制安装提示">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.5"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
+            <div id="settingsNbskillInstallFeedback" class="nbskill-install-feedback" role="status"></div>
             <div id="settingsProjectArtifactsSubsection" class="settings-subsection settings-subsection-card">
               <div class="settings-header">
-                <div>
-                  <h3 class="settings-section-title" data-i18n-key="settings.projectArtifacts">项目产物接入</h3>
-                  <div class="settings-row-meta" data-i18n-key="settings.projectArtifactsDescription">读取已验证的 Codex 项目记录与 WorkBuddy 任务范围，不进行全盘扫描；确认接入前不会导入任何文件。</div>
-                </div>
+                <h3 class="settings-section-title" data-i18n-key="settings.projectArtifacts">项目产物接入</h3>
                 <button
                   id="settingsDiscoverAgentsButton"
                   class="button button-primary button-small"
                   type="button"
                   aria-label="发现项目产物"
                   title="发现项目产物"
+                  data-i18n-aria-label="actions.discoverProjectArtifacts"
+                  data-i18n-title="actions.discoverProjectArtifacts"
                   data-i18n-key="actions.discoverProjects"
                 >发现项目</button>
               </div>
+              <div class="settings-row-meta" data-i18n-key="settings.projectArtifactsDescription">发现并接入由本机 Agent 生成的项目产物，确认前不会导入任何文件。</div>
               <div id="settingsAgentProjectList" class="settings-list"></div>
             </div>
             <div id="settingsSkillArtifactsSubsection" class="settings-subsection settings-subsection-card">
@@ -5228,18 +5523,18 @@
             </div>
           </section>
           <section id="settingsLibrariesSection" class="settings-section">
-            <div class="settings-section-switch" role="tablist" aria-label="文件管理内容">
-              <button class="active" type="button" data-settings-library-section="folders">文件夹来源</button>
-              <button type="button" data-settings-library-section="files">单文件来源</button>
-              <button type="button" data-settings-library-section="projects">项目来源</button>
-              <button type="button" data-settings-library-section="removed">已移除</button>
+            <div class="settings-section-switch" role="tablist" aria-label="文件管理内容" data-i18n-aria-label="settings.fileManagementSections">
+              <button class="active" type="button" data-settings-library-section="folders" data-i18n-key="settings.sourceFolders">文件夹来源</button>
+              <button type="button" data-settings-library-section="files" data-i18n-key="settings.sourceFiles">单文件来源</button>
+              <button type="button" data-settings-library-section="projects" data-i18n-key="settings.sourceProjects">项目来源</button>
+              <button type="button" data-settings-library-section="removed" data-i18n-key="settings.removed">已移除</button>
             </div>
             <div class="settings-subsection settings-subsection-card">
               <div class="settings-header settings-header-compact">
-                <h3 class="settings-section-title">文件来源</h3>
+                <h3 class="settings-section-title" data-i18n-key="settings.fileSources">文件来源</h3>
                 <div class="settings-tools">
-                  <input id="settingsSourceSearchInput" class="input" placeholder="搜索来源或路径..." />
-                  <button id="settingsSourceSortButton" class="icon-button" type="button" aria-label="排序来源">
+                  <input id="settingsSourceSearchInput" class="input" placeholder="搜索来源或路径..." data-i18n-placeholder="settings.sourceSearchPlaceholder" />
+                  <button id="settingsSourceSortButton" class="icon-button" type="button" aria-label="排序来源" data-i18n-aria-label="actions.sortSources">
                     <span class="material-symbols-outlined">filter_list</span>
                   </button>
                   <div id="settingsSourceSortMenu" class="popover-menu" aria-hidden="true"></div>
@@ -5249,7 +5544,7 @@
             </div>
             <div class="settings-subsection settings-subsection-card">
               <div class="settings-header">
-                <h3 class="settings-section-title">已移除文件</h3>
+                <h3 class="settings-section-title" data-i18n-key="settings.removedFiles">已移除文件</h3>
               </div>
               <div id="settingsIgnoredList" class="settings-list scrollable"></div>
             </div>
@@ -5278,8 +5573,8 @@
               <h3 class="settings-section-title">缩略图引擎</h3>
               <div class="button-row">
                 <button id="settingsRefreshThumbnailStatusButton" class="button button-primary" type="button">检测引擎</button>
-                <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" title="只重新生成当前列表中看得见的文件缩略图">重建可见文件</button>
-                <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" title="重新生成当前资料库内所有文档缩略图">重建资料库</button>
+                <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" title="只重新生成当前列表中看得见的文件缩略图" data-i18n-title="actions.rebuildVisibleThumbnailsTitle">重建可见文件</button>
+                <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" title="重新生成当前资料库内所有文档缩略图" data-i18n-title="actions.rebuildLibraryThumbnailsTitle">重建资料库</button>
               </div>
               </div>
             <div id="settingsThumbnailStatus" class="settings-kv scrollable"></div>
@@ -5410,6 +5705,11 @@
         settingsIgnoredSelection: new Set(),
         settingsSkillSelection: new Set(),
         settingsSkillRefreshFeedback: "",
+        nbskillAgentStatuses: [],
+        nbskillStatusLoading: false,
+        nbskillStatusesStale: false,
+        selectedNbskillAgentId: "codex",
+        nbskillInstallFeedback: "",
         documentTagAnchorLeft: null,
         documentTagMenuCloseTimer: null,
         settingsCollapsedGroups: {
@@ -5452,6 +5752,8 @@
         isAboutOpen: false,
         agentDiscoveryStep: "intro",
         agentDiscoveryPayload: null,
+        agentDiscoveryCacheLoaded: false,
+        agentDiscoveryCacheLoading: false,
         settingsArtifactView: "list",
         agentArtifactPreview: null,
         agentArtifactPreviewByScope: new Map(),
@@ -5588,6 +5890,11 @@
         settingsLibraryList: document.getElementById("settingsLibraryList"),
         settingsIgnoredList: document.getElementById("settingsIgnoredList"),
         settingsAgentProjectList: document.getElementById("settingsAgentProjectList"),
+        settingsNbskillEnhancementHint: document.getElementById("settingsNbskillEnhancementHint"),
+        settingsNbskillAgentStrip: document.getElementById("settingsNbskillAgentStrip"),
+        settingsRefreshNbskillStatusButton: document.getElementById("settingsRefreshNbskillStatusButton"),
+        settingsCopyNbskillPromptButton: document.getElementById("settingsCopyNbskillPromptButton"),
+        settingsNbskillInstallFeedback: document.getElementById("settingsNbskillInstallFeedback"),
         settingsSkillList: document.getElementById("settingsSkillList"),
         settingsNewTagName: document.getElementById("settingsNewTagName"),
         settingsCreateTagButton: document.getElementById("settingsCreateTagButton"),
@@ -7128,9 +7435,10 @@
         const tab = getOpenTab(itemId);
         if (!tab || getActiveTab()?.id !== itemId) return;
         const probeId = `html-edit-probe-${itemId}-${Date.now()}`;
+        const access = await invoke("get_html_edit_patch", { itemId });
         await invoke("eval_html_runtime_script_command", {
           itemId,
-          script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},hasProtocol:Boolean(document.querySelector('[data-editable]'))});`
+          script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},managedSourceAllowed:${access.managedSourceAllowed !== false},hasProtocol:Boolean(document.querySelector('[data-editable]'))});`
         });
       }
 
@@ -7998,7 +8306,7 @@
             itemId,
             script: "if(window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__!==undefined){document.title=window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__;delete window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__;}"
           }).catch(() => false);
-          if (data.hasProtocol) enterHtmlEditMode(itemId).catch((error) => console.warn("[html-edit] protocol entry failed", normalizeError(error)));
+          if (data.hasProtocol && data.managedSourceAllowed !== false) enterHtmlEditMode(itemId).catch((error) => console.warn("[html-edit] protocol entry failed", normalizeError(error)));
           else showHtmlEditCreateCopyConfirmOverlay(itemId).catch((error) => {
             console.warn("[html-edit] create-copy prompt failed", normalizeError(error));
           });
@@ -9080,13 +9388,13 @@
       }
 
       function commandVariants(command, args = {}) {
-        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "discover_agent_projects" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
+        if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_cached_agent_projects" || command === "discover_agent_projects" || command === "get_nbskill_agent_status" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "ignore_agent_artifact" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "ignore_agent_artifact" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "prepare_nbskill_install_prompt" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -9445,6 +9753,12 @@
         appState.isSettingsOpen = true;
         renderSettingsMenu();
         renderSettingsPanel();
+        if (tab === "skills") {
+          loadNbskillAgentStatuses().catch(() => {});
+          if (appState.settingsArtifactSection === "projects") {
+            restoreCachedAgentProjectsInSettings().catch(() => {});
+          }
+        }
       }
 
       let hostSettingsOverlayCloseTimer = null;
@@ -9547,10 +9861,10 @@
           inspect: "查看本机范围",
           cancel: "取消",
           loading: "正在读取本机项目并生成只读接入概况…",
-          ready: "已识别 Codex",
-          notFound: "未找到可读取的 Codex 项目索引",
-          unavailable: "Codex 项目索引暂时无法读取",
-          unsupported: "当前 Codex 元数据版本尚未支持",
+          ready: "已识别",
+          notFound: "未找到可读取的本机记录",
+          unavailable: "本机记录暂时无法读取",
+          unsupported: "当前版本或本机记录格式尚未支持",
           projectOnly: "仅项目发现",
           verifiedEvents: "项目发现与已验证事件",
           projects: "发现的项目",
@@ -9566,6 +9880,8 @@
           suggested: "建议接入",
           pending: "备选",
           indexed: "已接入",
+          manifestStatus: "nbskill manifest v1",
+          manifestLastRead: "最后成功读取 {time}",
           excluded: "不会接入",
           acceptSuggested: "接入建议的 {count} 个文件",
           noSuggestions: "当前没有建议直接接入的文件",
@@ -9627,10 +9943,10 @@
           inspect: "View Local Scopes",
           cancel: "Cancel",
           loading: "Reading local projects and preparing a read-only connection summary…",
-          ready: "Codex detected",
-          notFound: "No readable Codex project index was found",
-          unavailable: "The Codex project index is currently unavailable",
-          unsupported: "This Codex metadata version is not supported yet",
+          ready: "Detected",
+          notFound: "No readable local records were found",
+          unavailable: "Local records are currently unavailable",
+          unsupported: "This version or local record format is not supported yet",
           projectOnly: "Project discovery only",
           verifiedEvents: "Projects and verified events",
           projects: "Discovered projects",
@@ -9646,6 +9962,8 @@
           suggested: "Recommended",
           pending: "Optional",
           indexed: "Connected",
+          manifestStatus: "nbskill manifest v1",
+          manifestLastRead: "Last read successfully {time}",
           excluded: "Will not be connected",
           acceptSuggested: "Connect {count} Recommended Files",
           noSuggestions: "No files are currently recommended for direct connection",
@@ -9705,11 +10023,216 @@
         return AGENT_DISCOVERY_CONTENT[appState.language] || AGENT_DISCOVERY_CONTENT["zh-CN"];
       }
 
+      const NBSKILL_AGENT_ICONS = {
+        openclaw: "assets/agent-icons/openclaw.png",
+        hermes: "assets/agent-icons/hermes.png",
+        "claude-code": "assets/agent-icons/claude-code.png",
+        codex: "assets/agent-icons/codex.png",
+        workbuddy: "assets/agent-icons/workbuddy.png"
+      };
+
+      const NBSKILL_STATUS_CONTENT = {
+        "zh-CN": {
+          loading: "正在检测五类 Agent 的 nbskill…",
+          refresh: "重新检测",
+          copy: "复制 {agent} 安装提示",
+          copied: "已复制 {agent} 安装提示；NUTBOOK 未修改目标 Agent。",
+          loadFailed: "检测失败；保留上次结果。",
+          copyFailed: "生成安装提示失败：{error}",
+          clipboardFallback: "剪贴板不可用；已打开可手动复制的完整提示。",
+          stale: "上次结果，重新检测失败",
+          missing: "未安装；普通项目扫描仍可用",
+          outdated: "版本过旧（{installed} → {expected}）",
+          compatibleVerified: "已安装 {version}，自检通过",
+          compatibleUnverified: "包兼容；目标 Agent 运行环境未验证",
+          corrupt: "安装包不完整或版本不受支持",
+          unreadable: "安装路径不可读取"
+        },
+        "en-US": {
+          loading: "Detecting nbskill for five Agents…",
+          refresh: "Detect Again",
+          copy: "Copy {agent} Install Prompt",
+          copied: "Copied the {agent} install prompt; NUTBOOK did not modify the target Agent.",
+          loadFailed: "Detection failed; keeping the last result.",
+          copyFailed: "Could not prepare the install prompt: {error}",
+          clipboardFallback: "Clipboard unavailable; opened the full prompt for manual copying.",
+          stale: "Last-known result; re-detection failed",
+          missing: "Not installed; ordinary project discovery still works",
+          outdated: "Outdated ({installed} → {expected})",
+          compatibleVerified: "Installed {version}; self-test passed",
+          compatibleUnverified: "Package compatible; target Agent runtime unverified",
+          corrupt: "Package is incomplete or its version is unsupported",
+          unreadable: "Install path is unreadable"
+        }
+      };
+
+      function currentNbskillStatusContent() {
+        return NBSKILL_STATUS_CONTENT[appState.language] || NBSKILL_STATUS_CONTENT["zh-CN"];
+      }
+
+      function formatNbskillText(template, values = {}) {
+        return Object.entries(values).reduce(
+          (text, [key, value]) => text.replaceAll(`{${key}}`, String(value ?? "")),
+          template
+        );
+      }
+
+      function nbskillStatusDetail(status) {
+        const content = currentNbskillStatusContent();
+        if (!status) return content.loading;
+        if (status.packageStatus === "compatible" && status.runtimeStatus === "verified") {
+          return formatNbskillText(content.compatibleVerified, { version: status.installedVersion || status.expectedVersion });
+        }
+        if (status.packageStatus === "compatible") return content.compatibleUnverified;
+        if (status.packageStatus === "outdated") {
+          return formatNbskillText(content.outdated, {
+            installed: status.installedVersion || "?",
+            expected: status.expectedVersion
+          });
+        }
+        return content[status.packageStatus] || status.detail || content.corrupt;
+      }
+
+      function renderNbskillAgentToolbar() {
+        if (!els.settingsNbskillAgentStrip) return;
+        const content = currentNbskillStatusContent();
+        const fallbackAgents = [
+          { agentId: "openclaw", displayName: "OpenClaw", packageStatus: "missing", runtimeStatus: "unverified" },
+          { agentId: "hermes", displayName: "Hermes", packageStatus: "missing", runtimeStatus: "unverified" },
+          { agentId: "claude-code", displayName: "Claude Code", packageStatus: "missing", runtimeStatus: "unverified" },
+          { agentId: "codex", displayName: "Codex", packageStatus: "missing", runtimeStatus: "unverified" },
+          { agentId: "workbuddy", displayName: "WorkBuddy", packageStatus: "missing", runtimeStatus: "unverified" }
+        ];
+        const statuses = appState.nbskillAgentStatuses.length ? appState.nbskillAgentStatuses : fallbackAgents;
+        if (!statuses.some((status) => status.agentId === appState.selectedNbskillAgentId)) {
+          appState.selectedNbskillAgentId = statuses[0]?.agentId || "codex";
+        }
+        els.settingsNbskillAgentStrip.innerHTML = statuses.map((status) => {
+          const selected = status.agentId === appState.selectedNbskillAgentId;
+          const detail = `${status.displayName}：${nbskillStatusDetail(status)}${appState.nbskillStatusesStale ? `；${content.stale}` : ""}`;
+          return `<button
+            class="nbskill-agent-button ${status.packageStatus === "compatible" ? "compatible" : ""} ${status.runtimeStatus === "verified" ? "runtime-verified" : ""} ${appState.nbskillStatusesStale ? "stale" : ""} ${selected ? "selected" : ""}"
+            type="button"
+            role="radio"
+            aria-checked="${selected}"
+            tabindex="${selected ? "0" : "-1"}"
+            aria-label="${escapeAttribute(detail)}"
+            data-tooltip="${escapeAttribute(detail)}"
+            data-nbskill-agent-id="${escapeAttribute(status.agentId)}"
+          ><img src="${escapeAttribute(NBSKILL_AGENT_ICONS[status.agentId])}" alt="" /></button>`;
+        }).join("");
+        els.settingsNbskillAgentStrip.querySelectorAll("[data-nbskill-agent-id]").forEach((button) => {
+          button.addEventListener("click", () => {
+            appState.selectedNbskillAgentId = button.dataset.nbskillAgentId;
+            appState.nbskillInstallFeedback = "";
+            renderNbskillAgentToolbar();
+          });
+          button.addEventListener("keydown", (event) => {
+            if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+            event.preventDefault();
+            const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+            const currentIndex = statuses.findIndex((status) => status.agentId === button.dataset.nbskillAgentId);
+            const next = statuses[(currentIndex + direction + statuses.length) % statuses.length];
+            appState.selectedNbskillAgentId = next.agentId;
+            appState.nbskillInstallFeedback = "";
+            renderNbskillAgentToolbar();
+            els.settingsNbskillAgentStrip.querySelector(`[data-nbskill-agent-id="${next.agentId}"]`)?.focus();
+          });
+        });
+        const selected = statuses.find((status) => status.agentId === appState.selectedNbskillAgentId);
+        if (els.settingsNbskillEnhancementHint) {
+          const enhancementHint = t("settings.nbskillEnhancementHint");
+          const hasInstalledNbskill = statuses.some((status) => Boolean(status.installedVersion));
+          els.settingsNbskillEnhancementHint.hidden = hasInstalledNbskill;
+          els.settingsNbskillEnhancementHint.setAttribute("aria-label", enhancementHint);
+          els.settingsNbskillEnhancementHint.dataset.tooltip = enhancementHint;
+        }
+        if (els.settingsRefreshNbskillStatusButton) {
+          els.settingsRefreshNbskillStatusButton.setAttribute("aria-label", content.refresh);
+          els.settingsRefreshNbskillStatusButton.dataset.tooltip = content.refresh;
+          els.settingsRefreshNbskillStatusButton.disabled = appState.nbskillStatusLoading;
+        }
+        if (els.settingsCopyNbskillPromptButton) {
+          const copyLabel = formatNbskillText(content.copy, { agent: selected?.displayName || "Agent" });
+          els.settingsCopyNbskillPromptButton.setAttribute("aria-label", copyLabel);
+          els.settingsCopyNbskillPromptButton.dataset.tooltip = copyLabel;
+          els.settingsCopyNbskillPromptButton.disabled = appState.nbskillStatusLoading || !selected;
+        }
+        if (els.settingsNbskillInstallFeedback) {
+          els.settingsNbskillInstallFeedback.textContent = appState.nbskillInstallFeedback || (appState.nbskillStatusLoading ? content.loading : "");
+        }
+      }
+
+      async function loadNbskillAgentStatuses() {
+        if (appState.nbskillStatusLoading) return;
+        appState.nbskillStatusLoading = true;
+        appState.nbskillInstallFeedback = "";
+        renderNbskillAgentToolbar();
+        try {
+          const statuses = await invoke("get_nbskill_agent_status");
+          if (!Array.isArray(statuses) || statuses.length !== 5) throw new Error("invalid Agent status response");
+          appState.nbskillAgentStatuses = statuses;
+          appState.nbskillStatusesStale = false;
+        } catch (error) {
+          appState.nbskillStatusesStale = appState.nbskillAgentStatuses.length > 0;
+          appState.nbskillInstallFeedback = currentNbskillStatusContent().loadFailed;
+        } finally {
+          appState.nbskillStatusLoading = false;
+          renderNbskillAgentToolbar();
+        }
+      }
+
+      async function copySelectedNbskillInstallPrompt() {
+        const selected = appState.nbskillAgentStatuses.find((status) => status.agentId === appState.selectedNbskillAgentId);
+        if (!selected) return;
+        appState.nbskillStatusLoading = true;
+        appState.nbskillInstallFeedback = "";
+        renderNbskillAgentToolbar();
+        let response = null;
+        try {
+          response = await invoke("prepare_nbskill_install_prompt", { agentId: selected.agentId });
+          if (response.copied) {
+            appState.nbskillInstallFeedback = formatNbskillText(currentNbskillStatusContent().copied, { agent: selected.displayName });
+          } else {
+            window.prompt(currentNbskillStatusContent().clipboardFallback, response.prompt);
+            appState.nbskillInstallFeedback = currentNbskillStatusContent().clipboardFallback;
+          }
+        } catch (error) {
+          if (response?.prompt) {
+            window.prompt(currentNbskillStatusContent().clipboardFallback, response.prompt);
+            appState.nbskillInstallFeedback = currentNbskillStatusContent().clipboardFallback;
+          } else {
+            appState.nbskillInstallFeedback = formatNbskillText(currentNbskillStatusContent().copyFailed, { error: normalizeError(error) });
+          }
+        } finally {
+          appState.nbskillStatusLoading = false;
+          renderNbskillAgentToolbar();
+        }
+      }
+
       function agentInstallationLabel(installation, content) {
         if (installation?.status === "ready") return content.ready;
         if (installation?.status === "not-found") return content.notFound;
         if (installation?.status === "unsupported") return content.unsupported;
         return content.unavailable;
+      }
+
+      async function restoreCachedAgentProjectsInSettings() {
+        if (appState.agentDiscoveryCacheLoaded || appState.agentDiscoveryCacheLoading) return;
+        appState.agentDiscoveryCacheLoading = true;
+        try {
+          const cachedPayload = await invoke("get_cached_agent_projects");
+          if (cachedPayload) {
+            appState.agentDiscoveryPayload = cachedPayload;
+            appState.agentDiscoveryStep = "results";
+          }
+          appState.agentDiscoveryCacheLoaded = true;
+        } catch (error) {
+          appState.agentDiscoveryError = normalizeError(error);
+        } finally {
+          appState.agentDiscoveryCacheLoading = false;
+          renderSettingsPanel();
+        }
       }
 
       async function loadAgentProjectsInSettings() {
@@ -9721,11 +10244,13 @@
         appState.agentDiscoveryFeedback = null;
         appState.agentDiscoveryStep = "loading";
         appState.agentDiscoveryError = "";
+        const previousPayload = appState.agentDiscoveryPayload;
         renderSettingsPanel();
         try {
           appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+          appState.agentDiscoveryCacheLoaded = true;
         } catch (error) {
-          appState.agentDiscoveryPayload = null;
+          appState.agentDiscoveryPayload = previousPayload;
           appState.agentDiscoveryError = normalizeError(error);
         }
         appState.agentDiscoveryStep = "results";
@@ -9769,15 +10294,15 @@
               projectLibraryId: appState.agentArtifactPreview.project.libraryId,
               batchKeys
             });
-            await loadLibraries();
-            await loadItems();
-            appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
             appState.agentArtifactPreviewByScope.delete(scopeKey);
             appState.agentDiscoveryFeedback = {
               scopeKey,
               message: currentAgentDiscoveryContent().accepted.replace("{count}", appState.agentDiscoveryActionResult.accepted.length)
             };
           }
+          await loadLibraries();
+          await loadItems();
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
         } catch (error) {
           appState.agentDiscoveryError = normalizeError(error);
         }
@@ -9913,12 +10438,13 @@
         await loadTags();
         await loadIgnoredItems();
         await loadDiscoveredArtifactSkills();
+        if (tab === "skills") await loadNbskillAgentStatuses();
         if (appState.systemChromeThumbnailEnabled) {
           await invoke("set_system_chrome_thumbnail_enabled", { enabled: true });
         }
         await loadThumbnailBackendStatus();
-        if (tab === "skills" && appState.settingsArtifactSection === "projects" && appState.agentDiscoveryPayload) {
-          await loadAgentProjectsInSettings();
+        if (tab === "skills" && appState.settingsArtifactSection === "projects") {
+          await restoreCachedAgentProjectsInSettings();
         }
         renderSettingsPanel();
       }
@@ -10123,7 +10649,12 @@
             scanIssue: summary?.scanIssue || ""
           });
         });
-        return [...groups.values()];
+        return [...groups.values()].filter((group) =>
+          group.scanPartial
+          || group.suggestedCount > 0
+          || group.pendingCount > 0
+          || group.alreadyIndexedPaths.length > 0
+        );
       }
 
       function agentArtifactBadge(candidate, content) {
@@ -10142,6 +10673,14 @@
         ];
         const reason = priority.find((key) => reasons.includes(key));
         return content.badge[reason] || content.badge.supported_extension_only;
+      }
+
+      function agentArtifactSkillName(candidate) {
+        const evidence = (candidate?.evidence || []).find((entry) =>
+          entry?.reason === "nbskill_registered"
+          && (entry.skillDisplayName || entry.skillNormalizedName)
+        );
+        return evidence?.skillDisplayName || evidence?.skillNormalizedName || "";
       }
 
       function renderAgentScopeInlineDetail(group, content) {
@@ -10165,16 +10704,20 @@
         const renderSection = (status, total) => {
           const sectionCandidates = candidates.filter((candidate) => candidate.status === status);
           const heading = status === "suggested" ? content.suggested : content.pending;
-          const rows = sectionCandidates.map((candidate) => `
-            <div class="agent-inline-file">
-              <span class="agent-inline-path">${escapeHtml(candidate.primaryPath)}</span>
-              <span class="agent-reason-badge">${escapeHtml(agentArtifactBadge(candidate, content))}</span>
-              <span class="agent-inline-actions">
-                <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="accept" aria-label="${escapeAttribute(content.acceptFile)}">${escapeHtml(content.acceptFile)}</button>
-                <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="ignore" aria-label="${escapeAttribute(content.ignoreFile)}">${escapeHtml(content.ignoreFile)}</button>
-              </span>
-            </div>
-          `).join("");
+          const rows = sectionCandidates.map((candidate) => {
+            const skillName = agentArtifactSkillName(candidate);
+            return `
+              <div class="agent-inline-file">
+                <span class="agent-inline-path">${escapeHtml(candidate.primaryPath)}</span>
+                <span class="agent-reason-badge">${escapeHtml(agentArtifactBadge(candidate, content))}</span>
+                ${skillName ? `<span class="source-kind-badge">${escapeHtml(skillName)}</span>` : ""}
+                <span class="agent-inline-actions">
+                  <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="accept" aria-label="${escapeAttribute(content.acceptFile)}">${escapeHtml(content.acceptFile)}</button>
+                  <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="ignore" aria-label="${escapeAttribute(content.ignoreFile)}">${escapeHtml(content.ignoreFile)}</button>
+                </span>
+              </div>
+            `;
+          }).join("");
           const remaining = Math.max(0, Number(total || 0) - sectionCandidates.length);
           return `
             <section class="agent-inline-section">
@@ -10184,14 +10727,24 @@
             </section>
           `;
         };
-        const indexedPaths = [...new Set(group.alreadyIndexedPaths || [])];
+        const indexedArtifacts = preview.indexedArtifacts || [];
+        const indexedSkillByPath = new Map(indexedArtifacts.map((candidate) => [
+          candidate.primaryPath,
+          agentArtifactSkillName(candidate)
+        ]));
+        const indexedPaths = [...new Set([
+          ...(group.alreadyIndexedPaths || []),
+          ...indexedArtifacts.map((candidate) => candidate.primaryPath)
+        ])];
         const indexedRows = indexedPaths.map((path) => `
           <div class="agent-inline-file">
             <span class="agent-inline-path">${escapeHtml(path)}</span>
+            ${indexedSkillByPath.get(path) ? `<span class="source-kind-badge">${escapeHtml(indexedSkillByPath.get(path))}</span>` : ""}
           </div>
         `).join("");
         return `
           <div class="agent-scope-inline-detail">
+            ${preview.project?.manifestPath ? `<div class="agent-inline-feedback">${escapeHtml(content.manifestStatus)} · ${escapeHtml(content.manifestLastRead.replace("{time}", formatTimestamp(preview.project.lastManifestOkAt)))}</div>` : ""}
             ${renderSection("suggested", preview.suggestedCount)}
             ${renderSection("pending", preview.pendingCount)}
             <section class="agent-inline-section">
@@ -10220,7 +10773,7 @@
           : "";
         const groups = groupedAgentScopesForSettings();
         if (!groups.length) {
-          return `${issueMarkup}${errorMarkup}<div class="settings-empty">${escapeHtml(appState.agentDiscoveryPayload ? content.noProjects : "点击“发现项目”只读扫描本机项目与任务。")}</div>`;
+          return `${issueMarkup}${errorMarkup}<div class="settings-empty">${escapeHtml(appState.agentDiscoveryPayload ? content.noProjects : t("settings.projectDiscoveryHint"))}</div>`;
         }
         return issueMarkup + errorMarkup + groups.map((group) => {
           const kindLabel = group.scopeKind === "task" ? content.task : content.project;
@@ -10290,6 +10843,9 @@
           if (artifactButton) {
             appState.settingsArtifactSection = artifactButton.dataset.settingsArtifactSection || "projects";
             renderSettingsPanel();
+            if (appState.settingsArtifactSection === "projects") {
+              restoreCachedAgentProjectsInSettings().catch(() => {});
+            }
             return;
           }
           const libraryButton = event.target.closest("[data-settings-library-section]");
@@ -10304,6 +10860,7 @@
         els.settingsScrim.classList.toggle("open", appState.isSettingsOpen);
         if (!appState.isSettingsOpen) return;
         bindSettingsSectionSwitchesOnce();
+        renderNbskillAgentToolbar();
         if (els.settingsDiscoverAgentsButton) {
           const discoverProjectsLabel = t("actions.discoverProjects");
           els.settingsDiscoverAgentsButton.textContent = discoverProjectsLabel;
@@ -10380,16 +10937,16 @@
                 <div class="settings-row-copy">
                   <div class="settings-row-copy-top">
                     <div class="settings-row-title">${escapeHtml(library.name)}</div>
-                    <span class="source-kind-badge">${library.sourceKind === "agent_project" ? "项目来源" : (library.sourceKind === "file" ? t("settings.singleFile") : t("settings.folder"))}</span>
+                    <span class="source-kind-badge">${library.sourceKind === "agent_project" ? t("settings.sourceProjects") : (library.sourceKind === "file" ? t("settings.singleFile") : t("settings.folder"))}</span>
                     ${library.skillBinding ? `<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>` : ""}
-                    ${library.pathState === "missing" ? `<span class="source-kind-badge">路径失效</span>` : ""}
+                    ${library.pathState === "missing" ? `<span class="source-kind-badge">${t("settings.pathMissing")}</span>` : ""}
                   </div>
                   <div class="settings-row-meta settings-row-path">${escapeHtml(library.rootPath)}</div>
                 </div>
                 <div class="button-row">
                   ${library.sourceKind === "agent_project"
-                    ? `<button class="button button-secondary" type="button" data-settings-open-artifact-access="projects">查看产物接入</button>`
-                    : `<button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.pathState === "missing" ? "修正路径" : (library.sourceKind === "file" ? t("actions.index") : t("actions.scan"))}</button>`}
+                    ? `<button class="button button-secondary" type="button" data-settings-open-artifact-access="projects">${t("actions.viewArtifactAccess")}</button>`
+                    : `<button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.pathState === "missing" ? t("actions.repairPath") : (library.sourceKind === "file" ? t("actions.index") : t("actions.scan"))}</button>`}
                   <button class="button button-ghost" type="button" data-settings-delete-library="${library.id}">${t("actions.remove")}</button>
                 </div>
               </div>
@@ -10399,7 +10956,7 @@
         const libraryGroups = {
           folders: renderSettingsGroup({
             key: "folders",
-            title: "文件夹来源",
+            title: t("settings.sourceFolders"),
             count: countText(folderLibraries.length),
             bodyHtml: `
               <div class="settings-header">
@@ -10413,7 +10970,7 @@
           }),
           files: renderSettingsGroup({
             key: "files",
-            title: "单文件来源",
+            title: t("settings.sourceFiles"),
             count: countText(fileLibraries.length),
             bodyHtml: `
               <div class="settings-header">
@@ -10427,11 +10984,11 @@
           }),
           projects: renderSettingsGroup({
             key: "projects",
-            title: "项目来源",
+            title: t("settings.sourceProjects"),
             count: countText(projectLibraries.length),
             bodyHtml: `
               <div class="settings-header">
-                <div class="muted">管理已从项目产物接入的来源；发现和候选确认仍在“产物接入”。</div>
+                <div class="muted">${t("settings.sourceProjectsDescription")}</div>
               </div>
               ${renderLibraryRows(projectLibraries)}
             `
@@ -10468,7 +11025,7 @@
 
         els.settingsIgnoredList.innerHTML = renderSettingsGroup({
           key: "ignored",
-          title: "已移除文件",
+          title: t("settings.removedFiles"),
           count: countText(filteredIgnoredItems.length),
           bodyHtml: ignoredBody
         });
@@ -10519,8 +11076,8 @@
                     </div>
                     <div class="button-row">
                       ${options.allowRestore
-                        ? `<button class="button button-secondary button-small" type="button" data-settings-restore-skill="${escapeAttribute(skill.normalizedName)}">${t("actions.restoreVisible")}</button>`
-                        : `<button class="button ${skill.status === "connected" ? "button-secondary" : "button-primary"} button-small" type="button" data-settings-attach-skill-output="${escapeAttribute(skill.outputPath || "")}" data-settings-attach-skill-name="${escapeAttribute(skill.name)}" data-settings-attach-skill-normalized="${escapeAttribute(skill.normalizedName)}" data-settings-attach-skill-root="${escapeAttribute(skill.skillRootPath || "")}" data-settings-attach-skill-mode="${escapeAttribute(skill.status || "manual")}" ${skill.status === "connected" ? "disabled" : ""}>${skillButtonLabel(skill)}</button>`}
+                        ? `<button class="button button-secondary button-small settings-skill-action" type="button" data-settings-restore-skill="${escapeAttribute(skill.normalizedName)}">${t("actions.restoreVisible")}</button>`
+                        : `<button class="button ${skill.status === "connected" ? "button-secondary" : "button-primary"} button-small settings-skill-action" type="button" data-settings-attach-skill-output="${escapeAttribute(skill.outputPath || "")}" data-settings-attach-skill-name="${escapeAttribute(skill.name)}" data-settings-attach-skill-normalized="${escapeAttribute(skill.normalizedName)}" data-settings-attach-skill-root="${escapeAttribute(skill.skillRootPath || "")}" data-settings-attach-skill-mode="${escapeAttribute(skill.status || "manual")}" ${skill.status === "connected" ? "disabled" : ""}>${skillButtonLabel(skill)}</button>`}
                     </div>
                   </div>
                 `).join("")}
@@ -10543,7 +11100,7 @@
           </div>
           ${renderSettingsGroup({
             key: "skillReady",
-            title: "已接入 / 可接入",
+            title: t("settings.connectedOrReady"),
             count: countText(connectedOrReadySkills.length),
             bodyHtml: renderSkillRows(connectedOrReadySkills, {
               allowSelection: true,
@@ -10552,7 +11109,7 @@
           })}
           ${renderSettingsGroup({
             key: "skillManual",
-            title: "待手动接入",
+            title: t("settings.manualSkill"),
             count: countText(manualSkills.length),
             bodyHtml: renderSkillRows(manualSkills, {
               allowSelection: true,
@@ -10561,7 +11118,7 @@
           })}
           ${renderSettingsGroup({
             key: "skillExcluded",
-            title: "已排除",
+            title: t("settings.excludedSkill"),
             count: countText(excludedSkills.length),
             bodyHtml: renderSkillRows(excludedSkills, { allowRestore: true, emptyLabel: t("settings.noSkillExcluded") })
           })}
@@ -10572,7 +11129,7 @@
               ${appState.tags.map((tag) => `
                 <div class="settings-tag-pill">
                   <div class="settings-row-title">${escapeHtml(tag.name)}</div>
-                  <button class="settings-tag-remove" type="button" data-settings-delete-tag="${tag.id}" aria-label="删除标签">×</button>
+                  <button class="settings-tag-remove" type="button" data-settings-delete-tag="${tag.id}" aria-label="${t("actions.deleteTag")}">×</button>
                 </div>
               `).join("")}
             </div>`
@@ -10593,22 +11150,22 @@
           </div>
           <div class="preference-row">
             <div class="preference-copy">
-              <div class="preference-title">代码块主题</div>
-              <div class="preference-desc">控制 Markdown 预览和编辑态里的代码块外观。</div>
+              <div class="preference-title">${t("settings.codeBlockTheme")}</div>
+              <div class="preference-desc">${t("settings.codeBlockThemeDescription")}</div>
             </div>
             <label class="preference-control">
               <select id="settingsCodeBlockThemeSelect" class="preference-select">
-                <option value="dark" ${appState.markdownPreferences.codeBlockTheme === "dark" ? "selected" : ""}>深色代码块</option>
-                <option value="light" ${appState.markdownPreferences.codeBlockTheme === "light" ? "selected" : ""}>浅色代码块</option>
+                <option value="dark" ${appState.markdownPreferences.codeBlockTheme === "dark" ? "selected" : ""}>${t("settings.darkCodeBlock")}</option>
+                <option value="light" ${appState.markdownPreferences.codeBlockTheme === "light" ? "selected" : ""}>${t("settings.lightCodeBlock")}</option>
               </select>
             </label>
           </div>
           <div class="preference-row">
             <div class="preference-copy">
-              <div class="preference-title">文档大纲导航</div>
-              <div class="preference-desc">根据 Markdown 标题生成左侧导航，适合快速跳转长文档结构。</div>
+              <div class="preference-title">${t("settings.outline")}</div>
+              <div class="preference-desc">${t("settings.outlineDescription")}</div>
             </div>
-            <button class="preference-toggle ${appState.markdownPreferences.outlineEnabled ? "active" : ""}" type="button" data-preference-toggle="outlineEnabled" aria-label="切换文档大纲导航"></button>
+            <button class="preference-toggle ${appState.markdownPreferences.outlineEnabled ? "active" : ""}" type="button" data-preference-toggle="outlineEnabled" aria-label="${t("settings.toggleOutline")}"></button>
           </div>
           <div class="preference-row">
             <div class="preference-copy">
@@ -10780,9 +11337,9 @@
               }
               appState.settingsSkillSelection.clear();
               await loadDiscoveredArtifactSkills();
-              setStatus("已批量排除所选 Skill", "ok");
+              setStatus(t("status.skillsBulkExcluded"), "ok");
             } catch (error) {
-              setStatus(`批量排除 Skill 失败：${normalizeError(error)}`, "error");
+              setStatus(statusError("status.skillsBulkExcludeFailedPrefix", error), "error");
             }
           });
         });
@@ -10793,9 +11350,9 @@
                 normalizedName: node.dataset.settingsRestoreSkill
               });
               await loadDiscoveredArtifactSkills();
-              setStatus("已恢复 Skill 显示", "ok");
+              setStatus(t("status.skillRestored"), "ok");
             } catch (error) {
-              setStatus(`恢复 Skill 失败：${normalizeError(error)}`, "error");
+              setStatus(statusError("status.skillRestoreFailedPrefix", error), "error");
             }
           });
         });
@@ -10842,6 +11399,20 @@
 
       async function invokeMock(command, args = {}) {
         if (command === "list_libraries") return structuredClone(mockData.libraries);
+        if (command === "get_cached_agent_projects") return null;
+        if (command === "get_nbskill_agent_status") {
+          return [
+            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", installedVersion: "1.3.1", expectedVersion: "1.3.1", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
+            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", installedVersion: null, expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null },
+            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", installedVersion: null, expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null },
+            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", installedVersion: "1.3.0", expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null },
+            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", installedVersion: "1.3.0", expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null }
+          ];
+        }
+        if (command === "prepare_nbskill_install_prompt") {
+          const agentId = args.agentId || args.payload?.agentId || "codex";
+          return { agentId, stagingPath: "/mock/nbskill-staging/1.3.1", targetPath: `/mock/.${agentId}/skills/nbskill`, prompt: `Install nbskill for ${agentId}`, copied: true };
+        }
         if (command === "discover_agent_projects") {
           return {
             installations: [
@@ -14280,6 +14851,9 @@
           if (!document.hidden) {
             scheduleRuntimeHostSync();
             refreshHtmlEditSectionNavigation();
+            if (appState.isSettingsOpen && appState.settingsTab === "skills") {
+              loadNbskillAgentStatuses().catch(() => {});
+            }
           }
         });
         window.addEventListener("resize", () => {
@@ -14453,6 +15027,8 @@
           openSettingsTab("thumbnails");
         });
         els.settingsDiscoverAgentsButton?.addEventListener("click", loadAgentProjectsInSettings);
+        els.settingsRefreshNbskillStatusButton?.addEventListener("click", loadNbskillAgentStatuses);
+        els.settingsCopyNbskillPromptButton?.addEventListener("click", copySelectedNbskillInstallPrompt);
         els.settingsSourceSortButton?.addEventListener("click", (event) => {
           event.stopPropagation();
           appState.isSettingsSourceSortMenuOpen = !appState.isSettingsSourceSortMenuOpen;

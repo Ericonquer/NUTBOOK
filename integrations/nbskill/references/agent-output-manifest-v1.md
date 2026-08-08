@@ -27,14 +27,19 @@ the whole manifest without changing the last successful Nutbook index.
   the first character must be alphanumeric.
 - `path`: POSIX path relative to the project root.
 - `state`: `active`, `superseded`, or `removed`.
-- `skill.name`: normalized source Skill name. `skill.version` is optional.
+- `skill.name`: normalized name of the Skill that produced or transformed the
+  artifact. The nbskill registrar is transport and must not replace the real
+  producer name merely because it wrote the manifest. `skill.version` is
+  optional.
 - `kind`: one of `document`, `report`, `presentation`, or `interactive`.
 - `title`: optional user-facing title, at most 200 characters.
 - `generatedAt`: optional RFC 3339 timestamp reported by the producer. It does
   not override filesystem existence, size, or modification time.
 - `relatedFiles`: optional resources belonging to the primary artifact.
-- `editContract`: optional; v1 only accepts `nutbook-html/v1`.
-- `savePolicy`: optional `copy` or `managed-source`.
+- `editContract`: required as `nutbook-html/v1` for every active HTML entry;
+  omitted for Markdown and legacy non-active HTML entries.
+- `savePolicy`: required as `managed-source` for every active HTML entry;
+  omitted for Markdown and legacy non-active HTML entries.
 - `supersededBy`: required only when `state` is `superseded`.
 
 ## Path rules
@@ -73,18 +78,24 @@ may refer to a file that no longer exists.
 
 ## Edit and save rules
 
-`savePolicy: "managed-source"` is valid only with
-`editContract: "nutbook-html/v1"` and an HTML primary path. Nutbook must still
-probe the file's real HTML contract, acquire its normal session/path lease, and
-check the source hash before saving.
+Every active HTML entry requires `editContract: "nutbook-html/v1"` and
+`savePolicy: "managed-source"`. The registrar supplies these fields and rejects
+HTML whose visible content is only partially covered by editable targets.
+It also rejects rich-text descendants that Nutbook would strip or normalize,
+so layout-bearing HTML cannot pass by wrapping a large container in rich-text.
+Nutbook must still probe the real HTML contract, acquire its normal
+session/path lease, and check the source hash before saving.
 
-`savePolicy: "copy"` or an omitted save policy never authorizes overwriting an
-ordinary HTML source. Nutbook keeps using its editable-copy path.
+Ordinary HTML that needs copy-save behavior is discovered without an nbskill
+manifest entry and remains on Nutbook's editable-copy path.
 
 ## Write boundary
 
-The manifest is a shared project file. Once Task 6 exists, the registrar is the
-only supported writer. It must lock, merge, validate, write a sibling temporary
-file, sync/close it, atomically rename it, and validate the final file. Git
-merges and direct Agent-authored JSON are not concurrency control.
-
+The manifest is a shared project file. The bundled registrar and supersede
+scripts are the only supported writers. They lock, merge, structurally
+validate, write a sibling temporary file, sync/close it, atomically rename it,
+and validate the final structure. Every new or updated HTML entry receives the
+current strict edit-contract validation before it can be written. A legacy
+active HTML compatibility failure remains visible to `validate.mjs` but cannot
+make the manifest structure unreadable or block its scripted supersede path.
+Git merges and direct Agent-authored JSON are not concurrency control.

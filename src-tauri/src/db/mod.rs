@@ -815,8 +815,10 @@ impl Database {
                     .execute(
                         "INSERT OR IGNORE INTO artifact_candidate_evidence (
                            candidate_id, evidence_fingerprint, agent_kind,
-                           reason_kind, event_id, run_reference_hash, observed_at
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                           reason_kind, event_id, run_reference_hash, observed_at,
+                           skill_normalized_name, skill_display_name,
+                           manifest_entry_id, edit_contract, save_policy
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         params![
                             candidate_id,
                             evidence.fingerprint,
@@ -825,6 +827,11 @@ impl Database {
                             evidence.event_id,
                             evidence.run_reference_hash,
                             evidence.observed_at,
+                            evidence.skill_normalized_name,
+                            evidence.skill_display_name,
+                            evidence.manifest_entry_id,
+                            evidence.edit_contract,
+                            evidence.save_policy,
                         ],
                     )
                     .map_err(|_| AppError::DatabaseError)?;
@@ -946,6 +953,41 @@ impl Database {
             .map_err(|_| AppError::DatabaseError)?;
         let mut candidates = Vec::new();
         for (candidate_id, _batch_key, _status) in rows {
+            if let Some(candidate) = crate::db::agent_artifacts::load_candidate(
+                &connection,
+                project_library_id,
+                candidate_id,
+            )? {
+                candidates.push(candidate);
+            }
+        }
+        Ok(candidates)
+    }
+
+    pub fn list_indexed_manifest_artifacts(
+        &self,
+        project_library_id: i64,
+    ) -> Result<Vec<ArtifactCandidate>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT DISTINCT artifact_candidates.id
+                 FROM artifact_candidates
+                 INNER JOIN artifact_candidate_evidence
+                   ON artifact_candidate_evidence.candidate_id = artifact_candidates.id
+                 WHERE artifact_candidates.project_library_id = ?1
+                   AND artifact_candidates.status = 'accepted'
+                   AND artifact_candidate_evidence.manifest_entry_id IS NOT NULL
+                 ORDER BY artifact_candidates.primary_path",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let candidate_ids = statement
+            .query_map(params![project_library_id], |row| row.get::<_, i64>(0))
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        let mut candidates = Vec::new();
+        for candidate_id in candidate_ids {
             if let Some(candidate) = crate::db::agent_artifacts::load_candidate(
                 &connection,
                 project_library_id,
@@ -2555,7 +2597,10 @@ mod tests {
             .expect("version rows")
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
-        assert_eq!(versions, vec![1, 2, migrations::LATEST_SCHEMA_VERSION]);
+        assert_eq!(
+            versions,
+            (1..=migrations::LATEST_SCHEMA_VERSION).collect::<Vec<_>>()
+        );
 
         let preserved: (i64, String, i64) = connection
             .query_row(
@@ -2823,7 +2868,10 @@ mod tests {
             .expect("version rows")
             .collect::<Result<Vec<_>, _>>()
             .expect("version list");
-        assert_eq!(versions, vec![1, 2, 3]);
+        assert_eq!(
+            versions,
+            (1..=migrations::LATEST_SCHEMA_VERSION).collect::<Vec<_>>()
+        );
         drop(connection);
 
         let backup_connection = Connection::open(&backup).expect("repair backup");
@@ -2934,6 +2982,11 @@ mod tests {
                     event_id: "delivery-1".to_string(),
                     run_reference_hash: Some("run-hash-1".to_string()),
                     observed_at: Some("2026-07-30T06:03:00Z".to_string()),
+                    skill_normalized_name: None,
+                    skill_display_name: None,
+                    manifest_entry_id: None,
+                    edit_contract: None,
+                    save_policy: None,
                 },
                 DiscoveryEvidence {
                     fingerprint: "evidence-run-2".to_string(),
@@ -2942,6 +2995,11 @@ mod tests {
                     event_id: "delivery-2".to_string(),
                     run_reference_hash: Some("run-hash-2".to_string()),
                     observed_at: Some("2026-07-30T07:03:00Z".to_string()),
+                    skill_normalized_name: None,
+                    skill_display_name: None,
+                    manifest_entry_id: None,
+                    edit_contract: None,
+                    save_policy: None,
                 },
             ],
         };
