@@ -64,8 +64,8 @@
     },
     {
       "path": "templates/manifest.json",
-      "sha256": "dc8be5e0175b5858c182ecaf09056a8d87e5296b2a24e0a36e1eb7196d2e56ce",
-      "bytes": 582
+      "sha256": "e987f8657e27a83451d608dfd22d61b9cafe13c76756813d7d802d8d956df975",
+      "bytes": 581
     },
     {
       "path": "VERSION",

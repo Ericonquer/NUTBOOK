@@ -1,9 +1,10 @@
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{env, fs, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use chrono::{Local, NaiveDateTime, SecondsFormat, TimeZone};
+use rusqlite::{Connection, OpenFlags};
 
 use crate::{
-    core::agent_adapters::AgentWorkspaceAdapter,
+    core::agent_adapters::{cwd_scopes::scopes_from_cwds, AgentWorkspaceAdapter},
     errors::AppError,
     models::{AgentArtifactEvent, AgentInstallation, AgentScopeDiscoveryPayload, DiscoveredAgentScope},
 };
@@ -16,6 +17,7 @@ const CAPABILITY_SCOPES: &str = "scope-only";
 pub struct WorkBuddyAdapter {
     app_path: PathBuf,
     task_root: PathBuf,
+    database_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -34,12 +36,21 @@ impl WorkBuddyAdapter {
         let task_root = env::var_os("WORKBUDDY_TASK_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join("Workbuddy"));
-        Self { app_path, task_root }
+        let database_path = env::var_os("WORKBUDDY_DATABASE_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".workbuddy/workbuddy.db"));
+        Self { app_path, task_root, database_path }
     }
 
     #[cfg(test)]
     fn with_paths(app_path: PathBuf, task_root: PathBuf) -> Self {
-        Self { app_path, task_root }
+        let database_path = task_root.parent().unwrap_or(Path::new(".")).join("workbuddy.db");
+        Self { app_path, task_root, database_path }
+    }
+
+    #[cfg(test)]
+    fn with_paths_and_database(app_path: PathBuf, task_root: PathBuf, database_path: PathBuf) -> Self {
+        Self { app_path, task_root, database_path }
     }
 
     pub fn discovery_payload(&self) -> AgentScopeDiscoveryPayload {
@@ -99,15 +110,51 @@ impl WorkBuddyAdapter {
             return Err(DiscoveryFailure::NotInstalled);
         }
         let version = read_bundle_version(&self.app_path);
-        if !self.task_root.exists() {
-            return Err(DiscoveryFailure::RootNotFound);
-        }
-        let canonical_root = fs::canonicalize(&self.task_root)
+        let canonical_root = self.task_root.exists().then(|| fs::canonicalize(&self.task_root)).transpose()
             .map_err(|_| DiscoveryFailure::Unreadable)?;
-        if !canonical_root.is_dir() {
+        let mut scopes = self.discover_project_scopes(canonical_root.as_deref())?;
+        if let Some(canonical_root) = canonical_root.as_deref() {
+            scopes.extend(self.discover_task_scopes(canonical_root)?);
+        } else if scopes.is_empty() {
             return Err(DiscoveryFailure::RootNotFound);
         }
-        let entries = fs::read_dir(&canonical_root).map_err(|_| DiscoveryFailure::Unreadable)?;
+        scopes.sort_by(|left, right| {
+            right.last_activity_at.cmp(&left.last_activity_at).then_with(|| left.root_path.cmp(&right.root_path))
+        });
+        Ok((scopes, version))
+    }
+
+    fn discover_project_scopes(&self, task_root: Option<&Path>) -> Result<Vec<DiscoveredAgentScope>, DiscoveryFailure> {
+        if !self.database_path.is_file() {
+            return Ok(Vec::new());
+        }
+        let connection = Connection::open_with_flags(
+            &self.database_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ).map_err(|_| DiscoveryFailure::Unreadable)?;
+        let mut records = Vec::new();
+        for query in [
+            "SELECT cwd, updated_at FROM sessions WHERE deleted_at IS NULL AND cwd <> ''",
+            "SELECT path, last_opened_at FROM workspaces WHERE path <> ''",
+        ] {
+            let mut statement = connection.prepare(query).map_err(|_| DiscoveryFailure::Unreadable)?;
+            let rows = statement.query_map([], |row| {
+                let path: String = row.get(0)?;
+                let timestamp: i64 = row.get(1)?;
+                Ok((path, milliseconds_to_system_time(timestamp)))
+            }).map_err(|_| DiscoveryFailure::Unreadable)?;
+            for row in rows {
+                let (path, timestamp) = row.map_err(|_| DiscoveryFailure::Unreadable)?;
+                if task_root.is_some_and(|root| is_date_task_path(root, Path::new(&path))) { continue; }
+                records.push((path, timestamp));
+            }
+        }
+        Ok(scopes_from_cwds(ADAPTER_ID, ADAPTER_PROFILE, records))
+    }
+
+    fn discover_task_scopes(&self, canonical_root: &Path) -> Result<Vec<DiscoveredAgentScope>, DiscoveryFailure> {
+        if !canonical_root.is_dir() { return Err(DiscoveryFailure::RootNotFound); }
+        let entries = fs::read_dir(canonical_root).map_err(|_| DiscoveryFailure::Unreadable)?;
         let mut scopes = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|_| DiscoveryFailure::Unreadable)?;
@@ -123,7 +170,7 @@ impl WorkBuddyAdapter {
             };
             let canonical_date_directory = fs::canonicalize(entry.path())
                 .map_err(|_| DiscoveryFailure::Unreadable)?;
-            if canonical_date_directory.parent() != Some(canonical_root.as_path()) {
+            if canonical_date_directory.parent() != Some(canonical_root) {
                 continue;
             }
             let last_activity_at = Local
@@ -178,14 +225,19 @@ impl WorkBuddyAdapter {
                 });
             }
         }
-        scopes.sort_by(|left, right| {
-            right
-                .last_activity_at
-                .cmp(&left.last_activity_at)
-                .then_with(|| left.root_path.cmp(&right.root_path))
-        });
-        Ok((scopes, version))
+        Ok(scopes)
     }
+}
+
+fn milliseconds_to_system_time(timestamp: i64) -> SystemTime {
+    UNIX_EPOCH.checked_add(Duration::from_millis(timestamp.max(0) as u64)).unwrap_or(UNIX_EPOCH)
+}
+
+fn is_date_task_path(task_root: &Path, path: &Path) -> bool {
+    let Ok(canonical_path) = fs::canonicalize(path) else { return false; };
+    let Ok(relative) = canonical_path.strip_prefix(task_root) else { return false; };
+    relative.components().count() == 1
+        && relative.file_name().and_then(|name| name.to_str()).and_then(parse_task_directory_name).is_some()
 }
 
 fn has_local_manifest_marker(date_directory: &Path) -> bool {
@@ -247,6 +299,7 @@ fn read_bundle_version(app_path: &Path) -> Option<String> {
 mod tests {
     use std::{fs, path::Path};
 
+    use rusqlite::Connection;
     use serde_json::Value;
     use tempfile::tempdir;
 
@@ -307,6 +360,62 @@ mod tests {
             .scopes
             .iter()
             .all(|scope| !scope.display_name.starts_with('.')));
+    }
+
+    #[test]
+    fn workbuddy_adapter_discovers_real_projects_from_its_session_database() {
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("WorkBuddy.app");
+        create_app(&app, "5.3.11");
+        let task_root = directory.path().join("Workbuddy");
+        let date_task = task_root.join("2026-08-02-21-02-36");
+        fs::create_dir_all(date_task.join(".agent-outputs")).expect("date task");
+        fs::write(date_task.join(".agent-outputs/manifest.json"), "{}").expect("task marker");
+        let project = directory.path().join("real-project");
+        fs::create_dir(&project).expect("real project");
+        let project_path = project.to_string_lossy().into_owned();
+        let date_task_path = date_task.to_string_lossy().into_owned();
+        let canonical_project_path = fs::canonicalize(&project)
+            .expect("canonical project")
+            .to_string_lossy()
+            .into_owned();
+        let database = directory.path().join("workbuddy.db");
+        let connection = Connection::open(&database).expect("database");
+        connection.execute_batch(
+            "CREATE TABLE sessions (cwd TEXT NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);\
+             CREATE TABLE workspaces (path TEXT PRIMARY KEY, last_opened_at INTEGER NOT NULL);",
+        ).expect("schema");
+        connection.execute(
+            "INSERT INTO sessions (cwd, updated_at, deleted_at) VALUES (?1, ?2, NULL)",
+            (&project_path, 1_786_178_716_485_i64),
+        ).expect("project session");
+        connection.execute(
+            "INSERT INTO sessions (cwd, updated_at, deleted_at) VALUES (?1, ?2, NULL)",
+            (&project_path, 1_786_178_800_000_i64),
+        ).expect("second project session");
+        connection.execute(
+            "INSERT INTO sessions (cwd, updated_at, deleted_at) VALUES (?1, ?2, NULL)",
+            (&date_task_path, 1_786_198_464_299_i64),
+        ).expect("date task session");
+        connection.execute(
+            "INSERT INTO workspaces (path, last_opened_at) VALUES (?1, ?2)",
+            (&project_path, 1_786_178_716_485_i64),
+        ).expect("workspace");
+
+        let payload = WorkBuddyAdapter::with_paths_and_database(app, task_root, database).discovery_payload();
+
+        assert_eq!(payload.installations[0].status, "ready");
+        assert!(payload.scopes.iter().any(|scope|
+            scope.scope_kind == "project"
+                && scope.root_path == canonical_project_path
+                && scope.source_record_count == 3
+        ));
+        assert!(payload.scopes.iter().any(|scope|
+            scope.scope_kind == "task" && scope.root_path.ends_with("2026-08-02-21-02-36")
+        ));
+        assert!(!payload.scopes.iter().any(|scope|
+            scope.scope_kind == "project" && scope.root_path.ends_with("2026-08-02-21-02-36")
+        ));
     }
 
     #[test]

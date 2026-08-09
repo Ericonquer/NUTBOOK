@@ -240,13 +240,14 @@ pub fn classify_artifact_candidates(
         };
         let manifest = manifests.get(&path).copied();
         let path_events = events.get(&path).cloned().unwrap_or_default();
+        let has_path_events = !path_events.is_empty();
         let observed_file = observed.get(&path).copied();
         let mut reasons = BTreeSet::new();
         let mut evidence = Vec::new();
 
         if let Some(entry) = manifest {
             reasons.insert(DiscoveryReasonKind::NbskillRegistered);
-            evidence.push(manifest_evidence(entry, &input.source_adapter_id));
+            evidence.push(manifest_evidence(entry));
         }
         for event in path_events {
             if let Some(reason) = event_reason(&event.kind) {
@@ -328,8 +329,15 @@ pub fn classify_artifact_candidates(
             .unwrap_or(0);
         let modified_at = observed_file.and_then(|file| file.modified_at.clone());
         let reasons = reasons.into_iter().collect::<Vec<_>>();
+        let agent_kind = if has_path_events {
+            input.source_adapter_id.clone()
+        } else if manifest.is_some() {
+            "nbskill".to_string()
+        } else {
+            "project-scan".to_string()
+        };
         let discovery_fingerprint = candidate_fingerprint(
-            &input.source_adapter_id,
+            &agent_kind,
             &path,
             status,
             &batch_key,
@@ -341,7 +349,7 @@ pub fn classify_artifact_candidates(
         candidates.push(ArtifactCandidate {
             id: None,
             project_library_id: input.project_library_id,
-            agent_kind: input.source_adapter_id.clone(),
+            agent_kind,
             primary_path: path,
             artifact_kind: artifact_kind.to_string(),
             status: status.to_string(),
@@ -426,7 +434,7 @@ fn is_internal_project_path(path: &str) -> bool {
     let normalized = path.to_ascii_lowercase();
     let components = normalized.split('/').collect::<Vec<_>>();
     let file_name = components.last().copied().unwrap_or_default();
-    matches!(file_name, "agents.md" | "memory.md" | "design.md")
+    matches!(file_name, "agents.md" | "memory.md" | "design.md" | "soul.md" | "identity.md" | "user.md" | "tools.md" | "heartbeat.md")
         || components.iter().any(|component| {
             matches!(
                 *component,
@@ -549,7 +557,8 @@ fn event_evidence(
     }
 }
 
-fn manifest_evidence(entry: &ManifestArtifactFact, agent_kind: &str) -> DiscoveryEvidence {
+fn manifest_evidence(entry: &ManifestArtifactFact) -> DiscoveryEvidence {
+    let agent_kind = "nbskill";
     DiscoveryEvidence {
         fingerprint: sha256_hex(
             format!(
@@ -1280,6 +1289,8 @@ mod tests {
     fn provider_internal_directories_are_not_artifact_candidates() {
         assert!(is_internal_project_path(".workbuddy/memory/2026-08-02.md"));
         assert!(is_internal_project_path(".agent-outputs/unregistered.md"));
+        assert!(is_internal_project_path("SOUL.md"));
+        assert!(is_internal_project_path("tools.md"));
         assert!(!is_internal_project_path("nbskill-intro.md"));
         assert!(!is_internal_project_path("output/nbskill-intro.html"));
     }

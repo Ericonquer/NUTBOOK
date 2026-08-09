@@ -1,4 +1,8 @@
+pub mod claude_code;
 pub mod codex;
+pub mod cwd_scopes;
+pub mod hermes;
+pub mod openclaw;
 pub mod workbuddy;
 
 use crate::{

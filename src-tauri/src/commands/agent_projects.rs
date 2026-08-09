@@ -1,6 +1,6 @@
 use crate::{
     core::{
-        agent_adapters::{codex::CodexAdapter, workbuddy::WorkBuddyAdapter},
+        agent_adapters::{claude_code::ClaudeCodeAdapter, codex::CodexAdapter, hermes::HermesAdapter, openclaw::OpenClawAdapter, workbuddy::WorkBuddyAdapter},
         agent_output_manifest::{
             read_agent_output_manifest, ManifestReadError, MANIFEST_RELATIVE_PATH,
         },
@@ -33,6 +33,9 @@ pub async fn discover_agent_projects(
     tauri::async_runtime::spawn_blocking(move || {
         let mut payload = merge_scope_discovery_payloads(vec![
             CodexAdapter::from_environment().discovery_payload(),
+            ClaudeCodeAdapter::from_environment().discovery_payload(),
+            OpenClawAdapter::from_environment().discovery_payload(),
+            HermesAdapter::from_environment().discovery_payload(),
             WorkBuddyAdapter::from_environment().discovery_payload(),
         ]);
         payload.artifact_summaries = payload
@@ -273,22 +276,11 @@ fn discover_and_store_candidates(
     database: &crate::db::Database,
     project: &AgentProjectSourceSummary,
 ) -> Result<ArtifactFileObservation, AppError> {
-    let has_codex = project
-        .adapters
-        .iter()
-        .any(|binding| binding.adapter_id == "codex");
     let has_verified_codex_events = project.adapters.iter().any(|binding| {
         binding.adapter_id == "codex"
             && binding.capability == "project-and-verified-events"
             && binding.snapshot_status == "ready"
     });
-    let has_workbuddy = project
-        .adapters
-        .iter()
-        .any(|binding| binding.adapter_id == "workbuddy");
-    if !has_codex && !has_workbuddy {
-        return Err(AppError::InvalidParams);
-    }
     let project_root = std::path::Path::new(&project.root_path);
     let now = current_timestamp();
     let (events, provider_issue) = if has_verified_codex_events && project.scope_kind == "project" {
@@ -380,10 +372,10 @@ fn discover_and_store_candidates(
         project_root,
         &ArtifactDiscoveryInput {
             project_library_id: project.library_id,
-            source_adapter_id: if project.scope_kind == "task" {
-                "workbuddy".to_string()
-            } else {
+            source_adapter_id: if has_verified_codex_events {
                 "codex".to_string()
+            } else {
+                "project-scan".to_string()
             },
             scope_kind: project.scope_kind.clone(),
             observed_files: observation.files.clone(),
@@ -537,12 +529,45 @@ mod tests {
         let preview = preview_payload(&database, source.library_id).expect("hybrid preview");
         assert_eq!(preview.indexed_artifacts.len(), 1);
         assert_eq!(preview.indexed_artifacts[0].primary_path, "registered.md");
+        assert_eq!(preview.indexed_artifacts[0].agent_kind, "nbskill");
+        assert_eq!(preview.indexed_artifacts[0].evidence[0].agent_kind, "nbskill");
         assert_eq!(
             preview.indexed_artifacts[0].evidence[0]
                 .skill_display_name
                 .as_deref(),
             Some("report-writer")
         );
+    }
+
+    #[test]
+    fn scope_only_adapter_can_connect_and_scan_without_claiming_delivery_events() {
+        let project = tempdir().expect("project scope");
+        fs::write(project.path().join("report.md"), "# Report").expect("report");
+        let database_root = tempdir().expect("database root");
+        let database = Database::new(database_root.path().join("scope-only.sqlite3"))
+            .expect("database");
+        let source = database
+            .connect_agent_project_source(
+                "claude-code",
+                Some("claude-project-index-v1"),
+                "claude-code:project:fixture",
+                "project",
+                "scope-only",
+                project.path().to_str().expect("project path"),
+                Some("Claude project"),
+                "2026-08-08T00:00:00Z",
+            )
+            .expect("connect source");
+
+        discover_and_store_candidates(&database, &source).expect("scope-only scan");
+
+        let preview = preview_payload(&database, source.library_id).expect("preview");
+        assert_eq!(preview.suggested_count, 1);
+        assert_eq!(preview.pending_count, 0);
+        assert_eq!(preview.review_candidates[0].agent_kind, "project-scan");
+        assert!(preview.review_candidates.iter().all(|candidate|
+            candidate.evidence.iter().all(|evidence| evidence.reason != crate::models::DiscoveryReasonKind::MentionedInFinalResponse)
+        ));
     }
 
     use super::{

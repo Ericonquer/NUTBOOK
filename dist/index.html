@@ -4031,9 +4031,14 @@
         width: 18px;
         height: 18px;
         object-fit: contain;
+        transform: scale(1);
         filter: grayscale(1);
         opacity: 0.42;
-        transition: filter 140ms ease, opacity 140ms ease;
+        transition: filter 140ms ease, opacity 140ms ease, transform 140ms ease;
+      }
+
+      .nbskill-agent-button[data-nbskill-agent-id="codex"] img {
+        transform: scale(1.35);
       }
 
       .nbskill-agent-button.compatible img {
