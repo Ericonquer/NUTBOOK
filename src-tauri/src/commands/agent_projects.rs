@@ -272,7 +272,7 @@ pub fn merge_agent_task_scope(
         .merge_agent_task_scope(payload.task_library_id, payload.project_library_id)
 }
 
-fn discover_and_store_candidates(
+pub fn discover_and_store_candidates(
     database: &crate::db::Database,
     project: &AgentProjectSourceSummary,
 ) -> Result<ArtifactFileObservation, AppError> {

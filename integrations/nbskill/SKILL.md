@@ -54,6 +54,21 @@ an Agent project into a general file browser.
   source cannot satisfy the complete edit contract.
 - Use the bundled scripts as the only manifest writers. Do not hand-edit
   `.agent-outputs/manifest.json`, even for a one-line change.
+- Registering an artifact never calls Nutbook automatically. Invoke the stable,
+  absolute Nutbook CLI only when the user explicitly asks to operate Nutbook.
+  Use exactly one of `add`, `remove`, `add-project`, or `remove-project`, pass
+  one path and `--json`, and never read stdin. If an Agent identity is supplied,
+  set `NUTBOOK_CALLER_AGENT` only as scope-only attribution; it must not claim
+  delivery events or cause automatic project connection. Ordinary automatic
+  registration remains manifest-only.
+- Do not modify PATH. On macOS the stable CLI is
+  `/Users/<user>/Library/Application Support/com.hayley.nutbook/cli/nutbook`
+  (normally written as `~/Library/Application Support/com.hayley.nutbook/cli/nutbook`);
+  on Windows it is `%LOCALAPPDATA%\\com.hayley.nutbook\\cli\\nutbook.exe`.
+  Verify that exact executable with `--version` before an explicitly requested
+  Nutbook operation.
+- `nutbook doctor [--json]` is a read-only health check. It must never repair,
+  start, wake, or otherwise mutate Nutbook.
 
 ## Register an artifact
 

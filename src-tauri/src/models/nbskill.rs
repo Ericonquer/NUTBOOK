@@ -12,20 +12,14 @@ pub struct NbskillAgentStatus {
     pub expected_version: String,
     pub last_self_test_at: Option<String>,
     pub detail: Option<String>,
+    pub agent_detected: bool,
+    pub cli_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PrepareNbskillInstallPromptRequest {
-    pub agent_id: String,
-}
+pub struct InstallNbskillAgentsRequest { pub agent_ids: Vec<String> }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NbskillInstallPromptResponse {
-    pub agent_id: String,
-    pub staging_path: String,
-    pub target_path: String,
-    pub prompt: String,
-    pub copied: bool,
-}
+pub struct NbskillInstallResult { pub agent_id: String, pub status: String, pub detail: Option<String> }

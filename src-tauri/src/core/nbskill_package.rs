@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::models::NbskillAgentStatus;
 
-pub const NBSKILL_VERSION: &str = "1.3.1";
+pub const NBSKILL_VERSION: &str = "1.3.4";
 
 #[derive(Debug, Deserialize)]
 struct PackageManifest {
@@ -40,14 +40,14 @@ pub fn agent_contract(agent_id: &str) -> Option<AgentInstallContract> {
     AGENT_INSTALL_CONTRACTS.iter().copied().find(|contract| contract.id == agent_id)
 }
 
-pub fn detect_nbskill_agents(home: &Path) -> Vec<NbskillAgentStatus> {
+pub fn detect_nbskill_agents(home: &Path, app_data: &Path) -> Vec<NbskillAgentStatus> {
     AGENT_INSTALL_CONTRACTS.iter().map(|contract| {
         let target = home.join(contract.relative_target);
-        detect_installed_package(*contract, &target)
+        detect_installed_package(*contract, &target, cli_status(app_data))
     }).collect()
 }
 
-fn detect_installed_package(contract: AgentInstallContract, target: &Path) -> NbskillAgentStatus {
+fn detect_installed_package(contract: AgentInstallContract, target: &Path, cli_status: &str) -> NbskillAgentStatus {
     let mut status = NbskillAgentStatus {
         agent_id: contract.id.to_string(),
         display_name: contract.display_name.to_string(),
@@ -58,7 +58,14 @@ fn detect_installed_package(contract: AgentInstallContract, target: &Path) -> Nb
         expected_version: NBSKILL_VERSION.to_string(),
         last_self_test_at: None,
         detail: None,
+        agent_detected: detected_agent_evidence(contract.id, target.parent().and_then(Path::parent).and_then(Path::parent).unwrap_or(target)),
+        cli_status: cli_status.to_string(),
     };
+    if reject_symlink_components(target).is_err() {
+        status.package_status = "corrupt".to_string();
+        status.detail = Some("install path contains a symbolic link".to_string());
+        return status;
+    }
     if !target.exists() {
         return status;
     }
@@ -79,7 +86,8 @@ fn detect_installed_package(contract: AgentInstallContract, target: &Path) -> Nb
     status.package_status = match compare_semver(&version, NBSKILL_VERSION) {
         Some(std::cmp::Ordering::Less) => "outdated",
         Some(std::cmp::Ordering::Equal) => "compatible",
-        Some(std::cmp::Ordering::Greater) | None => "corrupt",
+        Some(std::cmp::Ordering::Greater) => "newer_unverified",
+        None => "corrupt",
     }.to_string();
     if status.package_status == "compatible" {
         if let Err(detail) = verify_package(target) {
@@ -97,6 +105,33 @@ fn detect_installed_package(contract: AgentInstallContract, target: &Path) -> Nb
         }
     }
     status
+}
+
+pub fn cli_status(app_data: &Path) -> &'static str {
+    let path = app_data.join("cli").join(if cfg!(target_os = "windows") { "nutbook.exe" } else { "nutbook" });
+    let Ok(metadata) = fs::symlink_metadata(&path) else { return "missing"; };
+    if !metadata.is_file() || metadata.file_type().is_symlink() { return "corrupt"; }
+    let Ok(output) = std::process::Command::new(&path).arg("--version").output() else { return "corrupt"; };
+    if !output.status.success() { return "corrupt"; }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(installed) = stdout.trim().strip_prefix("nutbook ").and_then(crate::core::cli::compare_cli_semver) else { return "corrupt"; };
+    let Some(expected) = crate::core::cli::compare_cli_semver(env!("CARGO_PKG_VERSION")) else { return "corrupt"; };
+    match installed.cmp(&expected) {
+        std::cmp::Ordering::Equal => "compatible",
+        std::cmp::Ordering::Less => "outdated",
+        std::cmp::Ordering::Greater => "newer_unverified",
+    }
+}
+
+fn detected_agent_evidence(agent_id: &str, home: &Path) -> bool {
+    match agent_id {
+        "codex" => home.join(".codex/sessions").is_dir(),
+        "claude-code" => home.join(".claude.json").is_file(),
+        "openclaw" => home.join(".openclaw/workspace").is_dir(),
+        "hermes" => home.join(".hermes/sessions").is_dir() || home.join(".hermes/history").is_dir(),
+        "workbuddy" => home.join(".workbuddy/workbuddy.db").is_file(),
+        _ => false,
+    }
 }
 
 #[derive(Deserialize)]
@@ -157,6 +192,109 @@ pub fn stage_verified_package(source: &Path, app_data: &Path) -> Result<PathBuf,
     Ok(destination)
 }
 
+pub fn install_verified_package(source: &Path, target: &Path, backup_root: &Path) -> Result<&'static str, String> {
+    verify_package(source)?;
+    reject_symlink_components(target)?;
+    reject_symlink_components(backup_root)?;
+    if target.exists() {
+        let metadata = fs::symlink_metadata(target).map_err(|_| "cannot inspect install target".to_string())?;
+        if metadata.file_type().is_symlink() { return Err("refusing symbolic-link target".to_string()); }
+        let installed = owned_nbskill_version(target)?;
+        match compare_semver(&installed, NBSKILL_VERSION) {
+            Some(std::cmp::Ordering::Greater) => return Ok("newer_unverified"),
+            Some(std::cmp::Ordering::Equal) if verify_package(target).is_ok() => {
+                write_self_test(target)?;
+                return Ok("already_verified");
+            }
+            _ => {}
+        }
+    }
+    let parent = target.parent().ok_or_else(|| "invalid install target".to_string())?;
+    fs::create_dir_all(parent).map_err(|_| "cannot create Agent skill directory".to_string())?;
+    let temporary = parent.join(format!(".nbskill-install-{}", uuid::Uuid::new_v4()));
+    copy_package_directory(source, &temporary)?;
+    verify_package(&temporary)?;
+    write_self_test(&temporary)?;
+    let backup = backup_root.join(format!("nbskill-{}", uuid::Uuid::new_v4()));
+    let had_target = target.exists();
+    if had_target {
+        prepare_backup_root(backup_root)?;
+        fs::rename(target, &backup).map_err(|_| "cannot backup previous package".to_string())?;
+    }
+    if let Err(error) = fs::rename(&temporary, target) {
+        if had_target { let _ = fs::rename(&backup, target); }
+        let _ = fs::remove_dir_all(&temporary);
+        return Err(format!("cannot publish package: {error}"));
+    }
+    Ok("installed")
+}
+
+pub fn remove_verified_package(target: &Path, backup_root: &Path) -> Result<&'static str, String> {
+    reject_symlink_components(target)?;
+    reject_symlink_components(backup_root)?;
+    if !target.exists() { return Ok("already_removed"); }
+    let metadata = fs::symlink_metadata(target).map_err(|_| "cannot inspect install target".to_string())?;
+    if metadata.file_type().is_symlink() { return Err("refusing symbolic-link target".to_string()); }
+    let _ = owned_nbskill_version(target)?;
+    if verify_package(target).is_ok() { fs::remove_dir_all(target).map_err(|_| "cannot remove verified package".to_string())?; return Ok("removed"); }
+    prepare_backup_root(backup_root)?;
+    let backup = backup_root.join(format!("modified-nbskill-{}", uuid::Uuid::new_v4()));
+    fs::rename(target, &backup).map_err(|_| "cannot preserve modified package".to_string())?;
+    Ok("moved_to_backup")
+}
+
+fn owned_nbskill_version(target: &Path) -> Result<String, String> {
+    let manifest: PackageManifest = serde_json::from_slice(&fs::read(target.join("PACKAGE-MANIFEST.json")).map_err(|_| "existing target has no Nutbook package identity".to_string())?)
+        .map_err(|_| "existing target has invalid Nutbook package identity".to_string())?;
+    if manifest.package != "nbskill" || manifest.version.is_empty() || manifest.files.is_empty() || manifest.files.iter().any(|file| file.path.is_empty() || file.path.split('/').any(|part| matches!(part, "" | "." | ".."))) {
+        return Err("existing target is not a Nutbook-owned package".to_string());
+    }
+    // The manifest is the ownership identity. VERSION is intentionally not
+    // part of this proof: a missing or altered VERSION is a known damaged
+    // nbskill package that must be backed up, never mistaken for a stranger.
+    Ok(manifest.version)
+}
+
+fn write_self_test(target: &Path) -> Result<(), String> {
+    fs::write(target.join("SELF-TEST.json"), format!("{{\"packageVersion\":\"{NBSKILL_VERSION}\",\"validatedAt\":\"{}\"}}\n", chrono::Utc::now().to_rfc3339()))
+        .map_err(|_| "cannot write package self-test marker".to_string())
+}
+
+fn prepare_backup_root(root: &Path) -> Result<(), String> {
+    fs::create_dir_all(root).map_err(|_| "cannot create integration backup directory".to_string())?;
+    let root_metadata = fs::symlink_metadata(root).map_err(|_| "cannot inspect integration backup directory".to_string())?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        return Err("integration backup path is not a regular directory".to_string());
+    }
+    for entry in fs::read_dir(root).map_err(|_| "cannot inspect integration backups".to_string())? {
+        let entry = entry.map_err(|_| "cannot inspect integration backup".to_string())?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|_| "cannot inspect integration backup".to_string())?;
+        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            fs::remove_dir_all(entry.path()).map_err(|_| "cannot prune integration backup".to_string())?;
+        } else {
+            fs::remove_file(entry.path()).map_err(|_| "cannot prune integration backup".to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn reject_symlink_components(path: &Path) -> Result<(), String> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        if matches!(component, std::path::Component::Prefix(_) | std::path::Component::RootDir) || current.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => return Err("refusing symbolic-link path component".to_string()),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(_) => return Err("cannot inspect integration path".to_string()),
+        }
+    }
+    Ok(())
+}
+
 fn copy_package_directory(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir(destination).map_err(|_| "cannot create package staging directory".to_string())?;
     for entry in fs::read_dir(source).map_err(|_| "cannot read package source".to_string())? {
@@ -187,11 +325,29 @@ fn compare_semver(left: &str, right: &str) -> Option<std::cmp::Ordering> {
 mod tests {
     use std::fs;
     use sha2::{Digest, Sha256};
-    use tempfile::tempdir;
-    use super::{detect_nbskill_agents, stage_verified_package, verify_package};
+    use tempfile::{Builder, TempDir};
+    use super::{detect_nbskill_agents, install_verified_package, remove_verified_package, stage_verified_package, verify_package, NBSKILL_VERSION};
+
+    fn tempdir() -> std::io::Result<TempDir> {
+        let canonical_temp = fs::canonicalize(std::env::temp_dir())?;
+        Builder::new().prefix("nutbook-nbskill-").tempdir_in(canonical_temp)
+    }
 
     fn package_source() -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integrations/nbskill")
+    }
+
+    fn rewrite_owned_version(target: &std::path::Path, version: &str) {
+        fs::write(target.join("VERSION"), format!("{version}\n")).expect("rewrite version");
+        let manifest_path = target.join("PACKAGE-MANIFEST.json");
+        let mut manifest: serde_json::Value = serde_json::from_slice(&fs::read(&manifest_path).expect("manifest")).expect("manifest JSON");
+        manifest["version"] = serde_json::Value::String(version.to_string());
+        let bytes = fs::read(target.join("VERSION")).expect("version bytes");
+        let entry = manifest["files"].as_array_mut().expect("files").iter_mut()
+            .find(|entry| entry["path"] == "VERSION").expect("VERSION entry");
+        entry["sha256"] = serde_json::Value::String(format!("{:x}", Sha256::digest(&bytes)));
+        entry["bytes"] = serde_json::Value::Number(bytes.len().into());
+        fs::write(manifest_path, format!("{}\n", serde_json::to_string_pretty(&manifest).expect("serialize manifest"))).expect("save manifest");
     }
 
     #[test]
@@ -206,7 +362,7 @@ mod tests {
         let target = directory.path().join(".codex/skills/nbskill");
         fs::create_dir_all(target.parent().expect("target parent")).expect("parent");
         fs::rename(staged, &target).expect("installed fixture");
-        let status = detect_nbskill_agents(directory.path()).into_iter().find(|status| status.agent_id == "codex").expect("Codex status");
+        let status = detect_nbskill_agents(directory.path(), directory.path()).into_iter().find(|status| status.agent_id == "codex").expect("Codex status");
         assert_eq!(status.package_status, "compatible");
         assert_eq!(status.runtime_status, "unverified");
     }
@@ -217,11 +373,11 @@ mod tests {
         let target = directory.path().join(".workbuddy/skills/nbskill");
         fs::create_dir_all(&target).expect("target");
         fs::write(target.join("VERSION"), "1.1.0\n").expect("previous version");
-        let status = detect_nbskill_agents(directory.path()).into_iter()
+        let status = detect_nbskill_agents(directory.path(), directory.path()).into_iter()
             .find(|status| status.agent_id == "workbuddy")
             .expect("WorkBuddy status");
         assert_eq!(status.installed_version.as_deref(), Some("1.1.0"));
-        assert_eq!(status.expected_version, "1.3.1");
+        assert_eq!(status.expected_version, NBSKILL_VERSION);
         assert_eq!(status.package_status, "outdated");
     }
 
@@ -249,5 +405,94 @@ mod tests {
             fs::read(restaged.join("PACKAGE-MANIFEST.json")).expect("restaged identity"),
             fs::read(package_source().join("PACKAGE-MANIFEST.json")).expect("source identity")
         );
+    }
+
+    #[test]
+    fn rust_installer_copies_verifies_and_preserves_modified_package() {
+        let directory = tempdir().expect("temporary directory");
+        let target = directory.path().join("agent/skills/nbskill");
+        let backups = directory.path().join("backups");
+        assert_eq!(install_verified_package(&package_source(), &target, &backups).expect("install"), "installed");
+        verify_package(&target).expect("installed package");
+        assert_eq!(install_verified_package(&package_source(), &target, &backups).expect("already verified"), "already_verified");
+        fs::write(target.join("SKILL.md"), "modified ordinary file\n").expect("modify target");
+        assert_eq!(remove_verified_package(&target, &backups).expect("preserve modified"), "moved_to_backup");
+        assert!(!target.exists());
+        assert_eq!(fs::read_dir(&backups).expect("backup directory").count(), 1);
+    }
+
+    #[test]
+    fn known_old_package_is_backed_up_and_upgraded() {
+        let directory = tempdir().expect("temporary directory");
+        let target = directory.path().join("agent/skills/nbskill");
+        let backups = directory.path().join("backups");
+        install_verified_package(&package_source(), &target, &backups).expect("install current");
+        rewrite_owned_version(&target, "1.2.3");
+        fs::create_dir_all(backups.join("older-backup")).expect("older backup");
+        fs::write(backups.join("older-backup/marker"), "old").expect("older backup marker");
+        assert_eq!(install_verified_package(&package_source(), &target, &backups).expect("upgrade known old"), "installed");
+        verify_package(&target).expect("current package restored");
+        assert_eq!(fs::read_dir(&backups).expect("backup directory").count(), 1);
+    }
+
+    #[test]
+    fn known_package_with_damaged_version_is_backed_up_on_remove() {
+        let directory = tempdir().expect("temporary directory");
+        let target = directory.path().join("agent/skills/nbskill");
+        let backups = directory.path().join("backups");
+        install_verified_package(&package_source(), &target, &backups).expect("install current");
+        fs::write(target.join("VERSION"), "not-a-version\n").expect("damage VERSION");
+        assert_eq!(remove_verified_package(&target, &backups).expect("backup known damaged package"), "moved_to_backup");
+        assert!(!target.exists());
+        assert_eq!(fs::read_dir(&backups).expect("backup directory").count(), 1);
+    }
+
+    #[test]
+    fn unknown_target_is_never_replaced_or_moved() {
+        let directory = tempdir().expect("temporary directory");
+        let target = directory.path().join("agent/skills/nbskill");
+        let backups = directory.path().join("backups");
+        fs::create_dir_all(&target).expect("unknown target");
+        fs::write(target.join("notes.txt"), "do not touch").expect("unknown contents");
+        assert!(install_verified_package(&package_source(), &target, &backups).is_err());
+        assert!(target.join("notes.txt").exists());
+        assert!(remove_verified_package(&target, &backups).is_err());
+        assert!(target.join("notes.txt").exists());
+    }
+
+    #[test]
+    fn newer_known_package_is_unverified_and_never_downgraded() {
+        let directory = tempdir().expect("temporary directory");
+        let target = directory.path().join(".codex/skills/nbskill");
+        let backups = directory.path().join("backups");
+        install_verified_package(&package_source(), &target, &backups).expect("install current");
+        rewrite_owned_version(&target, "9.0.0");
+        fs::create_dir_all(directory.path().join(".codex/sessions")).expect("Codex evidence");
+        let status = detect_nbskill_agents(directory.path(), directory.path()).into_iter().find(|status| status.agent_id == "codex").expect("Codex status");
+        assert_eq!(status.package_status, "newer_unverified");
+        assert_eq!(install_verified_package(&package_source(), &target, &backups).expect("do not downgrade"), "newer_unverified");
+        assert_eq!(fs::read_to_string(target.join("VERSION")).expect("newer version").trim(), "9.0.0");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installer_rejects_a_symlink_in_the_target_parent_path() {
+        use std::os::unix::fs::symlink;
+        let directory = tempdir().expect("temporary directory");
+        let agent_root = directory.path().join(".codex");
+        let outside_skills = directory.path().join("outside-skills");
+        fs::create_dir_all(&agent_root).expect("agent root");
+        fs::create_dir_all(agent_root.join("sessions")).expect("Codex evidence");
+        fs::create_dir_all(&outside_skills).expect("outside skills");
+        symlink(&outside_skills, agent_root.join("skills")).expect("skills symlink");
+        let target = agent_root.join("skills/nbskill");
+        let backups = directory.path().join("backups");
+        assert!(install_verified_package(&package_source(), &target, &backups).is_err());
+        assert!(!outside_skills.join("nbskill").exists());
+        let status = detect_nbskill_agents(directory.path(), directory.path()).into_iter()
+            .find(|status| status.agent_id == "codex")
+            .expect("Codex status");
+        assert!(status.agent_detected);
+        assert_eq!(status.package_status, "corrupt");
     }
 }

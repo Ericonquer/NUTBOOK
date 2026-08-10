@@ -134,6 +134,12 @@ NUTBOOK 会主动适配更适合展示和阅读的内容生成型 skill，例如
 
 * Skill 扫描并接入文件夹
 
+* 发现 Codex、Claude Code、OpenClaw、Hermes 和 WorkBuddy 的 Agent 项目产物
+
+* 通过 nbskill manifest 接入产物，并在用户确认后管理 Agent 集成
+
+* 使用 Nutbook CLI 单次接入或移除一个文件、文件夹或 Agent 项目
+
 * 文件夹扫描录入
 
 * 单文件接入
@@ -205,15 +211,37 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 * 添加单文件
 
-* 扫描 skill 产物目录
+* 打开 **设置 → 产物接入**，发现 Agent 项目
+
+* 在需要 nbskill 和 CLI 支持时，为可靠检测到的 Agent 启用集成
 
 添加完成后，文件列表会出现在主界面中。
 
-### Skill 扫描入口在哪
+### 产物接入和 Agent 集成入口在哪
 
-在设置页中可以看到 **Skill 接入** 相关入口。
+在设置页打开 **产物接入**。项目产物接入负责从受支持的 Agent 项目范围发现有价值的输出，skill 产物接入负责管理已有 skill 产物目录。
 
-它的作用不是“安装 skill”，而是帮助 NUTBOOK 识别和接入已经存在的 skill 产物目录，把这些生成文件纳入统一管理。
+Agent 集成工具条会保守检测五类 Agent。**启用**、**修复**和**移除**都会先列出本次准确范围，只修改已验证为 Nutbook 所属的 nbskill 包；不会降级较新版本，也不会修改 `PATH`。
+
+### Nutbook CLI
+
+NUTBOOK 会把随应用提供的 CLI 部署到应用数据目录，但不会自动加入 `PATH`：
+
+* macOS：`~/Library/Application Support/com.hayley.nutbook/cli/nutbook`
+
+* Windows：`%LOCALAPPDATA%\com.hayley.nutbook\cli\nutbook.exe`
+
+每个会修改状态的命令只接受一个路径：
+
+```text
+nutbook add <path> [--json]
+nutbook remove <path> [--json]
+nutbook add-project <path> [--json]
+nutbook remove-project <path> [--json]
+nutbook doctor [--json]
+```
+
+`doctor` 只读。文件和文件夹操作支持与 NUTBOOK 相同的 Markdown / HTML 格式，并且不会删除源文件。
 
 ### 缩略图引擎说明
 
@@ -290,6 +318,22 @@ NUTBOOK 目前仍是一个 MVP，重点非常聚焦：
 
 也就是说，当前版本更像一个“AI 产物整理台”和“本地展示资料库”，而不是一个完整的团队内容平台。
 
+## 0.8：产物接入、Agent 集成与 CLI
+
+NUTBOOK 0.8 让本地资料库能够更直接地接入 Agent 项目，同时保持所有写入都由用户明确触发并留在本机：
+
+* 通过保守、有界的适配器发现 Codex、Claude Code、OpenClaw、Hermes 和 WorkBuddy 的项目与任务产物。
+
+* 在接入资料库前，分别查看建议、备选和已经接入的项目产物。
+
+* 使用 nbskill manifest 协议保留产物身份、来源、生命周期以及受支持的 HTML 原生编辑能力。
+
+* 在同一个确认流程中启用、修复、管理或移除已验证的 Agent 集成。
+
+* 无论桌面应用正在运行还是已经退出，都可以用随应用提供的 Nutbook CLI 接入或移除文件、文件夹和 Agent 项目。
+
+NUTBOOK 0.8 继续以文件系统为真实状态源，保留无 nbskill 的基础发现路径，拒绝符号链接安装目标，也不会静默降级已知的较新集成版本。
+
 ## 0.6：HTML 轻编辑
 
 NUTBOOK 0.6 为受支持的 AI 生成 HTML 增加了轻编辑能力，同时保留原始产物和页面自身的运行行为。
@@ -314,8 +358,9 @@ HTML 编辑刻意保持轻量。NUTBOOK 不会扩展成通用可视化页面搭�
 | --- | --- | --- |
 | 已实现 | **Markdown 轻编辑** | 在阅读过程中直接修订生成的 Markdown，并提供格式、历史、保存和恢复能力。 |
 | 已实现 | **HTML 轻编辑** | 在保留原始产物和页面运行行为的前提下，修改带协议标记的文字与图片。 |
-| 下一步 | **Agent 项目产物发现** | 从 agent 项目目录中发现有价值的 Markdown、HTML 及相关输出，并接入本地资料库。 |
-| 下一步 | **NBSkill 协议约束** | 明确 NUTBOOK 消费 skill 产物时所需的元数据、目录、身份和生命周期契约。 |
+| 已实现 | **Agent 项目产物发现** | 从五类受支持 Agent 的有界项目和任务范围发现 Markdown、HTML 及相关输出，并由用户选择接入。 |
+| 已实现 | **nbskill 产物协议与 Agent 集成** | 保留产物元数据、身份、来源、生命周期和 HTML 编辑协议，并明确管理已验证的 Agent 安装。 |
+| 已实现 | **Nutbook CLI** | 在桌面应用运行或退出时接入或移除单个文件、文件夹或 Agent 项目，并提供只读健康检查。 |
 | 下一步 | **Markdown 导出中心** | 将 Markdown 导出为阅读型或演示型 HTML，再逐步扩展 PDF、长图和水印。 |
 | 下一步 | **HTML 原生演示模式** | 为适合演示的 HTML 产物提供由 NUTBOOK 控制、导航确定且行为稳定的演示运行面。 |
 | 下一步 | **演示画笔工具** | 为演示、会议、课堂、提案和评审提供临时屏幕圈划能力。 |

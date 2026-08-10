@@ -27,7 +27,7 @@ pub struct AppState {
     pub database: Database,
     local_content_server: LocalContentServer,
     watched_libraries: Mutex<HashSet<i64>>,
-    active_watchers: Mutex<Vec<PollWatcher>>,
+    active_watchers: Mutex<HashMap<i64, PollWatcher>>,
     html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
     html_edit_path_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     html_edit_session_leases: Mutex<HtmlEditSessionLeases>,
@@ -62,7 +62,7 @@ impl AppState {
             database,
             local_content_server,
             watched_libraries: Mutex::new(HashSet::new()),
-            active_watchers: Mutex::new(Vec::new()),
+            active_watchers: Mutex::new(HashMap::new()),
             html_edit_manifest_locks: Mutex::new(HashMap::new()),
             html_edit_path_locks: Mutex::new(HashMap::new()),
             html_edit_session_leases: Mutex::new(HtmlEditSessionLeases::default()),
@@ -149,9 +149,14 @@ impl AppState {
             self.active_watchers
                 .lock()
                 .map_err(|_| AppError::InternalError)?
-                .push(watcher);
+                .insert(library_id, watcher);
         }
         Ok(true)
+    }
+
+    pub fn unwatch_library(&self, library_id: i64) -> Result<bool, AppError> {
+        self.watched_libraries.lock().map_err(|_| AppError::InternalError)?.remove(&library_id);
+        Ok(self.active_watchers.lock().map_err(|_| AppError::InternalError)?.remove(&library_id).is_some())
     }
 
     #[cfg(test)]

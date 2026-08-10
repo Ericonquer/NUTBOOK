@@ -1,8 +1,9 @@
 [package]
 name = "nutbook-backend"
-version = "0.6.0"
+version = "0.8.0"
 edition = "2021"
 build = "build.rs"
+default-run = "NUTBOOK"
 
 [lib]
 name = "nutbook_backend"
@@ -11,6 +12,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "NUTBOOK"
 path = "src/main.rs"
+
+[[bin]]
+name = "nutbook"
+path = "src/bin/nutbook.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -33,6 +38,9 @@ chrono = "0.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "WKWebView", "objc2-app-kit"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

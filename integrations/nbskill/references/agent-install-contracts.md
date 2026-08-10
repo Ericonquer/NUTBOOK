@@ -1,19 +1,24 @@
 # nbskill Agent installation contracts
 
-Verified on macOS on 2026-08-02. Nutbook treats package compatibility and
-target-Agent runtime verification as separate states.
+Nutbook treats reliable Agent detection, package compatibility, CLI health,
+and target-Agent runtime verification as separate states. A skills directory
+by itself is not detection evidence.
 
 | Agent | Personal Skill target | Verification evidence |
 | --- | --- | --- |
-| Codex | `~/.codex/skills/nbskill` | Existing `~/.codex/skills/*/SKILL.md`; Codex version record present. |
-| Claude Code | `~/.claude/skills/nbskill` | Existing `~/.claude/skills`; CLI unavailable in this environment, so runtime remains unverified. |
-| OpenClaw | `~/.openclaw/skills/nbskill` | OpenClaw managed/local skills root and official OpenClaw Skills documentation. |
-| Hermes | `~/.hermes/skills/nbskill` | Existing `~/.hermes/skills/*/SKILL.md`; Hermes v0.15.1 and official skills documentation. |
-| WorkBuddy | `~/.workbuddy/skills/nbskill` | Existing `~/.workbuddy/skills/*/SKILL.md`; local personal-Skill target convention. WorkBuddy app versions are informational, not an installation compatibility gate. |
+| Codex | `~/.codex/skills/nbskill` | Existing `~/.codex/sessions` directory. |
+| Claude Code | `~/.claude/skills/nbskill` | Existing `~/.claude.json` runtime record. |
+| OpenClaw | `~/.openclaw/skills/nbskill` | Existing `~/.openclaw/workspace` directory. |
+| Hermes | `~/.hermes/skills/nbskill` | Existing `~/.hermes/sessions` or `~/.hermes/history` directory. |
+| WorkBuddy | `~/.workbuddy/skills/nbskill` | Existing `~/.workbuddy/workbuddy.db` runtime database. |
 
-These are installation targets, not permission to write them silently. Nutbook
-stages a verified package and generates a target-specific prompt. The chosen
-Agent performs the install, validation, and rollback workflow.
+These are installation targets, not permission to write them silently. Only a
+user-confirmed Enable or Repair action may copy the verified package, and it
+only changes reliably detected targets listed in that confirmation. Nutbook
+validates the entire target path, refuses symbolic links and unknown package
+ownership, keeps one recoverable backup when replacing modified content, and
+never changes PATH. A newer known nbskill is shown as unverified and is never
+downgraded automatically.
 
 ## Local status icons
 

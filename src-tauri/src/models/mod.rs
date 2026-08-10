@@ -46,7 +46,7 @@ pub use item::{
     ToggleFavoriteRequest, WatchLibraryRequest, WatchLibraryResponse, ExportMarkdownRequest,
 };
 pub use library::Library;
-pub use nbskill::{NbskillAgentStatus, NbskillInstallPromptResponse, PrepareNbskillInstallPromptRequest};
+pub use nbskill::{InstallNbskillAgentsRequest, NbskillAgentStatus, NbskillInstallResult};
 pub use skill::{
     BindLibrarySkillRequest, DiscoveredSkill, ExcludeSkillRequest, RestoreExcludedSkillRequest,
     SkillBindingSummary, SkillDiscoveryPayload,

@@ -138,6 +138,12 @@ The current version already supports a basic local management workflow:
 
 * Skill scanning and folder intake
 
+* Agent project artifact discovery for Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy
+
+* Manifest-based nbskill artifact intake and confirmed Agent integration management
+
+* Nutbook CLI for adding or removing one file, folder, or Agent project at a time
+
 * Folder scanning
 
 * Single-file intake
@@ -209,15 +215,37 @@ On first launch, if the library is empty, you can directly:
 
 * Add a single file
 
-* Scan skill artifact directories
+* Open **Settings → Artifact Access** to discover Agent projects
+
+* Enable Agent integration for reliably detected Agents when you want nbskill and CLI support
 
 After adding content, the file list will appear in the main interface.
 
-### Where Is Skill Scanning?
+### Where Are Artifact Access and Agent Integration?
 
-In Settings, you can find the **Skill Integration** entry.
+In Settings, open **Artifact Access**. Project Artifact Access discovers useful outputs from supported Agent project scopes, while Skill Artifact Access manages existing skill output directories.
 
-It does not install skills. Instead, it helps NUTBOOK recognize and add existing skill artifact directories so generated files can be managed in one place.
+The Agent integration toolbar detects five supported Agents conservatively. **Enable**, **Repair**, and **Remove** always show the exact selected scope before changing a verified Nutbook-owned nbskill package. Newer packages are never downgraded, and NUTBOOK does not modify `PATH`.
+
+### Nutbook CLI
+
+NUTBOOK deploys its bundled CLI into the application data directory. It is intentionally not added to `PATH`:
+
+* macOS: `~/Library/Application Support/com.hayley.nutbook/cli/nutbook`
+
+* Windows: `%LOCALAPPDATA%\com.hayley.nutbook\cli\nutbook.exe`
+
+The CLI accepts exactly one path per mutating command:
+
+```text
+nutbook add <path> [--json]
+nutbook remove <path> [--json]
+nutbook add-project <path> [--json]
+nutbook remove-project <path> [--json]
+nutbook doctor [--json]
+```
+
+`doctor` is read-only. File and folder operations support the same Markdown / HTML formats as NUTBOOK and never delete the source file.
 
 ### Thumbnail Engine
 
@@ -294,6 +322,22 @@ NUTBOOK is still an MVP with a focused scope:
 
 At this stage, NUTBOOK is closer to an “AI artifact desk” and a “local presentation library” than a full team content platform.
 
+## Version 0.8: Artifact Access, Agent Integration, and CLI
+
+NUTBOOK 0.8 connects the local library more directly to Agent projects while keeping every write explicit and local:
+
+* Discover project and task artifacts from Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy through conservative, bounded adapters.
+
+* Review suggested, optional, and already-connected project artifacts before bringing them into the library.
+
+* Use the nbskill manifest contract to preserve artifact identity, provenance, lifecycle, and supported native HTML editing.
+
+* Enable, repair, manage, or remove verified Agent integrations from one confirmed UI flow.
+
+* Use the bundled Nutbook CLI to add or remove a file, folder, or Agent project whether the desktop app is running or stopped.
+
+NUTBOOK 0.8 keeps the filesystem as the source of truth, preserves the no-nbskill discovery path, refuses symbolic-link installation targets, and never silently downgrades a newer known integration.
+
 ## Version 0.6: Lightweight HTML Editing
 
 NUTBOOK 0.6 adds a lightweight editing workflow for supported AI-generated HTML while preserving the original artifact and its runtime behavior.
@@ -318,8 +362,9 @@ NUTBOOK will continue moving in the direction of making AI artifacts easier to d
 | --- | --- | --- |
 | Implemented | **Lightweight Markdown editing** | Refine generated Markdown directly while reading, with formatting, history, save, and recovery support. |
 | Implemented | **Lightweight HTML editing** | Correct protocol-marked text and images while preserving the source artifact and its runtime behavior. |
-| Next | **Agent project artifact discovery** | Discover useful Markdown, HTML, and related outputs directly from agent project directories and bring them into the library. |
-| Next | **NBSkill protocol constraints** | Define stable artifact metadata, directory, identity, and lifecycle contracts for skill outputs consumed by NUTBOOK. |
+| Implemented | **Agent project artifact discovery** | Discover bounded project and task scopes from five supported Agents, then connect selected Markdown, HTML, and related outputs. |
+| Implemented | **nbskill artifact contract and Agent integration** | Preserve artifact metadata, identity, provenance, lifecycle, and editable HTML contracts while managing verified Agent installations explicitly. |
+| Implemented | **Nutbook CLI** | Add or remove one file, folder, or Agent project with the desktop app running or stopped, plus a read-only health check. |
 | Next | **Markdown Export Center** | Export Markdown as reading-style or presentation-style HTML, then extend the pipeline toward PDF, long images, and watermarks. |
 | Next | **Native HTML presentation mode** | Provide a NUTBOOK-controlled presentation runtime for suitable HTML artifacts, with deterministic navigation and presentation behavior. |
 | Next | **Presentation drawing tool** | Add temporary on-screen annotation for presentations, meetings, classes, proposals, and reviews. |

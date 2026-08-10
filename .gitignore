@@ -20,6 +20,9 @@ docs/phase-d-branch-closeout.md
 
 # Build outputs
 src-tauri/target/
+src-tauri/binaries/
+src-tauri/generated-resources/nutbook-cli/*
+!src-tauri/generated-resources/nutbook-cli/.gitkeep
 src-tauri/gen/
 dist/**/*.map
 

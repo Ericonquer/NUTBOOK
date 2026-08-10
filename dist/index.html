@@ -3312,6 +3312,72 @@
         line-height: 1.6;
       }
 
+      .confirm-selection-list {
+        display: grid;
+        gap: 7px;
+        max-height: min(280px, 42vh);
+        margin: -4px 0 16px;
+        overflow: auto;
+      }
+
+      .confirm-selection-option {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        padding: 8px 9px;
+        border: 1px solid rgba(20, 20, 20, 0.11);
+        border-radius: 9px;
+        cursor: pointer;
+      }
+
+      .confirm-selection-option:has(input:checked) {
+        border-color: rgba(35, 35, 40, 0.42);
+        background: rgba(20, 20, 20, 0.035);
+      }
+
+      .confirm-selection-option--secondary:not(:has(input:checked)) {
+        border-color: rgba(20, 20, 20, 0.07);
+        background: rgba(20, 20, 20, 0.012);
+      }
+
+      .confirm-selection-option--secondary:not(:has(input:checked)) .confirm-selection-label {
+        color: #73737a;
+        font-weight: 560;
+      }
+
+      .confirm-selection-option--secondary:not(:has(input:checked)) .confirm-selection-detail {
+        color: #929298;
+      }
+
+      .confirm-selection-option:has(input:disabled) {
+        cursor: not-allowed;
+        opacity: 0.58;
+      }
+
+      .confirm-selection-option input {
+        width: 15px;
+        height: 15px;
+        margin: 1px 0 0;
+        accent-color: #242429;
+      }
+
+      .confirm-selection-label {
+        display: block;
+        color: #242429;
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.35;
+      }
+
+      .confirm-selection-detail {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
       .confirm-actions {
         display: flex;
         justify-content: flex-end;
@@ -4089,13 +4155,21 @@
       }
 
       .nbskill-icon-button svg {
-        width: 15px;
-        height: 15px;
+        width: 16px;
+        height: 16px;
         fill: none;
         stroke: currentColor;
         stroke-width: 1.7;
         stroke-linecap: round;
         stroke-linejoin: round;
+      }
+
+      .nbskill-icon-button--repair svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
       }
 
       .nbskill-icon-button::after {
@@ -5487,16 +5561,16 @@
                 <button class="active" type="button" data-settings-artifact-section="projects">项目产物接入</button>
                 <button type="button" data-settings-artifact-section="skills">skill 产物接入</button>
               </div>
-              <div class="nbskill-agent-toolbar" aria-label="NBskill 增强接入" data-i18n-aria-label="settings.nbskillEnhancementAria">
-                <button id="settingsNbskillEnhancementHint" class="nbskill-enhancement-hint" type="button" aria-label="安装 nbskill 可增强产物识别，并让支持协议的 HTML 原生可编辑。" data-i18n-aria-label="settings.nbskillEnhancementHint" data-tooltip="安装 nbskill 可增强产物识别，并让支持协议的 HTML 原生可编辑。">!</button>
-                <span class="nbskill-enhancement-label" data-i18n-key="settings.nbskillEnhancement">NBskill 增强接入：</span>
+              <div class="nbskill-agent-toolbar" aria-label="Agent 集成接入" data-i18n-aria-label="settings.nbskillEnhancementAria">
+                <button id="settingsNbskillEnhancementHint" class="nbskill-enhancement-hint" type="button" aria-label="Nutbook CLI 与 nbskill 会按检测到的 Agent 安装和校验集成。" data-i18n-aria-label="settings.nbskillEnhancementHint" data-tooltip="Nutbook CLI 与 nbskill 会按检测到的 Agent 安装和校验集成。">!</button>
+                <span class="nbskill-enhancement-label" data-i18n-key="settings.nbskillEnhancement">Agent 集成接入：</span>
                 <div id="settingsNbskillAgentStrip" class="nbskill-agent-strip" role="radiogroup" aria-label="nbskill Agent"></div>
                 <div class="nbskill-action-buttons">
-                  <button id="settingsRefreshNbskillStatusButton" class="nbskill-icon-button" type="button" aria-label="重新检测 nbskill" data-i18n-aria-label="actions.refreshNbskill" data-tooltip="重新检测 nbskill">
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.8 6.8A6.5 6.5 0 1 0 16 13"/><path d="M15.8 3.5v3.8h-3.8"/></svg>
+                  <button id="settingsRefreshNbskillStatusButton" class="nbskill-icon-button nbskill-icon-button--primary" type="button" aria-label="启用 Agent 集成" data-tooltip="启用 Agent 集成">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 6.7v6.6M6.7 10h6.6"/></svg>
                   </button>
-                  <button id="settingsCopyNbskillPromptButton" class="nbskill-icon-button" type="button" aria-label="复制安装提示" data-i18n-aria-label="actions.copyNbskillInstallPrompt" data-tooltip="复制安装提示">
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.5"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg>
+                  <button id="settingsCopyNbskillPromptButton" class="nbskill-icon-button nbskill-icon-button--repair" type="button" aria-label="修复 Agent 集成" data-tooltip="修复 Agent 集成">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.6 4.4a4.6 4.6 0 0 0-5.9 5.9l-4.8 4.8a2.2 2.2 0 1 0 3.1 3.1l4.8-4.8a4.6 4.6 0 0 0 5.9-5.9l-3.2 3.2-3.4-3.4z"/><circle cx="5.5" cy="16.5" r=".65"/></svg>
                   </button>
                 </div>
               </div>
@@ -5999,6 +6073,8 @@
 
       const invokeRaw = window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke;
       const convertFileSrcRaw = window.__TAURI__?.core?.convertFileSrc || window.__TAURI_INTERNALS__?.convertFileSrc;
+      const listenRaw = window.__TAURI__?.event?.listen;
+      let cliSyncUnlisten = null;
 
       function setStatus(message, tone = "ok") {
         els.statusText.textContent = tr(message);
@@ -6801,6 +6877,56 @@
           els.confirmScrim.querySelector("[data-confirm-ok]")?.addEventListener("click", () => close(true));
           els.confirmScrim.addEventListener("click", (event) => {
             if (event.target === els.confirmScrim) close(false);
+          }, { once: true });
+        });
+      }
+
+      function appConfirmSelection({ title, message, options = [], confirmText, cancelText = t("actions.cancel"), danger = false } = {}) {
+        const available = options.filter((option) => !option.disabled);
+        if (!els.confirmScrim) {
+          return Promise.resolve(window.confirm(message || title) ? available.filter((option) => option.checked).map((option) => option.id) : null);
+        }
+        return new Promise((resolve) => {
+          const close = (value) => {
+            els.confirmScrim.classList.remove("open");
+            els.confirmScrim.setAttribute("aria-hidden", "true");
+            els.confirmScrim.innerHTML = "";
+            resolve(value);
+          };
+          const optionMarkup = options.map((option) => `
+            <label class="confirm-selection-option${option.contextual ? " confirm-selection-option--context" : ""}${option.secondary ? " confirm-selection-option--secondary" : ""}">
+              <input type="checkbox" data-confirm-selection="${escapeAttribute(option.id)}"${option.checked ? " checked" : ""}${option.disabled ? " disabled" : ""} />
+              <span><span class="confirm-selection-label">${escapeHtml(option.label)}</span><span class="confirm-selection-detail">${escapeHtml(option.detail)}</span></span>
+            </label>
+          `).join("");
+          els.confirmScrim.innerHTML = `
+            <div class="confirm-card" role="dialog" aria-modal="true" aria-label="${escapeAttribute(title)}">
+              <h3 class="confirm-title">${escapeHtml(title)}</h3>
+              <p class="confirm-message">${escapeHtml(message)}</p>
+              <div class="confirm-selection-list">${optionMarkup}</div>
+              <div class="confirm-actions">
+                <button class="button button-secondary" type="button" data-confirm-cancel>${escapeHtml(cancelText)}</button>
+                <button class="button ${danger ? "button-danger" : "button-primary"}" type="button" data-confirm-ok></button>
+              </div>
+            </div>
+          `;
+          const dialog = els.confirmScrim.querySelector(".confirm-card");
+          const ok = dialog?.querySelector("[data-confirm-ok]");
+          const selectedIds = () => [...dialog.querySelectorAll("[data-confirm-selection]:checked")].map((input) => input.dataset.confirmSelection);
+          const sync = () => {
+            const count = selectedIds().length;
+            ok.disabled = count === 0;
+            ok.textContent = appState.language === "en-US" ? `${confirmText} (${count})` : `${confirmText}（${count}）`;
+          };
+          dialog?.querySelectorAll("[data-confirm-selection]").forEach((input) => input.addEventListener("change", sync));
+          sync();
+          els.confirmScrim.classList.add("open");
+          els.confirmScrim.setAttribute("aria-hidden", "false");
+          dialog?.querySelector("[data-confirm-selection]:checked:not(:disabled), [data-confirm-selection]:not(:disabled)")?.focus();
+          dialog?.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => close(null));
+          ok?.addEventListener("click", () => close(selectedIds()));
+          els.confirmScrim.addEventListener("click", (event) => {
+            if (event.target === els.confirmScrim) close(null);
           }, { once: true });
         });
       }
@@ -9399,7 +9525,7 @@
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "ignore_agent_artifact" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "prepare_nbskill_install_prompt" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "ignore_agent_artifact" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -10038,34 +10164,32 @@
 
       const NBSKILL_STATUS_CONTENT = {
         "zh-CN": {
-          loading: "正在检测五类 Agent 的 nbskill…",
+          loading: "正在检测五类 Agent 集成…",
           refresh: "重新检测",
-          copy: "复制 {agent} 安装提示",
-          copied: "已复制 {agent} 安装提示；NUTBOOK 未修改目标 Agent。",
           loadFailed: "检测失败；保留上次结果。",
-          copyFailed: "生成安装提示失败：{error}",
-          clipboardFallback: "剪贴板不可用；已打开可手动复制的完整提示。",
+          actionFailed: "Agent 集成操作失败：{error}",
           stale: "上次结果，重新检测失败",
           missing: "未安装；普通项目扫描仍可用",
           outdated: "版本过旧（{installed} → {expected}）",
+          newer_unverified: "检测到较新版本；Nutbook 不会降级，集成未验证",
           compatibleVerified: "已安装 {version}，自检通过",
           compatibleUnverified: "包兼容；目标 Agent 运行环境未验证",
+          cliNewerUnverified: "检测到较新 CLI；Nutbook 不会降级，集成未验证",
           corrupt: "安装包不完整或版本不受支持",
           unreadable: "安装路径不可读取"
         },
         "en-US": {
-          loading: "Detecting nbskill for five Agents…",
+          loading: "Detecting integrations for five Agents…",
           refresh: "Detect Again",
-          copy: "Copy {agent} Install Prompt",
-          copied: "Copied the {agent} install prompt; NUTBOOK did not modify the target Agent.",
           loadFailed: "Detection failed; keeping the last result.",
-          copyFailed: "Could not prepare the install prompt: {error}",
-          clipboardFallback: "Clipboard unavailable; opened the full prompt for manual copying.",
+          actionFailed: "Agent integration action failed: {error}",
           stale: "Last-known result; re-detection failed",
           missing: "Not installed; ordinary project discovery still works",
           outdated: "Outdated ({installed} → {expected})",
+          newer_unverified: "A newer version is installed; Nutbook will not downgrade it and the integration is unverified",
           compatibleVerified: "Installed {version}; self-test passed",
           compatibleUnverified: "Package compatible; target Agent runtime unverified",
+          cliNewerUnverified: "A newer CLI is installed; Nutbook will not downgrade it and the integration is unverified",
           corrupt: "Package is incomplete or its version is unsupported",
           unreadable: "Install path is unreadable"
         }
@@ -10098,6 +10222,53 @@
         return content[status.packageStatus] || status.detail || content.corrupt;
       }
 
+      function isNbskillHealthy(status) {
+        return Boolean(status?.agentDetected && status.packageStatus === "compatible" && status.runtimeStatus === "verified" && status.cliStatus === "compatible");
+      }
+
+      function isNbskillEnableCandidate(status) {
+        return Boolean(status?.agentDetected && status.packageStatus === "missing");
+      }
+
+      function isNbskillRepairable(status) {
+        return Boolean(status?.agentDetected
+          && status.packageStatus !== "missing"
+          && status.packageStatus !== "newer_unverified"
+          && (status.packageStatus !== "compatible"
+            || status.runtimeStatus !== "verified"
+            || (status.cliStatus !== "compatible" && status.cliStatus !== "newer_unverified")));
+      }
+
+      function nbskillSelectionOptions(operation, statuses, selectedAgentId) {
+        const english = appState.language === "en-US";
+        return statuses.filter((status) => operation === "manage" ? status.packageStatus !== "missing" : status.agentDetected).map((status) => {
+          const healthy = isNbskillHealthy(status);
+          const newer = status.packageStatus === "newer_unverified";
+          const installed = status.packageStatus !== "missing";
+          const selectable = operation === "manage" ? installed : operation === "enable" ? isNbskillEnableCandidate(status) : isNbskillRepairable(status);
+          const detail = operation === "manage"
+            ? (english ? (installed ? "Remove only if it is verified as Nutbook-owned; modified packages are backed up." : "No installed integration to manage.") : (installed ? "仅在验证为 Nutbook 所属后移除；修改过的包会备份。" : "没有可管理的已安装集成。"))
+            : newer
+              ? (english ? "Newer version detected; Nutbook will not change it." : "检测到较新版本；Nutbook 不会修改它。")
+              : healthy
+                ? (english ? "Healthy; no change is needed." : "状态健康，无需修改。")
+                : operation === "enable" && installed
+                  ? (english ? "Installed but unhealthy; use Repair instead." : "已安装但状态异常；请使用修复。")
+                  : operation === "repair" && !installed
+                    ? (english ? "Not installed; use Enable instead." : "尚未安装；请使用启用。")
+                : nbskillStatusDetail(status);
+          return {
+            id: status.agentId,
+            label: status.displayName,
+            detail,
+            checked: selectable && status.agentId === selectedAgentId,
+            disabled: !selectable,
+            contextual: status.agentId === selectedAgentId,
+            secondary: selectable && status.agentId !== selectedAgentId
+          };
+        });
+      }
+
       function renderNbskillAgentToolbar() {
         if (!els.settingsNbskillAgentStrip) return;
         const content = currentNbskillStatusContent();
@@ -10114,9 +10285,17 @@
         }
         els.settingsNbskillAgentStrip.innerHTML = statuses.map((status) => {
           const selected = status.agentId === appState.selectedNbskillAgentId;
-          const detail = `${status.displayName}：${nbskillStatusDetail(status)}${appState.nbskillStatusesStale ? `；${content.stale}` : ""}`;
+          const healthy = isNbskillHealthy(status);
+          const healthReason = status.agentDetected
+            ? (status.cliStatus === "compatible"
+              ? (appState.language === "en-US" ? "Agent runtime is not fully verified" : "Agent 运行环境未完全验证")
+              : status.cliStatus === "newer_unverified"
+                ? content.cliNewerUnverified
+                : (appState.language === "en-US" ? "Nutbook CLI is unavailable, outdated, or invalid" : "Nutbook CLI 不可用、过旧或无效"))
+            : (appState.language === "en-US" ? "Agent was not reliably detected" : "未可靠检测到 Agent");
+          const detail = `${status.displayName}：${healthy ? nbskillStatusDetail(status) : `${nbskillStatusDetail(status)}；${healthReason}`}${appState.nbskillStatusesStale ? `；${content.stale}` : ""}`;
           return `<button
-            class="nbskill-agent-button ${status.packageStatus === "compatible" ? "compatible" : ""} ${status.runtimeStatus === "verified" ? "runtime-verified" : ""} ${appState.nbskillStatusesStale ? "stale" : ""} ${selected ? "selected" : ""}"
+            class="nbskill-agent-button ${healthy ? "compatible runtime-verified" : ""} ${appState.nbskillStatusesStale ? "stale" : ""} ${selected ? "selected" : ""}"
             type="button"
             role="radio"
             aria-checked="${selected}"
@@ -10153,19 +10332,37 @@
           els.settingsNbskillEnhancementHint.dataset.tooltip = enhancementHint;
         }
         if (els.settingsRefreshNbskillStatusButton) {
-          els.settingsRefreshNbskillStatusButton.setAttribute("aria-label", content.refresh);
-          els.settingsRefreshNbskillStatusButton.dataset.tooltip = content.refresh;
-          els.settingsRefreshNbskillStatusButton.disabled = appState.nbskillStatusLoading;
+          const hasEnableCandidates = statuses.some(isNbskillEnableCandidate);
+          const hasManageCandidates = statuses.some((status) => status.packageStatus !== "missing");
+          const selectedHasIntegration = Boolean(selected && selected.packageStatus !== "missing");
+          const primaryMode = selectedHasIntegration ? "manage" : "enable";
+          const label = primaryMode === "manage" ? (appState.language === "en-US" ? "Manage Agent Integrations" : "管理 Agent 集成") : (appState.language === "en-US" ? "Enable Agent Integrations" : "启用 Agent 集成");
+          els.settingsRefreshNbskillStatusButton.setAttribute("aria-label", label);
+          els.settingsRefreshNbskillStatusButton.dataset.tooltip = label;
+          els.settingsRefreshNbskillStatusButton.dataset.nbskillPrimaryMode = primaryMode;
+          els.settingsRefreshNbskillStatusButton.disabled = appState.nbskillStatusLoading || (primaryMode === "manage" ? !hasManageCandidates : !hasEnableCandidates);
+          const primaryIcon = els.settingsRefreshNbskillStatusButton.querySelector("svg");
+          if (primaryIcon) primaryIcon.innerHTML = primaryMode === "enable"
+            ? '<circle cx="10" cy="10" r="6.5"/><path d="M10 6.7v6.6M6.7 10h6.6"/>'
+            : '<path d="M4 5h12M4 10h12M4 15h12"/><circle cx="7" cy="5" r="1.4"/><circle cx="13" cy="10" r="1.4"/><circle cx="9" cy="15" r="1.4"/>';
         }
         if (els.settingsCopyNbskillPromptButton) {
-          const copyLabel = formatNbskillText(content.copy, { agent: selected?.displayName || "Agent" });
-          els.settingsCopyNbskillPromptButton.setAttribute("aria-label", copyLabel);
-          els.settingsCopyNbskillPromptButton.dataset.tooltip = copyLabel;
-          els.settingsCopyNbskillPromptButton.disabled = appState.nbskillStatusLoading || !selected;
+          const repairLabel = appState.language === "en-US" ? "Repair Agent Integrations" : "修复 Agent 集成";
+          els.settingsCopyNbskillPromptButton.setAttribute("aria-label", repairLabel);
+          els.settingsCopyNbskillPromptButton.dataset.tooltip = repairLabel;
+          const hasRepairable = statuses.some(isNbskillRepairable);
+          els.settingsCopyNbskillPromptButton.disabled = appState.nbskillStatusLoading || !hasRepairable;
         }
         if (els.settingsNbskillInstallFeedback) {
           els.settingsNbskillInstallFeedback.textContent = appState.nbskillInstallFeedback || (appState.nbskillStatusLoading ? content.loading : "");
         }
+      }
+
+      async function fetchNbskillAgentStatuses() {
+        const statuses = await invoke("get_nbskill_agent_status");
+        if (!Array.isArray(statuses) || statuses.length !== 5) throw new Error("invalid Agent status response");
+        appState.nbskillAgentStatuses = statuses;
+        appState.nbskillStatusesStale = false;
       }
 
       async function loadNbskillAgentStatuses() {
@@ -10174,10 +10371,7 @@
         appState.nbskillInstallFeedback = "";
         renderNbskillAgentToolbar();
         try {
-          const statuses = await invoke("get_nbskill_agent_status");
-          if (!Array.isArray(statuses) || statuses.length !== 5) throw new Error("invalid Agent status response");
-          appState.nbskillAgentStatuses = statuses;
-          appState.nbskillStatusesStale = false;
+          await fetchNbskillAgentStatuses();
         } catch (error) {
           appState.nbskillStatusesStale = appState.nbskillAgentStatuses.length > 0;
           appState.nbskillInstallFeedback = currentNbskillStatusContent().loadFailed;
@@ -10187,28 +10381,39 @@
         }
       }
 
-      async function copySelectedNbskillInstallPrompt() {
-        const selected = appState.nbskillAgentStatuses.find((status) => status.agentId === appState.selectedNbskillAgentId);
-        if (!selected) return;
+      async function runAgentIntegrationAction(action) {
+        const statuses = appState.nbskillAgentStatuses;
+        const selected = statuses.find((status) => status.agentId === appState.selectedNbskillAgentId);
+        const operation = action === "repair" ? "repair" : selected?.packageStatus !== "missing" ? "manage" : "enable";
+        const options = nbskillSelectionOptions(operation, statuses, appState.selectedNbskillAgentId);
+        if (!options.some((option) => !option.disabled)) {
+          appState.nbskillInstallFeedback = appState.language === "en-US" ? "No reliably detected Agent integration can be changed." : "没有可安全修改的已检测 Agent 集成。";
+          renderNbskillAgentToolbar();
+          return;
+        }
+        const english = appState.language === "en-US";
+        const scope = await appConfirmSelection({
+          title: operation === "manage" ? (english ? "Manage Agent integrations" : "管理 Agent 集成") : operation === "repair" ? (english ? "Choose Agent integrations to repair" : "选择要修复的 Agent 集成") : (english ? "Choose Agent integrations to enable" : "选择要启用的 Agent 集成"),
+          message: operation === "manage"
+            ? (english ? "Select the Nutbook integrations you want to remove. Removal never deletes Agent files outside the verified nbskill package." : "勾选要移除的 Nutbook 集成。移除不会删除已验证 nbskill 包之外的 Agent 文件。")
+            : operation === "repair"
+              ? (english ? "Choose detected unhealthy integrations. Nutbook also verifies and repairs the shared CLI; healthy and newer packages are not changed." : "选择已检测到的异常集成。Nutbook 也会校验并修复共享 CLI；健康或较新版本不会被修改。")
+              : (english ? "Choose detected Agents to enable. Nutbook also verifies the shared CLI; healthy and newer packages will not be reinstalled or downgraded." : "选择要启用的已检测 Agent。Nutbook 也会校验共享 CLI；健康或较新版本不会被重装或降级。"),
+          options,
+          confirmText: operation === "manage" ? (english ? "Remove selected" : "移除已选") : operation === "repair" ? (english ? "Repair selected" : "修复已选") : (english ? "Enable selected" : "启用已选"),
+          danger: operation === "manage"
+        });
+        if (!scope?.length) return;
         appState.nbskillStatusLoading = true;
         appState.nbskillInstallFeedback = "";
         renderNbskillAgentToolbar();
-        let response = null;
         try {
-          response = await invoke("prepare_nbskill_install_prompt", { agentId: selected.agentId });
-          if (response.copied) {
-            appState.nbskillInstallFeedback = formatNbskillText(currentNbskillStatusContent().copied, { agent: selected.displayName });
-          } else {
-            window.prompt(currentNbskillStatusContent().clipboardFallback, response.prompt);
-            appState.nbskillInstallFeedback = currentNbskillStatusContent().clipboardFallback;
-          }
+          const command = operation === "manage" ? "remove_nbskill_agents" : operation === "repair" ? "repair_nbskill_agents" : "install_nbskill_agents";
+          const results = await invoke(command, { payload: { agentIds: scope } });
+          appState.nbskillInstallFeedback = results.map((result) => `${result.agentId}: ${result.status}${result.detail ? ` (${result.detail})` : ""}`).join(" · ");
+          await fetchNbskillAgentStatuses();
         } catch (error) {
-          if (response?.prompt) {
-            window.prompt(currentNbskillStatusContent().clipboardFallback, response.prompt);
-            appState.nbskillInstallFeedback = currentNbskillStatusContent().clipboardFallback;
-          } else {
-            appState.nbskillInstallFeedback = formatNbskillText(currentNbskillStatusContent().copyFailed, { error: normalizeError(error) });
-          }
+          appState.nbskillInstallFeedback = formatNbskillText(currentNbskillStatusContent().actionFailed, { error: normalizeError(error) });
         } finally {
           appState.nbskillStatusLoading = false;
           renderNbskillAgentToolbar();
@@ -11407,16 +11612,12 @@
         if (command === "get_cached_agent_projects") return null;
         if (command === "get_nbskill_agent_status") {
           return [
-            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", installedVersion: "1.3.1", expectedVersion: "1.3.1", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
-            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", installedVersion: null, expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null },
-            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", installedVersion: null, expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null },
-            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", installedVersion: "1.3.0", expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null },
-            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", installedVersion: "1.3.0", expectedVersion: "1.3.1", lastSelfTestAt: null, detail: null }
+            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.4", expectedVersion: "1.3.4", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
+            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
+            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
+            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.3", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
+            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "newer_unverified", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "9.0.0", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null }
           ];
-        }
-        if (command === "prepare_nbskill_install_prompt") {
-          const agentId = args.agentId || args.payload?.agentId || "codex";
-          return { agentId, stagingPath: "/mock/nbskill-staging/1.3.1", targetPath: `/mock/.${agentId}/skills/nbskill`, prompt: `Install nbskill for ${agentId}`, copied: true };
         }
         if (command === "discover_agent_projects") {
           return {
@@ -15032,8 +15233,8 @@
           openSettingsTab("thumbnails");
         });
         els.settingsDiscoverAgentsButton?.addEventListener("click", loadAgentProjectsInSettings);
-        els.settingsRefreshNbskillStatusButton?.addEventListener("click", loadNbskillAgentStatuses);
-        els.settingsCopyNbskillPromptButton?.addEventListener("click", copySelectedNbskillInstallPrompt);
+        els.settingsRefreshNbskillStatusButton?.addEventListener("click", () => runAgentIntegrationAction("primary"));
+        els.settingsCopyNbskillPromptButton?.addEventListener("click", () => runAgentIntegrationAction("repair"));
         els.settingsSourceSortButton?.addEventListener("click", (event) => {
           event.stopPropagation();
           appState.isSettingsSourceSortMenuOpen = !appState.isSettingsSourceSortMenuOpen;
@@ -15183,6 +15384,12 @@
         warmMarkdownEditorApi();
 
         if (appState.isTauri) {
+          if (!cliSyncUnlisten) {
+            listenRaw?.("nutbook-cli-sync", async () => {
+              await Promise.all([loadLibraries(), loadItems(), loadIgnoredItems(), loadCachedAgentProjects()]);
+              if (appState.isSettingsOpen) renderSettingsPanel();
+            }).then((unlisten) => { cliSyncUnlisten = typeof unlisten === "function" ? unlisten : (() => {}); }).catch(() => {});
+          }
           try {
             appState.localServerOrigin = await invoke("get_local_server_origin");
           } catch (error) {
