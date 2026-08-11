@@ -9644,6 +9644,10 @@
         return new URLSearchParams(window.location.search).get("mockUpdate") === "1";
       }
 
+      function readmeDemoEnabled() {
+        return new URLSearchParams(window.location.search).get("readmeDemo") === "1";
+      }
+
       function normalizeUpdateStatus(value = {}) {
         return {
           currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "0.3.0",
@@ -11611,13 +11615,18 @@
         if (command === "list_libraries") return structuredClone(mockData.libraries);
         if (command === "get_cached_agent_projects") return null;
         if (command === "get_nbskill_agent_status") {
-          return [
+          const statuses = [
             { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.4", expectedVersion: "1.3.4", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
             { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
             { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
             { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.3", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
             { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "newer_unverified", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "9.0.0", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null }
           ];
+          if (!readmeDemoEnabled()) return statuses;
+          const installed = window.__readmeDemoInstalledAgents || new Set();
+          return statuses.map((status) => installed.has(status.agentId)
+            ? { ...status, packageStatus: "compatible", runtimeStatus: "verified", installedVersion: status.expectedVersion, lastSelfTestAt: "2026-08-11T12:00:00Z" }
+            : { ...status, packageStatus: "missing", runtimeStatus: "unverified", installedVersion: null, lastSelfTestAt: null });
         }
         if (command === "discover_agent_projects") {
           return {
@@ -11688,10 +11697,57 @@
           };
         }
         if (command === "list_discovered_artifact_skills") {
+          if (readmeDemoEnabled()) {
+            await new Promise((resolve) => window.setTimeout(resolve, 520));
+            return {
+              scannedSkills: 3,
+              skills: [
+                {
+                  name: "html-ppt",
+                  normalizedName: "html-ppt",
+                  manifestPath: "/mock/.agents/skills/html-ppt/SKILL.md",
+                  skillRootPath: "/mock/.agents/skills/html-ppt",
+                  outputPath: "/mock/agent-outputs/presentations",
+                  outputDirDeclared: "../../agent-outputs/presentations",
+                  sourceExists: true,
+                  isConnected: false,
+                  status: "ready",
+                  duplicateCount: 1
+                },
+                {
+                  name: "huashu-design",
+                  normalizedName: "huashu-design",
+                  manifestPath: "/mock/.agents/skills/huashu-design/SKILL.md",
+                  skillRootPath: "/mock/.agents/skills/huashu-design",
+                  outputPath: "/mock/agent-outputs/design",
+                  outputDirDeclared: "../../agent-outputs/design",
+                  sourceExists: true,
+                  isConnected: false,
+                  status: "ready",
+                  duplicateCount: 1
+                }
+              ]
+            };
+          }
           return {
             scannedSkills: 0,
             skills: []
           };
+        }
+        if (readmeDemoEnabled() && (command === "install_nbskill_agents" || command === "repair_nbskill_agents" || command === "remove_nbskill_agents")) {
+          const payload = args.payload || args;
+          const agentIds = Array.isArray(payload.agentIds) ? payload.agentIds : [];
+          await new Promise((resolve) => window.setTimeout(resolve, 420));
+          window.__readmeDemoInstalledAgents ||= new Set();
+          agentIds.forEach((agentId) => {
+            if (command === "remove_nbskill_agents") window.__readmeDemoInstalledAgents.delete(agentId);
+            else window.__readmeDemoInstalledAgents.add(agentId);
+          });
+          return agentIds.map((agentId) => ({
+            agentId,
+            status: command === "remove_nbskill_agents" ? "removed" : "installed",
+            detail: null
+          }));
         }
         if (command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill") {
           return true;
@@ -11739,8 +11795,20 @@
           };
         }
         if (command === "open_folder_dialog" || command === "open_folder_dialog_at") return null;
-        if (command === "open_file_dialog" || command === "open_image_file_dialog") return null;
+        if (command === "open_file_dialog") return null;
+        if (command === "open_image_file_dialog") {
+          return readmeDemoEnabled()
+            ? "/mock/readme-demo/classroom-collaboration-photo-bw.png"
+            : null;
+        }
         if (command === "copy_markdown_image_asset") {
+          if (readmeDemoEnabled()) {
+            return {
+              relativePath: `${window.location.origin}/assets/readme-demo/classroom-collaboration-photo-bw.png`,
+              assetPath: "/mock/readme-demo/classroom-collaboration-photo-bw.png",
+              fileName: "classroom-collaboration-photo-bw.png"
+            };
+          }
           const source = args.sourceImagePath || args.source_image_path || "";
           const fileName = source.split(/[\\/]/).filter(Boolean).pop() || "image.png";
           return {
