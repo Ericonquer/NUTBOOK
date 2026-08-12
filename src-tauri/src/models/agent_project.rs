@@ -42,6 +42,8 @@ pub struct DiscoveredScopeArtifactSummary {
     pub suggested_count: u32,
     pub pending_count: u32,
     pub excluded_count: u32,
+    #[serde(default)]
+    pub ignored_count: u32,
     pub already_indexed_paths: Vec<String>,
     pub scan_status: String,
     pub scan_issue: Option<String>,
@@ -109,6 +111,12 @@ pub struct PreviewAgentProjectArtifactsRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PreviewAgentProjectArtifactsByRootRequest {
+    pub root_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentArtifactPreviewPayload {
     pub project: AgentProjectSourceSummary,
     pub groups: Vec<super::ArtifactCandidateGroupSummary>,
@@ -135,9 +143,23 @@ pub struct AcceptAgentArtifactRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AcceptAgentArtifactsRequest {
+    pub project_library_id: i64,
+    pub candidate_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IgnoreAgentArtifactRequest {
     pub project_library_id: i64,
     pub candidate_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IgnoreAgentArtifactsRequest {
+    pub project_library_id: i64,
+    pub candidate_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

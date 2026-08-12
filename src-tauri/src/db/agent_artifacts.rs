@@ -145,6 +145,32 @@ impl Database {
         Ok(paths)
     }
 
+    pub fn ignored_artifact_paths_for_root(
+        &self,
+        root_path: &str,
+    ) -> Result<BTreeSet<String>, AppError> {
+        let canonical_root_key = canonical_root_key_for_path(root_path, true)?;
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT artifact_candidates.primary_path
+                 FROM artifact_candidates
+                 INNER JOIN libraries
+                   ON libraries.id = artifact_candidates.project_library_id
+                 WHERE libraries.canonical_root_key = ?1
+                   AND libraries.source_kind = 'agent_project'
+                   AND artifact_candidates.status = 'ignored'
+                 ORDER BY artifact_candidates.primary_path",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let paths = statement
+            .query_map(params![canonical_root_key], |row| row.get::<_, String>(0))
+            .map_err(|_| AppError::DatabaseError)?
+            .collect::<Result<BTreeSet<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(paths)
+    }
+
     pub fn reconcile_accepted_agent_candidates(
         &self,
         project_library_id: i64,
@@ -395,6 +421,27 @@ impl Database {
             .map_err(|_| AppError::LibraryNotFound)?;
         summary.adapters = Self::list_agent_project_adapter_bindings(&connection, project_library_id)?;
         Ok(summary)
+    }
+
+    pub fn find_agent_project_source_by_root(
+        &self,
+        root_path: &str,
+    ) -> Result<Option<AgentProjectSourceSummary>, AppError> {
+        let canonical_root_key = canonical_root_key_for_path(root_path, true)?;
+        let connection = self.connection()?;
+        let library_id = connection
+            .query_row(
+                "SELECT id
+                 FROM libraries
+                 WHERE canonical_root_key = ?1 AND source_kind = 'agent_project'",
+                params![canonical_root_key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        library_id
+            .map(|library_id| self.get_agent_project_source(library_id))
+            .transpose()
     }
 
     fn list_agent_project_adapter_bindings(
@@ -889,6 +936,79 @@ impl Database {
             return Err(AppError::InvalidParams);
         }
         Ok(())
+    }
+
+    pub fn ignore_agent_artifact_candidates(
+        &self,
+        project_library_id: i64,
+        candidate_ids: &[i64],
+    ) -> Result<u32, AppError> {
+        if candidate_ids.is_empty() {
+            return Ok(0);
+        }
+        self.get_agent_project_source(project_library_id)?;
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+        let mut changed = 0_u32;
+        let mut seen = BTreeSet::new();
+        for candidate_id in candidate_ids {
+            if !seen.insert(*candidate_id) {
+                continue;
+            }
+            let row_count = transaction
+                .execute(
+                    "UPDATE artifact_candidates
+                     SET status = 'ignored'
+                     WHERE id = ?1 AND project_library_id = ?2
+                       AND status IN ('suggested', 'pending')",
+                    params![candidate_id, project_library_id],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            if row_count == 0 {
+                return Err(AppError::InvalidParams);
+            }
+            changed = changed.saturating_add(1);
+        }
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(changed)
+    }
+
+    pub fn ignore_reviewable_agent_artifact_candidates(
+        &self,
+        project_library_id: i64,
+    ) -> Result<u32, AppError> {
+        self.get_agent_project_source(project_library_id)?;
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                "UPDATE artifact_candidates
+                 SET status = 'ignored'
+                 WHERE project_library_id = ?1
+                   AND status IN ('suggested', 'pending')",
+                params![project_library_id],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(changed.try_into().unwrap_or(u32::MAX))
+    }
+
+    pub fn restore_ignored_agent_artifact_candidates(
+        &self,
+        project_library_id: i64,
+    ) -> Result<u32, AppError> {
+        self.get_agent_project_source(project_library_id)?;
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                "UPDATE artifact_candidates
+                 SET status = 'pending'
+                 WHERE project_library_id = ?1
+                   AND status = 'ignored'",
+                params![project_library_id],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(changed.try_into().unwrap_or(u32::MAX))
     }
 
     pub fn refresh_agent_project_candidate_paths(
@@ -1579,6 +1699,101 @@ mod tests {
                 save_policy: None,
             }],
         }
+    }
+
+    #[test]
+    fn project_source_can_be_found_by_canonical_root_without_rescanning() {
+        let directory = tempdir().expect("temporary directory");
+        let database = Database::new(directory.path().join("nutbook.sqlite3"))
+            .expect("database");
+        let project_root = directory.path().join("project");
+        fs::create_dir_all(&project_root).expect("project root");
+        let project = connected_project(&database, &project_root);
+
+        let found = database
+            .find_agent_project_source_by_root(
+                project_root.to_str().expect("project root path"),
+            )
+            .expect("find project source")
+            .expect("existing project source");
+
+        assert_eq!(found.library_id, project.library_id);
+        assert_eq!(found.root_path, project.root_path);
+    }
+
+    #[test]
+    fn selected_artifact_candidates_are_ignored_atomically() {
+        let directory = tempdir().expect("temporary directory");
+        let database = Database::new(directory.path().join("nutbook.sqlite3"))
+            .expect("database");
+        let project_root = directory.path().join("project");
+        fs::create_dir_all(&project_root).expect("project root");
+        let project = connected_project(&database, &project_root);
+        let stored = database
+            .upsert_artifact_candidates(
+                project.library_id,
+                &[
+                    candidate(project.library_id, "one.md", "suggested", "run", "one"),
+                    candidate(project.library_id, "two.md", "pending", "manual", "two"),
+                ],
+                "now",
+            )
+            .expect("candidates");
+        let ids = stored
+            .iter()
+            .map(|candidate| candidate.id.expect("candidate id"))
+            .collect::<Vec<_>>();
+
+        let changed = database
+            .ignore_agent_artifact_candidates(project.library_id, &ids)
+            .expect("ignore selected candidates");
+
+        assert_eq!(changed, 2);
+        let connection = database.connection().expect("connection");
+        let ignored: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM artifact_candidates
+                 WHERE project_library_id = ?1 AND status = 'ignored'",
+                params![project.library_id],
+                |row| row.get(0),
+            )
+            .expect("ignored count");
+        assert_eq!(ignored, 2);
+    }
+
+    #[test]
+    fn selected_artifact_exclusion_rolls_back_when_any_candidate_is_invalid() {
+        let directory = tempdir().expect("temporary directory");
+        let database = Database::new(directory.path().join("nutbook.sqlite3"))
+            .expect("database");
+        let project_root = directory.path().join("project");
+        fs::create_dir_all(&project_root).expect("project root");
+        let project = connected_project(&database, &project_root);
+        let stored = database
+            .upsert_artifact_candidates(
+                project.library_id,
+                &[candidate(project.library_id, "one.md", "suggested", "run", "one")],
+                "now",
+            )
+            .expect("candidate");
+        let candidate_id = stored[0].id.expect("candidate id");
+
+        let result = database.ignore_agent_artifact_candidates(
+            project.library_id,
+            &[candidate_id, i64::MAX],
+        );
+
+        assert!(matches!(result, Err(AppError::InvalidParams)));
+        let status: String = database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT status FROM artifact_candidates WHERE id = ?1",
+                params![candidate_id],
+                |row| row.get(0),
+            )
+            .expect("candidate status");
+        assert_eq!(status, "suggested");
     }
 
     #[test]

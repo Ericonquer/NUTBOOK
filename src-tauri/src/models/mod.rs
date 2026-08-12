@@ -9,13 +9,14 @@ pub mod tag;
 pub mod update;
 
 pub use agent_project::{
-    AcceptAgentArtifactGroupsRequest, AcceptAgentArtifactRequest, AgentArtifactAcceptanceResult,
-    AgentArtifactActionItem, AgentArtifactEvent, AgentArtifactPreviewPayload, AgentInstallation,
-    AgentProjectAdapterBinding, AgentProjectSourceSummary, AgentScopeDiscoveryPayload,
-    ConnectAgentProjectRequest, DiscoveredAgentScope, DiscoveredScopeArtifactSummary,
-    IgnoreAgentArtifactRequest, PreviewAgentProjectArtifactsRequest,
-    RefreshAgentProjectRequest, MergeAgentTaskScopeRequest,
-    SetAgentProjectDiscoveryRuleRequest,
+    AcceptAgentArtifactGroupsRequest, AcceptAgentArtifactRequest, AcceptAgentArtifactsRequest,
+    AgentArtifactAcceptanceResult, AgentArtifactActionItem, AgentArtifactEvent,
+    AgentArtifactPreviewPayload, AgentInstallation, AgentProjectAdapterBinding,
+    AgentProjectSourceSummary, AgentScopeDiscoveryPayload, ConnectAgentProjectRequest,
+    DiscoveredAgentScope, DiscoveredScopeArtifactSummary, IgnoreAgentArtifactRequest,
+    IgnoreAgentArtifactsRequest, MergeAgentTaskScopeRequest,
+    PreviewAgentProjectArtifactsByRootRequest, PreviewAgentProjectArtifactsRequest,
+    RefreshAgentProjectRequest, SetAgentProjectDiscoveryRuleRequest,
 };
 pub use artifact_candidate::{
     ArtifactCandidate, ArtifactCandidateGroupSummary, DiscoveryEvidence, DiscoveryReasonKind,

@@ -11,11 +11,13 @@ use crate::{
     },
     errors::AppError,
     models::{
-        AcceptAgentArtifactGroupsRequest, AcceptAgentArtifactRequest,
+        AcceptAgentArtifactGroupsRequest, AcceptAgentArtifactRequest, AcceptAgentArtifactsRequest,
         AgentArtifactAcceptanceResult, AgentArtifactPreviewPayload,
         AgentProjectSourceSummary, AgentScopeDiscoveryPayload, ConnectAgentProjectRequest,
         DiscoveredAgentScope, DiscoveredScopeArtifactSummary, IgnoreAgentArtifactRequest,
-        MergeAgentTaskScopeRequest, PreviewAgentProjectArtifactsRequest, RefreshAgentProjectRequest,
+        IgnoreAgentArtifactsRequest, MergeAgentTaskScopeRequest,
+        PreviewAgentProjectArtifactsByRootRequest, PreviewAgentProjectArtifactsRequest,
+        RefreshAgentProjectRequest,
         SetAgentProjectDiscoveryRuleRequest,
     },
     state::AppState,
@@ -125,6 +127,13 @@ fn discover_scope_artifact_summary(
                 .ok()
         })
         .unwrap_or_default();
+    let ignored_paths = database
+        .and_then(|database| {
+            database
+                .ignored_artifact_paths_for_root(&scope.root_path)
+                .ok()
+        })
+        .unwrap_or_default();
     let (manifest_entries, manifest_issue) = match read_agent_output_manifest(project_root) {
         Ok(manifest) => (
             manifest.map(|manifest| manifest.entries).unwrap_or_default(),
@@ -147,7 +156,9 @@ fn discover_scope_artifact_summary(
         candidates
             .iter()
             .filter(|candidate| {
-                candidate.status == status && !known_paths.contains(&candidate.primary_path)
+                candidate.status == status
+                    && !known_paths.contains(&candidate.primary_path)
+                    && !ignored_paths.contains(&candidate.primary_path)
             })
             .count()
             .try_into()
@@ -159,12 +170,22 @@ fn discover_scope_artifact_summary(
         .filter(|candidate| known_paths.contains(&candidate.primary_path))
         .map(|candidate| candidate.primary_path.clone())
         .collect();
+    let ignored_count = candidates
+        .iter()
+        .filter(|candidate| {
+            ignored_paths.contains(&candidate.primary_path)
+                && !known_paths.contains(&candidate.primary_path)
+        })
+        .count()
+        .try_into()
+        .unwrap_or(u32::MAX);
     DiscoveredScopeArtifactSummary {
         adapter_id: scope.adapter_id.clone(),
         external_scope_id: scope.external_scope_id.clone(),
         suggested_count: count("suggested"),
         pending_count: count("pending"),
         excluded_count: count("excluded"),
+        ignored_count,
         already_indexed_paths,
         scan_status: if scan_issue.is_some() { "partial" } else { "complete" }.to_string(),
         scan_issue,
@@ -199,6 +220,18 @@ pub fn preview_agent_project_artifacts(
 }
 
 #[tauri::command]
+pub fn preview_agent_project_artifacts_by_root(
+    state: tauri::State<'_, AppState>,
+    payload: PreviewAgentProjectArtifactsByRootRequest,
+) -> Result<Option<AgentArtifactPreviewPayload>, AppError> {
+    state
+        .database
+        .find_agent_project_source_by_root(&payload.root_path)?
+        .map(|project| preview_payload(&state.database, project.library_id))
+        .transpose()
+}
+
+#[tauri::command]
 pub fn accept_agent_artifact_groups(
     state: tauri::State<'_, AppState>,
     payload: AcceptAgentArtifactGroupsRequest,
@@ -226,6 +259,18 @@ pub fn accept_agent_artifact(
 }
 
 #[tauri::command]
+pub fn accept_agent_artifacts(
+    state: tauri::State<'_, AppState>,
+    payload: AcceptAgentArtifactsRequest,
+) -> Result<AgentArtifactAcceptanceResult, AppError> {
+    state.database.accept_agent_artifact_candidates(
+        payload.project_library_id,
+        &payload.candidate_ids,
+        &current_timestamp(),
+    )
+}
+
+#[tauri::command]
 pub fn ignore_agent_artifact(
     state: tauri::State<'_, AppState>,
     payload: IgnoreAgentArtifactRequest,
@@ -234,6 +279,37 @@ pub fn ignore_agent_artifact(
         .database
         .ignore_agent_artifact_candidate(payload.project_library_id, payload.candidate_id)?;
     Ok(true)
+}
+
+#[tauri::command]
+pub fn ignore_agent_artifacts(
+    state: tauri::State<'_, AppState>,
+    payload: IgnoreAgentArtifactsRequest,
+) -> Result<u32, AppError> {
+    state.database.ignore_agent_artifact_candidates(
+        payload.project_library_id,
+        &payload.candidate_ids,
+    )
+}
+
+#[tauri::command]
+pub fn exclude_agent_project_candidates(
+    state: tauri::State<'_, AppState>,
+    payload: PreviewAgentProjectArtifactsRequest,
+) -> Result<u32, AppError> {
+    state
+        .database
+        .ignore_reviewable_agent_artifact_candidates(payload.project_library_id)
+}
+
+#[tauri::command]
+pub fn restore_excluded_agent_project_candidates(
+    state: tauri::State<'_, AppState>,
+    payload: PreviewAgentProjectArtifactsRequest,
+) -> Result<u32, AppError> {
+    state
+        .database
+        .restore_ignored_agent_artifact_candidates(payload.project_library_id)
 }
 
 #[tauri::command]
@@ -482,6 +558,7 @@ mod tests {
         AgentInstallation, AgentScopeDiscoveryPayload, DiscoveredAgentScope,
     };
     use crate::{db::repositories::ItemRepository, db::Database};
+
     use tempfile::tempdir;
 
     #[test]
@@ -665,6 +742,56 @@ mod tests {
         assert_eq!(summary.suggested_count, 1);
         assert_eq!(summary.pending_count, 0);
         assert_eq!(summary.scan_status, "complete");
+    }
+
+    #[test]
+    fn excluded_project_candidates_leave_review_and_can_be_restored() {
+        let project = tempdir().expect("project scope");
+        fs::write(project.path().join("report.md"), "# Report").expect("report");
+        let database_root = tempdir().expect("database root");
+        let database = Database::new(database_root.path().join("project-exclusion.sqlite3"))
+            .expect("database");
+        let scope = DiscoveredAgentScope {
+            adapter_id: "claude-code".to_string(),
+            adapter_profile: "claude-project-index-v1".to_string(),
+            external_scope_id: "claude-code:project:excluded-fixture".to_string(),
+            scope_kind: "project".to_string(),
+            root_path: project.path().to_string_lossy().into_owned(),
+            display_name: "Excluded fixture".to_string(),
+            last_activity_at: "2026-08-12T00:00:00Z".to_string(),
+            capability: "scope-only".to_string(),
+            source_record_count: 1,
+        };
+        let source = database
+            .connect_agent_project_source(
+                &scope.adapter_id,
+                Some(&scope.adapter_profile),
+                &scope.external_scope_id,
+                &scope.scope_kind,
+                &scope.capability,
+                &scope.root_path,
+                Some(&scope.display_name),
+                "2026-08-12T00:00:00Z",
+            )
+            .expect("connect source");
+        discover_and_store_candidates(&database, &source).expect("discover candidates");
+
+        let excluded = database
+            .ignore_reviewable_agent_artifact_candidates(source.library_id)
+            .expect("exclude project candidates");
+        assert_eq!(excluded, 1);
+        let excluded_summary = discover_scope_artifact_summary(&scope, Some(&database));
+        assert_eq!(excluded_summary.suggested_count, 0);
+        assert_eq!(excluded_summary.pending_count, 0);
+        assert_eq!(excluded_summary.ignored_count, 1);
+
+        let restored = database
+            .restore_ignored_agent_artifact_candidates(source.library_id)
+            .expect("restore project candidates");
+        assert_eq!(restored, 1);
+        let restored_summary = discover_scope_artifact_summary(&scope, Some(&database));
+        assert_eq!(restored_summary.suggested_count, 1);
+        assert_eq!(restored_summary.ignored_count, 0);
     }
 
     #[test]

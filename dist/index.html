@@ -3312,6 +3312,23 @@
         line-height: 1.6;
       }
 
+      .confirm-detail {
+        margin: -8px 0 16px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #f3f3f5;
+        color: #6f6f75;
+        font-size: 11px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+        user-select: text;
+      }
+
+      .confirm-detail-label {
+        color: var(--ink-soft);
+        font-weight: 600;
+      }
+
       .confirm-selection-list {
         display: grid;
         gap: 7px;
@@ -3382,6 +3399,75 @@
         display: flex;
         justify-content: flex-end;
         gap: 8px;
+      }
+
+      .agent-integration-help-card {
+        width: min(440px, calc(100vw - 48px));
+      }
+
+      .agent-integration-help-intro {
+        margin-bottom: 12px;
+      }
+
+      .agent-integration-help-list {
+        display: grid;
+        gap: 12px;
+        margin: 0 0 18px;
+      }
+
+      .agent-integration-help-item {
+        display: grid;
+        gap: 3px;
+      }
+
+      .agent-integration-help-item-title {
+        color: #242429;
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.35;
+      }
+
+      .agent-integration-help-item-copy {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .agent-integration-example {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 9px 10px;
+        border-radius: 9px;
+        background: rgba(20, 20, 20, 0.045);
+      }
+
+      .agent-integration-example-text {
+        color: #4e4e55;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .agent-integration-copy-button {
+        min-width: 50px;
+        min-height: 28px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 7px;
+        background: #fff;
+        color: #5c5c63;
+        font: 600 11px/1 var(--font-ui);
+        cursor: pointer;
+        box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.1);
+        transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .agent-integration-copy-button:hover,
+      .agent-integration-copy-button:focus-visible {
+        color: #17171a;
+        box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.24);
       }
 
       html.settings-overlay-mode,
@@ -3459,8 +3545,13 @@
         -webkit-tap-highlight-color: transparent;
         -webkit-user-select: none;
         user-select: none;
-        outline: none;
         box-shadow: none;
+      }
+
+      .settings-tab:focus-visible,
+      .settings-section-switch button:focus-visible {
+        outline: 2px solid #111 !important;
+        outline-offset: 2px;
       }
 
       .settings-tab:hover {
@@ -3512,7 +3603,14 @@
         margin: 0;
         font-size: 18px;
         font-weight: 700;
+        line-height: 28px;
         letter-spacing: -0.02em;
+      }
+
+      .settings-modal-header {
+        min-height: 32px;
+        align-items: center;
+        padding: 0 2px;
       }
 
       .settings-section {
@@ -3526,6 +3624,26 @@
         min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
+      }
+
+      #settingsSkillsSection,
+      #settingsLibrariesSection {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      #settingsSkillsSection[hidden],
+      #settingsLibrariesSection[hidden] {
+        display: none;
+      }
+
+      #settingsSkillsSection > .settings-subsection-card:not([hidden]),
+      #settingsLibrariesSection > .settings-subsection-card:not([hidden]) {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        grid-template-rows: auto minmax(0, 1fr);
       }
 
       .settings-section[hidden] {
@@ -3599,8 +3717,9 @@
         background: var(--paper);
       }
 
-      #settingsSkillsSection .settings-subsection-card + .settings-subsection-card {
-        padding-top: 18px;
+      #settingsProjectArtifactsSubsection,
+      #settingsSkillArtifactsSubsection {
+        padding: 14px;
       }
 
       #settingsLibrariesSection .settings-subsection-card + .settings-subsection-card {
@@ -3609,6 +3728,27 @@
 
       .settings-subsection-card .settings-list.scrollable {
         padding-right: 0;
+      }
+
+      .settings-fixed-toolbar-list,
+      #settingsAgentProjectList,
+      #settingsSkillList,
+      #settingsLibraryList,
+      #settingsIgnoredList {
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+        align-content: stretch;
+      }
+
+      .settings-list-viewport {
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        padding-right: 4px;
       }
 
       .settings-section-switch {
@@ -3656,8 +3796,201 @@
         transform: translateY(-1px);
       }
 
+      .settings-artifact-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px 16px;
+        align-items: center;
+      }
+
+      .settings-artifact-header > .settings-section-title {
+        min-width: 0;
+        font-size: 15px;
+        line-height: 28px;
+      }
+
+      .settings-artifact-tools {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .settings-search-field {
+        position: relative;
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+        overflow: hidden;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        transition: width 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 120ms ease, border-color 120ms ease;
+      }
+
+      .settings-search-field.is-expanded,
+      .settings-search-field:focus-within,
+      .settings-search-field[data-has-value="true"] {
+        width: 176px;
+        border-color: var(--line);
+        background: #fff;
+      }
+
+      .settings-search-field .settings-search-icon {
+        grid-column: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        color: var(--ink-soft);
+        font-size: 16px;
+        line-height: 1;
+        transform: translateY(1px);
+        pointer-events: none;
+      }
+
+      .settings-modal .settings-search-field .input {
+        grid-column: 2;
+        width: 146px;
+        min-width: 0;
+        height: 26px;
+        min-height: 26px;
+        padding: 0 10px 0 2px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        box-shadow: none;
+        font-size: 11px;
+        line-height: 26px;
+        appearance: none;
+        -webkit-appearance: none;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateX(3px);
+        transition: opacity 90ms ease 45ms, transform 140ms cubic-bezier(0.22, 1, 0.36, 1) 30ms;
+      }
+
+      .settings-search-field.is-expanded .input,
+      .settings-search-field:focus-within .input,
+      .settings-search-field[data-has-value="true"] .input {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(0);
+      }
+
+      .settings-search-field:hover:not(.is-expanded):not(:focus-within):not([data-has-value="true"]) {
+        background: rgba(20, 20, 20, 0.06);
+      }
+
+      .settings-artifact-sort {
+        position: relative;
+        flex: 0 0 auto;
+      }
+
+      .settings-artifact-sort .icon-button {
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+      }
+
+      .settings-artifact-sort .material-symbols-outlined,
+      #settingsSourceSortButton .material-symbols-outlined {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 17px;
+        height: 17px;
+        font-size: 17px;
+        line-height: 1;
+        transform: translateY(2px);
+      }
+
+      .settings-artifact-sort .icon-button:hover,
+      .settings-artifact-sort .icon-button[aria-expanded="true"] {
+        background: #f3f3f5;
+        color: #000;
+      }
+
+      .settings-artifact-sort .icon-button:focus-visible {
+        outline: 2px solid #111 !important;
+        outline-offset: 2px;
+      }
+
+      .settings-artifact-sort .popover-menu {
+        top: calc(100% + 6px);
+        min-width: 148px;
+      }
+
+      .settings-artifact-sort .icon-button::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        right: 0;
+        top: calc(100% + 7px);
+        width: max-content;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 27, 0.96);
+        color: #fff;
+        font-size: 11px;
+        line-height: 1;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(-3px);
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 360;
+      }
+
+      .settings-artifact-sort .icon-button:hover::after,
+      .settings-artifact-sort .icon-button:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      .settings-artifact-sort .icon-button[aria-expanded="true"]::after {
+        display: none;
+      }
+
+      .settings-artifact-summary,
+      .settings-skill-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 2px 0 4px;
+      }
+
+      .settings-artifact-summary .muted,
+      .settings-skill-summary .muted {
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .settings-agent-select,
+      .settings-agent-candidate-select,
+      .settings-skill-select {
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+        accent-color: #111;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .settings-section-switch button {
+          transition: none;
+        }
+
+        .settings-search-field,
+        .settings-search-field .input {
           transition: none;
         }
       }
@@ -3666,16 +3999,10 @@
         display: flex;
         align-items: center;
         justify-content: flex-end;
-        gap: 10px;
+        gap: 6px;
         flex-wrap: nowrap;
         margin-left: auto;
         position: relative;
-      }
-
-      .settings-tools .input {
-        min-width: 160px;
-        max-width: 220px;
-        flex: 0 1 220px;
       }
 
       .settings-tools .select {
@@ -3687,8 +4014,9 @@
       }
 
       .settings-tools .icon-button {
-        width: 34px;
-        height: 34px;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
         flex: 0 0 auto;
       }
 
@@ -3790,9 +4118,18 @@
         flex-wrap: nowrap;
       }
 
+      #settingsLibrariesSection .settings-row > .button-row > .button {
+        min-height: 28px;
+        height: 28px;
+        padding: 0 10px;
+        font-size: 11px;
+        line-height: 1;
+      }
+
       .settings-agent-scope-row {
         flex-wrap: wrap;
         align-items: flex-start;
+        row-gap: 8px;
       }
 
       .settings-agent-scope-row > .button-row {
@@ -3809,7 +4146,35 @@
         line-height: 1;
       }
 
+      .settings-agent-project-summary {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        color: #626269;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .settings-agent-project-summary .settings-inline-link {
+        white-space: nowrap;
+      }
+
+      .settings-agent-project-status {
+        color: #333339;
+        font-weight: 600;
+      }
+
+      .settings-modal .settings-artifact-summary > .button-row > .button,
       .settings-modal .settings-skill-summary > .button-row > .button {
+        min-height: 30px;
+        height: 30px;
+        padding: 0 12px;
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .settings-modal .settings-header > .button-row > .settings-library-primary-action.button {
         min-height: 30px;
         height: 30px;
         padding: 0 12px;
@@ -3859,34 +4224,40 @@
         gap: 12px;
       }
 
-      .agent-inline-section {
-        min-width: 0;
+      .agent-detail-list {
         display: grid;
-        gap: 5px;
-      }
-
-      .agent-inline-heading {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
         gap: 10px;
-        color: #333339;
-        font-size: 11px;
-        font-weight: 600;
       }
 
       .agent-inline-file {
         min-width: 0;
-        display: flex;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
         align-items: center;
         gap: 7px;
-        min-height: 24px;
+        min-height: 34px;
         color: #5a5a61;
         font-size: 11px;
       }
 
+      .agent-inline-file-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .agent-inline-file-name {
+        color: #333339;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+
       .agent-inline-path {
         min-width: 0;
+        color: #85858c;
+        font-size: 10px;
+        line-height: 1.35;
         overflow-wrap: anywhere;
         word-break: break-word;
       }
@@ -3899,6 +4270,40 @@
         color: #686870;
         font-size: 10px;
         line-height: 18px;
+      }
+
+      .agent-detail-group {
+        display: grid;
+        gap: 4px;
+        scroll-margin-top: 8px;
+      }
+
+      .agent-detail-group + .agent-detail-group {
+        padding-top: 8px;
+        border-top: 1px solid rgba(20, 20, 20, 0.06);
+      }
+
+      .agent-detail-group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 26px;
+      }
+
+      .agent-detail-group-select {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: #4d4d54;
+        font-size: 11px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .agent-detail-group-count {
+        color: #85858c;
+        font-size: 10px;
       }
 
       .agent-inline-actions {
@@ -3986,11 +4391,24 @@
         background: #111;
         color: #fff;
         font: 700 11px/1 var(--font-ui);
-        cursor: help;
+        cursor: pointer;
+        transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
       }
 
-      .nbskill-enhancement-hint:not([hidden]) {
+      .nbskill-enhancement-hint[data-help-mode="intro"]:not([hidden]) {
         animation: nbskill-enhancement-pulse 2.6s ease-in-out infinite;
+      }
+
+      .nbskill-enhancement-hint[data-help-mode="guide"] {
+        background: #d9d9de;
+        color: #6f6f76;
+        animation: none;
+      }
+
+      .nbskill-enhancement-hint[data-help-mode="guide"]:hover,
+      .nbskill-enhancement-hint[data-help-mode="guide"]:focus-visible {
+        background: #696970;
+        color: #fff;
       }
 
       @keyframes nbskill-enhancement-pulse {
@@ -4009,7 +4427,7 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .nbskill-enhancement-hint:not([hidden]) {
+        .nbskill-enhancement-hint[data-help-mode="intro"]:not([hidden]) {
           animation: none;
         }
       }
@@ -4152,6 +4570,13 @@
       .nbskill-icon-button:focus-visible {
         background: rgba(20, 20, 20, 0.07);
         color: #17171a;
+      }
+
+      .nbskill-icon-button:disabled {
+        background: transparent;
+        color: #b5b5bb;
+        cursor: not-allowed;
+        opacity: 0.5;
       }
 
       .nbskill-icon-button svg {
@@ -4407,16 +4832,14 @@
         flex-wrap: wrap;
       }
 
-      .settings-skill-summary {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding-bottom: 4px;
+      #settingsSkillList.settings-list.scrollable {
+        overflow: visible;
+        padding-top: 0;
       }
 
-      .settings-skill-summary .muted {
-        font-size: 12px;
+      #settingsLibraryList.settings-list.scrollable,
+      #settingsIgnoredList.settings-list.scrollable {
+        overflow: visible;
       }
 
       .settings-skill-list {
@@ -4431,6 +4854,23 @@
       .settings-modal .button-row .button {
         min-height: 36px;
         white-space: nowrap;
+        position: relative;
+        transition: transform 120ms ease, background-color 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+      }
+
+      .settings-modal .button-row .button::before {
+        content: "";
+        position: absolute;
+        inset: -3px 0;
+      }
+
+      .settings-modal .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .settings-modal .button:active,
+      .settings-modal .button:disabled {
+        transform: none;
       }
 
       .settings-modal .button-primary {
@@ -4439,12 +4879,24 @@
         border-color: #111;
       }
 
+      .settings-modal .button-primary:hover {
+        background: #000;
+        border-color: #000;
+      }
+
       .settings-modal .button-secondary,
       .settings-modal .button-ghost,
       .settings-modal .button-danger {
         background: #fff;
         color: #111;
         border-color: #d4d4d8;
+      }
+
+      .settings-modal .button-secondary:hover,
+      .settings-modal .button-ghost:hover,
+      .settings-modal .button-danger:hover {
+        background: #f3f3f5;
+        border-color: #c6c6cb;
       }
 
       .settings-modal .input {
@@ -5129,8 +5581,6 @@
         transform: translateY(0);
       }
 
-      .settings-tab:focus,
-      .settings-tab:focus-visible,
       .settings-tab:active,
       .popover-option:focus,
       .popover-option:focus-visible,
@@ -5539,30 +5989,27 @@
 
     <div id="settingsScrim" class="modal-scrim" aria-hidden="true">
       <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-        <div class="settings-header">
-            <div>
-              <h2 id="settingsTitle" class="settings-title">设置</h2>
-            <div class="muted">管理资料库、标签、偏好和缩略图引擎</div>
-            </div>
+        <div class="settings-header settings-modal-header">
+          <h2 id="settingsTitle" class="settings-title">设置</h2>
           <button id="closeSettingsButton" class="icon-button" type="button" aria-label="关闭设置">
             <span class="material-symbols-outlined">close</span>
           </button>
         </div>
-        <div class="settings-tabbar">
-          <button class="settings-tab active" type="button" data-settings-tab="skills">产物接入</button>
-          <button class="settings-tab" type="button" data-settings-tab="libraries">文件管理</button>
-          <button class="settings-tab" type="button" data-settings-tab="tags">标签管理</button>
-          <button class="settings-tab" type="button" data-settings-tab="preferences">偏好设定</button>
-          <button class="settings-tab" type="button" data-settings-tab="thumbnails">缩略图</button>
+        <div class="settings-tabbar" role="tablist" aria-label="设置内容" data-i18n-aria-label="settings.settingsSections">
+          <button id="settingsTabSkills" class="settings-tab active" type="button" role="tab" aria-controls="settingsSkillsSection" aria-selected="true" data-settings-tab="skills">产物接入</button>
+          <button id="settingsTabLibraries" class="settings-tab" type="button" role="tab" aria-controls="settingsLibrariesSection" aria-selected="false" tabindex="-1" data-settings-tab="libraries">文件管理</button>
+          <button id="settingsTabTags" class="settings-tab" type="button" role="tab" aria-controls="settingsTagsSection" aria-selected="false" tabindex="-1" data-settings-tab="tags">标签管理</button>
+          <button id="settingsTabPreferences" class="settings-tab" type="button" role="tab" aria-controls="settingsPreferencesSection" aria-selected="false" tabindex="-1" data-settings-tab="preferences">偏好设定</button>
+          <button id="settingsTabThumbnails" class="settings-tab" type="button" role="tab" aria-controls="settingsThumbnailsSection" aria-selected="false" tabindex="-1" data-settings-tab="thumbnails">缩略图</button>
         </div>
-          <section id="settingsSkillsSection" class="settings-section">
+          <section id="settingsSkillsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabSkills">
             <div class="artifact-access-switchbar">
               <div class="settings-section-switch" role="tablist" aria-label="产物接入内容" data-i18n-aria-label="settings.artifactAccessSections">
-                <button class="active" type="button" data-settings-artifact-section="projects">项目产物接入</button>
-                <button type="button" data-settings-artifact-section="skills">skill 产物接入</button>
+                <button id="settingsArtifactTabProjects" class="active" type="button" role="tab" aria-controls="settingsProjectArtifactsSubsection" aria-selected="true" data-settings-artifact-section="projects">项目产物接入</button>
+                <button id="settingsArtifactTabSkills" type="button" role="tab" aria-controls="settingsSkillArtifactsSubsection" aria-selected="false" tabindex="-1" data-settings-artifact-section="skills">skill 产物接入</button>
               </div>
               <div class="nbskill-agent-toolbar" aria-label="Agent 集成接入" data-i18n-aria-label="settings.nbskillEnhancementAria">
-                <button id="settingsNbskillEnhancementHint" class="nbskill-enhancement-hint" type="button" aria-label="Nutbook CLI 与 nbskill 会按检测到的 Agent 安装和校验集成。" data-i18n-aria-label="settings.nbskillEnhancementHint" data-tooltip="Nutbook CLI 与 nbskill 会按检测到的 Agent 安装和校验集成。">!</button>
+                <button id="settingsNbskillEnhancementHint" class="nbskill-enhancement-hint" type="button" aria-label="Agent 集成接入" data-i18n-aria-label="settings.nbskillEnhancementAria" data-tooltip="Agent 集成接入">!</button>
                 <span class="nbskill-enhancement-label" data-i18n-key="settings.nbskillEnhancement">Agent 集成接入：</span>
                 <div id="settingsNbskillAgentStrip" class="nbskill-agent-strip" role="radiogroup" aria-label="nbskill Agent"></div>
                 <div class="nbskill-action-buttons">
@@ -5576,43 +6023,58 @@
               </div>
             </div>
             <div id="settingsNbskillInstallFeedback" class="nbskill-install-feedback" role="status"></div>
-            <div id="settingsProjectArtifactsSubsection" class="settings-subsection settings-subsection-card">
-              <div class="settings-header">
+            <div id="settingsProjectArtifactsSubsection" class="settings-subsection settings-subsection-card" role="tabpanel" aria-labelledby="settingsArtifactTabProjects">
+              <div class="settings-artifact-header">
                 <h3 class="settings-section-title" data-i18n-key="settings.projectArtifacts">项目产物接入</h3>
-                <button
-                  id="settingsDiscoverAgentsButton"
-                  class="button button-primary button-small"
-                  type="button"
-                  aria-label="发现项目产物"
-                  title="发现项目产物"
-                  data-i18n-aria-label="actions.discoverProjectArtifacts"
-                  data-i18n-title="actions.discoverProjectArtifacts"
-                  data-i18n-key="actions.discoverProjects"
-                >发现项目</button>
+                <div class="settings-artifact-tools">
+                  <div class="settings-search-field" data-settings-search-field data-has-value="false">
+                    <span class="material-symbols-outlined settings-search-icon" aria-hidden="true">search</span>
+                    <input id="settingsProjectSearchInput" class="input" placeholder="搜索项目或路径..." data-i18n-placeholder="settings.projectSearchPlaceholder" aria-label="搜索项目或路径" data-i18n-aria-label="settings.projectSearchLabel" />
+                  </div>
+                  <div class="settings-artifact-sort">
+                    <button id="settingsProjectSortButton" class="icon-button" type="button" aria-label="项目排序" data-i18n-aria-label="settings.projectSortLabel" data-tooltip="项目排序" aria-haspopup="menu" aria-expanded="false">
+                      <span class="material-symbols-outlined">filter_list</span>
+                    </button>
+                    <div id="settingsProjectSortMenu" class="popover-menu" role="menu" aria-hidden="true"></div>
+                  </div>
+                </div>
               </div>
-              <div class="settings-row-meta" data-i18n-key="settings.projectArtifactsDescription">发现并接入由本机 Agent 生成的项目产物，确认前不会导入任何文件。</div>
               <div id="settingsAgentProjectList" class="settings-list"></div>
             </div>
-            <div id="settingsSkillArtifactsSubsection" class="settings-subsection settings-subsection-card">
-              <div class="settings-header settings-header-compact">
+            <div id="settingsSkillArtifactsSubsection" class="settings-subsection settings-subsection-card" role="tabpanel" aria-labelledby="settingsArtifactTabSkills">
+              <div class="settings-artifact-header">
                 <h3 class="settings-section-title" data-i18n-key="settings.skillArtifacts">skill 产物接入</h3>
+                <div class="settings-artifact-tools">
+                  <div class="settings-search-field" data-settings-search-field data-has-value="false">
+                    <span class="material-symbols-outlined settings-search-icon" aria-hidden="true">search</span>
+                    <input id="settingsSkillSearchInput" class="input" placeholder="搜索 skill 或路径..." data-i18n-placeholder="settings.skillSearchPlaceholder" aria-label="搜索 skill 或路径" data-i18n-aria-label="settings.skillSearchLabel" />
+                  </div>
+                  <div class="settings-artifact-sort">
+                    <button id="settingsSkillSortButton" class="icon-button" type="button" aria-label="Skill 排序" data-i18n-aria-label="settings.skillSortLabel" data-tooltip="Skill 排序" aria-haspopup="menu" aria-expanded="false">
+                      <span class="material-symbols-outlined">filter_list</span>
+                    </button>
+                    <div id="settingsSkillSortMenu" class="popover-menu" role="menu" aria-hidden="true"></div>
+                  </div>
+                </div>
               </div>
-              <div class="settings-row-meta" data-i18n-key="settings.skillDescription">扫描本机 skills，发现并接入已声明或常用的产物目录。</div>
               <div id="settingsSkillList" class="settings-list scrollable"></div>
             </div>
           </section>
-          <section id="settingsLibrariesSection" class="settings-section">
+          <section id="settingsLibrariesSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabLibraries">
             <div class="settings-section-switch" role="tablist" aria-label="文件管理内容" data-i18n-aria-label="settings.fileManagementSections">
-              <button class="active" type="button" data-settings-library-section="folders" data-i18n-key="settings.sourceFolders">文件夹来源</button>
-              <button type="button" data-settings-library-section="files" data-i18n-key="settings.sourceFiles">单文件来源</button>
-              <button type="button" data-settings-library-section="projects" data-i18n-key="settings.sourceProjects">项目来源</button>
-              <button type="button" data-settings-library-section="removed" data-i18n-key="settings.removed">已移除</button>
+              <button class="active" type="button" role="tab" aria-controls="settingsLibraryList" aria-selected="true" data-settings-library-section="folders" data-i18n-key="settings.sourceFolders">文件夹来源</button>
+              <button type="button" role="tab" aria-controls="settingsLibraryList" aria-selected="false" tabindex="-1" data-settings-library-section="files" data-i18n-key="settings.sourceFiles">单文件来源</button>
+              <button type="button" role="tab" aria-controls="settingsLibraryList" aria-selected="false" tabindex="-1" data-settings-library-section="projects" data-i18n-key="settings.sourceProjects">项目来源</button>
+              <button type="button" role="tab" aria-controls="settingsIgnoredList" aria-selected="false" tabindex="-1" data-settings-library-section="removed" data-i18n-key="settings.removed">已移除</button>
             </div>
             <div class="settings-subsection settings-subsection-card">
               <div class="settings-header settings-header-compact">
-                <h3 class="settings-section-title" data-i18n-key="settings.fileSources">文件来源</h3>
+                <h3 id="settingsLibrarySectionTitle" class="settings-section-title">文件夹来源</h3>
                 <div class="settings-tools">
-                  <input id="settingsSourceSearchInput" class="input" placeholder="搜索来源或路径..." data-i18n-placeholder="settings.sourceSearchPlaceholder" />
+                  <div class="settings-search-field" data-settings-search-field data-has-value="false">
+                    <span class="material-symbols-outlined settings-search-icon" aria-hidden="true">search</span>
+                    <input id="settingsSourceSearchInput" class="input" placeholder="搜索来源或路径..." data-i18n-placeholder="settings.sourceSearchPlaceholder" aria-label="搜索来源或路径" data-i18n-aria-label="settings.sourceSearchLabel" />
+                  </div>
                   <button id="settingsSourceSortButton" class="icon-button" type="button" aria-label="排序来源" data-i18n-aria-label="actions.sortSources">
                     <span class="material-symbols-outlined">filter_list</span>
                   </button>
@@ -5628,7 +6090,7 @@
               <div id="settingsIgnoredList" class="settings-list scrollable"></div>
             </div>
           </section>
-          <section id="settingsTagsSection" class="settings-section" hidden>
+          <section id="settingsTagsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabTags" hidden>
             <div class="settings-header">
               <h3 class="settings-section-title">标签管理</h3>
               <div class="settings-tag-toolbar">
@@ -5638,7 +6100,7 @@
             </div>
             <div id="settingsTagList" class="settings-list scrollable"></div>
           </section>
-          <section id="settingsPreferencesSection" class="settings-section" hidden>
+          <section id="settingsPreferencesSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabPreferences" hidden>
             <div class="settings-header">
               <div>
                 <h3 class="settings-section-title">偏好设定</h3>
@@ -5647,7 +6109,7 @@
             </div>
             <div id="settingsPreferenceList" class="preference-list"></div>
           </section>
-          <section id="settingsThumbnailsSection" class="settings-section" hidden>
+          <section id="settingsThumbnailsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabThumbnails" hidden>
             <div class="settings-header">
               <h3 class="settings-section-title">缩略图引擎</h3>
               <div class="button-row">
@@ -5781,6 +6243,18 @@
         settingsLibrarySection: "folders",
         settingsSourceSearch: "",
         settingsSourceSort: "nameAsc",
+        settingsKeyboardTablist: "settings",
+        settingsProjectSearch: "",
+        settingsProjectSort: "recentFirst",
+        isSettingsProjectSortMenuOpen: false,
+        settingsProjectSelection: new Set(),
+        settingsArtifactCandidateSelection: new Set(),
+        settingsProjectScrollTop: 0,
+        settingsSkillScrollTop: 0,
+        settingsProjectFeedback: "",
+        settingsSkillSearch: "",
+        settingsSkillSort: "nameAsc",
+        isSettingsSkillSortMenuOpen: false,
         settingsIgnoredSelection: new Set(),
         settingsSkillSelection: new Set(),
         settingsSkillRefreshFeedback: "",
@@ -5789,12 +6263,15 @@
         nbskillStatusesStale: false,
         selectedNbskillAgentId: "codex",
         nbskillInstallFeedback: "",
+        agentIntegrationGuideShownThisSession: false,
+        nbskillInitialHealthObserved: false,
         documentTagAnchorLeft: null,
         documentTagMenuCloseTimer: null,
         settingsCollapsedGroups: {
           folders: false,
           files: false,
           ignored: false,
+          projectExcluded: true,
           skillReady: false,
           skillManual: false,
           skillExcluded: true
@@ -5828,6 +6305,7 @@
         documentTagDraft: "",
         localServerOrigin: null,
         isSettingsOpen: false,
+        settingsReturnFocus: null,
         isAboutOpen: false,
         agentDiscoveryStep: "intro",
         agentDiscoveryPayload: null,
@@ -5963,9 +6441,16 @@
         aboutGithubStarButton: document.getElementById("aboutGithubStarButton"),
         aboutGithubStarLabel: document.getElementById("aboutGithubStarLabel"),
         settingsSourceSearchInput: document.getElementById("settingsSourceSearchInput"),
+        settingsProjectSearchInput: document.getElementById("settingsProjectSearchInput"),
+        settingsProjectSortButton: document.getElementById("settingsProjectSortButton"),
+        settingsProjectSortMenu: document.getElementById("settingsProjectSortMenu"),
+        settingsSkillSearchInput: document.getElementById("settingsSkillSearchInput"),
+        settingsSkillSortButton: document.getElementById("settingsSkillSortButton"),
+        settingsSkillSortMenu: document.getElementById("settingsSkillSortMenu"),
         settingsDiscoverAgentsButton: document.getElementById("settingsDiscoverAgentsButton"),
         settingsSourceSortButton: document.getElementById("settingsSourceSortButton"),
         settingsSourceSortMenu: document.getElementById("settingsSourceSortMenu"),
+        settingsLibrarySectionTitle: document.getElementById("settingsLibrarySectionTitle"),
         settingsLibraryList: document.getElementById("settingsLibraryList"),
         settingsIgnoredList: document.getElementById("settingsIgnoredList"),
         settingsAgentProjectList: document.getElementById("settingsAgentProjectList"),
@@ -6068,6 +6553,10 @@
             allowExternalResources: false,
             editable: false
           }
+        },
+        agentProjectStates: {
+          "/workspace/sample-agent-project": { libraryId: 201, ignored: false, acceptedCandidateIds: new Set() },
+          "/Users/name/Workbuddy/2026-06-26-22-31-57/outputs": { libraryId: 202, ignored: false, acceptedCandidateIds: new Set() }
         }
       };
 
@@ -6091,10 +6580,18 @@
         return appState.language === "en-US" ? String(count) : `${count} 个`;
       }
 
-      function skillScanSummaryText(scannedCount, visibleCount) {
-        return appState.language === "en-US"
-          ? `${t("settings.skillScanSummaryPrefix")} ${scannedCount} ${t("settings.skillScanSummaryMiddle")} ${visibleCount}`
-          : `${t("settings.skillScanSummaryPrefix")} ${scannedCount} ${t("settings.skillScanSummaryMiddle")} ${visibleCount} ${t("settings.skillScanSummarySuffix")}`;
+      function skillScanSummaryText(scannedCount, connectedCount, excludedCount) {
+        return t("settings.skillScanSummary")
+          .replace("{scanned}", scannedCount)
+          .replace("{connected}", connectedCount)
+          .replace("{excluded}", excludedCount);
+      }
+
+      function projectScanSummaryText(scannedCount, connectedCount, excludedCount) {
+        return t("settings.projectScanSummary")
+          .replace("{scanned}", scannedCount)
+          .replace("{connected}", connectedCount)
+          .replace("{excluded}", excludedCount);
       }
 
       function markdownEditorFailedStatus(error) {
@@ -6852,19 +7349,46 @@
         });
       }
 
-      function appConfirm({ title = t("actions.confirm"), message = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
+      function appConfirm({ title = t("actions.confirm"), message = "", detail = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
         if (!els.confirmScrim) return Promise.resolve(window.confirm(message || title));
         return new Promise((resolve) => {
+          const previousFocus = document.activeElement;
+          const handleBackdropClick = (event) => {
+            if (event.target === els.confirmScrim) close(false);
+          };
+          const handleKeydown = (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              close(false);
+              return;
+            }
+            if (event.key !== "Tab") return;
+            const focusable = [...els.confirmScrim.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])")];
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          };
           const close = (value) => {
+            document.removeEventListener("keydown", handleKeydown, true);
+            els.confirmScrim.removeEventListener("click", handleBackdropClick);
             els.confirmScrim.classList.remove("open");
             els.confirmScrim.setAttribute("aria-hidden", "true");
             els.confirmScrim.innerHTML = "";
+            previousFocus?.focus?.();
             resolve(value);
           };
           els.confirmScrim.innerHTML = `
-            <div class="confirm-card" role="dialog" aria-modal="true">
-              <h3 class="confirm-title">${escapeHtml(title)}</h3>
-              <p class="confirm-message">${escapeHtml(message)}</p>
+            <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle" aria-describedby="appConfirmMessage">
+              <h3 id="appConfirmTitle" class="confirm-title">${escapeHtml(title)}</h3>
+              <p id="appConfirmMessage" class="confirm-message">${escapeHtml(message)}</p>
+              ${detail ? `<div class="confirm-detail"><span class="confirm-detail-label">${escapeHtml(t("settings.originalFilePath"))}</span>${escapeHtml(detail)}</div>` : ""}
               <div class="confirm-actions">
                 <button class="button button-secondary" type="button" data-confirm-cancel>${escapeHtml(cancelText)}</button>
                 <button class="button ${danger ? "button-danger" : "button-primary"}" type="button" data-confirm-ok>${escapeHtml(confirmText)}</button>
@@ -6873,12 +7397,29 @@
           `;
           els.confirmScrim.classList.add("open");
           els.confirmScrim.setAttribute("aria-hidden", "false");
+          document.addEventListener("keydown", handleKeydown, true);
           els.confirmScrim.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => close(false));
           els.confirmScrim.querySelector("[data-confirm-ok]")?.addEventListener("click", () => close(true));
-          els.confirmScrim.addEventListener("click", (event) => {
-            if (event.target === els.confirmScrim) close(false);
-          }, { once: true });
+          els.confirmScrim.addEventListener("click", handleBackdropClick);
+          els.confirmScrim.querySelector("[data-confirm-cancel]")?.focus();
         });
+      }
+
+      function closeSettingsPanel() {
+        if (appState.isSettingsOverlay) {
+          const returnFocus = appState.settingsReturnFocus;
+          appState.settingsReturnFocus = null;
+          closeSettingsOverlay();
+          returnFocus?.focus?.();
+          return;
+        }
+        const returnFocus = appState.settingsReturnFocus;
+        appState.settingsArtifactView = "list";
+        appState.agentArtifactPreview = null;
+        appState.isSettingsOpen = false;
+        appState.settingsReturnFocus = null;
+        renderSettingsPanel();
+        returnFocus?.focus?.();
       }
 
       function appConfirmSelection({ title, message, options = [], confirmText, cancelText = t("actions.cancel"), danger = false } = {}) {
@@ -6929,6 +7470,138 @@
             if (event.target === els.confirmScrim) close(null);
           }, { once: true });
         });
+      }
+
+      const AGENT_INTEGRATION_GUIDE_STORAGE_KEY = "nutbook.agentIntegrationGuideShown";
+
+      function agentIntegrationGuideWasShown() {
+        if (appState.agentIntegrationGuideShownThisSession) return true;
+        try {
+          return window.localStorage?.getItem(AGENT_INTEGRATION_GUIDE_STORAGE_KEY) === "1";
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function rememberAgentIntegrationGuideShown() {
+        appState.agentIntegrationGuideShownThisSession = true;
+        try {
+          window.localStorage?.setItem(AGENT_INTEGRATION_GUIDE_STORAGE_KEY, "1");
+        } catch (_) {
+        }
+      }
+
+      async function writeAgentIntegrationExample(text, button) {
+        const original = t("settings.agentIntegrationCopy");
+        try {
+          let copied = false;
+          if (navigator.clipboard?.writeText) {
+            try {
+              await navigator.clipboard.writeText(text);
+              copied = true;
+            } catch (_) {
+            }
+          }
+          if (!copied) {
+            const input = document.createElement("textarea");
+            input.value = text;
+            input.setAttribute("readonly", "");
+            input.style.position = "fixed";
+            input.style.opacity = "0";
+            document.body.appendChild(input);
+            input.select();
+            copied = document.execCommand("copy");
+            input.remove();
+          }
+          if (!copied) throw new Error("clipboard unavailable");
+          button.textContent = t("settings.agentIntegrationCopied");
+        } catch (_) {
+          button.textContent = t("settings.agentIntegrationCopyFailed");
+        }
+        window.setTimeout(() => {
+          if (button.isConnected) button.textContent = original;
+        }, 2400);
+      }
+
+      function showAgentIntegrationHelp(mode = "intro", { firstSuccess = false } = {}) {
+        if (!els.confirmScrim) return;
+        const guide = mode === "guide";
+        if (guide) rememberAgentIntegrationGuideShown();
+        const title = guide
+          ? (firstSuccess ? t("settings.agentIntegrationEnabledTitle") : t("settings.agentIntegrationGuideTitle"))
+          : t("settings.agentIntegrationIntroTitle");
+        const body = guide
+          ? `
+            <p class="confirm-message agent-integration-help-intro">${escapeHtml(t("settings.agentIntegrationGuideIntro"))}</p>
+            <div class="agent-integration-help-list">
+              <div class="agent-integration-help-item">
+                <span class="agent-integration-help-item-title">${escapeHtml(t("settings.agentIntegrationGenerateTitle"))}</span>
+                <div class="agent-integration-example">
+                  <span class="agent-integration-example-text">${escapeHtml(t("settings.agentIntegrationGenerateExample"))}</span>
+                  <button class="agent-integration-copy-button" type="button" aria-live="polite" data-agent-integration-copy="generate">${escapeHtml(t("settings.agentIntegrationCopy"))}</button>
+                </div>
+              </div>
+              <div class="agent-integration-help-item">
+                <span class="agent-integration-help-item-title">${escapeHtml(t("settings.agentIntegrationConnectTitle"))}</span>
+                <div class="agent-integration-example">
+                  <span class="agent-integration-example-text">${escapeHtml(t("settings.agentIntegrationConnectExample"))}</span>
+                  <button class="agent-integration-copy-button" type="button" aria-live="polite" data-agent-integration-copy="connect">${escapeHtml(t("settings.agentIntegrationCopy"))}</button>
+                </div>
+              </div>
+            </div>
+          `
+          : `
+            <div class="agent-integration-help-list">
+              <div class="agent-integration-help-item">
+                <span class="agent-integration-help-item-title">${escapeHtml(t("settings.agentIntegrationEditableTitle"))}</span>
+                <p class="agent-integration-help-item-copy">${escapeHtml(t("settings.agentIntegrationEditableBody"))}</p>
+              </div>
+              <div class="agent-integration-help-item">
+                <span class="agent-integration-help-item-title">${escapeHtml(t("settings.agentIntegrationClearTitle"))}</span>
+                <p class="agent-integration-help-item-copy">${escapeHtml(t("settings.agentIntegrationClearBody"))}</p>
+              </div>
+              <div class="agent-integration-help-item">
+                <span class="agent-integration-help-item-title">${escapeHtml(t("settings.agentIntegrationEasyTitle"))}</span>
+                <p class="agent-integration-help-item-copy">${escapeHtml(t("settings.agentIntegrationEasyBody"))}</p>
+              </div>
+            </div>
+          `;
+        const previousFocus = document.activeElement;
+        const handleKeydown = (event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          close();
+        };
+        const close = () => {
+          document.removeEventListener("keydown", handleKeydown, true);
+          els.confirmScrim.classList.remove("open");
+          els.confirmScrim.setAttribute("aria-hidden", "true");
+          els.confirmScrim.innerHTML = "";
+          previousFocus?.focus?.();
+        };
+        els.confirmScrim.innerHTML = `
+          <div class="confirm-card agent-integration-help-card" role="dialog" aria-modal="true" aria-labelledby="agentIntegrationHelpTitle">
+            <h3 id="agentIntegrationHelpTitle" class="confirm-title">${escapeHtml(title)}</h3>
+            ${body}
+            <div class="confirm-actions">
+              <button class="button button-primary" type="button" data-agent-integration-close>${escapeHtml(t("settings.agentIntegrationKnown"))}</button>
+            </div>
+          </div>
+        `;
+        els.confirmScrim.classList.add("open");
+        els.confirmScrim.setAttribute("aria-hidden", "false");
+        document.addEventListener("keydown", handleKeydown, true);
+        els.confirmScrim.querySelectorAll("[data-agent-integration-copy]").forEach((button) => {
+          const example = button.dataset.agentIntegrationCopy === "generate"
+            ? t("settings.agentIntegrationGenerateExample")
+            : t("settings.agentIntegrationConnectExample");
+          button.addEventListener("click", () => writeAgentIntegrationExample(example, button));
+        });
+        els.confirmScrim.querySelector("[data-agent-integration-close]")?.addEventListener("click", close);
+        els.confirmScrim.addEventListener("click", (event) => {
+          if (event.target === els.confirmScrim) close();
+        }, { once: true });
+        els.confirmScrim.querySelector("[data-agent-integration-close]")?.focus();
       }
 
       // NUTBOOK_HTML_EDIT_DOCUMENT_STATE_START
@@ -9525,7 +10198,7 @@
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "ignore_agent_artifact" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -9880,6 +10553,9 @@
       }
 
       function openSettingsTab(tab) {
+        if (!appState.isSettingsOpen) {
+          appState.settingsReturnFocus = document.activeElement;
+        }
         appState.settingsTab = tab;
         if (tab === "preferences") {
           appState.updatePreferenceAutoCheckStarted = false;
@@ -9888,6 +10564,9 @@
         appState.isSettingsOpen = true;
         renderSettingsMenu();
         renderSettingsPanel();
+        requestAnimationFrame(() => {
+          document.querySelector('[data-settings-tab][aria-selected="true"]')?.focus?.();
+        });
         if (tab === "skills") {
           loadNbskillAgentStatuses().catch(() => {});
           if (appState.settingsArtifactSection === "projects") {
@@ -10013,7 +10692,7 @@
           connecting: "正在连接所选项目并检查 Markdown / HTML 产物…",
           scanSummary: "扫描总结",
           suggested: "建议接入",
-          pending: "备选",
+          pending: "待确认",
           indexed: "已接入",
           manifestStatus: "nbskill manifest v1",
           manifestLastRead: "最后成功读取 {time}",
@@ -10026,15 +10705,32 @@
           hideDetails: "收起范围",
           later: "稍后处理",
           acceptFile: "接入",
-          ignoreFile: "忽略",
-          ignored: "已忽略当前文件",
+          ignoreFile: "排除",
+          ignored: "已排除当前文件",
           accepted: "已接入 {count} 个文件",
           partial: "另有 {skipped} 个跳过，{failed} 个失败",
           finish: "完成并查看资料库",
           backToProjects: "返回项目产物",
           inspectScope: "查看详情",
           collapseScope: "收起详情",
-          loadingScope: "正在扫描这个项目…",
+          detailPending: "待处理",
+          detailConnected: "已接入",
+          detailScan: "扫描信息",
+          suggestedFiles: "建议接入 {count}",
+          pendingFiles: "待确认 {count}",
+          connectedFiles: "已接入 {count}",
+          ignoredFiles: "已排除 {count}",
+          excludedProjects: "已排除",
+          noExcludedProjects: "没有已排除的项目",
+          restoreProject: "恢复",
+          sourceAgents: "来源",
+          projectType: "类型",
+          projectPath: "项目路径",
+          manifestPathLabel: "Manifest",
+          lastActiveLabel: "最近活动",
+          scanStatus: "扫描状态",
+          scanComplete: "完整",
+          loadingScope: "正在加载项目详情…",
           moreFiles: "另有 {count} 个文件未展开",
           emptyList: "无",
           badge: {
@@ -10056,6 +10752,8 @@
           projectInvalid: "项目路径已失效或不再可访问",
           readOnly: "先选择一个明确项目；NUTBOOK 只扫描该项目根目录，不会扫描整个主目录。",
           refresh: "重新读取",
+          retryDetails: "重试",
+          detailLoadFailed: "暂时无法读取项目详情，已扫描结果仍然保留。",
           done: "完成",
           failed: "操作失败",
           reason: {
@@ -10095,7 +10793,7 @@
           connecting: "Connecting the selected project and checking Markdown / HTML artifacts…",
           scanSummary: "Scan Summary",
           suggested: "Recommended",
-          pending: "Optional",
+          pending: "Needs Review",
           indexed: "Connected",
           manifestStatus: "nbskill manifest v1",
           manifestLastRead: "Last read successfully {time}",
@@ -10108,15 +10806,32 @@
           hideDetails: "Hide Scope",
           later: "Review Later",
           acceptFile: "Connect",
-          ignoreFile: "Ignore",
-          ignored: "This file was ignored",
+          ignoreFile: "Exclude",
+          ignored: "This file was excluded",
           accepted: "Connected {count} files",
           partial: "{skipped} skipped and {failed} failed",
           finish: "Finish and View Library",
           backToProjects: "Back to Project Artifacts",
           inspectScope: "View Details",
           collapseScope: "Hide Details",
-          loadingScope: "Scanning this project…",
+          detailPending: "To Review",
+          detailConnected: "Connected",
+          detailScan: "Scan Info",
+          suggestedFiles: "{count} recommended",
+          pendingFiles: "{count} to review",
+          connectedFiles: "{count} connected",
+          ignoredFiles: "{count} excluded",
+          excludedProjects: "Excluded",
+          noExcludedProjects: "No excluded projects",
+          restoreProject: "Restore",
+          sourceAgents: "Source",
+          projectType: "Type",
+          projectPath: "Project path",
+          manifestPathLabel: "Manifest",
+          lastActiveLabel: "Last active",
+          scanStatus: "Scan status",
+          scanComplete: "Complete",
+          loadingScope: "Loading project details…",
           moreFiles: "{count} more files are not expanded",
           emptyList: "None",
           badge: {
@@ -10138,6 +10853,8 @@
           projectInvalid: "The project path is no longer available",
           readOnly: "Choose one explicit project. NUTBOOK scans only that project root, never your entire home directory.",
           refresh: "Read Again",
+          retryDetails: "Retry",
+          detailLoadFailed: "Project details could not be loaded right now. Scanned results are still available.",
           done: "Done",
           failed: "Action failed",
           reason: {
@@ -10329,9 +11046,13 @@
         });
         const selected = statuses.find((status) => status.agentId === appState.selectedNbskillAgentId);
         if (els.settingsNbskillEnhancementHint) {
-          const enhancementHint = t("settings.nbskillEnhancementHint");
-          const hasInstalledNbskill = statuses.some((status) => Boolean(status.installedVersion));
-          els.settingsNbskillEnhancementHint.hidden = hasInstalledNbskill;
+          const hasHealthyIntegration = statuses.some(isNbskillHealthy);
+          const enhancementHint = hasHealthyIntegration
+            ? t("settings.agentIntegrationGuideTooltip")
+            : t("settings.agentIntegrationIntroTooltip");
+          els.settingsNbskillEnhancementHint.hidden = false;
+          els.settingsNbskillEnhancementHint.textContent = hasHealthyIntegration ? "?" : "!";
+          els.settingsNbskillEnhancementHint.dataset.helpMode = hasHealthyIntegration ? "guide" : "intro";
           els.settingsNbskillEnhancementHint.setAttribute("aria-label", enhancementHint);
           els.settingsNbskillEnhancementHint.dataset.tooltip = enhancementHint;
         }
@@ -10351,10 +11072,22 @@
             : '<path d="M4 5h12M4 10h12M4 15h12"/><circle cx="7" cy="5" r="1.4"/><circle cx="13" cy="10" r="1.4"/><circle cx="9" cy="15" r="1.4"/>';
         }
         if (els.settingsCopyNbskillPromptButton) {
-          const repairLabel = appState.language === "en-US" ? "Repair Agent Integrations" : "修复 Agent 集成";
+          const hasRepairable = statuses.some(isNbskillRepairable);
+          const hasHealthyIntegration = statuses.some(isNbskillHealthy);
+          const hasUnverifiedIntegration = statuses.some((status) => status.packageStatus !== "missing" && !isNbskillHealthy(status));
+          const repairLabel = appState.nbskillStatusLoading
+            ? content.loading
+            : hasRepairable
+              ? (appState.language === "en-US" ? "Repair Agent Integrations" : "修复 Agent 集成")
+              : appState.nbskillStatusesStale
+                ? (appState.language === "en-US" ? "Status may be outdated; detect again" : "检测结果可能已过期，请重新检测")
+                : hasUnverifiedIntegration
+                  ? (appState.language === "en-US" ? "An unverified integration cannot be repaired automatically" : "存在无法自动修复的未验证集成")
+                  : hasHealthyIntegration
+                    ? (appState.language === "en-US" ? "Connected integrations are healthy" : "当前接入正常")
+                    : (appState.language === "en-US" ? "No Agent integration needs repair" : "当前没有需要修复的 Agent 集成");
           els.settingsCopyNbskillPromptButton.setAttribute("aria-label", repairLabel);
           els.settingsCopyNbskillPromptButton.dataset.tooltip = repairLabel;
-          const hasRepairable = statuses.some(isNbskillRepairable);
           els.settingsCopyNbskillPromptButton.disabled = appState.nbskillStatusLoading || !hasRepairable;
         }
         if (els.settingsNbskillInstallFeedback) {
@@ -10376,6 +11109,10 @@
         renderNbskillAgentToolbar();
         try {
           await fetchNbskillAgentStatuses();
+          if (!appState.nbskillInitialHealthObserved) {
+            appState.nbskillInitialHealthObserved = true;
+            if (appState.nbskillAgentStatuses.some(isNbskillHealthy)) rememberAgentIntegrationGuideShown();
+          }
         } catch (error) {
           appState.nbskillStatusesStale = appState.nbskillAgentStatuses.length > 0;
           appState.nbskillInstallFeedback = currentNbskillStatusContent().loadFailed;
@@ -10410,17 +11147,26 @@
         if (!scope?.length) return;
         appState.nbskillStatusLoading = true;
         appState.nbskillInstallFeedback = "";
+        const healthyBefore = new Set(statuses.filter(isNbskillHealthy).map((status) => status.agentId));
         renderNbskillAgentToolbar();
+        let shouldShowFirstSuccessGuide = false;
         try {
           const command = operation === "manage" ? "remove_nbskill_agents" : operation === "repair" ? "repair_nbskill_agents" : "install_nbskill_agents";
           const results = await invoke(command, { payload: { agentIds: scope } });
           appState.nbskillInstallFeedback = results.map((result) => `${result.agentId}: ${result.status}${result.detail ? ` (${result.detail})` : ""}`).join(" · ");
           await fetchNbskillAgentStatuses();
+          shouldShowFirstSuccessGuide = operation === "enable"
+            && !agentIntegrationGuideWasShown()
+            && appState.nbskillAgentStatuses.some((status) => scope.includes(status.agentId) && isNbskillHealthy(status) && !healthyBefore.has(status.agentId));
         } catch (error) {
           appState.nbskillInstallFeedback = formatNbskillText(currentNbskillStatusContent().actionFailed, { error: normalizeError(error) });
         } finally {
           appState.nbskillStatusLoading = false;
           renderNbskillAgentToolbar();
+        }
+        if (shouldShowFirstSuccessGuide) {
+          rememberAgentIntegrationGuideShown();
+          showAgentIntegrationHelp("guide", { firstSuccess: true });
         }
       }
 
@@ -10450,6 +11196,9 @@
       }
 
       async function loadAgentProjectsInSettings() {
+        appState.settingsProjectFeedback = "";
+        appState.settingsArtifactCandidateSelection.clear();
+        appState.settingsProjectScrollTop = 0;
         appState.settingsArtifactView = "list";
         appState.agentArtifactPreview = null;
         appState.agentArtifactPreviewByScope.clear();
@@ -10484,20 +11233,29 @@
         renderSettingsPanel();
         try {
           let connected = null;
-          for (const scope of scopes) {
-            connected = await invoke("connect_agent_project", {
-              adapterId: scope.adapterId,
-              adapterProfile: scope.adapterProfile,
-              externalScopeId: scope.externalScopeId,
-              scopeKind: scope.scopeKind,
-              capability: scope.capability,
-              rootPath: scope.rootPath,
-              displayName: scope.displayName
+          let preview = acceptSuggestedImmediately
+            ? null
+            : await invoke("preview_agent_project_artifacts_by_root", {
+                rootPath: scopes[0].rootPath
+              });
+          const loadedFromExistingSource = Boolean(preview);
+          if (!preview) {
+            for (const scope of scopes) {
+              connected = await invoke("connect_agent_project", {
+                adapterId: scope.adapterId,
+                adapterProfile: scope.adapterProfile,
+                externalScopeId: scope.externalScopeId,
+                scopeKind: scope.scopeKind,
+                capability: scope.capability,
+                rootPath: scope.rootPath,
+                displayName: scope.displayName
+              });
+            }
+            preview = await invoke("preview_agent_project_artifacts", {
+              projectLibraryId: connected.libraryId
             });
           }
-          appState.agentArtifactPreview = await invoke("preview_agent_project_artifacts", {
-            projectLibraryId: connected.libraryId
-          });
+          appState.agentArtifactPreview = preview;
           appState.agentArtifactPreviewByScope.set(scopeKey, appState.agentArtifactPreview);
           syncAgentScopeSummariesFromPreview(scopeIndexes, appState.agentArtifactPreview);
           const batchKeys = (appState.agentArtifactPreview.groups || [])
@@ -10514,11 +11272,14 @@
               message: currentAgentDiscoveryContent().accepted.replace("{count}", appState.agentDiscoveryActionResult.accepted.length)
             };
           }
-          await loadLibraries();
-          await loadItems();
-          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+          if (!loadedFromExistingSource || acceptSuggestedImmediately) {
+            await loadLibraries();
+            await loadItems();
+            appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+          }
         } catch (error) {
           appState.agentDiscoveryError = normalizeError(error);
+          console.warn("[agent-artifacts] project detail load failed", error);
         }
         appState.agentDiscoveryLoadingScopeKey = "";
         appState.agentDiscoveryStep = "results";
@@ -10542,12 +11303,41 @@
         }
       }
 
+      function incrementAgentScopeIgnoredCount(scopeIndexes, count) {
+        const summaries = appState.agentDiscoveryPayload?.artifactSummaries;
+        const scopes = appState.agentDiscoveryPayload?.scopes;
+        if (!Array.isArray(summaries) || !Array.isArray(scopes) || !count) return;
+        for (const scopeIndex of scopeIndexes || []) {
+          const scope = scopes[scopeIndex];
+          if (!scope) continue;
+          const summary = summaries.find((entry) =>
+            entry.adapterId === scope.adapterId && entry.externalScopeId === scope.externalScopeId
+          );
+          if (summary) summary.ignoredCount = Number(summary.ignoredCount || 0) + Number(count || 0);
+        }
+      }
+
+      function syncExcludedAgentProjectGroup(group, excludedCount) {
+        const summaries = appState.agentDiscoveryPayload?.artifactSummaries;
+        if (!Array.isArray(summaries)) return;
+        for (const scope of group.scopes || []) {
+          const summary = summaries.find((entry) =>
+            entry.adapterId === scope.adapterId && entry.externalScopeId === scope.externalScopeId
+          );
+          if (!summary) continue;
+          summary.suggestedCount = 0;
+          summary.pendingCount = 0;
+          summary.ignoredCount = Number(summary.ignoredCount || 0) + Number(excludedCount || 0);
+        }
+      }
+
       function toggleAgentScopeDetails(scopeIndexes) {
         const scopeKey = (scopeIndexes || []).join(",");
         if (!scopeKey) return;
         if (appState.expandedAgentScopeKey === scopeKey) {
           appState.expandedAgentScopeKey = "";
           appState.agentArtifactPreview = null;
+          appState.settingsArtifactCandidateSelection.clear();
           appState.agentDiscoveryError = "";
           renderSettingsPanel();
           return;
@@ -10563,10 +11353,42 @@
         connectAgentScopesInSettings(scopeIndexes, false);
       }
 
+      function scrollToAgentDetailGroup(scopeKey, status) {
+        if (!scopeKey || !status) return;
+        window.requestAnimationFrame(() => {
+          const target = els.settingsAgentProjectList?.querySelector(`[data-agent-detail-group="${scopeKey}:${status}"]`);
+          const viewport = els.settingsAgentProjectList?.querySelector(".settings-list-viewport");
+          if (!target || !viewport) return;
+          const targetRect = target.getBoundingClientRect();
+          const viewportRect = viewport.getBoundingClientRect();
+          const nextTop = viewport.scrollTop + targetRect.top - viewportRect.top - 8;
+          viewport.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+        });
+      }
+
+      async function revealAgentDetailGroup(scopeIndexes, status) {
+        const scopeKey = (scopeIndexes || []).join(",");
+        if (!scopeKey) return;
+        if (appState.expandedAgentScopeKey !== scopeKey || !appState.agentArtifactPreview) {
+          appState.settingsArtifactCandidateSelection.clear();
+          const cachedPreview = appState.agentArtifactPreviewByScope.get(scopeKey);
+          if (cachedPreview) {
+            appState.expandedAgentScopeKey = scopeKey;
+            appState.agentArtifactPreview = cachedPreview;
+            appState.agentDiscoveryError = "";
+            renderSettingsPanel();
+          } else {
+            await connectAgentScopesInSettings(scopeIndexes, false);
+          }
+        }
+        scrollToAgentDetailGroup(scopeKey, status);
+      }
+
       async function decideSingleArtifactInSettings(candidateId, action) {
         const projectLibraryId = appState.agentArtifactPreview?.project?.libraryId;
         if (!projectLibraryId) return;
         try {
+          appState.settingsArtifactCandidateSelection.delete(candidateId);
           if (action === "accept") {
             await invoke("accept_agent_artifact", {
               projectLibraryId,
@@ -10592,6 +11414,186 @@
           appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
         } catch (error) {
           appState.agentDiscoveryError = normalizeError(error);
+        }
+        renderSettingsPanel();
+      }
+
+      async function acceptSelectedArtifactCandidates() {
+        const candidateIds = [...appState.settingsArtifactCandidateSelection];
+        const projectLibraryId = appState.agentArtifactPreview?.project?.libraryId;
+        if (!projectLibraryId || !candidateIds.length) return;
+        appState.settingsProjectFeedback = t("status.artifactFilesBulkConnecting");
+        renderSettingsPanelPreservingProjectScroll();
+        try {
+          const result = await invoke("accept_agent_artifacts", {
+            projectLibraryId,
+            candidateIds
+          });
+          appState.settingsArtifactCandidateSelection.clear();
+          appState.agentArtifactPreview = await invoke("preview_agent_project_artifacts", {
+            projectLibraryId
+          });
+          if (appState.expandedAgentScopeKey) {
+            appState.agentArtifactPreviewByScope.set(appState.expandedAgentScopeKey, appState.agentArtifactPreview);
+          }
+          await loadLibraries();
+          await loadItems();
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+          appState.settingsProjectFeedback = "";
+          setStatus(currentAgentDiscoveryContent().accepted.replace("{count}", result.accepted.length), "ok");
+        } catch (error) {
+          appState.settingsProjectFeedback = "";
+          setStatus(statusError("status.projectsBulkConnectFailedPrefix", error), "error");
+        }
+        renderSettingsPanelPreservingProjectScroll();
+      }
+
+      async function excludeSelectedArtifactCandidates() {
+        const candidateIds = [...appState.settingsArtifactCandidateSelection];
+        const projectLibraryId = appState.agentArtifactPreview?.project?.libraryId;
+        if (!projectLibraryId || !candidateIds.length) return;
+        const confirmed = await appConfirm({
+          title: t("settings.excludeFilesTitle"),
+          message: t("settings.excludeFilesMessage").replace("{count}", candidateIds.length),
+          confirmText: t("settings.excludeFilesConfirm")
+        });
+        if (!confirmed) return;
+        appState.settingsProjectFeedback = t("status.artifactFilesBulkExcluding");
+        renderSettingsPanelPreservingProjectScroll();
+        try {
+          const excludedCount = Number(await invoke("ignore_agent_artifacts", {
+            projectLibraryId,
+            candidateIds
+          }) || 0);
+          appState.settingsArtifactCandidateSelection.clear();
+          appState.agentArtifactPreview = await invoke("preview_agent_project_artifacts", {
+            projectLibraryId
+          });
+          if (appState.expandedAgentScopeKey) {
+            appState.agentArtifactPreviewByScope.set(appState.expandedAgentScopeKey, appState.agentArtifactPreview);
+            const scopeIndexes = appState.expandedAgentScopeKey.split(",").map(Number).filter(Number.isInteger);
+            syncAgentScopeSummariesFromPreview(scopeIndexes, appState.agentArtifactPreview);
+            incrementAgentScopeIgnoredCount(scopeIndexes, excludedCount);
+          }
+          appState.settingsProjectFeedback = "";
+          setStatus(t("status.artifactFilesBulkExcluded").replace("{count}", excludedCount), "ok");
+        } catch (error) {
+          appState.settingsProjectFeedback = "";
+          setStatus(statusError("status.artifactFilesBulkExcludeFailedPrefix", error), "error");
+        }
+        renderSettingsPanelPreservingProjectScroll();
+      }
+
+      async function previewAgentGroupForBatch(group) {
+        const existingPreview = await invoke("preview_agent_project_artifacts_by_root", {
+          rootPath: group.rootPath
+        });
+        if (existingPreview) return existingPreview;
+        let connected = null;
+        for (const scope of group.scopes) {
+          connected = await invoke("connect_agent_project", {
+            adapterId: scope.adapterId,
+            adapterProfile: scope.adapterProfile,
+            externalScopeId: scope.externalScopeId,
+            scopeKind: scope.scopeKind,
+            capability: scope.capability,
+            rootPath: scope.rootPath,
+            displayName: scope.displayName
+          });
+        }
+        if (!connected?.libraryId) return null;
+        return invoke("preview_agent_project_artifacts", { projectLibraryId: connected.libraryId });
+      }
+
+      async function connectSelectedAgentProjects() {
+        const selected = filteredSortedAgentProjectGroups().filter((group) => appState.settingsProjectSelection.has(agentProjectGroupKey(group)));
+        if (!selected.length) return;
+        appState.settingsProjectFeedback = t("status.projectsBulkConnecting");
+        renderSettingsPanel();
+        let acceptedCount = 0;
+        try {
+          for (const group of selected) {
+            const preview = await previewAgentGroupForBatch(group);
+            if (!preview) continue;
+            const batchKeys = (preview.groups || []).filter((entry) => entry.status === "suggested").map((entry) => entry.batchKey);
+            if (!batchKeys.length) continue;
+            const result = await invoke("accept_agent_artifact_groups", {
+              projectLibraryId: preview.project.libraryId,
+              batchKeys
+            });
+            acceptedCount += (result.accepted || []).length;
+          }
+          appState.settingsProjectSelection.clear();
+          await loadLibraries();
+          await loadItems();
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+          appState.settingsProjectFeedback = "";
+          setStatus(t("status.projectsBulkConnected").replace("{count}", acceptedCount), "ok");
+        } catch (error) {
+          appState.settingsProjectFeedback = "";
+          setStatus(statusError("status.projectsBulkConnectFailedPrefix", error), "error");
+        }
+        renderSettingsPanel();
+      }
+
+      async function excludeSelectedAgentProjects() {
+        const selected = filteredSortedAgentProjectGroups().filter((group) => appState.settingsProjectSelection.has(agentProjectGroupKey(group)));
+        if (!selected.length) return;
+        const confirmed = await appConfirm({
+          title: t("settings.excludeProjectsTitle"),
+          message: t("settings.excludeProjectsMessage").replace("{count}", selected.length),
+          confirmText: t("settings.excludeProjectsConfirm")
+        });
+        if (!confirmed) return;
+        appState.settingsProjectFeedback = t("status.projectsBulkExcluding");
+        renderSettingsPanel();
+        let excludedFileCount = 0;
+        try {
+          for (const group of selected) {
+            const preview = await previewAgentGroupForBatch(group);
+            if (!preview) continue;
+            const groupExcludedFileCount = Number(await invoke("exclude_agent_project_candidates", {
+              projectLibraryId: preview.project.libraryId
+            }) || 0);
+            excludedFileCount += groupExcludedFileCount;
+            syncExcludedAgentProjectGroup(group, groupExcludedFileCount);
+            appState.settingsProjectSelection.delete(agentProjectGroupKey(group));
+          }
+          appState.settingsProjectFeedback = "";
+          setStatus(t("status.projectsBulkExcluded")
+            .replace("{projects}", selected.length)
+            .replace("{files}", excludedFileCount), "ok");
+          renderSettingsPanelPreservingProjectScroll();
+          await loadLibraries();
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+        } catch (error) {
+          appState.settingsProjectFeedback = "";
+          setStatus(statusError("status.projectsBulkExcludeFailedPrefix", error), "error");
+        }
+        renderSettingsPanel();
+      }
+
+      async function restoreExcludedAgentProject(rootPath) {
+        const group = groupedAgentScopesForSettings().find((entry) => entry.rootPath === rootPath);
+        if (!group) {
+          setStatus(t("status.projectRestoreFailedPrefix") + t("settings.projectSourceMissing"), "error");
+          return;
+        }
+        appState.settingsProjectFeedback = t("status.projectRestoring");
+        renderSettingsPanel();
+        try {
+          const preview = await previewAgentGroupForBatch(group);
+          if (!preview?.project?.libraryId) throw new Error(t("settings.projectSourceMissing"));
+          const restoredCount = Number(await invoke("restore_excluded_agent_project_candidates", {
+            projectLibraryId: preview.project.libraryId
+          }) || 0);
+          await loadLibraries();
+          appState.agentDiscoveryPayload = await invoke("discover_agent_projects");
+          appState.settingsProjectFeedback = "";
+          setStatus(t("status.projectRestored").replace("{count}", restoredCount), "ok");
+        } catch (error) {
+          appState.settingsProjectFeedback = "";
+          setStatus(statusError("status.projectRestoreFailedPrefix", error), "error");
         }
         renderSettingsPanel();
       }
@@ -10629,6 +11631,9 @@
       }
 
       async function openSettingsPanelFromOverlay(tab = "skills") {
+        if (!appState.isSettingsOpen) {
+          appState.settingsReturnFocus = document.activeElement;
+        }
         appState.settingsOverlayMode = "panel";
         appState.settingsTab = tab;
         appState.isSettingsOpen = false;
@@ -10648,6 +11653,9 @@
         }
         appState.isSettingsOpen = true;
         renderSettingsPanel();
+        requestAnimationFrame(() => {
+          document.querySelector('[data-settings-tab][aria-selected="true"]')?.focus?.();
+        });
         await loadLibraries();
         await loadTags();
         await loadIgnoredItems();
@@ -10673,6 +11681,11 @@
         appState.isAboutOpen = mode === "about";
         appState.isSettingsOpen = mode !== "menu" && mode !== "about";
         renderSettingsPanel();
+        if (appState.isSettingsOpen) {
+          requestAnimationFrame(() => {
+            document.querySelector('[data-settings-tab][aria-selected="true"]')?.focus?.();
+          });
+        }
         renderAboutPanel();
       };
 
@@ -10708,7 +11721,18 @@
 
       function toggleSettingsGroup(groupKey) {
         appState.settingsCollapsedGroups[groupKey] = !appState.settingsCollapsedGroups[groupKey];
-        renderSettingsPanel();
+        const toggle = els.settingsScrim?.querySelector(`[data-settings-group-toggle="${groupKey}"]`);
+        const group = toggle?.closest(".settings-group");
+        const body = group?.querySelector(":scope > .settings-group-body");
+        const icon = toggle?.querySelector(".material-symbols-outlined");
+        const collapsed = Boolean(appState.settingsCollapsedGroups[groupKey]);
+        if (!toggle || !body || !icon) {
+          renderSettingsPanel();
+          return;
+        }
+        body.hidden = collapsed;
+        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        icon.textContent = collapsed ? "chevron_right" : "expand_more";
       }
 
       function sourceSortComparator(sortMode) {
@@ -10742,7 +11766,7 @@
         return `
           <div class="settings-group">
             <div class="settings-group-header">
-              <button class="settings-group-title" type="button" data-settings-group-toggle="${key}">
+              <button class="settings-group-title" type="button" data-settings-group-toggle="${key}" aria-expanded="${collapsed ? "false" : "true"}">
                 <span class="material-symbols-outlined">${collapsed ? "chevron_right" : "expand_more"}</span>
                 <span>${title}</span>
               </button>
@@ -10775,6 +11799,51 @@
             renderSettingsSourceSortMenu();
             renderSettingsPanel();
           });
+        });
+      }
+
+      function renderSettingsArtifactSortMenus() {
+        const renderMenu = ({ menu, button, options, value, openKey, valueKey }) => {
+          if (!menu || !button) return;
+          menu.innerHTML = options.map((option) => `
+            <button class="popover-option ${value === option.value ? "active" : ""}" type="button" role="menuitemradio" aria-checked="${value === option.value}" data-settings-artifact-sort="${option.value}">${escapeHtml(option.label)}</button>
+          `).join("");
+          const open = Boolean(appState[openKey]);
+          menu.classList.toggle("open", open);
+          menu.setAttribute("aria-hidden", open ? "false" : "true");
+          button.setAttribute("aria-expanded", open ? "true" : "false");
+          menu.querySelectorAll("[data-settings-artifact-sort]").forEach((option) => {
+            option.addEventListener("click", () => {
+              appState[valueKey] = option.dataset.settingsArtifactSort;
+              appState[openKey] = false;
+              renderSettingsPanel();
+              button.focus();
+            });
+          });
+        };
+        renderMenu({
+          menu: els.settingsProjectSortMenu,
+          button: els.settingsProjectSortButton,
+          options: [
+            { value: "recentFirst", label: t("settings.sortRecent") },
+            { value: "nameAsc", label: t("settings.sortName") },
+            { value: "suggestedDesc", label: t("settings.sortSuggested") }
+          ],
+          value: appState.settingsProjectSort,
+          openKey: "isSettingsProjectSortMenuOpen",
+          valueKey: "settingsProjectSort"
+        });
+        renderMenu({
+          menu: els.settingsSkillSortMenu,
+          button: els.settingsSkillSortButton,
+          options: [
+            { value: "nameAsc", label: t("settings.sortName") },
+            { value: "statusThenName", label: t("settings.sortStatus") },
+            { value: "pathAsc", label: t("settings.sortPath") }
+          ],
+          value: appState.settingsSkillSort,
+          openKey: "isSettingsSkillSortMenuOpen",
+          valueKey: "settingsSkillSort"
         });
       }
 
@@ -10837,6 +11906,7 @@
             existing.suggestedCount = Math.max(existing.suggestedCount, Number(summary?.suggestedCount || 0));
             existing.pendingCount = Math.max(existing.pendingCount, Number(summary?.pendingCount || 0));
             existing.excludedCount = Math.max(existing.excludedCount, Number(summary?.excludedCount || 0));
+            existing.ignoredCount = Math.max(existing.ignoredCount, Number(summary?.ignoredCount || 0));
             existing.alreadyIndexedPaths = [...new Set([
               ...existing.alreadyIndexedPaths,
               ...(summary?.alreadyIndexedPaths || [])
@@ -10858,6 +11928,7 @@
             suggestedCount: Number(summary?.suggestedCount || 0),
             pendingCount: Number(summary?.pendingCount || 0),
             excludedCount: Number(summary?.excludedCount || 0),
+            ignoredCount: Number(summary?.ignoredCount || 0),
             alreadyIndexedPaths: [...(summary?.alreadyIndexedPaths || [])],
             scanPartial: summary?.scanStatus === "partial",
             scanIssue: summary?.scanIssue || ""
@@ -10867,8 +11938,62 @@
           group.scanPartial
           || group.suggestedCount > 0
           || group.pendingCount > 0
+          || group.ignoredCount > 0
           || group.alreadyIndexedPaths.length > 0
         );
+      }
+
+      function agentProjectGroupKey(group) {
+        return `${group.scopeKind}:${group.rootPath}`;
+      }
+
+      function isExcludedAgentProject(group) {
+        return group.ignoredCount > 0
+          && (group.suggestedCount + group.pendingCount) === 0
+          && group.alreadyIndexedPaths.length === 0;
+      }
+
+      function filteredSortedAgentProjectGroups() {
+        const keyword = appState.settingsProjectSearch.trim().toLowerCase();
+        const groups = groupedAgentScopesForSettings().filter((group) => {
+          if (!keyword) return true;
+          return [group.displayName, group.rootPath, ...group.scopes.map((scope) => scope.adapterId)]
+            .some((value) => String(value || "").toLowerCase().includes(keyword));
+        });
+        const byName = (left, right) => left.displayName.localeCompare(right.displayName, appState.language === "en-US" ? "en" : "zh-CN");
+        let sorted;
+        switch (appState.settingsProjectSort) {
+          case "nameAsc":
+            sorted = groups.sort(byName);
+            break;
+          case "suggestedDesc":
+            sorted = groups.sort((left, right) => right.suggestedCount - left.suggestedCount || right.pendingCount - left.pendingCount || byName(left, right));
+            break;
+          case "recentFirst":
+          default:
+            sorted = groups.sort((left, right) => String(right.lastActivityAt || "").localeCompare(String(left.lastActivityAt || "")) || byName(left, right));
+            break;
+        }
+        return [
+          ...sorted.filter((group) => !isExcludedAgentProject(group)),
+          ...sorted.filter(isExcludedAgentProject)
+        ];
+      }
+
+      function discoveredProjectCount() {
+        return new Set((appState.agentDiscoveryPayload?.scopes || []).map((scope) => `${scope.scopeKind}:${scope.rootPath}`)).size;
+      }
+
+      function connectedProjectCount() {
+        return groupedAgentScopesForSettings()
+          .filter((group) => group.alreadyIndexedPaths.length > 0)
+          .length;
+      }
+
+      function excludedProjectCount() {
+        return groupedAgentScopesForSettings()
+          .filter(isExcludedAgentProject)
+          .length;
       }
 
       function agentArtifactBadge(candidate, content) {
@@ -10880,13 +12005,14 @@
           "explicit_export_event",
           "opened_from_agent_delivery",
           "inside_user_confirmed_output",
-          "inside_project_root",
-          "inside_provider_task_scope",
           "appeared_during_agent_run",
+          "inside_provider_task_scope",
+          "inside_project_root",
           "supported_extension_only"
         ];
         const reason = priority.find((key) => reasons.includes(key));
-        return content.badge[reason] || content.badge.supported_extension_only;
+        if (!reason || reason === "supported_extension_only") return "";
+        return content.badge[reason] || "";
       }
 
       function agentArtifactSkillName(candidate) {
@@ -10897,6 +12023,11 @@
         return evidence?.skillDisplayName || evidence?.skillNormalizedName || "";
       }
 
+      function agentArtifactFileName(path) {
+        const parts = String(path || "").split(/[\\/]/).filter(Boolean);
+        return parts.pop() || String(path || "");
+      }
+
       function renderAgentScopeInlineDetail(group, content) {
         const scopeKey = group.scopeIndexes.join(",");
         if (appState.agentDiscoveryLoadingScopeKey === scopeKey) {
@@ -10904,7 +12035,7 @@
         }
         if (appState.expandedAgentScopeKey !== scopeKey) return "";
         if (appState.agentDiscoveryError) {
-          return `<div class="agent-scope-inline-detail"><div class="agent-discovery-error" role="alert">${escapeHtml(content.failed)}：${escapeHtml(appState.agentDiscoveryError)}</div></div>`;
+          return `<div class="agent-scope-inline-detail"><div class="agent-discovery-error" role="alert"><span>${escapeHtml(content.detailLoadFailed)}</span><button class="settings-inline-link" type="button" data-settings-agent-detail-retry="${scopeKey}">${escapeHtml(content.retryDetails)}</button></div></div>`;
         }
         const preview = appState.agentArtifactPreview;
         if (!preview) return "";
@@ -10915,57 +12046,63 @@
           seen.add(key);
           return true;
         });
-        const renderSection = (status, total) => {
-          const sectionCandidates = candidates.filter((candidate) => candidate.status === status);
-          const heading = status === "suggested" ? content.suggested : content.pending;
-          const rows = sectionCandidates.map((candidate) => {
-            const skillName = agentArtifactSkillName(candidate);
-            return `
-              <div class="agent-inline-file">
-                <span class="agent-inline-path">${escapeHtml(candidate.primaryPath)}</span>
-                <span class="agent-reason-badge">${escapeHtml(agentArtifactBadge(candidate, content))}</span>
-                ${skillName ? `<span class="source-kind-badge">${escapeHtml(skillName)}</span>` : ""}
-                <span class="agent-inline-actions">
-                  <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="accept" aria-label="${escapeAttribute(content.acceptFile)}">${escapeHtml(content.acceptFile)}</button>
-                  <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="ignore" aria-label="${escapeAttribute(content.ignoreFile)}">${escapeHtml(content.ignoreFile)}</button>
-                </span>
-              </div>
-            `;
-          }).join("");
-          const remaining = Math.max(0, Number(total || 0) - sectionCandidates.length);
+        const availableCandidateIds = new Set(candidates.map((candidate) => Number(candidate.id)).filter(Number.isInteger));
+        appState.settingsArtifactCandidateSelection.forEach((candidateId) => {
+          if (!availableCandidateIds.has(candidateId)) appState.settingsArtifactCandidateSelection.delete(candidateId);
+        });
+        const scanIncomplete = preview.project?.lastScanStatus === "partial" || group.scanPartial;
+        const scanWarning = scanIncomplete
+          ? `${content.scanIncomplete}${group.scanIssue ? ` (${group.scanIssue})` : ""}`
+          : "";
+        const renderCandidateRows = (groupCandidates) => groupCandidates.map((candidate) => {
+          const fileName = agentArtifactFileName(candidate.primaryPath);
+          const parentPath = String(candidate.primaryPath || "").slice(0, -fileName.length).replace(/[\\/]$/, "");
+          const reasonLabel = agentArtifactSkillName(candidate) || agentArtifactBadge(candidate, content);
+          const candidateId = Number(candidate.id);
           return `
-            <section class="agent-inline-section">
-              <div class="agent-inline-heading"><span>${escapeHtml(heading)}</span><span>${Number(total || 0)}</span></div>
-              ${rows || `<div class="agent-inline-empty">${escapeHtml(content.emptyList)}</div>`}
-              ${remaining ? `<div class="agent-inline-more">${escapeHtml(content.moreFiles.replace("{count}", remaining))}</div>` : ""}
+            <div class="agent-inline-file">
+              <input class="settings-agent-candidate-select" type="checkbox" data-settings-agent-candidate-select="${candidateId}" aria-label="${escapeAttribute(t("settings.selectArtifactFile").replace("{name}", fileName))}" ${appState.settingsArtifactCandidateSelection.has(candidateId) ? "checked" : ""} />
+              <span class="agent-inline-file-copy">
+                <span class="agent-inline-file-name">${escapeHtml(fileName)}</span>
+                ${parentPath && parentPath !== group.rootPath ? `<span class="agent-inline-path">${escapeHtml(parentPath)}</span>` : ""}
+              </span>
+              ${reasonLabel ? `<span class="agent-reason-badge">${escapeHtml(reasonLabel)}</span>` : ""}
+              <span class="agent-inline-actions">
+                <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="accept" aria-label="${escapeAttribute(content.acceptFile)}">${escapeHtml(content.acceptFile)}</button>
+                <button class="settings-inline-link" type="button" data-settings-agent-candidate="${candidate.id}" data-settings-agent-decision="ignore" aria-label="${escapeAttribute(content.ignoreFile)}">${escapeHtml(content.ignoreFile)}</button>
+              </span>
+            </div>
+          `;
+        }).join("");
+        const renderCandidateGroup = (status, label) => {
+          const groupCandidates = candidates.filter((candidate) => candidate.status === status);
+          if (!groupCandidates.length) return "";
+          const candidateIds = groupCandidates.map((candidate) => Number(candidate.id)).filter(Number.isInteger);
+          const allSelected = candidateIds.length > 0 && candidateIds.every((candidateId) => appState.settingsArtifactCandidateSelection.has(candidateId));
+          return `
+            <section class="agent-detail-group" data-agent-detail-group="${scopeKey}:${status}">
+              <div class="agent-detail-group-header">
+                <label class="agent-detail-group-select">
+                  <input class="settings-agent-candidate-select" type="checkbox" data-settings-agent-candidate-group="${status}" ${allSelected ? "checked" : ""} />
+                  <span>${escapeHtml(label)}</span>
+                </label>
+                <span class="agent-detail-group-count">${escapeHtml(fileCountText(groupCandidates.length))}</span>
+              </div>
+              ${renderCandidateRows(groupCandidates)}
             </section>
           `;
         };
-        const indexedArtifacts = preview.indexedArtifacts || [];
-        const indexedSkillByPath = new Map(indexedArtifacts.map((candidate) => [
-          candidate.primaryPath,
-          agentArtifactSkillName(candidate)
-        ]));
-        const indexedPaths = [...new Set([
-          ...(group.alreadyIndexedPaths || []),
-          ...indexedArtifacts.map((candidate) => candidate.primaryPath)
-        ])];
-        const indexedRows = indexedPaths.map((path) => `
-          <div class="agent-inline-file">
-            <span class="agent-inline-path">${escapeHtml(path)}</span>
-            ${indexedSkillByPath.get(path) ? `<span class="source-kind-badge">${escapeHtml(indexedSkillByPath.get(path))}</span>` : ""}
-          </div>
-        `).join("");
+        const total = Number(preview.suggestedCount || 0) + Number(preview.pendingCount || 0);
+        const remaining = Math.max(0, total - candidates.length);
         return `
           <div class="agent-scope-inline-detail">
-            ${preview.project?.manifestPath ? `<div class="agent-inline-feedback">${escapeHtml(content.manifestStatus)} · ${escapeHtml(content.manifestLastRead.replace("{time}", formatTimestamp(preview.project.lastManifestOkAt)))}</div>` : ""}
-            ${renderSection("suggested", preview.suggestedCount)}
-            ${renderSection("pending", preview.pendingCount)}
-            <section class="agent-inline-section">
-              <div class="agent-inline-heading"><span>${escapeHtml(content.indexed)}</span><span>${indexedPaths.length}</span></div>
-              ${indexedRows || `<div class="agent-inline-empty">${escapeHtml(content.emptyList)}</div>`}
-            </section>
-            ${preview.project?.lastScanStatus === "partial" ? `<div class="agent-inline-more">${escapeHtml(content.scanIncomplete)}</div>` : ""}
+            ${scanWarning ? `<div class="agent-inline-more" role="status">${escapeHtml(scanWarning)}</div>` : ""}
+            <div class="agent-detail-list">
+              ${renderCandidateGroup("suggested", content.suggested)}
+              ${renderCandidateGroup("pending", content.pending)}
+              ${candidates.length ? "" : `<div class="agent-inline-empty">${escapeHtml(content.emptyList)}</div>`}
+              ${remaining ? `<div class="agent-inline-more">${escapeHtml(content.moreFiles.replace("{count}", remaining))}</div>` : ""}
+            </div>
           </div>
         `;
       }
@@ -10985,18 +12122,43 @@
         const errorMarkup = appState.agentDiscoveryError && !appState.expandedAgentScopeKey
           ? `<div class="agent-discovery-error" role="alert">${escapeHtml(content.failed)}：${escapeHtml(appState.agentDiscoveryError)}</div>`
           : "";
-        const groups = groupedAgentScopesForSettings();
+        const groups = filteredSortedAgentProjectGroups();
+        const excludedTotal = excludedProjectCount();
+        if (!appState.expandedAgentScopeKey) appState.settingsArtifactCandidateSelection.clear();
+        const availableKeys = new Set(groups.map(agentProjectGroupKey));
+        appState.settingsProjectSelection.forEach((key) => {
+          if (!availableKeys.has(key)) appState.settingsProjectSelection.delete(key);
+        });
+        const summaryMarkup = `
+          <div class="settings-artifact-summary">
+            <div class="muted">${escapeHtml(projectScanSummaryText(discoveredProjectCount(), connectedProjectCount(), excludedTotal))}</div>
+            <div class="button-row">
+              ${appState.settingsProjectFeedback ? `<span class="settings-inline-feedback" role="status">${escapeHtml(appState.settingsProjectFeedback)}</span>` : ""}
+              <button id="settingsDiscoverAgentsButton" class="button button-primary button-small" type="button">${escapeHtml(t("actions.discoverProjects"))}</button>
+              <button class="button button-secondary button-small" type="button" data-settings-connect-selected-projects="true" ${appState.settingsProjectSelection.size || appState.settingsArtifactCandidateSelection.size ? "" : "disabled"}>${escapeHtml(appState.settingsArtifactCandidateSelection.size
+                ? t("actions.attachSelectedFiles").replace("{count}", appState.settingsArtifactCandidateSelection.size)
+                : t("actions.attachSelected"))}</button>
+              <button class="button button-ghost button-small" type="button" data-settings-exclude-selected-projects="true" ${appState.settingsProjectSelection.size || appState.settingsArtifactCandidateSelection.size ? "" : "disabled"}>${escapeHtml(appState.settingsArtifactCandidateSelection.size
+                ? t("actions.excludeSelectedFiles").replace("{count}", appState.settingsArtifactCandidateSelection.size)
+                : t("actions.excludeSelected"))}</button>
+            </div>
+          </div>
+        `;
         if (!groups.length) {
-          return `${issueMarkup}${errorMarkup}<div class="settings-empty">${escapeHtml(appState.agentDiscoveryPayload ? content.noProjects : t("settings.projectDiscoveryHint"))}</div>`;
+          const emptyText = appState.agentDiscoveryPayload
+            ? (appState.settingsProjectSearch.trim() ? t("settings.noProjectMatches") : content.noProjects)
+            : t("settings.projectDiscoveryHint");
+          return `${summaryMarkup}<div class="settings-list-viewport">${issueMarkup}${errorMarkup}<div class="settings-empty">${escapeHtml(emptyText)}</div></div>`;
         }
-        return issueMarkup + errorMarkup + groups.map((group) => {
-          const kindLabel = group.scopeKind === "task" ? content.task : content.project;
-          const adapters = [...new Set(group.scopes.map((scope) => scope.adapterId))];
+        const renderProjectRows = (projectGroups, excluded = false) => projectGroups.length
+          ? projectGroups.map((group) => {
           const defaultConnectLabel = group.suggestedCount
             ? content.acceptSuggestedShort.replace("{count}", group.suggestedCount)
             : content.noSuggestionsShort;
+          const pendingCount = group.suggestedCount + group.pendingCount;
           const scopeKey = group.scopeIndexes.join(",");
           const expanded = appState.expandedAgentScopeKey === scopeKey;
+          const canSelect = !excluded && pendingCount > 0;
           const feedback = appState.agentDiscoveryFeedback?.scopeKey === scopeKey
             ? `<div class="agent-inline-feedback" role="status">${escapeHtml(appState.agentDiscoveryFeedback.message)}</div>`
             : "";
@@ -11004,33 +12166,134 @@
             <div class="settings-row settings-agent-scope-row">
               <div class="settings-row-copy">
                 <div class="settings-row-copy-top">
+                  ${canSelect ? `<input class="settings-agent-select" type="checkbox" data-settings-agent-select="${escapeAttribute(agentProjectGroupKey(group))}" aria-label="${escapeAttribute(t("settings.selectProject").replace("{name}", group.displayName))}" ${appState.settingsProjectSelection.has(agentProjectGroupKey(group)) ? "checked" : ""} />` : ""}
                   <div class="settings-row-title">${escapeHtml(group.displayName)}</div>
-                  ${group.scopeKind === "task" ? `<span class="source-kind-badge">${escapeHtml(kindLabel)}</span>` : ""}
-                  ${adapters.map((adapter) => `<span class="source-kind-badge">${escapeHtml(adapter)}</span>`).join("")}
                 </div>
                 <div class="settings-row-meta settings-row-path">${escapeHtml(group.rootPath)}</div>
-                <div class="settings-row-meta">${escapeHtml(formatTimestamp(group.lastActivityAt))} · ${escapeHtml(content.suggested)} ${group.suggestedCount} · ${escapeHtml(content.pending)} ${group.pendingCount} · ${escapeHtml(content.indexed)} ${group.alreadyIndexedPaths.length} · <button class="settings-inline-link" type="button" data-settings-agent-details="${scopeKey}" aria-expanded="${expanded}">${escapeHtml(expanded ? content.collapseScope : content.inspectScope)}</button></div>
-                ${group.scanPartial ? `<div class="settings-row-meta">${escapeHtml(content.scanIncomplete)}${group.scanIssue ? ` (${escapeHtml(group.scanIssue)})` : ""}</div>` : ""}
+                <div class="settings-agent-project-summary">
+                  ${excluded
+                    ? `<span class="settings-agent-project-status">${escapeHtml(content.ignoredFiles.replace("{count}", group.ignoredCount))}</span>`
+                    : `
+                      ${group.suggestedCount
+                        ? `<button class="settings-inline-link settings-agent-project-status" type="button" data-settings-agent-detail-target="suggested" data-settings-agent-details="${scopeKey}" aria-expanded="${expanded}">${escapeHtml(content.suggestedFiles.replace("{count}", group.suggestedCount))}</button>`
+                        : `<span class="settings-agent-project-status">${escapeHtml(content.suggestedFiles.replace("{count}", 0))}</span>`}
+                      ${group.pendingCount
+                        ? `<button class="settings-inline-link" type="button" data-settings-agent-detail-target="pending" data-settings-agent-details="${scopeKey}" aria-expanded="${expanded}">${escapeHtml(content.pendingFiles.replace("{count}", group.pendingCount))}</button>`
+                        : `<span>${escapeHtml(content.pendingFiles.replace("{count}", 0))}</span>`}
+                      <span>${escapeHtml(content.connectedFiles.replace("{count}", group.alreadyIndexedPaths.length))}</span>
+                      ${group.ignoredCount ? `<span>${escapeHtml(content.ignoredFiles.replace("{count}", group.ignoredCount))}</span>` : ""}
+                      ${pendingCount ? `<button class="settings-inline-link" type="button" data-settings-agent-details="${scopeKey}" aria-expanded="${expanded}">${escapeHtml(expanded ? content.collapseScope : content.inspectScope)}</button>` : ""}
+                    `}
+                </div>
                 ${feedback}
               </div>
-              <div class="button-row">
-                <button class="button button-primary button-small settings-agent-scope-action" type="button" data-settings-agent-connect-suggested="${group.scopeIndexes.join(",")}" ${group.suggestedCount ? "" : "disabled"} aria-label="${escapeAttribute(defaultConnectLabel)}" title="${escapeAttribute(defaultConnectLabel)}">${escapeHtml(defaultConnectLabel)}</button>
-              </div>
-              ${renderAgentScopeInlineDetail(group, content)}
+              ${excluded ? `<div class="button-row">
+                <button class="button button-secondary button-small settings-agent-scope-action" type="button" data-settings-restore-project="${escapeAttribute(group.rootPath)}">${escapeHtml(content.restoreProject)}</button>
+              </div>` : (group.suggestedCount ? `<div class="button-row">
+                <button class="button button-primary button-small settings-agent-scope-action" type="button" data-settings-agent-connect-suggested="${group.scopeIndexes.join(",")}" aria-label="${escapeAttribute(defaultConnectLabel)}" title="${escapeAttribute(defaultConnectLabel)}">${escapeHtml(defaultConnectLabel)}</button>
+                ${group.ignoredCount ? `<button class="button button-secondary button-small settings-agent-scope-action" type="button" data-settings-restore-project="${escapeAttribute(group.rootPath)}">${escapeHtml(content.restoreProject)}</button>` : ""}
+              </div>` : (group.ignoredCount ? `<div class="button-row">
+                <button class="button button-secondary button-small settings-agent-scope-action" type="button" data-settings-restore-project="${escapeAttribute(group.rootPath)}">${escapeHtml(content.restoreProject)}</button>
+              </div>` : ""))}
+              ${excluded ? "" : renderAgentScopeInlineDetail(group, content)}
             </div>
           `;
-        }).join("");
+        }).join("")
+          : (excluded ? `<div class="settings-empty">${escapeHtml(content.noExcludedProjects)}</div>` : "");
+        const activeGroups = groups.filter((group) => !isExcludedAgentProject(group));
+        const excludedGroups = groups.filter(isExcludedAgentProject);
+        const excludedMarkup = excludedGroups.length
+          ? renderSettingsGroup({
+              key: "projectExcluded",
+              title: content.excludedProjects,
+              count: countText(excludedTotal),
+              bodyHtml: renderProjectRows(excludedGroups, true)
+            })
+          : "";
+        return summaryMarkup
+          + `<div class="settings-list-viewport">${issueMarkup}${errorMarkup}${renderProjectRows(activeGroups)}${excludedMarkup}</div>`;
+      }
+
+      function renderSettingsPanelPreservingProjectScroll(focusSelector = "") {
+        const viewport = els.settingsAgentProjectList?.querySelector(".settings-list-viewport");
+        appState.settingsProjectScrollTop = viewport?.scrollTop ?? appState.settingsProjectScrollTop;
+        renderSettingsPanel();
+        const nextViewport = els.settingsAgentProjectList?.querySelector(".settings-list-viewport");
+        if (nextViewport) nextViewport.scrollTop = appState.settingsProjectScrollTop;
+        if (focusSelector) els.settingsAgentProjectList?.querySelector(focusSelector)?.focus({ preventScroll: true });
       }
 
       function bindSettingsAgentProjectActions() {
         if (!els.settingsAgentProjectList) return;
+        els.settingsAgentProjectList.querySelector("#settingsDiscoverAgentsButton")?.addEventListener("click", loadAgentProjectsInSettings);
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-select]").forEach((checkbox) => {
+          checkbox.addEventListener("change", () => {
+            const key = checkbox.dataset.settingsAgentSelect;
+            if (checkbox.checked) {
+              appState.settingsArtifactCandidateSelection.clear();
+              appState.settingsProjectSelection.add(key);
+            }
+            else appState.settingsProjectSelection.delete(key);
+            renderSettingsPanelPreservingProjectScroll(`[data-settings-agent-select="${CSS.escape(key)}"]`);
+          });
+        });
+        els.settingsAgentProjectList.querySelector("[data-settings-connect-selected-projects]")?.addEventListener("click", () => {
+          if (appState.settingsArtifactCandidateSelection.size) acceptSelectedArtifactCandidates();
+          else connectSelectedAgentProjects();
+        });
+        els.settingsAgentProjectList.querySelector("[data-settings-exclude-selected-projects]")?.addEventListener("click", () => {
+          if (appState.settingsArtifactCandidateSelection.size) excludeSelectedArtifactCandidates();
+          else excludeSelectedAgentProjects();
+        });
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-detail-retry]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const indexes = String(button.dataset.settingsAgentDetailRetry || "")
+              .split(",")
+              .map(Number)
+              .filter(Number.isInteger);
+            appState.agentArtifactPreviewByScope.delete(button.dataset.settingsAgentDetailRetry);
+            connectAgentScopesInSettings(indexes, false);
+          });
+        });
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-restore-project]").forEach((button) => {
+          button.addEventListener("click", () => restoreExcludedAgentProject(button.dataset.settingsRestoreProject));
+        });
         els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-details]").forEach((button) => {
           button.addEventListener("click", () => {
             const indexes = String(button.dataset.settingsAgentDetails || "")
               .split(",")
               .map(Number)
               .filter(Number.isInteger);
-            toggleAgentScopeDetails(indexes);
+            const target = button.dataset.settingsAgentDetailTarget;
+            if (target) revealAgentDetailGroup(indexes, target).catch((error) => {
+              appState.agentDiscoveryError = normalizeError(error);
+              renderSettingsPanelPreservingProjectScroll();
+            });
+            else toggleAgentScopeDetails(indexes);
+          });
+        });
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-candidate-select]").forEach((checkbox) => {
+          checkbox.addEventListener("change", () => {
+            const candidateId = Number(checkbox.dataset.settingsAgentCandidateSelect);
+            appState.settingsProjectSelection.clear();
+            if (checkbox.checked) appState.settingsArtifactCandidateSelection.add(candidateId);
+            else appState.settingsArtifactCandidateSelection.delete(candidateId);
+            renderSettingsPanelPreservingProjectScroll(`[data-settings-agent-candidate-select="${candidateId}"]`);
+          });
+        });
+        els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-candidate-group]").forEach((checkbox) => {
+          checkbox.addEventListener("change", () => {
+            const status = checkbox.dataset.settingsAgentCandidateGroup;
+            const candidateIds = (appState.agentArtifactPreview?.reviewCandidates || [])
+              .filter((candidate) => candidate.status === status)
+              .map((candidate) => Number(candidate.id))
+              .filter(Number.isInteger);
+            appState.settingsProjectSelection.clear();
+            candidateIds.forEach((candidateId) => {
+              if (checkbox.checked) appState.settingsArtifactCandidateSelection.add(candidateId);
+              else appState.settingsArtifactCandidateSelection.delete(candidateId);
+            });
+            renderSettingsPanelPreservingProjectScroll(`[data-settings-agent-candidate-group="${CSS.escape(status)}"]`);
           });
         });
         els.settingsAgentProjectList.querySelectorAll("[data-settings-agent-connect-suggested]").forEach((button) => {
@@ -11048,15 +12311,87 @@
       }
 
       let settingsSectionSwitchesBound = false;
+      let settingsSearchFieldsBound = false;
+      const settingsSearchCollapseTimers = new WeakMap();
+
+      function setSettingsSearchExpanded(field, expanded) {
+        if (!field) return;
+        const pending = settingsSearchCollapseTimers.get(field);
+        if (pending) {
+          clearTimeout(pending);
+          settingsSearchCollapseTimers.delete(field);
+        }
+        field.classList.toggle("is-expanded", expanded);
+      }
+
+      function scheduleSettingsSearchCollapse(field) {
+        if (!field) return;
+        const pending = settingsSearchCollapseTimers.get(field);
+        if (pending) clearTimeout(pending);
+        const timer = window.setTimeout(() => {
+          settingsSearchCollapseTimers.delete(field);
+          const input = field.querySelector("input");
+          if (input?.value || field.matches(":hover") || field.contains(document.activeElement)) return;
+          field.classList.remove("is-expanded");
+        }, 1200);
+        settingsSearchCollapseTimers.set(field, timer);
+      }
+
+      function bindSettingsSearchFieldsOnce() {
+        if (settingsSearchFieldsBound) return;
+        settingsSearchFieldsBound = true;
+        document.querySelectorAll("[data-settings-search-field]").forEach((field) => {
+          const input = field.querySelector("input");
+          field.addEventListener("pointerenter", () => setSettingsSearchExpanded(field, true));
+          field.addEventListener("pointerleave", () => scheduleSettingsSearchCollapse(field));
+          field.addEventListener("click", () => {
+            setSettingsSearchExpanded(field, true);
+            input?.focus({ preventScroll: true });
+          });
+          input?.addEventListener("focus", () => setSettingsSearchExpanded(field, true));
+          input?.addEventListener("blur", () => scheduleSettingsSearchCollapse(field));
+          input?.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape" || input.value) return;
+            event.preventDefault();
+            event.stopPropagation();
+            input.blur();
+            field.classList.remove("is-expanded");
+          });
+        });
+      }
 
       function bindSettingsSectionSwitchesOnce() {
         if (settingsSectionSwitchesBound || !els.settingsScrim) return;
         settingsSectionSwitchesBound = true;
+        els.settingsScrim.addEventListener("focusin", (event) => {
+          const tab = event.target.closest?.('[role="tab"]');
+          if (tab?.matches("[data-settings-artifact-section]")) {
+            appState.settingsKeyboardTablist = "artifact";
+            return;
+          }
+          if (tab?.matches("[data-settings-library-section]")) {
+            appState.settingsKeyboardTablist = "library";
+            return;
+          }
+          if (tab?.matches("[data-settings-tab]")) {
+            appState.settingsKeyboardTablist = "settings";
+            return;
+          }
+          if (event.target.closest?.("input, textarea, select, button, a, [contenteditable='true']")) {
+            appState.settingsKeyboardTablist = "";
+          }
+        });
         els.settingsScrim.addEventListener("click", (event) => {
+          if (event.target.closest("[data-settings-tab]")) {
+            appState.settingsKeyboardTablist = "settings";
+            return;
+          }
           const artifactButton = event.target.closest("[data-settings-artifact-section]");
           if (artifactButton) {
+            appState.settingsKeyboardTablist = "artifact";
             appState.settingsArtifactSection = artifactButton.dataset.settingsArtifactSection || "projects";
             renderSettingsPanel();
+            artifactButton.focus();
             if (appState.settingsArtifactSection === "projects") {
               restoreCachedAgentProjectsInSettings().catch(() => {});
             }
@@ -11064,16 +12399,24 @@
           }
           const libraryButton = event.target.closest("[data-settings-library-section]");
           if (libraryButton) {
+            appState.settingsKeyboardTablist = "library";
             appState.settingsLibrarySection = libraryButton.dataset.settingsLibrarySection || "folders";
             renderSettingsPanel();
+            libraryButton.focus();
+            return;
+          }
+          if (event.target.closest("input, textarea, select, button, a, [contenteditable='true']")) {
+            appState.settingsKeyboardTablist = "";
           }
         });
       }
 
       function renderSettingsPanel() {
         els.settingsScrim.classList.toggle("open", appState.isSettingsOpen);
+        els.settingsScrim.setAttribute("aria-hidden", appState.isSettingsOpen ? "false" : "true");
         if (!appState.isSettingsOpen) return;
         bindSettingsSectionSwitchesOnce();
+        bindSettingsSearchFieldsOnce();
         renderNbskillAgentToolbar();
         if (els.settingsDiscoverAgentsButton) {
           const discoverProjectsLabel = t("actions.discoverProjects");
@@ -11089,23 +12432,48 @@
         maybeCheckUpdatesForPreferences();
         if (els.settingsSourceSearchInput) {
           els.settingsSourceSearchInput.value = appState.settingsSourceSearch;
+          els.settingsSourceSearchInput.closest("[data-settings-search-field]")?.setAttribute("data-has-value", appState.settingsSourceSearch ? "true" : "false");
         }
+        if (els.settingsProjectSearchInput) {
+          els.settingsProjectSearchInput.value = appState.settingsProjectSearch;
+          els.settingsProjectSearchInput.closest("[data-settings-search-field]")?.setAttribute("data-has-value", appState.settingsProjectSearch ? "true" : "false");
+        }
+        if (els.settingsSkillSearchInput) {
+          els.settingsSkillSearchInput.value = appState.settingsSkillSearch;
+          els.settingsSkillSearchInput.closest("[data-settings-search-field]")?.setAttribute("data-has-value", appState.settingsSkillSearch ? "true" : "false");
+        }
+        if (els.settingsProjectSortButton) els.settingsProjectSortButton.dataset.tooltip = t("settings.projectSortLabel");
+        if (els.settingsSkillSortButton) els.settingsSkillSortButton.dataset.tooltip = t("settings.skillSortLabel");
         renderSettingsSourceSortMenu();
+        renderSettingsArtifactSortMenus();
         document.querySelectorAll("[data-settings-tab]").forEach((node) => {
-          node.classList.toggle("active", node.dataset.settingsTab === appState.settingsTab);
+          const selected = node.dataset.settingsTab === appState.settingsTab;
+          node.classList.toggle("active", selected);
+          node.setAttribute("aria-selected", selected ? "true" : "false");
+          node.tabIndex = selected ? 0 : -1;
         });
         document.querySelectorAll("[data-settings-artifact-section]").forEach((node) => {
-          node.classList.toggle("active", node.dataset.settingsArtifactSection === appState.settingsArtifactSection);
+          const selected = node.dataset.settingsArtifactSection === appState.settingsArtifactSection;
+          node.classList.toggle("active", selected);
+          node.setAttribute("aria-selected", selected ? "true" : "false");
+          node.tabIndex = selected ? 0 : -1;
         });
         document.getElementById("settingsProjectArtifactsSubsection").hidden = appState.settingsArtifactSection !== "projects";
         document.getElementById("settingsSkillArtifactsSubsection").hidden = appState.settingsArtifactSection !== "skills";
         document.querySelectorAll("[data-settings-library-section]").forEach((node) => {
-          node.classList.toggle("active", node.dataset.settingsLibrarySection === appState.settingsLibrarySection);
+          const selected = node.dataset.settingsLibrarySection === appState.settingsLibrarySection;
+          node.classList.toggle("active", selected);
+          node.setAttribute("aria-selected", selected ? "true" : "false");
+          node.tabIndex = selected ? 0 : -1;
         });
 
         if (els.settingsAgentProjectList) {
+          const previousProjectViewport = els.settingsAgentProjectList.querySelector(".settings-list-viewport");
+          if (previousProjectViewport) appState.settingsProjectScrollTop = previousProjectViewport.scrollTop;
           els.settingsAgentProjectList.innerHTML = renderSettingsAgentProjectContent();
           bindSettingsAgentProjectActions();
+          const nextProjectViewport = els.settingsAgentProjectList.querySelector(".settings-list-viewport");
+          if (nextProjectViewport) nextProjectViewport.scrollTop = appState.settingsProjectScrollTop;
         }
 
         const sourceKeyword = appState.settingsSourceSearch.trim().toLowerCase();
@@ -11124,20 +12492,24 @@
             return `${item.fileName}\n${item.filePath}\n${item.libraryName}`.toLowerCase().includes(sourceKeyword);
           })
           .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+        const skillKeyword = appState.settingsSkillSearch.trim().toLowerCase();
         const filteredSkills = [...appState.discoveredArtifactSkills]
           .filter((skill) => {
-            if (!sourceKeyword) return true;
-            return `${skill.name}\n${skill.outputPath || ""}\n${skill.status || ""}`.toLowerCase().includes(sourceKeyword);
+            if (!skillKeyword) return true;
+            return `${skill.name}\n${skill.outputPath || ""}\n${skill.manifestPath || ""}\n${skill.status || ""}`.toLowerCase().includes(skillKeyword);
           })
           .sort((left, right) => {
-            const statusRank = { connected: 0, ready: 1, manual: 2 };
-            const leftRank = statusRank[left.status] ?? 9;
-            const rightRank = statusRank[right.status] ?? 9;
-            if (leftRank !== rightRank) return leftRank - rightRank;
-            if (appState.settingsSourceSort === "pathAsc") {
+            const byName = left.name.localeCompare(right.name, appState.language === "en-US" ? "en" : "zh-CN");
+            if (appState.settingsSkillSort === "statusThenName") {
+              const statusRank = { ready: 0, connected: 1, manual: 2, excluded: 3 };
+              const leftRank = statusRank[left.status] ?? 9;
+              const rightRank = statusRank[right.status] ?? 9;
+              return leftRank - rightRank || byName;
+            }
+            if (appState.settingsSkillSort === "pathAsc") {
               return String(left.outputPath || "").toLowerCase().localeCompare(String(right.outputPath || "").toLowerCase());
             }
-            return left.name.toLowerCase().localeCompare(right.name.toLowerCase());
+            return byName;
           });
         appState.settingsSkillSelection.forEach((normalizedName) => {
           if (!filteredSkills.some((skill) => skill.normalizedName === normalizedName && (skill.status === "ready" || skill.status === "manual"))) {
@@ -11168,56 +12540,56 @@
           : `<div class="settings-empty">${t("settings.noGroupContent")}</div>`;
 
         const libraryGroups = {
-          folders: renderSettingsGroup({
-            key: "folders",
+          folders: {
             title: t("settings.sourceFolders"),
-            count: countText(folderLibraries.length),
             bodyHtml: `
               <div class="settings-header">
                 <div class="muted">${t("settings.sourceFoldersDescription")}</div>
                 <div class="button-row">
-                  <button class="button button-primary button-small" type="button" data-settings-add-folder="true">${t("actions.addFolder")}</button>
+                  <button class="button button-primary button-small settings-library-primary-action" type="button" data-settings-add-folder="true">${t("actions.addFolder")}</button>
                 </div>
               </div>
-              ${renderLibraryRows(folderLibraries)}
+              <div class="settings-list-viewport">${renderLibraryRows(folderLibraries)}</div>
             `
-          }),
-          files: renderSettingsGroup({
-            key: "files",
+          },
+          files: {
             title: t("settings.sourceFiles"),
-            count: countText(fileLibraries.length),
             bodyHtml: `
               <div class="settings-header">
                 <div class="muted">${t("settings.sourceFilesDescription")}</div>
                 <div class="button-row">
-                  <button class="button button-primary button-small" type="button" data-settings-add-file="true">${t("actions.addSingleFile")}</button>
+                  <button class="button button-primary button-small settings-library-primary-action" type="button" data-settings-add-file="true">${t("actions.addSingleFile")}</button>
                 </div>
               </div>
-              ${renderLibraryRows(fileLibraries)}
+              <div class="settings-list-viewport">${renderLibraryRows(fileLibraries)}</div>
             `
-          }),
-          projects: renderSettingsGroup({
-            key: "projects",
+          },
+          projects: {
             title: t("settings.sourceProjects"),
-            count: countText(projectLibraries.length),
             bodyHtml: `
               <div class="settings-header">
                 <div class="muted">${t("settings.sourceProjectsDescription")}</div>
+                <div class="button-row">
+                  <button class="button button-primary button-small settings-library-primary-action" type="button" data-settings-open-artifact-access="projects">${t("actions.addProject")}</button>
+                </div>
               </div>
-              ${renderLibraryRows(projectLibraries)}
+              <div class="settings-list-viewport">${renderLibraryRows(projectLibraries)}</div>
             `
-          })
+          }
         };
-        els.settingsLibraryList.innerHTML = libraryGroups[appState.settingsLibrarySection] || libraryGroups.folders;
+        const activeLibraryGroup = libraryGroups[appState.settingsLibrarySection] || libraryGroups.folders;
+        els.settingsLibrarySectionTitle.textContent = activeLibraryGroup.title;
+        els.settingsLibraryList.innerHTML = activeLibraryGroup.bodyHtml;
 
         const ignoredBody = filteredIgnoredItems.length
           ? `
               <div class="settings-header">
                 <div class="muted">${t("settings.ignoredDescription")}</div>
                 <div class="button-row">
-                  <button class="button button-primary button-small" type="button" data-settings-restore-selected="true" ${appState.settingsIgnoredSelection.size === 0 ? "disabled" : ""}>${t("actions.restoreSelected")}</button>
+                  <button class="button button-primary button-small settings-library-primary-action" type="button" data-settings-restore-selected="true" ${appState.settingsIgnoredSelection.size === 0 ? "disabled" : ""}>${t("actions.restoreSelected")}</button>
                 </div>
               </div>
+              <div class="settings-list-viewport">
               ${filteredIgnoredItems.map((item) => `
               <div class="settings-row">
                 <div class="settings-row-copy">
@@ -11234,15 +12606,17 @@
                 </div>
               </div>
             `).join("")}
+              </div>
             `
-          : `<div class="settings-empty">${t("settings.noRemovedFiles")}</div>`;
+          : `<div class="settings-header">
+              <div class="muted">${t("settings.ignoredDescription")}</div>
+              <div class="button-row">
+                <button class="button button-primary button-small settings-library-primary-action" type="button" data-settings-restore-selected="true" disabled>${t("actions.restoreSelected")}</button>
+              </div>
+            </div>
+            <div class="settings-list-viewport"><div class="settings-empty">${t("settings.noRemovedFiles")}</div></div>`;
 
-        els.settingsIgnoredList.innerHTML = renderSettingsGroup({
-          key: "ignored",
-          title: t("settings.removedFiles"),
-          count: countText(filteredIgnoredItems.length),
-          bodyHtml: ignoredBody
-        });
+        els.settingsIgnoredList.innerHTML = ignoredBody;
         els.settingsLibraryList.closest(".settings-subsection").hidden = appState.settingsLibrarySection === "removed";
         els.settingsIgnoredList.closest(".settings-subsection").hidden = appState.settingsLibrarySection !== "removed";
 
@@ -11281,7 +12655,7 @@
                   <div class="settings-row settings-skill-row" data-settings-skill-source-exists="${skill.sourceExists ? "true" : "false"}">
                     <div class="settings-row-copy">
                       <div class="settings-skill-inline">
-                        ${options.allowSelection ? `<input type="checkbox" data-settings-skill-select="${escapeAttribute(skill.normalizedName)}" ${appState.settingsSkillSelection.has(skill.normalizedName) ? "checked" : ""} />` : ""}
+                        ${options.allowSelection && (skill.status === "ready" || skill.status === "manual") ? `<input class="settings-skill-select" type="checkbox" data-settings-skill-select="${escapeAttribute(skill.normalizedName)}" aria-label="${escapeAttribute(t("settings.selectSkill").replace("{name}", skill.name))}" ${appState.settingsSkillSelection.has(skill.normalizedName) ? "checked" : ""} />` : ""}
                         <div class="settings-row-title">${escapeHtml(skill.name)}</div>
                         <span class="source-kind-badge">${skillStatusLabel(skill)}</span>
                         ${skill.duplicateCount > 1 ? `<span class="source-kind-badge">${skill.duplicateCount} ${t("settings.duplicateSuffix")}</span>` : ""}
@@ -11302,16 +12676,25 @@
         const connectedOrReadySkills = filteredSkills.filter((skill) => skill.status === "connected" || skill.status === "ready");
         const manualSkills = filteredSkills.filter((skill) => skill.status === "manual");
         const excludedSkills = filteredSkills.filter((skill) => skill.status === "excluded");
+        const excludedSkillCount = appState.discoveredArtifactSkills.filter((skill) => skill.status === "excluded").length;
 
+        const previousSkillViewport = els.settingsSkillList.querySelector(".settings-list-viewport");
+        if (previousSkillViewport) appState.settingsSkillScrollTop = previousSkillViewport.scrollTop;
         els.settingsSkillList.innerHTML = `
           <div class="settings-skill-summary">
-            <div class="muted">${skillScanSummaryText(appState.discoveredSkillScannedCount, filteredSkills.length)}</div>
+            <div class="muted">${skillScanSummaryText(
+              appState.discoveredSkillScannedCount,
+              appState.discoveredArtifactSkills.filter((skill) => skill.status === "connected").length,
+              excludedSkillCount
+            )}</div>
             <div class="button-row">
               ${appState.settingsSkillRefreshFeedback ? `<span class="settings-inline-feedback">${escapeHtml(appState.settingsSkillRefreshFeedback)}</span>` : ""}
               <button class="button button-primary button-small" type="button" data-settings-refresh-skills="true">${t("actions.scanSkillOutputs")}</button>
+              <button class="button button-secondary button-small" type="button" data-settings-attach-selected-skills="true" ${appState.settingsSkillSelection.size === 0 ? "disabled" : ""}>${t("actions.attachSelected")}</button>
               <button class="button button-ghost button-small" type="button" data-settings-exclude-selected-skills="true" ${appState.settingsSkillSelection.size === 0 ? "disabled" : ""}>${t("actions.excludeSelected")}</button>
             </div>
           </div>
+          <div class="settings-list-viewport">
           ${renderSettingsGroup({
             key: "skillReady",
             title: t("settings.connectedOrReady"),
@@ -11333,10 +12716,13 @@
           ${renderSettingsGroup({
             key: "skillExcluded",
             title: t("settings.excludedSkill"),
-            count: countText(excludedSkills.length),
+            count: countText(excludedSkillCount),
             bodyHtml: renderSkillRows(excludedSkills, { allowRestore: true, emptyLabel: t("settings.noSkillExcluded") })
           })}
+          </div>
         `;
+        const nextSkillViewport = els.settingsSkillList.querySelector(".settings-list-viewport");
+        if (nextSkillViewport) nextSkillViewport.scrollTop = appState.settingsSkillScrollTop;
 
         els.settingsTagList.innerHTML = appState.tags.length
           ? `<div class="settings-tag-cloud">
@@ -11514,6 +12900,7 @@
               appState.settingsIgnoredSelection.delete(itemId);
             }
             renderSettingsPanel();
+            node.focus();
           });
         });
         els.settingsIgnoredList.querySelectorAll("[data-settings-restore-selected]").forEach((node) => {
@@ -11526,6 +12913,37 @@
         });
         els.settingsSkillList.querySelectorAll("[data-settings-refresh-skills]").forEach((node) => {
           node.addEventListener("click", refreshDiscoveredArtifactSkills);
+        });
+        els.settingsSkillList.querySelector("[data-settings-attach-selected-skills]")?.addEventListener("click", async () => {
+          const selectedSkills = filteredSkills.filter((skill) => appState.settingsSkillSelection.has(skill.normalizedName));
+          const connectable = selectedSkills.filter((skill) => skill.status === "ready" && skill.outputPath);
+          const manualCount = selectedSkills.filter((skill) => skill.status === "manual").length;
+          try {
+            let connectedCount = 0;
+            let failedCount = 0;
+            for (const skill of connectable) {
+              if (await attachDiscoveredSkillSource(skill.outputPath, skill.name, skill.sourceExists, skill.normalizedName)) {
+                connectedCount += 1;
+              } else {
+                failedCount += 1;
+              }
+            }
+            appState.settingsSkillSelection.clear();
+            await loadDiscoveredArtifactSkills();
+            if (failedCount) {
+              setStatus(
+                t("status.skillsBulkPartial")
+                  .replace("{count}", connectedCount)
+                  .replace("{failed}", failedCount)
+                  .replace("{manual}", manualCount),
+                "warn"
+              );
+            } else {
+              setStatus(t("status.skillsBulkConnected").replace("{count}", connectedCount).replace("{manual}", manualCount), "ok");
+            }
+          } catch (error) {
+            setStatus(statusError("status.skillsBulkConnectFailedPrefix", error), "error");
+          }
         });
         els.settingsSkillList.querySelectorAll("[data-settings-skill-select]").forEach((node) => {
           node.addEventListener("change", () => {
@@ -11678,9 +13096,11 @@
               {
                 adapterId: "codex",
                 externalScopeId: "codex-project-demo",
-                suggestedCount: 2,
-                pendingCount: 1,
+                suggestedCount: mockData.agentProjectStates["/workspace/sample-agent-project"].ignored ? 0 : [2010, 2011].filter((candidateId) => !mockData.agentProjectStates["/workspace/sample-agent-project"].acceptedCandidateIds.has(candidateId)).length,
+                pendingCount: mockData.agentProjectStates["/workspace/sample-agent-project"].ignored ? 0 : (mockData.agentProjectStates["/workspace/sample-agent-project"].acceptedCandidateIds.has(2012) ? 0 : 1),
                 excludedCount: 4,
+                ignoredCount: mockData.agentProjectStates["/workspace/sample-agent-project"].ignored ? 3 : 0,
+                alreadyIndexedPaths: [],
                 scanStatus: "complete",
                 scanIssue: null
               },
@@ -11688,13 +13108,119 @@
                 adapterId: "workbuddy",
                 externalScopeId: "workbuddy:task:2026-06-26-22-31-57:outputs",
                 suggestedCount: 0,
-                pendingCount: 1,
+                pendingCount: mockData.agentProjectStates["/Users/name/Workbuddy/2026-06-26-22-31-57/outputs"].ignored ? 0 : 1,
                 excludedCount: 0,
+                ignoredCount: mockData.agentProjectStates["/Users/name/Workbuddy/2026-06-26-22-31-57/outputs"].ignored ? 1 : 0,
+                alreadyIndexedPaths: [],
                 scanStatus: "complete",
                 scanIssue: null
               }
             ]
           };
+        }
+        if (command === "connect_agent_project") {
+          const state = mockData.agentProjectStates[args.rootPath];
+          if (!state) throw new Error("PROJECT_NOT_FOUND");
+          let library = mockData.libraries.find((entry) => entry.id === state.libraryId);
+          if (!library) {
+            library = {
+              id: state.libraryId,
+              name: args.displayName,
+              rootPath: args.rootPath,
+              sourceKind: "agent_project",
+              pathState: "valid",
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              lastScannedAt: null
+            };
+            mockData.libraries.push(library);
+          }
+          return {
+            libraryId: state.libraryId,
+            rootPath: args.rootPath,
+            displayName: args.displayName,
+            scopeKind: args.scopeKind,
+            discoveryMode: "adapter",
+            autoImportMode: "explicit",
+            lastScanStatus: "complete",
+            lastScanIssue: null,
+            adapters: []
+          };
+        }
+        if (command === "preview_agent_project_artifacts") {
+          const library = mockData.libraries.find((entry) => entry.id === args.projectLibraryId);
+          const state = library && mockData.agentProjectStates[library.rootPath];
+          if (!library || !state) throw new Error("PROJECT_NOT_FOUND");
+          const total = library.rootPath === "/workspace/sample-agent-project" ? 3 : 1;
+          const reviewCandidates = state.ignored ? [] : Array.from({ length: total }, (_, index) => ({
+            id: (state.libraryId * 10) + index,
+            primaryPath: `output-${index + 1}.md`,
+            status: index < 2 ? "suggested" : "pending",
+            reasons: ["supported_extension_only"],
+            evidence: []
+          })).filter((candidate) =>
+            !state.acceptedCandidateIds.has(candidate.id)
+            && !(state.ignoredCandidateIds || new Set()).has(candidate.id)
+          );
+          const suggestedCount = reviewCandidates.filter((candidate) => candidate.status === "suggested").length;
+          const pendingCount = reviewCandidates.filter((candidate) => candidate.status === "pending").length;
+          return {
+            project: {
+              libraryId: state.libraryId,
+              rootPath: library.rootPath,
+              displayName: library.name,
+              lastScanStatus: "complete",
+              lastScanIssue: null
+            },
+            groups: state.ignored ? [] : [{ batchKey: `mock:${state.libraryId}`, status: "suggested", count: total }],
+            reviewCandidates,
+            indexedArtifacts: [],
+            suggestedCount,
+            pendingCount,
+            excludedCount: 0
+          };
+        }
+        if (command === "preview_agent_project_artifacts_by_root") {
+          const state = mockData.agentProjectStates[args.rootPath];
+          const library = state && mockData.libraries.find((entry) => entry.id === state.libraryId);
+          if (!state || !library) return null;
+          return invokeMock("preview_agent_project_artifacts", {
+            projectLibraryId: state.libraryId
+          });
+        }
+        if (command === "accept_agent_artifacts" || command === "accept_agent_artifact") {
+          const projectLibraryId = Number(args.projectLibraryId);
+          const state = Object.values(mockData.agentProjectStates).find((entry) => entry.libraryId === projectLibraryId);
+          if (!state) throw new Error("PROJECT_NOT_FOUND");
+          const candidateIds = command === "accept_agent_artifact"
+            ? [Number(args.candidateId)]
+            : (args.candidateIds || []).map(Number);
+          candidateIds.forEach((candidateId) => state.acceptedCandidateIds.add(candidateId));
+          return {
+            accepted: candidateIds.map((candidateId) => ({ candidateId, primaryPath: `output-${candidateId}.md` })),
+            skipped: [],
+            failed: []
+          };
+        }
+        if (command === "ignore_agent_artifact" || command === "ignore_agent_artifacts") {
+          const projectLibraryId = Number(args.projectLibraryId);
+          const state = Object.values(mockData.agentProjectStates).find((entry) => entry.libraryId === projectLibraryId);
+          if (!state) throw new Error("PROJECT_NOT_FOUND");
+          const candidateIds = command === "ignore_agent_artifact"
+            ? [Number(args.candidateId)]
+            : (args.candidateIds || []).map(Number);
+          state.ignoredCandidateIds ||= new Set();
+          candidateIds.forEach((candidateId) => state.ignoredCandidateIds.add(candidateId));
+          return command === "ignore_agent_artifact" ? true : candidateIds.length;
+        }
+        if (command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates") {
+          const library = mockData.libraries.find((entry) => entry.id === args.projectLibraryId);
+          const state = library && mockData.agentProjectStates[library.rootPath];
+          if (!state) throw new Error("PROJECT_NOT_FOUND");
+          const total = library.rootPath === "/workspace/sample-agent-project" ? 3 : 1;
+          state.ignored = command === "exclude_agent_project_candidates";
+          return total;
         }
         if (command === "list_discovered_artifact_skills") {
           if (readmeDemoEnabled()) {
@@ -14602,6 +16128,17 @@
       }
 
       async function deleteLibrary(libraryId) {
+        const library = appState.libraries.find((entry) => entry.id === libraryId);
+        if (!library) return;
+        const confirmed = await appConfirm({
+          title: t("settings.removeSourceTitle"),
+          message: t("settings.removeSourceMessage")
+            .replace("{name}", library.name),
+          detail: library.rootPath,
+          confirmText: t("actions.remove"),
+          danger: true
+        });
+        if (!confirmed) return;
         try {
           const runtimeIds = appState.runtimeSessions
             .filter((tab) => tab.item.libraryId === libraryId)
@@ -14633,7 +16170,7 @@
           renderTabs();
           renderViewer();
           renderSettingsPanel();
-          setStatus("资料库已移除", "ok");
+          setStatus(t("status.libraryRemoved"), "ok");
         } catch (error) {
           setStatus(`移除资料库失败：${normalizeError(error)}`, "error");
         }
@@ -14898,13 +16435,13 @@
       }
 
       async function attachDiscoveredSkillSource(outputPath, skillName, sourceExists = false, normalizedName = null) {
-        if (!outputPath) return;
+        if (!outputPath) return false;
         try {
           els.libraryPath.value = outputPath;
           els.libraryName.value = skillName ? `${skillName} output` : outputPath.split("/").filter(Boolean).pop() || "Skill Output";
           const library = await addLibrary("folder");
           if (!library?.id) {
-            return;
+            return false;
           }
           await bindLibraryToSkill(library.id, skillName, normalizedName || normalizeSkillIdentifier(skillName));
           if (sourceExists) {
@@ -14917,8 +16454,10 @@
           await loadDiscoveredArtifactSkills();
           renderSettingsPanel();
           setStatus(`已接入 Skill 来源：${skillName || "产物目录"}`, "ok");
+          return true;
         } catch (error) {
           setStatus(`接入 Skill 来源失败：${normalizeError(error)}`, "error");
+          return false;
         }
       }
 
@@ -15301,6 +16840,9 @@
           openSettingsTab("thumbnails");
         });
         els.settingsDiscoverAgentsButton?.addEventListener("click", loadAgentProjectsInSettings);
+        els.settingsNbskillEnhancementHint?.addEventListener("click", () => {
+          showAgentIntegrationHelp(els.settingsNbskillEnhancementHint.dataset.helpMode === "guide" ? "guide" : "intro");
+        });
         els.settingsRefreshNbskillStatusButton?.addEventListener("click", () => runAgentIntegrationAction("primary"));
         els.settingsCopyNbskillPromptButton?.addEventListener("click", () => runAgentIntegrationAction("repair"));
         els.settingsSourceSortButton?.addEventListener("click", (event) => {
@@ -15308,26 +16850,10 @@
           appState.isSettingsSourceSortMenuOpen = !appState.isSettingsSourceSortMenuOpen;
           renderSettingsSourceSortMenu();
         });
-        els.closeSettingsButton.addEventListener("click", () => {
-          if (appState.isSettingsOverlay) {
-            closeSettingsOverlay();
-            return;
-          }
-          appState.settingsArtifactView = "list";
-          appState.agentArtifactPreview = null;
-          appState.isSettingsOpen = false;
-          renderSettingsPanel();
-        });
+        els.closeSettingsButton.addEventListener("click", closeSettingsPanel);
         els.settingsScrim.addEventListener("click", (event) => {
           if (event.target === els.settingsScrim) {
-            if (appState.isSettingsOverlay) {
-              closeSettingsOverlay();
-              return;
-            }
-            appState.settingsArtifactView = "list";
-            appState.agentArtifactPreview = null;
-            appState.isSettingsOpen = false;
-            renderSettingsPanel();
+            closeSettingsPanel();
           }
         });
         els.addFolderButtonTopbar?.addEventListener("click", addFolderFromMenu);
@@ -15335,6 +16861,26 @@
         els.settingsSourceSearchInput?.addEventListener("input", () => {
           appState.settingsSourceSearch = els.settingsSourceSearchInput.value;
           renderSettingsPanel();
+        });
+        els.settingsProjectSearchInput?.addEventListener("input", () => {
+          appState.settingsProjectSearch = els.settingsProjectSearchInput.value;
+          renderSettingsPanel();
+        });
+        els.settingsProjectSortButton?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          appState.isSettingsProjectSortMenuOpen = !appState.isSettingsProjectSortMenuOpen;
+          appState.isSettingsSkillSortMenuOpen = false;
+          renderSettingsArtifactSortMenus();
+        });
+        els.settingsSkillSearchInput?.addEventListener("input", () => {
+          appState.settingsSkillSearch = els.settingsSkillSearchInput.value;
+          renderSettingsPanel();
+        });
+        els.settingsSkillSortButton?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          appState.isSettingsSkillSortMenuOpen = !appState.isSettingsSkillSortMenuOpen;
+          appState.isSettingsProjectSortMenuOpen = false;
+          renderSettingsArtifactSortMenus();
         });
         els.hostSettingsMenu?.querySelectorAll("[data-host-settings-tab]").forEach((node) => {
           node.addEventListener("click", async (event) => {
@@ -15348,13 +16894,74 @@
         });
         document.querySelectorAll("[data-settings-tab]").forEach((node) => {
           node.addEventListener("click", () => {
+            appState.settingsKeyboardTablist = "settings";
             appState.settingsTab = node.dataset.settingsTab;
             if (appState.settingsTab === "preferences") {
               appState.updatePreferenceAutoCheckStarted = false;
             }
             renderSettingsPanel();
-            node.blur();
           });
+        });
+        document.addEventListener("keydown", (event) => {
+          if (!appState.isSettingsOpen || els.confirmScrim?.classList.contains("open")) return;
+          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+            const activeElement = document.activeElement;
+            const focusedTab = activeElement?.closest?.('[role="tab"]');
+            const tablistKind = focusedTab?.matches?.("[data-settings-artifact-section]")
+              ? "artifact"
+              : focusedTab?.matches?.("[data-settings-library-section]")
+                ? "library"
+                : focusedTab?.matches?.("[data-settings-tab]")
+                  ? "settings"
+                  : appState.settingsKeyboardTablist;
+            if (!tablistKind) return;
+            const selector = tablistKind === "artifact"
+              ? "[data-settings-artifact-section]"
+              : tablistKind === "library"
+                ? "[data-settings-library-section]"
+                : "[data-settings-tab]";
+            const tabs = [...document.querySelectorAll(selector)].filter((node) => node.offsetParent !== null);
+            if (tabs.length) {
+              event.preventDefault();
+              event.stopPropagation();
+              const currentIndex = Math.max(0, tabs.findIndex((node) => node.getAttribute("aria-selected") === "true"));
+              const nextIndex = event.key === "Home" ? 0
+                : event.key === "End" ? tabs.length - 1
+                : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+              tabs[nextIndex].click();
+              tabs[nextIndex].focus();
+              return;
+            }
+          }
+          if (event.key === "Escape") {
+            if (appState.isSettingsProjectSortMenuOpen || appState.isSettingsSkillSortMenuOpen) {
+              const returnFocus = appState.isSettingsProjectSortMenuOpen
+                ? els.settingsProjectSortButton
+                : els.settingsSkillSortButton;
+              appState.isSettingsProjectSortMenuOpen = false;
+              appState.isSettingsSkillSortMenuOpen = false;
+              renderSettingsArtifactSortMenus();
+              returnFocus?.focus();
+              return;
+            }
+            event.preventDefault();
+            closeSettingsPanel();
+            return;
+          }
+          if (event.key !== "Tab") return;
+          const modal = els.settingsScrim.querySelector(".settings-modal");
+          const focusable = [...modal?.querySelectorAll('button:not([disabled]):not([hidden]), input:not([disabled]):not([hidden]), select:not([disabled]):not([hidden]), textarea:not([disabled]):not([hidden]), a[href]:not([hidden]), [tabindex]:not([tabindex="-1"]):not([hidden])') || []]
+            .filter((node) => node.offsetParent !== null);
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
         });
         els.settingsRefreshThumbnailStatusButton.addEventListener("click", async () => {
           setStatus(t("status.thumbnailDetecting"), "warn");
@@ -15392,6 +16999,14 @@
           if (appState.isSettingsSourceSortMenuOpen && !els.settingsSourceSortMenu.contains(event.target) && !els.settingsSourceSortButton.contains(event.target)) {
             appState.isSettingsSourceSortMenuOpen = false;
             renderSettingsSourceSortMenu();
+          }
+          if (appState.isSettingsProjectSortMenuOpen && !els.settingsProjectSortMenu.contains(event.target) && !els.settingsProjectSortButton.contains(event.target)) {
+            appState.isSettingsProjectSortMenuOpen = false;
+            renderSettingsArtifactSortMenus();
+          }
+          if (appState.isSettingsSkillSortMenuOpen && !els.settingsSkillSortMenu.contains(event.target) && !els.settingsSkillSortButton.contains(event.target)) {
+            appState.isSettingsSkillSortMenuOpen = false;
+            renderSettingsArtifactSortMenus();
           }
         });
       }
