@@ -472,7 +472,7 @@ fn process_state(pid: u32) -> ProcessState {
     use windows_sys::Win32::{Foundation::{CloseHandle, GetLastError}, System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION}};
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle == 0 { return windows_process_state_from_api(None, Some(GetLastError())); }
+        if handle.is_null() { return windows_process_state_from_api(None, Some(GetLastError())); }
         let mut exit_code = 0_u32;
         let result = if GetExitCodeProcess(handle, &mut exit_code) != 0 { windows_process_state_from_api(Some(exit_code), None) } else { ProcessState::Unknown };
         let _ = CloseHandle(handle);
