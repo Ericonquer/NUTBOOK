@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "stable-entry-id",
+      "path": ".agent-outputs/example/report.html",
+      "state": "active",
+      "skill": {
+        "name": "example-skill",
+        "version": "1"
+      },
+      "kind": "report",
+      "title": "Example report",
+      "generatedAt": "2026-07-28T10:00:00Z",
+      "relatedFiles": [
+        {
+          "path": ".agent-outputs/assets/cover.png",
+          "role": "asset"
+        }
+      ],
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    }
+  ]
+}
+

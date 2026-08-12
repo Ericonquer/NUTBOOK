@@ -1,0 +1,32 @@
+{
+  "adapterId": "workbuddy",
+  "adapterProfile": "workbuddy-local-5.3",
+  "trustedRoot": "/workspace/sample-workbuddy-root",
+  "scopes": [
+    {
+      "externalScopeId": "workbuddy:task:2026-06-26-22-31-57:outputs",
+      "scopeKind": "task",
+      "rootPath": "/workspace/sample-workbuddy-root/2026-06-26-22-31-57/outputs",
+      "displayName": "outputs",
+      "lastActivityAt": "2026-06-26T22:31:57"
+    },
+    {
+      "externalScopeId": "workbuddy:task:2026-07-17-10-41-23:codexquota",
+      "scopeKind": "task",
+      "rootPath": "/workspace/sample-workbuddy-root/2026-07-17-10-41-23/codexquota",
+      "displayName": "codexquota",
+      "lastActivityAt": "2026-07-17T10:41:23"
+    },
+    {
+      "externalScopeId": "workbuddy:manifest-task:2026-08-02-21-02-36",
+      "scopeKind": "task",
+      "rootPath": "/workspace/sample-workbuddy-root/2026-08-02-21-02-36",
+      "displayName": "2026-08-02-21-02-36",
+      "lastActivityAt": "2026-08-02T21:02:36"
+    }
+  ],
+  "excludedDirectChildren": [
+    "Claw",
+    "2026-07-18-invalid"
+  ]
+}

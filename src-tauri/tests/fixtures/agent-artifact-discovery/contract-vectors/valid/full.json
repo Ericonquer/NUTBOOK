@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "current-report",
+      "path": "docs/delivered-report.md",
+      "state": "active",
+      "skill": {
+        "name": "report-writer",
+        "version": "1"
+      },
+      "kind": "report",
+      "title": "Current report",
+      "generatedAt": "2026-07-30T06:02:01Z",
+      "relatedFiles": [
+        {
+          "path": "presentation/assets/cover.png",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "old-report",
+      "path": "docs/old-report.md",
+      "state": "superseded",
+      "skill": {
+        "name": "report-writer"
+      },
+      "kind": "report",
+      "supersededBy": "current-report"
+    },
+    {
+      "id": "editable-report",
+      "path": ".agent-outputs/nbskill/editable-report.html",
+      "state": "active",
+      "skill": {
+        "name": "nbskill",
+        "version": "1"
+      },
+      "kind": "document",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    }
+  ]
+}
+

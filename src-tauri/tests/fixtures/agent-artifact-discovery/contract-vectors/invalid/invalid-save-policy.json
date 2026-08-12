@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "unsafe-edit",
+      "path": ".agent-outputs/nbskill/editable-report.html",
+      "state": "active",
+      "skill": {
+        "name": "nbskill"
+      },
+      "kind": "document",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "overwrite"
+    }
+  ]
+}
+

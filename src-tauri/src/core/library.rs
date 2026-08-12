@@ -37,7 +37,7 @@ pub fn select_or_create_library(
     next_id: i64,
     now: &str,
 ) -> Result<Library, AppError> {
-    if !matches!(source_kind, "folder" | "file") {
+    if !matches!(source_kind, "folder" | "file" | "agent_project") {
         return Err(AppError::InvalidParams);
     }
 
@@ -53,9 +53,15 @@ pub fn select_or_create_library(
         return Ok(existing.clone());
     }
 
-    if existing_libraries.iter().any(|library| {
-        libraries_overlap(Path::new(&library.root_path), Path::new(&normalized_candidate))
-    }) {
+    if source_kind != "agent_project"
+        && existing_libraries.iter().any(|library| {
+            library.source_kind != "agent_project"
+                && libraries_overlap(
+                    Path::new(&library.root_path),
+                    Path::new(&normalized_candidate),
+                )
+        })
+    {
         return Err(AppError::LibraryPathOverlap);
     }
 
@@ -172,6 +178,42 @@ mod tests {
         assert_eq!(result.name, "pitch.html");
         assert_eq!(result.source_kind, "file");
         assert_eq!(result.root_path, "/Users/hayley/Documents/pitch.html");
+    }
+
+    #[test]
+    fn select_library_allows_agent_project_to_overlap_folder_source() {
+        let existing = vec![sample_library(1, "/Users/hayley/Documents/Notes")];
+
+        let result = select_or_create_library(
+            &existing,
+            "/Users/hayley/Documents/Notes",
+            Some("Notes Agent Project"),
+            "agent_project",
+            2,
+            "2026-07-30T00:00:00Z",
+        )
+        .expect("Agent project may overlap a folder source");
+
+        assert_eq!(result.id, 2);
+        assert_eq!(result.source_kind, "agent_project");
+    }
+
+    #[test]
+    fn select_library_keeps_folder_overlap_protection_when_agent_source_exists() {
+        let mut agent = sample_library(1, "/Users/hayley/Documents/Notes");
+        agent.source_kind = "agent_project".to_string();
+
+        let result = select_or_create_library(
+            &[agent],
+            "/Users/hayley/Documents/Notes/Sub",
+            None,
+            "folder",
+            2,
+            "2026-07-30T00:00:00Z",
+        )
+        .expect("Agent metadata must not block a normal folder source");
+
+        assert_eq!(result.source_kind, "folder");
     }
 
     #[test]

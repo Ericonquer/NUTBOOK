@@ -1,0 +1,26 @@
+{
+  "collectedAt": "2026-07-30",
+  "producer": "Codex Desktop",
+  "cliVersion": "0.146.0-alpha.3.1",
+  "sourceKind": "real-local-record-redacted",
+  "adapterProfile": "codex-local-0.146",
+  "sourceRecordsInspected": [
+    "state_5.sqlite threads rows for the Nutbook cwd",
+    "active and archived rollout JSONL records"
+  ],
+  "redactions": [
+    "session and turn identifiers replaced",
+    "home, repository, and rollout paths replaced",
+    "repository identity and commit replaced",
+    "prompts, reasoning, chat history, and unrelated tool records removed",
+    "final response replaced with fixture-only file links",
+    "patch content reduced to fixture-only content"
+  ],
+  "unsupported": [
+    "transcript JSONL is not an official stable storage API",
+    "arbitrary shell commands do not provide reliable file-write events",
+    "timestamps alone cannot prove Agent authorship",
+    "there is no stable exhaustive delivered-artifact collection"
+  ]
+}
+

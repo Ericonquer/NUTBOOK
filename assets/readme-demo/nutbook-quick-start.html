@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nutbook README Tutorial Recorder</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f5f7;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { background: #f5f5f7; }
+      .stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: #f5f5f7; }
+      iframe { position: absolute; border: 0; background: transparent; }
+      #productFrame { inset: 0; width: 100%; height: 100%; }
+      #runtimeFrame { display: none; z-index: 5; background: #fff; }
+      #controlsFrame { display: none; z-index: 8; pointer-events: auto; }
+      #cursor {
+        position: absolute;
+        z-index: 30;
+        left: 0;
+        top: 0;
+        width: 26px;
+        height: 34px;
+        opacity: 0;
+        pointer-events: none;
+        transform-origin: 4px 3px;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .22));
+      }
+      #cursor svg { display: block; width: 100%; height: 100%; }
+      #clickRing {
+        position: absolute;
+        z-index: 29;
+        width: 18px;
+        height: 18px;
+        border: 2px solid rgba(19, 19, 22, .72);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <iframe id="productFrame" title="Nutbook product interface"></iframe>
+      <iframe id="runtimeFrame" title="Nutbook editable HTML runtime"></iframe>
+      <iframe id="controlsFrame" title="Nutbook HTML controls"></iframe>
+      <div id="clickRing"></div>
+      <div id="cursor" aria-hidden="true">
+        <svg viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 2.5V28.5L9.7 22.4L14.3 33L19 31L14.2 20.6H24L3 2.5Z" fill="white" stroke="#111114" stroke-width="2.2" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </main>
+
+    <script>
+      (() => {
+        const params = new URLSearchParams(location.search);
+        const locale = params.get("locale") === "en-US" ? "en-US" : "zh-CN";
+        const flow = ["agent", "markdown", "html"].includes(params.get("flow")) ? params.get("flow") : "agent";
+        document.documentElement.lang = locale;
+        localStorage.setItem("nutbook.language", locale);
+
+        const productFrame = document.getElementById("productFrame");
+        const runtimeFrame = document.getElementById("runtimeFrame");
+        const controlsFrame = document.getElementById("controlsFrame");
+        const cursor = document.getElementById("cursor");
+        const clickRing = document.getElementById("clickRing");
+        const runtimeSessionId = "readme-real-html-edit";
+        const editorLeadId = locale === "en-US" ? "opening-lead-en" : "opening-lead-zh";
+        let htmlEditingReady = false;
+
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        function waitFor(check, timeout = 12000) {
+          const startedAt = performance.now();
+          return new Promise((resolve, reject) => {
+            const tick = () => {
+              try {
+                const value = check();
+                if (value) return resolve(value);
+              } catch (_) {}
+              if (performance.now() - startedAt > timeout) return reject(new Error("Timed out waiting for Nutbook demo UI"));
+              requestAnimationFrame(tick);
+            };
+            tick();
+          });
+        }
+
+        function appSource(source) {
+          return productFrame.contentWindow.eval(source);
+        }
+
+        const freshAgentStatuses = [
+          { agentId: "openclaw", displayName: "OpenClaw", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4" },
+          { agentId: "hermes", displayName: "Hermes", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4" },
+          { agentId: "claude-code", displayName: "Claude Code", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4" },
+          { agentId: "codex", displayName: "Codex", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: null, expectedVersion: "1.3.4" },
+          { agentId: "workbuddy", displayName: "WorkBuddy", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4" }
+        ];
+
+        async function prepareProductData() {
+          productFrame.src = `../../dist/index.html?readmeDemo=1&locale=${encodeURIComponent(locale)}`;
+          await waitFor(() => productFrame.contentDocument?.querySelector("#itemList"));
+          await waitFor(() => appSource("appState.isBooting === false"));
+          await appSource(`updateInterfaceLanguage(${JSON.stringify(locale)})`);
+          await wait(100);
+
+          const title = locale === "en-US" ? "AI in classroom collaboration" : "AI 如何改变课堂协作";
+          const summaryHeading = locale === "en-US" ? "Research summary" : "研究摘要";
+          const summary = locale === "en-US"
+            ? "A useful research note keeps evidence and structure easy to refine after the Agent finishes the task."
+            : "一份真正有用的研究笔记，需要在 Agent 完成任务后，仍然方便补充证据和调整结构。";
+          const evidenceHeading = locale === "en-US" ? "Classroom evidence" : "课堂证据";
+          const evidence = locale === "en-US" ? "The observation notes are still being refined." : "课堂观察记录仍在持续补充。";
+          const nextHeading = locale === "en-US" ? "Next step" : "下一步";
+          const next = locale === "en-US" ? "Review the evidence before the next class." : "下一节课前重新检查这些证据。";
+          const markdownRaw = `# ${title}\n\n## ${summaryHeading}\n\n${summary}\n\n## ${evidenceHeading}\n\n${evidence}\n\n\n## ${nextHeading}\n\n${next}\n`;
+          const markdownHtml = `<h1>${title}</h1><h2>${summaryHeading}</h2><p>${summary}</p><h2>${evidenceHeading}</h2><p>${evidence}</p><p></p><h2>${nextHeading}</h2><p>${next}</p>`;
+
+          appSource(`
+            window.__README_SAVED_ITEMS = structuredClone(mockData.items);
+            window.__README_SAVED_ITEMS[0].fileName = ${JSON.stringify(locale === "en-US" ? "research-notes.md" : "研究笔记.md")};
+            window.__README_SAVED_ITEMS[0].relativePath = window.__README_SAVED_ITEMS[0].fileName;
+            window.__README_SAVED_ITEMS[0].filePath = "/Demo/NUTBOOK/" + window.__README_SAVED_ITEMS[0].fileName;
+            window.__README_SAVED_ITEMS[0].title = ${JSON.stringify(locale === "en-US" ? "Research notes" : "研究笔记")};
+            window.__README_SAVED_ITEMS[0].summary = ${JSON.stringify(locale === "en-US" ? "A research note produced in a recent Agent task." : "最近一次 Agent 任务产出的研究笔记。")};
+            window.__README_SAVED_ITEMS[1].fileName = ${JSON.stringify(locale === "en-US" ? "classroom-research.html" : "课堂研究演示.html")};
+            window.__README_SAVED_ITEMS[1].relativePath = window.__README_SAVED_ITEMS[1].fileName;
+            window.__README_SAVED_ITEMS[1].filePath = "/Demo/NUTBOOK/" + window.__README_SAVED_ITEMS[1].fileName;
+            window.__README_SAVED_ITEMS[1].title = ${JSON.stringify(locale === "en-US" ? "Classroom research" : "课堂研究演示")};
+            window.__README_SAVED_ITEMS[1].summary = ${JSON.stringify(locale === "en-US" ? "A natively editable HTML presentation produced by Codex." : "Codex 产出的原生可编辑 HTML 演示。")};
+            mockData.previews[101].raw = ${JSON.stringify(markdownRaw)};
+            mockData.previews[101].html = ${JSON.stringify(markdownHtml)};
+            mockData.libraries[0].name = ${JSON.stringify(locale === "en-US" ? "My AI Library" : "我的 AI 资料库")};
+            mockData.libraries[0].rootPath = "/Demo/NUTBOOK";
+          `);
+        }
+
+        async function prepareAgentFlow() {
+          appSource(`
+            appState.nbskillAgentStatuses = ${JSON.stringify(freshAgentStatuses)};
+            appState.selectedNbskillAgentId = "codex";
+            appState.nbskillStatusesStale = false;
+            appState.nbskillStatusLoading = false;
+            appState.agentDiscoveryPayload = null;
+            appState.agentDiscoveryStep = "idle";
+            appState.discoveredArtifactSkills = [];
+            appState.discoveredSkillScannedCount = 0;
+            appState.settingsSkillRefreshFeedback = "";
+            appState.isSettingsOpen = false;
+            mockData.items = [];
+            appState.items = [];
+            appState.tabs = [];
+            appState.runtimeSessions = [];
+            appState.activeTabId = null;
+            appState.homeTabOpen = true;
+            appState.browseMode = "all";
+            renderSettingsPanel();
+            renderNavState();
+            renderTabs();
+            renderItems();
+          `);
+        }
+
+        async function prepareMarkdownFlow() {
+          appSource(`
+            appState.isSettingsOpen = false;
+            mockData.items = structuredClone(window.__README_SAVED_ITEMS);
+            appState.items = structuredClone(window.__README_SAVED_ITEMS);
+            appState.tabs = [];
+            appState.runtimeSessions = [];
+            appState.activeTabId = null;
+            appState.markdownPreferences.outlineEnabled = true;
+            renderSettingsPanel();
+            renderTabs();
+            renderItems();
+          `);
+          await appSource("openItem(101)");
+          await waitFor(() => productFrame.contentDocument.querySelector(".content-card.editor-ready .ProseMirror"));
+        }
+
+        function positionHtmlFrames() {
+          const shell = productFrame.contentDocument.querySelector("#runtimeHostShell")?.getBoundingClientRect();
+          const toolbar = productFrame.contentDocument.querySelector(".document-toolbar")?.getBoundingClientRect();
+          if (!shell || !toolbar) return false;
+          Object.assign(runtimeFrame.style, {
+            left: `${shell.left}px`, top: `${shell.top}px`, width: `${shell.width}px`, height: `${shell.height}px`, display: "block"
+          });
+          Object.assign(controlsFrame.style, {
+            left: `${Math.max(0, innerWidth - 500)}px`, top: `${toolbar.top}px`, width: "480px", height: "52px", display: "block"
+          });
+          return true;
+        }
+
+        async function prepareHtmlFlow() {
+          appSource(`
+            appState.isSettingsOpen = false;
+            mockData.items = structuredClone(window.__README_SAVED_ITEMS);
+            appState.items = structuredClone(window.__README_SAVED_ITEMS);
+            const item = appState.items.find((entry) => entry.id === 102);
+            const detail = { ...item, fileHash: "readme-presentation" };
+            appState.runtimeSessions = [{
+              id: 102,
+              item,
+              detail,
+              preview: { fileType: "html-runtime", itemId: 102, title: item.fileName, runtimeUrl: "about:blank", label: "html-host-102", detached: false },
+              draft: ""
+            }];
+            appState.tabs = [];
+            appState.activeTabId = 102;
+            appState.activeHtmlRuntimeUrl = null;
+            appState.htmlEditSession = null;
+            cleanupMarkdownEditor();
+            setSidebarCollapsed(true);
+            renderSettingsPanel();
+            renderTabs();
+            renderViewer();
+          `);
+          await waitFor(() => productFrame.contentDocument.querySelector("#runtimeHostShell"));
+
+          runtimeFrame.src = "./readme-editable-presentation.html";
+          controlsFrame.src = "../../dist/runtime-overlay.html";
+          await Promise.all([
+            waitFor(() => runtimeFrame.contentDocument?.querySelector(`[data-id='${editorLeadId}']`)),
+            waitFor(() => controlsFrame.contentWindow?.__NUTBOOK_UPDATE_OVERLAY_STATE__)
+          ]);
+          controlsFrame.contentWindow.__NUTBOOK_UPDATE_OVERLAY_STATE__({
+            itemId: 102,
+            isFavorite: false,
+            isFullscreen: false,
+            isEditing: false,
+            customTag: null,
+            availableTags: [],
+            skillTag: "Codex",
+            typeTag: "HTML"
+          });
+          positionHtmlFrames();
+        }
+
+        async function enterHtmlEdit() {
+          if (htmlEditingReady) return true;
+          const runtime = runtimeFrame.contentWindow;
+          const nativeAttachShadow = runtime.Element.prototype.attachShadow;
+          runtime.Element.prototype.attachShadow = function(init) {
+            return nativeAttachShadow.call(this, { ...init, mode: "open" });
+          };
+          runtime.__TAURI_INTERNALS__ = {
+            invoke: async (command, args = {}) => {
+              const payload = args.payload || args;
+              if (command !== "html_edit_runtime_message_command") return true;
+              if (payload.type === "html_edit_inserted_image_confirmed") {
+                window.setTimeout(() => {
+                  runtime.__NUTBOOK_HTML_EDIT__?.applyInsertedImageAsset({
+                    runtimeSessionId,
+                    insertedImageId: payload.insertedImageId,
+                    relativePath: ".nutbook/html-edit/assets/html-edit-readme-demo/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.png",
+                    runtimeUrl: `${location.origin}/assets/readme-demo/classroom-collaboration-photo-bw.png`
+                  });
+                }, 420);
+              }
+              if (payload.type === "html_edit_save_requested_from_runtime") {
+                window.setTimeout(() => runtime.__NUTBOOK_HTML_EDIT__?.markSaved({ runtimeSessionId }), 360);
+              }
+              return true;
+            }
+          };
+          const script = runtime.document.createElement("script");
+          script.src = "/dist/assets/html-edit-runtime.js";
+          runtime.document.head.appendChild(script);
+          await new Promise((resolve, reject) => {
+            script.addEventListener("load", resolve, { once: true });
+            script.addEventListener("error", reject, { once: true });
+          });
+          runtime.__NUTBOOK_HTML_EDIT__.enter({
+            itemId: 102,
+            runtimeSessionId,
+            generation: 1,
+            inlineToolbar: true,
+            locale,
+            patch: { changes: {} }
+          });
+          appSource(`
+            appState.htmlEditSessionGeneration = 1;
+            appState.htmlEditSession = {
+              itemId: 102,
+              runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+              generation: 1,
+              sourceFileHash: "readme-presentation",
+              patchRevision: 0,
+              presentation: {
+                pages: [
+                  { id: "opening", index: 1, title: ${JSON.stringify(locale === "en-US" ? "Classroom collaboration" : "课堂协作")}, kind: "cover" },
+                  { id: "findings", index: 2, title: ${JSON.stringify(locale === "en-US" ? "Key findings" : "关键发现")}, kind: "content" },
+                  { id: "next", index: 3, title: ${JSON.stringify(locale === "en-US" ? "Next step" : "下一步")}, kind: "closing" }
+                ],
+                pageIds: ["opening", "findings", "next"],
+                activePageId: "opening",
+                pendingNavigationPageId: null,
+                previewInstanceId: "readme-presentation-preview"
+              }
+            };
+            renderHtmlEditPresentationRail(appState.htmlEditSession);
+          `);
+          positionHtmlFrames();
+          controlsFrame.contentWindow.__NUTBOOK_UPDATE_OVERLAY_STATE__({
+            itemId: 102,
+            isFavorite: false,
+            isFullscreen: false,
+            isEditing: true,
+            customTag: null,
+            availableTags: [],
+            skillTag: "Codex",
+            typeTag: "HTML"
+          });
+          htmlEditingReady = true;
+          return true;
+        }
+
+        async function goToHtmlPage(pageId) {
+          const changed = await runtimeFrame.contentWindow.__NUTBOOK_HTML_EDIT__?.goToPresentationPage(pageId);
+          if (!changed) return false;
+          const encodedPageId = JSON.stringify(pageId);
+          appSource(`
+            if (appState.htmlEditSession?.presentation?.pageIds?.includes(${encodedPageId})) {
+              appState.htmlEditSession.presentation.activePageId = ${encodedPageId};
+              appState.htmlEditSession.presentation.pendingNavigationPageId = null;
+              renderHtmlEditPresentationRail(appState.htmlEditSession);
+            }
+          `);
+          return true;
+        }
+
+        window.__demo = {
+          flow,
+          locale,
+          setCursor(x, y, opacity = 1) {
+            cursor.style.opacity = String(opacity);
+            cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+          },
+          hideCursor() { cursor.style.opacity = "0"; },
+          setClickRing(x, y, opacity, scale) {
+            clickRing.style.left = `${x}px`;
+            clickRing.style.top = `${y}px`;
+            clickRing.style.opacity = String(opacity);
+            clickRing.style.transform = `translate(-50%, -50%) scale(${scale})`;
+          },
+          hideClickRing() { clickRing.style.opacity = "0"; },
+          setControlsExpanded(expanded) { controlsFrame.style.height = expanded ? "190px" : "52px"; },
+          enterHtmlEdit,
+          goToHtmlPage,
+          positionHtmlFrames,
+          runtimeSessionId
+        };
+
+        (async () => {
+          await prepareProductData();
+          if (flow === "agent") await prepareAgentFlow();
+          if (flow === "markdown") await prepareMarkdownFlow();
+          if (flow === "html") await prepareHtmlFlow();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          window.__ready = true;
+        })().catch((error) => {
+          console.error(error);
+          document.title = `Nutbook tutorial failed: ${error.message}`;
+        });
+      })();
+    </script>
+  </body>
+</html>

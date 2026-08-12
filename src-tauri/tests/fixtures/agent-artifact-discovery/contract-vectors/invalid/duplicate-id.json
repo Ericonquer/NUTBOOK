@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "duplicate-id",
+      "path": "docs/delivered-report.md",
+      "state": "active",
+      "skill": {
+        "name": "report-writer"
+      },
+      "kind": "report"
+    },
+    {
+      "id": "duplicate-id",
+      "path": "presentation/index.html",
+      "state": "active",
+      "skill": {
+        "name": "html-ppt"
+      },
+      "kind": "presentation"
+    }
+  ]
+}
+

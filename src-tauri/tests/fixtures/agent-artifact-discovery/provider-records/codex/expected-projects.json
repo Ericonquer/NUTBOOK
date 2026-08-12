@@ -1,0 +1,15 @@
+[
+  {
+    "adapterId": "codex",
+    "adapterProfile": "codex-local-0.146",
+    "externalProjectId": "codex:workspace:sample-agent-project",
+    "rootPath": "/workspace/sample-agent-project",
+    "displayName": "sample-agent-project",
+    "lastActivityAt": "2026-07-30T06:10:00Z",
+    "capability": "project-and-verified-events",
+    "sourceThreadIds": [
+      "00000000-0000-7000-8000-000000000001"
+    ]
+  }
+]
+

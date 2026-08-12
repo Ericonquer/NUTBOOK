@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "workbuddy-nbskill-intro-md",
+      "path": "nbskill-intro.md",
+      "state": "active",
+      "skill": {
+        "name": "humanizer-zh"
+      },
+      "kind": "document"
+    },
+    {
+      "id": "workbuddy-nbskill-intro-html",
+      "path": "output/nbskill-intro.html",
+      "state": "active",
+      "skill": {
+        "name": "humanizer-zh"
+      },
+      "kind": "document",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    }
+  ]
+}

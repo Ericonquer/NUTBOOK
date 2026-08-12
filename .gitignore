@@ -8,13 +8,22 @@
 AGENTS.md
 MEMORY.md
 DESIGN.md
+.impeccable/
+!src-tauri/tests/fixtures/agent-artifact-discovery/projects/sample-agent-project/AGENTS.md
+!src-tauri/tests/fixtures/agent-artifact-discovery/projects/sample-agent-project/MEMORY.md
 docs/videos/
 docs/html-edit-acceptance/
 docs/superpowers/
 docs/plans
+docs/specs/
+docs/phase-d-branch-closeout.md
+.agent-outputs/manifest.json
 
 # Build outputs
 src-tauri/target/
+src-tauri/binaries/
+src-tauri/generated-resources/nutbook-cli/*
+!src-tauri/generated-resources/nutbook-cli/.gitkeep
 src-tauri/gen/
 dist/**/*.map
 

@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nutbook.local/schemas/agent-output-manifest-v1.json",
+  "title": "Nutbook Agent Output Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "projectRoot",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "projectRoot": {
+      "const": "."
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*\\\\)(?!\\.\\.?$)(?!\\.\\.?/)(?!.*(?:/\\.\\.?/|/\\.\\.?$))(?!.*//)[^\\x00]+$"
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "relatedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "role": {
+          "enum": [
+            "asset",
+            "data",
+            "attachment"
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "state",
+        "skill",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "superseded",
+            "removed"
+          ]
+        },
+        "skill": {
+          "$ref": "#/$defs/skill"
+        },
+        "kind": {
+          "enum": [
+            "document",
+            "report",
+            "presentation",
+            "interactive"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "relatedFiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/relatedFile"
+          }
+        },
+        "editContract": {
+          "const": "nutbook-html/v1"
+        },
+        "savePolicy": {
+          "enum": [
+            "copy",
+            "managed-source"
+          ]
+        },
+        "supersededBy": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "superseded"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "supersededBy"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "supersededBy"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "savePolicy": {
+                "const": "managed-source"
+              }
+            },
+            "required": [
+              "savePolicy"
+            ]
+          },
+          "then": {
+            "required": [
+              "editContract"
+            ]
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "state": {
+                    "const": "active"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              },
+              {
+                "properties": {
+                  "path": {
+                    "pattern": "\\.[Hh][Tt][Mm][Ll]?$"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "editContract",
+              "savePolicy"
+            ],
+            "properties": {
+              "savePolicy": {
+                "const": "managed-source"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

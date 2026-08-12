@@ -583,6 +583,101 @@ export type WatchLibraryResponse = {
 
 ---
 
+## 3.15 Agent 项目/任务范围与产物确认
+
+Agent 发现先返回统一的 `scope`：普通 Agent 工作区是 `project`，WorkBuddy 日期容器下除 `.workbuddy` 外的直接子文件夹是 `task`。发现阶段对每个 scope 做有界只读扫描并返回建议/备选概况，但不写数据库、不导入文件；用户可以在项目行直接接入建议文件，也可以按需进入详情。
+
+```ts
+invoke('discover_agent_projects')
+
+invoke('connect_agent_project', {
+  payload: {
+    adapterId: 'codex',
+    adapterProfile: 'codex-local-0.146',
+    externalScopeId: 'codex:workspace:…',
+    scopeKind: 'project',
+    capability: 'project-and-verified-events',
+    rootPath: '/absolute/project/path',
+    displayName: 'project'
+  }
+})
+
+invoke('preview_agent_project_artifacts', {
+  payload: { projectLibraryId: 12 }
+})
+
+invoke('merge_agent_task_scope', {
+  payload: {
+    taskLibraryId: 18,
+    projectLibraryId: 12
+  }
+})
+```
+
+```ts
+export type AgentScopeDiscoveryPayload = {
+  installations: Array<{
+    adapterId: string;
+    adapterProfile?: string | null;
+    status: 'ready' | 'not-found' | 'unavailable' | 'unsupported';
+    capability: 'scope-only' | 'project-only' | 'project-and-verified-events';
+    cliVersion?: string | null;
+    errorKind?: string | null;
+    errorMessage?: string | null;
+  }>;
+  scopes: Array<{
+    adapterId: string;
+    adapterProfile: string;
+    externalScopeId: string;
+    scopeKind: 'project' | 'task';
+    rootPath: string;
+    displayName: string;
+    lastActivityAt: string;
+    capability: 'scope-only' | 'project-only' | 'project-and-verified-events';
+    sourceRecordCount: number;
+  }>;
+  artifactSummaries: Array<{
+    adapterId: string;
+    externalScopeId: string;
+    suggestedCount: number;
+    pendingCount: number;
+    excludedCount: number;
+    alreadyIndexedPaths: string[];
+    scanStatus: 'complete' | 'partial';
+    scanIssue?: string | null;
+  }>;
+};
+```
+
+WorkBuddy 适配器只接受已经验证的应用版本和 `$HOME/Workbuddy` 直属 `YYYY-MM-DD-HH-MM-SS` 日期容器；只把其中除 `.workbuddy` 外的直接子文件夹作为任务 scope 和显示名，不跟随符号链接，也不把 `outputs` 或任何名称当成关键词。`connect_agent_project` 按 canonical root 聚合项目身份；`agent_project_sources` 不保存单一 provider，所有 Agent 都作为 `adapters[]` 多值绑定返回。同一 provider 可以把多个 external scope 绑定到同一项目，单个 binding 的 stale/error 不影响项目、其他 Agent 或已接入 item。
+
+文件观察必须有深度、目录项和耗时上限；约定的最大深度是有界扫描契约，走到边界不单独视为失败；取消、条目/耗时超限或目录不可读返回 `partial`，保留上一次成功的 provider snapshot，不能把未遍历内容判为 missing。WorkBuddy 日期任务中的文件仅因位于 task scope 时保持 `pending`，不能称为 WorkBuddy 创建或最终交付。`merge_agent_task_scope` 在单一事务中迁移 binding、candidate、ignored/pending、item source、provenance 和 manifest 状态，失败整体回滚。
+
+预览返回 suggested、pending、excluded 的分组计数，以及全部 suggested/pending `reviewCandidates` 和结构化发现原因。项目根目录 Markdown/HTML 进入 suggested；其他只有扩展名证据、但未命中内部文件/缓存/源码排除规则的支持文件进入 pending。已在有效 `items` 索引中的路径（包括单文件来源）不再返回候选，并清理同路径的旧未决定候选缓存。默认批量操作只选择 suggested：
+
+```ts
+invoke('accept_agent_artifact_groups', {
+  payload: {
+    projectLibraryId: 12,
+    batchKeys: ['run:4f87…']
+  }
+})
+```
+
+pending 只能通过 `accept_agent_artifact` 对单个 candidate 明确接入。`ignore_agent_artifact` 只忽略当前文件；`set_agent_project_discovery_rule` 只接受 `explicit` 或 `confirm`；`refresh_agent_project` 以当前磁盘状态更新 missing candidate、items、已移除记录和 FTS。
+
+所有接受操作先逐项预检。失效或越界路径进入 `skipped`；预检通过的集合在单个 SQLite 事务中写入 `items`、`item_sources`、`item_provenance`、关联资源和 FTS。事务失败时有效集合全部进入 `failed`，reason 为 `transaction_rolled_back`，不留下半连接状态。
+
+```ts
+export type AgentArtifactAcceptanceResult = {
+  accepted: Array<{ candidateId: number; path: string; reason: string }>;
+  skipped: Array<{ candidateId: number; path: string; reason: string }>;
+  failed: Array<{ candidateId: number; path: string; reason: string }>;
+};
+```
+
+---
+
 ## 4. 建议补充事件
 
 如果后面接 Tauri event，建议定义这几类：

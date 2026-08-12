@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "delivered-report-v1",
+      "path": "docs/delivered-report.md",
+      "state": "active",
+      "skill": {
+        "name": "report-writer",
+        "version": "1"
+      },
+      "kind": "report",
+      "title": "Agent artifact discovery report",
+      "generatedAt": "2026-07-30T06:02:01Z"
+    },
+    {
+      "id": "discovery-presentation-v1",
+      "path": "presentation/index.html",
+      "state": "active",
+      "skill": {
+        "name": "html-ppt",
+        "version": "1"
+      },
+      "kind": "presentation",
+      "title": "Agent artifact discovery",
+      "generatedAt": "2026-07-30T06:02:01Z",
+      "relatedFiles": [
+        {
+          "path": "presentation/assets/runtime.js",
+          "role": "asset"
+        },
+        {
+          "path": "presentation/assets/cover.png",
+          "role": "asset"
+        }
+      ],
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "editable-report-v1",
+      "path": ".agent-outputs/nbskill/editable-report.html",
+      "state": "active",
+      "skill": {
+        "name": "nbskill",
+        "version": "1"
+      },
+      "kind": "document",
+      "title": "Editable registered report",
+      "generatedAt": "2026-07-30T06:04:00Z",
+      "relatedFiles": [
+        {
+          "path": "presentation/assets/cover.png",
+          "role": "asset"
+        }
+      ],
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    }
+  ]
+}

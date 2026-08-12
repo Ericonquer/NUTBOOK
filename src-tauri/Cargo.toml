@@ -1,8 +1,9 @@
 [package]
 name = "nutbook-backend"
-version = "0.6.0"
+version = "0.8.0"
 edition = "2021"
 build = "build.rs"
+default-run = "NUTBOOK"
 
 [lib]
 name = "nutbook_backend"
@@ -12,12 +13,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "NUTBOOK"
 path = "src/main.rs"
 
+[[bin]]
+name = "nutbook"
+path = "src/bin/nutbook.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["protocol-asset", "unstable", "macos-private-api"] }
 thiserror = "1"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["backup", "bundled"] }
 sha2 = "0.10"
 url = "2"
 notify = "8"
@@ -30,8 +35,12 @@ base64 = "0.22"
 chrono = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSWindow"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "WKWebView", "objc2-app-kit"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -1,14 +1,15 @@
-use std::{fs, io, path::{Path, PathBuf}, sync::Mutex};
+use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::{Path, PathBuf}, sync::Mutex, time::Duration};
 
 use nutbook_backend::{
     commands,
+    core::cli::deploy_bundled_cli,
     core::html_runtime::dispatch_html_runtime_shortcut,
     db::Database,
     state::AppState,
 };
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder},
-    Manager,
+    Emitter, Manager,
 };
 
 const EXIT_PRESENTATION_MENU_ID: &str = "nutbook_exit_runtime_presentation";
@@ -23,6 +24,7 @@ const MENU_SHOW_STARRED_ID: &str = "nutbook_show_starred";
 const MENU_TOGGLE_OUTLINE_ID: &str = "nutbook_toggle_outline";
 const MENU_UNDO_ID: &str = "nutbook_undo";
 const MENU_REDO_ID: &str = "nutbook_redo";
+const MAX_CLI_IPC_REQUEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Default)]
 struct HtmlEditAppExitState {
@@ -213,11 +215,40 @@ fn main() {
                 .expect("failed to prepare database path");
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
-            app.manage(AppState::new(database, app_data_dir));
+            app.manage(AppState::new(database, app_data_dir.clone()));
+            let resource_dir = app.path().resource_dir().ok();
+            if let Err(error) = deploy_bundled_cli(
+                &app_data_dir,
+                resource_dir.as_deref(),
+            ) {
+                eprintln!("Nutbook CLI deployment skipped: {error}");
+            }
+            if let Err(error) = start_cli_ipc_server(app.handle().clone(), app_data_dir) {
+                eprintln!("Nutbook CLI IPC unavailable: {error}");
+            }
             app.manage(HtmlEditAppExitState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::agent_projects::get_cached_agent_projects,
+            commands::agent_projects::discover_agent_projects,
+            commands::agent_projects::connect_agent_project,
+            commands::agent_projects::preview_agent_project_artifacts,
+            commands::agent_projects::preview_agent_project_artifacts_by_root,
+            commands::agent_projects::accept_agent_artifact_groups,
+            commands::agent_projects::accept_agent_artifact,
+            commands::agent_projects::accept_agent_artifacts,
+            commands::agent_projects::ignore_agent_artifact,
+            commands::agent_projects::ignore_agent_artifacts,
+            commands::agent_projects::exclude_agent_project_candidates,
+            commands::agent_projects::restore_excluded_agent_project_candidates,
+            commands::agent_projects::set_agent_project_discovery_rule,
+            commands::agent_projects::refresh_agent_project,
+            commands::agent_projects::merge_agent_task_scope,
+            commands::nbskill::get_nbskill_agent_status,
+            commands::nbskill::install_nbskill_agents,
+            commands::nbskill::remove_nbskill_agents,
+            commands::nbskill::repair_nbskill_agents,
             commands::library::list_libraries,
             commands::library::delete_library,
             commands::library::open_folder_dialog,
@@ -321,8 +352,46 @@ fn main() {
                 api.prevent_exit();
                 request_html_edit_app_exit_decision(app);
             }
+            tauri::RunEvent::Exit => {
+                if let Ok(directory) = prepare_app_data_dir(app) {
+                    nutbook_backend::core::cli::remove_cli_ipc_endpoint_for_pid(&directory, std::process::id());
+                }
+            }
             _ => {}
         });
+}
+
+fn start_cli_ipc_server(app: tauri::AppHandle, app_data_dir: PathBuf) -> io::Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(false)?;
+    let token = uuid::Uuid::new_v4().to_string();
+    let endpoint = nutbook_backend::core::cli::CliIpcEndpoint {
+        port: listener.local_addr()?.port(), token: token.clone(), pid: std::process::id(),
+        started_at: chrono::Utc::now().to_rfc3339(),
+    };
+    nutbook_backend::core::cli::publish_cli_ipc_endpoint(&app_data_dir, &endpoint)?;
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let cloned = match stream.try_clone() { Ok(stream) => stream, Err(_) => continue };
+            if cloned.set_read_timeout(Some(Duration::from_secs(5))).is_err() { continue; }
+            let mut line = String::new();
+            let mut reader = BufReader::new(cloned).take(MAX_CLI_IPC_REQUEST_BYTES + 1);
+            if reader.read_line(&mut line).is_err() || line.len() as u64 > MAX_CLI_IPC_REQUEST_BYTES || !line.ends_with('\n') { continue; }
+            let result = match serde_json::from_str::<nutbook_backend::core::cli::CliIpcRequest>(&line) {
+                Ok(wire) if wire.token == token => {
+                    let state = app.state::<AppState>();
+                    let result = nutbook_backend::core::cli::execute_with_app_state(&state, &wire.request);
+                    if result.is_ok() { let _ = app.emit("nutbook-cli-sync", ()); }
+                    result
+                }
+                _ => Err(nutbook_backend::core::cli::CliFailure { code: "ipc_unauthorized".to_string(), message: "Nutbook CLI IPC authentication failed".to_string() }),
+            };
+            let mut stream = stream;
+            let _ = stream.write_all(serde_json::to_string(&result).unwrap_or_else(|_| "{\"Err\":{\"code\":\"app_ipc_unavailable\",\"message\":\"response encoding failed\"}}".to_string()).as_bytes());
+            let _ = stream.write_all(b"\n");
+        }
+    });
+    Ok(())
 }
 
 fn prepare_app_data_dir(app: &tauri::AppHandle) -> io::Result<PathBuf> {

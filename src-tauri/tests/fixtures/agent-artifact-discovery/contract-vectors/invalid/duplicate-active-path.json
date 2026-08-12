@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "duplicate-path-a",
+      "path": "docs/delivered-report.md",
+      "state": "active",
+      "skill": {
+        "name": "report-writer"
+      },
+      "kind": "report"
+    },
+    {
+      "id": "duplicate-path-b",
+      "path": "docs/delivered-report.md",
+      "state": "active",
+      "skill": {
+        "name": "another-skill"
+      },
+      "kind": "document"
+    }
+  ]
+}
+

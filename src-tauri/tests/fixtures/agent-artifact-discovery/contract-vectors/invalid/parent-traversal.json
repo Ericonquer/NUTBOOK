@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "parent-traversal",
+      "path": "../report.md",
+      "state": "active",
+      "skill": {
+        "name": "report-writer"
+      },
+      "kind": "report"
+    }
+  ]
+}
+
