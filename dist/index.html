@@ -2439,17 +2439,51 @@
 
       .markdown-preview img.nutbook-image-size-small,
       .milkdown-editor-root img.nutbook-image-size-small {
-        width: 36%;
+        width: auto;
+        max-width: min(160px, 100%);
       }
 
       .markdown-preview img.nutbook-image-size-medium,
       .milkdown-editor-root img.nutbook-image-size-medium {
-        width: 64%;
+        width: auto;
+        max-width: min(480px, 100%);
       }
 
       .markdown-preview img.nutbook-image-size-large,
       .milkdown-editor-root img.nutbook-image-size-large {
+        width: auto;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .portable-image-block {
+        display: flex;
         width: 100%;
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
+
+      .milkdown-editor-root .portable-image-block.nutbook-image-align-center {
+        justify-content: center;
+      }
+
+      .milkdown-editor-root .portable-image-block.nutbook-image-align-right {
+        justify-content: flex-end;
+      }
+
+      .milkdown-editor-root .portable-image-block > a {
+        display: inline-flex;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .portable-image-block img {
+        width: auto;
+        height: auto;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .portable-image-block.ProseMirror-selectednode {
+        outline: 1px solid var(--line-strong);
+        outline-offset: 1px;
       }
 
       .markdown-preview h1,
@@ -5351,6 +5385,16 @@
         color: #fff;
       }
 
+      .markdown-image-align-toolbar button:disabled {
+        cursor: not-allowed;
+        opacity: 0.42;
+      }
+
+      .markdown-image-align-toolbar button:disabled:hover {
+        background: transparent;
+        color: #696a70;
+      }
+
       .markdown-image-align-toolbar svg {
         width: 17px;
         height: 17px;
@@ -7142,13 +7186,23 @@
       function applyMarkdownImageAlignment(image) {
         const title = image?.getAttribute("title") || "";
         const alignment = markdownImageAlignmentFromTitle(title);
-        const size = markdownImageSizeFromTitle(title);
+        const explicitWidthText = image?.getAttribute("width") || "";
+        const explicitWidth = /^\d+$/.test(explicitWidthText)
+          ? Number.parseInt(explicitWidthText, 10)
+          : 0;
+        const hasPortableWidth = explicitWidth >= 1 && explicitWidth <= 8192;
+        const size = hasPortableWidth ? "" : markdownImageSizeFromTitle(title);
         ["left", "center", "right"].forEach((value) => {
           image?.classList.toggle(`nutbook-image-align-${value}`, alignment === value);
         });
         ["small", "medium", "large"].forEach((value) => {
           image?.classList.toggle(`nutbook-image-size-${value}`, size === value);
         });
+        if (hasPortableWidth) {
+          image.style.width = "auto";
+          image.style.height = "auto";
+          image.style.maxWidth = `min(${explicitWidth}px, 100%)`;
+        }
       }
 
       function setupMarkdownImageResources(card, tab) {
@@ -9682,6 +9736,9 @@
             },
             onRemoveImageAsset(src) {
               return deleteMarkdownImageAssetForTab(tab, src);
+            },
+            onImageSizeError() {
+              setStatus(t("markdown.imageSizeReadFailed"), "warn");
             },
             onEdit() {
               tab.isDirty = true;

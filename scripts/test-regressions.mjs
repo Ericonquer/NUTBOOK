@@ -8,6 +8,10 @@ const htmlEditLeaveConfirm = readFileSync("dist/html-edit-leave-confirm.html", "
 const htmlEditToolbar = readFileSync("dist/html-edit-toolbar.html", "utf8");
 const runtimeOverlay = readFileSync("dist/runtime-overlay.html", "utf8");
 const markdownEditor = readFileSync("src/markdown-editor.js", "utf8");
+const portableMarkdownFixture = readFileSync("src-tauri/tests/fixtures/markdown-portable-images/portable-markdown-images.md", "utf8");
+const markdownDocumentRust = readFileSync("src-tauri/src/core/document.rs", "utf8");
+const readmeEnglish = readFileSync("README.md", "utf8");
+const readmeChinese = readFileSync("README-CN.md", "utf8");
 const htmlEditRuntime = readFileSync("dist/assets/html-edit-runtime.js", "utf8");
 const htmlEditConverter = readFileSync("dist/assets/html-edit-converter.js", "utf8");
 const richTextFixture = readFileSync("src-tauri/tests/fixtures/html-edit/editable-rich-text.html", "utf8");
@@ -1263,5 +1267,48 @@ assert.doesNotMatch(
   /<iframe[^>]+html-edit-toolbar/i,
   "HTML edit toolbar must remain a child-overlay boundary, never an iframe fallback"
 );
+
+assert.match(
+  portableMarkdownFixture,
+  /!\[Standard landscape\]\(\.\/assets\/landscape-large\.png\)[\s\S]*?nutbook-align=center nutbook-size=small[\s\S]*?<p align="center">[\s\S]*?<img src="\.\/assets\/icon-112\.png"[^>]*width="112">[\s\S]*?<a href="https:\/\/github\.com\/Ericonquer\/NUTBOOK"/,
+  "the real portable-image acceptance artifact must cover standard Markdown, legacy tokens, centered GitHub HTML, and linked GitHub HTML"
+);
+assert.match(
+  markdownEditor,
+  /parsePortableImageHtml[\s\S]*?DOMParser[\s\S]*?portableImageRemark[\s\S]*?\$nodeSchema\(PORTABLE_IMAGE_NODE_NAME[\s\S]*?serializePortableImageHtml/,
+  "strict GitHub image HTML must enter the editor through a structural AST node with a dedicated serializer"
+);
+assert.match(
+  markdownEditor,
+  /naturalWidth[\s\S]*?Math\.min\(limit, naturalWidth\)[\s\S]*?replaceImageTargetWithPortable/,
+  "image presets must cap against natural width before migrating a standalone Markdown image to portable GitHub HTML"
+);
+assert.match(
+  indexHtml,
+  /hasPortableWidth[\s\S]*?maxWidth = `min\(\$\{explicitWidth\}px, 100%\)`/,
+  "reading preview must honor portable width as a responsive maximum instead of overriding it with the legacy large preset"
+);
+assert.match(
+  indexHtml,
+  /\.portable-image-block\.ProseMirror-selectednode\s*\{[\s\S]*?outline:\s*1px solid var\(--line-strong\)/,
+  "portable image node selection must use the neutral Nutbook outline instead of ProseMirror blue"
+);
+assert.match(
+  markdownDocumentRust,
+  /portable_image_html_candidate[\s\S]*?sanitize_portable_image_html[\s\S]*?markdown_image\(trimmed\)[\s\S]*?image\.alignment/,
+  "the host preview must structurally sanitize portable GitHub HTML while preserving the legacy Markdown-title fallback"
+);
+for (const [label, readme] of [["English", readmeEnglish], ["Chinese", readmeChinese]]) {
+  assert.match(
+    readme,
+    /^<p align="center">\n  <a href="\.\/assets\/app-icon\.png">\n    <img src="\.\/assets\/app-icon-readme\.png" alt="NUTBOOK App Icon" width="112">\n  <\/a>\n<\/p>/,
+    `${label} README must use the portable GitHub image contract for the linked app icon`
+  );
+  assert.doesNotMatch(
+    readme,
+    /app-icon-readme\.png[^\n]*nutbook-align=/,
+    `${label} README must not rely on Nutbook-only image title tokens`
+  );
+}
 
 console.log("Nutbook regression guards passed.");

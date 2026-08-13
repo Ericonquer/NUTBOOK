@@ -1,4 +1,8 @@
-[![NUTBOOK App Icon](./assets/app-icon-readme.png "nutbook-align=center nutbook-size=small")](./assets/app-icon.png)
+<p align="center">
+  <a href="./assets/app-icon.png">
+    <img src="./assets/app-icon-readme.png" alt="NUTBOOK App Icon" width="112">
+  </a>
+</p>
 
 # NUTBOOK
 

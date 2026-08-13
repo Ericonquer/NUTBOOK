@@ -19,6 +19,291 @@ fn escape_html_attribute(input: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct PortableHtmlTag {
+    name: String,
+    closing: bool,
+    self_closing: bool,
+    attributes: Vec<(String, String)>,
+}
+
+fn parse_portable_html_tag(input: &str, cursor: &mut usize) -> Option<PortableHtmlTag> {
+    let bytes = input.as_bytes();
+    if bytes.get(*cursor) != Some(&b'<') {
+        return None;
+    }
+    *cursor += 1;
+    let closing = bytes.get(*cursor) == Some(&b'/');
+    if closing {
+        *cursor += 1;
+    }
+    let name_start = *cursor;
+    while bytes
+        .get(*cursor)
+        .is_some_and(|value| value.is_ascii_alphanumeric() || *value == b'-')
+    {
+        *cursor += 1;
+    }
+    if *cursor == name_start {
+        return None;
+    }
+    let name = input[name_start..*cursor].to_ascii_lowercase();
+    let mut attributes = Vec::new();
+    let mut self_closing = false;
+
+    loop {
+        while bytes.get(*cursor).is_some_and(|value| value.is_ascii_whitespace()) {
+            *cursor += 1;
+        }
+        match bytes.get(*cursor) {
+            Some(b'>') => {
+                *cursor += 1;
+                break;
+            }
+            Some(b'/') if bytes.get(*cursor + 1) == Some(&b'>') => {
+                self_closing = true;
+                *cursor += 2;
+                break;
+            }
+            None => return None,
+            _ if closing => return None,
+            _ => {}
+        }
+
+        let attribute_start = *cursor;
+        while bytes.get(*cursor).is_some_and(|value| {
+            value.is_ascii_alphanumeric() || matches!(*value, b'-' | b'_' | b':')
+        }) {
+            *cursor += 1;
+        }
+        if *cursor == attribute_start {
+            return None;
+        }
+        let attribute_name = input[attribute_start..*cursor].to_ascii_lowercase();
+        while bytes.get(*cursor).is_some_and(|value| value.is_ascii_whitespace()) {
+            *cursor += 1;
+        }
+        if bytes.get(*cursor) != Some(&b'=') {
+            return None;
+        }
+        *cursor += 1;
+        while bytes.get(*cursor).is_some_and(|value| value.is_ascii_whitespace()) {
+            *cursor += 1;
+        }
+        let quote = *bytes.get(*cursor)?;
+        if !matches!(quote, b'\'' | b'"') {
+            return None;
+        }
+        *cursor += 1;
+        let value_start = *cursor;
+        while bytes.get(*cursor).is_some_and(|value| *value != quote) {
+            *cursor += 1;
+        }
+        if bytes.get(*cursor) != Some(&quote) {
+            return None;
+        }
+        let value = input[value_start..*cursor].to_string();
+        *cursor += 1;
+        if attributes.iter().any(|(existing, _)| existing == &attribute_name) {
+            return None;
+        }
+        attributes.push((attribute_name, value));
+    }
+
+    Some(PortableHtmlTag {
+        name,
+        closing,
+        self_closing,
+        attributes,
+    })
+}
+
+fn skip_portable_html_whitespace(input: &str, cursor: &mut usize) {
+    while input
+        .as_bytes()
+        .get(*cursor)
+        .is_some_and(|value| value.is_ascii_whitespace())
+    {
+        *cursor += 1;
+    }
+}
+
+fn portable_tag_attribute<'a>(tag: &'a PortableHtmlTag, name: &str) -> Option<&'a str> {
+    tag.attributes
+        .iter()
+        .find_map(|(attribute, value)| (attribute == name).then_some(value.as_str()))
+}
+
+fn portable_tag_has_only_attributes(tag: &PortableHtmlTag, allowed: &[&str]) -> bool {
+    tag.attributes
+        .iter()
+        .all(|(name, _)| allowed.contains(&name.as_str()))
+}
+
+fn portable_image_url_is_safe_candidate(value: &str, allow_mailto: bool) -> bool {
+    let value = value.trim();
+    if value.is_empty()
+        || value.starts_with("//")
+        || value.chars().any(|character| character.is_control())
+    {
+        return false;
+    }
+    let Some(separator) = value.find(':') else {
+        return true;
+    };
+    let scheme = &value[..separator];
+    if scheme.is_empty()
+        || !scheme
+            .chars()
+            .enumerate()
+            .all(|(index, character)| {
+                if index == 0 {
+                    character.is_ascii_alphabetic()
+                } else {
+                    character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+                }
+            })
+    {
+        return true;
+    }
+    scheme.eq_ignore_ascii_case("http")
+        || scheme.eq_ignore_ascii_case("https")
+        || (allow_mailto && scheme.eq_ignore_ascii_case("mailto"))
+}
+
+fn portable_image_tag_is_valid(tag: &PortableHtmlTag) -> bool {
+    if tag.name != "img" || tag.closing || !portable_tag_has_only_attributes(tag, &["src", "alt", "title", "width"]) {
+        return false;
+    }
+    let Some(src) = portable_tag_attribute(tag, "src") else {
+        return false;
+    };
+    if !portable_image_url_is_safe_candidate(src, false) {
+        return false;
+    }
+    if let Some(width) = portable_tag_attribute(tag, "width") {
+        if width.parse::<u16>().ok().filter(|value| (1..=8192).contains(value)).is_none() {
+            return false;
+        }
+    }
+    true
+}
+
+fn portable_anchor_tag_is_valid(tag: &PortableHtmlTag) -> bool {
+    tag.name == "a"
+        && !tag.closing
+        && !tag.self_closing
+        && portable_tag_has_only_attributes(tag, &["href", "title"])
+        && portable_tag_attribute(tag, "href")
+            .is_some_and(|href| portable_image_url_is_safe_candidate(href, true))
+}
+
+fn consume_portable_closing_tag(input: &str, cursor: &mut usize, name: &str) -> bool {
+    let Some(tag) = parse_portable_html_tag(input, cursor) else {
+        return false;
+    };
+    tag.closing && !tag.self_closing && tag.name == name && tag.attributes.is_empty()
+}
+
+fn validate_portable_image_html_structure(input: &str) -> bool {
+    let mut cursor = 0;
+    skip_portable_html_whitespace(input, &mut cursor);
+    let Some(first) = parse_portable_html_tag(input, &mut cursor) else {
+        return false;
+    };
+
+    let mut wrapper = None;
+    let mut current = first;
+    if current.name == "p" {
+        if current.closing
+            || current.self_closing
+            || !portable_tag_has_only_attributes(&current, &["align"])
+            || !portable_tag_attribute(&current, "align").is_some_and(|alignment| {
+                matches!(alignment.to_ascii_lowercase().as_str(), "left" | "center" | "right")
+            })
+        {
+            return false;
+        }
+        wrapper = Some("p");
+        skip_portable_html_whitespace(input, &mut cursor);
+        let Some(next) = parse_portable_html_tag(input, &mut cursor) else {
+            return false;
+        };
+        current = next;
+    }
+
+    let mut linked = false;
+    if current.name == "a" {
+        if !portable_anchor_tag_is_valid(&current) {
+            return false;
+        }
+        linked = true;
+        skip_portable_html_whitespace(input, &mut cursor);
+        let Some(next) = parse_portable_html_tag(input, &mut cursor) else {
+            return false;
+        };
+        current = next;
+    }
+
+    if !portable_image_tag_is_valid(&current) {
+        return false;
+    }
+    skip_portable_html_whitespace(input, &mut cursor);
+    if linked {
+        if !consume_portable_closing_tag(input, &mut cursor, "a") {
+            return false;
+        }
+        skip_portable_html_whitespace(input, &mut cursor);
+    }
+    if wrapper.is_some() {
+        if !consume_portable_closing_tag(input, &mut cursor, "p") {
+            return false;
+        }
+        skip_portable_html_whitespace(input, &mut cursor);
+    }
+    cursor == input.len()
+}
+
+fn sanitize_portable_image_html(input: &str) -> Option<String> {
+    if !validate_portable_image_html_structure(input) {
+        return None;
+    }
+    let mut builder = ammonia::Builder::new();
+    builder
+        .add_tag_attributes("p", &["align"])
+        .link_rel(None);
+    let sanitized = builder.clean(input).to_string();
+    if !sanitized.contains("<img") || !sanitized.contains("src=") {
+        return None;
+    }
+    if input.to_ascii_lowercase().contains("<a") && !sanitized.contains("href=") {
+        return None;
+    }
+    Some(sanitized)
+}
+
+fn portable_image_html_candidate(lines: &[&str], start: usize) -> Option<(String, usize)> {
+    let first = lines.get(start)?.trim_start().to_ascii_lowercase();
+    let closing = if first.starts_with("<p") {
+        Some("</p>")
+    } else if first.starts_with("<a") {
+        Some("</a>")
+    } else if first.starts_with("<img") {
+        None
+    } else {
+        return None;
+    };
+    let max_end = (start + 32).min(lines.len());
+    for end in start..max_end {
+        let line = lines[end].to_ascii_lowercase();
+        if closing.is_none() || closing.is_some_and(|closing| line.contains(closing)) {
+            let raw = lines[start..=end].join("\n");
+            return Some((raw, end - start + 1));
+        }
+    }
+    None
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MarkdownFrontmatter {
     fields: Vec<(String, Vec<String>)>,
     body: String,
@@ -290,35 +575,71 @@ fn render_markdown_as_html_with_options(raw: &str, skip_first_h1: bool) -> Strin
         paragraph.clear();
     }
 
-    for line in raw.lines() {
+    let lines = raw.lines().collect::<Vec<_>>();
+    let mut line_index = 0;
+    while line_index < lines.len() {
+        let line = lines[line_index];
         let trimmed = line.trim();
 
         if trimmed.is_empty() {
             flush_paragraph(&mut html, &mut paragraph);
+            line_index += 1;
+            continue;
+        }
+
+        if let Some((portable_source, consumed)) = portable_image_html_candidate(&lines, line_index) {
+            flush_paragraph(&mut html, &mut paragraph);
+            if let Some(portable_html) = sanitize_portable_image_html(&portable_source) {
+                html.push_str(&portable_html);
+            } else {
+                html.push_str("<p>");
+                html.push_str(
+                    &lines[line_index..line_index + consumed]
+                        .iter()
+                        .map(|line| escape_html(line.trim()))
+                        .collect::<Vec<_>>()
+                        .join("<br>"),
+                );
+                html.push_str("</p>");
+            }
+            line_index += consumed;
             continue;
         }
 
         if let Some((level, title)) = markdown_heading(trimmed) {
             if skip_first_h1 && level == 1 && !skipped_first_h1 {
                 skipped_first_h1 = true;
+                line_index += 1;
                 continue;
             }
             flush_paragraph(&mut html, &mut paragraph);
             html.push_str(&format!("<h{level}>{}</h{level}>", escape_html(title.trim())));
+            line_index += 1;
             continue;
         }
 
-        if let Some((alt, src)) = markdown_image(trimmed) {
+        if let Some(image) = markdown_image(trimmed) {
             flush_paragraph(&mut html, &mut paragraph);
+            html.push_str("<p");
+            if let Some(alignment) = image.alignment {
+                html.push_str(&format!(r#" align="{}""#, alignment));
+            }
+            html.push_str("><img");
             html.push_str(&format!(
-                r#"<p><img src="{}" alt="{}"></p>"#,
-                escape_html_attribute(src),
-                escape_html_attribute(alt)
+                r#" src="{}" alt="{}""#,
+                escape_html_attribute(image.src),
+                escape_html_attribute(image.alt)
             ));
+            if let Some(title) = image.title {
+                html.push_str(&format!(r#" title="{}""#, escape_html_attribute(title)));
+            }
+            html.push_str("></p>");
+            line_index += 1;
             continue;
         }
 
         paragraph.push(escape_html(trimmed));
+        line_index += 1;
     }
 
     flush_paragraph(&mut html, &mut paragraph);
@@ -333,14 +654,43 @@ pub fn render_markdown_body_as_html(raw: &str) -> String {
     render_markdown_as_html_with_options(raw, true)
 }
 
-fn markdown_image(line: &str) -> Option<(&str, &str)> {
+struct MarkdownImage<'a> {
+    alt: &'a str,
+    src: &'a str,
+    title: Option<&'a str>,
+    alignment: Option<&'static str>,
+}
+
+fn markdown_image(line: &str) -> Option<MarkdownImage<'_>> {
     let rest = line.strip_prefix("![")?;
     let (alt, rest) = rest.split_once("](")?;
-    let src = rest.strip_suffix(')')?;
+    let body = rest.strip_suffix(')')?;
+    let (src, title) = if let Some(without_closing_quote) = body.strip_suffix('"') {
+        let title_start = without_closing_quote.rfind(" \"")?;
+        (
+            &without_closing_quote[..title_start],
+            Some(&without_closing_quote[title_start + 2..]),
+        )
+    } else {
+        (body, None)
+    };
     if src.trim().is_empty() || src.contains(char::is_whitespace) {
         return None;
     }
-    Some((alt, src))
+    let alignment = title.and_then(|title| {
+        title.split_whitespace().find_map(|token| match token {
+            "nutbook-align=left" => Some("left"),
+            "nutbook-align=center" => Some("center"),
+            "nutbook-align=right" => Some("right"),
+            _ => None,
+        })
+    });
+    Some(MarkdownImage {
+        alt,
+        src,
+        title,
+        alignment,
+    })
 }
 
 fn markdown_heading(line: &str) -> Option<(usize, &str)> {
@@ -510,6 +860,77 @@ mod tests {
     fn markdown_render_supports_image_lines() {
         let html = render_markdown_as_html("![Hero](./assets/readme-hero.svg)");
         assert_eq!(html, r#"<p><img src="./assets/readme-hero.svg" alt="Hero"></p>"#);
+    }
+
+    #[test]
+    fn markdown_render_supports_legacy_image_presentation_tokens() {
+        let html = render_markdown_as_html(
+            "![Hero](./assets/readme-hero.svg \"nutbook-align=center nutbook-size=small\")",
+        );
+        assert_eq!(
+            html,
+            r#"<p align="center"><img src="./assets/readme-hero.svg" alt="Hero" title="nutbook-align=center nutbook-size=small"></p>"#
+        );
+    }
+
+    #[test]
+    fn markdown_render_supports_portable_github_image_html() {
+        let html = render_markdown_as_html(
+            "<p align=\"center\">\n  <img src=\"./assets/icon.png\" alt=\"Icon\" width=\"112\">\n</p>",
+        );
+        assert!(html.contains(r#"<p align="center">"#), "{html}");
+        assert!(html.contains(r#"<img src="./assets/icon.png" alt="Icon" width="112">"#), "{html}");
+        assert!(!html.contains("&lt;p"), "{html}");
+    }
+
+    #[test]
+    fn markdown_render_supports_linked_portable_github_image_html() {
+        let html = render_markdown_as_html(
+            "<p align=\"right\">\n  <a href=\"https://github.com/Ericonquer/NUTBOOK\" title=\"Open\">\n    <img src=\"./assets/cover.png\" alt=\"Cover\" width=\"480\">\n  </a>\n</p>",
+        );
+        assert!(html.contains(r#"<p align="right">"#), "{html}");
+        assert!(html.contains(r#"href="https://github.com/Ericonquer/NUTBOOK""#), "{html}");
+        assert!(html.contains(r#"src="./assets/cover.png""#), "{html}");
+    }
+
+    #[test]
+    fn markdown_render_rejects_portable_image_html_with_unknown_attributes() {
+        let html = render_markdown_as_html(
+            "<p class=\"custom\" align=\"center\">\n  <img src=\"./assets/icon.png\" alt=\"Icon\" width=\"112\">\n</p>",
+        );
+        assert!(html.contains("&lt;p class=\"custom\" align=\"center\"&gt;"), "{html}");
+        assert!(html.contains("&lt;img src=\"./assets/icon.png\""), "{html}");
+        assert!(!html.contains(r#"<p class="custom""#), "{html}");
+    }
+
+    #[test]
+    fn markdown_render_rejects_dangerous_portable_image_urls() {
+        let html = render_markdown_as_html(
+            "<a href=\"javascript:alert(1)\"><img src=\"./assets/icon.png\" alt=\"Icon\"></a>",
+        );
+        assert!(html.contains("&lt;a href=\"javascript:alert(1)\"&gt;"), "{html}");
+        assert!(!html.contains(r#"href="javascript:""#), "{html}");
+    }
+
+    #[test]
+    fn markdown_render_loads_the_portable_image_acceptance_artifact() {
+        let raw = include_str!(
+            "../../tests/fixtures/markdown-portable-images/portable-markdown-images.md"
+        );
+        let html = render_markdown_as_html(raw);
+        assert!(html.contains(r#"<p align="center">"#), "{html}");
+        assert!(html.contains(r#"width="112""#), "{html}");
+        assert!(html.contains(r#"<p align="right">"#), "{html}");
+        assert!(html.contains(r#"width="480""#), "{html}");
+        assert!(
+            html.contains(r#"title="nutbook-align=center nutbook-size=small""#),
+            "{html}"
+        );
+        assert!(html.contains("&lt;kbd&gt;Command&lt;/kbd&gt;"), "{html}");
+        assert!(
+            html.contains("&lt;p class=\"custom-image-frame\" align=\"center\"&gt;"),
+            "{html}"
+        );
     }
 
     #[test]

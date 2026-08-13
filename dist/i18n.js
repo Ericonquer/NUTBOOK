@@ -381,6 +381,8 @@
         imageSizeSmall: "小图",
         imageSizeMedium: "中图",
         imageSizeLarge: "大图",
+        imageBlockOnly: "图片单独成段后可调整对齐和尺寸",
+        imageSizeReadFailed: "无法读取图片原始尺寸，已保留当前大小",
         imageInserted: "图片已复制到 assets 并插入",
         imageInsertMissingPath: "当前 Markdown 文件路径不可用，无法复制图片",
         imageInsertFailedPrefix: "插入图片失败："
@@ -882,6 +884,8 @@
         imageSizeSmall: "Small",
         imageSizeMedium: "Medium",
         imageSizeLarge: "Large",
+        imageBlockOnly: "Put the image in its own paragraph to change alignment or size",
+        imageSizeReadFailed: "Could not read the original image dimensions. The current size was kept.",
         imageInserted: "Image copied to assets and inserted",
         imageInsertMissingPath: "Current Markdown file path is unavailable. Cannot copy image.",
         imageInsertFailedPrefix: "Failed to insert image: "
