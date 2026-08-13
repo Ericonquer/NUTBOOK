@@ -1,4 +1,5 @@
 use crate::{
+    core::document::{content_hash, markdown_summary, render_markdown_as_html_for_file},
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
@@ -9,7 +10,48 @@ use crate::{
     state::AppState,
 };
 use serde::Deserialize;
-use std::path::Path;
+use std::{fs, path::Path, time::UNIX_EPOCH};
+
+fn markdown_modified_at(path: &Path) -> Result<String, AppError> {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|_| AppError::IoError)?
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .map_err(|_| AppError::IoError)
+}
+
+pub(crate) fn get_item_detail_impl(
+    state: &AppState,
+    item_id: i64,
+) -> Result<ItemDetail, AppError> {
+    let detail = state.get_item_detail(item_id)?;
+    if detail.summary.file_type != "markdown" {
+        return Ok(detail);
+    }
+
+    let path = Path::new(&detail.summary.file_path);
+    let raw = fs::read_to_string(path).map_err(|_| AppError::IoError)?;
+    let file_hash = content_hash(&raw);
+    let modified_at = markdown_modified_at(path)?;
+    let is_current = detail.file_hash.as_deref() == Some(file_hash.as_str())
+        && detail.summary.modified_at == modified_at
+        && detail.source_text.as_deref() == Some(raw.as_str());
+    if is_current {
+        return Ok(detail);
+    }
+
+    state.update_markdown_item_content(
+        item_id,
+        &markdown_summary(&raw),
+        &modified_at,
+        &file_hash,
+        &raw,
+        &raw,
+        &render_markdown_as_html_for_file(&raw, &detail.summary.file_name),
+    )?;
+    state.get_item_detail(item_id)
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,7 +72,7 @@ pub fn get_item_detail(
     state: tauri::State<'_, AppState>,
     payload: GetItemDetailRequest,
 ) -> Result<ItemDetail, AppError> {
-    state.get_item_detail(payload.item_id)
+    get_item_detail_impl(&state, payload.item_id)
 }
 
 #[tauri::command]
@@ -154,10 +196,14 @@ pub fn sync_filesystem_state(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use crate::{
+        commands::{items::get_item_detail_impl, preview::save_markdown_content_impl},
+        core::document::content_hash,
         db::Database,
         db::repositories::{ItemRepository, LibraryRepository},
-        models::{IndexedItemRecord, Library, ListItemsQuery},
+        models::{IndexedItemRecord, Library, ListItemsQuery, SaveMarkdownContentRequest},
         state::AppState,
     };
 
@@ -218,6 +264,106 @@ mod tests {
         assert_eq!(paged.items[0].file_name, "a.md");
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn opening_markdown_refreshes_external_changes_before_save() {
+        let db_path = temp_db_path();
+        let root = db_path.with_extension("files");
+        fs::create_dir_all(&root).expect("fixture directory should be created");
+        let markdown_path = root.join("README.md");
+        fs::write(&markdown_path, "# Original\n").expect("original Markdown should be written");
+
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Library".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "README.md".to_string(),
+                    file_name: "README.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: 11,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("Markdown item should be indexed");
+        let item_id = state
+            .list_items(&ListItemsQuery {
+                library_id: Some(1),
+                ..ListItemsQuery::default()
+            })
+            .expect("item should list")
+            .items[0]
+            .id;
+
+        let external = "# Original\n\nExternally updated.\n";
+        fs::write(&markdown_path, external).expect("external edit should be written");
+        let refreshed = get_item_detail_impl(&state, item_id)
+            .expect("opening Markdown should refresh its disk baseline");
+        assert_eq!(refreshed.file_hash.as_deref(), Some(content_hash(external).as_str()));
+        assert_eq!(refreshed.source_text.as_deref(), Some(external));
+        assert_ne!(refreshed.summary.modified_at, "1");
+
+        let aligned = "# Original\n\n<div align=\"center\">\n\nExternally updated.\n\n</div>\n";
+        let saved = save_markdown_content_impl(
+            &state,
+            SaveMarkdownContentRequest {
+                item_id,
+                content: aligned.to_string(),
+                expected_file_hash: refreshed.file_hash.expect("refreshed hash should exist"),
+                expected_modified_at: Some(refreshed.summary.modified_at),
+            },
+        )
+        .expect("save should accept the refreshed baseline without a manual rescan");
+        assert_eq!(
+            fs::read_to_string(&markdown_path).expect("saved Markdown should read"),
+            aligned
+        );
+
+        let external_after_open = "# Original\n\nChanged again outside Nutbook.\n";
+        fs::write(&markdown_path, external_after_open)
+            .expect("second external edit should be written");
+        let conflict = save_markdown_content_impl(
+            &state,
+            SaveMarkdownContentRequest {
+                item_id,
+                content: "# Draft that must not overwrite disk\n".to_string(),
+                expected_file_hash: saved.file_hash.expect("saved hash should exist"),
+                expected_modified_at: Some(saved.modified_at),
+            },
+        );
+        assert!(
+            matches!(conflict, Err(crate::errors::AppError::EditConflict)),
+            "an external edit after opening must remain a real conflict"
+        );
+        assert_eq!(
+            fs::read_to_string(&markdown_path).expect("conflicting Markdown should read"),
+            external_after_open,
+            "the conflicting save must not overwrite the disk file"
+        );
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

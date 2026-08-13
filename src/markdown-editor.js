@@ -2,7 +2,7 @@ import { Editor, defaultValueCtx, editorViewCtx, prosePluginsCtx, rootCtx, seria
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
-import { redo, undo } from "@milkdown/kit/prose/history";
+import { closeHistory, redo, undo } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { liftListItem } from "@milkdown/kit/prose/schema-list";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
@@ -60,6 +60,11 @@ function splitSkillFrontmatterForEditor(markdown = "") {
     body: raw.slice(match[0].length),
     fields: parseSkillFrontmatterFields(match[1] || "")
   };
+}
+
+function isSkillMarkdownFileName(fileName = "") {
+  const baseName = String(fileName || "").split(/[\\/]/).pop() || "";
+  return baseName.toLowerCase() === "skill.md";
 }
 
 function trimFrontmatterValue(value = "") {
@@ -314,6 +319,8 @@ const IMAGE_ALIGNMENT_TOKEN = /(?:^|\s)nutbook-align=(left|center|right)(?=\s|$)
 const IMAGE_SIZE_TOKEN = /(?:^|\s)nutbook-size=(small|medium|large)(?=\s|$)/i;
 const PORTABLE_IMAGE_NODE_NAME = "portable_image";
 const PORTABLE_IMAGE_WIDTH_LIMITS = Object.freeze({ small: 160, medium: 480 });
+const ALIGNED_TEXT_NODE_NAME = "aligned_text_block";
+const TEXT_ALIGNMENTS = Object.freeze(["center", "right"]);
 
 function meaningfulHtmlChildren(node) {
   return Array.from(node?.childNodes || []).filter((child) => {
@@ -438,6 +445,107 @@ function visitPortableImageHtml(node) {
 const portableImageRemark = $remark("portableImageRemark", () => () => (tree) => {
   visitPortableImageHtml(tree);
 });
+
+function parseAlignedTextOpenTag(rawSource = "") {
+  const raw = String(rawSource || "").trim();
+  if (!raw || typeof DOMParser !== "function" || !/^<div(?:\s|>)/i.test(raw)) return null;
+  const documentNode = new DOMParser().parseFromString(`<!doctype html><body>${raw}</div></body>`, "text/html");
+  const roots = meaningfulHtmlChildren(documentNode.body);
+  if (roots.length !== 1 || roots[0].nodeType !== Node.ELEMENT_NODE) return null;
+  const element = roots[0];
+  if (element.tagName !== "DIV" || meaningfulHtmlChildren(element).length > 0) return null;
+  const attributeNames = element.getAttributeNames();
+  if (attributeNames.length !== 1 || attributeNames[0].toLowerCase() !== "align") return null;
+  const alignment = String(element.getAttribute("align") || "").toLowerCase();
+  return TEXT_ALIGNMENTS.includes(alignment) ? alignment : null;
+}
+
+function isAlignedTextCloseTag(rawSource = "") {
+  return /^<\/div\s*>$/i.test(String(rawSource || "").trim());
+}
+
+function markdownNodeContainsUnsupportedAlignedContent(node) {
+  if (!node || typeof node !== "object") return false;
+  if (["html", "image", "portableImage", "alignedTextBlock"].includes(node.type)) return true;
+  return Array.isArray(node.children) && node.children.some(markdownNodeContainsUnsupportedAlignedContent);
+}
+
+function convertAlignedTextBlocks(tree) {
+  if (!Array.isArray(tree?.children)) return;
+  const children = tree.children;
+  for (let index = 0; index <= children.length - 3; index += 1) {
+    const opening = children[index];
+    const content = children[index + 1];
+    const closing = children[index + 2];
+    if (opening?.type !== "html" || closing?.type !== "html") continue;
+    if (!content || !["paragraph", "heading"].includes(content.type)) continue;
+    const alignment = parseAlignedTextOpenTag(opening.value);
+    if (!alignment || !isAlignedTextCloseTag(closing.value)) continue;
+    if (markdownNodeContainsUnsupportedAlignedContent(content)) continue;
+    children.splice(index, 3, {
+      type: "alignedTextBlock",
+      alignment,
+      sourceSyntax: "github-div-align",
+      children: [content]
+    });
+  }
+}
+
+const alignedTextRemark = $remark("alignedTextRemark", () => () => (tree) => {
+  convertAlignedTextBlocks(tree);
+});
+
+const alignedTextSchema = $nodeSchema(ALIGNED_TEXT_NODE_NAME, () => ({
+  group: "block",
+  content: "paragraph | heading",
+  defining: true,
+  attrs: {
+    alignment: { default: "center", validate: "string" },
+    sourceSyntax: { default: "github-div-align", validate: "string" }
+  },
+  parseDOM: [{
+    tag: 'div[data-type="aligned-text-block"]',
+    getAttrs: (element) => {
+      const alignment = String(element.dataset.nutbookTextAlignment || "").toLowerCase();
+      return TEXT_ALIGNMENTS.includes(alignment)
+        ? { alignment, sourceSyntax: "github-div-align" }
+        : false;
+    }
+  }],
+  toDOM: (node) => {
+    const alignment = TEXT_ALIGNMENTS.includes(node.attrs.alignment) ? node.attrs.alignment : "center";
+    return ["div", {
+      class: `nutbook-aligned-text-block nutbook-text-align-${alignment}`,
+      "data-type": "aligned-text-block",
+      "data-nutbook-text-alignment": alignment
+    }, 0];
+  },
+  parseMarkdown: {
+    match: (node) => node.type === "alignedTextBlock",
+    runner: (state, node, type) => {
+      state
+        .openNode(type, {
+          alignment: node.alignment,
+          sourceSyntax: "github-div-align"
+        })
+        .next(node.children)
+        .closeNode();
+    }
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === ALIGNED_TEXT_NODE_NAME,
+    runner: (state, node) => {
+      const alignment = String(node.attrs.alignment || "").toLowerCase();
+      if (!TEXT_ALIGNMENTS.includes(alignment) || node.childCount !== 1) {
+        throw new Error("Invalid aligned text block");
+      }
+      state
+        .addNode("html", undefined, `<div align="${alignment}">`)
+        .next(node.content)
+        .addNode("html", undefined, "</div>");
+    }
+  }
+}));
 
 const portableImageSchema = $nodeSchema(PORTABLE_IMAGE_NODE_NAME, () => ({
   group: "block",
@@ -725,7 +833,70 @@ function localImageSrcPlugin(resolveImageSrc) {
   });
 }
 
-async function createMilkdownEditor({ root, markdown = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onRemoveImageAsset = null, onImageSizeError = null }) {
+function proseNodeContainsImage(node) {
+  if (!node) return false;
+  if (["image", PORTABLE_IMAGE_NODE_NAME].includes(node.type?.name)) return true;
+  let found = false;
+  node.descendants?.((child) => {
+    if (["image", PORTABLE_IMAGE_NODE_NAME].includes(child.type?.name)) {
+      found = true;
+      return false;
+    }
+    return !found;
+  });
+  return found;
+}
+
+function alignedTextSelectionState(state, selection = state?.selection) {
+  if (!state || !selection || selection.empty || selection.from >= selection.to) {
+    return { supported: false, targets: [], alignment: "" };
+  }
+  const paragraph = state.schema.nodes.paragraph;
+  const heading = state.schema.nodes.heading;
+  const alignedType = state.schema.nodes[ALIGNED_TEXT_NODE_NAME];
+  if (!paragraph || !heading || !alignedType) {
+    return { supported: false, targets: [], alignment: "" };
+  }
+
+  const targets = [];
+  let unsupported = false;
+  state.doc.forEach((node, pos) => {
+    const nodeContentStart = pos + (node.type === alignedType ? 2 : 1);
+    if (selection.from >= pos + node.nodeSize || selection.to <= nodeContentStart) return;
+    if (node.type === paragraph || node.type === heading) {
+      if (proseNodeContainsImage(node)) {
+        unsupported = true;
+        return;
+      }
+      targets.push({ pos, node, alignment: "left" });
+      return;
+    }
+    if (node.type === alignedType) {
+      const child = node.childCount === 1 ? node.child(0) : null;
+      if (!child || ![paragraph, heading].includes(child.type) || proseNodeContainsImage(child)) {
+        unsupported = true;
+        return;
+      }
+      const alignment = TEXT_ALIGNMENTS.includes(node.attrs.alignment) ? node.attrs.alignment : "";
+      if (!alignment) {
+        unsupported = true;
+        return;
+      }
+      targets.push({ pos, node, alignment });
+      return;
+    }
+    unsupported = true;
+  });
+
+  if (unsupported || !targets.length) {
+    return { supported: false, targets: [], alignment: "" };
+  }
+  const firstAlignment = targets[0].alignment;
+  const alignment = targets.every((target) => target.alignment === firstAlignment) ? firstAlignment : "";
+  return { supported: true, targets, alignment };
+}
+
+async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onRemoveImageAsset = null, onImageSizeError = null }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -735,8 +906,9 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
 
   destroyExisting(root);
   root.innerHTML = "";
-  const skillFrontmatter = splitSkillFrontmatterForEditor(markdown);
-  const editorMarkdown = skillFrontmatter ? skillFrontmatter.body : markdown;
+  const documentFrontmatter = splitSkillFrontmatterForEditor(markdown);
+  const skillFrontmatter = isSkillMarkdownFileName(fileName) ? documentFrontmatter : null;
+  const editorMarkdown = documentFrontmatter ? documentFrontmatter.body : markdown;
   const editorMount = document.createElement("div");
   editorMount.className = "milkdown-editor-body";
   const frontmatterPanel = renderSkillFrontmatterPanel(skillFrontmatter);
@@ -752,6 +924,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   let formatToolbar = null;
   let formatToolbarFrame = null;
   let formatToolbarVisible = false;
+  let formatToolbarSelection = null;
   let pendingLinkSelection = null;
   let tableToolbar = null;
   let tableToolbarFrame = null;
@@ -825,9 +998,11 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
           scheduleMarkdownChangeSync();
         }));
     })
+    .use(alignedTextRemark)
     .use(portableImageRemark)
     .use(commonmark)
     .use(gfm)
+    .use(alignedTextSchema)
     .use(portableImageSchema)
     .use(history)
     .use(listener)
@@ -837,7 +1012,10 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     const view = ctx.get(editorViewCtx);
     const serializer = ctx.get(serializerCtx);
     const bodyMarkdown = serializer(view.state.doc);
-    currentMarkdown = skillFrontmatter ? `${serializeSkillFrontmatterForEditor(skillFrontmatter)}${bodyMarkdown}` : bodyMarkdown;
+    const serializedFrontmatter = skillFrontmatter
+      ? serializeSkillFrontmatterForEditor(skillFrontmatter)
+      : (documentFrontmatter?.raw || "");
+    currentMarkdown = documentFrontmatter ? `${serializedFrontmatter}${bodyMarkdown}` : bodyMarkdown;
     return currentMarkdown;
   });
   const baselineMarkdown = serializeCurrentDocument();
@@ -1562,7 +1740,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
   }
 
   function handleImageAlignPointerOver(event) {
-    const image = event.target?.closest?.(".milkdown-editor-root .ProseMirror img");
+    const image = event.target?.closest?.(".ProseMirror img");
     if (!image || !root.contains(image)) return;
     const target = findImageTargetFromElement(image);
     if (!target) return;
@@ -1636,6 +1814,90 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     if (!imageAlignToolbar) return;
     if (imageAlignFrame) cancelAnimationFrame(imageAlignFrame);
     imageAlignFrame = requestAnimationFrame(updateImageAlignToolbar);
+  }
+
+  function selectionFromFormatSnapshot(view, snapshot = formatToolbarSelection) {
+    if (!view || !snapshot) return view?.state.selection || null;
+    const max = view.state.doc.content.size;
+    const anchor = Math.max(0, Math.min(Number(snapshot.anchor), max));
+    const head = Math.max(0, Math.min(Number(snapshot.head), max));
+    return TextSelection.between(view.state.doc.resolve(anchor), view.state.doc.resolve(head));
+  }
+
+  function runTextAlignmentCommand(requestedAlignment) {
+    const view = getEditorView();
+    if (!view || !["left", ...TEXT_ALIGNMENTS].includes(requestedAlignment)) return false;
+    const selection = selectionFromFormatSnapshot(view);
+    const targetState = alignedTextSelectionState(view.state, selection);
+    if (!targetState.supported) return false;
+    const desiredAlignment = TEXT_ALIGNMENTS.includes(requestedAlignment) && targetState.alignment === requestedAlignment
+      ? "left"
+      : requestedAlignment;
+    const alignedType = view.state.schema.nodes[ALIGNED_TEXT_NODE_NAME];
+    let transaction = view.state.tr;
+    let changed = false;
+    let restoredAnchor = selection.anchor;
+    let restoredHead = selection.head;
+
+    const mapSelectionThroughReplacement = (from, oldSize, newSize, contentOffsetDelta) => {
+      const oldTo = from + oldSize;
+      const sizeDelta = newSize - oldSize;
+      const mapPosition = (position) => {
+        if (position <= from) return position;
+        if (position >= oldTo) return position + sizeDelta;
+        return position + contentOffsetDelta;
+      };
+      restoredAnchor = mapPosition(restoredAnchor);
+      restoredHead = mapPosition(restoredHead);
+    };
+
+    [...targetState.targets].reverse().forEach((target) => {
+      const node = transaction.doc.nodeAt(target.pos);
+      if (!node) return;
+      if (node.type === alignedType) {
+        if (desiredAlignment === "left") {
+          if (node.childCount !== 1) return;
+          const child = node.child(0);
+          mapSelectionThroughReplacement(target.pos, node.nodeSize, child.nodeSize, -1);
+          transaction = transaction.replaceWith(target.pos, target.pos + node.nodeSize, child);
+          changed = true;
+          return;
+        }
+        if (node.attrs.alignment === desiredAlignment) return;
+        transaction = transaction.setNodeMarkup(target.pos, alignedType, {
+          alignment: desiredAlignment,
+          sourceSyntax: "github-div-align"
+        });
+        changed = true;
+        return;
+      }
+      if (desiredAlignment === "left") return;
+      const wrapper = alignedType.create({
+        alignment: desiredAlignment,
+        sourceSyntax: "github-div-align"
+      }, node);
+      mapSelectionThroughReplacement(target.pos, node.nodeSize, wrapper.nodeSize, 1);
+      transaction = transaction.replaceWith(target.pos, target.pos + node.nodeSize, wrapper);
+      changed = true;
+    });
+
+    if (!changed) return false;
+    const maxSelectionPosition = transaction.doc.content.size;
+    const anchor = Math.max(0, Math.min(restoredAnchor, maxSelectionPosition));
+    const head = Math.max(0, Math.min(restoredHead, maxSelectionPosition));
+    transaction = transaction.setSelection(TextSelection.between(
+      transaction.doc.resolve(anchor),
+      transaction.doc.resolve(head)
+    ));
+    transaction = closeHistory(transaction);
+    view.dispatch(transaction.scrollIntoView());
+    markUserInteracted();
+    view.focus();
+    scheduleFormatToolbarUpdate();
+    scheduleTableToolbarUpdate();
+    scheduleInsertMenuUpdate();
+    scheduleCodeLanguageControlsUpdate();
+    return true;
   }
 
   function runMarkCommand(markName) {
@@ -1773,6 +2035,19 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.2 6.7 9.4 5.5a3.3 3.3 0 0 1 4.7 4.7l-1.6 1.6a3.3 3.3 0 0 1-4.5.2M11.8 13.3l-1.2 1.2a3.3 3.3 0 0 1-4.7-4.7l1.6-1.6a3.3 3.3 0 0 1 4.5-.2" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="markdown-format-tooltip">${t("markdown.linkTooltip")}</span>
       </button>
+      <span class="markdown-format-divider" aria-hidden="true"></span>
+      <button type="button" data-text-align="left" aria-label="${t("markdown.alignLeft")}">
+        ${IMAGE_ALIGN_ICON_SVG.left}
+        <span class="markdown-format-tooltip">${t("markdown.alignLeft")}</span>
+      </button>
+      <button type="button" data-text-align="center" aria-label="${t("markdown.alignCenter")}">
+        ${IMAGE_ALIGN_ICON_SVG.center}
+        <span class="markdown-format-tooltip">${t("markdown.alignCenter")}</span>
+      </button>
+      <button type="button" data-text-align="right" aria-label="${t("markdown.alignRight")}">
+        ${IMAGE_ALIGN_ICON_SVG.right}
+        <span class="markdown-format-tooltip">${t("markdown.alignRight")}</span>
+      </button>
       <div class="markdown-format-link-popover" aria-hidden="true">
         <input data-format-link-input type="text" placeholder="粘贴链接或文件路径" />
         <button type="button" data-format-link-apply>确认</button>
@@ -1788,7 +2063,24 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
       if (event.target.closest("select") || event.target.closest("input")) return;
       event.preventDefault();
     });
+    toolbar.addEventListener("pointerdown", (event) => {
+      const button = event.target.closest("button[data-text-align]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.getAttribute("aria-disabled") === "true") return;
+      runTextAlignmentCommand(button.dataset.textAlign || "left");
+    });
     toolbar.addEventListener("click", (event) => {
+      const alignmentButton = event.target.closest("button[data-text-align]");
+      if (alignmentButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.detail === 0 && alignmentButton.getAttribute("aria-disabled") !== "true") {
+          runTextAlignmentCommand(alignmentButton.dataset.textAlign || "left");
+        }
+        return;
+      }
       const button = event.target.closest("button[data-format-command]");
       if (!button || button.getAttribute("aria-disabled") === "true") return;
       event.preventDefault();
@@ -1864,6 +2156,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     hideLinkPopover();
     formatToolbar.classList.remove("visible");
     formatToolbarVisible = false;
+    formatToolbarSelection = null;
   }
 
   function scheduleFormatToolbarHideAfterBlur() {
@@ -1902,6 +2195,20 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
     if (select) {
       select.value = currentBlockValue(view);
     }
+    const selection = selectionFromFormatSnapshot(view);
+    const alignmentState = alignedTextSelectionState(view.state, selection);
+    formatToolbar.querySelectorAll("button[data-text-align]").forEach((button) => {
+      const supported = alignmentState.supported;
+      const value = button.dataset.textAlign;
+      button.classList.toggle("active", supported && alignmentState.alignment === value);
+      button.setAttribute("aria-disabled", supported ? "false" : "true");
+      const tooltip = button.querySelector(".markdown-format-tooltip");
+      if (tooltip) {
+        tooltip.textContent = supported
+          ? button.getAttribute("aria-label") || ""
+          : t("markdown.textAlignBlockOnly");
+      }
+    });
   }
 
   function updateFormatToolbar() {
@@ -1924,6 +2231,10 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
       return;
     }
 
+    formatToolbarSelection = {
+      anchor: selection.anchor,
+      head: selection.head
+    };
     refreshFormatToolbarState(view);
 
     const rootRect = root.getBoundingClientRect();
@@ -1936,7 +2247,7 @@ async function createMilkdownEditor({ root, markdown = "", language = null, onCh
       hideFormatToolbar();
       return;
     }
-    const toolbarWidth = formatToolbar.offsetWidth || 248;
+    const toolbarWidth = formatToolbar.offsetWidth || 352;
     const toolbarHeight = formatToolbar.offsetHeight || 38;
     const selectionLeft = Math.min(startRect.left, endRect.left);
     const selectionRight = Math.max(startRect.right || startRect.left, endRect.right || endRect.left);

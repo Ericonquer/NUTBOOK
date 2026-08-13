@@ -303,6 +303,128 @@ fn portable_image_html_candidate(lines: &[&str], start: usize) -> Option<(String
     None
 }
 
+fn complete_portable_html_tag(input: &str) -> Option<PortableHtmlTag> {
+    let mut cursor = 0;
+    skip_portable_html_whitespace(input, &mut cursor);
+    let tag = parse_portable_html_tag(input, &mut cursor)?;
+    skip_portable_html_whitespace(input, &mut cursor);
+    (cursor == input.len()).then_some(tag)
+}
+
+fn aligned_text_html_candidate(lines: &[&str], start: usize) -> Option<(String, usize)> {
+    let first = lines.get(start)?.trim();
+    if !first.to_ascii_lowercase().starts_with("<div") {
+        return None;
+    }
+    let opening = complete_portable_html_tag(first)?;
+    if opening.name != "div" || opening.closing || opening.self_closing {
+        return None;
+    }
+    let max_end = (start + 32).min(lines.len());
+    for end in (start + 1)..max_end {
+        let Some(closing) = complete_portable_html_tag(lines[end].trim()) else {
+            continue;
+        };
+        if closing.name == "div"
+            && closing.closing
+            && !closing.self_closing
+            && closing.attributes.is_empty()
+        {
+            return Some((lines[start..=end].join("\n"), end - start + 1));
+        }
+    }
+    None
+}
+
+enum AlignedTextInner<'a> {
+    Heading { level: usize, title: &'a str },
+    Paragraph(Vec<&'a str>),
+}
+
+fn aligned_text_paragraph_line_is_supported(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty()
+        || trimmed.contains("![")
+        || trimmed.contains('<')
+        || trimmed.starts_with('>')
+        || trimmed.starts_with('|')
+        || trimmed.starts_with("```")
+        || trimmed.starts_with("~~~")
+        || trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+    {
+        return false;
+    }
+    let ordered = trimmed
+        .split_once(['.', ')'])
+        .is_some_and(|(prefix, suffix)| {
+            !prefix.is_empty()
+                && prefix.chars().all(|value| value.is_ascii_digit())
+                && suffix.starts_with(char::is_whitespace)
+        });
+    !ordered && markdown_heading(trimmed).is_none()
+}
+
+fn parse_aligned_text_html(input: &str) -> Option<(&'static str, AlignedTextInner<'_>)> {
+    let lines = input.lines().collect::<Vec<_>>();
+    if lines.len() < 5 || !lines.get(1)?.trim().is_empty() || !lines.get(lines.len() - 2)?.trim().is_empty() {
+        return None;
+    }
+    let opening = complete_portable_html_tag(lines.first()?.trim())?;
+    if opening.name != "div"
+        || opening.closing
+        || opening.self_closing
+        || !portable_tag_has_only_attributes(&opening, &["align"])
+    {
+        return None;
+    }
+    let alignment = match portable_tag_attribute(&opening, "align")?.to_ascii_lowercase().as_str() {
+        "center" => "center",
+        "right" => "right",
+        _ => return None,
+    };
+    let closing = complete_portable_html_tag(lines.last()?.trim())?;
+    if closing.name != "div" || !closing.closing || closing.self_closing || !closing.attributes.is_empty() {
+        return None;
+    }
+    let content = &lines[2..lines.len() - 2];
+    if content.is_empty() || content.iter().any(|line| line.trim().is_empty()) {
+        return None;
+    }
+    if content.len() == 1 {
+        if let Some((level, title)) = markdown_heading(content[0].trim()) {
+            return Some((alignment, AlignedTextInner::Heading { level, title }));
+        }
+    }
+    if content.iter().all(|line| aligned_text_paragraph_line_is_supported(line)) {
+        return Some((alignment, AlignedTextInner::Paragraph(content.to_vec())));
+    }
+    None
+}
+
+fn render_aligned_text_html(input: &str) -> Option<(String, bool)> {
+    let (alignment, inner) = parse_aligned_text_html(input)?;
+    let (inner_html, contains_h1) = match inner {
+        AlignedTextInner::Heading { level, title } => (
+            format!("<h{level}>{}</h{level}>", escape_html(title.trim())),
+            level == 1,
+        ),
+        AlignedTextInner::Paragraph(lines) => (
+            format!(
+                "<p>{}</p>",
+                lines
+                    .iter()
+                    .map(|line| escape_html(line.trim()))
+                    .collect::<Vec<_>>()
+                    .join("<br>")
+            ),
+            false,
+        ),
+    };
+    Some((format!(r#"<div align="{alignment}">{inner_html}</div>"#), contains_h1))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MarkdownFrontmatter {
     fields: Vec<(String, Vec<String>)>,
@@ -550,14 +672,20 @@ fn render_frontmatter_rows_html(rows: Vec<(&str, Vec<String>)>) -> String {
     html
 }
 
-fn render_markdown_as_html_with_options(raw: &str, skip_first_h1: bool) -> String {
+fn render_markdown_as_html_with_options(
+    raw: &str,
+    skip_first_h1: bool,
+    show_skill_frontmatter: bool,
+) -> String {
     let mut html = String::new();
     let mut paragraph = Vec::new();
     let mut skipped_first_h1 = false;
     let frontmatter = split_markdown_frontmatter(raw);
     let markdown_body;
     let raw = if let Some(frontmatter) = frontmatter.as_ref() {
-        html.push_str(&render_frontmatter_html(frontmatter));
+        if show_skill_frontmatter {
+            html.push_str(&render_frontmatter_html(frontmatter));
+        }
         markdown_body = frontmatter.body.as_str();
         markdown_body
     } else {
@@ -591,6 +719,28 @@ fn render_markdown_as_html_with_options(raw: &str, skip_first_h1: bool) -> Strin
             flush_paragraph(&mut html, &mut paragraph);
             if let Some(portable_html) = sanitize_portable_image_html(&portable_source) {
                 html.push_str(&portable_html);
+            } else {
+                html.push_str("<p>");
+                html.push_str(
+                    &lines[line_index..line_index + consumed]
+                        .iter()
+                        .map(|line| escape_html(line.trim()))
+                        .collect::<Vec<_>>()
+                        .join("<br>"),
+                );
+                html.push_str("</p>");
+            }
+            line_index += consumed;
+            continue;
+        }
+
+        if let Some((aligned_source, consumed)) = aligned_text_html_candidate(&lines, line_index) {
+            flush_paragraph(&mut html, &mut paragraph);
+            if let Some((aligned_html, contains_h1)) = render_aligned_text_html(&aligned_source) {
+                html.push_str(&aligned_html);
+                if contains_h1 {
+                    skipped_first_h1 = true;
+                }
             } else {
                 html.push_str("<p>");
                 html.push_str(
@@ -647,11 +797,27 @@ fn render_markdown_as_html_with_options(raw: &str, skip_first_h1: bool) -> Strin
 }
 
 pub fn render_markdown_as_html(raw: &str) -> String {
-    render_markdown_as_html_with_options(raw, false)
+    render_markdown_as_html_with_options(raw, false, false)
 }
 
 pub fn render_markdown_body_as_html(raw: &str) -> String {
-    render_markdown_as_html_with_options(raw, true)
+    render_markdown_as_html_with_options(raw, true, false)
+}
+
+fn is_skill_markdown_file_name(file_name: &str) -> bool {
+    std::path::Path::new(file_name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("SKILL.md"))
+        .unwrap_or(false)
+}
+
+pub fn render_markdown_as_html_for_file(raw: &str, file_name: &str) -> String {
+    render_markdown_as_html_with_options(raw, false, is_skill_markdown_file_name(file_name))
+}
+
+pub fn render_markdown_body_as_html_for_file(raw: &str, file_name: &str) -> String {
+    render_markdown_as_html_with_options(raw, true, is_skill_markdown_file_name(file_name))
 }
 
 struct MarkdownImage<'a> {
@@ -755,7 +921,7 @@ pub fn load_document_payload(
     match item.summary.file_type.as_str() {
         "markdown" => {
             let raw = fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
-            let html = render_markdown_body_as_html(&raw);
+            let html = render_markdown_body_as_html_for_file(&raw, &item.summary.file_name);
             let path = std::path::Path::new(&item.summary.file_path);
             let base_dir = path
                 .parent()
@@ -799,7 +965,10 @@ pub fn load_document_payload(
 
 #[cfg(test)]
 mod tests {
-    use super::{content_hash, markdown_summary, render_markdown_as_html};
+    use super::{
+        content_hash, markdown_summary, render_markdown_as_html,
+        render_markdown_as_html_for_file,
+    };
 
     fn markdown_detail_for_test(file_path: String, file_name: &str, title: Option<&str>) -> crate::models::ItemDetail {
         crate::models::ItemDetail {
@@ -934,9 +1103,67 @@ mod tests {
     }
 
     #[test]
-    fn markdown_render_presents_skill_frontmatter_as_metadata() {
+    fn markdown_render_supports_portable_text_alignment() {
         let html = render_markdown_as_html(
+            "<div align=\"center\">\n\n## Centered heading\n\n</div>\n\n<div align=\"right\">\n\nRight paragraph.\n\n</div>",
+        );
+        assert!(
+            html.contains(r#"<div align="center"><h2>Centered heading</h2></div>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<div align="right"><p>Right paragraph.</p></div>"#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn markdown_body_render_keeps_aligned_brand_h1_visible() {
+        let html = super::render_markdown_body_as_html(
+            "<div align=\"center\">\n\n# NUTBOOK Brand\n\n</div>\n\n# Later H1",
+        );
+        assert!(html.contains(r#"<div align="center"><h1>NUTBOOK Brand</h1></div>"#), "{html}");
+        assert!(html.contains("<h1>Later H1</h1>"), "{html}");
+    }
+
+    #[test]
+    fn markdown_render_rejects_unsafe_or_ambiguous_text_alignment_blocks() {
+        let unknown_attribute = render_markdown_as_html(
+            "<div class=\"custom\" align=\"center\">\n\nCentered text.\n\n</div>",
+        );
+        assert!(unknown_attribute.contains("&lt;div class=\"custom\" align=\"center\"&gt;"), "{unknown_attribute}");
+        assert!(!unknown_attribute.contains(r#"<div align="center"><p>"#), "{unknown_attribute}");
+
+        let multiple_blocks = render_markdown_as_html(
+            "<div align=\"center\">\n\nFirst paragraph.\n\nSecond paragraph.\n\n</div>",
+        );
+        assert!(multiple_blocks.contains("&lt;div align=\"center\"&gt;"), "{multiple_blocks}");
+        assert!(!multiple_blocks.contains(r#"<div align="center"><p>"#), "{multiple_blocks}");
+
+        let inline_image = render_markdown_as_html(
+            "<div align=\"right\">\n\nText ![Icon](./icon.png)\n\n</div>",
+        );
+        assert!(inline_image.contains("&lt;div align=\"right\"&gt;"), "{inline_image}");
+        assert!(!inline_image.contains(r#"<div align="right"><p>"#), "{inline_image}");
+    }
+
+    #[test]
+    fn markdown_render_loads_the_text_alignment_acceptance_artifact() {
+        let raw = include_str!(
+            "../../tests/fixtures/markdown-text-alignment/portable-text-alignment.md"
+        );
+        let html = render_markdown_as_html(raw);
+        assert!(html.contains(r#"<div align="center"><h1>NUTBOOK Brand</h1></div>"#), "{html}");
+        assert!(html.contains(r#"<div align="right"><p>This paragraph keeps"#), "{html}");
+        assert!(html.contains("&lt;div class=\"custom-alignment\" align=\"center\"&gt;"), "{html}");
+        assert!(html.contains("First paragraph in a rejected multi-block container."), "{html}");
+    }
+
+    #[test]
+    fn markdown_render_presents_skill_frontmatter_as_metadata() {
+        let html = render_markdown_as_html_for_file(
             "---\nname: skill-creator\ndescription: Create better skills\ntrigger_keywords:\n  - skill\n  - prompt\n---\n\n# Skill Creator\n\nBody",
+            "SKILL.md",
         );
         assert!(html.contains(r#"<section class="markdown-frontmatter skill-frontmatter">"#));
         assert!(html.contains(r#"<span class="markdown-frontmatter-key">name</span>"#));
@@ -951,8 +1178,9 @@ mod tests {
 
     #[test]
     fn markdown_render_supports_folded_and_inline_skill_frontmatter_values() {
-        let html = render_markdown_as_html(
+        let html = render_markdown_as_html_for_file(
             "---\nname: agent-reach\ndescription: >\n  Search and read 17 platforms.\n  Use when user asks to search.\ntrigger_keywords: [search, youtube transcript]\n---\n\n# Agent Reach",
+            "skill.md",
         );
         assert!(html.contains(
             r#"<span class="markdown-frontmatter-value">Search and read 17 platforms. Use when user asks to search.</span>"#
@@ -963,8 +1191,9 @@ mod tests {
 
     #[test]
     fn markdown_render_extracts_skill_triggers_from_description() {
-        let html = render_markdown_as_html(
+        let html = render_markdown_as_html_for_file(
             "---\nname: agent-reach\ndescription: >\n  Search and read 17 platforms.\n  Triggers: \"搜推特\", \"youtube transcript\", \"read this link\".\n---\n\n# Agent Reach",
+            "/tmp/Example/SKILL.md",
         );
         assert!(html.contains(
             r#"<span class="markdown-frontmatter-value">Search and read 17 platforms.</span>"#
@@ -978,9 +1207,19 @@ mod tests {
 
     #[test]
     fn markdown_render_supports_frontmatter_without_trailing_newline() {
-        let html = render_markdown_as_html("---\nname: compact\n---");
+        let html = render_markdown_as_html_for_file("---\nname: compact\n---", "SKILL.md");
         assert!(html.contains(r#"<span class="markdown-frontmatter-value">compact</span>"#));
         assert!(!html.contains("<p>---</p>"));
+    }
+
+    #[test]
+    fn ordinary_markdown_frontmatter_never_renders_as_skill_metadata() {
+        let raw = "---\nname: ordinary-report\ndescription: A normal document\ntrigger_keywords: [must, stay, hidden]\n---\n\n# Report\n\nBody";
+        let html = render_markdown_as_html_for_file(raw, "review.md");
+        assert!(!html.contains("SKILL 元信息"), "{html}");
+        assert!(!html.contains("markdown-frontmatter"), "{html}");
+        assert!(html.contains("<h1>Report</h1>"), "{html}");
+        assert!(!html.contains("ordinary-report"), "{html}");
     }
 
     #[test]

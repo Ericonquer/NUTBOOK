@@ -7,7 +7,8 @@
     "build:frontend": "vite build --config vite.config.mjs && node scripts/patch-markdown-editor-bundle.mjs",
     "prepare:nutbook-cli": "node scripts/prepare-nutbook-cli.mjs",
     "check:frontend": "node --check dist/assets/markdown-editor.js",
-    "check:regressions": "node scripts/test-html-edit-image-acceptance-artifact.mjs && node scripts/test-html-edit-converter.mjs && node scripts/test-html-edit-free-image-runtime.mjs && node scripts/test-html-edit-presentation-runtime.mjs && node scripts/test-html-edit-section-navigation-runtime.mjs && node scripts/test-html-edit-inline-mark-blocks.mjs && node scripts/test-markdown-portable-images.mjs && node scripts/test-regressions.mjs",
+    "check:regressions": "node scripts/test-html-edit-image-acceptance-artifact.mjs && node scripts/test-html-edit-converter.mjs && node scripts/test-html-edit-free-image-runtime.mjs && node scripts/test-html-edit-presentation-runtime.mjs && node scripts/test-html-edit-section-navigation-runtime.mjs && node scripts/test-html-edit-inline-mark-blocks.mjs && node scripts/test-markdown-portable-images.mjs && node scripts/test-markdown-text-alignment.mjs && node scripts/test-markdown-skill-frontmatter.mjs && node scripts/test-markdown-close-confirmation.mjs && node scripts/test-regressions.mjs",
+    "check:markdown-close": "node scripts/test-markdown-close-confirmation.mjs",
     "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {

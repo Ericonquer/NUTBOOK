@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-labelledby="title description">
+  <title id="title">Text alignment acceptance sample</title>
+  <desc id="description">Three horizontal text lines aligned left, center, and right.</desc>
+  <rect width="320" height="180" rx="20" fill="#f4f4f5"/>
+  <path d="M40 48h120M100 90h120M160 132h120" fill="none" stroke="#18181b" stroke-width="12" stroke-linecap="round"/>
+</svg>

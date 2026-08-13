@@ -2482,8 +2482,7 @@
       }
 
       .milkdown-editor-root .portable-image-block.ProseMirror-selectednode {
-        outline: 1px solid var(--line-strong);
-        outline-offset: 1px;
+        outline: none;
       }
 
       .markdown-preview h1,
@@ -4995,9 +4994,11 @@
         position: absolute;
         z-index: 30;
         display: inline-flex;
+        flex-wrap: wrap;
+        justify-content: center;
         align-items: center;
         gap: 4px;
-        max-width: min(94%, 380px);
+        max-width: min(94%, 420px);
         padding: 5px;
         border: 1px solid rgba(224, 224, 228, 0.92);
         border-radius: 999px;
@@ -5083,6 +5084,26 @@
         width: 17px;
         height: 17px;
         display: block;
+      }
+
+      .markdown-format-divider {
+        width: 1px;
+        height: 20px;
+        margin: 0 2px;
+        background: rgba(220, 220, 224, 0.9);
+        flex: 0 0 auto;
+      }
+
+      .nutbook-aligned-text-block {
+        width: 100%;
+      }
+
+      .nutbook-aligned-text-block.nutbook-text-align-center {
+        text-align: center;
+      }
+
+      .nutbook-aligned-text-block.nutbook-text-align-right {
+        text-align: right;
       }
 
       .markdown-format-tooltip {
@@ -6650,6 +6671,17 @@
         return `${t("markdown.savedPrefix")}${fileName}`;
       }
 
+      function markdownSaveConflict(error) {
+        const message = normalizeError(error);
+        return message.includes("EDIT_CONFLICT") || message.includes("edit conflict");
+      }
+
+      function markdownSaveErrorStatus(error) {
+        return markdownSaveConflict(error)
+          ? t("markdown.saveConflict")
+          : `${t("markdown.saveFailedPrefix")}${normalizeError(error)}`;
+      }
+
       function markdownExportedStatus(fileName) {
         return `${t("markdown.exportedPrefix")}${fileName}`;
       }
@@ -6834,7 +6866,9 @@
           container.querySelectorAll(selectors).forEach((heading) => {
             if (heading.tagName === "H1" && !skippedDocumentTitle) {
               skippedDocumentTitle = true;
-              heading.classList.add("markdown-document-title-source");
+              if (!heading.closest('[data-type="aligned-text-block"]')) {
+                heading.classList.add("markdown-document-title-source");
+              }
               delete heading.dataset.markdownOutlineIndex;
               return;
             }
@@ -7456,6 +7490,65 @@
           els.confirmScrim.querySelector("[data-confirm-ok]")?.addEventListener("click", () => close(true));
           els.confirmScrim.addEventListener("click", handleBackdropClick);
           els.confirmScrim.querySelector("[data-confirm-cancel]")?.focus();
+        });
+      }
+
+      function confirmMarkdownUnsavedClose(fileName) {
+        if (!els.confirmScrim) {
+          return Promise.resolve(window.confirm(formatTranslation("markdown.unsavedCloseMessage", { fileName })) ? "save" : "continue");
+        }
+        return new Promise((resolve) => {
+          const previousFocus = document.activeElement;
+          const close = (choice) => {
+            document.removeEventListener("keydown", handleKeydown, true);
+            els.confirmScrim.removeEventListener("click", handleBackdropClick);
+            els.confirmScrim.classList.remove("open");
+            els.confirmScrim.setAttribute("aria-hidden", "true");
+            els.confirmScrim.innerHTML = "";
+            previousFocus?.focus?.();
+            resolve(choice);
+          };
+          const handleBackdropClick = (event) => {
+            if (event.target === els.confirmScrim) close("continue");
+          };
+          const handleKeydown = (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              close("continue");
+              return;
+            }
+            if (event.key !== "Tab") return;
+            const focusable = [...els.confirmScrim.querySelectorAll("button:not([disabled])")];
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          };
+          els.confirmScrim.innerHTML = `
+            <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="markdownCloseTitle" aria-describedby="markdownCloseMessage">
+              <h3 id="markdownCloseTitle" class="confirm-title">${escapeHtml(t("markdown.unsavedCloseTitle"))}</h3>
+              <p id="markdownCloseMessage" class="confirm-message">${escapeHtml(formatTranslation("markdown.unsavedCloseMessage", { fileName }))}</p>
+              <div class="confirm-actions">
+                <button class="button button-secondary" type="button" data-markdown-close-choice="continue">${escapeHtml(t("markdown.continueEditing"))}</button>
+                <button class="button button-secondary" type="button" data-markdown-close-choice="discard">${escapeHtml(t("markdown.discardAndClose"))}</button>
+                <button class="button button-primary" type="button" data-markdown-close-choice="save">${escapeHtml(t("markdown.saveAndClose"))}</button>
+              </div>
+            </div>
+          `;
+          els.confirmScrim.classList.add("open");
+          els.confirmScrim.setAttribute("aria-hidden", "false");
+          document.addEventListener("keydown", handleKeydown, true);
+          els.confirmScrim.addEventListener("click", handleBackdropClick);
+          els.confirmScrim.querySelectorAll("[data-markdown-close-choice]").forEach((button) => {
+            button.addEventListener("click", () => close(button.dataset.markdownCloseChoice));
+          });
+          els.confirmScrim.querySelector('[data-markdown-close-choice="continue"]')?.focus();
         });
       }
 
@@ -9470,24 +9563,54 @@
         if (choice === "keep") syncHtmlEditToolbar().catch(() => {});
       };
 
-      let htmlEditAppExitRequestInFlight = false;
-      window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__ = function requestHtmlEditAppExit() {
-        if (htmlEditAppExitRequestInFlight) return;
-        htmlEditAppExitRequestInFlight = true;
+      async function confirmMarkdownAppExitIfNeeded() {
+        captureActiveMarkdownDraft();
+        const activeTabId = appState.activeTabId;
+        const dirtyTabs = getOpenTabs().filter((tab) => (
+          tab?.preview?.fileType === "markdown" && isMarkdownTabDirty(tab)
+        ));
+        const activeDirtyTab = dirtyTabs.find((tab) => tab.id === activeTabId) || null;
+        const orderedDirtyTabs = activeDirtyTab
+          ? [activeDirtyTab, ...dirtyTabs.filter((tab) => tab.id !== activeTabId)]
+          : dirtyTabs;
+
+        for (const tab of orderedDirtyTabs) {
+          if (await isOpenTabSourceMissing(tab)) continue;
+          const fileName = tab.item?.fileName || tab.preview?.title || "Markdown";
+          const choice = await confirmMarkdownUnsavedClose(fileName);
+          if (choice === "continue") return false;
+          if (choice === "save") {
+            const saved = await saveMarkdownTab(tab, { renderAfter: false });
+            if (!saved) return false;
+          }
+        }
+        return true;
+      }
+
+      async function confirmAppExitIfNeeded() {
         const session = appState.htmlEditSession;
-        const leave = session
-          ? confirmHtmlEditLeaveIfNeeded(session.itemId, { source: "app-exit" })
-          : Promise.resolve(true);
-        leave
+        if (session) {
+          const canLeaveHtml = await confirmHtmlEditLeaveIfNeeded(session.itemId, { source: "app-exit" });
+          if (!canLeaveHtml) return false;
+        }
+        return confirmMarkdownAppExitIfNeeded();
+      }
+
+      let appExitRequestInFlight = false;
+      window.__NUTBOOK_REQUEST_APP_EXIT__ = function requestAppExit() {
+        if (appExitRequestInFlight) return;
+        appExitRequestInFlight = true;
+        confirmAppExitIfNeeded()
           .then((canExit) => {
             if (!canExit) return false;
             return invoke("finalize_html_edit_app_exit_command");
           })
-          .catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"))
+          .catch((error) => setStatus(`退出前检查失败：${normalizeError(error)}`, "error"))
           .finally(() => {
-            htmlEditAppExitRequestInFlight = false;
+            appExitRequestInFlight = false;
           });
       };
+      window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__ = window.__NUTBOOK_REQUEST_APP_EXIT__;
 
       function normalizeMarkdownSelectionText(value) {
         return String(value || "")
@@ -9726,6 +9849,7 @@
           const editor = await api.create({
             root,
             markdown: content,
+            fileName: tab.item?.fileName || tab.preview?.title || "",
             language: appState.language,
             tableToolsEnabled: appState.markdownPreferences.tableToolsEnabled,
             resolveImageSrc(src) {
@@ -13087,6 +13211,10 @@
       }
 
       async function invokeMock(command, args = {}) {
+        if (command === "finalize_html_edit_app_exit_command") {
+          window.__readmeDemoAppExitFinalizeCount = Number(window.__readmeDemoAppExitFinalizeCount || 0) + 1;
+          return true;
+        }
         if (command === "list_libraries") return structuredClone(mockData.libraries);
         if (command === "get_cached_agent_projects") return null;
         if (command === "get_nbskill_agent_status") {
@@ -13570,6 +13698,9 @@
           return true;
         }
         if (command === "save_markdown_content") {
+          if (window.__readmeDemoMarkdownSaveConflict) {
+            throw { code: "EDIT_CONFLICT", message: "edit conflict" };
+          }
           const preview = mockData.previews[args.itemId];
           preview.raw = args.content;
           preview.html = markdownToHtml(args.content);
@@ -13710,7 +13841,7 @@
       async function closeOpenTab(tabId) {
         if (appState.htmlEditSession?.itemId === tabId) {
           const canLeaveHtmlEdit = await confirmHtmlEditLeaveIfNeeded(tabId);
-          if (!canLeaveHtmlEdit) return;
+          if (!canLeaveHtmlEdit) return false;
         }
         captureActiveMarkdownScroll();
         invalidateItemOpenToken(tabId);
@@ -13731,15 +13862,11 @@
             tab.draft = tab.markdownBaseline ?? tab.preview.raw ?? "";
           } else if (isMarkdownTabDirty(tab)) {
             const fileName = tab.item?.fileName || tab.preview?.title || "Markdown";
-            const shouldSave = await appConfirm({
-              title: t("markdown.unsavedCloseTitle"),
-              message: formatTranslation("markdown.unsavedCloseMessage", { fileName }),
-              confirmText: t("actions.save"),
-              cancelText: t("markdown.discardChanges")
-            });
-            if (shouldSave) {
+            const closeChoice = await confirmMarkdownUnsavedClose(fileName);
+            if (closeChoice === "continue") return false;
+            if (closeChoice === "save") {
               const saved = await saveMarkdownTab(tab, { renderAfter: false });
-              if (!saved) return;
+              if (!saved) return false;
             } else {
               tab.draft = tab.markdownBaseline ?? tab.preview.raw ?? "";
               tab.isDirty = false;
@@ -13796,6 +13923,7 @@
         if (tab?.preview?.fileType === "markdown" && sourcePathMissing) {
           setStatus(`“${tab.item?.fileName || tab.preview?.title || "Markdown"}”的路径已失效，已关闭本地标签页。`, "warn");
         }
+        return true;
       }
 
       function setSidebarCollapsed(collapsed) {
@@ -14011,7 +14139,8 @@
           node.addEventListener("click", async (event) => {
             event.stopPropagation();
             const tabId = Number(node.dataset.closeTab);
-            await closeOpenTab(tabId);
+            const closed = await closeOpenTab(tabId);
+            if (!closed) return;
             appState.isEditing = getActiveTab()?.preview?.fileType === "markdown";
             if (!getActiveTab() && appState.homeTabOpen) {
               await loadItems();
@@ -16042,8 +16171,9 @@
           showToast("保存成功");
           return true;
         } catch (error) {
-          setStatus(`保存失败：${normalizeError(error)}`, "error");
-          showToast("保存失败");
+          const conflict = markdownSaveConflict(error);
+          setStatus(markdownSaveErrorStatus(error), "error");
+          showToast(conflict ? t("markdown.saveConflictToast") : t("markdown.saveFailed"));
           return false;
         }
       }
@@ -16848,7 +16978,8 @@
         els.clearTabsButton.addEventListener("click", async () => {
           const tabsToClose = getOpenTabs();
           for (const tab of tabsToClose) {
-            await closeOpenTab(tab.id);
+            const closed = await closeOpenTab(tab.id);
+            if (!closed) break;
           }
           appState.isEditing = getActiveTab()?.preview?.fileType === "markdown";
           renderTabs();

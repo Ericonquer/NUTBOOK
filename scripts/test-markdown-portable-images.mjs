@@ -39,6 +39,9 @@ try {
         if (src.endsWith("icon-112.png")) return icon;
         if (src.endsWith("landscape-large.png")) return landscape;
         return src;
+      },
+      onImageSizeError(error) {
+        window.__portableImageError = String(error?.stack || error?.message || error);
       }
     });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -71,11 +74,21 @@ try {
     image.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const small = root.querySelector('button[data-image-size="small"]');
+    const toolbarVisible = small.closest(".markdown-image-align-toolbar")?.classList.contains("visible") || false;
+    const smallDisabled = small.disabled;
     small.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 80));
-    return window.__portableEditor.getMarkdown();
+    return {
+      markdown: window.__portableEditor.getMarkdown(),
+      toolbarVisible,
+      smallDisabled,
+      error: window.__portableImageError || ""
+    };
   });
-  assert.match(migratedStandard, /<img src="\.\/assets\/landscape-large\.png" alt="Standard landscape" width="160">/, "editing a standalone Markdown image must migrate it to GitHub HTML with a 160 pixel cap");
+  assert.equal(migratedStandard.toolbarVisible, true, "the standalone image must expose its presentation toolbar");
+  assert.equal(migratedStandard.smallDisabled, false, "the standalone image size action must be enabled");
+  assert.equal(migratedStandard.error, "", `the standalone image size action must not report an error: ${migratedStandard.error}`);
+  assert.match(migratedStandard.markdown, /<img src="\.\/assets\/landscape-large\.png" alt="Standard landscape" width="160">/, "editing a standalone Markdown image must migrate it to GitHub HTML with a 160 pixel cap");
 
   await page.evaluate(() => window.__portableEditor.undo());
   const afterUndo = await page.evaluate(() => window.__portableEditor.getMarkdown());
