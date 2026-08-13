@@ -7,7 +7,7 @@ use crate::{
     core::{
         document::{
             content_hash, load_document_payload, markdown_document_title, markdown_summary,
-            render_markdown_as_html,
+            render_markdown_as_html_for_file,
         },
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
@@ -453,7 +453,7 @@ pub fn focus_main_webview_command(
     focus_main_webview(&app)
 }
 
-fn save_markdown_content_impl(
+pub(crate) fn save_markdown_content_impl(
     state: &AppState,
     payload: SaveMarkdownContentRequest,
 ) -> Result<SaveMarkdownContentResponse, AppError> {
@@ -477,7 +477,7 @@ fn save_markdown_content_impl(
     std::fs::write(&item.summary.file_path, &payload.content).map_err(|_| AppError::MarkdownSaveFailed)?;
     let written_raw = std::fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
     let new_hash = content_hash(&written_raw);
-    let rendered_html = render_markdown_as_html(&written_raw);
+    let rendered_html = render_markdown_as_html_for_file(&written_raw, &item.summary.file_name);
     let summary = markdown_summary(&written_raw);
     let modified_at = std::fs::metadata(&item.summary.file_path)
         .and_then(|metadata| metadata.modified())

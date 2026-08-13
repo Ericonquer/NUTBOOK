@@ -31,6 +31,16 @@ assert.match(
 );
 assert.match(
   index,
+  /async function confirmMarkdownAppExitIfNeeded\(\)[\s\S]*?captureActiveMarkdownDraft\(\)[\s\S]*?orderedDirtyTabs[\s\S]*?confirmMarkdownUnsavedClose\(fileName\)[\s\S]*?saveMarkdownTab\(tab, \{ renderAfter: false \}\)/,
+  "app exit must capture and resolve every dirty Markdown tab before native exit"
+);
+assert.match(
+  index,
+  /let appExitRequestInFlight = false[\s\S]*?if \(appExitRequestInFlight\) return[\s\S]*?confirmAppExitIfNeeded\(\)/,
+  "overlapping close and quit events must share one frontend exit coordinator"
+);
+assert.match(
+  index,
   /invoke\("finalize_html_edit_app_exit_command"\)/,
   "only the frontend leave decision may request the final host exit"
 );

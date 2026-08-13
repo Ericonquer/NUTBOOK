@@ -16,7 +16,7 @@ use url::Url;
 
 use crate::{
     core::{
-        document::render_markdown_as_html,
+        document::render_markdown_as_html_for_file,
         thumbnail::{generate_html_thumbnail, HtmlThumbnailInput, ThumbnailBackend},
     },
     db::repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
@@ -2327,7 +2327,7 @@ fn markdown_thumbnail_input(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(file_name.as_str());
-    let html = markdown_thumbnail_document(display_title, &raw);
+    let html = markdown_thumbnail_document(display_title, &file_name, &raw);
     let temporary_path = temp_markdown_thumbnail_path(item_id);
     fs::write(&temporary_path, html).map_err(|_| AppError::IoError)?;
 
@@ -2352,8 +2352,8 @@ fn temp_markdown_thumbnail_path(item_id: i64) -> PathBuf {
     std::env::temp_dir().join(format!("nutbook-markdown-thumbnail-{item_id}-{nanos}.html"))
 }
 
-fn markdown_thumbnail_document(title: &str, raw: &str) -> String {
-    let rendered = render_markdown_as_html(raw);
+fn markdown_thumbnail_document(title: &str, file_name: &str, raw: &str) -> String {
+    let rendered = render_markdown_as_html_for_file(raw, file_name);
     format!(
         r#"<!doctype html>
 <html>
@@ -3503,6 +3503,7 @@ mod tests {
     fn markdown_thumbnail_document_constrains_images_to_article_width() {
         let html = super::markdown_thumbnail_document(
             "Document with hero image",
+            "document.md",
             "![Hero](./assets/hero.png)\n\nBody text",
         );
 

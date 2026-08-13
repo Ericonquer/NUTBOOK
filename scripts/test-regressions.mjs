@@ -8,11 +8,17 @@ const htmlEditLeaveConfirm = readFileSync("dist/html-edit-leave-confirm.html", "
 const htmlEditToolbar = readFileSync("dist/html-edit-toolbar.html", "utf8");
 const runtimeOverlay = readFileSync("dist/runtime-overlay.html", "utf8");
 const markdownEditor = readFileSync("src/markdown-editor.js", "utf8");
+const portableMarkdownFixture = readFileSync("src-tauri/tests/fixtures/markdown-portable-images/portable-markdown-images.md", "utf8");
+const textAlignmentFixture = readFileSync("src-tauri/tests/fixtures/markdown-text-alignment/portable-text-alignment.md", "utf8");
+const markdownDocumentRust = readFileSync("src-tauri/src/core/document.rs", "utf8");
+const readmeEnglish = readFileSync("README.md", "utf8");
+const readmeChinese = readFileSync("README-CN.md", "utf8");
 const htmlEditRuntime = readFileSync("dist/assets/html-edit-runtime.js", "utf8");
 const htmlEditConverter = readFileSync("dist/assets/html-edit-converter.js", "utf8");
 const richTextFixture = readFileSync("src-tauri/tests/fixtures/html-edit/editable-rich-text.html", "utf8");
 const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8");
 const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
+const itemCommandsRust = readFileSync("src-tauri/src/commands/items.rs", "utf8");
 const htmlEditCommandsRust = readFileSync("src-tauri/src/commands/html_edit.rs", "utf8");
 const mainRust = readFileSync("src-tauri/src/main.rs", "utf8");
 const skillDiscoveryRust = readFileSync("src-tauri/src/core/skill_discovery.rs", "utf8");
@@ -669,8 +675,13 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__\s*=[\s\S]*?confirmHtmlEditLeaveIfNeeded\(session\.itemId, \{ source: "app-exit" \}\)[\s\S]*?invoke\("finalize_html_edit_app_exit_command"\)/,
-  "the app-close bridge must reuse save/discard/keep and only finalize after it permits leaving"
+  /async function confirmAppExitIfNeeded\(\)[\s\S]*?confirmHtmlEditLeaveIfNeeded\(session\.itemId, \{ source: "app-exit" \}\)[\s\S]*?confirmMarkdownAppExitIfNeeded\(\)[\s\S]*?__NUTBOOK_REQUEST_APP_EXIT__[\s\S]*?invoke\("finalize_html_edit_app_exit_command"\)/,
+  "the app-close bridge must resolve HTML and Markdown leave state before it finalizes native exit"
+);
+assert.match(
+  indexHtml,
+  /async function confirmMarkdownAppExitIfNeeded\(\)[\s\S]*?captureActiveMarkdownDraft\(\)[\s\S]*?orderedDirtyTabs[\s\S]*?for \(const tab of orderedDirtyTabs\)[\s\S]*?confirmMarkdownUnsavedClose\(fileName\)[\s\S]*?if \(choice === "continue"\) return false[\s\S]*?saveMarkdownTab\(tab, \{ renderAfter: false \}\)/,
+  "application exit must serially protect every dirty Markdown tab and stop on cancel or save failure"
 );
 assert.match(
   indexHtml.match(/async function saveActiveHtmlEditPatch\(\) \{[\s\S]*?\n      \}/)?.[0] || "",
@@ -1116,6 +1127,41 @@ assert.doesNotMatch(
   /runtimeSurfaceTokens\.delete\(tabId\)/,
   "closing an HTML runtime must not reset its per-item surface token"
 );
+const markdownCloseConfirmation = indexFunctionSection("confirmMarkdownUnsavedClose", "closeSettingsPanel");
+const closeOpenTab = indexFunctionSection("closeOpenTab", "setSidebarCollapsed");
+for (const key of ["markdown.saveAndClose", "markdown.discardAndClose", "markdown.continueEditing"]) {
+  assert.match(markdownCloseConfirmation, new RegExp(key.replaceAll(".", "\\.")), `unsaved Markdown close confirmation must expose ${key}`);
+}
+assert.match(
+  markdownCloseConfirmation,
+  /event\.key === "Escape"[\s\S]*?close\("continue"\)/,
+  "Escape from the unsaved Markdown confirmation must preserve the editor"
+);
+assert.match(
+  closeOpenTab,
+  /confirmMarkdownUnsavedClose[\s\S]*?closeChoice === "continue"\) return false[\s\S]*?closeChoice === "save"[\s\S]*?saveMarkdownTab\(tab[\s\S]*?return true/,
+  "closing a dirty Markdown tab must keep the tab open, discard it, or save it according to the explicit three-way decision"
+);
+assert.match(
+  indexHtml,
+  /const closed = await closeOpenTab\(tabId\);[\s\S]*?if \(!closed\) return;[\s\S]*?renderTabs\(\);[\s\S]*?const tabsToClose = getOpenTabs\(\);[\s\S]*?if \(!closed\) break;/,
+  "callers must not rerender a continued-editing tab or keep bulk-closing after the user cancels"
+);
+assert.match(
+  indexHtml,
+  /function captureActiveMarkdownDraft\(\)[\s\S]*?tab\.draft = currentMarkdownContent\(tab\)[\s\S]*?const baseline = tab\.markdownBaseline \?\? tab\.preview\.raw \?\? "";[\s\S]*?tab\.isDirty = tab\.draft !== baseline/,
+  "the close path must compare the normalized live editor value with its baseline so undo-to-baseline does not trigger a false warning"
+);
+assert.match(
+  itemCommandsRust,
+  /fn get_item_detail_impl[\s\S]*?file_type != "markdown"[\s\S]*?fs::read_to_string\(path\)[\s\S]*?content_hash\(&raw\)[\s\S]*?update_markdown_item_content[\s\S]*?state\.get_item_detail\(item_id\)/,
+  "opening one Markdown item must refresh its disk content and hash before the editor establishes a save baseline"
+);
+assert.match(
+  indexHtml,
+  /function markdownSaveConflict[\s\S]*?EDIT_CONFLICT[\s\S]*?function markdownSaveErrorStatus[\s\S]*?markdown\.saveConflict[\s\S]*?showToast\(conflict \? t\("markdown\.saveConflictToast"\) : t\("markdown\.saveFailed"\)\)/,
+  "a true Markdown edit conflict must preserve the draft and explain the recovery instead of reporting only a generic save failure"
+);
 assert.match(
   indexHtml,
   /function nextRuntimeSurfaceToken\(itemId\) \{[\s\S]*?runtimeSurfaceTokens\.get\(itemId\) \|\| 0\) \+ 1/,
@@ -1263,5 +1309,86 @@ assert.doesNotMatch(
   /<iframe[^>]+html-edit-toolbar/i,
   "HTML edit toolbar must remain a child-overlay boundary, never an iframe fallback"
 );
+
+assert.match(
+  portableMarkdownFixture,
+  /!\[Standard landscape\]\(\.\/assets\/landscape-large\.png\)[\s\S]*?nutbook-align=center nutbook-size=small[\s\S]*?<p align="center">[\s\S]*?<img src="\.\/assets\/icon-112\.png"[^>]*width="112">[\s\S]*?<a href="https:\/\/github\.com\/Ericonquer\/NUTBOOK"/,
+  "the real portable-image acceptance artifact must cover standard Markdown, legacy tokens, centered GitHub HTML, and linked GitHub HTML"
+);
+assert.match(
+  markdownEditor,
+  /parsePortableImageHtml[\s\S]*?DOMParser[\s\S]*?portableImageRemark[\s\S]*?\$nodeSchema\(PORTABLE_IMAGE_NODE_NAME[\s\S]*?serializePortableImageHtml/,
+  "strict GitHub image HTML must enter the editor through a structural AST node with a dedicated serializer"
+);
+assert.match(
+  markdownEditor,
+  /naturalWidth[\s\S]*?Math\.min\(limit, naturalWidth\)[\s\S]*?replaceImageTargetWithPortable/,
+  "image presets must cap against natural width before migrating a standalone Markdown image to portable GitHub HTML"
+);
+assert.match(
+  indexHtml,
+  /hasPortableWidth[\s\S]*?maxWidth = `min\(\$\{explicitWidth\}px, 100%\)`/,
+  "reading preview must honor portable width as a responsive maximum instead of overriding it with the legacy large preset"
+);
+assert.match(
+  indexHtml,
+  /\.portable-image-block\.ProseMirror-selectednode\s*\{[\s\S]*?outline:\s*none/,
+  "portable image node selection must not show a persistent outline"
+);
+assert.match(
+  markdownDocumentRust,
+  /portable_image_html_candidate[\s\S]*?sanitize_portable_image_html[\s\S]*?markdown_image\(trimmed\)[\s\S]*?image\.alignment/,
+  "the host preview must structurally sanitize portable GitHub HTML while preserving the legacy Markdown-title fallback"
+);
+assert.match(
+  textAlignmentFixture,
+  /<div align="center">\n\n# NUTBOOK Brand\n\n<\/div>[\s\S]*?<div align="right">[\s\S]*?\*\*bold\*\*[\s\S]*?Inline image paragraph must be rejected:[\s\S]*?!\[/,
+  "the real text-alignment acceptance artifact must cover an aligned body brand heading, inline marks, and an image-bearing rejection case"
+);
+assert.match(
+  markdownEditor,
+  /convertAlignedTextBlocks[\s\S]*?\$remark\("alignedTextRemark"[\s\S]*?\$nodeSchema\(ALIGNED_TEXT_NODE_NAME[\s\S]*?sourceSyntax/,
+  "portable text alignment must parse into a dedicated structural node and serialize through its canonical source syntax"
+);
+assert.match(
+  markdownEditor,
+  /function alignedTextSelectionState[\s\S]*?selection\.empty[\s\S]*?nodeContentStart = pos \+ \(node\.type === alignedType \? 2 : 1\)[\s\S]*?selection\.to <= nodeContentStart[\s\S]*?proseNodeContainsImage\(node\)/,
+  "alignment eligibility must require a non-empty half-open selection and reject any top-level target containing an image"
+);
+assert.match(
+  markdownEditor,
+  /function runTextAlignmentCommand[\s\S]*?mapSelectionThroughReplacement[\s\S]*?\[\.\.\.targetState\.targets\]\.reverse\(\)[\s\S]*?transaction\.replaceWith[\s\S]*?transaction\.setNodeMarkup[\s\S]*?transaction\.setSelection\(TextSelection\.between[\s\S]*?closeHistory\(transaction\)[\s\S]*?view\.dispatch\(transaction\.scrollIntoView\(\)\)/,
+  "one alignment transaction must update every target, restore the selection, and stay as one explicit history step"
+);
+assert.match(
+  markdownDocumentRust,
+  /aligned_text_html_candidate[\s\S]*?parse_aligned_text_html[\s\S]*?render_aligned_text_html[\s\S]*?escape_html\(line\.trim\(\)\)[\s\S]*?join\("<br>"\)/,
+  "the host preview must structurally accept the safe alignment subset and escape the whole candidate when validation fails"
+);
+assert.match(
+  indexHtml,
+  /heading\.closest\('\[data-type="aligned-text-block"\]'\)[\s\S]*?markdown-document-title-source/,
+  "an aligned body H1 must remain visible while the host document title continues to use its separate title source"
+);
+for (const key of ["markdown.saveAndClose", "markdown.discardAndClose", "markdown.continueEditing", "markdown.textAlignBlockOnly", "markdown.saveConflict", "markdown.saveConflictToast"]) {
+  assert.match(i18n, new RegExp(key.split(".").pop()), `${key} must exist in both localization dictionaries`);
+}
+for (const [label, readme] of [["English", readmeEnglish], ["Chinese", readmeChinese]]) {
+  assert.match(
+    readme,
+    /^<p align="center">\n  <a href="\.\/assets\/app-icon\.png">\n    <img src="\.\/assets\/app-icon-readme\.png" alt="NUTBOOK App Icon" width="112">\n  <\/a>\n<\/p>/,
+    `${label} README must use the portable GitHub image contract for the linked app icon`
+  );
+  assert.doesNotMatch(
+    readme,
+    /app-icon-readme\.png[^\n]*nutbook-align=/,
+    `${label} README must not rely on Nutbook-only image title tokens`
+  );
+  assert.match(
+    readme,
+    /<\/p>\n\n<div align="center">\n\n# NUTBOOK\n\n<\/div>/,
+    `${label} README must align the body NUTBOOK heading below the icon without treating the host title as editable content`
+  );
+}
 
 console.log("Nutbook regression guards passed.");
