@@ -16,7 +16,7 @@ use url::Url;
 
 use crate::{
     core::{
-        document::render_markdown_as_html_for_file,
+        document::{content_hash, markdown_summary, render_markdown_as_html_for_file},
         thumbnail::{generate_html_thumbnail, HtmlThumbnailInput, ThumbnailBackend},
     },
     db::repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
@@ -211,6 +211,12 @@ impl Database {
             Connection::open(&self.path).map_err(|_| AppError::DatabaseError)?;
         connection
             .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|_| AppError::DatabaseError)?;
+        // 多资料库 watcher / catch-up scan 会并发打开连接写同一文件；
+        // 没有 busy timeout 时 SQLite 立即返回 "database is locked"，
+        // 导致单个来源扫描失败。
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|_| AppError::DatabaseError)?;
         Ok(connection)
     }
@@ -1322,6 +1328,38 @@ impl ItemRepository for Database {
                 .map_err(|_| AppError::DatabaseError)?
         };
 
+        // Incremental content refresh: remember, for every already-indexed item,
+        // its stored modified_at, file_size and whether an item_content row
+        // exists. A Markdown file is only re-read/re-rendered when it is new,
+        // its content row is missing, or its file metadata (mtime/size) changed.
+        // Unchanged files must not be re-read or re-rendered on every scan.
+        let mut existing_content_meta = {
+            let mut statement = transaction
+                .prepare("SELECT id, modified_at, file_size FROM items")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows: Vec<(i64, String, i64)> = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .map_err(|_| AppError::DatabaseError)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?;
+            let mut meta: BTreeMap<i64, (String, i64, bool)> = rows
+                .into_iter()
+                .map(|(item_id, modified_at, file_size)| (item_id, (modified_at, file_size, false)))
+                .collect();
+            let mut statement = transaction
+                .prepare("SELECT item_id FROM item_content")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, i64>(0))
+                .map_err(|_| AppError::DatabaseError)?;
+            for item_id in rows.collect::<Result<Vec<_>, _>>().map_err(|_| AppError::DatabaseError)? {
+                if let Some(entry) = meta.get_mut(&item_id) {
+                    entry.2 = true;
+                }
+            }
+            meta
+        };
+
         let mut created = 0_u64;
         let mut updated = 0_u64;
         let mut scanned_paths = BTreeSet::new();
@@ -1330,7 +1368,7 @@ impl ItemRepository for Database {
                 continue;
             }
             scanned_paths.insert(item.file_path.clone());
-            if let Some((item_id, _was_deleted)) = existing_by_path.get(&item.file_path) {
+            let item_id = if let Some((existing_id, _was_deleted)) = existing_by_path.get(&item.file_path) {
                 transaction
                     .execute(
                         "UPDATE items SET
@@ -1345,7 +1383,7 @@ impl ItemRepository for Database {
                            updated_at = ?8
                          WHERE id = ?1",
                         params![
-                            item_id,
+                            existing_id,
                             item.relative_path,
                             item.file_name,
                             item.file_ext,
@@ -1366,10 +1404,11 @@ impl ItemRepository for Database {
                              WHEN item_sources.link_kind = 'manifest' THEN 'manifest'
                              ELSE excluded.link_kind
                            END",
-                        params![item_id, library_id, link_kind, item.created_at],
+                        params![existing_id, library_id, link_kind, item.created_at],
                     )
                     .map_err(|_| AppError::DatabaseError)?;
                 updated += 1;
+                *existing_id
             } else {
                 transaction
                     .execute(
@@ -1402,6 +1441,52 @@ impl ItemRepository for Database {
                     .map_err(|_| AppError::DatabaseError)?;
                 existing_by_path.insert(item.file_path.clone(), (item_id, false));
                 created += 1;
+                item_id
+            };
+
+            if item.file_type == "markdown" {
+                // 增量刷新：只有新增、item_content 缺失或文件元数据
+                // （高精度 mtime / file_size）变化的 Markdown 才重新读取/渲染；
+                // 未变化文件跳过，避免每次扫描都重复 render_markdown_as_html_for_file
+                // （一次扫描末尾统一 rebuild FTS 一次）。
+                let needs_refresh = match existing_content_meta.get(&item_id) {
+                    None => true,
+                    Some((stored_modified_at, stored_file_size, has_content)) => {
+                        !has_content
+                            || stored_modified_at != &item.modified_at
+                            || stored_file_size != &item.file_size
+                    }
+                };
+                if needs_refresh {
+                    if let Ok(raw) = fs::read_to_string(&item.file_path) {
+                        let summary = markdown_summary(&raw);
+                        let hash = content_hash(&raw);
+                        let rendered = render_markdown_as_html_for_file(&raw, &item.file_name);
+                        transaction
+                            .execute(
+                                "UPDATE items SET summary = ?2, file_hash = ?3 WHERE id = ?1",
+                                params![item_id, summary, hash],
+                            )
+                            .map_err(|_| AppError::DatabaseError)?;
+                        transaction
+                            .execute(
+                                "INSERT INTO item_content (
+                                    item_id, source_text, raw_text, rendered_cache, extracted_title, updated_at
+                                 ) VALUES (?1, ?2, ?3, ?4, NULL, ?5)
+                                 ON CONFLICT(item_id) DO UPDATE SET
+                                    source_text = excluded.source_text,
+                                    raw_text = excluded.raw_text,
+                                    rendered_cache = excluded.rendered_cache,
+                                    updated_at = excluded.updated_at",
+                                params![item_id, raw, raw, rendered, item.modified_at],
+                            )
+                            .map_err(|_| AppError::DatabaseError)?;
+                        existing_content_meta.insert(
+                            item_id,
+                            (item.modified_at.clone(), item.file_size, true),
+                        );
+                    }
+                }
             }
         }
 
@@ -2208,9 +2293,7 @@ fn normalize_keyword_query(keyword: Option<&str>) -> Option<String> {
     let keyword = keyword?;
     let tokens: Vec<String> = keyword
         .split_whitespace()
-        .map(|part| part.trim_matches('"').trim())
-        .filter(|part| !part.is_empty())
-        .map(|part| format!("{part}*"))
+        .map(|part| format!("\"{}\"*", part.replace('"', "\"\"")))
         .collect();
 
     if tokens.is_empty() {
@@ -2496,6 +2579,7 @@ mod tests {
 
     use super::{migrations, Database};
     use crate::{
+        commands::library::scan_library_once,
         db::repositories::{ItemRepository, LibraryRepository},
         models::{
             ArtifactCandidate, DiscoveryEvidence, DiscoveryReasonKind, IndexedItemRecord,
@@ -4028,5 +4112,307 @@ mod tests {
         assert_eq!(content_match.items[0].file_name, "alpha.md");
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn normalize_keyword_query_escapes_fst_literals() {
+        use super::normalize_keyword_query;
+
+        assert_eq!(
+            normalize_keyword_query(Some("revision-alpha")),
+            Some("\"revision-alpha\"*".to_string())
+        );
+        assert_eq!(
+            normalize_keyword_query(Some("foo\"bar")),
+            Some("\"foo\"\"bar\"*".to_string())
+        );
+        assert_eq!(
+            normalize_keyword_query(Some("AND")),
+            Some("\"AND\"*".to_string())
+        );
+        assert_eq!(
+            normalize_keyword_query(Some("项目来源验收甲号")),
+            Some("\"项目来源验收甲号\"*".to_string())
+        );
+        assert_eq!(
+            normalize_keyword_query(Some("foo bar")),
+            Some("\"foo\"* \"bar\"*".to_string())
+        );
+        assert_eq!(
+            normalize_keyword_query(Some("revision")),
+            Some("\"revision\"*".to_string())
+        );
+        assert_eq!(normalize_keyword_query(None), None);
+        assert_eq!(normalize_keyword_query(Some("   ")), None);
+    }
+
+    #[test]
+    fn database_keyword_search_treats_special_terms_as_literals() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+        database
+            .upsert_library(sample_library(1, "/tmp/clips", "folder"))
+            .expect("library should be inserted");
+
+        let item = |library_id: i64, file_path: &str, file_type: &str, file_ext: &str| {
+            IndexedItemRecord {
+                library_id,
+                file_path: file_path.to_string(),
+                relative_path: file_path.rsplit('/').next().unwrap_or(file_path).to_string(),
+                file_name: file_path.rsplit('/').next().unwrap_or(file_path).to_string(),
+                file_ext: file_ext.to_string(),
+                file_type: file_type.to_string(),
+                file_size: 1,
+                modified_at: "1".to_string(),
+                created_at: "now".to_string(),
+                updated_at: "now".to_string(),
+            }
+        };
+
+        database
+            .replace_items_for_library(
+                1,
+                &[
+                    item(1, "/tmp/clips/search-revision-alpha.md", "markdown", "md"),
+                    item(1, "/tmp/clips/search-revision-beta.md", "markdown", "md"),
+                    item(1, "/tmp/clips/search-shared-card.html", "html", "html"),
+                ],
+            )
+            .expect("items should be inserted");
+
+        let hits = |keyword: &str| {
+            database
+                .list_items(&ListItemsQuery {
+                    library_id: Some(1),
+                    keyword: Some(keyword.to_string()),
+                    ..ListItemsQuery::default()
+                })
+                .map(|page| {
+                    page.items
+                        .iter()
+                        .map(|item| item.file_name.clone())
+                        .collect::<Vec<_>>()
+                })
+        };
+
+        assert_eq!(
+            hits("revision-alpha").expect("hyphenated literal must not raise a syntax error"),
+            vec!["search-revision-alpha.md".to_string()]
+        );
+        assert_eq!(
+            hits("revision-beta").expect("hyphenated literal must not raise a syntax error"),
+            vec!["search-revision-beta.md".to_string()]
+        );
+        assert_eq!(
+            hits("shared-card").expect("hyphenated literal must not raise a syntax error"),
+            vec!["search-shared-card.html".to_string()]
+        );
+
+        assert!(hits("AND").is_ok(), "reserved words must be treated as literals");
+        assert!(hits("NOT OR NEAR").is_ok(), "reserved words must be treated as literals");
+        assert!(hits("foo\"bar").is_ok(), "embedded quotes must be escaped");
+        assert!(hits("项目来源验收甲号").is_ok(), "Chinese text must be treated as a literal");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn scan_refreshes_markdown_content_without_opening() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nutbook-scan-content-{nanos}"));
+        fs::create_dir_all(&dir).expect("dir");
+        let file_path = dir.join("note.md");
+        fs::write(&file_path, "# 项目来源验收甲号 alpha").expect("write");
+
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        database
+            .upsert_library(sample_library(1, dir.to_str().expect("utf8"), "folder"))
+            .expect("library");
+
+        let record = |file_path: &std::path::Path, modified_at: &str| IndexedItemRecord {
+            library_id: 1,
+            file_path: file_path.to_string_lossy().into_owned(),
+            relative_path: "note.md".to_string(),
+            file_name: "note.md".to_string(),
+            file_ext: "md".to_string(),
+            file_type: "markdown".to_string(),
+            file_size: 1,
+            modified_at: modified_at.to_string(),
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+
+        database
+            .replace_items_for_library(1, &[record(&file_path, "1")])
+            .expect("first scan");
+
+        let hit = |keyword: &str| {
+            database
+                .list_items(&ListItemsQuery {
+                    library_id: Some(1),
+                    keyword: Some(keyword.to_string()),
+                    ..ListItemsQuery::default()
+                })
+                .map(|page| page.total)
+                .expect("search should work")
+        };
+
+        assert_eq!(hit("项目来源验收甲号"), 1, "scan must index Chinese body text without opening");
+        assert_eq!(hit("alpha"), 1, "scan must index English body text without opening");
+
+        // 文件内容与元数据都未变化：增量刷新必须跳过（不会读文件/重渲染），
+        // 旧内容仍然可搜。
+        database
+            .replace_items_for_library(1, &[record(&file_path, "1")])
+            .expect("unchanged rescan");
+        assert_eq!(hit("项目来源验收甲号"), 1, "unchanged file keeps its indexed content");
+
+        // 修改文件内容并改变 modified_at（模拟磁盘变更）：增量刷新必须重新
+        // 提取，新词出现、旧词消失，全程无需打开文件。
+        fs::write(&file_path, "# 项目来源验收乙号 beta").expect("rewrite");
+        database
+            .replace_items_for_library(1, &[record(&file_path, "2")])
+            .expect("second scan");
+
+        assert_eq!(hit("项目来源验收乙号"), 1, "rescan must surface the new Chinese term");
+        assert_eq!(hit("项目来源验收甲号"), 0, "the old Chinese term must no longer match");
+        assert_eq!(hit("beta"), 1, "the new English term must match");
+
+        let _ = std::fs::remove_file(&file_path);
+        let _ = std::fs::remove_dir(&dir);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn scan_library_once_refreshes_markdown_after_real_file_change() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nutbook-scan-once-{nanos}"));
+        fs::create_dir_all(&dir).expect("dir");
+        let file_path = dir.join("note.md");
+        fs::write(&file_path, "# 项目来源验收甲号 alpha").expect("write");
+
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        database
+            .upsert_library(sample_library(1, dir.to_str().expect("utf8"), "folder"))
+            .expect("library");
+
+        // 端到端路径：scan_library_once 会真实扫描目录、读文件元数据（mtime）
+        // 并调用 replace_items_for_library 做增量内容索引。
+        scan_library_once(&database, 1).expect("first scan");
+
+        let hit = |keyword: &str| {
+            database
+                .list_items(&ListItemsQuery {
+                    library_id: Some(1),
+                    keyword: Some(keyword.to_string()),
+                    ..ListItemsQuery::default()
+                })
+                .map(|page| page.total)
+                .expect("search should work")
+        };
+
+        assert_eq!(hit("项目来源验收甲号"), 1, "first scan indexes the initial body");
+        assert_eq!(hit("alpha"), 1, "first scan indexes English body text");
+
+        // 立即改写为相同字节长度的新词（"# 项目来源验收甲号 alpha" 与
+        // "# 项目来源验收乙号 betas" 均为 32 字节），file_size 不变；只有
+        // 高精度 mtime（秒.纳秒）会变化，增量刷新必须因此重新提取，
+        // 不要求打开文件。
+        fs::write(&file_path, "# 项目来源验收乙号 betas").expect("rewrite");
+
+        scan_library_once(&database, 1).expect("second scan");
+
+        assert_eq!(hit("项目来源验收乙号"), 1, "modified file surfaces the new term without opening");
+        assert_eq!(hit("项目来源验收甲号"), 0, "the old term disappears after modification");
+        assert_eq!(hit("betas"), 1, "the new English term matches after modification");
+
+        // 未变化的文件再次扫描不应重复提取：再扫一次，内容保持一致。
+        scan_library_once(&database, 1).expect("third scan");
+        assert_eq!(hit("项目来源验收乙号"), 1, "idempotent rescan keeps the indexed content");
+
+        let _ = std::fs::remove_file(&file_path);
+        let _ = std::fs::remove_dir(&dir);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn scan_keeps_shared_item_as_one_item_across_sources() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nutbook-shared-{nanos}"));
+        fs::create_dir_all(&dir).expect("dir");
+        let file_path = dir.join("shared.md");
+        fs::write(&file_path, "# shared 项目来源验收甲号").expect("write");
+
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database");
+        let root = dir.to_str().expect("utf8");
+        database
+            .upsert_library(sample_library(1, root, "folder"))
+            .expect("folder source");
+        database
+            .upsert_library(sample_library(2, root, "agent_project"))
+            .expect("Agent source at same root");
+
+        let record = |library_id: i64, file_path: &std::path::Path| IndexedItemRecord {
+            library_id,
+            file_path: file_path.to_string_lossy().into_owned(),
+            relative_path: "shared.md".to_string(),
+            file_name: "shared.md".to_string(),
+            file_ext: "md".to_string(),
+            file_type: "markdown".to_string(),
+            file_size: 1,
+            modified_at: "1".to_string(),
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+
+        database
+            .replace_items_for_library(1, &[record(1, &file_path)])
+            .expect("folder scan");
+
+        {
+            let connection = database.connection().expect("connection");
+            connection
+                .execute(
+                    "INSERT INTO item_sources (
+                       item_id, library_id, link_kind, is_owner, created_at
+                     ) VALUES (
+                       (SELECT id FROM items WHERE file_path = ?1 AND is_deleted = 0),
+                       2, 'discovered', 0, 'now'
+                     )",
+                    params![file_path.to_string_lossy().into_owned()],
+                )
+                .expect("Agent non-owner source");
+        }
+
+        let hit = |library_id: Option<i64>| {
+            database
+                .list_items(&ListItemsQuery {
+                    library_id,
+                    keyword: Some("项目来源验收甲号".to_string()),
+                    ..ListItemsQuery::default()
+                })
+                .map(|page| page.total)
+                .expect("search should work")
+        };
+
+        assert_eq!(hit(None), 1, "a shared item must dedupe in a global search");
+        assert_eq!(hit(Some(1)), 1, "the owner source must see the shared item");
+        assert_eq!(hit(Some(2)), 1, "the non-owner source must see the shared item");
+
+        let _ = std::fs::remove_file(&file_path);
+        let _ = std::fs::remove_dir(&dir);
+        let _ = std::fs::remove_file(&path);
     }
 }

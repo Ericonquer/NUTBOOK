@@ -6,8 +6,8 @@ use tauri::Manager;
 use crate::{
     core::{
         document::{
-            content_hash, load_document_payload, markdown_document_title, markdown_summary,
-            render_markdown_as_html_for_file,
+            content_hash, file_modified_at_string, load_document_payload, markdown_document_title,
+            markdown_summary, render_markdown_as_html_for_file,
         },
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
@@ -480,10 +480,8 @@ pub(crate) fn save_markdown_content_impl(
     let rendered_html = render_markdown_as_html_for_file(&written_raw, &item.summary.file_name);
     let summary = markdown_summary(&written_raw);
     let modified_at = std::fs::metadata(&item.summary.file_path)
-        .and_then(|metadata| metadata.modified())
         .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs().to_string())
+        .and_then(|metadata| file_modified_at_string(&metadata).ok())
         .unwrap_or_else(|| item.summary.modified_at.clone());
 
     state.update_markdown_item_content(

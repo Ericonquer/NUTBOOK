@@ -766,8 +766,8 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /const isMarkdownEditorKeyEvent = Boolean\(event\.target\?\.closest\?\.\("\.milkdown-editor-root \.ProseMirror"\)\);[\s\S]*?if \(isMarkdownEditorKeyEvent\) return;/,
-  "global keyboard shortcuts must leave ordinary Milkdown typing entirely to the editor"
+  /const isMarkdownEditorKeyEvent = Boolean\(event\.target\?\.closest\?\.\("\.milkdown-editor-root \.ProseMirror"\)\);[\s\S]*?if \(isMarkdownEditorKeyEvent\) return;[\s\S]*?const altKeyChanged = appState\.altKeyPressed !== event\.altKey;[\s\S]*?appState\.altKeyPressed = event\.altKey;[\s\S]*?viewerToolbarState\(\);[\s\S]*?if \(altKeyChanged && appState\.homeTabOpen && !getActiveTab\(\)\) \{[\s\S]*?renderItems\(\);/,
+  "global keyboard shortcuts must only re-render the item list when the Alt state actually changes, never on every keystroke"
 );
 assert.match(
   markdownEditor,
@@ -1390,5 +1390,109 @@ for (const [label, readme] of [["English", readmeEnglish], ["Chinese", readmeChi
     `${label} README must align the body NUTBOOK heading below the icon without treating the host title as editable content`
   );
 }
+
+// Search (Task A0.1): live debounced search, IME, recordHistory contract, failure rollback, empty states.
+const searchFunctions = indexFunctionSection("getSearchKeyword", "searchPlaceholderValues");
+assert.match(searchFunctions, /return appState\.appliedSearch/, "the applied query must come from explicit state");
+assert.doesNotMatch(searchFunctions, /els\.(?:searchInput|homeSearchInput)\?\.value/, "the applied query must not be reconstructed from the live input DOM");
+assert.match(
+  searchFunctions,
+  /async function applySearch\(query\)[\s\S]*?const keyword = normalizeSearchKeyword\(query\)[\s\S]*?const previousApplied = appState\.appliedSearch[\s\S]*?appState\.appliedSearch = keyword[\s\S]*?loadItems\(\{ skipFilesystemSync: true \}\)[\s\S]*?if \(ok === false && appState\.appliedSearch === keyword\)[\s\S]*?appState\.appliedSearch = previousApplied/,
+  "a genuinely failed query (empty or non-empty) must roll the applied search back; a stale request must never roll back and search must never await the filesystem sync"
+);
+assert.match(
+  indexHtml,
+  /async function loadItems\(options = \{\}\)[\s\S]*?const \{ skipFilesystemSync = false \} = options[\s\S]*?!skipFilesystemSync[\s\S]*?await maybeSyncFilesystemState\(\)[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"[\s\S]*?return true[\s\S]*?catch \(error\)[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"/,
+  "loadItems must distinguish a stale (superseded) request from a real failure"
+);
+assert.match(
+  searchFunctions,
+  /function executeSearch\(query, \{ recordHistory \} = \{\}\)[\s\S]*?applySearch\(query\)/,
+  "search must route through a single executeSearch(query, { recordHistory }) entry point"
+);
+assert.doesNotMatch(
+  searchFunctions,
+  /scheduleSearch\([\s\S]*?applySearch\(|handleSearchInput\([\s\S]*?applySearch\(/,
+  "live search and clearing must route through executeSearch, never call applySearch directly, keeping a single record point for A2"
+);
+assert.match(
+  searchFunctions,
+  /function scheduleSearch\(input\)[\s\S]*?const query = input\.value[\s\S]*?clearTimeout\(searchDebounceTimer\)[\s\S]*?setTimeout\(\(\) => \{[\s\S]*?executeSearch\(query, \{ recordHistory: false \}\)[\s\S]*?\}, 200\)/,
+  "live search must debounce input by 200ms, capture the query snapshot, and route through executeSearch with recordHistory=false"
+);
+assert.match(
+  searchFunctions,
+  /function handleSearchInput\(input\)[\s\S]*?const rawValue = input\.value[\s\S]*?appState\.searchDraft = rawValue[\s\S]*?syncSearchInputs\(rawValue\)[\s\S]*?!rawValue\.trim\(\)[\s\S]*?clearTimeout\(searchDebounceTimer\)[\s\S]*?if \(appState\.appliedSearch\)[\s\S]*?executeSearch\("", \{ recordHistory: false \}\)[\s\S]*?scheduleSearch\(input\)/,
+  "clearing must unconditionally cancel any pending debounce, run an immediate empty query only when a search is applied, and otherwise keep the current full list"
+);
+assert.match(
+  indexHtml,
+  /searchDraft: ""[\s\S]*?appliedSearch: ""[\s\S]*?searchEpoch: 0/,
+  "search must maintain explicit draft, applied, and epoch state"
+);
+assert.match(
+  indexHtml,
+  /addEventListener\("compositionstart"[\s\S]*?isComposingSearch = true[\s\S]*?addEventListener\("compositionend"[\s\S]*?isComposingSearch = false[\s\S]*?handleSearchInput\(input\)/,
+  "IME composition must suppress live search until compositionend"
+);
+assert.match(
+  indexHtml,
+  /addEventListener\("input"[\s\S]*?if \(isComposingSearch\) return[\s\S]*?handleSearchInput\(input\)/,
+  "input must be ignored during IME composition"
+);
+assert.match(
+  indexHtml,
+  /addEventListener\("keydown"[\s\S]*?event\.key !== "Enter"\) return[\s\S]*?event\.isComposing \|\| isComposingSearch[\s\S]*?return[\s\S]*?executeSearch\(input\.value, \{ recordHistory: true \}\)/,
+  "Enter must execute immediately with recordHistory, skipping the IME-confirming Enter"
+);
+assert.match(
+  indexHtml,
+  /async function loadItems\(options = \{\}\)[\s\S]*?const \{ skipFilesystemSync = false \} = options[\s\S]*?const searchEpoch = \+\+appState\.searchEpoch[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"[\s\S]*?appState\.items = sortItemsInPlace[\s\S]*?return true[\s\S]*?catch \(error\)[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"/,
+  "only the latest search request may update items and report success"
+);
+assert.match(
+  indexHtml,
+  /const hasActiveSearch = Boolean\(appState\.appliedSearch\)[\s\S]*?t\("home\.noSearchResults"\)[\s\S]*?t\("home\.noSearchResultsHint"\)[\s\S]*?const showAddButton =[\s\S]*?!hasActiveSearch/,
+  "search zero-results and an empty library must use distinct empty states and actions"
+);
+assert.match(
+  i18n,
+  /noSearchResults: "没有匹配的文件"[\s\S]*?noSearchResultsHint: "换个关键词试试。"[\s\S]*?noSearchResults: "No matching files"[\s\S]*?noSearchResultsHint: "Try a different search term\."/,
+  "search empty-state copy must exist in both localization dictionaries"
+);
+
+// Typing a single character and clearing it within the 200ms debounce window
+// must cancel the pending timer instead of firing a stale one-character search.
+assert.match(
+  searchFunctions,
+  /function handleSearchInput\(input\)[\s\S]*?!rawValue\.trim\(\)[\s\S]*?clearTimeout\(searchDebounceTimer\)[\s\S]*?if \(appState\.appliedSearch\)[\s\S]*?executeSearch\("", \{ recordHistory: false \}\)[\s\S]*?return[\s\S]*?scheduleSearch\(input\)/,
+  "typing a character then clearing inside the 200ms window must cancel the pending debounce and keep the current full list"
+);
+
+// Search diagnostics must not leak into the shipped frontend.
+assert.doesNotMatch(
+  indexHtml,
+  /logSearchDebug|append_search_debug_log|nutbook-search-debug\.log/,
+  "search diagnostics must be fully removed from the frontend before shipping"
+);
+
+// Multi-library watching: the single-active-library watcher guard must be gone,
+// and the frontend must reconcile watchers for every valid folder/file source
+// via the backend sync command (which also schedules a background catch-up scan).
+assert.doesNotMatch(
+  indexHtml,
+  /watcherStartedForLibraryId/,
+  "the single-active-library watcher guard must not exist; all valid folder/file sources are watched together"
+);
+assert.match(
+  indexHtml,
+  /async function ensureWatcher\(\)[\s\S]*?invoke\("sync_library_watchers"\)/,
+  "the frontend must reconcile watchers through sync_library_watchers, never watch a single active library"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /invoke\("watch_library"[\s\S]*?appState\.activeLibraryId/,
+  "the frontend must not start a watcher for only the active library"
+);
 
 console.log("Nutbook regression guards passed.");

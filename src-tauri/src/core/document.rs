@@ -914,6 +914,23 @@ pub fn content_hash(raw: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// 文件 modified_at 的统一序列化格式。
+///
+/// 使用 `${seconds}.${nanoseconds 九位补零}`（例如 `1755123456.123456789`），
+/// 而不是 19 位纳秒整数：后者超出 JS Number 安全整数范围，前端
+/// `formatTimestamp(value * 1000)` 会溢出。秒.纳秒小数形式既保留高精度
+/// （同一秒内的修改也能区分），又能被前端安全解析为毫秒。
+///
+/// scanner（扫描索引）、Markdown 打开刷新、Markdown 保存三处必须全部使用
+/// 此 helper，避免秒级/高精度值在读写之间来回振荡。
+pub fn file_modified_at_string(metadata: &fs::Metadata) -> Result<String, AppError> {
+    let modified = metadata.modified().map_err(|_| AppError::IoError)?;
+    let duration = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| AppError::IoError)?;
+    Ok(format!("{}.{:09}", duration.as_secs(), duration.subsec_nanos()))
+}
+
 pub fn load_document_payload(
     item: &ItemDetail,
     html_preview_url: impl FnOnce(&std::path::Path) -> String,

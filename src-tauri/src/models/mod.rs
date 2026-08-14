@@ -45,6 +45,7 @@ pub use item::{
     SetHtmlRuntimeControlsOverlayVisibilityRequest,
     SetHtmlRuntimeHostVisibilityRequest, ThumbnailInfo, ThumbnailBackendStatusPayload,
     ToggleFavoriteRequest, WatchLibraryRequest, WatchLibraryResponse, ExportMarkdownRequest,
+    SyncLibraryWatchersResponse,
 };
 pub use library::Library;
 pub use nbskill::{InstallNbskillAgentsRequest, NbskillAgentStatus, NbskillInstallResult};

@@ -6303,6 +6303,9 @@
         browseMode: "all",
         homeTabOpen: true,
         sortMode: "modifiedAtDesc",
+        searchDraft: "",
+        appliedSearch: "",
+        searchEpoch: 0,
         settingsTab: "skills",
         settingsArtifactSection: "projects",
         settingsLibrarySection: "folders",
@@ -6348,7 +6351,6 @@
         thumbnailQueueActive: false,
         lastFilesystemSyncAt: 0,
         filesystemSyncInFlight: null,
-        watcherStartedForLibraryId: null,
         refreshTimer: null,
         activeHtmlRuntimeUrl: null,
         activeRuntimeHostId: null,
@@ -10422,9 +10424,58 @@
       }
 
       function getSearchKeyword() {
-        const homeKeyword = normalizeSearchKeyword(els.homeSearchInput?.value || "");
-        const sidebarKeyword = normalizeSearchKeyword(els.searchInput?.value || "");
-        return homeKeyword || sidebarKeyword;
+        return appState.appliedSearch;
+      }
+
+      let searchDebounceTimer = null;
+      let isComposingSearch = false;
+
+      async function applySearch(query) {
+        const keyword = normalizeSearchKeyword(query);
+        const previousApplied = appState.appliedSearch;
+        appState.appliedSearch = keyword;
+        // 搜索请求永不等待文件系统同步：sync 可能耗时数百毫秒，且由 autoRefresh
+        // （~2.5s 周期）与手动扫描负责，阻塞搜索只会让输入/删除逐字卡顿。
+        const ok = await loadItems({ skipFilesystemSync: true });
+        // 只有「真失败」（异常/后端错误，含空查询）才回滚；被更新请求淘汰
+        // （epoch 过期）返回 "stale"，此时状态已由新请求接管，绝不能回滚。
+        if (ok === false && appState.appliedSearch === keyword) {
+          appState.appliedSearch = previousApplied;
+        }
+        return ok === false ? false : true;
+      }
+
+      function executeSearch(query, { recordHistory } = {}) {
+        // 唯一搜索入口：Enter 触发 recordHistory=true（A2 最近搜索历史据此记录），
+        // 实时防抖搜索与清空均为 recordHistory=false。任何搜索路径都必须经由
+        // 本函数，不得直接调用 applySearch，为 A2 保留单一记录点。
+        return applySearch(query);
+      }
+
+      function scheduleSearch(input) {
+        // 捕获查询字符串快照：timer 到期后不得再读取 input.value，
+        // 避免 200ms 内输入框被清空/改写导致过期值被意外执行。
+        const query = input.value;
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+          executeSearch(query, { recordHistory: false });
+        }, 200);
+      }
+
+      function handleSearchInput(input) {
+        const rawValue = input.value;
+        appState.searchDraft = rawValue;
+        syncSearchInputs(rawValue);
+        if (!rawValue.trim()) {
+          // 无条件取消未触发的 debounce：若此前只有尚未生效的输入，
+          // 保持当前结果（不再等 200ms）；若已有生效搜索则立即空查询恢复全量。
+          clearTimeout(searchDebounceTimer);
+          if (appState.appliedSearch) {
+            executeSearch("", { recordHistory: false });
+          }
+          return;
+        }
+        scheduleSearch(input);
       }
 
       function searchPlaceholderValues() {
@@ -14293,17 +14344,22 @@
             renderBootLoadingState();
             return;
           }
-          const emptyTitle = appState.browseMode === "starred" ? t("home.noStarred") : appState.browseMode === "recent" ? t("home.noRecent") : t("home.noFiles");
-          const emptyBody = appState.browseMode === "starred"
-            ? t("home.starredHint")
-            : appState.browseMode === "recent"
-              ? t("home.recentHint")
-              : t("home.emptyHint");
+          const hasActiveSearch = Boolean(appState.appliedSearch);
+          const emptyTitle = hasActiveSearch
+            ? t("home.noSearchResults")
+            : appState.browseMode === "starred" ? t("home.noStarred") : appState.browseMode === "recent" ? t("home.noRecent") : t("home.noFiles");
+          const emptyBody = hasActiveSearch
+            ? t("home.noSearchResultsHint")
+            : appState.browseMode === "starred"
+              ? t("home.starredHint")
+              : appState.browseMode === "recent"
+                ? t("home.recentHint")
+                : t("home.emptyHint");
           const showAddButton =
+            !hasActiveSearch &&
             appState.browseMode === "all" &&
             !getFileTypeFilter() &&
-            !appState.activeTagFilterIds.length &&
-            !getSearchKeyword();
+            !appState.activeTagFilterIds.length;
           els.itemList.classList.add("empty-mode");
           els.itemList.innerHTML = `
             <div class="empty-state">
@@ -15345,6 +15401,9 @@
           renderSettingsPanel();
           await loadIgnoredItems();
           await loadDiscoveredArtifactSkills();
+          // 资料库集合可能变化（接入/删除/repair），同步全部有效来源的 watcher。
+          // 幂等：后端只为缺失的 library 建立监听并安排一次后台 catch-up scan。
+          await ensureWatcher();
         } catch (error) {
           setStatus(`加载资料库失败：${normalizeError(error)}`, "error");
         }
@@ -15438,18 +15497,22 @@
         }
       }
 
-      async function loadItems() {
+      async function loadItems(options = {}) {
+        const { skipFilesystemSync = false } = options;
+        const searchEpoch = ++appState.searchEpoch;
         appState.thumbnailQueueRunId += 1;
         appState.thumbnailQueueActive = false;
         if (!appState.libraries.length) {
           appState.items = [];
           renderItems();
           await loadIgnoredItems();
-          return;
+          return true;
         }
 
         try {
-          await maybeSyncFilesystemState();
+          if (!skipFilesystemSync) {
+            await maybeSyncFilesystemState();
+          }
           const sortConfig = currentSortConfig();
           const libraryId = appState.browseMode === "all" || appState.browseMode === "recent" || appState.browseMode === "starred"
             ? undefined
@@ -15465,12 +15528,18 @@
             sortBy: sortConfig.sortBy,
             sortOrder: sortConfig.sortOrder
           });
+          // 过期请求：一个更新的请求已经发起。不渲染、不报错，返回 "stale"
+          // 让调用方知道这不是失败，而是被取代——绝不能触发回滚。
+          if (searchEpoch !== appState.searchEpoch) return "stale";
           appState.items = sortItemsInPlace((result.items || []).map(normalizeItemSummary));
           renderItems();
           await loadIgnoredItems();
           ensureDocumentThumbnails(appState.items);
+          return true;
         } catch (error) {
+          if (searchEpoch !== appState.searchEpoch) return "stale";
           setStatus(statusError("status.listLoadFailedPrefix", error), "error");
+          return false;
         }
       }
 
@@ -15968,14 +16037,14 @@
       }
 
       async function ensureWatcher() {
-        if (!appState.isTauri || !appState.activeLibraryId) return;
-        if (appState.watcherStartedForLibraryId === appState.activeLibraryId) return;
-
+        // 多资料库监听：所有有效 folder/file 来源由后端统一启动 watcher，
+        // 并安排后台 catch-up scan 覆盖启动前/监听建立前的磁盘变更。
+        // 幂等调用；单个来源失败由后端记录 warning，不阻断其他来源。
+        if (!appState.isTauri) return;
         try {
-          await invoke("watch_library", { libraryId: appState.activeLibraryId });
-          appState.watcherStartedForLibraryId = appState.activeLibraryId;
+          await invoke("sync_library_watchers");
         } catch (error) {
-          setStatus(`启动监听失败：${normalizeError(error)}`, "warn");
+          setStatus(`同步文件监听失败：${normalizeError(error)}`, "warn");
         }
       }
 
@@ -16021,9 +16090,10 @@
           }
         }
         if (isMarkdownEditorKeyEvent) return;
+        const altKeyChanged = appState.altKeyPressed !== event.altKey;
         appState.altKeyPressed = event.altKey;
         viewerToolbarState();
-        if (appState.homeTabOpen && !getActiveTab()) {
+        if (altKeyChanged && appState.homeTabOpen && !getActiveTab()) {
           renderItems();
         }
         if ((event.key === "x" || event.key === "X") && event.altKey && !event.metaKey && !event.ctrlKey) {
@@ -16122,9 +16192,10 @@
       window.addEventListener("keyup", (event) => {
         if (event.isComposing || event.key === "Process") return;
         if (event.target?.closest?.(".milkdown-editor-root .ProseMirror")) return;
+        const altKeyChanged = appState.altKeyPressed !== event.altKey;
         appState.altKeyPressed = event.altKey;
         viewerToolbarState();
-        if (appState.homeTabOpen && !getActiveTab()) {
+        if (altKeyChanged && appState.homeTabOpen && !getActiveTab()) {
           renderItems();
         }
       });
@@ -16922,9 +16993,23 @@
         els.scanButton.addEventListener("click", scanLibrary);
         els.refreshListButton.addEventListener("click", scanLibrary);
         [els.searchInput, els.homeSearchInput].forEach((input) => {
-          input?.addEventListener("input", () => syncSearchInputs(input.value));
+          input?.addEventListener("compositionstart", () => {
+            isComposingSearch = true;
+          });
+          input?.addEventListener("compositionend", () => {
+            isComposingSearch = false;
+            handleSearchInput(input);
+          });
+          input?.addEventListener("input", () => {
+            if (isComposingSearch) return;
+            handleSearchInput(input);
+          });
           input?.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") loadItems();
+            if (event.key !== "Enter") return;
+            if (event.isComposing || isComposingSearch) return;
+            event.preventDefault();
+            clearTimeout(searchDebounceTimer);
+            executeSearch(input.value, { recordHistory: true });
           });
         });
         els.fileTypeSelect.addEventListener("change", loadItems);

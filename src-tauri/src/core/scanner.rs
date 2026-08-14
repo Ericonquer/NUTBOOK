@@ -1,10 +1,13 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
 };
 
-use crate::{errors::AppError, models::IndexedItemRecord};
+use crate::{
+    core::document::file_modified_at_string,
+    errors::AppError,
+    models::IndexedItemRecord,
+};
 
 fn is_supported_file(path: &Path) -> bool {
     path.extension()
@@ -22,12 +25,7 @@ fn file_type_for_extension(extension: &str) -> Option<&'static str> {
 }
 
 fn timestamp_string(metadata: &fs::Metadata) -> Result<String, AppError> {
-    let modified = metadata.modified().map_err(|_| AppError::IoError)?;
-    let seconds = modified
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| AppError::IoError)?
-        .as_secs();
-    Ok(seconds.to_string())
+    file_modified_at_string(metadata)
 }
 
 fn visit_dir(root: &Path, current: &Path, results: &mut Vec<PathBuf>) -> Result<(), AppError> {

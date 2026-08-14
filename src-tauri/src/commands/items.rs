@@ -1,5 +1,7 @@
 use crate::{
-    core::document::{content_hash, markdown_summary, render_markdown_as_html_for_file},
+    core::document::{
+        content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file,
+    },
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
@@ -10,15 +12,11 @@ use crate::{
     state::AppState,
 };
 use serde::Deserialize;
-use std::{fs, path::Path, time::UNIX_EPOCH};
+use std::{fs, path::Path};
 
 fn markdown_modified_at(path: &Path) -> Result<String, AppError> {
-    fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .map_err(|_| AppError::IoError)?
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .map_err(|_| AppError::IoError)
+    let metadata = fs::metadata(path).map_err(|_| AppError::IoError)?;
+    file_modified_at_string(&metadata)
 }
 
 pub(crate) fn get_item_detail_impl(

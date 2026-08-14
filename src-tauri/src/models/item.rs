@@ -485,5 +485,13 @@ pub struct WatchLibraryResponse {
     pub watching: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncLibraryWatchersResponse {
+    pub started: u64,
+    pub stopped: u64,
+    pub already: u64,
+}
+
 #[allow(dead_code)]
 fn _retain_import(_library: Library) {}

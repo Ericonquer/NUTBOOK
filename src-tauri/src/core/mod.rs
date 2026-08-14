@@ -9,6 +9,7 @@ pub mod library;
 pub mod local_server;
 pub mod nbskill_package;
 pub mod preview_protocol;
+pub mod scan_coordinator;
 pub mod scanner;
 pub mod skill_discovery;
 pub mod thumbnail;

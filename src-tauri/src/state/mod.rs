@@ -8,6 +8,8 @@ use std::{
 use notify::PollWatcher;
 
 use crate::{
+    core::scan_coordinator::ScanCoordinator,
+    core::watcher::build_library_watcher,
     db::{
         repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
         Database,
@@ -17,7 +19,7 @@ use crate::{
     models::{
         CreateTagRequest, DeleteTagResponse, GenerateThumbnailResponse, IgnoredItemSummary,
         IndexedItemRecord, ItemDetail, ItemSummary, Library, ListItemsQuery, PagedResult,
-        SetItemTagsResponse, Tag, ThumbnailInfo, UpdateTagRequest,
+        SetItemTagsResponse, SyncLibraryWatchersResponse, Tag, ThumbnailInfo, UpdateTagRequest,
         SyncFilesystemStateResponse,
     },
 };
@@ -25,6 +27,7 @@ use crate::{
 #[derive(Debug)]
 pub struct AppState {
     pub database: Database,
+    scan_coordinator: ScanCoordinator,
     local_content_server: LocalContentServer,
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<HashMap<i64, PollWatcher>>,
@@ -59,6 +62,7 @@ impl AppState {
         }
 
         Self {
+            scan_coordinator: ScanCoordinator::new(database.clone()),
             database,
             local_content_server,
             watched_libraries: Mutex::new(HashSet::new()),
@@ -107,6 +111,10 @@ impl AppState {
         }
 
         Ok(())
+    }
+
+    pub fn scan_coordinator(&self) -> &ScanCoordinator {
+        &self.scan_coordinator
     }
 
     pub fn update_settings(&self) -> Result<crate::models::UpdateSettings, AppError> {
@@ -159,7 +167,76 @@ impl AppState {
         Ok(self.active_watchers.lock().map_err(|_| AppError::InternalError)?.remove(&library_id).is_some())
     }
 
-    #[cfg(test)]
+    /// 把所有 path_state=valid 且 source_kind 为 folder/file 的资料库纳入监听：
+    /// - 为缺失的 watcher 启动监听（幂等）；
+    /// - 清理已删除/变 missing/agent_project 的 watcher；
+    /// - 对所有有效 folder/file 来源合并进 catch-up pending（同一 root 只做
+    ///   一次启动 catch-up，重复调用不重扫已完成来源），worker 持续 drain。
+    pub fn sync_library_watchers(&self) -> Result<SyncLibraryWatchersResponse, AppError> {
+        let libraries = self.list_libraries()?;
+        let expected: Vec<Library> = libraries
+            .into_iter()
+            .filter(|library| {
+                library.path_state == "valid"
+                    && (library.source_kind == "folder" || library.source_kind == "file")
+            })
+            .collect();
+        let expected_ids: HashSet<i64> = expected.iter().map(|library| library.id).collect();
+
+        let mut started = 0_u64;
+        let mut stopped = 0_u64;
+        let mut already = 0_u64;
+
+        // 1) 停止不再期望的 watcher（删除、路径失效、agent_project）。
+        let watched_ids: Vec<i64> = {
+            let watched = self
+                .watched_libraries
+                .lock()
+                .map_err(|_| AppError::InternalError)?;
+            watched.iter().copied().collect()
+        };
+        for library_id in watched_ids {
+            if !expected_ids.contains(&library_id) && self.unwatch_library(library_id)? {
+                stopped += 1;
+            }
+        }
+
+        // 2) 为每个有效 folder/file 启动 watcher（单个失败不阻断其他来源）。
+        for library in &expected {
+            if self.is_library_watched(library.id) {
+                already += 1;
+                continue;
+            }
+            match build_library_watcher(self.scan_coordinator.clone(), library.clone()) {
+                Ok(watcher) => {
+                    if self.watch_library(library.id, watcher)? {
+                        started += 1;
+                    }
+                }
+                Err(error) => {
+                    eprintln!(
+                        "Nutbook watcher start failed for library {} ({}): {error}",
+                        library.id, library.root_path
+                    );
+                }
+            }
+        }
+
+        // 3) 合并 catch-up 请求（worker 持续 drain；正在运行时新增来源不会丢；
+        //    同一 root 只做一次启动 catch-up）。
+        let sources = expected
+            .iter()
+            .map(|library| (library.id, library.root_path.clone()))
+            .collect::<Vec<_>>();
+        self.scan_coordinator.request_catch_up(&sources);
+
+        Ok(SyncLibraryWatchersResponse {
+            started,
+            stopped,
+            already,
+        })
+    }
+
     pub fn is_library_watched(&self, library_id: i64) -> bool {
         self.watched_libraries
             .lock()
@@ -321,7 +398,26 @@ impl LibraryRepository for AppState {
     }
 
     fn delete_library(&self, library_id: i64) -> Result<bool, AppError> {
-        self.database.delete_library(library_id)
+        // 与同 library 的在跑 scan / watcher 串行（per-library 锁），并持全局
+        // DB 写锁（与其他 library 的 scan/delete 互斥）：删除期间不允许任何
+        // 后台扫描继续写库。
+        let library_lock = self.scan_coordinator.library_lock(library_id);
+        let _guard = library_lock.lock().map_err(|_| AppError::InternalError)?;
+        let db_write_lock = self.scan_coordinator.db_write_lock();
+        let _db = db_write_lock.lock().map_err(|_| AppError::InternalError)?;
+
+        let deleted = self.database.delete_library(library_id)?;
+        if deleted {
+            // 删除成功后，watcher cleanup 只能是 best-effort：unwatch/cancel
+            // 失败仅记录 warning，绝不把已成功的数据库删除变成失败。
+            if self.unwatch_library(library_id).is_err() {
+                eprintln!("Nutbook watcher cleanup failed for deleted library {library_id}");
+            }
+            self.scan_coordinator.cancel_catch_up(library_id);
+        }
+        // 删除失败（false 或 Err）：watcher 保持不动，仍存在的 library 不会
+        // 永久失去监听。
+        Ok(deleted)
     }
 }
 

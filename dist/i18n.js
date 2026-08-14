@@ -263,6 +263,8 @@
         starredHint: "给文件点一下星标，收藏的文件就会出现在这里。",
         recentHint: "打开过的文件会自动出现在这里。",
         emptyHint: "扫描 skill 产物或添加资料库，文件列表就会出现在这里",
+        noSearchResults: "没有匹配的文件",
+        noSearchResultsHint: "换个关键词试试。",
         demoHint: "最小可见 demo：资料库 -> 扫描 -> 列表 -> 标签页 -> 查看 / 保存",
         welcomeHint: "左边扫描后点开任意 Markdown 或 HTML，就能看到第一版 demo 的主工作区。",
         fileTypeAll: "全部类型"
@@ -774,6 +776,8 @@
         starredHint: "Star files and they will appear here.",
         recentHint: "Files you open will appear here automatically.",
         emptyHint: "Scan skill outputs or add a library to populate the file list.",
+        noSearchResults: "No matching files",
+        noSearchResultsHint: "Try a different search term.",
         demoHint: "Minimal demo: Library -> Scan -> List -> Tabs -> View / Save",
         welcomeHint: "Scan from the left, then open any Markdown or HTML file to see the first workspace view.",
         fileTypeAll: "All Types"

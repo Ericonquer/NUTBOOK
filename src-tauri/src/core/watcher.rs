@@ -8,14 +8,13 @@ use std::{
 use notify::{Config, Event, PollWatcher, RecursiveMode, Watcher};
 
 use crate::{
-    commands::library::scan_library_once,
-    db::Database,
+    core::scan_coordinator::ScanCoordinator,
     errors::AppError,
     models::Library,
 };
 
 pub fn build_library_watcher(
-    database: Database,
+    coordinator: ScanCoordinator,
     library: Library,
 ) -> Result<PollWatcher, AppError> {
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
@@ -41,10 +40,13 @@ pub fn build_library_watcher(
         .watch(&root_path, recursive_mode)
         .map_err(|_| AppError::IoError)?;
 
+    let coordinator_for_scan = coordinator;
     thread::spawn(move || {
         while rx.recv().is_ok() {
             while rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
-            let _ = scan_library_once(&database, library.id);
+            // watcher 触发的扫描同样经过 ScanCoordinator 的 per-library 锁，
+            // 与 catch-up / delete / repair 对同一 library 串行。
+            let _ = coordinator_for_scan.run_scan(library.id);
         }
     });
 

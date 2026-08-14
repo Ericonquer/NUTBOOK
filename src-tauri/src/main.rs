@@ -259,6 +259,7 @@ fn main() {
             commands::library::select_library,
             commands::library::scan_library,
             commands::library::watch_library,
+            commands::library::sync_library_watchers,
             commands::skills::list_discovered_artifact_skills,
             commands::skills::exclude_skill_from_nutbook,
             commands::skills::restore_excluded_skill,
