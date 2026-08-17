@@ -3,7 +3,7 @@ pub mod migrations;
 pub mod repositories;
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -23,9 +23,9 @@ use crate::{
     errors::AppError,
     models::{
         ArtifactCandidate, ArtifactCandidateGroupSummary, CreateTagRequest, DeleteTagResponse,
-        GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord, ItemDetail, ItemSummary,
-        Library, ListItemsQuery, PagedResult, SetItemTagsResponse, SkillBindingSummary, Tag,
-        ThumbnailInfo, UpdateTagRequest,
+        GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord, ItemDetail,
+        ItemSourceBadge, ItemSummary, Library, ListItemsQuery, PagedResult, SetItemTagsResponse,
+        SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
     },
 };
 
@@ -203,7 +203,87 @@ impl Database {
                 ",
             )
             .map_err(|_| AppError::DatabaseError)?;
+        // A1.1-PERF：把历史 base64 缩略图迁移为文件路径（幂等）。
+        // 对应缓存文件已存在 → 只改数据库路径；缺失 → 清空路径并标 stale 由队列重新生成。
+        Self::migrate_base64_thumbnails(&connection, &self.path)?;
         Ok(())
+    }
+
+    /// A1.1-PERF：把 thumbnail_cache 中的 data:image base64 路径迁移为绝对文件路径。
+    /// 幂等：只处理 thumb_path LIKE 'data:image/%' 的行；缓存文件存在则改路径，
+    /// 不存在则清空路径并标 stale（由缩略图队列重新生成）。
+    /// 不重新解码 base64 写文件（对应缓存文件已存在），不删除仍有效的缓存文件。
+    fn migrate_base64_thumbnails(
+        connection: &Connection,
+        db_path: &Path,
+    ) -> Result<usize, AppError> {
+        let rows = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT item_id, thumb_path
+                     FROM thumbnail_cache
+                     WHERE thumb_path LIKE 'data:image/%'",
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let collected = statement
+                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+                .map_err(|_| AppError::DatabaseError)?;
+            collected
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        // 缓存目录 = <db 目录>/.cache/thumbnails（与 thumbnail_cache_dir 一致）
+        let cache_dir = db_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(".cache")
+            .join("thumbnails");
+
+        let mut migrated = 0usize;
+        for (item_id, thumb_path) in rows {
+            let extension = if thumb_path.starts_with("data:image/svg") {
+                "svg"
+            } else if thumb_path.starts_with("data:image/png") {
+                "png"
+            } else if thumb_path.starts_with("data:image/jpeg") || thumb_path.starts_with("data:image/jpg") {
+                "jpg"
+            } else if thumb_path.starts_with("data:image/webp") {
+                "webp"
+            } else {
+                // 未知 mime，无法推断扩展名：标 stale 重新生成
+                connection
+                    .execute(
+                        "UPDATE thumbnail_cache SET thumb_path = '', thumb_status = 'stale' WHERE item_id = ?1",
+                        params![item_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                migrated += 1;
+                continue;
+            };
+            let cached = cache_dir.join(format!("item-{item_id}.{extension}"));
+            if cached.exists() {
+                let absolute = cached.to_string_lossy().to_string();
+                connection
+                    .execute(
+                        "UPDATE thumbnail_cache SET thumb_path = ?1, thumb_status = 'ready' WHERE item_id = ?2 AND thumb_path LIKE 'data:image/%'",
+                        params![absolute, item_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                migrated += 1;
+            } else {
+                connection
+                    .execute(
+                        "UPDATE thumbnail_cache SET thumb_path = '', thumb_status = 'stale' WHERE item_id = ?1 AND thumb_path LIKE 'data:image/%'",
+                        params![item_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                migrated += 1;
+            }
+        }
+        Ok(migrated)
     }
 
     fn connection(&self) -> Result<Connection, AppError> {
@@ -292,6 +372,287 @@ impl Database {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|_| AppError::DatabaseError)
+    }
+
+    /// 批量装配一批 item 的来源徽标（project | skill），一次查询全部来源，
+    /// 禁止逐 item / 逐卡执行来源查询（避免 N+1）。
+    ///
+    /// Project 只读取 item_sources → libraries(source_kind='agent_project')：
+    /// source_id = project:<library_id>，label 优先 libraries.name，name 为空
+    /// 才回退 root basename；按 is_owner DESC, library_id ASC 排序。
+    /// Skill 只读取 item 全部来源库的 library_skill_bindings：
+    /// source_id = skill:<normalized_name>，label 用 display_name；owner binding
+    /// 优先，再按 normalized_name 稳定排序；同一 source_id 只返回一个 badge。
+    /// 不推断 item_provenance.skill_*、路径或文件名。
+    /// relation 删除后 badge 消失；relation 仍在但来源 missing/inactive 时
+    /// available=false。
+    fn load_source_badges_batch(
+        connection: &Connection,
+        item_ids: &[i64],
+    ) -> Result<HashMap<i64, Vec<ItemSourceBadge>>, AppError> {
+        let mut badges: HashMap<i64, Vec<ItemSourceBadge>> = HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(badges);
+        }
+        let placeholders = vec!["?"; item_ids.len()].join(", ");
+
+        // Project 来源：批量一条 SQL。
+        {
+            let sql = format!(
+                "SELECT src.item_id, l.id, l.name, l.root_path,
+                        l.path_state, l.is_active, src.is_owner
+                 FROM item_sources src
+                 INNER JOIN libraries l ON l.id = src.library_id
+                 WHERE src.item_id IN ({placeholders})
+                   AND l.source_kind = 'agent_project'
+                 ORDER BY src.item_id, src.is_owner DESC, l.id ASC"
+            );
+            let mut statement = connection
+                .prepare(&sql)
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
+                    let item_id: i64 = row.get(0)?;
+                    let library_id: i64 = row.get(1)?;
+                    let name: Option<String> = row.get(2)?;
+                    let root_path: String = row.get(3)?;
+                    let path_state: String = row.get(4)?;
+                    let is_active: i64 = row.get(5)?;
+                    let is_owner: i64 = row.get(6)?;
+                    let label = match name {
+                        Some(name) if !name.trim().is_empty() => name,
+                        _ => std::path::Path::new(&root_path)
+                            .file_name()
+                            .map(|value| value.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| root_path.clone()),
+                    };
+                    Ok((
+                        item_id,
+                        ItemSourceBadge {
+                            kind: "project".to_string(),
+                            source_id: format!("project:{library_id}"),
+                            label,
+                            is_owner: is_owner != 0,
+                            available: path_state == "valid" && is_active != 0,
+                        },
+                    ))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            for row in rows {
+                let (item_id, badge) = row.map_err(|_| AppError::DatabaseError)?;
+                badges.entry(item_id).or_default().push(badge);
+            }
+        }
+
+        // Skill 来源：批量一条 SQL；同一 item 同一 source_id 只保留第一个
+        // （owner binding 优先，再按 normalized_name 稳定排序）。
+        {
+            let sql = format!(
+                "SELECT src.item_id, lbs.normalized_name, lbs.display_name,
+                        l.path_state, l.is_active, src.is_owner
+                 FROM item_sources src
+                 INNER JOIN library_skill_bindings lbs ON lbs.library_id = src.library_id
+                 INNER JOIN libraries l ON l.id = src.library_id
+                 WHERE src.item_id IN ({placeholders})
+                 ORDER BY src.item_id, src.is_owner DESC, lbs.normalized_name ASC"
+            );
+            let mut statement = connection
+                .prepare(&sql)
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
+                    let item_id: i64 = row.get(0)?;
+                    let normalized_name: String = row.get(1)?;
+                    let display_name: String = row.get(2)?;
+                    let path_state: String = row.get(3)?;
+                    let is_active: i64 = row.get(4)?;
+                    let is_owner: i64 = row.get(5)?;
+                    Ok((
+                        item_id,
+                        ItemSourceBadge {
+                            kind: "skill".to_string(),
+                            source_id: format!("skill:{normalized_name}"),
+                            label: display_name,
+                            is_owner: is_owner != 0,
+                            available: path_state == "valid" && is_active != 0,
+                        },
+                    ))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            for row in rows {
+                let (item_id, badge) = row.map_err(|_| AppError::DatabaseError)?;
+                let entry = badges.entry(item_id).or_default();
+                if !entry.iter().any(|existing| existing.source_id == badge.source_id) {
+                    entry.push(badge);
+                }
+            }
+        }
+
+        Ok(badges)
+    }
+
+    /// 批量装配一批 item 的 skill_binding（按 library_id 去重后一次查询），
+    /// 禁止逐 item 查 binding（避免 list_items N+1）。
+    fn load_skill_bindings_batch(
+        connection: &Connection,
+        item_ids: &[i64],
+    ) -> Result<HashMap<i64, Option<SkillBindingSummary>>, AppError> {
+        let mut result: HashMap<i64, Option<SkillBindingSummary>> = HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(result);
+        }
+        // 每个 item 有一个 library_id；先拿到 item → library 映射，再对 library 去重查询。
+        let item_library_sql = format!(
+            "SELECT id, library_id FROM items WHERE id IN ({})",
+            vec!["?"; item_ids.len()].join(", ")
+        );
+        let mut item_library: HashMap<i64, i64> = HashMap::new();
+        {
+            let mut statement = connection
+                .prepare(&item_library_sql)
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            for row in rows {
+                let (item_id, library_id) = row.map_err(|_| AppError::DatabaseError)?;
+                item_library.insert(item_id, library_id);
+            }
+        }
+        let mut libraries: Vec<i64> = item_library.values().copied().collect::<Vec<_>>();
+        libraries.sort_unstable();
+        libraries.dedup();
+        let binding_sql = format!(
+            "SELECT library_id, normalized_name, display_name
+             FROM library_skill_bindings
+             WHERE library_id IN ({})",
+            vec!["?"; libraries.len()].join(", ")
+        );
+        let mut bindings: HashMap<i64, SkillBindingSummary> = HashMap::new();
+        {
+            let mut statement = connection
+                .prepare(&binding_sql)
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map(params_from_iter(libraries.iter().map(|id| *id)), |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        SkillBindingSummary {
+                            normalized_name: row.get(1)?,
+                            display_name: row.get(2)?,
+                        },
+                    ))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            for row in rows {
+                let (library_id, binding) = row.map_err(|_| AppError::DatabaseError)?;
+                bindings.insert(library_id, binding);
+            }
+        }
+        for (item_id, library_id) in item_library {
+            result.insert(item_id, bindings.get(&library_id).cloned());
+        }
+        Ok(result)
+    }
+
+    /// 批量装配一批 item 的 tags（一条 SQL + GROUP BY 按 item 分桶），
+    /// 禁止逐 item 查 tags（避免 list_items N+1）。
+    fn load_tags_batch(
+        connection: &Connection,
+        item_ids: &[i64],
+    ) -> Result<HashMap<i64, Vec<Tag>>, AppError> {
+        let mut result: HashMap<i64, Vec<Tag>> = HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(result);
+        }
+        let sql = format!(
+            "SELECT it.item_id, t.id, t.name, t.color, t.created_at, t.updated_at
+             FROM item_tags it
+             INNER JOIN tags t ON t.id = it.tag_id
+             WHERE it.item_id IN ({})
+             ORDER BY it.item_id, t.name COLLATE NOCASE ASC, t.id ASC",
+            vec!["?"; item_ids.len()].join(", ")
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    Tag {
+                        id: row.get(1)?,
+                        name: row.get(2)?,
+                        color: row.get(3)?,
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    },
+                ))
+            })
+            .map_err(|_| AppError::DatabaseError)?;
+        for row in rows {
+            let (item_id, tag) = row.map_err(|_| AppError::DatabaseError)?;
+            result.entry(item_id).or_default().push(tag);
+        }
+        Ok(result)
+    }
+
+    /// 批量装配一批 item 的 thumbnail（一条 SQL），并复用 load_thumbnail_info
+    /// 相同的 hash/cache-key 校验：只有磁盘 revision 与缓存 key 匹配才返回 ready。
+    /// 禁止逐 item 查 thumbnail（避免 list_items N+1）。
+    fn load_thumbnails_batch(
+        connection: &Connection,
+        item_ids: &[i64],
+    ) -> Result<HashMap<i64, Option<ThumbnailInfo>>, AppError> {
+        let mut result: HashMap<i64, Option<ThumbnailInfo>> = HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(result);
+        }
+        let sql = format!(
+            "SELECT thumbnail_cache.item_id, thumbnail_cache.thumb_status, thumbnail_cache.thumb_path,
+                    thumbnail_cache.width, thumbnail_cache.height, thumbnail_cache.last_generated_at,
+                    thumbnail_cache.error_message, thumbnail_cache.generated_from_hash,
+                    items.file_hash, items.file_type, items.summary
+             FROM thumbnail_cache
+             INNER JOIN items ON items.id = thumbnail_cache.item_id
+             WHERE thumbnail_cache.item_id IN ({})",
+            vec!["?"; item_ids.len()].join(", ")
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
+                let generated_from_hash: Option<String> = row.get(7)?;
+                let file_hash: Option<String> = row.get(8)?;
+                let file_type: String = row.get(9)?;
+                let summary: Option<String> = row.get(10)?;
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    (
+                        ThumbnailInfo {
+                            status: row.get(1)?,
+                            path: row.get(2)?,
+                            width: row.get(3)?,
+                            height: row.get(4)?,
+                            last_generated_at: row.get(5)?,
+                            error_message: row.get(6)?,
+                        },
+                        generated_from_hash,
+                        thumbnail_cache_key(&file_type, file_hash.as_deref(), summary.as_deref()),
+                    ),
+                ))
+            })
+            .map_err(|_| AppError::DatabaseError)?;
+        for row in rows {
+            let (item_id, (thumbnail, generated_from_hash, expected_cache_key)) =
+                row.map_err(|_| AppError::DatabaseError)?;
+            let valid = generated_from_hash == expected_cache_key;
+            result.insert(item_id, if valid { Some(thumbnail) } else { None });
+        }
+        Ok(result)
     }
 
     fn load_skill_binding_for_library(
@@ -1690,6 +2051,7 @@ impl ItemRepository for Database {
                 is_favorite: row.get::<_, i64>(12)? != 0,
                 last_opened_at: row.get(13)?,
                 skill_binding: None,
+                source_badges: Vec::new(),
                 tags: Vec::new(),
                 thumbnail: None,
             })
@@ -1700,11 +2062,22 @@ impl ItemRepository for Database {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| AppError::DatabaseError)?;
 
+        // 来源徽标批量装配：当前批次全部 item 一次查询，禁止逐卡 N+1。
+        let page_item_ids = items.iter().map(|item| item.id).collect::<Vec<_>>();
+        let badges_by_item = Self::load_source_badges_batch(&connection, &page_item_ids)?;
+        let bindings_by_item = Self::load_skill_bindings_batch(&connection, &page_item_ids)?;
+        let tags_by_item = Self::load_tags_batch(&connection, &page_item_ids)?;
+        let thumbnails_by_item = Self::load_thumbnails_batch(&connection, &page_item_ids)?;
+
         for item in &mut items {
             item.skill_binding =
-                Self::load_skill_binding_for_library(&connection, item.library_id)?;
-            item.tags = Self::load_tags_for_item(&connection, item.id)?;
-            item.thumbnail = Self::load_thumbnail_info(&connection, item.id)?;
+                bindings_by_item.get(&item.id).cloned().unwrap_or_default();
+            item.source_badges =
+                badges_by_item.get(&item.id).cloned().unwrap_or_default();
+            item.tags =
+                tags_by_item.get(&item.id).cloned().unwrap_or_default();
+            item.thumbnail =
+                thumbnails_by_item.get(&item.id).cloned().unwrap_or_default();
         }
 
         Ok(PagedResult {
@@ -1750,6 +2123,7 @@ impl ItemRepository for Database {
                         is_favorite: row.get::<_, i64>(12)? != 0,
                         last_opened_at: row.get(13)?,
                         skill_binding: None,
+                        source_badges: Vec::new(),
                         tags: Vec::new(),
                         thumbnail: None,
                     },
@@ -1766,6 +2140,9 @@ impl ItemRepository for Database {
 
         detail.summary.skill_binding =
             Self::load_skill_binding_for_library(&connection, detail.summary.library_id)?;
+        detail.summary.source_badges = Self::load_source_badges_batch(&connection, &[item_id])?
+            .remove(&item_id)
+            .unwrap_or_default();
         detail.summary.tags = Self::load_tags_for_item(&connection, item_id)?;
         detail.summary.thumbnail = Self::load_thumbnail_info(&connection, item_id)?;
         Ok(detail)
@@ -2242,7 +2619,10 @@ impl ThumbnailRepository for Database {
         fs::write(&path, &asset.bytes).map_err(|_| AppError::IoError)?;
 
         let now = current_timestamp();
-        let path_string = thumbnail_data_uri(asset.content_type, &asset.bytes);
+        // A1.1-PERF：缩略图只存文件路径（.cache/thumbnails/item-<id>.<ext>），
+        // 禁止把 base64 data URI 写入数据库或返回给前端（43 个 base64 ≈ 7.4MB 导致
+        // list_items 主线程 JSON 序列化 1.16s 中位数）。
+        let path_string = path.to_string_lossy().to_string();
         transaction
             .execute(
                 "INSERT INTO thumbnail_cache (
@@ -2303,11 +2683,6 @@ fn normalize_keyword_query(keyword: Option<&str>) -> Option<String> {
     }
 }
 
-fn thumbnail_data_uri(content_type: &str, bytes: &[u8]) -> String {
-    let encoded = base64_encode(bytes);
-    format!("data:{content_type};base64,{encoded}")
-}
-
 fn thumbnail_cache_key(file_type: &str, file_hash: Option<&str>, summary: Option<&str>) -> Option<String> {
     if file_type == "markdown" {
         let summary_key = summary
@@ -2321,33 +2696,6 @@ fn thumbnail_cache_key(file_type: &str, file_hash: Option<&str>, summary: Option
     }
 
     file_hash.map(str::to_string)
-}
-
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
-
-    for chunk in bytes.chunks(3) {
-        let b0 = chunk[0];
-        let b1 = *chunk.get(1).unwrap_or(&0);
-        let b2 = *chunk.get(2).unwrap_or(&0);
-
-        let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
-        output.push(TABLE[((n >> 18) & 0x3f) as usize] as char);
-        output.push(TABLE[((n >> 12) & 0x3f) as usize] as char);
-        output.push(if chunk.len() > 1 {
-            TABLE[((n >> 6) & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-        output.push(if chunk.len() > 2 {
-            TABLE[(n & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-    }
-
-    output
 }
 
 fn html_thumbnail_input(
@@ -2573,6 +2921,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use rusqlite::{params, Connection};
@@ -2587,12 +2936,22 @@ mod tests {
         },
     };
 
-    fn unique_db_path() -> PathBuf {
+    /// 进程级单调 nonce：SystemTime 在 macOS 上只有毫秒分辨率，多个 #[test]
+    /// 并行启动时同一毫秒内会得到相同 as_nanos()，导致 unique_db_path /
+    /// source_badge_unique_root 返回相同路径、两个测试共享同一个 sqlite 文件
+    /// 而互相冲突。加上原子计数器后每个调用都严格唯一。
+    static TEST_NONCE: AtomicU64 = AtomicU64::new(0);
+    fn test_nonce() -> u64 {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("nutbook-test-{nanos}.sqlite3"))
+            .as_nanos() as u64;
+        let counter = TEST_NONCE.fetch_add(1, Ordering::Relaxed);
+        nanos.wrapping_add(counter)
+    }
+
+    fn unique_db_path() -> PathBuf {
+        std::env::temp_dir().join(format!("nutbook-test-{}.sqlite3", test_nonce()))
     }
 
     fn sample_library(id: i64, root_path: &str, source_kind: &str) -> Library {
@@ -3803,6 +4162,384 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    // ---- A1.1 来源徽标 source_badge 测试 ----
+
+    /// 每个测试使用唯一目录根，避免多个 #[test] 并行时共享 /tmp 固定路径
+    /// （若任何路径被 stat/扫描/写入，并行测试会互相干扰）。保留 basename。
+    /// 用 test_nonce()（毫秒时间戳 + 进程级原子计数）保证并行启动时也严格唯一。
+    fn source_badge_unique_root(seed: &str) -> String {
+        std::env::temp_dir()
+            .join(format!("nutbook-badge-{}-{seed}", test_nonce()))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn source_badge_test_library(id: i64, name: &str, root: &str, source_kind: &str) -> Library {
+        Library {
+            id,
+            name: name.to_string(),
+            root_path: root.to_string(),
+            source_kind: source_kind.to_string(),
+            path_state: "valid".to_string(),
+            is_active: true,
+            created_at: "2026-08-15T00:00:00Z".to_string(),
+            updated_at: "2026-08-15T00:00:00Z".to_string(),
+            last_scanned_at: None,
+            skill_binding: None,
+        }
+    }
+
+    fn source_badge_test_item(library_id: i64, _id: i64, path: &str) -> IndexedItemRecord {
+        IndexedItemRecord {
+            library_id,
+            file_path: path.to_string(),
+            relative_path: path.to_string(),
+            file_name: "shared.md".to_string(),
+            file_ext: "md".to_string(),
+            file_type: "markdown".to_string(),
+            file_size: 10,
+            modified_at: "1".to_string(),
+            created_at: "2026-08-15T00:00:00Z".to_string(),
+            updated_at: "2026-08-15T00:00:00Z".to_string(),
+        }
+    }
+
+    fn link_source(database: &Database, item_id: i64, library_id: i64, is_owner: bool) {
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                 VALUES (?1, ?2, 'legacy', ?3, '2026-08-15T00:00:00Z')",
+                params![item_id, library_id, i64::from(is_owner)],
+            )
+            .expect("link source");
+    }
+
+    /// 用 folder 占位库插入 item（replace_items_for_library 拒绝 agent_project），
+    /// 返回数据库分配的真实 item id。每个测试用唯一 root，避免并行共享 /tmp 路径。
+    fn insert_item_via_folder(
+        database: &Database,
+        folder_id: i64,
+        seed: &str,
+        path: &str,
+    ) -> i64 {
+        let root = source_badge_unique_root(seed);
+        database
+            .upsert_library(source_badge_test_library(
+                folder_id,
+                "seed folder",
+                &root,
+                "folder",
+            ))
+            .expect("seed folder library");
+        database
+            .replace_items_for_library(folder_id, &[source_badge_test_item(folder_id, 0, path)])
+            .expect("insert item");
+        database
+            .list_items(&ListItemsQuery {
+                library_id: Some(folder_id),
+                ..ListItemsQuery::default()
+            })
+            .expect("list seed item")
+            .items
+            .into_iter()
+            .next()
+            .expect("seed item exists")
+            .id
+    }
+
+    #[test]
+    fn shared_item_source_badges_include_owner_and_non_owner_projects_and_skills() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+
+        // 两个 agent_project 来源（owner / non-owner）+ 一个 folder 来源（带 skill binding）。
+        // 用 folder 库插入 item（replace_items_for_library 拒绝 agent_project），
+        // 再把 folder 的 owner 移交给 agent_project 1，验证 owner 优先排序。
+        let item_id = insert_item_via_folder(&database, 3, "folder-source_shared_md", &format!("{}/folder-source/shared.md", source_badge_unique_root("folder-source")));
+        {
+            let connection = database.connection().expect("connection");
+            connection
+                .execute(
+                    "UPDATE item_sources SET is_owner = 0 WHERE item_id = ?1 AND library_id = ?2",
+                    params![item_id, 3],
+                )
+                .expect("release folder owner");
+        }
+        database
+            .bind_library_to_skill(3, "longskillnameforacceptance", "Long Skill Name for Acceptance", "now")
+            .expect("skill binding");
+
+        // 两个 agent_project 来源：1 为 owner，2 为 non-owner。
+        database
+            .upsert_library(source_badge_test_library(
+                1,
+                "中文验收项目",
+                &format!("{}/中文验收项目", source_badge_unique_root("proj-zh")),
+                "agent_project",
+            ))
+            .expect("project library");
+        database
+            .upsert_library(source_badge_test_library(
+                2,
+                "English Project",
+                &format!("{}/english-project", source_badge_unique_root("proj-en")),
+                "agent_project",
+            ))
+            .expect("second project library");
+        link_source(&database, item_id, 1, true);
+        link_source(&database, item_id, 2, false);
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(3),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        let item = &listed.items[0];
+
+        let projects = item
+            .source_badges
+            .iter()
+            .filter(|badge| badge.kind == "project")
+            .collect::<Vec<_>>();
+        // owner 优先（library_id 1 是 owner，library_id 2 非 owner），library_id ASC。
+        assert_eq!(projects.len(), 2, "two project badges");
+        assert_eq!(projects[0].source_id, "project:1");
+        assert_eq!(projects[0].is_owner, true);
+        assert_eq!(projects[0].label, "中文验收项目");
+        assert_eq!(projects[1].source_id, "project:2");
+        assert_eq!(projects[1].is_owner, false);
+        assert_eq!(projects[1].label, "English Project");
+
+        // folder 来源不产生 project badge，但它的 skill binding 产生 skill badge。
+        let skills = item
+            .source_badges
+            .iter()
+            .filter(|badge| badge.kind == "skill")
+            .collect::<Vec<_>>();
+        assert_eq!(skills.len(), 1, "one skill badge");
+        assert_eq!(skills[0].source_id, "skill:longskillnameforacceptance");
+        assert_eq!(skills[0].label, "Long Skill Name for Acceptance");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn project_badge_falls_back_to_root_basename_when_name_is_empty() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+        let item_id = insert_item_via_folder(&database, 99, "seed-folder_a_md", "/tmp/seed-folder/a.md");
+        database
+            .upsert_library(source_badge_test_library(1, "", &format!("{}/unnamed-project", source_badge_unique_root("unnamed")), "agent_project"))
+            .expect("project library");
+        link_source(&database, item_id, 1, false);
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        let project = listed.items[0]
+            .source_badges
+            .iter()
+            .find(|badge| badge.kind == "project")
+            .expect("project badge");
+        assert_eq!(project.label, "unnamed-project", "empty name falls back to root basename");
+        assert_eq!(project.source_id, "project:1");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn missing_or_inactive_source_sets_available_false() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+        let item_id = insert_item_via_folder(&database, 99, "seed-folder_b_md", "/tmp/seed-folder/b.md");
+        database
+            .upsert_library(Library {
+                path_state: "missing".to_string(),
+                ..source_badge_test_library(1, "missing project", &format!("{}/missing-project", source_badge_unique_root("missing")), "agent_project")
+            })
+            .expect("missing project library");
+        database
+            .upsert_library(Library {
+                is_active: false,
+                ..source_badge_test_library(2, "inactive project", &format!("{}/inactive-project", source_badge_unique_root("inactive")), "agent_project")
+            })
+            .expect("inactive project library");
+        link_source(&database, item_id, 1, false);
+        link_source(&database, item_id, 2, false);
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        let badges = &listed.items[0].source_badges;
+        assert_eq!(badges.len(), 2);
+        assert!(
+            !badges.iter().any(|badge| badge.source_id == "project:1" && badge.available),
+            "missing source must be unavailable"
+        );
+        assert!(
+            !badges.iter().any(|badge| badge.source_id == "project:2" && badge.available),
+            "inactive source must be unavailable"
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn deleting_one_relation_removes_only_that_badge() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+        let item_id = insert_item_via_folder(&database, 99, "seed-folder_c_md", "/tmp/seed-folder/c.md");
+        database
+            .upsert_library(source_badge_test_library(1, "Project A", &format!("{}/proj-a", source_badge_unique_root("proj-a")), "agent_project"))
+            .expect("library a");
+        database
+            .upsert_library(source_badge_test_library(2, "Project B", &format!("{}/proj-b", source_badge_unique_root("proj-b")), "agent_project"))
+            .expect("library b");
+        link_source(&database, item_id, 1, false);
+        link_source(&database, item_id, 2, false);
+
+        let listed_before = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        assert_eq!(listed_before.items[0].source_badges.len(), 2);
+
+        // 删除 project:2 的 relation，只移除该 badge。
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "DELETE FROM item_sources WHERE item_id = ?1 AND library_id = ?2",
+                params![item_id, 2],
+            )
+            .expect("delete relation");
+
+        let listed_after = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        let badges = &listed_after.items[0].source_badges;
+        assert_eq!(badges.len(), 1);
+        assert_eq!(badges[0].source_id, "project:1");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn item_provenance_skill_fields_do_not_generate_skill_badges() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+        let item_id = insert_item_via_folder(&database, 99, "seed-folder_d_md", "/tmp/seed-folder/d.md");
+        database
+            .upsert_library(source_badge_test_library(1, "Project A", &format!("{}/proj-a", source_badge_unique_root("proj-a")), "agent_project"))
+            .expect("library a");
+        link_source(&database, item_id, 1, false);
+
+        // 只有 item_provenance.skill_*，没有任何 library_skill_bindings。
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO item_provenance (
+                    item_id, project_library_id, agent_kind, skill_normalized_name,
+                    skill_display_name, evidence_kind, evidence_fingerprint, created_at
+                 ) VALUES (?1, ?2, 'codex', 'phantomskill', 'Phantom Skill',
+                    'adapter', 'fp-1', '2026-08-15T00:00:00Z')",
+                params![item_id, 1],
+            )
+            .expect("insert provenance");
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        let skills = listed.items[0]
+            .source_badges
+            .iter()
+            .filter(|badge| badge.kind == "skill")
+            .collect::<Vec<_>>();
+        assert!(
+            skills.is_empty(),
+            "item_provenance.skill_* must not generate a Skill badge"
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn source_badges_are_batch_assembled_for_list_page() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("database should initialize");
+        database
+            .upsert_library(source_badge_test_library(99, "seed folder", &format!("{}/seed-folder", source_badge_unique_root("seed")), "folder"))
+            .expect("seed folder library");
+        database
+            .upsert_library(source_badge_test_library(1, "Project A", &format!("{}/proj-a", source_badge_unique_root("proj-a")), "agent_project"))
+            .expect("library a");
+        database
+            .bind_library_to_skill(1, "skillone", "Skill One", "now")
+            .expect("binding");
+
+        // 一页内多个 item，全部共享同一来源；必须一次批量查询装配，
+        // 不能逐 item 执行来源查询。
+        let mut items = Vec::new();
+        for id in 201..240 {
+            items.push(source_badge_test_item(
+                99,
+                id,
+                &format!("{}/seed-folder/f{id}.md", source_badge_unique_root("seed")),
+            ));
+        }
+        database.replace_items_for_library(99, &items).expect("insert items");
+        let page_item_ids = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                page_size: Some(40),
+                ..ListItemsQuery::default()
+            })
+            .expect("list seed items")
+            .items
+            .iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        assert_eq!(page_item_ids.len(), 39, "201..240 covers 39 items");
+        for item_id in &page_item_ids {
+            link_source(&database, *item_id, 1, false);
+        }
+
+        let listed = database
+            .list_items(&ListItemsQuery {
+                library_id: Some(99),
+                page_size: Some(30),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        assert_eq!(listed.items.len(), 30);
+        for item in &listed.items {
+            assert_eq!(
+                item.source_badges.len(),
+                2,
+                "each item should have project + skill badge from the same batch"
+            );
+            assert!(item.source_badges.iter().any(|badge| badge.source_id == "project:1"));
+            assert!(item.source_badges.iter().any(|badge| badge.source_id == "skill:skillone"));
+        }
+
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn database_updates_markdown_item_content() {
         let path = unique_db_path();
@@ -4414,5 +5151,185 @@ mod tests {
         let _ = std::fs::remove_file(&file_path);
         let _ = std::fs::remove_dir(&dir);
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ---- A1.1-PERF 合同：base64 缩略图迁移 ----
+
+    fn insert_base64_thumbnail(
+        connection: &Connection,
+        item_id: i64,
+        mime: &str,
+        b64: &str,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO thumbnail_cache (item_id, thumb_path, thumb_status)
+                 VALUES (?1, ?2, 'ready')",
+                params![item_id, format!("data:{mime};base64,{b64}")],
+            )
+            .expect("insert base64 thumbnail");
+    }
+
+    #[test]
+    fn migrate_base64_thumbnails_converts_existing_cache_files_to_absolute_paths() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("db should initialize");
+        database
+            .upsert_library(sample_library(1, "/fixture/thumb-migrate", "folder"))
+            .expect("library");
+        database
+            .replace_items_for_library(
+                1,
+                &[
+                    sample_item(1, "/fixture/thumb-migrate/a.md"),
+                    sample_item(1, "/fixture/thumb-migrate/b.md"),
+                    sample_item(1, "/fixture/thumb-migrate/c.md"),
+                ],
+            )
+            .expect("items");
+        let connection = database.connection().expect("connection");
+
+        // PNG：缓存文件存在 → 迁移为绝对路径
+        let cache_dir = path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(".cache")
+            .join("thumbnails");
+        std::fs::create_dir_all(&cache_dir).expect("create cache dir");
+        let cached_png = cache_dir.join("item-1.png");
+        std::fs::write(&cached_png, b"fake-png").expect("write png cache");
+        // SVG：缓存文件存在 → 迁移为绝对路径
+        let cached_svg = cache_dir.join("item-2.svg");
+        std::fs::write(&cached_svg, b"<svg/>").expect("write svg cache");
+        // PNG：缓存文件缺失 → 清空路径并标 stale
+        insert_base64_thumbnail(&connection, 1, "image/png", "AAAA");
+        insert_base64_thumbnail(&connection, 2, "image/svg+xml", "BBBB");
+        insert_base64_thumbnail(&connection, 3, "image/png", "CCCC");
+        drop(connection);
+
+        let migrated = Database::migrate_base64_thumbnails(
+            &database.connection().expect("connection"),
+            &path,
+        )
+        .expect("migration should run");
+        assert_eq!(migrated, 3, "all three base64 rows must be processed");
+
+        let connection = database.connection().expect("connection");
+        let row = |item_id: i64| -> (String, String) {
+            connection
+                .query_row(
+                    "SELECT thumb_path, thumb_status FROM thumbnail_cache WHERE item_id = ?1",
+                    params![item_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .expect("read thumbnail row")
+        };
+        let (png_path, png_status) = row(1);
+        assert_eq!(
+            png_path,
+            cached_png.to_string_lossy(),
+            "existing png cache must migrate to absolute file path"
+        );
+        assert_eq!(png_status, "ready");
+        let (svg_path, svg_status) = row(2);
+        assert_eq!(
+            svg_path,
+            cached_svg.to_string_lossy(),
+            "existing svg cache must migrate to absolute file path"
+        );
+        assert_eq!(svg_status, "ready");
+        let (missing_path, missing_status) = row(3);
+        assert_eq!(missing_path, "", "missing cache file must clear path");
+        assert_eq!(missing_status, "stale", "missing cache file must be marked stale");
+
+        // 迁移后不得残留 data:image
+        let remaining: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM thumbnail_cache WHERE thumb_path LIKE 'data:image/%'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count data uris");
+        assert_eq!(remaining, 0, "no data:image thumb_path may remain after migration");
+
+        // 有效缓存文件不得被删除
+        assert!(cached_png.exists(), "valid png cache must survive migration");
+        assert!(cached_svg.exists(), "valid svg cache must survive migration");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn migrate_base64_thumbnails_is_idempotent() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("db should initialize");
+        database
+            .upsert_library(sample_library(1, "/fixture/thumb-idempotent", "folder"))
+            .expect("library");
+        database
+            .replace_items_for_library(1, &[sample_item(1, "/fixture/thumb-idempotent/a.md")])
+            .expect("item");
+        let connection = database.connection().expect("connection");
+        insert_base64_thumbnail(&connection, 1, "image/png", "AAAA");
+        drop(connection);
+
+        let first = Database::migrate_base64_thumbnails(
+            &database.connection().expect("connection"),
+            &path,
+        )
+        .expect("first migration");
+        let second = Database::migrate_base64_thumbnails(
+            &database.connection().expect("connection"),
+            &path,
+        )
+        .expect("second migration");
+        assert_eq!(first, 1, "first run migrates the row");
+        assert_eq!(second, 0, "second run must be a no-op (idempotent)");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn list_items_serializes_under_256kb_for_100_items() {
+        let path = unique_db_path();
+        let database = Database::new(&path).expect("db should initialize");
+        database
+            .upsert_library(sample_library(1, "/fixture/big-list", "folder"))
+            .expect("library");
+        let items: Vec<IndexedItemRecord> = (1..=100)
+            .map(|id| {
+                let mut item = sample_item(1, &format!("/fixture/big-list/doc-{id}.md"));
+                item.file_name = format!("doc-{id}.md");
+                item.relative_path = format!("doc-{id}.md");
+                item.file_size = 1024 + id;
+                item
+            })
+            .collect();
+        database
+            .replace_items_for_library(1, &items)
+            .expect("insert 100 items");
+
+        let page = database
+            .list_items(&ListItemsQuery {
+                page_size: Some(100),
+                ..ListItemsQuery::default()
+            })
+            .expect("list items");
+        let serialized = serde_json::to_string(&page).expect("serialize");
+        println!(
+            "[perf-contract] 100-item list_items JSON = {} bytes",
+            serialized.len()
+        );
+        assert!(
+            serialized.len() < 256 * 1024,
+            "100-item list_items JSON must stay under 256KB, got {} bytes",
+            serialized.len()
+        );
+        assert!(
+            !serialized.contains("data:image/"),
+            "list_items JSON must not contain base64 data URIs"
+        );
+
+        let _ = std::fs::remove_file(path);
     }
 }

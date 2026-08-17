@@ -53,7 +53,7 @@ mod tests {
     use crate::{
         db::repositories::{ItemRepository, LibraryRepository, ThumbnailRepository},
         db::Database,
-        models::{IndexedItemRecord, Library},
+        models::{IndexedItemRecord, Library, ListItemsQuery},
     };
 
     fn temp_db_path() -> std::path::PathBuf {
@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_thumbnail_creates_cached_data_image_for_html() {
+    fn generate_thumbnail_stores_absolute_file_path_for_html() {
         let path = temp_db_path();
         let database = Database::new(&path).expect("db should initialize");
 
@@ -107,9 +107,20 @@ mod tests {
             .expect("thumbnail should generate");
         assert_eq!(generated.thumbnail.status, "ready");
         let thumb_path = generated.thumbnail.path.expect("path should exist");
+        // A1.1-PERF 合同：thumb_path 必须是绝对文件路径，不是 data URI
+        let thumb_path_buf = std::path::PathBuf::from(&thumb_path);
         assert!(
-            thumb_path.starts_with("data:image/png")
-                || thumb_path.starts_with("data:image/svg+xml")
+            thumb_path_buf.is_absolute(),
+            "thumb_path must be an absolute file path, got: {thumb_path}"
+        );
+        assert!(
+            thumb_path_buf.ends_with(".cache/thumbnails/item-1.png")
+                || thumb_path_buf.ends_with(".cache/thumbnails/item-1.svg"),
+            "thumb_path must point into .cache/thumbnails, got: {thumb_path}"
+        );
+        assert!(
+            thumb_path_buf.exists(),
+            "thumbnail cache file must exist on disk: {thumb_path}"
         );
 
         let detail = database.get_item_detail(1).expect("detail should load");
@@ -122,11 +133,21 @@ mod tests {
             Some(thumb_path.as_str())
         );
 
+        // list_items 返回值不得包含 data:image
+        let listed = database
+            .list_items(&ListItemsQuery::default())
+            .expect("list items should load");
+        let serialized = serde_json::to_string(&listed).expect("serialize list items");
+        assert!(
+            !serialized.contains("data:image/"),
+            "list_items must not serialize base64 data URIs"
+        );
+
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
-    fn generate_thumbnail_creates_cached_data_image_for_markdown() {
+    fn generate_thumbnail_stores_absolute_file_path_for_markdown() {
         let path = temp_db_path();
         let markdown_path = std::env::temp_dir().join(format!(
             "nutbook-markdown-thumb-{}.md",
@@ -181,9 +202,20 @@ mod tests {
             .expect("markdown thumbnail should generate");
         assert_eq!(generated.thumbnail.status, "ready");
         let thumb_path = generated.thumbnail.path.expect("path should exist");
+        // A1.1-PERF 合同：绝对文件路径 + 落盘存在 + 指向 .cache/thumbnails
+        let thumb_path_buf = std::path::PathBuf::from(&thumb_path);
         assert!(
-            thumb_path.starts_with("data:image/png")
-                || thumb_path.starts_with("data:image/svg+xml")
+            thumb_path_buf.is_absolute(),
+            "thumb_path must be an absolute file path, got: {thumb_path}"
+        );
+        assert!(
+            thumb_path_buf.ends_with(".cache/thumbnails/item-1.png")
+                || thumb_path_buf.ends_with(".cache/thumbnails/item-1.svg"),
+            "thumb_path must point into .cache/thumbnails, got: {thumb_path}"
+        );
+        assert!(
+            thumb_path_buf.exists(),
+            "thumbnail cache file must exist on disk: {thumb_path}"
         );
 
         let detail = database.get_item_detail(1).expect("detail should load");

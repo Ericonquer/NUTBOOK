@@ -51,9 +51,29 @@ pub struct ItemSummary {
     pub path_state: String,
     pub is_favorite: bool,
     pub last_opened_at: Option<String>,
+    /// 兼容期保留旧字段；新来源 UI 只能读取 source_badges，
+    /// 不能用 skill_binding 或 owner library fallback 补来源。
     pub skill_binding: Option<SkillBindingSummary>,
+    pub source_badges: Vec<ItemSourceBadge>,
     pub tags: Vec<Tag>,
     pub thumbnail: Option<ThumbnailInfo>,
+}
+
+/// 来源徽标的只读投影模型。kind 为 project | skill：
+/// - project:<library_id>：只来自 item_sources → libraries(source_kind='agent_project')，
+///   label 优先 libraries.name，name 为空才回退 root basename；
+/// - skill:<normalized_name>：只来自 item 全部来源库关联的 library_skill_bindings，
+///   label 使用 display_name，owner binding 优先，再按 normalized_name 稳定排序，
+///   同一 sourceId 只返回一个 badge；不推断 item_provenance.skill_*。
+/// relation 删除后 badge 消失；relation 仍在但来源 missing/inactive 时 available=false。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemSourceBadge {
+    pub kind: String,
+    pub source_id: String,
+    pub label: String,
+    pub is_owner: bool,
+    pub available: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -371,6 +391,13 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
     pub available_tags: Vec<Tag>,
     pub skill_tag: Option<String>,
     pub type_tag: Option<String>,
+    /// A1.3：已分配自定义标签全量（tooltip 列全名 / +N），与 Markdown 工具栏同一语义。
+    #[serde(default)]
+    pub custom_tags: Vec<Tag>,
+    /// A1.3：来源徽标只读投影，与主页卡片 / Markdown 工具栏同一 sourceBadges 语义；
+    /// 兼容期保留 skill_tag，但 overlay 新 UI 只渲染 source_badges。
+    #[serde(default)]
+    pub source_badges: Vec<ItemSourceBadge>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

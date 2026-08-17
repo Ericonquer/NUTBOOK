@@ -240,6 +240,8 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.available_tags,
         payload.skill_tag,
         payload.type_tag,
+        payload.custom_tags,
+        payload.source_badges,
     )?;
     Ok(session.to_payload(false))
 }
@@ -399,6 +401,8 @@ pub fn attach_markdown_controls_overlay_command(
         payload.available_tags,
         payload.skill_tag,
         payload.type_tag,
+        payload.custom_tags,
+        payload.source_badges,
     )?;
     Ok(true)
 }

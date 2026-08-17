@@ -1020,8 +1020,8 @@
         background: var(--paper);
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 12px;
+        justify-content: flex-start;
+        gap: 16px;
         padding: 0 20px;
         position: relative;
         z-index: 90;
@@ -1036,6 +1036,10 @@
         display: none;
       }
 
+      /* 左侧路径区：空间足够时吃满剩余留白显示完整路径（A1.3 用户反馈「空间足够却省略」）；
+   空间不足时由 #breadcrumbItem 自身 ellipsis 收缩，绝不越出边界覆盖来源标签。
+   不能用 margin-right:auto（会把剩余留白推给标签组，路径永远省略）；
+   用固定 12px margin + toolbar gap 16px 保证路径与标签组之间有明确间距。 */
       .breadcrumb {
         display: flex;
         align-items: center;
@@ -1045,28 +1049,49 @@
         font-size: 11px;
         min-width: 0;
         flex: 1 1 auto;
+        margin-right: 12px;
+        overflow: hidden;
       }
 
       #breadcrumbItem {
+        flex: 0 1 auto;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
+      /* 直接子项中的固定标签（"文件"、分隔符"›"）保持单行不折叠、不被压缩；
+         不命中 #breadcrumbItem：长路径必须允许收缩并在自身边界内尾部省略，
+         路径文字绝不能越出 .breadcrumb 覆盖来源标签。 */
+      .breadcrumb > span:not(#breadcrumbItem) {
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+
+      /* 右侧标签/来源组：不得 flex:1 1 auto 贪婪占满空白；相对+绝对上限
+         （A1.3 第五轮：min(46%, 470px) —— 大窗口两个徽标各 ~114px 恰容一个完整英文单词，
+         同时路径仍可完整显示；小窗口随 46% 收缩，标签真正压缩） */
       .breadcrumb-tags {
         display: flex;
         align-items: center;
         justify-content: flex-end;
         gap: 6px;
         min-width: 0;
-        flex: 1 1 auto;
+        flex: 0 1 auto;
+        max-width: min(46%, 470px);
         overflow: visible;
       }
 
       .breadcrumb-tags.host-overlay-mode {
         opacity: 0;
         pointer-events: none;
+        /* A1.3 第六轮：HTML 模式下该元素是 overlay 的预留 spacer，
+           必须精确占据 overlay 宽度（路径随之 ellipsis 让位），
+           不能再受 .breadcrumb-tags 的 min(46%, 470px) 上限截断，
+           否则 overlay 会左移盖住路径尾部（「省略号贴着标签」）。 */
+        flex: 0 0 auto;
+        max-width: none;
       }
 
       .breadcrumb-tag-trigger {
@@ -1076,7 +1101,11 @@
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        min-width: 0;
+        /* A1.3 第六轮：min-width 必须等于内部 chip 的保底 56px（≥2 中文字）。
+           之前是 0：组内 flex 挤压时按钮被压到 5~38px，而 chip 保底 56px
+           溢出按钮、盖住后面的 +N / 项目徽标（「自定义标签和项目标签重叠」）。
+           对齐保底后按钮与 chip 同步收缩，永不溢出、绝不重叠。 */
+        min-width: 56px;
         position: relative;
       }
 
@@ -1127,6 +1156,86 @@
       .breadcrumb-tag-trigger:hover .breadcrumb-tag-remove {
         opacity: 1;
         pointer-events: auto;
+      }
+
+      /* A1.2 Markdown 文档工具栏来源徽标：复用卡片（A1.1）同一结构化 sourceBadges 语义。
+         常态近白浅底、深灰字、细边框；hover 只加深一档；非交互徽标 cursor:default、不增 tab stop。
+         工具栏必须有明确最大宽度，长项目名/长 Skill 名不得挤压路径或右侧操作；
+         但不换成失控的第二排；最小支持窗口下自定义标签入口仍可操作。 */
+      .breadcrumb-tags .source-badge,
+      .breadcrumb-tags .tag-chip,
+      .breadcrumb-tags .meta-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        height: 22px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(31, 35, 40, 0.16);
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.2;
+        box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
+        cursor: default;
+        flex: 0 1 auto;
+        box-sizing: border-box;
+        position: relative;
+        white-space: nowrap;
+      }
+      /* 文档工具栏 chip：上限 120px ≈ 一个完整英文单词/11 个中文字（A1.3 第五轮：
+         用户要求展开时至少看清一个单词，而非三四词）；空间不足由 flex-shrink 收缩。
+         自定义标签 chip 保底 56px（≥2 个中文字可读，绝不只剩省略号），优先于徽标保留。 */
+      .breadcrumb-tags .source-badge-project { max-width: 120px; min-width: 40px; }
+      .breadcrumb-tags .source-badge-skill { max-width: 120px; min-width: 40px; }
+      .breadcrumb-tags .tag-chip:not(.tag-chip-more) { max-width: 176px; min-width: 56px; }
+      .breadcrumb-tags .source-badge-label,
+      .breadcrumb-tags .tag-chip-label {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+      }
+      /* +N 与类型徽标固定不可压缩 */
+      .breadcrumb-tags .source-badge-more,
+      .breadcrumb-tags .tag-chip-more {
+        flex: 0 0 auto;
+        max-width: none;
+        padding: 0 6px;
+        cursor: default;
+      }
+      .breadcrumb-tags .meta-chip {
+        flex: 0 0 auto;
+        max-width: none;
+        text-transform: none;
+      }
+      /* available=false：中性失效视觉（降饱和 + 虚线边框），不假装来源可用 */
+      .breadcrumb-tags .source-badge--unavailable {
+        color: #8a8d93;
+        border-style: dashed;
+        border-color: rgba(31, 35, 40, 0.22);
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: none;
+        opacity: 0.85;
+      }
+      /* per-badge 的 .chip-tooltip 只是 tooltip 文本源（display:none，视觉不用它）；
+         全局 floating chip-tooltip 由 coordinator 在 hover 时显示。与卡片同一约定。 */
+      .breadcrumb-tags .source-badge .chip-tooltip,
+      .breadcrumb-tags .tag-chip .chip-tooltip,
+      .breadcrumb-tags .meta-chip .chip-tooltip {
+        display: none;
+      }
+      /* hover 只加深一档，不做深黑底白字；常态用工具栏统一次要文字色 var(--ink-soft)。
+         自定义标签 chip 的 hover 由 .breadcrumb-tag-trigger:hover 交互规则接管。 */
+      .breadcrumb-tags .source-badge:hover,
+      .breadcrumb-tags .meta-chip:hover {
+        background: rgba(232, 235, 240, 0.98);
+        border-color: rgba(31, 35, 40, 0.3);
+        color: #1f2329;
       }
 
       .document-tag-menu {
@@ -1304,7 +1413,8 @@
       }
 
       .document-action-tooltip,
-      .card-action-tooltip {
+      .card-action-tooltip,
+      .chip-tooltip {
         position: absolute;
         left: 50%;
         top: calc(100% + 8px);
@@ -1326,6 +1436,42 @@
       .card-remove:hover .card-action-tooltip,
       .card-favorite:hover .card-action-tooltip {
         opacity: 1;
+      }
+
+      /* 卡片徽标 tooltip：用单个全局 floating 元素（见 JS），避免多 tooltip 堆积。
+         per-badge 的 .chip-tooltip 仅作为文本源（display:none，视觉不再用它）。 */
+      .thumb-chip-row .source-badge .chip-tooltip,
+      .thumb-chip-row .tag-chip .chip-tooltip,
+      .thumb-chip-row .meta-chip .chip-tooltip {
+        display: none;
+      }
+
+      /* 全局 floating chip-tooltip：mouseover 时由 JS 定位 + 显示，scroll/mouseleave/mouseout 时隐藏。
+     tooltip 元素默认 span（inline），position:fixed 不会自动 blockify；必须显式 block
+     否则 width/max-width/white-space 不生效，文本超 max-width 不换行且定位 clamp 无效。
+     不再用 transition：cancelAnimationFrame + token++ 反复触发 transition，造成 opacity 闪烁。 */
+      .chip-tooltip.chip-tooltip--floating {
+        position: fixed;
+        left: 0;
+        top: 0;
+        display: block;
+        width: max-content;
+        max-width: min(360px, calc(100vw - 16px));
+        white-space: normal;
+        word-break: break-word;
+        text-align: left;
+        line-height: 1.35;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 10px;
+        opacity: 0;
+        pointer-events: none;
+        /* 重置 .chip-tooltip 基类的 transition：opacity + cancelAnimationFrame
+           反复触发会造成 mouseover/mouseout 之间 opacity 闪烁 */
+        transition: none;
+        z-index: 380;
       }
 
       .list-pane {
@@ -1474,56 +1620,142 @@
         white-space: nowrap;
       }
 
+      /* A1.1 返工：常态浅色（近白近乎不透明 + 深灰文字 + 细灰边框），
+         类型徽标（thumb-badge-type）固定不可压缩；视觉权重低于缩略图与标题。 */
       .thumb-badge {
-        position: absolute;
-        right: 8px;
-        bottom: 8px;
+        position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 40px;
+        min-width: 34px;
         height: 20px;
-        padding: 0 7px;
+        padding: 0 6px;
         border-radius: 999px;
-        background: rgba(20, 20, 20, 0.72);
-        color: #fff;
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid rgba(31, 35, 40, 0.14);
+        color: #3a3d44;
         font-size: 10px;
         font-weight: 600;
         letter-spacing: 0.04em;
         text-transform: uppercase;
+        box-shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+        cursor: default;
+        flex: 0 0 auto;
       }
 
+      /* 标签行从左侧开始排布（不再 flex-end）；给右侧类型徽标让位。 */
       .thumb-chip-row {
         position: absolute;
         left: 8px;
-        right: 56px;
+        right: 8px;
         bottom: 8px;
         display: flex;
         align-items: center;
-        justify-content: flex-end;
-        gap: 6px;
+        justify-content: flex-start;
+        gap: 4px;
         min-width: 0;
         z-index: 2;
       }
 
+      /* 无自定义标签时，来源徽标与右下角类型徽标作为一个组靠右对齐。 */
+      .thumb-chip-row.chip-row--align-end {
+        justify-content: flex-end;
+      }
+
+      /* 行内只有类型徽标（无来源徽标）时推到右，与多 chip 时的右缘视觉一致 */
+      .thumb-chip-row.thumb-chip-row--type-only {
+        justify-content: flex-end;
+      }
+
+      /* 外层 pill：只负责高度、padding、背景、边框与垂直居中。
+         min-width:0 允许收缩；明确 hard cap；不承担文本裁切。 */
       .thumb-chip-row .tag-chip,
-      .thumb-chip-row .meta-chip {
+      .thumb-chip-row .meta-chip,
+      .thumb-chip-row .source-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         min-width: 0;
-        max-width: 100%;
         padding: 0 8px;
         height: 20px;
         border-radius: 999px;
-        background: rgba(20, 20, 20, 0.72);
-        color: #fff;
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid rgba(31, 35, 40, 0.14);
+        color: #3a3d44;
         font-size: 10px;
         font-weight: 500;
+        line-height: 1.2;
+        box-shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+        cursor: default;
+        flex: 0 1 auto;
+        box-sizing: border-box;
+        position: relative;
+      }
+
+      /* 自定义主标签拥有更高可辨认优先级：min-width 保证两个汉字 + 省略号
+         （如「测试…」）真正可见，不允许被长 Project/Skill 一起 shrink 成纯省略号
+         或只显示一个字符（"测…"）。 */
+      .thumb-chip-row .tag-chip:not(.tag-chip-more) {
+        max-width: 96px;
+        min-width: 52px;
+      }
+
+      .thumb-chip-row .source-badge-project {
+        max-width: 132px;
+        min-width: 28px;
+      }
+
+      .thumb-chip-row .source-badge-skill {
+        max-width: 112px;
+        min-width: 28px;
+      }
+
+      /* 内层 label：真正负责文本裁切，text-align:left 保证开头可见、尾部省略。 */
+      .thumb-chip-row .tag-chip-label,
+      .thumb-chip-row .source-badge-label {
+        display: block;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        text-align: left;
+      }
+
+      /* +N 与自定义标签 +N 固定不可压缩；padding 更窄保证最坏布局（3/2/2+type）塞得进 row。 */
+      .thumb-chip-row .source-badge-more,
+      .thumb-chip-row .tag-chip-more {
+        flex: 0 0 auto;
+        max-width: none;
+        min-width: 0;
+        padding: 0 3px;
       }
 
       .thumb-chip-row .meta-chip {
         text-transform: none;
+      }
+
+      /* available=false：中性失效视觉（降饱和 + 虚线边框），不假装来源可用。 */
+      .thumb-chip-row .source-badge--unavailable {
+        color: #8a8d93;
+        border-style: dashed;
+        border-color: rgba(31, 35, 40, 0.22);
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: none;
+        opacity: 0.85;
+      }
+
+      /* hover / 卡片 focus-visible：只加深一档，保持浅底深字，不做深黑底白字。 */
+      .item-card:hover .thumb-chip-row .tag-chip,
+      .item-card:hover .thumb-chip-row .meta-chip,
+      .item-card:hover .thumb-chip-row .source-badge,
+      .item-card:hover .thumb-badge,
+      .item-card:focus-visible .thumb-chip-row .tag-chip,
+      .item-card:focus-visible .thumb-chip-row .meta-chip,
+      .item-card:focus-visible .thumb-chip-row .source-badge,
+      .item-card:focus-visible .thumb-badge {
+        background: rgba(232, 235, 240, 0.98);
+        border-color: rgba(31, 35, 40, 0.28);
+        color: #1f2329;
       }
 
       .thumb-badge-type {
@@ -1708,6 +1940,9 @@
         justify-content: center;
         background: #fff;
       }
+
+
+
 
       .card-favorite {
         position: absolute;
@@ -5934,8 +6169,6 @@
           <div class="breadcrumb">
             <span data-i18n-key="document.file">文件</span>
             <span>›</span>
-            <span id="breadcrumbLibrary">资料库</span>
-            <span>›</span>
             <span id="breadcrumbItem">未打开文件</span>
           </div>
           <div id="breadcrumbTags" class="breadcrumb-tags"></div>
@@ -6349,6 +6582,7 @@
         pendingThumbnailIds: new Set(),
         thumbnailQueueRunId: 0,
         thumbnailQueueActive: false,
+        lastItemsFingerprint: "",
         lastFilesystemSyncAt: 0,
         filesystemSyncInFlight: null,
         refreshTimer: null,
@@ -6474,7 +6708,6 @@
         tabsWrap: document.getElementById("tabsWrap"),
         toolbarActions: document.querySelector(".toolbar-actions"),
         documentToolbar: document.querySelector(".document-toolbar"),
-        breadcrumbLibrary: document.getElementById("breadcrumbLibrary"),
         breadcrumbItem: document.getElementById("breadcrumbItem"),
         breadcrumbTags: document.getElementById("breadcrumbTags"),
         documentTagMenu: document.getElementById("documentTagMenu"),
@@ -10167,6 +10400,17 @@
         };
       }
 
+      function normalizeSourceBadge(badge) {
+        if (!badge) return null;
+        return {
+          kind: badge.kind ?? badge.kind,
+          sourceId: badge.sourceId ?? badge.source_id ?? "",
+          label: badge.label ?? "",
+          isOwner: Boolean(badge.isOwner ?? badge.is_owner),
+          available: badge.available !== false
+        };
+      }
+
       function normalizeDiscoveredSkill(skill) {
         if (!skill) return null;
         return {
@@ -10200,6 +10444,9 @@
           isFavorite: Boolean(item.isFavorite ?? item.is_favorite),
           lastOpenedAt: item.lastOpenedAt ?? item.last_opened_at ?? null,
           skillBinding: normalizeSkillBinding(item.skillBinding ?? item.skill_binding ?? null),
+          sourceBadges: Array.isArray(item.sourceBadges ?? item.source_badges)
+            ? (item.sourceBadges ?? item.source_badges).map(normalizeSourceBadge).filter(Boolean)
+            : [],
           tags: Array.isArray(item.tags) ? item.tags.map(normalizeTag).filter(Boolean) : [],
           thumbnail: normalizeThumbnailInfo(item.thumbnail)
         };
@@ -10238,22 +10485,53 @@
         return `/${parentSegments.join("/")}` || "/";
       }
 
+      // A1.2 Markdown 文档工具栏来源徽标：复用卡片（A1.1）同一结构化 sourceBadges 语义。
+      // 只读取 item.sourceBadges，禁止读取 item.skillBinding / resolveItemSkillBinding，
+      // 禁止从 owner library、路径、文件名或 library.skillBinding 回填来源。
+      // 顺序固定：自定义标签 → Project → Skill → 类型。
+      // 自定义/Project/Skill 每类：一个主名称 + 同类其余显示不可收缩的独立 +N；
+      // 主名称从左开始、尾部 ellipsis；+N 与类型徽标不可压缩。
       function renderDocumentTagChips(item, typeLabel) {
         if (!item) return "";
         const customTags = Array.isArray(item.tags) ? item.tags : [];
-        const customTag = customTags[0] ?? null;
-        const customTagChip = customTag
-          ? `<button class="breadcrumb-tag-trigger" type="button" data-document-tag-trigger="current"><span class="tag-chip">${escapeHtml(customTag.name)}</span><span class="breadcrumb-tag-remove" data-document-tag-remove="true">×</span></button>`
+        // 自定义标签：保持现有交互按钮（添加/删除/菜单/焦点/关闭），不改成普通 span。
+        const customTrigger = customTags.length
+          ? `<button class="breadcrumb-tag-trigger" type="button" data-document-tag-trigger="current"><span class="tag-chip"><span class="tag-chip-label">${escapeHtml(customTags[0].name)}</span><span class="chip-tooltip">${escapeHtml(customTags.map((t) => t.name).join("，"))}</span></span><span class="breadcrumb-tag-remove" data-document-tag-remove="true">×</span></button>`
           : `<button class="breadcrumb-tag-trigger" type="button" data-document-tag-trigger="add"><span class="breadcrumb-tag-placeholder">+ 标签</span></button>`;
-        const skillTag = item.skillBinding
-          ? `<span class="tag-chip">${escapeHtml(item.skillBinding.displayName)}</span>`
+        const customMore = customTags.length > 1
+          ? `<span class="tag-chip tag-chip-more"><span class="chip-tooltip">${escapeHtml(customTags.map((t) => t.name).join("，"))}</span>+${customTags.length - 1}</span>`
+          : "";
+
+        // 来源徽标只从 item.sourceBadges 投影（与卡片同一语义），不从 skillBinding / library fallback 补。
+        const projects = (item.sourceBadges || []).filter((badge) => badge.kind === "project");
+        const skills = (item.sourceBadges || []).filter((badge) => badge.kind === "skill");
+        const badgeClass = (badge, kindClass) => {
+          const unavailable = badge.available === false;
+          return `<span class="source-badge ${kindClass}${unavailable ? " source-badge--unavailable" : ""}" aria-label="${escapeAttribute(badge.label + (unavailable ? "（来源不可用）" : ""))}">`;
+        };
+        const projectPrimary = projects[0]
+          ? `${badgeClass(projects[0], "source-badge-project")}<span class="source-badge-label">${escapeHtml(projects[0].label)}</span><span class="chip-tooltip">${escapeHtml(projects.map((p) => p.label).join("，"))}</span></span>`
+          : "";
+        const projectMore = projects.length > 1
+          ? `<span class="source-badge source-badge-more"><span class="chip-tooltip">${escapeHtml(projects.map((p) => p.label).join("，"))}</span>+${projects.length - 1}</span>`
+          : "";
+        const skillPrimary = skills[0]
+          ? `${badgeClass(skills[0], "source-badge-skill")}<span class="source-badge-label">${escapeHtml(skills[0].label)}</span><span class="chip-tooltip">${escapeHtml(skills.map((s) => s.label).join("，"))}</span></span>`
+          : "";
+        const skillMore = skills.length > 1
+          ? `<span class="source-badge source-badge-more"><span class="chip-tooltip">${escapeHtml(skills.map((s) => s.label).join("，"))}</span>+${skills.length - 1}</span>`
           : "";
         const typeTag = typeLabel
           ? `<span class="meta-chip">${escapeHtml(typeLabel)}</span>`
           : "";
+        // 顺序固定：自定义 → Project → Skill → 类型
         return `
-          ${customTagChip}
-          ${skillTag}
+          ${customTrigger}
+          ${customMore}
+          ${projectPrimary}
+          ${projectMore}
+          ${skillPrimary}
+          ${skillMore}
           ${typeTag}
         `;
       }
@@ -10804,6 +11082,10 @@
           if (appState.settingsArtifactSection === "projects") {
             restoreCachedAgentProjectsInSettings().catch(() => {});
           }
+        }
+        // A1.1-PERF：忽略列表按需刷新（设置区打开时才拉，不在首页自动刷新每 2.5s 无条件调用）
+        if (tab === "libraries") {
+          loadIgnoredItems().catch(() => {});
         }
       }
 
@@ -14205,18 +14487,71 @@
         });
       }
 
+      // A1.1 来源徽标：顺序固定为 自定义 → Project → Skill → 类型。
+      // 每类来源只显示一个主名称徽标，其余同类显示独立不可收缩的 +N。
+      // 非交互徽标：不使用 pointer 手型、不添加 tabindex、不伪装成按钮；
+      // 完整来源名由卡片级 aria-label 承载（辅助技术），hover 由 title 显示。
+      // 卡片级 aria-label：区分项目来源与 Skill 来源，列出全部完整名称。
+      function itemSourceBadgesAria(item) {
+        const customTags = (item.tags || []).map((tag) => tag.name).filter(Boolean);
+        const projects = (item.sourceBadges || []).filter((badge) => badge.kind === "project");
+        const skills = (item.sourceBadges || []).filter((badge) => badge.kind === "skill");
+        const parts = [];
+        if (customTags.length) parts.push(`自定义标签：${customTags.join("、")}`);
+        if (projects.length) parts.push(`项目来源：${projects.map((badge) => badge.label).join("、")}`);
+        if (skills.length) parts.push(`Skill 来源：${skills.map((badge) => badge.label).join("、")}`);
+        return parts.join("；");
+      }
+
       function thumbnailNode(item) {
-        const skillBinding = resolveItemSkillBinding(item);
         const pathMissing = isItemPathMissing(item);
-        const primaryCustomTag = item.tags?.[0];
-        const chips = [
-          primaryCustomTag ? `<span class="tag-chip">${escapeHtml(primaryCustomTag.name)}</span>` : "",
-          skillBinding ? `<span class="meta-chip">${escapeHtml(skillBinding.displayName)}</span>` : ""
-        ]
+        // 自定义标签压缩成 primary +N（与 Project/Skill 同模式）：只显示第一个主标签，
+        // 其余数量折叠进不可收缩的 +N chip；tooltip 列出全部自定义标签完整名。
+        const customTags = item.tags || [];
+        const allCustomNames = customTags.map((tag) => tag.name).join("，");
+        const customPrimary = customTags[0]
+          ? `<span class="tag-chip"><span class="tag-chip-label">${escapeHtml(customTags[0].name)}</span><span class="chip-tooltip">${escapeHtml(allCustomNames)}</span></span>`
+          : "";
+        const customMore = customTags.length > 1
+          ? `<span class="tag-chip tag-chip-more"><span class="chip-tooltip">${escapeHtml(allCustomNames)}</span>+${customTags.length - 1}</span>`
+          : "";
+        const projects = (item.sourceBadges || []).filter((badge) => badge.kind === "project");
+        const skills = (item.sourceBadges || []).filter((badge) => badge.kind === "skill");
+        // available=false：加 .source-badge--unavailable（中性降饱和 + 虚线边框），
+        // 并带 aria-label 说明"来源不可用"，可访问名称仍保留完整来源名。
+        const badgeClass = (badge, kindClass) => {
+          const unavailable = badge.available === false;
+          return `<span class="source-badge ${kindClass}${unavailable ? " source-badge--unavailable" : ""}" aria-label="${escapeAttribute(badge.label + (unavailable ? "（来源不可用）" : ""))}">`;
+        };
+        const projectPrimary = projects[0]
+          ? `${badgeClass(projects[0], "source-badge-project")}<span class="source-badge-label">${escapeHtml(projects[0].label)}</span><span class="chip-tooltip">${escapeHtml(projects.map((p) => p.label).join("，"))}</span></span>`
+          : "";
+        const projectMore = projects.length > 1
+          ? `<span class="source-badge source-badge-more"><span class="chip-tooltip">${escapeHtml(projects.map((p) => p.label).join("，"))}</span>+${projects.length - 1}</span>`
+          : "";
+        const skillPrimary = skills[0]
+          ? `${badgeClass(skills[0], "source-badge-skill")}<span class="source-badge-label">${escapeHtml(skills[0].label)}</span><span class="chip-tooltip">${escapeHtml(skills.map((s) => s.label).join("，"))}</span></span>`
+          : "";
+        const skillMore = skills.length > 1
+          ? `<span class="source-badge source-badge-more"><span class="chip-tooltip">${escapeHtml(skills.map((s) => s.label).join("，"))}</span>+${skills.length - 1}</span>`
+          : "";
+        const chips = [customPrimary, customMore, projectPrimary, projectMore, skillPrimary, skillMore]
           .filter(Boolean)
           .join("");
-        const overlayRow = chips ? `<div class="thumb-chip-row">${chips}</div>` : "";
-        const badge = `${overlayRow}<span class="thumb-badge thumb-badge-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>`;
+        // 无自定义标签时，让来源徽标整体靠右，与右下角类型徽标作为一个组对齐；
+        // 有自定义标签时按"自定义 → Project → Skill → 类型"从左开始；
+        // 无自定义时来源徽标作为一组靠右与类型徽标并齐；
+        // 只有类型徽标（无来源徽标）时也右对齐，避免单 MD 标签左对齐。
+        const hasSources = customPrimary || customMore || projectPrimary || projectMore || skillPrimary || skillMore;
+        let rowClass = "thumb-chip-row";
+        if (!hasSources) {
+          rowClass = "thumb-chip-row thumb-chip-row--type-only";
+        } else if (customTags.length === 0) {
+          rowClass = "thumb-chip-row chip-row--align-end";
+        }
+        const typeChip = `<span class="thumb-badge thumb-badge-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>`;
+        const overlayRow = `<div class="${rowClass}">${chips}${typeChip}</div>`;
+        const badge = `${overlayRow}`;
         const missingMask = pathMissing
           ? `<div class="thumb-missing-mask"><span class="thumb-missing-pill">文件路径失效</span></div>`
           : "";
@@ -14321,7 +14656,8 @@
               errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null
             });
             completed += 1;
-            renderItems();
+            // 缩略图完成：只更新该卡片的 thumb-wrap（keyed 增量），不重建整表
+            updateCardThumbnail(item);
             setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
           } catch (_) {
           } finally {
@@ -14335,11 +14671,83 @@
         }
       }
 
+      // 把 thumbnailNode 返回的 HTML 字符串解析为真实 Element（template + Range），
+      // 不允许直接用字符串调 replaceWith（会被当作 TextNode 插入）。
+      function htmlStringToElement(html) {
+        const template = document.createElement("template");
+        template.innerHTML = html.trim();
+        const node = template.content.firstElementChild;
+        return node instanceof Element ? node : null;
+      }
+
+      // 缩略图完成后按 item 定位卡片，只替换该卡片的 thumb-wrap 内容（keyed 增量更新），
+      // 避免整表 innerHTML 重建导致 tooltip 锚点断开、hover 状态丢失、滚动跳动。
+      // 替换后必须验证 .thumb-wrap / 缩略图 / 徽标 / 类型标签结构完整；结构不完整时回退整表重建。
+      function updateCardThumbnail(item) {
+        const card = els.itemList?.querySelector(`[data-open-item="${item.id}"]`);
+        if (!card) return;
+        const wrap = card.querySelector(".thumb-wrap");
+        if (!wrap) return;
+        const freshEl = htmlStringToElement(thumbnailNode(item));
+        if (!freshEl || !freshEl.classList.contains("thumb-wrap")) {
+          // 解析失败或结构不符：回退整表重建，保证 DOM 一致
+          renderItems();
+          return;
+        }
+        const hasThumb = freshEl.querySelector(".thumb");
+        const hasType = freshEl.querySelector(".thumb-badge-type");
+        const hasChips = freshEl.querySelector(".source-badge, .tag-chip, .meta-chip");
+        if (!hasThumb || !hasType) {
+          renderItems();
+          return;
+        }
+        wrap.replaceWith(freshEl);
+        // 更新卡片级 aria-label（来源徽标可能变化）
+        const pathMissing = isItemPathMissing(item);
+        const sourceAria = itemSourceBadgesAria(item);
+        const baseAria = pathMissing
+          ? `文件路径失效：${item.title || item.fileName}`
+          : `打开 ${item.title || item.fileName}`;
+        card.setAttribute("aria-label", sourceAria ? `${baseAria}，${sourceAria}` : baseAria);
+        // 同步 render snapshot：item.thumbnail 已更新，立即重算指纹，
+        // 否则下一次自动刷新时指纹对比旧快照会误判变化而整表重建。
+        appState.lastItemsFingerprint = itemsFingerprint(appState.items);
+      }
+
+      // 列表内容指纹：覆盖所有影响卡片 DOM / 顺序 / aria 的字段。
+      // id、顺序（数组天然保序）、fileName/title、pathState、favorite、thumbnail 全部字段、
+      // tags 名称、sourceBadges 的 kind/sourceId/label/isOwner/available。
+      // 数据没变就不重建 innerHTML，避免自动刷新/缩略图完成后全量重绘。
+      function itemsFingerprint(items) {
+        return JSON.stringify(items.map((item) => [
+          item.id,
+          item.fileName || "",
+          item.title || "",
+          item.pathState || "",
+          item.isFavorite ? 1 : 0,
+          item.thumbnail
+            ? [item.thumbnail.path || "", item.thumbnail.status || "", item.thumbnail.width || "", item.thumbnail.height || "", item.thumbnail.lastGeneratedAt || "", item.thumbnail.errorMessage || ""]
+            : null,
+          (item.tags || []).map((tag) => tag.name || ""),
+          (item.sourceBadges || []).map((badge) => [badge.kind || "", badge.sourceId || "", badge.label || "", badge.isOwner ? 1 : 0, badge.available === false ? 0 : 1])
+        ]));
+      }
+
       function renderItems() {
         const items = appState.items;
         els.listSummary.textContent = `${fileCountText(items.length)}${appState.activeTagFilterIds.length ? (appState.language === "en-US" ? ", with tag filter" : "，含标签筛选") : ""}`;
 
+        // 列表内容指纹：数据没变就不重建 innerHTML（缩略图完成走 updateCardThumbnail 单卡 keyed 更新）。
+        const fingerprint = itemsFingerprint(items);
+        if (items.length && appState.lastItemsFingerprint === fingerprint && els.itemList.firstElementChild) {
+          return;
+        }
+        appState.lastItemsFingerprint = fingerprint;
+        // 列表全量重建前隐藏 tooltip：旧锚点 badge 将被销毁，不能残留旧卡 tooltip
+        window.__nutbookChipTipController?.hide();
+
         if (!items.length) {
+          appState.lastItemsFingerprint = "";
           if (appState.isBooting) {
             renderBootLoadingState();
             return;
@@ -14387,10 +14795,14 @@
         els.itemList.innerHTML = items
           .map(
             (item) => {
-              const skillBinding = resolveItemSkillBinding(item);
               const pathMissing = isItemPathMissing(item);
+              const sourceAria = itemSourceBadgesAria(item);
+              const baseAria = pathMissing
+                ? `文件路径失效：${item.title || item.fileName}`
+                : `打开 ${item.title || item.fileName}`;
+              const ariaLabel = sourceAria ? `${baseAria}，${sourceAria}` : baseAria;
               return `
-              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}" role="button" tabindex="0" aria-label="${escapeAttribute(pathMissing ? `文件路径失效：${item.title || item.fileName}` : `打开 ${item.title || item.fileName}`)}">
+              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}" role="button" tabindex="0" aria-label="${escapeAttribute(ariaLabel)}">
                 <button class="card-remove" type="button" data-remove-item="${item.id}" aria-label="从 Nutbook 移除">
                   <span style="font-size:18px; line-height:1; font-weight:500;">×</span>
                   <span class="card-action-tooltip">${appState.altKeyPressed ? "删除" : "移除"}</span>
@@ -14404,11 +14816,6 @@
                 ${thumbnailNode(item)}
                 <div class="item-main">
                   <div class="item-card-title">${escapeHtml(item.fileName)}</div>
-                  <div class="item-list-tags">
-                    ${item.tags?.[0] ? `<span class="tag-chip">${escapeHtml(item.tags[0].name)}</span>` : ""}
-                    ${skillBinding ? `<span class="meta-chip">${escapeHtml(skillBinding.displayName)}</span>` : ""}
-                    <span class="meta-chip">${escapeHtml(item.fileType === "html" ? "HTML" : "Markdown")}</span>
-                  </div>
                 </div>
               </article>
             `;
@@ -14447,6 +14854,165 @@
             await removeItemFromNutbook(Number(node.dataset.removeItem));
           });
         });
+
+// A1.1 GUI 反馈：单个全局 chip-tooltip coordinator。
+// - 保存并取消 requestAnimationFrame：每次 show 生成递增 token，rAF 回调校验 token，
+//   hide 时取消挂起的 rAF，杜绝 mouseout 早于 rAF 时旧 tooltip 复活。
+// - 锚点断开（列表重建/删除）后不复活：show/rAF 均检查 badge.isConnected。
+// - mouseout / focusout / scroll / resize / window blur / document mouseleave 全部隐藏。
+// - 上下翻转 + 四边 viewport clamp。
+// - 卡片键盘 focus（role=button tabindex=0）时显示完整来源名，但 badge 本身不加 tab stop。
+// per-badge 的 .chip-tooltip span 只作为文本源（CSS display:none）。
+let chipTipController = window.__nutbookChipTipController;
+if (!chipTipController) {
+          chipTipController = {
+            floatingTip: null,
+            token: 0,
+            pendingRaf: null,
+            activeBadge: null,
+            ensureTip() {
+              if (this.floatingTip) return this.floatingTip;
+              this.floatingTip = document.createElement("span");
+              this.floatingTip.className = "chip-tooltip chip-tooltip--floating";
+              this.floatingTip.setAttribute("aria-hidden", "true");
+              document.body.appendChild(this.floatingTip);
+              return this.floatingTip;
+            },
+            hide(forceToken) {
+              if (forceToken !== undefined && forceToken !== this.token) return;
+              this.token += 1;
+              if (this.pendingRaf) {
+                cancelAnimationFrame(this.pendingRaf);
+                this.pendingRaf = null;
+              }
+              const tip = this.ensureTip();
+              tip.style.opacity = "0";
+              this.activeBadge = null;
+            },
+            show(anchor, text, options) {
+              if (!anchor || !anchor.isConnected) return;
+              const textValue = (text || "").trim();
+              if (!textValue) return;
+              // A1.3 用户反馈（hover tooltip 闪烁/延迟）：mouseover 委托在 badge 内部
+              // 子元素间移动时 closest() 仍返回同一 badge，会反复调用 show()。
+              // 同锚点 + 同文本 → 直接跳过（无论当前 opacity 是否已 1）：若等 opacity 变 1
+              // 才跳过，第一次 rAF 尚未执行（opacity 仍 0）时第二次 show 会 token++ cancel rAF
+              // 重排队，鼠标快速移动时 rAF 被反复取消 → tooltip 停在 opacity 0（闪烁/延迟）。
+              // hide() 会把 activeBadge 置 null，故真正移出后重新进入会正常重新 show。
+              if (this.activeBadge === anchor && this.floatingTip &&
+                  this.floatingTip.textContent === textValue) return;
+              const token = ++this.token;
+              if (this.pendingRaf) {
+                cancelAnimationFrame(this.pendingRaf);
+                this.pendingRaf = null;
+              }
+              this.activeBadge = anchor;
+              const tip = this.ensureTip();
+              tip.textContent = textValue;
+              const rect = anchor.getBoundingClientRect();
+              tip.style.position = "fixed";
+              tip.style.left = "0px";
+              tip.style.top = "0px";
+              tip.style.transform = "none";
+              tip.style.opacity = "0";
+              // A1.3 返工（Markdown toolbar 切割/路径栏遮挡）：toolbar 紧贴 viewer 顶部，
+              // tooltip 向上弹会被路径栏遮挡且文本不完整显。Markdown toolbar 徽标传
+              // preferBelow:true 强制向下；主页卡片继续走默认适应策略。
+              const preferBelow = !!(options && options.preferBelow);
+              this.pendingRaf = requestAnimationFrame(() => {
+                this.pendingRaf = null;
+                if (token !== this.token) return;
+                // 锚点断开（列表重建/删除）后不得复活
+                if (!anchor.isConnected) {
+                  this.hide(token);
+                  return;
+                }
+                const tr = tip.getBoundingClientRect();
+                const tipW = tr.width;
+                const tipH = tr.height;
+                const gap = 6;
+                const pad = 4;
+                const vw = window.innerWidth;
+                let top, transform;
+                if (preferBelow) {
+                  top = rect.bottom + gap;
+                  transform = "translateX(-50%) translateY(0)";
+                } else {
+                  top = rect.top - gap;
+                  transform = "translateX(-50%) translateY(-100%)";
+                  if (rect.top - gap < tipH + pad) {
+                    top = rect.bottom + gap;
+                    transform = "translateX(-50%) translateY(0)";
+                  }
+                }
+                // 水平 clamp：实测 tipW 必须完整落入 viewport
+                let left = rect.left + rect.width / 2 - tipW / 2;
+                if (left < pad) left = pad;
+                if (left + tipW > vw - pad) left = vw - pad - tipW;
+                if (left < rect.left) {
+                  transform = transform.replace("translateX(-50%)", "translateX(0)");
+                } else if (left + tipW > rect.right) {
+                  transform = transform.replace("translateX(-50%)", "translateX(-100%)");
+                }
+                tip.style.left = `${left}px`;
+                tip.style.top = `${top}px`;
+                tip.style.transform = transform;
+                tip.style.opacity = "1";
+              });
+            }
+          };
+          window.__nutbookChipTipController = chipTipController;
+        }
+      // 复用同一套 chip-tooltip coordinator（全局单个 floating tip，A1.1 已验证）。
+      // 卡片：mouseover 只显示首个 focus 的徽标（role=button 卡片 click 后会 focus，
+      // 不能让 focus 触发卡片级组合 tooltip：A1.3 用户报「点击卡片顶部出现长 tooltip」）。
+      // 键盘可访问性用 source-badge 自身 aria-label（已设）；不挂 focusin/focusout。
+      function attachChipTooltipRoot(rootEl, options) {
+        if (!rootEl || rootEl.dataset.chipTooltipWired === "true") return;
+        rootEl.dataset.chipTooltipWired = "true";
+        const tipController = () => window.__nutbookChipTipController;
+        const chipSelector = ".source-badge, .tag-chip, .meta-chip";
+        rootEl.addEventListener("mouseover", (event) => {
+          const badge = event.target.closest(chipSelector);
+          if (!badge) return;
+          if (options.requireRow && !badge.closest(".thumb-chip-row")) return;
+          const src = badge.querySelector(".chip-tooltip");
+          if (!src) return;
+          // A1.3 返工：breadcrumbTags 强制向下（路径栏遮挡上方）；itemList 走默认。
+          tipController().show(badge, src.textContent, { preferBelow: !!options.preferBelow });
+        });
+        rootEl.addEventListener("mouseout", (event) => {
+          const badge = event.target.closest(chipSelector);
+          if (!badge) return;
+          if (options.requireRow && !badge.closest(".thumb-chip-row")) return;
+          // 移到兄弟徽标时不隐藏（让相邻 hover 顺滑）
+          const to = event.relatedTarget;
+          if (to && badge.contains(to)) return;
+          tipController().hide();
+        });
+      }
+      attachChipTooltipRoot(els.itemList, { requireRow: true });
+      attachChipTooltipRoot(els.breadcrumbTags, { requireRow: false, preferBelow: true });
+
+      // 全局隐藏（滚动 / resize / 窗口失焦 / 鼠标离开视口）与锚点脱离 DOM 兜底，只挂一次。
+      if (!window.__nutbookChipTipGlobalWired) {
+        window.__nutbookChipTipGlobalWired = true;
+        const tipController = () => window.__nutbookChipTipController;
+        const hideAll = () => tipController().hide();
+        window.addEventListener("scroll", hideAll, { passive: true, capture: true });
+        window.addEventListener("resize", hideAll, { passive: true });
+        document.addEventListener("mouseleave", hideAll);
+        document.addEventListener("blur", hideAll);
+        // 列表/工具栏重建导致锚点 badge 脱离 DOM 时立即隐藏（不得残留旧 tooltip）
+        const anchorObserver = new MutationObserver(() => {
+          const ctrl = tipController();
+          if (ctrl.activeBadge && !ctrl.activeBadge.isConnected) {
+            ctrl.hide();
+          }
+        });
+        anchorObserver.observe(els.itemList, { childList: true, subtree: true });
+        if (els.breadcrumbTags) anchorObserver.observe(els.breadcrumbTags, { childList: true, subtree: true });
+      }
       }
 
       function renderBootLoadingState() {
@@ -14545,7 +15111,7 @@
         }
         if (action === "overlay-layout") {
           const expanded = Boolean(payload.expanded);
-          const layoutMode = ["hover", "more", "tags"].includes(payload.layoutMode)
+          const layoutMode = ["hover", "more", "tags", "badge-tip"].includes(payload.layoutMode)
             ? payload.layoutMode
             : "default";
           if (appState.runtimeControlsOverlayExpanded !== expanded || appState.runtimeControlsOverlayMode !== layoutMode) {
@@ -14749,12 +15315,11 @@
         }
         applyRuntimeFullscreenState();
         els.viewerBody.classList.toggle("runtime-mode", tab?.preview?.fileType === "html-runtime");
-        const activeLibrary = appState.libraries.find((library) => library.id === appState.activeLibraryId);
-        els.breadcrumbLibrary.textContent = activeLibrary?.name || "资料库";
 
         if (!tab) {
-          els.breadcrumbLibrary.textContent = "";
           els.breadcrumbItem.textContent = "";
+          els.breadcrumbItem.title = "";
+          els.breadcrumbItem.removeAttribute("aria-label");
           if (els.breadcrumbTags) {
             els.breadcrumbTags.innerHTML = "";
             els.breadcrumbTags.classList.remove("host-overlay-mode");
@@ -14790,7 +15355,12 @@
           return;
         }
 
-        els.breadcrumbItem.textContent = tab.item?.filePath || tab.item?.fileName || tab.preview?.title || "";
+        // 路径 = 当前文档真实 filePath（不再拼接资料库名 crumb）；
+        // 截断时尾部 ellipsis，title / aria-label 保留完整路径作为 accessible name。
+        const documentPath = tab.item?.filePath || tab.item?.fileName || tab.preview?.title || "";
+        els.breadcrumbItem.textContent = documentPath;
+        els.breadcrumbItem.title = documentPath;
+        els.breadcrumbItem.setAttribute("aria-label", documentPath);
         if (els.breadcrumbTags) {
           const typeLabel = tab.preview.fileType === "markdown" || tab.preview.fileType === "markdown-loading"
             ? "Markdown"
@@ -14803,6 +15373,8 @@
             appState.documentTagAnchorLeft = 0;
           } else {
             els.breadcrumbTags.classList.remove("host-overlay-mode");
+            // 工具栏重绘（切换 tab / 返回主页 / 重开）必须隐藏可能残留的来源 tooltip。
+            window.__nutbookChipTipController?.hide();
             els.breadcrumbTags.innerHTML = renderDocumentTagChips(tab.item, typeLabel);
             els.breadcrumbTags.querySelectorAll("[data-document-tag-trigger]").forEach((node) => {
               node.addEventListener("mouseenter", cancelDocumentTagMenuClose);
@@ -15205,6 +15777,8 @@
       function runtimeControlsOverlayHeight() {
         if (appState.runtimeControlsOverlayMode === "tags") return 260;
         if (appState.runtimeControlsOverlayMode === "more") return 180;
+        // A1.3：来源徽标 tooltip 展开态（多行完整来源名），须高于 hover 68px 才不会被裁。
+        if (appState.runtimeControlsOverlayMode === "badge-tip") return 100;
         if (appState.runtimeControlsOverlayMode === "hover") return 68;
         return 40;
       }
@@ -15219,17 +15793,37 @@
         const actionsRect = els.toolbarActions?.getBoundingClientRect();
         const actionRight = actionsRect?.right || toolbarRect?.right || (fallbackBounds.x + fallbackBounds.width);
         const actionWidth = Math.max(actionsRect?.width || 96, 96);
-        const customTagWidth = runtimeControlsTagWidth(tab.item?.tags?.[0]?.name || "+ 标签", 58);
-        const skillTagWidth = runtimeControlsTagWidth(tab.item?.skillBinding?.displayName, 0);
+        const toolbarWidth = toolbarRect?.width || window.innerWidth || 1280;
+        // 自定义标签优先全量显示（上限 176px，保底 56px ≥ 2 中文字），多标签显示不可收缩 +N
+        const customTags = Array.isArray(tab.item?.tags) ? tab.item.tags : [];
+        const customPrimaryWidth = customTags.length
+          ? Math.min(176, Math.max(56, String(customTags[0].name || "").trim().length * 12 + 24))
+          : runtimeControlsTagWidth("+ 标签", 58);
+        const customMoreWidth = customTags.length > 1 ? 30 : 0;
+        // A1.3：来源徽标只从 sourceBadges 投影；上限 120px ≈ 一个完整英文单词/11 中文字，
+        // 不多不少（用户要求展开时至少看清一个单词，而非三四词）。
+        const projectBadges = (tab.item?.sourceBadges || []).filter((b) => b && b.kind === "project");
+        const skillBadges = (tab.item?.sourceBadges || []).filter((b) => b && b.kind === "skill");
+        const badgePrimaryWidth = (badges) => badges.length
+          ? Math.min(120, Math.max(40, String(badges[0].label || "").trim().length * 12 + 24))
+          : 0;
+        const projectWidth = badgePrimaryWidth(projectBadges);
+        const skillWidth = badgePrimaryWidth(skillBadges);
+        const projectMoreWidth = projectBadges.length > 1 ? 30 : 0;
+        const skillMoreWidth = skillBadges.length > 1 ? 30 : 0;
         const typeTagWidth = runtimeControlsTagWidth("HTML", 50);
-        const visibleTagCount = 1 + (skillTagWidth ? 1 : 0) + 1;
-        const tagGaps = Math.max(0, visibleTagCount - 1) * 6;
+        const visibleChips = 1 + (customMoreWidth ? 1 : 0) + (projectBadges.length ? 1 : 0) + (projectBadges.length > 1 ? 1 : 0) + (skillBadges.length ? 1 : 0) + (skillBadges.length > 1 ? 1 : 0) + 1;
+        const chipGaps = Math.max(0, visibleChips - 1) * 6;
         const islandGap = 8;
         const islandPadding = 2;
-        const baseWidth = Math.ceil(customTagWidth + skillTagWidth + typeTagWidth + tagGaps + islandGap + actionWidth + islandPadding);
+        const baseWidth = Math.ceil(customPrimaryWidth + customMoreWidth + projectWidth + projectMoreWidth + skillWidth + skillMoreWidth + typeTagWidth + chipGaps + islandGap + actionWidth + islandPadding);
+        // A1.3 第五轮：响应式预算。overlay 宽度 = min(内容自然宽度, 46% 工具栏 + actions)，
+        // 与 MD 标签组同一占位比例 → 窗口缩小时 overlay 随工具栏收缩，chip 真正压缩
+        // （而非只压路径）；大窗口取自然宽度（徽标 ~120px 一个单词）。
+        const responsiveBudget = Math.max(240, Math.round(toolbarWidth * 0.46) + actionWidth);
         const width = appState.runtimeControlsOverlayMode === "tags"
-          ? Math.max(baseWidth, 300)
-          : baseWidth;
+          ? Math.min(Math.max(baseWidth, 300), Math.max(300, responsiveBudget))
+          : Math.min(baseWidth, responsiveBudget);
         const right = Math.round(actionRight);
         return {
           x: Math.round(Math.max(0, right - width)),
@@ -15261,6 +15855,7 @@
         if (!tab || tab.preview?.fileType !== "html-runtime") {
           appState.runtimeControlsOverlayExpanded = false;
           appState.runtimeControlsOverlayMode = "default";
+          if (els.breadcrumbTags) els.breadcrumbTags.style.width = "";
           cleanupRuntimeHostSync();
           hideInactiveRuntimeHosts().catch(() => {});
           return;
@@ -15290,10 +15885,18 @@
         }
         const boundsKey = `${tab.id}:${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
         const controlsBounds = runtimeControlsOverlayBounds(tab, toolbarRect, bounds);
+        // A1.3：HTML 模式主工具栏为 overlay 预留同宽空间（隐藏的 breadcrumbTags 当 spacer），
+        // 路径随之 ellipsis 压缩，与 MD 工具栏行为一致，overlay 不再盖住路径文字。
+        if (appState.runtimeFullscreenItemId !== tab.id && els.breadcrumbTags) {
+          const actionW = Math.max(els.toolbarActions?.getBoundingClientRect()?.width || 96, 96);
+          const reserved = Math.max(0, Math.round(controlsBounds.width - actionW));
+          els.breadcrumbTags.style.width = reserved > 0 ? `${reserved}px` : "";
+        }
 
         await hideInactiveRuntimeHosts(tab.id, { invalidate: false });
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
         if (appState.activeRuntimeHostId !== tab.id || appState.runtimeHostLastBoundsKey !== boundsKey) {
+          appState.runtimeHostLastHeight = Math.round(bounds.height);
           await invoke("attach_html_runtime_host_command", {
             itemId: tab.id,
             bounds
@@ -15319,7 +15922,9 @@
             customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
             availableTags: appState.tags,
             skillTag: tab.item?.skillBinding?.displayName ?? null,
-            typeTag: "HTML"
+            typeTag: "HTML",
+            customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
+            sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
           });
           if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           await setRuntimeControlsOverlayVisibility(tab.id, true);
@@ -15344,7 +15949,9 @@
           customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
           availableTags: appState.tags,
           skillTag: tab.item?.skillBinding?.displayName ?? null,
-          typeTag: "HTML"
+          typeTag: "HTML",
+          customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
+          sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
         });
         if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
         await setRuntimeControlsOverlayVisibility(tab.id, true);
@@ -15505,7 +16112,6 @@
         if (!appState.libraries.length) {
           appState.items = [];
           renderItems();
-          await loadIgnoredItems();
           return true;
         }
 
@@ -15533,7 +16139,8 @@
           if (searchEpoch !== appState.searchEpoch) return "stale";
           appState.items = sortItemsInPlace((result.items || []).map(normalizeItemSummary));
           renderItems();
-          await loadIgnoredItems();
+          // A1.1-PERF：忽略列表只在设置区打开或真实状态变化时刷新（loadLibraries/恢复操作已覆盖），
+          // 不在首页每 2.5s 无条件调用 loadIgnoredItems。
           ensureDocumentThumbnails(appState.items);
           return true;
         } catch (error) {
@@ -16048,12 +16655,71 @@
         }
       }
 
+      // A1.1-PERF：自动刷新 single-flight。
+      // - 任意时刻最多一个自动 loadItems（in-flight guard）
+      // - 一轮完成后再 setTimeout 安排下一轮；期间触发的刷新合并为一次 pending
+      // - 页面隐藏 / 设置页 / 文档阅读页 / 无活动库时暂停
+      // - 用户主动搜索/筛选请求是新 searchEpoch，自动刷新在途请求返回 stale 被静默忽略，
+      //   自动刷新永远不会把用户请求标成 stale
       function startAutoRefresh() {
         if (!appState.isTauri || appState.refreshTimer) return;
-        appState.refreshTimer = window.setInterval(async () => {
-          if (!appState.activeLibraryId) return;
-          await loadItems();
-        }, 2500);
+        const REFRESH_INTERVAL_MS = 2500;
+        let refreshInFlight = false;
+        let refreshPending = false;
+        let refreshTimerHandle = null;
+
+        const autoRefreshShouldRun = () => {
+          if (!appState.activeLibraryId) return false;
+          if (document.hidden) return false;
+          if (appState.isSettingsOpen) return false;
+          if (!appState.homeTabOpen || getActiveTab()) return false;
+          return true;
+        };
+
+        const runAutoRefresh = async () => {
+          if (refreshInFlight) {
+            refreshPending = true;
+            return;
+          }
+          refreshInFlight = true;
+          try {
+            await loadItems();
+          } finally {
+            refreshInFlight = false;
+            if (refreshPending) {
+              refreshPending = false;
+              scheduleAutoRefreshTick(0);
+            } else {
+              scheduleAutoRefreshTick(REFRESH_INTERVAL_MS);
+            }
+          }
+        };
+
+        const scheduleAutoRefreshTick = (delayMs) => {
+          window.clearTimeout(refreshTimerHandle);
+          refreshTimerHandle = window.setTimeout(() => {
+            if (!autoRefreshShouldRun()) {
+              // 暂停中：延后重查，不堆积任务
+              scheduleAutoRefreshTick(REFRESH_INTERVAL_MS);
+              return;
+            }
+            runAutoRefresh();
+          }, delayMs);
+        };
+
+        appState.refreshTimer = { schedule: scheduleAutoRefreshTick };
+        // 自动化合同钩子：触发一轮自动刷新（single-flight guard 内），无日志无 IPC
+        window.__nutbookAutoRefresh = {
+          trigger: runAutoRefresh,
+          stop: () => {
+            window.clearTimeout(refreshTimerHandle);
+            appState.refreshTimer = null;
+          },
+          get state() {
+            return { inFlight: refreshInFlight, pending: refreshPending };
+          }
+        };
+        scheduleAutoRefreshTick(REFRESH_INTERVAL_MS);
       }
 
       window.addEventListener("message", (event) => {

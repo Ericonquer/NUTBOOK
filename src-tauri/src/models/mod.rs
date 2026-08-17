@@ -35,7 +35,7 @@ pub use item::{
     EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
-    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSummary, ListItemsQuery,
+    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery,
     IgnoredItemSummary, MarkItemOpenedRequest, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,

@@ -1,6 +1,9 @@
 use crate::{
     errors::AppError,
-    models::{HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, ItemDetail, RuntimeHostBounds, Tag},
+    models::{
+        HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, ItemDetail, ItemSourceBadge,
+        RuntimeHostBounds, Tag,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -440,6 +443,8 @@ pub fn attach_html_runtime_controls_overlay(
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
+    custom_tags: Vec<Tag>,
+    source_badges: Vec<ItemSourceBadge>,
 ) -> Result<bool, AppError> {
     attach_controls_overlay(
         app,
@@ -453,6 +458,8 @@ pub fn attach_html_runtime_controls_overlay(
         available_tags,
         skill_tag,
         type_tag,
+        custom_tags,
+        source_badges,
     )
 }
 
@@ -468,12 +475,13 @@ pub fn attach_controls_overlay(
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
+    custom_tags: Vec<Tag>,
+    source_badges: Vec<ItemSourceBadge>,
 ) -> Result<bool, AppError> {
     let overlay_label = html_runtime_controls_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
-        webview
-            .set_bounds(runtime_host_rect(bounds.clone()))
-            .map_err(|_| AppError::InternalError)?;
+        let set_bounds_result = webview.set_bounds(runtime_host_rect(bounds.clone()));
+        set_bounds_result.map_err(|_| AppError::InternalError)?;
         let _ = webview.eval(&html_runtime_controls_overlay_update_script(
             item_id,
             is_favorite,
@@ -483,6 +491,8 @@ pub fn attach_controls_overlay(
             available_tags.clone(),
             skill_tag.clone(),
             type_tag.clone(),
+            custom_tags.clone(),
+            source_badges.clone(),
         ));
         let _ = webview.show();
         return Ok(true);
@@ -499,6 +509,8 @@ pub fn attach_controls_overlay(
         available_tags,
         skill_tag,
         type_tag,
+        custom_tags,
+        source_badges,
     )?;
     let webview = window
         .add_child(
@@ -507,9 +519,8 @@ pub fn attach_controls_overlay(
             tauri::LogicalSize::new(bounds.width, bounds.height),
         )
         .map_err(|_| AppError::InternalError)?;
-    webview
-        .set_bounds(runtime_host_rect(bounds))
-        .map_err(|_| AppError::InternalError)?;
+    let set_bounds_result = webview.set_bounds(runtime_host_rect(bounds.clone()));
+    set_bounds_result.map_err(|_| AppError::InternalError)?;
     Ok(true)
 }
 
@@ -1193,6 +1204,8 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
+    custom_tags: Vec<Tag>,
+    source_badges: Vec<ItemSourceBadge>,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("runtime-overlay.html"));
     let init_script = html_runtime_controls_overlay_init_script(
@@ -1204,6 +1217,8 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
         available_tags,
         skill_tag,
         type_tag,
+        custom_tags,
+        source_badges,
     );
 
     Ok(
@@ -1724,13 +1739,17 @@ fn html_runtime_controls_overlay_init_script(
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
+    custom_tags: Vec<Tag>,
+    source_badges: Vec<ItemSourceBadge>,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
     let skill_tag_json = serde_json::to_string(&skill_tag).unwrap_or_else(|_| "null".to_string());
     let type_tag_json = serde_json::to_string(&type_tag).unwrap_or_else(|_| "null".to_string());
+    let custom_tags_json = serde_json::to_string(&custom_tags).unwrap_or_else(|_| "[]".to_string());
+    let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
     format!(
-        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json} }};",
+        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json} }};",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
         if is_editing { "true" } else { "false" }
@@ -1804,13 +1823,17 @@ fn html_runtime_controls_overlay_update_script(
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
+    custom_tags: Vec<Tag>,
+    source_badges: Vec<ItemSourceBadge>,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
     let skill_tag_json = serde_json::to_string(&skill_tag).unwrap_or_else(|_| "null".to_string());
     let type_tag_json = serde_json::to_string(&type_tag).unwrap_or_else(|_| "null".to_string());
+    let custom_tags_json = serde_json::to_string(&custom_tags).unwrap_or_else(|_| "[]".to_string());
+    let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
     format!(
-        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json} }});",
+        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}}});",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
         if is_editing { "true" } else { "false" }
@@ -1845,6 +1868,7 @@ mod tests {
                 is_favorite: false,
                 last_opened_at: None,
                 skill_binding: None,
+                source_badges: vec![],
                 tags: vec![],
                 thumbnail: None,
             },
