@@ -1442,8 +1442,8 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /addEventListener\("keydown"[\s\S]*?event\.key !== "Enter"\) return[\s\S]*?event\.isComposing \|\| isComposingSearch[\s\S]*?return[\s\S]*?executeSearch\(input\.value, \{ recordHistory: true \}\)/,
-  "Enter must execute immediately with recordHistory, skipping the IME-confirming Enter"
+  /addEventListener\("keydown"[\s\S]*?if \(event\.isComposing \|\| isComposingSearch \|\| event\.key === "Process" \|\| event\.keyCode === 229\) return[\s\S]*?if \(event\.key !== "Enter"\) return[\s\S]*?executeSearch\(input\.value, \{ recordHistory: true \}\)/,
+  "Enter must execute immediately with recordHistory, skipping the IME-confirming Enter and Process/229 keys"
 );
 assert.match(
   indexHtml,
@@ -2068,6 +2068,103 @@ assert.match(
   htmlRuntimeRust,
   /custom_tags: Vec<Tag>/,
   "Rust controls overlay attach must accept all assigned custom tags"
+);
+
+// ===== A2 最近搜索静态守卫 =====
+assert.match(
+  indexHtml,
+  /const RECENT_SEARCHES_KEY = "nutbook\.recentSearches\.v1"[\s\S]*?const RECENT_SEARCHES_MAX = 3/,
+  "recent search history must live under nutbook.recentSearches.v1 with a 3-item cap"
+);
+assert.match(
+  indexHtml,
+  /function readRecentSearches\(\)[\s\S]*?JSON\.parse\(raw\)[\s\S]*?Array\.isArray\(parsed\)[\s\S]*?catch \(_\)[\s\S]*?return \[\];/,
+  "recent search reads must defensively tolerate corrupted localStorage and fall back to an empty array"
+);
+assert.match(
+  indexHtml,
+  /function writeRecentSearches\(items\)[\s\S]*?storage\.removeItem\(RECENT_SEARCHES_KEY\)[\s\S]*?catch \(_\)/,
+  "recent search writes must be defensive and remove the key when the history empties"
+);
+assert.match(
+  indexHtml,
+  /function recordRecentSearch\(query\)[\s\S]*?toLowerCase\(\) !== keyword\.toLowerCase\(\)[\s\S]*?deduped\.unshift\(keyword\)/,
+  "recording a search must dedupe case-insensitively and keep the newest display text at the front"
+);
+assert.match(
+  indexHtml,
+  /async function executeSearch\(query, \{ recordHistory \} = \{\}\)[\s\S]*?if \(recordHistory && ok !== false\) \{\s*recordRecentSearch\(query\);/,
+  "executeSearch must record history only after a real successful search (zero-result counts, backend failure does not)"
+);
+assert.match(
+  indexHtml,
+  /role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list"/,
+  "both search inputs must expose combobox semantics pointing at the shared history popup"
+);
+assert.match(
+  indexHtml,
+  /<div id="recentSearchPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip><\/div>/,
+  "the shared history popup must be a single i18n-skipped listbox element"
+);
+assert.match(
+  indexHtml,
+  /function openRecentSearchPopup\(anchor\)[\s\S]*?els\.mainShell\.classList\.contains\("home-mode"\)[\s\S]*?document\.activeElement !== anchor[\s\S]*?String\(anchor\.value \|\| ""\)\.trim\(\)/,
+  "the history popup may only open in home-mode when the anchor is focused and its input is empty"
+);
+assert.match(
+  indexHtml,
+  /function closeRecentSearchPopup\(options = \{\}\)[\s\S]*?popup\.classList\.remove\("open"\)[\s\S]*?removeAttribute\("aria-activedescendant"\)/,
+  "closing the popup must reset expanded and activedescendant state on both inputs"
+);
+assert.match(
+  indexHtml,
+  /event\.isComposing \|\| isComposingSearch \|\| event\.key === "Process" \|\| event\.keyCode === 229/,
+  "search key handling must ignore IME composition, the Process key and keyCode 229"
+);
+assert.match(
+  indexHtml,
+  /if \(event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"\)[\s\S]*?moveRecentSearchActive\(event\.key === "ArrowDown" \? 1 : -1\)/,
+  "ArrowUp/ArrowDown must drive listbox navigation inside the history popup"
+);
+assert.match(
+  indexHtml,
+  /if \(event\.key === "Escape"\)[\s\S]*?closeRecentSearchPopup\(\{ refocus: true \}\)/,
+  "Escape must close the history popup and restore focus to the search input"
+);
+assert.match(
+  indexHtml,
+  /if \(event\.key === "Tab"\)[\s\S]*?if \(isRecentSearchPopupOpen\(\)\) closeRecentSearchPopup\(\);[\s\S]*?return;/,
+  "Tab must close the popup and let focus move on naturally"
+);
+assert.match(
+  indexHtml,
+  /querySelectorAll\("\.recent-search-remove"\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?removeRecentSearchItem/,
+  "the per-item delete button must prevent pointerdown blur and stop click propagation without searching"
+);
+assert.match(
+  indexHtml,
+  /function applyRecentSearchItem\(index\)[\s\S]*?syncSearchInputs\(item\)[\s\S]*?executeSearch\(item, \{ recordHistory: false \}\)/,
+  "clicking a history item must sync both search inputs and search without reordering history"
+);
+assert.match(
+  indexHtml,
+  /function removeRecentSearchItem\(index\)[\s\S]*?writeRecentSearches\(items\)[\s\S]*?renderRecentSearchPopup\(\)[\s\S]*?positionRecentSearchPopup\(recentSearchAnchor\)/,
+  "deleting one history item must keep the popup open and re-render in place"
+);
+assert.match(
+  indexHtml,
+  /function handleRecentSearchOutsidePointerDown\(event\)[\s\S]*?recentSearchAnchor && target === recentSearchAnchor[\s\S]*?closeRecentSearchPopup\(\)/,
+  "outside pointerdown must close the popup without closing it when the anchor itself is pressed"
+);
+assert.match(
+  indexHtml,
+  /if \(!homeMode\) closeRecentSearchPopup\(\);/,
+  "switching to document mode must close the history popup so no plain DOM popup can cover the HTML runtime"
+);
+assert.match(
+  indexHtml,
+  /if \(!rawValue\.trim\(\)\)[\s\S]*?openRecentSearchPopup\(input\)[\s\S]*?closeRecentSearchPopup\(\);[\s\S]*?scheduleSearch\(input\)/,
+  "typing must close the popup and clearing the input while focused must reopen it"
 );
 
 console.log("Nutbook regression guards passed.");

@@ -250,6 +250,8 @@
       },
       home: {
         searchPlaceholder: "搜索文件...",
+        recentSearches: "最近搜索",
+        removeRecentSearch: "删除搜索词 {word}",
         fileList: "文件列表",
         waitingScan: "等待扫描",
         bootLoadingTitle: "正在加载资料库",
@@ -763,6 +765,8 @@
       },
       home: {
         searchPlaceholder: "Search files...",
+        recentSearches: "Recent searches",
+        removeRecentSearch: "Remove search {word}",
         fileList: "File List",
         waitingScan: "Waiting for scan",
         bootLoadingTitle: "Loading library",
@@ -1197,6 +1201,8 @@
     "缩略图引擎状态还没加载出来。": "settings.thumbnailStatusLoading",
     "等待扫描": "home.waitingScan",
     "搜索文件...": "home.searchPlaceholder",
+    "最近搜索": "home.recentSearches",
+    "删除搜索词 {word}": "home.removeRecentSearch",
     "文件列表": "home.fileList",
     "没有打开的标签页": "home.noTabs",
     "点击左侧“所有文件”重新打开首页，或从资料库中打开一个文件。": "home.noTabsHint",

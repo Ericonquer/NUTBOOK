@@ -960,6 +960,83 @@
         line-height: 1;
       }
 
+      /* A2 最近搜索：单个全局 popup，fixed 定位到当前 anchor 输入框下方。
+         data-i18n-skip 容器，历史词永不被 i18n 扫描翻译。 */
+      .recent-search-popup {
+        position: fixed;
+        z-index: 520;
+        min-width: 232px;
+        max-width: min(360px, calc(100vw - 24px));
+        padding: 6px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        display: none;
+        flex-direction: column;
+        gap: 2px;
+        box-sizing: border-box;
+      }
+
+      .recent-search-popup.open {
+        display: flex;
+      }
+
+      .recent-search-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.4;
+        text-align: left;
+        padding: 6px 8px;
+        border-radius: 8px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        box-sizing: border-box;
+      }
+
+      .recent-search-option:hover,
+      .recent-search-option.active {
+        background: rgba(20, 20, 20, 0.06);
+      }
+
+      .recent-search-text {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .recent-search-remove {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      .recent-search-remove:hover {
+        background: rgba(20, 20, 20, 0.08);
+        color: var(--ink);
+      }
+
       .tab-chip.active::before,
       .tab-chip.active::after {
         content: "";
@@ -6141,7 +6218,7 @@
         <div class="topbar" data-tauri-drag-region>
           <div id="tabsWrap" class="tabs-wrap"></div>
           <div class="topbar-right">
-            <input id="searchInput" class="input search-input" placeholder="搜索文件..." data-i18n-placeholder="home.searchPlaceholder" />
+            <input id="searchInput" class="input search-input" placeholder="搜索文件..." data-i18n-placeholder="home.searchPlaceholder" role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list" />
             <button id="addFolderButtonTopbar" class="icon-button topbar-add-button folder-add-button" type="button" aria-label="添加文件夹">
               <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M2.8 6.2A2.2 2.2 0 0 1 5 4h3.1l1.7 1.8H15a2.2 2.2 0 0 1 2.2 2.2v6.4a2.2 2.2 0 0 1-2.2 2.2H5a2.2 2.2 0 0 1-2.2-2.2V6.2Z" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"></path>
@@ -6212,7 +6289,7 @@
                 </div>
               </div>
               <div class="home-actions">
-                <input id="homeSearchInput" class="input search-input home-search" placeholder="搜索文件..." data-i18n-placeholder="home.searchPlaceholder" />
+                <input id="homeSearchInput" class="input search-input home-search" placeholder="搜索文件..." data-i18n-placeholder="home.searchPlaceholder" role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list" />
                 <button id="clearTabsButton" class="button button-ghost">清空标签页</button>
                 <button id="viewModeButtonHome" class="icon-button" type="button" aria-label="切换视图">
                   <span class="material-symbols-outlined">grid_view</span>
@@ -6242,6 +6319,7 @@
         </div>
         <div id="toast" class="toast" aria-live="polite"></div>
         <div id="markdownLinkTooltip" class="markdown-link-tooltip" role="tooltip" aria-hidden="true" data-i18n-skip></div>
+        <div id="recentSearchPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
 
         <div class="hidden-controls" aria-hidden="true">
           <section class="field-stack">
@@ -6698,6 +6776,7 @@
         sidebarFootnote: document.getElementById("sidebarFootnote"),
         searchInput: document.getElementById("searchInput"),
         homeSearchInput: document.getElementById("homeSearchInput"),
+        recentSearchPopup: document.getElementById("recentSearchPopup"),
         fileTypeSelect: document.getElementById("fileTypeSelect"),
         scanButton: document.getElementById("scanButton"),
         refreshListButton: document.getElementById("refreshListButton"),
@@ -10403,7 +10482,7 @@
       function normalizeSourceBadge(badge) {
         if (!badge) return null;
         return {
-          kind: badge.kind ?? badge.kind,
+          kind: badge.kind,
           sourceId: badge.sourceId ?? badge.source_id ?? "",
           label: badge.label ?? "",
           isOwner: Boolean(badge.isOwner ?? badge.is_owner),
@@ -10723,11 +10802,16 @@
         return ok === false ? false : true;
       }
 
-      function executeSearch(query, { recordHistory } = {}) {
+      async function executeSearch(query, { recordHistory } = {}) {
         // 唯一搜索入口：Enter 触发 recordHistory=true（A2 最近搜索历史据此记录），
-        // 实时防抖搜索与清空均为 recordHistory=false。任何搜索路径都必须经由
+        // 实时防抖搜索、清空与历史点击均为 recordHistory=false。任何搜索路径都必须经由
         // 本函数，不得直接调用 applySearch，为 A2 保留单一记录点。
-        return applySearch(query);
+        const ok = await applySearch(query);
+        // 只在「真正成功」后记录（零结果仍算成功，后端失败 / 空查询不记录）。
+        if (recordHistory && ok !== false) {
+          recordRecentSearch(query);
+        }
+        return ok;
       }
 
       function scheduleSearch(input) {
@@ -10751,8 +10835,12 @@
           if (appState.appliedSearch) {
             executeSearch("", { recordHistory: false });
           }
+          // A2：输入被清空且仍聚焦时，重新展示最近搜索历史。
+          openRecentSearchPopup(input);
           return;
         }
+        // A2：开始输入后立即关闭历史列表。
+        closeRecentSearchPopup();
         scheduleSearch(input);
       }
 
@@ -10774,6 +10862,201 @@
             input.value = "";
           }
         });
+      }
+
+      // ===== A2 最近搜索：本地历史存储 + 共享 popup coordinator =====
+      // 历史是用户数据：只存本机 localStorage，词条用 escape helper 渲染并整体
+      // data-i18n-skip，绝不进入 i18n 翻译；读写都防御性捕获异常。
+      const RECENT_SEARCHES_KEY = "nutbook.recentSearches.v1";
+      const RECENT_SEARCHES_MAX = 3;
+      const RECENT_SEARCH_MAX_LENGTH = 200;
+
+      function readRecentSearches() {
+        try {
+          const raw = window.localStorage?.getItem(RECENT_SEARCHES_KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return [];
+          return parsed
+            .filter((item) => typeof item === "string" && item.trim().length > 0 && item.length <= RECENT_SEARCH_MAX_LENGTH)
+            .slice(0, RECENT_SEARCHES_MAX);
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function writeRecentSearches(items) {
+        try {
+          const normalized = items
+            .filter((item) => typeof item === "string" && item.trim().length > 0 && item.length <= RECENT_SEARCH_MAX_LENGTH)
+            .slice(0, RECENT_SEARCHES_MAX);
+          const storage = window.localStorage;
+          if (!storage) return;
+          if (normalized.length) {
+            storage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(normalized));
+          } else {
+            storage.removeItem(RECENT_SEARCHES_KEY);
+          }
+        } catch (_) {
+          // 历史只是本地偏好：读写失败静默降级，搜索主链路不受影响。
+        }
+      }
+
+      function recordRecentSearch(query) {
+        const keyword = normalizeSearchKeyword(query);
+        if (!keyword) return;
+        const current = readRecentSearches();
+        // 大小写不敏感去重，保留最新一次的显示文本，最新在前，最多三条。
+        const deduped = current.filter((item) => item.toLowerCase() !== keyword.toLowerCase());
+        deduped.unshift(keyword);
+        writeRecentSearches(deduped);
+      }
+
+      // 两个搜索框共享一个 coordinator 与 active anchor；popup 是单个 fixed 元素。
+      let recentSearchAnchor = null;
+      let recentSearchActiveIndex = -1;
+
+      function isRecentSearchPopupOpen() {
+        return Boolean(els.recentSearchPopup?.classList.contains("open"));
+      }
+
+      function renderRecentSearchPopup() {
+        const popup = els.recentSearchPopup;
+        if (!popup) return;
+        const items = readRecentSearches();
+        if (!items.length) {
+          closeRecentSearchPopup();
+          return;
+        }
+        popup.setAttribute("aria-label", t("home.recentSearches"));
+        popup.innerHTML = items.map((item, index) => `
+          <div class="recent-search-option ${index === recentSearchActiveIndex ? "active" : ""}" role="option" id="recent-search-option-${index}" aria-selected="${index === recentSearchActiveIndex}" data-recent-index="${index}">
+            <span class="recent-search-text">${escapeHtml(item)}</span>
+            <button type="button" class="recent-search-remove" tabindex="-1" data-recent-index="${index}" aria-label="${escapeAttribute(formatTranslation("home.removeRecentSearch", { word: item }))}">×</button>
+          </div>
+        `).join("");
+        popup.querySelectorAll(".recent-search-remove").forEach((node) => {
+          node.addEventListener("pointerdown", (event) => {
+            // 阻止默认行为：不让输入框 blur，也不触发 outside-click 关闭；click 阶段才删除。
+            event.preventDefault();
+          });
+          node.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeRecentSearchItem(Number(node.dataset.recentIndex));
+          });
+        });
+      }
+
+      function positionRecentSearchPopup(anchor) {
+        const popup = els.recentSearchPopup;
+        if (!popup) return;
+        const pad = 8;
+        const popupWidth = Math.min(Math.max(anchor.offsetWidth, 232), window.innerWidth - pad * 2);
+        const rect = anchor.getBoundingClientRect();
+        const left = Math.max(pad, Math.min(rect.left, window.innerWidth - pad - popupWidth));
+        popup.style.width = `${popupWidth}px`;
+        popup.style.left = `${left}px`;
+        popup.style.top = `${rect.bottom + 6}px`;
+      }
+
+      function openRecentSearchPopup(anchor) {
+        const popup = els.recentSearchPopup;
+        if (!popup || !anchor) return;
+        // 只在主页 home-mode、输入为空且 focus 时显示；文档模式绝不渲染普通 DOM popup。
+        if (!els.mainShell.classList.contains("home-mode")) return;
+        if (document.activeElement !== anchor) return;
+        if (String(anchor.value || "").trim()) return;
+        const items = readRecentSearches();
+        if (!items.length) return;
+        recentSearchAnchor = anchor;
+        if (recentSearchActiveIndex < 0 || recentSearchActiveIndex >= items.length) {
+          recentSearchActiveIndex = 0;
+        }
+        renderRecentSearchPopup();
+        positionRecentSearchPopup(anchor);
+        popup.classList.add("open");
+        anchor.setAttribute("aria-expanded", "true");
+        anchor.setAttribute("aria-activedescendant", `recent-search-option-${recentSearchActiveIndex}`);
+      }
+
+      function closeRecentSearchPopup(options = {}) {
+        const popup = els.recentSearchPopup;
+        if (!popup) return;
+        const wasOpen = isRecentSearchPopupOpen();
+        const anchor = recentSearchAnchor;
+        popup.classList.remove("open");
+        popup.innerHTML = "";
+        recentSearchAnchor = null;
+        recentSearchActiveIndex = -1;
+        [els.searchInput, els.homeSearchInput].forEach((input) => {
+          if (!input) return;
+          input.setAttribute("aria-expanded", "false");
+          input.removeAttribute("aria-activedescendant");
+        });
+        // 焦点回归：Escape 后回到触发搜索的输入框（键盘路径焦点本就在输入框，
+        // 兜底处理焦点可能已被移走的情形）。
+        if (options.refocus && anchor && isElementVisible(anchor)) {
+          anchor.focus();
+        }
+        return wasOpen;
+      }
+
+      function isElementVisible(element) {
+        return Boolean(element && element.offsetParent !== null);
+      }
+
+      function moveRecentSearchActive(delta) {
+        const items = readRecentSearches();
+        if (!items.length) return;
+        const next = recentSearchActiveIndex + delta;
+        if (next < 0 || next >= items.length) return;
+        recentSearchActiveIndex = next;
+        renderRecentSearchPopup();
+        const anchor = recentSearchAnchor;
+        if (anchor) {
+          anchor.setAttribute("aria-activedescendant", `recent-search-option-${next}`);
+        }
+      }
+
+      function activeRecentSearchItem() {
+        const items = readRecentSearches();
+        if (recentSearchActiveIndex < 0 || recentSearchActiveIndex >= items.length) return null;
+        return items[recentSearchActiveIndex];
+      }
+
+      function applyRecentSearchItem(index) {
+        const items = readRecentSearches();
+        const item = items[index];
+        if (item == null) return;
+        appState.searchDraft = item;
+        syncSearchInputs(item);
+        closeRecentSearchPopup();
+        // 历史点击不重排历史：只在 Enter 写历史（recordHistory=false）。
+        executeSearch(item, { recordHistory: false });
+      }
+
+      function removeRecentSearchItem(index) {
+        const items = readRecentSearches();
+        if (index < 0 || index >= items.length) return;
+        items.splice(index, 1);
+        writeRecentSearches(items);
+        // 删除不执行搜索、不关闭列表；活动项随索引回收。
+        if (recentSearchActiveIndex > index) recentSearchActiveIndex -= 1;
+        if (recentSearchActiveIndex >= items.length) recentSearchActiveIndex = items.length - 1;
+        if (!items.length) {
+          closeRecentSearchPopup();
+          return;
+        }
+        renderRecentSearchPopup();
+        positionRecentSearchPopup(recentSearchAnchor);
+      }
+
+      function handleRecentSearchOutsidePointerDown(event) {
+        if (!isRecentSearchPopupOpen()) return;
+        const target = event.target;
+        if (els.recentSearchPopup?.contains(target)) return;
+        if (recentSearchAnchor && target === recentSearchAnchor) return;
+        closeRecentSearchPopup();
       }
 
       function getFileTypeFilter() {
@@ -14303,10 +14586,14 @@
 
       function syncShellMode() {
         const hasActiveTab = Boolean(getActiveTab());
-        els.mainShell.classList.toggle("home-mode", !hasActiveTab && appState.homeTabOpen);
+        const homeMode = !hasActiveTab && appState.homeTabOpen;
+        els.mainShell.classList.toggle("home-mode", homeMode);
         els.mainShell.classList.toggle("no-tabs-mode", !hasActiveTab && !appState.homeTabOpen);
         els.listTitle.textContent = hasActiveTab ? t("home.fileList") : t("nav.all");
         applyHomeLayout();
+        // A2：切到文档模式 / 离开主页立即关闭最近搜索 popup，
+        // 绝不让普通 DOM popup 出现在 HTML runtime child WebView 上方。
+        if (!homeMode) closeRecentSearchPopup();
       }
 
       function renderLibraries() {
@@ -17670,13 +17957,79 @@ if (!chipTipController) {
             if (isComposingSearch) return;
             handleSearchInput(input);
           });
+          input?.addEventListener("focus", () => {
+            // A2：focus 且输入为空时打开共享历史 popup（仅 home-mode）。
+            openRecentSearchPopup(input);
+          });
+          input?.addEventListener("blur", () => {
+            // 焦点离开输入框即关闭；删除按钮 pointerdown 已 preventDefault，
+            // 不会因点击 × 触发 blur。
+            closeRecentSearchPopup();
+          });
           input?.addEventListener("keydown", (event) => {
+            // IME 候选确认（isComposing / key === "Process" / keyCode 229）
+            // 一律不执行搜索、不导航列表，也不写入残缺词。
+            if (event.isComposing || isComposingSearch || event.key === "Process" || event.keyCode === 229) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              if (!isRecentSearchPopupOpen()) return;
+              event.preventDefault();
+              moveRecentSearchActive(event.key === "ArrowDown" ? 1 : -1);
+              return;
+            }
+            if (event.key === "Escape") {
+              if (!isRecentSearchPopupOpen()) return;
+              event.preventDefault();
+              closeRecentSearchPopup({ refocus: true });
+              return;
+            }
+            if (event.key === "Tab") {
+              // Tab 关闭历史并走默认焦点移动（不拦截）。
+              if (isRecentSearchPopupOpen()) closeRecentSearchPopup();
+              return;
+            }
             if (event.key !== "Enter") return;
-            if (event.isComposing || isComposingSearch) return;
             event.preventDefault();
             clearTimeout(searchDebounceTimer);
+            if (isRecentSearchPopupOpen()) {
+              // listbox 路径：Enter 激活高亮的历史词（点击历史同样不重排历史）。
+              const item = activeRecentSearchItem();
+              if (item != null) {
+                applyRecentSearchItem(recentSearchActiveIndex);
+                return;
+              }
+              closeRecentSearchPopup({ refocus: true });
+              return;
+            }
             executeSearch(input.value, { recordHistory: true });
           });
+        });
+        // A2：单个共享 popup 的委托点击（历史词应用）；删除按钮已 stopPropagation，不会走到这里。
+        els.recentSearchPopup?.addEventListener("click", (event) => {
+          const option = event.target.closest(".recent-search-option");
+          if (!option) return;
+          applyRecentSearchItem(Number(option.dataset.recentIndex));
+        });
+        // A2：真实鼠标路径必修——mousedown 在非聚焦 option 上会把焦点从输入框移走
+        // （blur 提前关闭 popup，click 事件随之丢失）。在 popup 上统一 preventDefault，
+        // 保持输入框 focus；删除按钮自身的 pointerdown 已同样处理，双重 preventDefault 无害。
+        els.recentSearchPopup?.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+        });
+        // A2：outside click 关闭历史（pointerdown 先于 click，避免误触搜索结果）。
+        document.addEventListener("pointerdown", handleRecentSearchOutsidePointerDown);
+        // A2：窗口尺寸变化时重新定位打开的 popup。
+        window.addEventListener("resize", () => {
+          if (isRecentSearchPopupOpen() && recentSearchAnchor) {
+            positionRecentSearchPopup(recentSearchAnchor);
+          }
+        });
+        // A2：语言切换时重渲染打开的 popup（aria-label 等文案跟随语言，
+        // 历史词本身是用户数据，data-i18n-skip 保证不被翻译）。
+        window.addEventListener("nutbook:language-change", () => {
+          if (isRecentSearchPopupOpen() && recentSearchAnchor) {
+            renderRecentSearchPopup();
+            positionRecentSearchPopup(recentSearchAnchor);
+          }
         });
         els.fileTypeSelect.addEventListener("change", loadItems);
         document.querySelectorAll("[data-nav-group='browse']").forEach((node) => {
