@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN" data-nutbook-edit-contract="nutbook-html/v1">
+  <head>
+    <meta charset="utf-8" />
+    <title>Editable Thumbnail Revision Sample</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      /* Ink & Paper：白底墨字、高对比首屏，截图断言可肉眼区分 REVISION A / B */
+      :root {
+        color-scheme: light;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; }
+      body {
+        font-family: Inter, "PingFang SC", -apple-system, sans-serif;
+        background: #f7f7f8;
+        color: #1a1a1a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .card {
+        width: 640px;
+        background: #ffffff;
+        border: 1px solid #dddde3;
+        border-radius: 8px;
+        padding: 48px 56px;
+        box-shadow: 0 6px 18px rgba(20, 20, 20, 0.06);
+        text-align: center;
+      }
+      .eyebrow {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #6f6f78;
+        margin-bottom: 18px;
+      }
+      /* 稳定 data-id 的可编辑标题节点：真实保存验收把它从 REVISION A 改为 REVISION B */
+      h1[data-editable="text"][data-id="revision-badge"] {
+        font-size: 64px;
+        font-weight: 800;
+        line-height: 1.1;
+        color: #000000;
+        letter-spacing: 0.02em;
+        margin-bottom: 16px;
+      }
+      .subline {
+        font-size: 16px;
+        color: #4a4a52;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <p class="eyebrow">Thumbnail Revision Sample</p>
+      <h1 data-editable="text" data-id="revision-badge">REVISION A</h1>
+      <p class="subline" data-editable="text" data-id="revision-note">
+        从 Nutbook 正式入口打开并进入编辑模式，把上方标题改为 REVISION B 后保存，
+        主页卡片缩略图与磁盘源文件都应反映新版本。
+      </p>
+    </main>
+  </body>
+</html>

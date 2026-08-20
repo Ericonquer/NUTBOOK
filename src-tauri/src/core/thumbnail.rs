@@ -152,21 +152,49 @@ pub fn find_system_chromium_executable() -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// 最窄的截图 capture seam：生产路径使用 [`DefaultThumbnailCaptureAdapter`]，
+/// 测试通过显式依赖注入替换为可控延迟实现，从而决定某次 capture 何时完成。
+/// B0 只建立 seam 本身，不在此引入 generation / desired key / CAS / 持久化状态。
+pub trait ThumbnailCaptureAdapter: Send + Sync {
+    fn capture(&self, input: &ChromiumScreenshotInput) -> Result<GeneratedThumbnailAsset, String>;
+}
+
+/// 生产默认 adapter：直接调用既有 Chromium 截图实现，行为与 B0 之前完全一致。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultThumbnailCaptureAdapter;
+
+impl ThumbnailCaptureAdapter for DefaultThumbnailCaptureAdapter {
+    fn capture(&self, input: &ChromiumScreenshotInput) -> Result<GeneratedThumbnailAsset, String> {
+        capture_html_thumbnail_with_chromium(input.clone())
+    }
+}
+
 pub fn generate_html_thumbnail(
     input: HtmlThumbnailInput,
     backend: ThumbnailBackend,
+) -> GeneratedThumbnailAsset {
+    generate_html_thumbnail_with_adapter(input, backend, &DefaultThumbnailCaptureAdapter)
+}
+
+/// [`generate_html_thumbnail`] 的可注入形式。生产路径不变，仍由
+/// [`generate_html_thumbnail`] 使用默认 adapter 调用；测试注入自定义实现。
+pub fn generate_html_thumbnail_with_adapter(
+    input: HtmlThumbnailInput,
+    backend: ThumbnailBackend,
+    adapter: &dyn ThumbnailCaptureAdapter,
 ) -> GeneratedThumbnailAsset {
     match backend {
         ThumbnailBackend::Auto => {
             if let (Some(chromium_path), Some(source_url)) =
                 (find_local_chromium_executable(), input.source_url.clone())
             {
-                if let Ok(asset) = capture_html_thumbnail_with_chromium(ChromiumScreenshotInput {
+                let request = ChromiumScreenshotInput {
                     chromium_path,
                     url: source_url,
                     width: HTML_SCREENSHOT_WIDTH,
                     height: HTML_SCREENSHOT_HEIGHT,
-                }) {
+                };
+                if let Ok(asset) = adapter.capture(&request) {
                     return asset;
                 }
             }
@@ -663,11 +691,16 @@ mod tests {
     use super::{
         build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
         capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
-        playwright_chromium_executable_candidates, system_chrome_thumbnails_enabled,
-        should_launch_system_browser_via_open, thumbnail_backend_status, ChromiumScreenshotInput, PresentationScreenshotInput, PresentationThumbnailWorkerInput,
-        HtmlThumbnailInput, ThumbnailBackend, HTML_SCREENSHOT_HEIGHT, HTML_SCREENSHOT_WIDTH,
+        generate_html_thumbnail_with_adapter, playwright_chromium_executable_candidates, system_chrome_thumbnails_enabled,
+        should_launch_system_browser_via_open, thumbnail_backend_status, ChromiumScreenshotInput, DefaultThumbnailCaptureAdapter, GeneratedThumbnailAsset, PresentationScreenshotInput, PresentationThumbnailWorkerInput,
+        HtmlThumbnailInput, ThumbnailBackend, ThumbnailCaptureAdapter, HTML_SCREENSHOT_HEIGHT, HTML_SCREENSHOT_WIDTH,
     };
-    use std::{fs, path::{Path, PathBuf}};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        sync::{mpsc, Arc, Mutex},
+        time::Duration,
+    };
 
     #[test]
     fn placeholder_html_thumbnail_returns_static_svg_asset() {
@@ -878,5 +911,290 @@ mod tests {
         assert!(asset.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert_eq!(asset.width, 800);
         assert_eq!(asset.height, 500);
+    }
+
+    // ------------------------------------------------------------------
+    // B0 capture seam：可控延迟 adapter 与 characterization 基线
+    // ------------------------------------------------------------------
+
+    /// 测试用 adapter：capture 会阻塞直到测试调用 [`ControlledCaptureControl::release`]，
+    /// 从而让测试决定某次 capture 何时完成。不引入全局 sleep。
+    struct ControlledCaptureAdapter {
+        release_rx: Mutex<mpsc::Receiver<()>>,
+        responses: Mutex<Vec<Result<GeneratedThumbnailAsset, String>>>,
+        captured_requests: Arc<Mutex<Vec<ChromiumScreenshotInput>>>,
+    }
+
+    struct ControlledCaptureControl {
+        release_tx: mpsc::Sender<()>,
+        captured_requests: Arc<Mutex<Vec<ChromiumScreenshotInput>>>,
+    }
+
+    impl ControlledCaptureAdapter {
+        fn new() -> (Self, ControlledCaptureControl) {
+            let (release_tx, release_rx) = mpsc::channel();
+            let captured_requests = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    release_rx: Mutex::new(release_rx),
+                    responses: Mutex::new(Vec::new()),
+                    captured_requests: captured_requests.clone(),
+                },
+                ControlledCaptureControl {
+                    release_tx,
+                    captured_requests,
+                },
+            )
+        }
+
+        fn queue_response(&self, response: Result<GeneratedThumbnailAsset, String>) {
+            self.responses.lock().unwrap().push(response);
+        }
+    }
+
+    impl ControlledCaptureControl {
+        fn release(&self) {
+            let _ = self.release_tx.send(());
+        }
+
+        fn captured(&self) -> Vec<ChromiumScreenshotInput> {
+            self.captured_requests.lock().unwrap().clone()
+        }
+    }
+
+    impl ThumbnailCaptureAdapter for ControlledCaptureAdapter {
+        fn capture(&self, input: &ChromiumScreenshotInput) -> Result<GeneratedThumbnailAsset, String> {
+            self.captured_requests.lock().unwrap().push(input.clone());
+            let receiver = self.release_rx.lock().unwrap();
+            receiver
+                .recv()
+                .map_err(|_| "capture released without a response".to_string())?;
+            self.responses
+                .lock()
+                .unwrap()
+                .pop()
+                .unwrap_or_else(|| Err("no queued response".to_string()))
+        }
+    }
+
+    fn sample_png_asset() -> GeneratedThumbnailAsset {
+        GeneratedThumbnailAsset {
+            backend: "test-png",
+            content_type: "image/png",
+            file_extension: "png",
+            bytes: b"\x89PNG\r\n\x1a\ncontrolled-adapter-payload".to_vec(),
+            svg: String::new(),
+            width: HTML_SCREENSHOT_WIDTH,
+            height: HTML_SCREENSHOT_HEIGHT,
+        }
+    }
+
+    fn sample_request() -> ChromiumScreenshotInput {
+        ChromiumScreenshotInput {
+            chromium_path: PathBuf::from("/tmp/nutbook-controlled-fake-chromium"),
+            url: "file:///tmp/nutbook-controlled-sample.html".to_string(),
+            width: HTML_SCREENSHOT_WIDTH,
+            height: HTML_SCREENSHOT_HEIGHT,
+        }
+    }
+
+    /// 可控 adapter 在 release 前必须阻塞，release 后返回预设结果。这是后续
+    /// B1 R1/R2 并发验收依赖的核心机制，B0 先把它锁成绿色基线。
+    #[test]
+    fn controlled_capture_adapter_blocks_until_released() {
+        let (adapter, control) = ControlledCaptureAdapter::new();
+        adapter.queue_response(Ok(sample_png_asset()));
+        let request = sample_request();
+
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = adapter.capture(&request);
+            let _ = done_tx.send(result);
+        });
+
+        assert!(
+            done_rx
+                .recv_timeout(Duration::from_millis(150))
+                .is_err(),
+            "capture must block until the test releases it"
+        );
+        control.release();
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("capture should complete after release")
+            .expect("capture should succeed");
+        assert_eq!(result.backend, "test-png");
+        assert_eq!(result.width, HTML_SCREENSHOT_WIDTH);
+        assert_eq!(result.height, HTML_SCREENSHOT_HEIGHT);
+    }
+
+    /// 可控 adapter 的错误会原样传播给调用方，为「引擎失败 → placeholder/重试」
+    /// 的行为保留注入点。
+    #[test]
+    fn controlled_capture_adapter_propagates_error() {
+        let (adapter, control) = ControlledCaptureAdapter::new();
+        adapter.queue_response(Err("engine exploded".to_string()));
+        let request = sample_request();
+
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = adapter.capture(&request);
+            let _ = done_tx.send(result);
+        });
+
+        control.release();
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("capture should complete after release")
+            .expect_err("capture error should propagate");
+        assert_eq!(result, "engine exploded");
+    }
+
+    /// 生产默认 adapter 是既有 capture 实现的薄封装：类型与错误语义保持一致。
+    #[test]
+    fn default_adapter_is_a_thin_wrapper_over_existing_capture() {
+        let adapter = DefaultThumbnailCaptureAdapter;
+        let result = adapter.capture(&ChromiumScreenshotInput {
+            chromium_path: PathBuf::from("/tmp/nutbook-does-not-exist-chromium"),
+            url: "file:///tmp/none.html".to_string(),
+            width: 800,
+            height: 500,
+        });
+        assert_eq!(result, Err("chromium executable not found".to_string()));
+    }
+
+    /// Auto 分支在缺少 source_url 时不得调用 capture adapter，行为与 B0 之前一致。
+    #[test]
+    fn auto_backend_without_source_url_never_invokes_capture_adapter() {
+        let (adapter, control) = ControlledCaptureAdapter::new();
+        let asset = generate_html_thumbnail_with_adapter(
+            HtmlThumbnailInput {
+                file_name: "deck.html".to_string(),
+                title: None,
+                raw_text: None,
+                source_url: None,
+            },
+            ThumbnailBackend::Auto,
+            &adapter,
+        );
+        assert_eq!(asset.backend, "placeholder-svg");
+        assert!(control.captured().is_empty());
+    }
+
+    /// PlaceholderSvg 后端从不调用 capture adapter。
+    #[test]
+    fn placeholder_backend_never_invokes_capture_adapter() {
+        let (adapter, control) = ControlledCaptureAdapter::new();
+        let asset = generate_html_thumbnail_with_adapter(
+            HtmlThumbnailInput {
+                file_name: "deck.html".to_string(),
+                title: None,
+                raw_text: None,
+                source_url: Some("file:///tmp/none.html".to_string()),
+            },
+            ThumbnailBackend::PlaceholderSvg,
+            &adapter,
+        );
+        assert_eq!(asset.backend, "placeholder-svg");
+        assert!(control.captured().is_empty());
+    }
+
+    /// 串行化 NUTBOOK_CHROME_PATH 环境依赖，避免与其它会读该变量的并行测试互相干扰。
+    static THUMBNAIL_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// 引擎可用（NUTBOOK_CHROME_PATH 指向存在文件）时，Auto 分支必须通过注入的
+    /// adapter 完成 capture；请求尺寸来自固定截图常量。adapter 接管后不会执行
+    /// 假浏览器文件。
+    #[test]
+    fn controlled_adapter_capture_is_used_when_engine_is_available() {
+        let _guard = THUMBNAIL_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fake = std::env::temp_dir().join(format!(
+            "nutbook-fake-chromium-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&fake, b"not a real browser; the adapter never executes it")
+            .expect("fake chromium should be written");
+        std::env::set_var("NUTBOOK_CHROME_PATH", &fake);
+
+        let (adapter, control) = ControlledCaptureAdapter::new();
+        adapter.queue_response(Ok(sample_png_asset()));
+        let input = HtmlThumbnailInput {
+            file_name: "deck.html".to_string(),
+            title: None,
+            raw_text: None,
+            source_url: Some("file:///tmp/nutbook-controlled-sample.html".to_string()),
+        };
+
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let asset = generate_html_thumbnail_with_adapter(input, ThumbnailBackend::Auto, &adapter);
+            let _ = done_tx.send(asset);
+        });
+
+        control.release();
+        let asset = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("generation should complete after release");
+        assert_eq!(asset.backend, "test-png");
+        assert_eq!(asset.width, HTML_SCREENSHOT_WIDTH);
+        assert_eq!(asset.height, HTML_SCREENSHOT_HEIGHT);
+
+        let captured = control.captured();
+        assert_eq!(captured.len(), 1, "capture adapter must be invoked exactly once");
+        assert_eq!(captured[0].width, HTML_SCREENSHOT_WIDTH);
+        assert_eq!(captured[0].height, HTML_SCREENSHOT_HEIGHT);
+        assert_eq!(captured[0].url, "file:///tmp/nutbook-controlled-sample.html");
+
+        std::env::remove_var("NUTBOOK_CHROME_PATH");
+        let _ = fs::remove_file(&fake);
+    }
+
+    /// 注入的 adapter 返回 Err 时，Auto 分支回退 placeholder，与既有失败降级一致。
+    #[test]
+    fn controlled_adapter_error_falls_back_to_placeholder() {
+        let _guard = THUMBNAIL_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fake = std::env::temp_dir().join(format!(
+            "nutbook-fake-chromium-err-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&fake, b"not a real browser").expect("fake chromium should be written");
+        std::env::set_var("NUTBOOK_CHROME_PATH", &fake);
+
+        let (adapter, control) = ControlledCaptureAdapter::new();
+        adapter.queue_response(Err("engine exploded".to_string()));
+        let input = HtmlThumbnailInput {
+            file_name: "deck.html".to_string(),
+            title: None,
+            raw_text: None,
+            source_url: Some("file:///tmp/nutbook-controlled-sample.html".to_string()),
+        };
+
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let asset = generate_html_thumbnail_with_adapter(input, ThumbnailBackend::Auto, &adapter);
+            let _ = done_tx.send(asset);
+        });
+
+        control.release();
+        let asset = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("generation should complete after release");
+        assert_eq!(asset.backend, "placeholder-svg");
+        assert_eq!(control.captured().len(), 1);
+
+        std::env::remove_var("NUTBOOK_CHROME_PATH");
+        let _ = fs::remove_file(&fake);
     }
 }

@@ -41,6 +41,14 @@ function indexFunctionSection(name, nextName) {
 const connectAgentScopes = indexFunctionSection("connectAgentScopesInSettings", "toggleAgentScopeDetails");
 const restoreCachedAgentProjects = indexFunctionSection("restoreCachedAgentProjectsInSettings", "loadAgentProjectsInSettings");
 const openSettingsPanelFromOverlay = indexFunctionSection("openSettingsPanelFromOverlay", "renderSortMenu");
+const thumbnailSettingsControls = indexFunctionSection("syncThumbnailSettingsControls", "runThumbnailSettingsOperation");
+const thumbnailSettingsDetection = indexFunctionSection("refreshThumbnailBackendStatusFromSettings", "enableSystemChromeThumbnails");
+const thumbnailSettingsRebuild = indexFunctionSection("rebuildThumbnailsForItems", "rebuildVisibleHtmlThumbnails");
+
+assert.match(indexHtml, /id="settingsThumbnailFeedback"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"[^>]*hidden/, "thumbnail Settings actions must expose one persistent inline live region instead of relying on the document-only footer status");
+assert.match(thumbnailSettingsControls, /settingsRefreshThumbnailStatusButton[\s\S]*?settingsRebuildVisibleThumbsButton[\s\S]*?settingsRebuildLibraryThumbsButton[\s\S]*?button\.disabled = Boolean\(operation\)[\s\S]*?aria-busy/, "thumbnail detection and both rebuild actions must share one mutually exclusive busy state");
+assert.match(thumbnailSettingsDetection, /thumbnailDetecting[\s\S]*?loadThumbnailBackendStatus\(\{ throwOnError: true \}\)[\s\S]*?thumbnailDetectCompletePrefix[\s\S]*?thumbnailEngineDisplayName\(\)[\s\S]*?thumbnailDetectFailedPrefix/, "thumbnail engine detection must report the detected engine or an actionable failure inside Settings");
+assert.match(thumbnailSettingsRebuild, /let failed = 0[\s\S]*?catch \(error\)[\s\S]*?failed \+= 1[\s\S]*?onProgress\?\./, "thumbnail rebuild must count and surface per-item failures instead of silently swallowing them");
 
 assert.match(indexHtml, /data-settings-tab="skills">产物接入<[\s\S]*?id="settingsSkillsSection"[\s\S]*?>项目产物接入<[\s\S]*?>skill 产物接入</, "settings must expose one Artifact Access section containing project and skill artifact access");
 assert.match(indexHtml, /id="settingsSkillsSection"[\s\S]*?id="settingsAgentProjectList"[\s\S]*?id="settingsDiscoverAgentsButton"/, "project discovery must live inside Artifact Access");

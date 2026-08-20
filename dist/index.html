@@ -809,6 +809,33 @@
         white-space: nowrap;
       }
 
+      .thumbnail-settings-feedback {
+        min-height: 34px;
+        padding: 8px 10px;
+        display: flex;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      .thumbnail-settings-feedback[hidden] {
+        display: none;
+      }
+
+      .thumbnail-settings-feedback[data-tone="ok"] {
+        color: var(--ink);
+      }
+
+      .thumbnail-settings-feedback[data-tone="error"] {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+
       .topbar {
         min-height: 56px;
         padding: 0 16px;
@@ -6493,7 +6520,8 @@
                 <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" title="只重新生成当前列表中看得见的文件缩略图" data-i18n-title="actions.rebuildVisibleThumbnailsTitle">重建可见文件</button>
                 <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" title="重新生成当前资料库内所有文档缩略图" data-i18n-title="actions.rebuildLibraryThumbnailsTitle">重建资料库</button>
               </div>
-              </div>
+            </div>
+            <div id="settingsThumbnailFeedback" class="thumbnail-settings-feedback" role="status" aria-live="polite" aria-atomic="true" hidden></div>
             <div id="settingsThumbnailStatus" class="settings-kv scrollable"></div>
           </section>
       </div>
@@ -6656,6 +6684,8 @@
           skillExcluded: true
         },
         thumbnailBackendStatus: null,
+        thumbnailSettingsFeedback: null,
+        thumbnailSettingsOperation: null,
         systemChromeThumbnailEnabled: window.localStorage?.getItem("nutbook.systemChromeThumbnailsEnabled") === "1",
         pendingThumbnailIds: new Set(),
         thumbnailQueueRunId: 0,
@@ -6849,6 +6879,7 @@
         settingsPreferencesSection: document.getElementById("settingsPreferencesSection"),
         settingsPreferenceList: document.getElementById("settingsPreferenceList"),
         settingsThumbnailsSection: document.getElementById("settingsThumbnailsSection"),
+        settingsThumbnailFeedback: document.getElementById("settingsThumbnailFeedback"),
         settingsThumbnailStatus: document.getElementById("settingsThumbnailStatus"),
         settingsRefreshThumbnailStatusButton: document.getElementById("settingsRefreshThumbnailStatusButton"),
         settingsRebuildVisibleThumbsButton: document.getElementById("settingsRebuildVisibleThumbsButton"),
@@ -10415,6 +10446,73 @@
           : `${t("status.thumbnailProgressPrefix")}${mode}${t("status.thumbnailProgressInfix")}${done}/${total}`;
       }
 
+      function setThumbnailSettingsFeedback(message = "", tone = "info") {
+        appState.thumbnailSettingsFeedback = message ? { message, tone } : null;
+        syncThumbnailSettingsControls();
+      }
+
+      function syncThumbnailSettingsControls() {
+        const operation = appState.thumbnailSettingsOperation;
+        const buttonOperations = new Map([
+          [els.settingsRefreshThumbnailStatusButton, "detect"],
+          [els.settingsRebuildVisibleThumbsButton, "visible"],
+          [els.settingsRebuildLibraryThumbsButton, "library"]
+        ]);
+        buttonOperations.forEach((buttonOperation, button) => {
+          if (!button) return;
+          button.disabled = Boolean(operation);
+          button.setAttribute("aria-busy", operation === buttonOperation ? "true" : "false");
+        });
+
+        const feedback = appState.thumbnailSettingsFeedback;
+        if (!els.settingsThumbnailFeedback) return;
+        els.settingsThumbnailFeedback.hidden = !feedback;
+        els.settingsThumbnailFeedback.textContent = feedback?.message || "";
+        els.settingsThumbnailFeedback.dataset.tone = feedback?.tone || "info";
+      }
+
+      async function runThumbnailSettingsOperation(operation, task) {
+        if (appState.thumbnailSettingsOperation) return null;
+        const operationButton = {
+          detect: els.settingsRefreshThumbnailStatusButton,
+          visible: els.settingsRebuildVisibleThumbsButton,
+          library: els.settingsRebuildLibraryThumbsButton
+        }[operation];
+        appState.thumbnailSettingsOperation = operation;
+        syncThumbnailSettingsControls();
+        try {
+          return await task();
+        } finally {
+          appState.thumbnailSettingsOperation = null;
+          syncThumbnailSettingsControls();
+          if (appState.isSettingsOpen && appState.settingsTab === "thumbnails") {
+            operationButton?.focus({ preventScroll: true });
+          }
+        }
+      }
+
+      function showThumbnailRebuildResult(result, successMessage) {
+        if (!result || result.reason === "engine-disabled") {
+          const message = t("status.thumbnailEngineDisabled");
+          setThumbnailSettingsFeedback(message, "error");
+          return { message, tone: "error" };
+        }
+        if (result.reason === "no-documents") {
+          const message = t("status.thumbnailNoDocuments");
+          setThumbnailSettingsFeedback(message, "info");
+          return { message, tone: "warn" };
+        }
+        if (result.failed > 0) {
+          const detail = result.lastError ? ` — ${normalizeError(result.lastError)}` : "";
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.failed}/${result.total}${detail}`;
+          setThumbnailSettingsFeedback(message, "error");
+          return { message, tone: "error" };
+        }
+        const message = `${successMessage} ${result.completed}/${result.total}`;
+        setThumbnailSettingsFeedback(message, "ok");
+        return { message, tone: "ok" };
+      }
+
       function thumbnailEngineNeedsAttention() {
         const status = appState.thumbnailBackendStatus;
         return Boolean(status && !status.screenshotAvailable);
@@ -13643,6 +13741,7 @@
             </div>
           ` : ""}
         ` : `<div class="settings-empty">${t("settings.thumbnailStatusLoading")}</div>`;
+        syncThumbnailSettingsControls();
 
         document.getElementById("settingsCopyThumbnailInstallCommandButton")?.addEventListener("click", copyThumbnailInstallCommand);
         document.getElementById("settingsEnableSystemChromeButton")?.addEventListener("click", enableSystemChromeThumbnails);
@@ -16510,7 +16609,7 @@ if (!chipTipController) {
         }
       }
 
-      async function loadThumbnailBackendStatus() {
+      async function loadThumbnailBackendStatus({ throwOnError = false } = {}) {
         try {
           appState.thumbnailBackendStatus = normalizeThumbnailBackendStatus(
             await invoke("get_thumbnail_backend_status")
@@ -16520,8 +16619,31 @@ if (!chipTipController) {
           if (appState.isSettingsOpen && appState.settingsTab === "thumbnails") {
             renderSettingsPanel();
           }
-        } catch (_) {
+          return appState.thumbnailBackendStatus;
+        } catch (error) {
+          if (throwOnError) throw error;
+          return null;
         }
+      }
+
+      async function refreshThumbnailBackendStatusFromSettings() {
+        return runThumbnailSettingsOperation("detect", async () => {
+          setThumbnailSettingsFeedback(t("status.thumbnailDetecting"), "info");
+          setStatus(t("status.thumbnailDetecting"), "warn");
+          try {
+            await loadThumbnailBackendStatus({ throwOnError: true });
+            const message = `${t("status.thumbnailDetectCompletePrefix")}${thumbnailEngineDisplayName()}`;
+            const tone = appState.thumbnailBackendStatus?.screenshotAvailable ? "ok" : "error";
+            setThumbnailSettingsFeedback(message, tone);
+            setStatus(t("status.thumbnailStatusRefreshed"), tone);
+            return appState.thumbnailBackendStatus;
+          } catch (error) {
+            const message = `${t("status.thumbnailDetectFailedPrefix")}${normalizeError(error)}`;
+            setThumbnailSettingsFeedback(message, "error");
+            setStatus(message, "error");
+            return null;
+          }
+        });
       }
 
       async function enableSystemChromeThumbnails() {
@@ -16555,20 +16677,23 @@ if (!chipTipController) {
         }
       }
 
-      async function rebuildThumbnailsForItems(items) {
+      async function rebuildThumbnailsForItems(items, { onProgress } = {}) {
         if (!canGenerateDocumentThumbnails()) {
           setStatus(t("status.thumbnailEngineDisabled"), "warn");
           openSettingsTab("thumbnails");
-          return;
+          return { total: 0, completed: 0, failed: 0, reason: "engine-disabled", lastError: null };
         }
         const thumbnailItems = items.filter(supportsGeneratedThumbnail);
         if (!thumbnailItems.length) {
           setStatus(t("status.thumbnailNoDocuments"), "warn");
-          return;
+          return { total: 0, completed: 0, failed: 0, reason: "no-documents", lastError: null };
         }
 
         let completed = 0;
+        let failed = 0;
+        let lastError = null;
         setStatus(thumbnailProgressMessage(0, thumbnailItems.length, t("status.thumbnailRebuildMode")), "warn");
+        onProgress?.({ completed, failed, total: thumbnailItems.length });
         for (const item of thumbnailItems) {
           try {
             await delay(80);
@@ -16582,38 +16707,75 @@ if (!chipTipController) {
               errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null
             });
             completed += 1;
-            setStatus(thumbnailProgressMessage(completed, thumbnailItems.length, t("status.thumbnailRebuildMode")), "warn");
             renderItems();
-          } catch (_) {
+          } catch (error) {
+            failed += 1;
+            lastError = error;
           }
+          const processed = completed + failed;
+          const progressMessage = thumbnailProgressMessage(processed, thumbnailItems.length, t("status.thumbnailRebuildMode"));
+          setStatus(progressMessage, failed ? "error" : "warn");
+          onProgress?.({ completed, failed, total: thumbnailItems.length, lastError });
         }
 
         renderItems();
         renderSettingsPanel();
+        return { total: thumbnailItems.length, completed, failed, reason: null, lastError };
       }
 
       async function rebuildVisibleHtmlThumbnails() {
-        await rebuildThumbnailsForItems(appState.items);
-        setStatus(t("status.thumbnailRebuildVisibleComplete"), "ok");
+        return runThumbnailSettingsOperation("visible", async () => {
+          setThumbnailSettingsFeedback(thumbnailProgressMessage(0, appState.items.filter(supportsGeneratedThumbnail).length, t("status.thumbnailRebuildMode")), "info");
+          try {
+            const result = await rebuildThumbnailsForItems(appState.items, {
+              onProgress: ({ completed, failed, total }) => {
+                setThumbnailSettingsFeedback(thumbnailProgressMessage(completed + failed, total, t("status.thumbnailRebuildMode")), failed ? "error" : "info");
+              }
+            });
+            const outcome = showThumbnailRebuildResult(result, t("status.thumbnailRebuildVisibleComplete"));
+            setStatus(outcome.message, outcome.tone);
+            return result;
+          } catch (error) {
+            setThumbnailSettingsFeedback(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            setStatus(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            return null;
+          }
+        });
       }
 
       async function rebuildCurrentLibraryHtmlThumbnails() {
-        if (!appState.activeLibraryId) {
-          setStatus(t("status.thumbnailNoLibrary"), "warn");
-          return;
-        }
+        return runThumbnailSettingsOperation("library", async () => {
+          if (!appState.activeLibraryId) {
+            setThumbnailSettingsFeedback(t("status.thumbnailNoLibrary"), "error");
+            setStatus(t("status.thumbnailNoLibrary"), "warn");
+            return null;
+          }
 
-        const result = await invoke("list_items", {
-          libraryId: appState.activeLibraryId,
-          fileTypes: ["html", "markdown"],
-          page: 1,
-          pageSize: 500,
-          sortBy: "modified_at",
-          sortOrder: "desc"
+          setThumbnailSettingsFeedback(t("status.thumbnailRebuildPreparing"), "info");
+          try {
+            const result = await invoke("list_items", {
+              libraryId: appState.activeLibraryId,
+              fileTypes: ["html", "markdown"],
+              page: 1,
+              pageSize: 500,
+              sortBy: "modified_at",
+              sortOrder: "desc"
+            });
+            const rebuildResult = await rebuildThumbnailsForItems((result.items || []).map(normalizeItemSummary), {
+              onProgress: ({ completed, failed, total }) => {
+                setThumbnailSettingsFeedback(thumbnailProgressMessage(completed + failed, total, t("status.thumbnailRebuildMode")), failed ? "error" : "info");
+              }
+            });
+            await loadItems();
+            const outcome = showThumbnailRebuildResult(rebuildResult, t("status.thumbnailRebuildLibraryComplete"));
+            setStatus(outcome.message, outcome.tone);
+            return rebuildResult;
+          } catch (error) {
+            setThumbnailSettingsFeedback(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            setStatus(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            return null;
+          }
         });
-        await rebuildThumbnailsForItems((result.items || []).map(normalizeItemSummary));
-        await loadItems();
-        setStatus(t("status.thumbnailRebuildLibraryComplete"), "ok");
       }
 
       function artifactRuntimeType(detail) {
@@ -18255,12 +18417,7 @@ if (!chipTipController) {
             first.focus();
           }
         });
-        els.settingsRefreshThumbnailStatusButton.addEventListener("click", async () => {
-          setStatus(t("status.thumbnailDetecting"), "warn");
-          await loadThumbnailBackendStatus();
-          renderSettingsPanel();
-          setStatus(t("status.thumbnailStatusRefreshed"), "ok");
-        });
+        els.settingsRefreshThumbnailStatusButton.addEventListener("click", refreshThumbnailBackendStatusFromSettings);
         els.settingsRebuildVisibleThumbsButton.addEventListener("click", rebuildVisibleHtmlThumbnails);
         els.settingsRebuildLibraryThumbsButton.addEventListener("click", rebuildCurrentLibraryHtmlThumbnails);
         els.openCurrentFolderButton.addEventListener("click", () => {
