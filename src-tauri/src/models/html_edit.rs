@@ -141,13 +141,33 @@ pub struct CommitHtmlEditRequest {
     pub changes: BTreeMap<String, HtmlEditChange>,
 }
 
+/// HTML durable commit 的部分成功合同（B2）：
+/// 源文件一旦 durable 落盘，`source_saved` 恒为 true，后续索引 / marker / 缩略图
+/// 调度失败都不能把保存伪装成失败。前端只根据 `source_saved` 更新编辑器
+/// baseline / dirty / save 状态；`index_synchronized=false` 时保留明确警告语义
+/// （`warning = Some("index-pending")`），不返回一段不可解析的字符串。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitHtmlEditResponse {
+    /// 源文件 durable 落盘确认；恒为 true（函数返回即已落盘）。
+    pub source_saved: bool,
+    /// 缩略图索引是否已按磁盘 revision 精确同步（同事务 invalidate + generation 递增）。
+    pub index_synchronized: bool,
     pub source_file_hash: String,
     pub source_modified_at: i64,
     pub source_size: u64,
     pub normalized_changes: BTreeMap<String, HtmlEditChange>,
+    /// `index_synchronized=true` 时当前 item 的 desired key（前端排队所需）。
+    /// `false` 时 revision 不确定，必须为 None，禁止拿不确定 revision 排队截图。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desired_key: Option<String>,
+    /// `index_synchronized=true` 时当前持久化 generation（前端排队所需）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<i64>,
+    /// 非阻断警告语义码；`index_synchronized=false` 时必有 `Some("index-pending")`，
+    /// 前端按 code 显示本地化文案。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

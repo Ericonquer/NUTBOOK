@@ -382,11 +382,34 @@ pub fn commit_html_edit(
             item.summary.id
         );
     }
+    // B2：index_synchronized=true 时才把当前 desired key / generation 带回前端，
+    // 使其无需二次 list 即可为当前 item 排队最新 generation（保存流程不等待 Chromium）。
+    // false 时 revision 不确定，desired key 必须为 None，禁止拿不确定 revision 截图。
+    let (desired_key, generation) = if sync.index_synchronized {
+        state
+            .database
+            .thumbnail_queue_state(item.summary.id)
+            .ok()
+            .flatten()
+            .map(|(key, generation)| (key, Some(generation)))
+            .unwrap_or((None, None))
+    } else {
+        (None, None)
+    };
     Ok(CommitHtmlEditResponse {
+        source_saved: sync.source_saved,
+        index_synchronized: sync.index_synchronized,
         source_file_hash: committed.source_file_hash,
         source_modified_at: committed.source_modified_at,
         source_size: committed.source_size,
         normalized_changes: committed.normalized_changes,
+        desired_key,
+        generation,
+        warning: if sync.index_synchronized {
+            None
+        } else {
+            Some("index-pending".to_string())
+        },
     })
 }
 

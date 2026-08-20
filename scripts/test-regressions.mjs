@@ -2396,4 +2396,262 @@ assert.match(
   "typing must close the popup and clearing the input while focused must reopen it"
 );
 
+// ---- B2：HTML 保存后异步刷新（部分成功合同 + stale preview → ready/placeholder）----
+
+// 1. saveActiveHtmlEditPatch 必须区分"保存成功但索引待同步"与保存失败，且只在
+//    索引同步后排队；排队是 fire-and-forget（保存流程不等待 Chromium）。
+assert.match(
+  indexHtml,
+  /async function saveActiveHtmlEditPatch\(\)[\s\S]*?const indexSyncPending = result\?\.indexSynchronized === false;[\s\S]*?setStatus\(t\("htmlEdit\.savedIndexPending"\), "warn"\)[\s\S]*?queueThumbnailRefreshAfterHtmlSave\(session\.itemId, result\)/,
+  "save must keep the index-pending warning and queue the thumbnail refresh only after index sync"
+);
+assert.match(
+  indexHtml,
+  /if \(indexSyncPending\) \{\s*setStatus\(t\("htmlEdit\.savedIndexPending"\), "warn"\);\s*\} else \{\s*setStatus\(t\("htmlEdit\.saved"\), "ok"\);\s*\}/,
+  "the terminal save status must keep the index-pending warning instead of overwriting it with a plain saved"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /await queueThumbnailRefreshAfterHtmlSave\(/,
+  "the save path must never await the thumbnail queue (no capture on the durable-save critical path)"
+);
+assert.match(
+  indexHtml,
+  /queueThumbnailRefreshAfterHtmlSave\(itemId, commitResult\)[\s\S]*?ensureDocumentThumbnails\(\[item\], \{ quiet: true \}\)/,
+  "the save-triggered queue must target only the current item and stay quiet so it cannot overwrite the save ack"
+);
+
+// 2. stale preview 是会话内非持久视觉 preview，且渲染是纯函数（绝不写回 item.thumbnail）。
+{
+  const thumbNodeSrc = extractFunctionSource(indexHtml, "function thumbnailNode(item) {");
+  assert.match(
+    thumbNodeSrc,
+    /const stalePreview = appState\.stalePreviewThumbnails\.get\(item\.id\);[\s\S]*?stalePreview\.state === "preview"[\s\S]*?canGenerateDocumentThumbnails\(\)/,
+    "stale preview must be a session-only preview gated on engine availability"
+  );
+  assert.match(
+    thumbNodeSrc,
+    /aria-busy="true"[\s\S]*?thumb-refresh-mask[\s\S]*?t\("status\.thumbnailUpdating"\)/,
+    "stale preview must carry aria-busy, a mask and the localized updating label"
+  );
+  assert.doesNotMatch(thumbNodeSrc, /item\.thumbnail = /, "thumbnailNode must be pure and never write item.thumbnail");
+}
+
+// 3. i18n：新文案必须中英双语，不能硬编码用户可见字符串。
+assert.match(i18n, /savedIndexPending: "内容已保存，缩略图索引待同步"/, "zh htmlEdit.savedIndexPending");
+assert.match(i18n, /savedIndexPending: "Saved\. Thumbnail index pending sync\."/, "en htmlEdit.savedIndexPending");
+assert.match(i18n, /thumbnailUpdating: "正在更新缩略图"/, "zh status.thumbnailUpdating");
+assert.match(i18n, /thumbnailUpdating: "Updating thumbnail…"/, "en status.thumbnailUpdating");
+assert.match(i18n, /thumbnailRefreshFailedShort: "缩略图更新失败，可稍后重试"/, "zh status.thumbnailRefreshFailedShort");
+assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try again later\."/, "en status.thumbnailRefreshFailedShort");
+
+// 4. 可执行：queueThumbnailRefreshAfterHtmlSave 记录旧图为 stale preview、置空
+//    item.thumbnail、只为目标 item 排队（quiet）。
+{
+  const queueSrc = extractFunctionSource(indexHtml, "function queueThumbnailRefreshAfterHtmlSave(itemId, commitResult) {");
+  const run = new Function(`
+    ${queueSrc}
+    const queueCalls = [];
+    const updatedCards = [];
+    const appState = {
+      items: [{ id: 1, fileType: "html", pathState: "valid", thumbnail: { path: "old.png", status: "ready" } }],
+      stalePreviewThumbnails: new Map()
+    };
+    const updateCardThumbnail = (item) => updatedCards.push(item.id);
+    const ensureDocumentThumbnails = async (items, options) => {
+      queueCalls.push({ items: items.map((i) => i.id), options });
+    };
+    queueThumbnailRefreshAfterHtmlSave(1, { desiredKey: "k2", generation: 2 });
+    return {
+      staleEntry: appState.stalePreviewThumbnails.get(1),
+      itemThumbnail: appState.items[0].thumbnail,
+      itemRefreshing: appState.items[0]._thumbRefreshing,
+      itemFailed: appState.items[0]._thumbFailed,
+      desiredKey: appState.items[0]._thumbDesiredKey,
+      generation: appState.items[0]._thumbGeneration,
+      updatedCards,
+      queueCalls
+    };
+  `)();
+  assert.equal(run.staleEntry?.state, "preview", "old image must be kept as a session preview");
+  assert.equal(run.staleEntry?.thumbnail?.path, "old.png", "stale preview keeps the old ready path");
+  assert.equal(run.itemThumbnail, null, "item.thumbnail must be nulled so the queue picks it up");
+  assert.equal(run.itemRefreshing, true, "item must be flagged refreshing");
+  assert.equal(run.itemFailed, false);
+  assert.equal(run.desiredKey, "k2", "commit desired key must be projected onto the in-memory item");
+  assert.equal(run.generation, 2, "commit generation must be projected onto the in-memory item");
+  assert.deepEqual(run.updatedCards, [1], "the stale preview must enter the real card DOM before capture starts");
+  assert.equal(run.queueCalls.length, 1, "exactly one queue entry per save");
+  assert.deepEqual(run.queueCalls[0].items, [1], "only the current item is queued");
+  assert.equal(run.queueCalls[0].options.quiet, true, "save-triggered queue must be quiet");
+}
+
+// 5. 可执行：thumbnailNode 的 stale preview → placeholder 语义。
+{
+  const thumbNodeSrc = extractFunctionSource(indexHtml, "function thumbnailNode(item) {");
+  const run = new Function(`
+    ${thumbNodeSrc}
+    const t = (key) => key;
+    const escapeHtml = (value) => String(value ?? "");
+    const escapeAttribute = (value) => String(value ?? "").replace(/"/g, "&quot;");
+    const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+    let engineAvailable = true;
+    const canGenerateDocumentThumbnails = () => engineAvailable;
+    const stalePreviewThumbnails = new Map();
+    const appState = { stalePreviewThumbnails };
+    function render(item) {
+      try {
+        return thumbnailNode(item);
+      } catch (error) {
+        return "THREW:" + error.message;
+      }
+    }
+    const readyItem = { id: 1, fileType: "html", pathState: "valid", tags: [], sourceBadges: [], thumbnail: { path: "http://x/new.png", status: "ready" } };
+    const staleItem = { id: 2, fileType: "html", pathState: "valid", tags: [], sourceBadges: [], thumbnail: null, _thumbRefreshing: true };
+    const failedItem = { id: 3, fileType: "html", pathState: "valid", tags: [], sourceBadges: [], thumbnail: null, _thumbFailed: true };
+    stalePreviewThumbnails.set(2, { thumbnail: { path: "http://x/old.png" }, state: "preview" });
+    stalePreviewThumbnails.set(3, { thumbnail: { path: "http://x/old3.png" }, state: "failed" });
+    const readyHtml = render(readyItem);
+    const staleHtml = render(staleItem);
+    const failedHtml = render(failedItem);
+    engineAvailable = false;
+    const staleHtmlEngineDown = render(staleItem);
+    return { readyHtml, staleHtml, failedHtml, staleHtmlEngineDown };
+  `)();
+  assert.doesNotMatch(run.readyHtml, /thumb-refresh-mask/, "ready must not show the refresh mask");
+  assert.doesNotMatch(run.readyHtml, /aria-busy/, "ready must not be busy");
+  assert.match(run.readyHtml, /new\.png/, "ready image must be shown directly");
+  assert.match(run.staleHtml, /thumb-refreshing/, "stale preview must mark the container");
+  assert.match(run.staleHtml, /aria-busy="true"/, "stale preview must set aria-busy on the thumbnail container");
+  assert.match(run.staleHtml, /thumb-refresh-mask/, "stale preview must have a mask");
+  assert.match(run.staleHtml, /status\.thumbnailUpdating/, "stale preview must use the localized updating label");
+  assert.match(run.staleHtml, /old\.png/, "stale preview may briefly show the old image");
+  assert.doesNotMatch(run.failedHtml, /thumb-refresh-mask/, "a failed entry must not keep impersonating an updating preview");
+  assert.doesNotMatch(run.failedHtml, /old3\.png/, "a failed entry must not show the old image as a product");
+  assert.match(run.failedHtml, /html-thumb-card/, "a failed entry must fall back to the explicit placeholder");
+  assert.doesNotMatch(run.staleHtmlEngineDown, /old\.png/, "engine unavailable must not keep showing the old image");
+  assert.doesNotMatch(run.staleHtmlEngineDown, /aria-busy/, "engine unavailable must not claim it is updating");
+  assert.match(run.staleHtmlEngineDown, /html-thumb-card/, "engine unavailable must show the retryable placeholder");
+}
+
+// 6. 可执行：ensureDocumentThumbnails 的 quiet 语义——成功不清除"已保存"状态、
+//    单卡替换、stale preview 清空；失败切换 placeholder、用缩略图专用文案（不覆盖保存状态）。
+{
+  const ensureSrc = extractFunctionSource(indexHtml, "async function ensureDocumentThumbnails(items, options) {");
+  async function runEnsure(mode) {
+    return new Function(`
+      ${ensureSrc}
+      const t = (key) => key;
+      const statuses = [];
+      const setStatus = (message, tone) => statuses.push({ message, tone });
+      const canGenerateDocumentThumbnails = () => true;
+      const thumbnailEngineNeedsAttention = () => false;
+      const thumbnailProgressMessage = () => "progress";
+      const supportsGeneratedThumbnail = (item) => item.fileType === "html" || item.fileType === "markdown";
+      const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+      const waitForThumbnailSlot = async () => true;
+      const delay = async () => {};
+      const appState = {
+        items: [],
+        pendingThumbnailIds: new Set(),
+        thumbnailQueueRunId: 0,
+        thumbnailQueueActive: false,
+        stalePreviewThumbnails: new Map()
+      };
+      const updatedCards = [];
+      const updateCardThumbnail = (item) => updatedCards.push(item.id);
+      const mode = ${JSON.stringify(mode)};
+      appState.items.push({ id: 7, fileType: "html", pathState: "valid", thumbnail: null, _thumbRefreshing: true, _thumbFailed: false });
+      appState.stalePreviewThumbnails.set(7, { thumbnail: { path: "old.png" }, state: "preview" });
+      const generateThumbnailOnce = async (item, runId) => {
+        if (mode === "fail") return { ok: false, reason: "failed" };
+        item.thumbnail = { path: "new.png", status: "ready" };
+        return { ok: true, reason: "applied" };
+      };
+      return ensureDocumentThumbnails([appState.items[0]], { quiet: true }).then(() => ({
+        statuses,
+        staleEntry: appState.stalePreviewThumbnails.get(7),
+        itemThumbnail: appState.items[0].thumbnail ? appState.items[0].thumbnail.path : null,
+        itemRefreshing: appState.items[0]._thumbRefreshing,
+        itemFailed: appState.items[0]._thumbFailed,
+        updatedCards
+      }));
+    `)();
+  }
+  const ok = await runEnsure("ok");
+  assert.deepEqual(ok.statuses, [], "quiet success must not overwrite the save ack status");
+  assert.equal(ok.staleEntry, undefined, "ready must clear the stale preview entry");
+  assert.equal(ok.itemThumbnail, "new.png", "ready result must be applied to the item");
+  assert.equal(ok.itemRefreshing, false, "refreshing flag must clear on ready");
+  assert.equal(ok.itemFailed, false);
+  assert.deepEqual(ok.updatedCards, [7], "ready must replace exactly the single card (keyed update)");
+
+  const fail = await runEnsure("fail");
+  assert.equal(fail.statuses.length, 1, "quiet failure must emit exactly one status");
+  assert.equal(fail.statuses[0].message, "status.thumbnailRefreshFailedShort", "thumbnail failure must use its own copy, never a save-failure string");
+  assert.equal(fail.statuses[0].tone, "warn", "failure must never be a green success");
+  assert.equal(fail.staleEntry?.state, "failed", "failure must stop stale preview impersonating ready");
+  assert.equal(fail.itemThumbnail, null, "failed item must not get a ready path");
+  assert.equal(fail.itemRefreshing, false, "refreshing flag must clear on failure");
+  assert.equal(fail.itemFailed, true, "failed item must be flagged for placeholder rendering");
+  assert.deepEqual(fail.updatedCards, [7], "failure must replace the single card with the placeholder");
+}
+
+// 7. 可执行：loadItems / 新 save 取消旧 run 时，新队列即使撞到旧 pending slot
+//    也必须等待 owner 释放后接管，不能把最新 generation 静默漏掉。
+{
+  const waitSrc = extractFunctionSource(indexHtml, "async function waitForThumbnailSlot(itemId, runId) {");
+  const ensureSrc = extractFunctionSource(indexHtml, "async function ensureDocumentThumbnails(items, options) {");
+  const result = await new Function(`
+    ${waitSrc}
+    ${ensureSrc}
+    const t = (key) => key;
+    const statuses = [];
+    const setStatus = (message, tone) => statuses.push({ message, tone });
+    const canGenerateDocumentThumbnails = () => true;
+    const thumbnailEngineNeedsAttention = () => false;
+    const thumbnailProgressMessage = () => "progress";
+    const supportsGeneratedThumbnail = (item) => item.fileType === "html";
+    const isItemPathMissing = () => false;
+    const item = { id: 7, fileType: "html", pathState: "valid", thumbnail: null };
+    const appState = {
+      items: [item],
+      pendingThumbnailIds: new Set([7]),
+      thumbnailQueueRunId: 10,
+      thumbnailQueueActive: true,
+      stalePreviewThumbnails: new Map([[7, { thumbnail: { path: "old.png" }, state: "preview" }]])
+    };
+    let delayCalls = 0;
+    const delay = async () => {
+      delayCalls += 1;
+      if (delayCalls === 1) appState.pendingThumbnailIds.delete(7);
+    };
+    let generateCalls = 0;
+    const generateThumbnailOnce = async (current, runId) => {
+      generateCalls += 1;
+      current.thumbnail = { path: "latest.png", status: "ready" };
+      return { ok: true, reason: "applied", runId };
+    };
+    const updatedCards = [];
+    const updateCardThumbnail = (current) => updatedCards.push(current.id);
+    return (async () => {
+      await ensureDocumentThumbnails([item], { quiet: true });
+      return {
+        generateCalls,
+        delayCalls,
+        updatedCards,
+        pending: appState.pendingThumbnailIds.has(7),
+        staleEntry: appState.stalePreviewThumbnails.get(7),
+        thumbnail: item.thumbnail
+      };
+    })();
+  `)();
+  assert.equal(result.generateCalls, 1, "the replacement run must generate after the old slot is released");
+  assert.ok(result.delayCalls >= 2, "the replacement run must wait for the old slot and then yield before capture");
+  assert.deepEqual(result.updatedCards, [7], "the handed-off run must settle the current card exactly once");
+  assert.equal(result.pending, false, "the handed-off owner must release the slot");
+  assert.equal(result.staleEntry, undefined, "latest ready must clear the stale preview after handoff");
+  assert.equal(result.thumbnail?.path, "latest.png");
+}
+
 console.log("Nutbook regression guards passed.");

@@ -65,11 +65,11 @@ mod tests {
             Database, ReconciliationMarker, RECONCILIATION_MARKER_VERSION,
         },
         errors::AppError,
-        models::{IndexedItemRecord, Library, ListItemsQuery},
+        models::{CommitHtmlEditResponse, IndexedItemRecord, Library, ListItemsQuery},
     };
     use rusqlite::{params, Connection};
     use std::{
-        collections::VecDeque,
+        collections::{BTreeMap, VecDeque},
         fs,
         path::{Path, PathBuf},
         sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex},
@@ -963,6 +963,325 @@ mod tests {
 
         let _ = fs::remove_dir_all(source.parent().expect("parent"));
         let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn commit_response_partial_success_contract_serializes() {
+        // indexSynchronized=false：sourceSaved=true、warning=index-pending，
+        // desiredKey/generation 必须缺失（revision 不确定，禁止前端排队截图）。
+        let pending = CommitHtmlEditResponse {
+            source_saved: true,
+            index_synchronized: false,
+            source_file_hash: "hash-b".to_string(),
+            source_modified_at: 2,
+            source_size: 12,
+            normalized_changes: BTreeMap::new(),
+            desired_key: None,
+            generation: None,
+            warning: Some("index-pending".to_string()),
+        };
+        let json = serde_json::to_value(&pending).expect("serialize");
+        assert_eq!(json["sourceSaved"], true, "durable save ack must never be false");
+        assert_eq!(json["indexSynchronized"], false);
+        assert_eq!(json["warning"], "index-pending", "warning must be a parseable code, not raw prose");
+        assert!(json.get("desiredKey").is_none(), "uncertain revision must not expose desiredKey");
+        assert!(json.get("generation").is_none());
+
+        // indexSynchronized=true：结构化 desiredKey/generation 供前端排队，无 warning。
+        let ready = CommitHtmlEditResponse {
+            source_saved: true,
+            index_synchronized: true,
+            source_file_hash: "hash-b".to_string(),
+            source_modified_at: 2,
+            source_size: 12,
+            normalized_changes: BTreeMap::new(),
+            desired_key: Some("html:hash-b:html-card-vN".to_string()),
+            generation: Some(3),
+            warning: None,
+        };
+        let json = serde_json::to_value(&ready).expect("serialize");
+        assert_eq!(json["sourceSaved"], true);
+        assert_eq!(json["indexSynchronized"], true);
+        assert_eq!(json["desiredKey"], "html:hash-b:html-card-vN");
+        assert_eq!(json["generation"], 3);
+        assert!(json.get("warning").is_none());
+    }
+
+    #[test]
+    fn external_html_scan_change_invalidates_like_save_and_regenerates() {
+        with_fake_chromium_env(|| {
+            let (database, source, db_path) = setup_html_item();
+            // A 生成 ready。
+            database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"A")),
+                })
+                .expect("ready A");
+            let key_a = html_desired_key(&content_hash("<main>REVISION A</main>"));
+            assert_eq!(
+                database
+                    .get_thumbnail_info(1)
+                    .expect("info")
+                    .expect("ready")
+                    .desired_key
+                    .as_deref(),
+                Some(key_a.as_str())
+            );
+
+            // 磁盘改为 B，模拟外部修改后 folder scan：mtime/size 变化 →
+            // replace_items_for_library 刷新 hash + 与保存一致的精确失效。
+            fs::write(&source, "<main>REVISION B</main>").expect("write B");
+            let size_b = fs::metadata(&source).expect("meta").len() as i64;
+            database
+                .replace_items_for_library(
+                    1,
+                    &[IndexedItemRecord {
+                        library_id: 1,
+                        file_path: source.to_string_lossy().to_string(),
+                        relative_path: "card.html".to_string(),
+                        file_name: "card.html".to_string(),
+                        file_ext: "html".to_string(),
+                        file_type: "html".to_string(),
+                        file_size: size_b,
+                        modified_at: "2".to_string(),
+                        created_at: "now".to_string(),
+                        updated_at: "now".to_string(),
+                    }],
+                )
+                .expect("scan");
+
+            // 旧 ready 不再服务；DB 行是 stale + 新 desired key + generation 递增
+            // （in-flight 旧任务会被 CAS 拒绝，与保存路径一致）。
+            assert!(
+                database.get_thumbnail_info(1).expect("info").is_none(),
+                "old ready must not be served after external change"
+            );
+            let listed = database.list_items(&ListItemsQuery::default()).expect("list");
+            assert!(listed.items[0].thumbnail.is_none(), "list must not serve stale after scan");
+            let connection = Connection::open(&db_path).expect("open db");
+            let (status, desired_key, generation): (String, String, i64) = connection
+                .query_row(
+                    "SELECT thumb_status, desired_key, generation
+                     FROM thumbnail_cache WHERE item_id = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("row");
+            drop(connection);
+            assert_eq!(status, "stale", "scan invalidation must mark stale");
+            let key_b = html_desired_key(&content_hash("<main>REVISION B</main>"));
+            assert_eq!(desired_key, key_b, "desired key must advance to B");
+            assert!(generation >= 2, "generation must advance past A");
+
+            // stale_desired_item_ids 是"需要补排队"的窄入口。
+            assert_eq!(
+                database.stale_desired_item_ids().expect("stale ids"),
+                vec![1],
+                "changed item must be re-queueable"
+            );
+
+            // 重新生成 → B ready，补排队资格清空。
+            let response = database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"B")),
+                })
+                .expect("generate B");
+            assert_eq!(response.discarded, false);
+            assert_eq!(response.expected_key.as_deref(), Some(key_b.as_str()));
+            assert_eq!(
+                response.thumbnail.render_kind.as_deref(),
+                Some(RENDER_KIND_HTML_SCREENSHOT)
+            );
+            assert!(
+                database.stale_desired_item_ids().expect("stale after").is_empty(),
+                "ready B must clear the re-queue entry"
+            );
+
+            let _ = fs::remove_dir_all(source.parent().expect("parent"));
+            let _ = fs::remove_file(db_path);
+        });
+    }
+
+    #[test]
+    fn external_html_scan_read_failure_cannot_stabilize_old_hash_or_ready() {
+        with_fake_chromium_env(|| {
+            let (database, source, db_path) = setup_html_item();
+            database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"A")),
+                })
+                .expect("ready A");
+
+            // 扫描已观察到 B 的 metadata，但扫描事务读取正文时文件暂时不可读/不存在。
+            // 不能提交成“新 metadata + 旧 A hash/ready”的稳定组合。
+            fs::remove_file(&source).expect("temporarily remove source");
+            let record_b = IndexedItemRecord {
+                library_id: 1,
+                file_path: source.to_string_lossy().to_string(),
+                relative_path: "card.html".to_string(),
+                file_name: "card.html".to_string(),
+                file_ext: "html".to_string(),
+                file_type: "html".to_string(),
+                file_size: "<main>REVISION B</main>".len() as i64,
+                modified_at: "2".to_string(),
+                created_at: "now".to_string(),
+                updated_at: "now".to_string(),
+            };
+            database
+                .replace_items_for_library(1, std::slice::from_ref(&record_b))
+                .expect("scan with transient read failure");
+
+            assert!(
+                database.get_thumbnail_info(1).expect("info after failure").is_none(),
+                "old A ready must stop serving as soon as the changed source cannot be hashed"
+            );
+            let connection = Connection::open(&db_path).expect("open db");
+            let (hash_after_failure, status_after_failure, key_after_failure): (
+                Option<String>,
+                String,
+                Option<String>,
+            ) = connection
+                .query_row(
+                    "SELECT items.file_hash, thumbnail_cache.thumb_status, thumbnail_cache.desired_key
+                     FROM items INNER JOIN thumbnail_cache ON thumbnail_cache.item_id = items.id
+                     WHERE items.id = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("failed-read state");
+            drop(connection);
+            assert!(hash_after_failure.is_none(), "unknown source revision must clear the old hash");
+            assert_eq!(status_after_failure, "stale");
+            assert!(key_after_failure.is_none(), "unknown revision must not keep A as desired key");
+
+            // 文件恢复后 metadata 保持与上次扫描完全相同。下一次扫描仍必须因为
+            // hash 未知而重试读取，并收敛到 B，而不是认为 metadata 未变就永久跳过。
+            fs::write(&source, "<main>REVISION B</main>").expect("restore B");
+            database
+                .replace_items_for_library(1, &[record_b])
+                .expect("retry scan with identical metadata");
+            let (desired_key, _) = database
+                .thumbnail_queue_state(1)
+                .expect("queue state")
+                .expect("thumbnail row");
+            let key_b = html_desired_key(&content_hash("<main>REVISION B</main>"));
+            assert_eq!(desired_key.as_deref(), Some(key_b.as_str()));
+            let response = database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"B")),
+                })
+                .expect("generate B after retry");
+            assert_eq!(response.discarded, false);
+            assert_eq!(response.expected_key.as_deref(), Some(key_b.as_str()));
+
+            let _ = fs::remove_dir_all(source.parent().expect("parent"));
+            let _ = fs::remove_file(db_path);
+        });
+    }
+
+    #[test]
+    fn marker_replay_after_restart_requeues_and_converges_b() {
+        with_fake_chromium_env(|| {
+            let (database, source, db_path) = setup_html_item();
+            // 重启前：A 已有 ready。
+            database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"A")),
+                })
+                .expect("ready A");
+            let key_a = html_desired_key(&content_hash("<main>REVISION A</main>"));
+            assert_eq!(
+                database
+                    .get_thumbnail_info(1)
+                    .expect("info")
+                    .expect("ready")
+                    .desired_key
+                    .as_deref(),
+                Some(key_a.as_str())
+            );
+
+            // 磁盘已是 B，但索引同步失败（mtime 不可用路径）→ 部分成功 + marker。
+            fs::write(&source, "<main>REVISION B</main>").expect("write B");
+            let hash_b = content_hash("<main>REVISION B</main>");
+            let size_b = fs::metadata(&source).expect("meta").len() as i64;
+            let report = database.sync_item_revision_after_durable_save(
+                1,
+                &source.to_string_lossy().to_string(),
+                &hash_b,
+                None,
+                size_b,
+            );
+            assert_eq!(report.source_saved, true, "durable save must stay a success");
+            assert_eq!(report.index_synchronized, false);
+            let marker_path = db_path
+                .parent()
+                .expect("parent")
+                .join(".cache/reconcile/reconcile-1.json");
+            assert!(marker_path.exists(), "marker must be written");
+
+            // 模拟重启：启动路径 replay marker → 以磁盘为准收敛，A 不复活。
+            let replayed = database.replay_reconciliation_markers().expect("replay");
+            assert_eq!(replayed, 1);
+            assert!(!marker_path.exists(), "marker must be removed after sync succeeds");
+            assert!(
+                database.get_thumbnail_info(1).expect("info").is_none(),
+                "A must not resurrect after replay"
+            );
+            assert_eq!(
+                database.stale_desired_item_ids().expect("stale"),
+                vec![1],
+                "replayed item must enter the re-queue path"
+            );
+
+            // 补排队 → B 的 desired generation 最终 ready。
+            let response = database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"B")),
+                })
+                .expect("generate B");
+            assert_eq!(response.discarded, false);
+            let key_b = html_desired_key(&hash_b);
+            assert_eq!(response.expected_key.as_deref(), Some(key_b.as_str()));
+            let listed = database.list_items(&ListItemsQuery::default()).expect("list");
+            assert_eq!(
+                listed.items[0].thumbnail.as_ref().expect("thumb").desired_key.as_deref(),
+                Some(key_b.as_str()),
+                "latest revision must converge to ready"
+            );
+            assert!(database.stale_desired_item_ids().expect("stale after").is_empty());
+
+            let _ = fs::remove_dir_all(source.parent().expect("parent"));
+            let _ = fs::remove_file(db_path);
+        });
+    }
+
+    #[test]
+    fn thumbnail_queue_state_accessor_reads_desired_key_and_generation() {
+        with_fake_chromium_env(|| {
+            let (database, source, db_path) = setup_html_item();
+            assert!(
+                database.thumbnail_queue_state(1).expect("state").is_some(),
+                "scan seed must already register a stale desired state"
+            );
+            database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"Q")),
+                })
+                .expect("generate ready");
+            let (desired_key, generation) = database
+                .thumbnail_queue_state(1)
+                .expect("state")
+                .expect("row");
+            let key_a = html_desired_key(&content_hash("<main>REVISION A</main>"));
+            assert_eq!(desired_key.as_deref(), Some(key_a.as_str()));
+            assert!(generation >= 1);
+            assert!(
+                database.thumbnail_queue_state(999).expect("missing").is_none(),
+                "unknown item must be None"
+            );
+            let _ = fs::remove_dir_all(source.parent().expect("parent"));
+            let _ = fs::remove_file(db_path);
+        });
     }
 
     #[test]
@@ -2001,6 +2320,22 @@ mod tests {
         with_fake_chromium_env(|| {
             let (database, source, db_path) = setup_html_item();
             let source_str = source.to_string_lossy().to_string();
+            // B2：扫描 seed 本身按"与保存一致"的语义失效，初始行已是 stale + gen1。
+            // 记录 setup 后的 generation，断言并发保存只在此基础上递增一次（0→1 的
+            // 旧绝对断言已被取代），stale snapshot 的 claim 不得再额外推进。
+            let setup_generation: i64 = {
+                let connection = Connection::open(&db_path).expect("open db");
+                let generation: i64 = connection
+                    .query_row(
+                        "SELECT generation FROM thumbnail_cache WHERE item_id = 1",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .expect("setup thumbnail row");
+                drop(connection);
+                generation
+            };
+            assert!(setup_generation >= 1, "scan seed must already register a stale desired state");
 
             // prepare 与 claim 之间：另一路径把 revision 保存为 B（精确 update + invalidate）。
             let db_hook = database.clone();
@@ -2076,10 +2411,11 @@ mod tests {
                 desired, html_desired_key(&hash_b),
                 "desired_key must stay at B, not regress to A"
             );
-            // generation 只被并发 invalidate 递增过一次（0→1）；stale snapshot 的 claim
-            // 被拒绝，没有把 generation 额外推进（若倒退会发生 1→2 的第二次递增）。
+            // generation 只被并发 invalidate 递增过一次（setup_gen → setup_gen+1）；
+            // stale snapshot 的 claim 被拒绝，没有把 generation 额外推进（若倒退会
+            // 发生第二次递增）。
             assert_eq!(
-                gen, 1,
+                gen, setup_generation + 1,
                 "generation must not be advanced by the stale snapshot"
             );
             assert_eq!(status, "stale", "thumbnail stays stale from the concurrent save");

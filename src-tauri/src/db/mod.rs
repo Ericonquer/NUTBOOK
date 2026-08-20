@@ -1932,16 +1932,18 @@ impl ItemRepository for Database {
         // Unchanged files must not be re-read or re-rendered on every scan.
         let mut existing_content_meta = {
             let mut statement = transaction
-                .prepare("SELECT id, modified_at, file_size FROM items")
+                .prepare("SELECT id, modified_at, file_size, file_hash FROM items")
                 .map_err(|_| AppError::DatabaseError)?;
-            let rows: Vec<(i64, String, i64)> = statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            let rows: Vec<(i64, String, i64, Option<String>)> = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
                 .map_err(|_| AppError::DatabaseError)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_| AppError::DatabaseError)?;
-            let mut meta: BTreeMap<i64, (String, i64, bool)> = rows
+            let mut meta: BTreeMap<i64, (String, i64, bool, bool)> = rows
                 .into_iter()
-                .map(|(item_id, modified_at, file_size)| (item_id, (modified_at, file_size, false)))
+                .map(|(item_id, modified_at, file_size, file_hash)| {
+                    (item_id, (modified_at, file_size, false, file_hash.is_some()))
+                })
                 .collect();
             let mut statement = transaction
                 .prepare("SELECT item_id FROM item_content")
@@ -2048,24 +2050,60 @@ impl ItemRepository for Database {
                 // 继续当作有效 ready 返回（"从 A 改 B 后缩略图没更新"根因的扫描侧）。
                 let needs_hash_refresh = match existing_content_meta.get(&item_id) {
                     None => true,
-                    Some((stored_modified_at, stored_file_size, _)) => {
-                        stored_modified_at != &item.modified_at
+                    Some((stored_modified_at, stored_file_size, _, has_hash)) => {
+                        !has_hash
+                            || stored_modified_at != &item.modified_at
                             || stored_file_size != &item.file_size
                     }
                 };
                 if needs_hash_refresh {
-                    if let Ok(raw) = fs::read_to_string(&item.file_path) {
-                        let hash = content_hash(&raw);
-                        transaction
-                            .execute(
-                                "UPDATE items SET file_hash = ?2 WHERE id = ?1",
-                                params![item_id, hash],
-                            )
-                            .map_err(|_| AppError::DatabaseError)?;
-                        existing_content_meta.insert(
-                            item_id,
-                            (item.modified_at.clone(), item.file_size, true),
-                        );
+                    match fs::read_to_string(&item.file_path) {
+                        Ok(raw) => {
+                            let hash = content_hash(&raw);
+                            transaction
+                                .execute(
+                                    "UPDATE items SET file_hash = ?2 WHERE id = ?1",
+                                    params![item_id, hash],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
+                            // B2：外部修改走与保存一致的精确失效语义——同一短事务把旧缩略图
+                            // 设为 stale、desired key 推进、generation 递增，使 in-flight 的
+                            // 旧内容生成任务被 CAS 拒绝；旧 ready 绝不能被当作有效缓存继续服务。
+                            Self::invalidate_thumbnail_in_transaction(&transaction, item_id, &hash)?;
+                            let has_content = existing_content_meta
+                                .get(&item_id)
+                                .map(|entry| entry.2)
+                                .unwrap_or(false);
+                            existing_content_meta.insert(
+                                item_id,
+                                (item.modified_at.clone(), item.file_size, has_content, true),
+                            );
+                        }
+                        Err(_) => {
+                            // 扫描已提交新 metadata，但正文暂时不可读时，绝不能留下
+                            // “新 metadata + 旧 hash/ready”的稳定组合：读取路径会把旧图
+                            // 误当当前 revision，且后续 metadata 不再变化时永远不重试。
+                            // 将 hash 置为未知并使旧 generation 失效；下一次扫描即使
+                            // mtime/size 相同，也会因 has_hash=false 再次尝试读取。
+                            transaction
+                                .execute(
+                                    "UPDATE items SET file_hash = NULL WHERE id = ?1",
+                                    params![item_id],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
+                            Self::invalidate_thumbnail_unknown_revision_in_transaction(
+                                &transaction,
+                                item_id,
+                            )?;
+                            let has_content = existing_content_meta
+                                .get(&item_id)
+                                .map(|entry| entry.2)
+                                .unwrap_or(false);
+                            existing_content_meta.insert(
+                                item_id,
+                                (item.modified_at.clone(), item.file_size, has_content, false),
+                            );
+                        }
                     }
                 }
             } else if item.file_type == "markdown" {
@@ -2075,7 +2113,7 @@ impl ItemRepository for Database {
                 // （一次扫描末尾统一 rebuild FTS 一次）。
                 let needs_refresh = match existing_content_meta.get(&item_id) {
                     None => true,
-                    Some((stored_modified_at, stored_file_size, has_content)) => {
+                    Some((stored_modified_at, stored_file_size, has_content, _)) => {
                         !has_content
                             || stored_modified_at != &item.modified_at
                             || stored_file_size != &item.file_size
@@ -2107,7 +2145,7 @@ impl ItemRepository for Database {
                             .map_err(|_| AppError::DatabaseError)?;
                         existing_content_meta.insert(
                             item_id,
-                            (item.modified_at.clone(), item.file_size, true),
+                            (item.modified_at.clone(), item.file_size, true, true),
                         );
                     }
                 }
@@ -3291,6 +3329,40 @@ impl Database {
         Ok(row)
     }
 
+    /// B2：返回当前 item 的缩略图排队状态（desired key + generation）的窄只读访问器。
+    /// 供 `commit_html_edit` 在 index_synchronized=true 时把结构化状态带回前端，
+    /// 让前端无需二次 list 即可为当前 item 排队当前 generation。行不存在返回 Ok(None)。
+    pub fn thumbnail_queue_state(
+        &self,
+        item_id: i64,
+    ) -> Result<Option<(Option<String>, i64)>, AppError> {
+        Ok(self
+            .read_thumbnail_state(item_id)?
+            .map(|row| (row.desired_key, row.generation)))
+    }
+
+    /// B2：查询仍处于 stale / pending / failed 且 desired key 非空的 item id。
+    /// 窄 SQL 查询，不读取文件内容、不做任何写操作、不是全局扫描器；用于
+    /// marker 重放 / 列表加载后识别"需要补排队"的 item（等价队列入口是前端
+    /// ensureDocumentThumbnails 对可见项按 stale/desired 状态排队）。
+    pub fn stale_desired_item_ids(&self) -> Result<Vec<i64>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT item_id
+                 FROM thumbnail_cache
+                 WHERE thumb_status IN ('stale', 'pending', 'failed')
+                   AND desired_key IS NOT NULL AND desired_key != ''
+                 ORDER BY item_id",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, i64>(0))
+            .map_err(|_| AppError::DatabaseError)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)
+    }
+
     /// CAS 提交：事务内核对 desired_key + generation 全部匹配才写 ready。
     fn cas_commit_thumbnail(
         &self,
@@ -3700,6 +3772,36 @@ impl Database {
                     generation = excluded.generation,
                     error_message = NULL",
                 params![item_id, new_desired_key, next_generation],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(())
+    }
+
+    /// HTML 扫描已观察到 metadata 变化、但正文暂时不可读时的未知 revision 失效。
+    /// desired_key 必须清空，旧 generation 必须在第一次进入该状态时递增，从而拒绝
+    /// 所有在途旧截图；连续扫描仍不可读时保持幂等，避免无意义地反复递增 generation。
+    fn invalidate_thumbnail_unknown_revision_in_transaction(
+        transaction: &Transaction<'_>,
+        item_id: i64,
+    ) -> Result<(), AppError> {
+        transaction
+            .execute(
+                "INSERT INTO thumbnail_cache (
+                    item_id, thumb_status, desired_key, generation, error_message
+                 ) VALUES (?1, 'stale', NULL, 1, NULL)
+                 ON CONFLICT(item_id) DO UPDATE SET
+                    generation = CASE
+                        WHEN thumbnail_cache.desired_key IS NOT NULL
+                          OR thumbnail_cache.thumb_status != 'stale'
+                        THEN thumbnail_cache.generation + 1
+                        ELSE thumbnail_cache.generation
+                    END,
+                    thumb_status = 'stale',
+                    desired_key = NULL,
+                    generated_from_key = NULL,
+                    generated_from_hash = NULL,
+                    error_message = NULL",
+                params![item_id],
             )
             .map_err(|_| AppError::DatabaseError)?;
         Ok(())

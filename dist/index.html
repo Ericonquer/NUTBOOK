@@ -1724,6 +1724,42 @@
         white-space: nowrap;
       }
 
+      /* B2 stale preview：durable save 且索引同步后、新 generation ready 前，
+         仅在当前页面把旧图作为非持久视觉 preview 显示；遮罩 + "正在更新缩略图"
+         文案，容器 aria-busy=true。stale preview 不是 ready、不参与缓存命中，
+         生成明确失败或引擎不可用时由 thumbnailNode 切换到 placeholder。 */
+      .thumb-refreshing .thumb {
+        filter: saturate(0.72) brightness(0.86);
+      }
+
+      .thumb-refresh-mask {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        background: rgba(30, 30, 34, 0.34);
+        pointer-events: none;
+      }
+
+      .thumb-refresh-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: rgba(18, 18, 22, 0.84);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+      }
+
       /* A1.1 返工：常态浅色（近白近乎不透明 + 深灰文字 + 细灰边框），
          类型徽标（thumb-badge-type）固定不可压缩；视觉权重低于缩略图与标题。 */
       .thumb-badge {
@@ -2018,6 +2054,12 @@
         font-size: 11px;
       }
 
+      .main-shell.home-mode .thumb-refresh-pill {
+        min-height: 28px;
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
       .main-shell.home-mode .thumb-inline {
         width: 100%;
         height: 100%;
@@ -2196,6 +2238,12 @@
       }
 
       .main-shell.home-mode.list-layout .thumb-missing-pill {
+        min-height: 24px;
+        max-width: calc(100% - 8px);
+        font-size: 10px;
+      }
+
+      .main-shell.home-mode.list-layout .thumb-refresh-pill {
         min-height: 24px;
         max-width: calc(100% - 8px);
         font-size: 10px;
@@ -6688,6 +6736,11 @@
         thumbnailSettingsOperation: null,
         systemChromeThumbnailEnabled: window.localStorage?.getItem("nutbook.systemChromeThumbnailsEnabled") === "1",
         pendingThumbnailIds: new Set(),
+        // B2：会话内 stale preview —— durable save 且索引同步后、新 generation ready 前，
+        // 仅在当前页面把旧图作为非持久视觉 preview 显示（带遮罩 + aria-busy）。
+        // entry = { thumbnail, state: "preview" | "failed" }；不是后端缓存状态，
+        // 不写回 ready、不参与缓存命中；应用重启后 map 为空 → 显示 placeholder。
+        stalePreviewThumbnails: new Map(),
         thumbnailQueueRunId: 0,
         thumbnailQueueActive: false,
         lastItemsFingerprint: "",
@@ -9402,6 +9455,17 @@
             // The commit is now the source of truth for presentation pixels.
             // Do not show a previous page bitmap after a successful save.
             discardPresentationThumbnailsForItem(session.itemId);
+            // B2 部分成功合同：前端只根据 durable save ack（sourceSaved）更新保存状态。
+            // indexSynchronized=false 时内容已保存、缩略图索引待同步（marker 已写，
+            // list/启动重放后补排队），保留明确警告语义，绝不能把它当成保存失败。
+            // indexSynchronized=true 时后台为当前 item 排队最新 generation，保存流程
+            // 不等待 Chromium，toolbar ack / markSaved / 离开协调器都不被截图阻塞。
+            const indexSyncPending = result?.indexSynchronized === false;
+            if (indexSyncPending) {
+              setStatus(t("htmlEdit.savedIndexPending"), "warn");
+            } else {
+              queueThumbnailRefreshAfterHtmlSave(session.itemId, result);
+            }
             if (markHtmlEditPatchOutOfSync(session, savedChangesJson)) {
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
               // Toolbar presentation is deliberately outside the persistence
@@ -9467,7 +9531,13 @@
             session.changes = {};
             session.requiresPatchReconciliation = false;
             session.persistedChanges = {};
-            setStatus(t("htmlEdit.saved"), "ok");
+            // 保存成功但索引待同步时，最终状态必须是明确警告，不能被普通"已保存"覆盖；
+            // 也不得把缩略图失败伪装成保存失败。
+            if (indexSyncPending) {
+              setStatus(t("htmlEdit.savedIndexPending"), "warn");
+            } else {
+              setStatus(t("htmlEdit.saved"), "ok");
+            }
             if (session.presentation) {
               // The preview is a separate, read-only document.  Recreate it
               // only after Rust has committed the source so it cannot keep a
@@ -14993,6 +15063,43 @@
             </div>
           `;
         }
+        // B2 stale preview：durable save 且索引同步后、新 generation ready 前，
+        // 仅在当前页面把旧图作为非持久视觉 preview 显示（遮罩 + 文案 + aria-busy）。
+        // 生成明确失败（state=failed）或引擎不可用时切换为 placeholder，绝不把
+        // stale 图冒充 ready 成品；stale preview 不写回 ready、不参与缓存命中。
+        const stalePreview = appState.stalePreviewThumbnails.get(item.id);
+        if (
+          stalePreview &&
+          stalePreview.state === "preview" &&
+          stalePreview.thumbnail?.path &&
+          canGenerateDocumentThumbnails()
+        ) {
+          const previewPath = stalePreview.thumbnail.path;
+          let previewInner = "";
+          if (previewPath.startsWith("data:image/svg+xml;base64,")) {
+            const encoded = previewPath.slice("data:image/svg+xml;base64,".length);
+            try {
+              const svgMarkup = atob(encoded);
+              if (svgMarkup) previewInner = svgMarkup;
+            } catch (_) {
+              previewInner = "";
+            }
+          } else {
+            previewInner = `<img class="thumb" src="${escapeAttribute(previewPath)}" alt="" />`;
+          }
+          if (previewInner) {
+            return `
+              <div class="thumb-wrap thumb-refreshing ${pathMissing ? "path-missing" : ""}" aria-busy="true">
+                <div class="thumb thumb-inline" aria-hidden="true">
+                  ${previewInner}
+                  <div class="thumb-refresh-mask" aria-hidden="true"><span class="thumb-refresh-pill">${t("status.thumbnailUpdating")}</span></div>
+                </div>
+                ${missingMask}
+                ${badge}
+              </div>
+            `;
+          }
+        }
         if (item.fileType === "html") {
           return `
             <div class="thumb-wrap ${pathMissing ? "path-missing" : ""}">
@@ -15119,9 +15226,38 @@
         return runId === appState.thumbnailQueueRunId;
       }
 
-      async function ensureDocumentThumbnails(items) {
+      // B2：HTML durable save 且索引同步成功后调用。保存流程不等待 Chromium：
+      // 只把该 item 的旧缓存降级为会话内 stale preview，并为其排队当前
+      // desired key/generation（fire-and-forget）。indexSynchronized=false 时不调用
+      // 本函数——revision 不确定，禁止拿不确定 revision 排队截图；marker 重放后由
+      // list 加载路径（thumbnail:null → ensureDocumentThumbnails）补排队。
+      function queueThumbnailRefreshAfterHtmlSave(itemId, commitResult) {
+        const numericId = Number(itemId);
+        const existing = appState.items.find((candidate) => candidate.id === numericId);
+        const oldThumbnail = existing?.thumbnail || null;
+        if (oldThumbnail?.path) {
+          appState.stalePreviewThumbnails.set(numericId, { thumbnail: oldThumbnail, state: "preview" });
+        }
+        // 未在可见列表（筛选/分页）时用合成 item 仍让后端排队生成；卡片不可见时
+        // updateCardThumbnail 自然 no-op，回到主页后按 list 状态收敛。
+        const item = existing || { id: numericId, fileType: "html", pathState: "valid", thumbnail: null };
+        if (existing) {
+          existing._thumbRefreshing = true;
+          existing._thumbFailed = false;
+          if (commitResult?.desiredKey) existing._thumbDesiredKey = commitResult.desiredKey;
+          if (commitResult?.generation != null) existing._thumbGeneration = Number(commitResult.generation);
+          existing.thumbnail = null;
+          // 先把当前卡片立即切成 stale preview，再异步等待/截图；否则快速返回主页或
+          // 慢截图期间 Map 虽已记录，真实 DOM 仍会继续显示无遮罩的旧 ready 图。
+          updateCardThumbnail(existing);
+        }
+        ensureDocumentThumbnails([item], { quiet: true });
+      }
+
+      async function ensureDocumentThumbnails(items, options) {
+        const quiet = Boolean(options?.quiet);
         if (!canGenerateDocumentThumbnails()) {
-          if (thumbnailEngineNeedsAttention()) {
+          if (!quiet && thumbnailEngineNeedsAttention()) {
             setStatus(t("status.thumbnailEngineDisabled"), "warn");
           }
           return;
@@ -15129,7 +15265,6 @@
         const targets = items.filter((item) =>
           supportsGeneratedThumbnail(item) &&
           !isItemPathMissing(item) &&
-          !appState.pendingThumbnailIds.has(item.id) &&
           (!item.thumbnail?.path || item.thumbnail.path.startsWith("data:image/svg+xml"))
         );
         if (!targets.length) return;
@@ -15138,12 +15273,17 @@
         appState.thumbnailQueueActive = true;
         let completed = 0;
         let failed = 0;
-        setStatus(thumbnailProgressMessage(0, targets.length), "warn");
+        if (!quiet) setStatus(thumbnailProgressMessage(0, targets.length), "warn");
 
         for (const queuedItem of targets) {
           if (runId !== appState.thumbnailQueueRunId) break;
-          const item = appState.items.find((candidate) => candidate.id === queuedItem.id);
-          if (!item || appState.pendingThumbnailIds.has(item.id)) continue;
+          const item = appState.items.find((candidate) => candidate.id === queuedItem.id) || queuedItem;
+          if (!item) continue;
+
+          // loadItems / 新 save 会用新 runId 接管队列。若旧 owner 尚在 invoke/backoff
+          // 中持有该 item 的 slot，新 owner 必须等待 finally 释放后再接管；不能直接
+          // continue，否则“保存 → 立即回主页”会产生永久漏项，直到用户再次刷新。
+          if (!(await waitForThumbnailSlot(item.id, runId))) break;
 
           appState.pendingThumbnailIds.add(item.id);
           try {
@@ -15154,13 +15294,25 @@
             if (!outcome.ok) {
               // canceled / terminal / error / failed 不得计入 completed。
               // failed（截图引擎失败）计入 failed，结束时不得显示"全部成功"。
-              if (outcome.reason !== "canceled") failed += 1;
+              if (outcome.reason !== "canceled") {
+                failed += 1;
+                // 明确失败：停止 stale preview（旧图不再冒充 ready），
+                // 单卡切换到 placeholder/retry 状态。
+                item._thumbRefreshing = false;
+                item._thumbFailed = true;
+                const staleEntry = appState.stalePreviewThumbnails.get(item.id);
+                if (staleEntry) staleEntry.state = "failed";
+                updateCardThumbnail(item);
+              }
               continue;
             }
             completed += 1;
-            // 缩略图完成：只更新该卡片的 thumb-wrap（keyed 增量），不重建整表
+            // ready 收敛：清 stale preview，单卡替换为新 generation（不整表重绘）。
+            appState.stalePreviewThumbnails.delete(item.id);
+            item._thumbRefreshing = false;
+            item._thumbFailed = false;
             updateCardThumbnail(item);
-            setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
+            if (!quiet) setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
           } catch (_) {
           } finally {
             appState.pendingThumbnailIds.delete(item.id);
@@ -15169,7 +15321,11 @@
 
         if (runId === appState.thumbnailQueueRunId) {
           appState.thumbnailQueueActive = false;
-          if (failed > 0) {
+          if (quiet) {
+            // 保存触发的单 item 队列不覆盖"已保存"ack；失败时给出缩略图专用文案，
+            // 绝不用"保存失败"冒充，也不覆盖保存失败状态。
+            if (failed > 0) setStatus(t("status.thumbnailRefreshFailedShort"), "warn");
+          } else if (failed > 0) {
             // 有失败项：不得以"全部成功"收尾。
             setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
           } else {
