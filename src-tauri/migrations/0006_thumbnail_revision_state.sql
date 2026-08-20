@@ -1,0 +1,18 @@
+-- B1：thumbnail_cache 增加确定性 desired key / render kind / generation 状态列。
+--
+-- 这些列由 Rust 迁移函数 apply_thumbnail_revision_state_migration 逐列守卫添加
+-- （PRAGMA table_info 检查后再 ALTER），本文件只保留 SQL 供 include_str 引用，
+-- 不直接执行，避免对已含新列的库重复 ALTER 报错。
+--
+-- 语义：
+--   desired_key      当前期望的确定性 key（html:<hash>:html-card-vN /
+--                    md-default:<title-hash>:title-parser-vN:default-cover-vN /
+--                    md-image:<asset-hash>:image-cover-vN）
+--   generated_from_key 本次 ready 行实际生成时的 key（必须 == desired_key）
+--   render_kind      html-screenshot | markdown-default-cover |
+--                    markdown-image-cover | placeholder
+--   generation       每个 item 单调递增的持久化代号；invalidate / key 变化时 +1，
+--                    用于拒绝旧任务晚到的 CAS 提交，重启后不回退
+--
+-- 旧行兼容：旧 ready 行的 generated_from_key 为 NULL，无法匹配新的 desired_key，
+-- 读取路径不会把它们当作有效 ready 成图返回；首次重建后自动获得新状态列。

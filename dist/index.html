@@ -10400,7 +10400,10 @@
           width: thumbnail.width ?? null,
           height: thumbnail.height ?? null,
           lastGeneratedAt: thumbnail.lastGeneratedAt ?? thumbnail.last_generated_at ?? null,
-          errorMessage: thumbnail.errorMessage ?? thumbnail.error_message ?? null
+          errorMessage: thumbnail.errorMessage ?? thumbnail.error_message ?? null,
+          desiredKey: thumbnail.desiredKey ?? thumbnail.desired_key ?? null,
+          generation: thumbnail.generation ?? null,
+          renderKind: thumbnail.renderKind ?? thumbnail.render_kind ?? null
         };
       }
 
@@ -10502,11 +10505,24 @@
           setThumbnailSettingsFeedback(message, "info");
           return { message, tone: "warn" };
         }
+        if (result.reason === "canceled") {
+          // 队列被后续操作接管（自动刷新/设置切换）：不得显示"成功 N/M"。
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total}`;
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
+        }
         if (result.failed > 0) {
           const detail = result.lastError ? ` — ${normalizeError(result.lastError)}` : "";
           const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.failed}/${result.total}${detail}`;
           setThumbnailSettingsFeedback(message, "error");
           return { message, tone: "error" };
+        }
+        if (result.completed !== result.total) {
+          // 未归类的漏项也不能显示绿色成功。正常路径应保证每一项最终归入
+          // completed / failed / canceled；这里是最后一道用户可见安全网。
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total}`;
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
         }
         const message = `${successMessage} ${result.completed}/${result.total}`;
         setThumbnailSettingsFeedback(message, "ok");
@@ -14475,7 +14491,10 @@
               width: 1,
               height: 1,
               lastGeneratedAt: new Date().toISOString(),
-              errorMessage: null
+              errorMessage: null,
+              desiredKey: `html:mock:html-card-v1`,
+              generation: 1,
+              renderKind: "html-screenshot"
             };
           }
           return {
@@ -14485,7 +14504,13 @@
             width: 1,
             height: 1,
             lastGeneratedAt: new Date().toISOString(),
-            errorMessage: null
+            errorMessage: null,
+            generatedFromKey: "html:mock:html-card-v1",
+            expectedKey: "html:mock:html-card-v1",
+            generation: 1,
+            discarded: false,
+            desiredKey: "html:mock:html-card-v1",
+            renderKind: "html-screenshot"
           };
         }
         if (command === "generate_presentation_thumbnail") {
@@ -15002,6 +15027,98 @@
         return item.fileType === "html" || item.fileType === "markdown";
       }
 
+      // B1 调度正确性（审查阻塞 3/4 修正）：
+      // - 后端 CAS 保证非 discarded 响应即"提交时最新状态"；discarded 响应不得修改
+      //   item.thumbnail；
+      // - **只有 status=ready 且 render kind 非 placeholder 的响应才算成功应用**
+      //   （审查阻塞 4）：后端返回的 status=failed placeholder（截图引擎失败）不是
+      //   成功——调用方必须把它计入 failed，设置页绝不能显示"重建成功"；
+      // - in-flight 期间 desired key 连续变化（R1→R2→R3→…）时，每次 discarded 后按
+      //   响应 expectedKey 继续处理最新 generation，**不设固定次数上限**——连续超过
+      //   5 次 revision 变化也必须最终收敛，不允许静默放弃后依赖"下次列表刷新"；
+      // - 连续 discarded 使用 80–300ms 短退避，退避前后都检查 queue runId；
+      // - 只有三种情况可以结束：ready 结果成功应用；当前 queue runId 已取消；明确的
+      //   终止错误（failed placeholder / 无可补跑的 expectedKey / 后端异常）已记录。
+      // - 调用方必须只把 { ok: true } 计入 completed；canceled / failed / terminal /
+      //   error 不得计入 completed。pendingThumbnailIds 由调用方覆盖整个收敛过程。
+      function applyGenerateThumbnailResult(item, result) {
+        if (!result) return { applied: false, reason: "empty" };
+        if (result.discarded === true) return { applied: false, reason: "discarded" };
+        // 只有 ready 成图才算成功应用；failed（placeholder / 引擎不可用）是明确失败。
+        const status = result.status ?? result.thumbnail?.status ?? null;
+        if (status !== "ready") {
+          return { applied: false, reason: status === "failed" ? "failed" : "not-ready" };
+        }
+        const renderKind = result.renderKind ?? result.thumbnail?.renderKind ?? null;
+        if (renderKind === "placeholder") {
+          return { applied: false, reason: "placeholder" };
+        }
+        const expectedKey = result.expectedKey ?? result.desiredKey ?? null;
+        if (expectedKey) item._thumbDesiredKey = expectedKey;
+        item.thumbnail = normalizeThumbnailInfo({
+          status: result.status || result.thumbnail?.status || "ready",
+          path: result.path || result.thumbnail?.path || null,
+          width: result.width || result.thumbnail?.width || null,
+          height: result.height || result.thumbnail?.height || null,
+          lastGeneratedAt: result.lastGeneratedAt || result.thumbnail?.lastGeneratedAt || null,
+          errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null,
+          desiredKey: expectedKey || result.thumbnail?.desiredKey || null,
+          generation: result.generation ?? result.thumbnail?.generation ?? null,
+          renderKind: result.renderKind || result.thumbnail?.renderKind || null
+        });
+        return { applied: true, reason: "ready" };
+      }
+
+      async function generateThumbnailOnce(item, runId) {
+        const queueActive = () => runId === undefined || runId === appState.thumbnailQueueRunId;
+        let backoff = 80;
+        for (;;) {
+          if (!queueActive()) return { ok: false, reason: "canceled" };
+          let result;
+          try {
+            result = await invoke("generate_thumbnail", { itemId: item.id });
+          } catch (error) {
+            console.error("generate_thumbnail failed for item", item.id, error);
+            return { ok: false, reason: "error", error };
+          }
+          if (!queueActive()) return { ok: false, reason: "canceled" };
+          const apply = applyGenerateThumbnailResult(item, result);
+          if (apply.applied) return { ok: true, reason: "applied" };
+          if (apply.reason === "discarded") {
+            // discarded：按响应 expectedKey 继续收敛最新 generation（R3 之后的响应
+            // 也绝不被忽略）。
+            const retryKey = result?.expectedKey ?? result?.desiredKey ?? null;
+            if (!retryKey) {
+              console.error("generate_thumbnail discarded without expectedKey for item", item.id, result);
+              return { ok: false, reason: "terminal" };
+            }
+            item._thumbDesiredKey = retryKey;
+            await delay(backoff);
+            backoff = Math.min(backoff * 2, 300);
+            continue;
+          }
+          // failed / placeholder / not-ready / empty：明确的终止错误，不循环重试
+          // （引擎失败重试也不会成功），已记录。
+          if (apply.reason === "failed" || apply.reason === "placeholder") {
+            console.error("generate_thumbnail reported failure for item", item.id, result);
+          }
+          return { ok: false, reason: apply.reason };
+        }
+      }
+
+      async function waitForThumbnailSlot(itemId, runId) {
+        // 手动重建接管自动队列时，旧 run 可能仍在一次 invoke / backoff 中并持有
+        // pending slot。等待旧 owner 观察到 runId 变化并在 finally 释放；直接跳过会
+        // 产生既未 completed 也未 failed 的漏项，直接并发则破坏 single-flight。
+        let backoff = 40;
+        while (appState.pendingThumbnailIds.has(itemId)) {
+          if (runId !== appState.thumbnailQueueRunId) return false;
+          await delay(backoff);
+          backoff = Math.min(backoff * 2, 200);
+        }
+        return runId === appState.thumbnailQueueRunId;
+      }
+
       async function ensureDocumentThumbnails(items) {
         if (!canGenerateDocumentThumbnails()) {
           if (thumbnailEngineNeedsAttention()) {
@@ -15020,6 +15137,7 @@
         const runId = ++appState.thumbnailQueueRunId;
         appState.thumbnailQueueActive = true;
         let completed = 0;
+        let failed = 0;
         setStatus(thumbnailProgressMessage(0, targets.length), "warn");
 
         for (const queuedItem of targets) {
@@ -15031,16 +15149,14 @@
           try {
             // Yield to the UI between browser captures so large first scans do not feel frozen.
             await delay(80);
-            const result = await invoke("generate_thumbnail", { itemId: item.id });
+            const outcome = await generateThumbnailOnce(item, runId);
             if (runId !== appState.thumbnailQueueRunId) break;
-            item.thumbnail = normalizeThumbnailInfo({
-              status: result.status || result.thumbnail?.status || "ready",
-              path: result.path || result.thumbnail?.path || null,
-              width: result.width || result.thumbnail?.width || null,
-              height: result.height || result.thumbnail?.height || null,
-              lastGeneratedAt: result.lastGeneratedAt || result.thumbnail?.lastGeneratedAt || null,
-              errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null
-            });
+            if (!outcome.ok) {
+              // canceled / terminal / error / failed 不得计入 completed。
+              // failed（截图引擎失败）计入 failed，结束时不得显示"全部成功"。
+              if (outcome.reason !== "canceled") failed += 1;
+              continue;
+            }
             completed += 1;
             // 缩略图完成：只更新该卡片的 thumb-wrap（keyed 增量），不重建整表
             updateCardThumbnail(item);
@@ -15053,7 +15169,12 @@
 
         if (runId === appState.thumbnailQueueRunId) {
           appState.thumbnailQueueActive = false;
-          setStatus(t("status.thumbnailRefreshComplete"), "ok");
+          if (failed > 0) {
+            // 有失败项：不得以"全部成功"收尾。
+            setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
+          } else {
+            setStatus(t("status.thumbnailRefreshComplete"), "ok");
+          }
         }
       }
 
@@ -16681,46 +16802,70 @@ if (!chipTipController) {
         if (!canGenerateDocumentThumbnails()) {
           setStatus(t("status.thumbnailEngineDisabled"), "warn");
           openSettingsTab("thumbnails");
-          return { total: 0, completed: 0, failed: 0, reason: "engine-disabled", lastError: null };
+          return { total: 0, completed: 0, failed: 0, canceled: 0, reason: "engine-disabled", lastError: null };
         }
         const thumbnailItems = items.filter(supportsGeneratedThumbnail);
         if (!thumbnailItems.length) {
           setStatus(t("status.thumbnailNoDocuments"), "warn");
-          return { total: 0, completed: 0, failed: 0, reason: "no-documents", lastError: null };
+          return { total: 0, completed: 0, failed: 0, canceled: 0, reason: "no-documents", lastError: null };
         }
 
+        // 独占固定 runId（阻塞 5 修正）：手动重建与自动刷新互斥，谁后启动谁接管。
+        // 期间 runId 被其他操作（自动刷新 / 设置切换）修改时，本循环必须停止，
+        // 被取消的项不得计入 completed，也不得显示"成功 N/M"。
+        const runId = ++appState.thumbnailQueueRunId;
+        appState.thumbnailQueueActive = true;
         let completed = 0;
         let failed = 0;
+        let canceled = 0;
         let lastError = null;
         setStatus(thumbnailProgressMessage(0, thumbnailItems.length, t("status.thumbnailRebuildMode")), "warn");
-        onProgress?.({ completed, failed, total: thumbnailItems.length });
+        onProgress?.({ completed, failed, canceled, total: thumbnailItems.length });
         for (const item of thumbnailItems) {
+          if (runId !== appState.thumbnailQueueRunId) { canceled += 1; break; }
+          // 先等待被本 run 取消的旧 owner 释放 slot，再由手动操作占用；不能直接
+          // continue，否则该 item 会成为未计数漏项并可能显示绿色“成功 N/M”。
+          if (!(await waitForThumbnailSlot(item.id, runId))) { canceled += 1; break; }
+          appState.pendingThumbnailIds.add(item.id);
           try {
             await delay(80);
-            const result = await invoke("generate_thumbnail", { itemId: item.id });
-            item.thumbnail = normalizeThumbnailInfo({
-              status: result.status || result.thumbnail?.status || "ready",
-              path: result.path || result.thumbnail?.path || null,
-              width: result.width || result.thumbnail?.width || null,
-              height: result.height || result.thumbnail?.height || null,
-              lastGeneratedAt: result.lastGeneratedAt || result.thumbnail?.lastGeneratedAt || null,
-              errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null
-            });
+            // B1：旧响应不得覆盖新 generation；晚到被丢弃时按 expectedKey 持续收敛。
+            // 只有 { ok: true } 计入 completed；canceled / failed / terminal / error 不计入。
+            const outcome = await generateThumbnailOnce(item, runId);
+            if (runId !== appState.thumbnailQueueRunId) { canceled += 1; break; }
+            if (!outcome.ok) {
+              if (outcome.reason === "canceled") { canceled += 1; break; }
+              failed += 1;
+              lastError = outcome.error ?? new Error(outcome.reason || "thumbnail generation failed");
+              renderItems();
+              const processed = completed + failed;
+              const progressMessage = thumbnailProgressMessage(processed, thumbnailItems.length, t("status.thumbnailRebuildMode"));
+              setStatus(progressMessage, failed ? "error" : "warn");
+              onProgress?.({ completed, failed, canceled, total: thumbnailItems.length, lastError });
+              continue;
+            }
             completed += 1;
             renderItems();
           } catch (error) {
             failed += 1;
             lastError = error;
+          } finally {
+            appState.pendingThumbnailIds.delete(item.id);
           }
           const processed = completed + failed;
           const progressMessage = thumbnailProgressMessage(processed, thumbnailItems.length, t("status.thumbnailRebuildMode"));
           setStatus(progressMessage, failed ? "error" : "warn");
-          onProgress?.({ completed, failed, total: thumbnailItems.length, lastError });
+          onProgress?.({ completed, failed, canceled, total: thumbnailItems.length, lastError });
         }
 
+        if (runId === appState.thumbnailQueueRunId) {
+          // 只有自己仍是当前队列时才释放 active 标志；被接管（取消）时不动。
+          appState.thumbnailQueueActive = false;
+        }
         renderItems();
         renderSettingsPanel();
-        return { total: thumbnailItems.length, completed, failed, reason: null, lastError };
+        const reason = canceled > 0 ? "canceled" : null;
+        return { total: thumbnailItems.length, completed, failed, canceled, reason, lastError };
       }
 
       async function rebuildVisibleHtmlThumbnails() {

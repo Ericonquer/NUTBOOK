@@ -42,6 +42,11 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(database: Database, app_data_dir: PathBuf) -> Self {
+        // B1：启动路径按磁盘真实状态重放 reconciliation marker（目录不存在时为廉价 no-op）。
+        if let Err(error) = database.replay_reconciliation_markers() {
+            eprintln!("Nutbook startup reconciliation replay failed: {error}");
+        }
+
         #[cfg(test)]
         let local_content_server = LocalContentServer::testing();
 
@@ -464,6 +469,23 @@ impl ItemRepository for AppState {
             source_text,
             raw_text,
             rendered_cache,
+        )
+    }
+
+    fn update_item_revision_and_invalidate(
+        &self,
+        item_id: i64,
+        canonical_path: &str,
+        source_hash: &str,
+        modified_at: &str,
+        file_size: i64,
+    ) -> Result<(), AppError> {
+        self.database.update_item_revision_and_invalidate_impl(
+            item_id,
+            canonical_path,
+            source_hash,
+            modified_at,
+            file_size,
         )
     }
 

@@ -24,8 +24,121 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 #[cfg(unix)]
 use serde_json::{json, Value};
 
-const HTML_SCREENSHOT_WIDTH: i32 = 1280;
-const HTML_SCREENSHOT_HEIGHT: i32 = 720;
+pub const HTML_SCREENSHOT_WIDTH: i32 = 1280;
+pub const HTML_SCREENSHOT_HEIGHT: i32 = 720;
+
+// ------------------------------------------------------------------
+// B1：确定性 desired key 与 render kind
+//
+// key 形状（固定模板版本，缓存升级时 bump 版本号即可整体失效）：
+//   HTML 截图:         html:<source-content-hash>:html-card-vN
+//   Markdown 默认封面:  md-default:<rendered-title-hash>:title-parser-vN:default-cover-vN
+//   Markdown 头图:     md-image:<cover-asset-hash>:image-cover-vN
+//   Markdown 临时截图: md-screenshot:<source-content-hash>:md-screenshot-vN
+//
+// render kind 至少区分 html-screenshot / markdown-default-cover /
+// markdown-image-cover / placeholder；placeholder 永远不能作为目标 render
+// kind 的 ready 成品。
+//
+// 重要边界（B1 审查修正）：B1 阶段 Markdown 仍走"临时 HTML → Chromium 截图"
+// 路径，必须使用独立的过渡 render kind（markdown-html-screenshot）与独立 key
+// 前缀（md-screenshot:），**不得**占用未来 B4 静态 SVG 默认封面的
+// md-default: key / markdown-default-cover render kind。否则旧截图缓存会在 B4
+// 上线后被当成新默认封面缓存，无法证明"旧截图缓存不能冒充新默认封面"。
+// ------------------------------------------------------------------
+
+pub const HTML_CARD_TEMPLATE_VERSION: &str = "html-card-v1";
+pub const TITLE_PARSER_VERSION: &str = "title-parser-v1";
+pub const DEFAULT_COVER_VERSION: &str = "default-cover-v1";
+pub const IMAGE_COVER_VERSION: &str = "image-cover-v1";
+/// B1 阶段 Markdown 临时截图的独立模板版本；B4 退休旧路径后此 key 前缀不再产生。
+pub const MARKDOWN_SCREENSHOT_VERSION: &str = "md-screenshot-v1";
+
+pub const RENDER_KIND_HTML_SCREENSHOT: &str = "html-screenshot";
+pub const RENDER_KIND_MARKDOWN_HTML_SCREENSHOT: &str = "markdown-html-screenshot";
+pub const RENDER_KIND_MARKDOWN_DEFAULT_COVER: &str = "markdown-default-cover";
+pub const RENDER_KIND_MARKDOWN_IMAGE_COVER: &str = "markdown-image-cover";
+pub const RENDER_KIND_PLACEHOLDER: &str = "placeholder";
+
+pub fn html_desired_key(source_content_hash: &str) -> String {
+    format!("html:{source_content_hash}:{HTML_CARD_TEMPLATE_VERSION}")
+}
+
+pub fn markdown_default_cover_key(rendered_title_hash: &str) -> String {
+    format!(
+        "md-default:{rendered_title_hash}:{TITLE_PARSER_VERSION}:{DEFAULT_COVER_VERSION}"
+    )
+}
+
+pub fn markdown_image_cover_key(cover_asset_hash: &str) -> String {
+    format!("md-image:{cover_asset_hash}:{IMAGE_COVER_VERSION}")
+}
+
+/// B1 阶段 Markdown 临时 HTML→Chromium 截图的确定性 key：只依赖源内容 hash，
+/// 与未来 B4 的 md-default:<title-hash> 完全不同前缀，旧截图缓存无法冒充默认封面。
+pub fn markdown_screenshot_key(source_content_hash: &str) -> String {
+    format!("md-screenshot:{source_content_hash}:{MARKDOWN_SCREENSHOT_VERSION}")
+}
+
+/// placeholder 不是目标 render kind 的 ready 成品；ready 行必须携带真实 render kind。
+pub fn is_placeholder_render_kind(render_kind: Option<&str>) -> bool {
+    matches!(render_kind, Some(RENDER_KIND_PLACEHOLDER))
+}
+
+/// 根据 item 当前状态计算确定性 desired key：
+/// - HTML 使用源内容 hash；
+/// - B1 阶段 Markdown 也使用源内容 hash（md-screenshot: 过渡前缀），内容变化即失效；
+///   B4 换成 md-default:<rendered-title-hash> 后，旧 md-screenshot 缓存天然不匹配。
+/// 无法计算的输入（如缺 hash）返回 None，表示该 item 当前没有可验证的成图目标。
+pub fn desired_key_for_item(
+    file_type: &str,
+    source_content_hash: Option<&str>,
+) -> Option<String> {
+    match file_type {
+        "html" => source_content_hash.map(html_desired_key),
+        "markdown" => source_content_hash.map(markdown_screenshot_key),
+        _ => None,
+    }
+}
+
+/// 一次生成任务的不可变快照：生成期间不持有数据库事务，提交时只认
+/// desired_key + generation 与当前状态完全一致；同时保存 snapshot 时的磁盘
+/// revision（内容 hash + 文件大小 + canonical path + 正文），提交前重读磁盘
+/// 比对，截图期间源文件被外部改写（即使扫描尚未触发）也必须丢弃。
+///
+/// B1 审查修正：`source_body` 是 snapshot 阶段从磁盘读取的**唯一渲染输入**。
+/// Markdown 临时 HTML 必须由它渲染；禁止回落到可能陈旧的 item_content.raw_text，
+/// 否则 key / source_content_hash 与渲染正文会分属不同磁盘 revision。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThumbnailGenerationSnapshot {
+    pub item_id: i64,
+    pub desired_key: String,
+    pub render_kind: &'static str,
+    pub generation: i64,
+    pub source_content_hash: String,
+    pub source_file_size: i64,
+    /// snapshot 阶段从磁盘读取的纳秒 mtime（claim 事务收敛 items.modified_at 用）。
+    pub source_modified_at: String,
+    pub canonical_path: String,
+    pub file_type: String,
+    /// snapshot 阶段从磁盘读取的源正文（Markdown 渲染输入；HTML 仅用于 placeholder 兜底）。
+    pub source_body: String,
+}
+
+/// 每个 file_type 在 B1 阶段唯一合法的 render kind：
+/// - HTML：html-screenshot；
+/// - Markdown（临时 HTML→Chromium 截图过渡路径）：markdown-html-screenshot，
+///   绝不占用未来 B4 的 markdown-default-cover。
+/// 读取路径用它对 render_kind 做**精确相等**校验：placeholder、缺失、以及任意
+/// 其他非空 render kind 都必须拒绝，防止旧路径产物冒充当前路径的 ready 成品。
+pub fn expected_render_kind_for_item(file_type: &str) -> Option<&'static str> {
+    match file_type {
+        "html" => Some(RENDER_KIND_HTML_SCREENSHOT),
+        "markdown" => Some(RENDER_KIND_MARKDOWN_HTML_SCREENSHOT),
+        _ => None,
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HtmlThumbnailInput {

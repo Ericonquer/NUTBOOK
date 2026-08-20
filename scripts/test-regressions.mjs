@@ -1695,6 +1695,227 @@ assert.match(
   "updateCardThumbnail must validate thumb/type structure before replaceWith(freshEl)"
 );
 
+// 10b. B1 调度正确性（阻塞 3）：只有 discarded 响应不修改 item.thumbnail；
+//     generateThumbnailOnce 必须真正收敛到最新 generation——不设固定次数上限，
+//     连续 discarded 用 80–300ms 退避，退避前后检查 runId。
+//     这里用**可执行行为测试**（抽取函数源码 + stub invoke 实际运行），
+//     不允许仅靠 assert.match 检查源码包含 for/while/retryKey。
+function extractFunctionSource(source, startMarker) {
+  const start = source.indexOf(startMarker);
+  assert.ok(start !== -1, `function source not found: ${startMarker}`);
+  const brace = source.indexOf("{", start);
+  assert.ok(brace !== -1, `function body brace not found: ${startMarker}`);
+  let depth = 0;
+  let i = brace;
+  for (; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  assert.ok(depth === 0 && i < source.length, `balanced function body for ${startMarker}`);
+  return source.slice(start, i + 1);
+}
+
+function buildThumbnailConvergenceHarness(stubResponses, cancelOnInvoke) {
+  const normalizeSrc = extractFunctionSource(indexHtml, "function normalizeThumbnailInfo(thumbnail) {");
+  const applySrc = extractFunctionSource(indexHtml, "function applyGenerateThumbnailResult(item, result) {");
+  const onceSrc = extractFunctionSource(indexHtml, "async function generateThumbnailOnce(item, runId) {");
+  const harness = `
+    const toLocalServerUrl = (p) => p;
+    const cancelOnInvoke = ${JSON.stringify(cancelOnInvoke ?? null)};
+    ${normalizeSrc}
+    ${applySrc}
+    ${onceSrc}
+    const log = [];
+    const appState = { thumbnailQueueRunId: 100 };
+    const responses = ${JSON.stringify(stubResponses)};
+    let calls = 0;
+    const thumbnailAssignments = [];
+    const item = { id: 1 };
+    Object.defineProperty(item, "thumbnail", {
+      get() { return item._thumb; },
+      set(value) { thumbnailAssignments.push(value ? value.path : null); item._thumb = value; },
+      configurable: true,
+    });
+    item._thumb = { path: "old.png", status: "ready" };
+    async function invoke(name, args) {
+      calls += 1;
+      log.push("invoke:" + calls);
+      if (cancelOnInvoke && calls === cancelOnInvoke) appState.thumbnailQueueRunId += 1;
+      return responses.shift();
+    }
+    const delay = async (ms) => { log.push("delay:" + ms); };
+    return generateThumbnailOnce(item, 100).then((outcome) => ({
+      outcome,
+      calls,
+      finalPath: item._thumb ? item._thumb.path : null,
+      thumbnailAssignments,
+      log: log.join(","),
+    }));
+  `;
+  return new Function(harness)();
+}
+
+// 场景 A：连续 5 个 discarded（expectedKey/generation 每次变化），第 6 次 ready。
+// 断言：最终应用第 6 次结果；旧结果从未写入 item.thumbnail；invoke 次数正确（6）。
+{
+  const responses = [
+    { itemId: 1, discarded: true, expectedKey: "k2", generation: 2, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k3", generation: 3, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k4", generation: 4, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k5", generation: 5, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k6", generation: 6, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: false, status: "ready", path: "new6.png", generation: 6, desiredKey: "k6", renderKind: "html-screenshot" },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, null);
+  assert.equal(run.outcome.ok, true, "must converge after 5 discarded + 1 ready");
+  assert.equal(run.outcome.reason, "applied");
+  assert.equal(run.calls, 6, "invoke must be called exactly once per discarded generation plus the final ready");
+  assert.equal(run.finalPath, "new6.png", "the final ready result must be applied");
+  assert.deepEqual(
+    run.thumbnailAssignments,
+    ["new6.png"],
+    "old discarded results must never be written into item.thumbnail"
+  );
+  assert.deepEqual(
+    (run.log.match(/delay:(\d+)/g) || []).map((part) => part.slice(6)),
+    ["80", "160", "300", "300", "300"],
+    "backoff must ramp 80→160→300 and cap at 300"
+  );
+}
+
+// 场景 B：runId 取消后停止继续调用（不允许静默继续 converge / hot loop）。
+{
+  const responses = [
+    { itemId: 1, discarded: true, expectedKey: "k2", generation: 2, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: false, status: "ready", path: "should-not-run.png", generation: 2 },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, 1);
+  assert.equal(run.outcome.ok, false, "canceled convergence must not report ok");
+  assert.equal(run.outcome.reason, "canceled");
+  assert.equal(run.calls, 1, "no further invoke after the queue runId was canceled");
+  assert.equal(run.finalPath, "old.png", "canceled convergence must not touch item.thumbnail");
+  assert.deepEqual(run.thumbnailAssignments, [], "canceled convergence must write nothing");
+}
+
+// 场景 C（阻塞 B）：后端返回 status=failed placeholder（截图引擎失败）不是成功——
+// 不得计入 completed，也不得写入 item.thumbnail，且不进入 discarded 补跑循环。
+{
+  const responses = [
+    { itemId: 1, discarded: false, status: "failed", renderKind: "placeholder", errorMessage: "engine down", desiredKey: "k1", generation: 1 },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, null);
+  assert.equal(run.outcome.ok, false, "a failed placeholder response must not report success");
+  assert.equal(run.outcome.reason, "failed");
+  assert.equal(run.calls, 1, "terminal failure must not spin a retry loop");
+  assert.equal(run.finalPath, "old.png", "failed response must not overwrite item.thumbnail");
+  assert.deepEqual(
+    run.thumbnailAssignments,
+    [],
+    "a failed placeholder must never be applied as a ready image"
+  );
+}
+
+// 场景 D（阻塞 B）：status=ready 但 renderKind=placeholder 的响应同样不是成功成图。
+{
+  const responses = [
+    { itemId: 1, discarded: false, status: "ready", renderKind: "placeholder", path: "fake.svg", generation: 1 },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, null);
+  assert.equal(run.outcome.ok, false, "a ready-status placeholder must not be accepted");
+  assert.equal(run.outcome.reason, "placeholder");
+  assert.deepEqual(run.thumbnailAssignments, [], "placeholder render kind must never be applied");
+}
+
+// 结构断言保留：applyGenerateThumbnailResult / normalizeThumbnailInfo 契约。
+assert.match(
+  indexHtml,
+  /function applyGenerateThumbnailResult\(item, result\)[\s\S]*?result\.discarded === true[\s\S]*?status !== "ready"[\s\S]*?reason: status === "failed" \? "failed" : "not-ready"/,
+  "applyGenerateThumbnailResult must reject discarded AND treat status=failed/placeholder as failure, not success"
+);
+assert.match(
+  indexHtml,
+  /function normalizeThumbnailInfo\(thumbnail\)[\s\S]*?desiredKey[\s\S]*?generation[\s\S]*?renderKind/,
+  "normalizeThumbnailInfo must carry desiredKey/generation/renderKind through item.thumbnail"
+);
+
+// 10d. B1 阻塞 C：手动重建必须独占固定 runId、使用 pendingThumbnailIds，
+//      队列被接管（runId 改变）时必须取消停止，不得继续处理并以绿色"成功 N/M"收尾。
+assert.match(
+  indexHtml,
+  /async function rebuildThumbnailsForItems\(items, \{ onProgress \} = \{\}\)[\s\S]*?const runId = \+\+appState\.thumbnailQueueRunId[\s\S]*?waitForThumbnailSlot\(item\.id, runId\)[\s\S]*?pendingThumbnailIds\.add\(item\.id\)[\s\S]*?generateThumbnailOnce\(item, runId\)[\s\S]*?outcome\.reason === "canceled"[\s\S]*?canceled \+= 1; break/,
+  "rebuild must own an exclusive runId, wait for the previous slot owner, and stop counting on canceled"
+);
+assert.match(
+  indexHtml,
+  /function showThumbnailRebuildResult\(result, successMessage\)[\s\S]*?result\.reason === "canceled"[\s\S]*?setThumbnailSettingsFeedback\(message, "warn"\)/,
+  "a canceled rebuild must not show a green success summary"
+);
+
+// 手动重建接管自动队列时必须等待旧 owner 释放 pending slot，不能静默跳过。
+{
+  const waitSrc = extractFunctionSource(indexHtml, "async function waitForThumbnailSlot(itemId, runId) {");
+  const run = await new Function(`
+    ${waitSrc}
+    const appState = { thumbnailQueueRunId: 9, pendingThumbnailIds: new Set([7]) };
+    const waits = [];
+    async function delay(ms) {
+      waits.push(ms);
+      appState.pendingThumbnailIds.delete(7);
+    }
+    return waitForThumbnailSlot(7, 9).then((acquired) => ({ acquired, waits }));
+  `)();
+  assert.equal(run.acquired, true, "manual rebuild must acquire the slot after the old run releases it");
+  assert.deepEqual(run.waits, [40], "slot takeover must wait with bounded backoff instead of spinning");
+}
+
+// 任意 completed < total 的结果都不能落入绿色成功分支，即使 failed/canceled
+// 因未来调用方 bug 没有正确计数。
+{
+  const showSrc = extractFunctionSource(indexHtml, "function showThumbnailRebuildResult(result, successMessage) {");
+  const run = new Function(`
+    ${showSrc}
+    const feedback = [];
+    const t = (key) => key;
+    const setThumbnailSettingsFeedback = (message, tone) => feedback.push({ message, tone });
+    const normalizeError = (error) => String(error);
+    const outcome = showThumbnailRebuildResult(
+      { total: 3, completed: 2, failed: 0, canceled: 0, reason: null, lastError: null },
+      "done"
+    );
+    return { outcome, feedback };
+  `)();
+  assert.equal(run.outcome.tone, "warn", "incomplete rebuild must not report a green success tone");
+  assert.equal(run.feedback.at(-1)?.tone, "warn", "incomplete rebuild feedback must stay visible as a warning");
+}
+
+// 10c. B1 阻塞 6：HTML durable-save 热路径不得递归扫描，也不得伪造零纳秒 mtime。
+{
+  const commitStart = htmlEditCommandsRust.indexOf("pub fn commit_html_edit");
+  assert.ok(commitStart !== -1, "commit_html_edit must exist in html_edit.rs");
+  const commitEnd = htmlEditCommandsRust.indexOf("\n}\n", commitStart);
+  assert.ok(commitEnd !== -1, "commit_html_edit body must be extractable");
+  const commitBody = htmlEditCommandsRust.slice(commitStart, commitEnd + 3);
+  assert.doesNotMatch(
+    commitBody,
+    /scan_library_once\s*\(/,
+    "commit_html_edit must not trigger a recursive library scan on the durable-save hot path"
+  );
+  assert.doesNotMatch(
+    commitBody,
+    /\.000000000/,
+    "commit_html_edit must not synthesize a fake <seconds>.000000000 mtime"
+  );
+}
+assert.doesNotMatch(
+  htmlEditCommandsRust,
+  /\.000000000/,
+  "no fake zero-nanosecond mtime anywhere in html_edit.rs"
+);
+
 // 10. 自动刷新 single-flight：in-flight guard + setTimeout 一轮一轮调度（禁止裸 setInterval 无保护）
 assert.match(
   indexHtml,
