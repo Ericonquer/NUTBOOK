@@ -1,5 +1,7 @@
 use crate::{
-    core::document::{content_hash, markdown_summary, render_markdown_as_html_for_file},
+    core::document::{
+        content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file,
+    },
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
@@ -10,15 +12,11 @@ use crate::{
     state::AppState,
 };
 use serde::Deserialize;
-use std::{fs, path::Path, time::UNIX_EPOCH};
+use std::{fs, path::Path};
 
 fn markdown_modified_at(path: &Path) -> Result<String, AppError> {
-    fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .map_err(|_| AppError::IoError)?
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .map_err(|_| AppError::IoError)
+    let metadata = fs::metadata(path).map_err(|_| AppError::IoError)?;
+    file_modified_at_string(&metadata)
 }
 
 pub(crate) fn get_item_detail_impl(
@@ -60,11 +58,16 @@ pub struct FindItemByPathRequest {
 }
 
 #[tauri::command]
-pub fn list_items(
+pub async fn list_items(
     state: tauri::State<'_, AppState>,
     query: ListItemsQuery,
 ) -> Result<PagedResult<crate::models::ItemSummary>, AppError> {
-    state.list_items(&query)
+    // A1.1-PERF：数据库查询 + PagedResult<ItemSummary> JSON 序列化移到后台线程，
+    // 不得占用 Tauri/Wry 宿主主线程（原同步 command 在主线程序列化 base64 缩略图）。
+    let database = state.database.clone();
+    tauri::async_runtime::spawn_blocking(move || database.list_items(&query))
+        .await
+        .map_err(|_| AppError::InternalError)?
 }
 
 #[tauri::command]
@@ -188,10 +191,14 @@ pub fn restore_ignored_item(
 }
 
 #[tauri::command]
-pub fn sync_filesystem_state(
+pub async fn sync_filesystem_state(
     state: tauri::State<'_, AppState>,
 ) -> Result<SyncFilesystemStateResponse, AppError> {
-    state.sync_filesystem_state()
+    // A1.1-PERF：文件系统遍历 + 状态更新移到后台线程，不得占用宿主主线程。
+    let database = state.database.clone();
+    tauri::async_runtime::spawn_blocking(move || database.sync_filesystem_state())
+        .await
+        .map_err(|_| AppError::InternalError)?
 }
 
 #[cfg(test)]

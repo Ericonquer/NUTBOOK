@@ -224,13 +224,32 @@ pub fn execute(database: &Database, request: &CliRequest) -> Result<CliResponse,
 
 /// App-only coordinator: the database mutation remains shared with offline CLI,
 /// while watcher ownership stays in AppState and cannot be duplicated by IPC.
+///
+/// 应用运行期间的 CLI 必须与 GUI 走同一 ScanCoordinator 生命周期：
+/// - remove（来源删除）经过 AppState::delete_library（per-library + 全局写锁、
+///   unwatch、cancel catch-up），不直接 database.delete_library；
+/// - add 触发的 scan 经 ScanCoordinator::run_scan（全局写协调），与
+///   watcher/catch-up 的写库互斥。
+/// 离线 CLI（无 AppState）仍走 execute() 原数据库路径（应用不运行且有离线锁）。
 pub fn execute_with_app_state(state: &AppState, request: &CliRequest) -> Result<CliResponse, CliFailure> {
     let before = state.database.list_libraries().map_err(database_failure)?;
-    let mut result = execute(&state.database, request)?;
+    let mut result = match request.action.as_str() {
+        // remove 走 GUI 相同的生命周期：来源删除必须经 delete_library。
+        "remove" => remove_with_app_state(state, request),
+        // add / add-project / remove-project：其内部 scan / discovery 写库
+        // 必须与 watcher / catch-up 的全局写协调一致（同一把全局 DB 写锁）。
+        _ => {
+            let db_write_lock = state.scan_coordinator().db_write_lock();
+            let _db = db_write_lock
+                .lock()
+                .map_err(|_| failure("operation_failed", "Nutbook could not acquire its database lock"))?;
+            execute(&state.database, request)
+        }
+    }?;
     let after = state.database.list_libraries().map_err(database_failure)?;
     let mut watcher_warnings = Vec::new();
     for library in after.iter().filter(|library| library.source_kind != "agent_project" && !before.iter().any(|old| old.id == library.id)) {
-        match crate::core::watcher::build_library_watcher(state.database.clone(), library.clone()) {
+        match crate::core::watcher::build_library_watcher(state.scan_coordinator().clone(), library.clone()) {
             Ok(watcher) => {
                 if state.watch_library(library.id, watcher).is_err() {
                     watcher_warnings.push(format!("watcher unavailable for library {}", library.id));
@@ -252,6 +271,19 @@ pub fn execute_with_app_state(state: &AppState, request: &CliRequest) -> Result<
         });
     }
     Ok(result)
+}
+
+/// 应用运行期间的 remove：来源删除经 AppState::delete_library（与 GUI 相同
+/// 的 ScanCoordinator 生命周期），文件移除走原离线逻辑。
+fn remove_with_app_state(state: &AppState, request: &CliRequest) -> Result<CliResponse, CliFailure> {
+    let path = resolve_cli_path(&request.path)?;
+    let canonical = printable(&path);
+    let libraries = state.database.list_libraries().map_err(database_failure)?;
+    if let Some(library) = libraries.iter().find(|library| library.source_kind != "agent_project" && library.root_path == canonical) {
+        state.delete_library(library.id).map_err(database_failure)?;
+        return Ok(response("removed", &path, Some(library.id), Some("source removed; files were kept".to_string())));
+    }
+    remove(&state.database, &path)
 }
 
 pub fn execute_via_ipc(app_data: &Path, request: &CliRequest) -> Result<Option<CliResponse>, CliFailure> {
@@ -554,6 +586,47 @@ mod tests {
         assert!(state.is_library_watched(library_id));
         assert_eq!(execute_with_app_state(&state, &CliRequest { action: "remove".to_string(), ..add }).expect("remove").status, "removed");
         assert!(!state.is_library_watched(library_id));
+    }
+
+    #[test]
+    fn cli_remove_during_catch_up_releases_watcher_without_background_database_error() {
+        let root = tempdir().expect("temp root");
+        let source = root.path().join("source");
+        let other = root.path().join("other");
+        fs::create_dir_all(&source).expect("source");
+        fs::create_dir_all(&other).expect("other");
+        // 两个来源都入队 catch-up，制造 worker 运行期间删除的窗口。
+        fs::write(source.join("a.md"), "# CLI catchup 甲号 alpha").expect("write a");
+        fs::write(other.join("b.md"), "# CLI catchup 乙号 beta").expect("write b");
+
+        let state = AppState::new(
+            Database::new(root.path().join("state.sqlite3")).expect("database"),
+            root.path().to_path_buf(),
+        );
+        let add_a = CliRequest { action: "add".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None };
+        let add_b = CliRequest { action: "add".to_string(), path: other.to_string_lossy().into_owned(), caller_agent: None };
+        let id_a = execute_with_app_state(&state, &add_a).expect("add a").library_id.expect("id a");
+        let id_b = execute_with_app_state(&state, &add_b).expect("add b").library_id.expect("id b");
+
+        // 应用运行期间的 CLI remove 必须走与 GUI delete 相同的生命周期：
+        // watcher 释放、无后台 DatabaseError（delete 与在跑 scan 串行）。
+        let remove_a = CliRequest { action: "remove".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None };
+        let response = execute_with_app_state(&state, &remove_a).expect("CLI remove during catch-up");
+        assert_eq!(response.status, "removed");
+        assert!(
+            !state.is_library_watched(id_a),
+            "CLI remove must release the watcher like GUI delete"
+        );
+        assert!(state.is_library_watched(id_b), "other library keeps watching");
+
+        // 存活来源仍可索引。
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        fs::write(other.join("b.md"), "# CLI catchup 乙号 beta2").expect("rewrite b");
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+
+        let libraries = state.database.list_libraries().expect("libraries");
+        assert!(!libraries.iter().any(|library| library.id == id_a));
+        let _ = state.database.list_items(&ListItemsQuery { page_size: Some(20), ..Default::default() }).expect("items query ok");
     }
 
     #[cfg(unix)]

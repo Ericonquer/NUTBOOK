@@ -110,23 +110,42 @@
       height: 24px;
       padding: 0 10px;
       border-radius: 999px;
-      background: rgba(20, 20, 20, 0.06);
-      color: #6f6f75;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(31, 35, 40, 0.16);
+      color: #5e5e63;
       font-size: 11px;
+      font-weight: 500;
+      line-height: 1.2;
+      box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
       white-space: nowrap;
-      border: 0;
       position: relative;
       cursor: default;
-      max-width: min(160px, 30vw);
+      max-width: min(88px, 30vw);
       overflow: hidden;
       text-overflow: ellipsis;
+      box-sizing: border-box;
     }
     .tag-chip.show { display: inline-flex; }
+
+    /* A1.3 第五轮：来源徽标分组必须是 flex 容器，内部徽标才能随空间压缩
+       （普通 inline span 内徽标永不收缩，会把自定义标签挤出小岛边缘） */
+    .source-badge-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 0 1 auto;
+    }
+    .tag-chip.meta {
+      flex: 0 0 auto; /* 类型 chip 与 MD 工具栏一致：不可收缩 */
+    }
 
     .tag-chip.custom-btn {
       cursor: pointer;
       overflow: visible;
-      padding-right: 14px;
+      /* A1.3 第五轮：自定义标签优先全量（上限 176px），保底 56px ≥ 2 个中文字，绝不只剩省略号 */
+      min-width: 56px;
+      max-width: min(176px, 30vw);
     }
     .tag-chip.custom-btn:hover {
       background: rgba(20, 20, 20, 0.1);
@@ -136,6 +155,13 @@
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    /* A1.3：自定义标签 +N（多标签），与 MD 工具栏 tag-chip-more 一致，不可收缩 */
+    .tag-chip-more {
+      flex: 0 0 auto;
+      min-width: 0;
+      padding: 0 7px;
+      cursor: default;
     }
 
     .tag-chip.placeholder-btn {
@@ -170,6 +196,74 @@
     .tag-chip.custom-btn:hover .tag-remove {
       opacity: 1;
       pointer-events: auto;
+    }
+
+    /* A1.3：来源徽标（与主页卡片 / Markdown 工具栏同一 sourceBadges 语义，样式与 MD 工具栏统一）。
+       顺序固定 自定义 → Project → Skill → 类型；主徽标 min-width 40 / max-width 88 可 ellipsis，
+       +N 与类型不可收缩；tooltip 必须留在 overlay bounds 内，显示与否以实测 viewport 高度为门控。 */
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      height: 24px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(31, 35, 40, 0.16);
+      color: #5e5e63;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1.2;
+      box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
+      white-space: nowrap;
+      position: relative;
+      cursor: default;
+      /* A1.3 第五轮：上限 120px ≈ 一个完整英文单词/11 中文字（不多不少）；不足时收缩到 40px */
+      max-width: 120px;
+      min-width: 40px;
+      flex: 0 1 auto;
+      overflow: visible;
+      box-sizing: border-box;
+    }
+    .source-badge:hover { color: #1f2329; }
+    .source-badge--unavailable {
+      color: #8a8d93;
+      border-style: dashed;
+    }
+    .source-badge-more {
+      flex: 0 0 auto;
+      min-width: 0;
+      padding: 0 7px;
+    }
+    .source-badge-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge-tip {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 9px;
+      border-radius: 8px;
+      background: rgba(24, 24, 28, 0.94);
+      color: #fff;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: normal;
+      word-break: break-word;
+      width: max-content;
+      max-width: min(280px, calc(100vw - 12px));
+      max-height: calc(3 * 1.45em + 12px);
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 100ms ease;
+      z-index: 30;
+      box-sizing: border-box;
     }
 
     .action {
@@ -333,8 +427,9 @@
     <div class="row">
       <div id="tagRow" class="tag-row">
         <button id="addTagBtn" class="tag-chip placeholder-btn show" type="button">+ 标签</button>
-        <button id="customTagBtn" class="tag-chip custom-btn" type="button"><span id="customTagName"></span><span id="clearTagBtn" class="tag-remove">×</span></button>
-        <span id="skillTagChip" class="tag-chip">-</span>
+        <button id="customTagBtn" class="tag-chip custom-btn" type="button"><span id="customTagName"></span><span class="badge-tip" role="tooltip"></span><span id="clearTagBtn" class="tag-remove">×</span></button>
+        <span id="customTagMore" class="tag-chip tag-chip-more"><span class="badge-tip" role="tooltip"></span></span>
+        <span id="sourceBadgeChips" class="source-badge-group"></span>
         <span id="typeTagChip" class="tag-chip meta">-</span>
       </div>
       <div class="actions-row">
@@ -393,7 +488,9 @@
       customTag: null,
       availableTags: [],
       skillTag: null,
-      typeTag: null
+      typeTag: null,
+      customTags: [],
+      sourceBadges: []
     };
     let controlsHover = false;
     let menuAutoCloseTimer = null;
@@ -421,8 +518,9 @@
       addTagBtn: document.getElementById("addTagBtn"),
       customTagBtn: document.getElementById("customTagBtn"),
       customTagName: document.getElementById("customTagName"),
+      customTagMore: document.getElementById("customTagMore"),
       clearTagBtn: document.getElementById("clearTagBtn"),
-      skillTagChip: document.getElementById("skillTagChip"),
+      sourceBadgeGroup: document.getElementById("sourceBadgeChips"),
       typeTagChip: document.getElementById("typeTagChip"),
       tagMenu: document.getElementById("tagMenu"),
       tagMenuOptions: document.getElementById("tagMenuOptions"),
@@ -463,6 +561,8 @@
     function currentLayoutMode() {
       if (state.tagMenuOpen) return "tags";
       if (state.menuOpen) return "more";
+      // A1.3：来源徽标 tooltip 待显示时走 badge-tip 扩高态（宿主实测 viewport ≥ 100 才显示 tooltip）。
+      if (pendingTip) return "badge-tip";
       if (controlsHover) return "hover";
       return "default";
     }
@@ -476,6 +576,115 @@
       });
     }
 
+    // ---- A1.3 来源徽标 tooltip（留在 overlay bounds 内；实测 viewport 门控）----
+    // overlay 默认 40px 高，tooltip 在徽标下方会超出 viewport 被 webview 裁剪。
+    // 方案：hover 徽标 → 复用既有 overlay-layout 扩高路径把宿主 set_bounds 到 badge-tip 高度，
+    // tooltip 只在实测 window.innerHeight ≥ BADGE_TIP_MIN_HEIGHT 后才显示；
+    // Rust set_bounds 后 CSS viewport 异步更新，因此用 resize/ResizeObserver 重试，不假设同步。
+    const BADGE_TIP_MIN_HEIGHT = 100;
+    let pendingTip = null;
+    let badgeTipRaf = null;
+
+    function escapeHtmlText(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+      });
+    }
+
+    let sourceBadgeFingerprint = "";
+
+    function renderSourceBadgeChips() {
+      const group = els.sourceBadgeGroup;
+      if (!group) return;
+      const badges = Array.isArray(state.sourceBadges) ? state.sourceBadges : [];
+      const fp = JSON.stringify(badges.map(function (b) {
+        return [b && b.kind, b && b.sourceId, b && b.label, b && b.available === false ? 0 : 1, b && b.isOwner ? 1 : 0];
+      }));
+      if (fp === sourceBadgeFingerprint) return; // 未变化不重建 DOM，避免打断 hover tooltip
+      sourceBadgeFingerprint = fp;
+      const projects = badges.filter(function (b) { return b && b.kind === "project"; });
+      const skills = badges.filter(function (b) { return b && b.kind === "skill"; });
+      function chipFor(list, kindClass) {
+        if (!list.length) return "";
+        const names = list.map(function (b) { return b.label || ""; });
+        const fullText = names.join("，");
+        const primary = list[0];
+        const unavailable = primary.available === false;
+        const primaryHtml =
+          '<span class="source-badge source-badge-' + kindClass + (unavailable ? " source-badge--unavailable" : "") +
+          '" data-badge-kind="' + kindClass + '" aria-label="' + escapeHtmlText(primary.label + (unavailable ? "（来源不可用）" : "")) + '">' +
+          '<span class="source-badge-label">' + escapeHtmlText(primary.label) + "</span>" +
+          '<span class="badge-tip" role="tooltip">' + escapeHtmlText(fullText) + "</span></span>";
+        const moreHtml = list.length > 1
+          ? '<span class="source-badge source-badge-more" data-badge-kind="' + kindClass + '" aria-label="' + escapeHtmlText(fullText) + '"><span class="badge-tip" role="tooltip">' + escapeHtmlText(fullText) + "</span>+" + (list.length - 1) + "</span>"
+          : "";
+        return primaryHtml + moreHtml;
+      }
+      group.innerHTML = chipFor(projects, "project") + chipFor(skills, "skill");
+      // 重建后旧的 pendingTip 锚点已断开，隐藏避免残留（布局由调用方统一管理）
+      hidePendingTip(pendingTip && pendingTip.token, { skipLayout: true });
+    }
+
+    function viewportSupportsBadgeTip() {
+      return (window.innerHeight || 0) >= BADGE_TIP_MIN_HEIGHT;
+    }
+
+    function retryShowPendingTip() {
+      badgeTipRaf = null;
+      const tip = pendingTip;
+      if (!tip) return;
+      const anchor = tip.anchor;
+      if (!anchor || !anchor.isConnected) {
+        hidePendingTip(tip.token);
+        return;
+      }
+      if (state.menuOpen || state.tagMenuOpen) return;
+      if (!viewportSupportsBadgeTip()) return; // 宿主尚未把 webview 实际扩高，等 resize 再试
+      const tipEl = anchor.querySelector(".badge-tip");
+      if (!tipEl) return;
+      const rect = anchor.getBoundingClientRect();
+      const tipWidth = tipEl.offsetWidth;
+      const pad = 4;
+      // containing block 是徽标本身：left 必须相对徽标左缘，不能直接用 viewport 坐标
+      let leftVw = rect.left + rect.width / 2 - tipWidth / 2;
+      leftVw = Math.max(pad, Math.min(leftVw, window.innerWidth - tipWidth - pad));
+      tipEl.style.left = (leftVw - rect.left) + "px";
+      tipEl.style.transform = "none";
+      tipEl.style.opacity = "1";
+    }
+
+    function hidePendingTip(forceToken, options) {
+      if (pendingTip && forceToken !== undefined && forceToken !== pendingTip.token) return;
+      const tip = pendingTip;
+      pendingTip = null;
+      if (badgeTipRaf) {
+        cancelAnimationFrame(badgeTipRaf);
+        badgeTipRaf = null;
+      }
+      if (tip && tip.anchor && tip.anchor.querySelector) {
+        const tipEl = tip.anchor.querySelector(".badge-tip");
+        if (tipEl) tipEl.style.opacity = "0";
+      }
+      if (!options || !options.skipLayout) emitLayout();
+    }
+
+    function armBadgeTip(anchor) {
+      if (!anchor || !anchor.isConnected) return;
+      const src = anchor.querySelector(".badge-tip");
+      if (!src) return;
+      const text = (src.textContent || "").trim();
+      if (!text) return;
+      if (pendingTip && pendingTip.anchor === anchor && pendingTip.text === text) {
+        retryShowPendingTip();
+        return;
+      }
+      hidePendingTip(pendingTip && pendingTip.token);
+      pendingTip = { anchor: anchor, text: text, token: Date.now() + Math.random() };
+      emitLayout(); // 请求宿主扩高到 badge-tip
+      if (badgeTipRaf) cancelAnimationFrame(badgeTipRaf);
+      badgeTipRaf = requestAnimationFrame(retryShowPendingTip);
+    }
+
     function resetTransientState(options) {
       const shouldEmitLayout = !options || options.emitLayout !== false;
       clearMenuOpenTimer();
@@ -485,6 +694,7 @@
       controlsHover = false;
       state.menuOpen = false;
       state.tagMenuOpen = false;
+      hidePendingTip(undefined, { skipLayout: true });
       refresh();
       if (shouldEmitLayout) emitLayout();
     }
@@ -517,20 +727,29 @@
     }
 
     function updateTagChips() {
-      if (state.customTag) {
+      const customTags = Array.isArray(state.customTags) ? state.customTags : [];
+      const primary = state.customTag || customTags[0] || null;
+      const allNames = customTags.map((tag) => tag && tag.name ? tag.name : "").join("，") || (primary ? primary.name : "");
+      if (primary) {
         els.addTagBtn.classList.remove("show");
-        els.customTagName.textContent = state.customTag.name;
+        els.customTagName.textContent = primary.name;
         els.customTagBtn.classList.add("show");
       } else {
         els.customTagBtn.classList.remove("show");
         els.addTagBtn.classList.add("show");
       }
-      if (state.skillTag) {
-        els.skillTagChip.textContent = state.skillTag;
-        els.skillTagChip.classList.add("show");
-      } else {
-        els.skillTagChip.classList.remove("show");
+      const primaryTip = els.customTagBtn.querySelector(".badge-tip");
+      if (primaryTip) primaryTip.textContent = allNames;
+      if (els.customTagMore) {
+        if (customTags.length > 1) {
+          els.customTagMore.innerHTML = '<span class="badge-tip" role="tooltip">' + escapeHtmlText(allNames) + "</span>+" + (customTags.length - 1);
+          els.customTagMore.classList.add("show");
+        } else {
+          els.customTagMore.innerHTML = "";
+          els.customTagMore.classList.remove("show");
+        }
       }
+      renderSourceBadgeChips();
       if (state.typeTag) {
         els.typeTagChip.textContent = state.typeTag;
         els.typeTagChip.classList.add("show");
@@ -625,6 +844,11 @@
 
     function apply(next) {
       var wasFullscreen = state.isFullscreen;
+      // 同 item 的每次宿主 attach 都会重放 update script（如 badge-tip 扩高 set_bounds 后的 eval），
+      // 不能因此清掉 pendingTip，否则 resize 落地后 tooltip 无法显示；只有 item 或全屏切换才清理。
+      const itemChanged = state.itemId !== next.itemId;
+      const fullscreenChanged = state.isFullscreen !== !!next.isFullscreen;
+      if (itemChanged || fullscreenChanged) hidePendingTip(undefined, { skipLayout: true });
       state.itemId = next.itemId;
       state.isFavorite = !!next.isFavorite;
       state.isFullscreen = !!next.isFullscreen;
@@ -633,6 +857,8 @@
       state.availableTags = Array.isArray(next.availableTags) ? next.availableTags : [];
       state.skillTag = next.skillTag || null;
       state.typeTag = next.typeTag || null;
+      state.customTags = Array.isArray(next.customTags) ? next.customTags : [];
+      state.sourceBadges = Array.isArray(next.sourceBadges) ? next.sourceBadges : [];
       refresh();
       if (!wasFullscreen && state.isFullscreen) showFullscreenHint();
       if (wasFullscreen && !state.isFullscreen) hideFullscreenHint();
@@ -775,6 +1001,34 @@
       controlsHover = false;
       emitLayout();
     });
+
+    // A1.3：标签行内带 .badge-tip 的所有 owner（来源徽标、自定义标签 chip、自定义 +N）
+    // 共用同一实测 viewport 门控 tooltip；resize 时宿主 set_bounds 已落地再显示。
+    const TAG_ROW_TIP_SELECTOR = ".source-badge, .tag-chip.custom-btn, .tag-chip-more";
+    const tagRowEl = document.getElementById("tagRow");
+    tagRowEl.addEventListener("mouseover", function(e) {
+      const owner = e.target.closest ? e.target.closest(TAG_ROW_TIP_SELECTOR) : null;
+      if (!owner || !tagRowEl.contains(owner)) return;
+      armBadgeTip(owner);
+    });
+    tagRowEl.addEventListener("mouseout", function(e) {
+      const owner = e.target.closest ? e.target.closest(TAG_ROW_TIP_SELECTOR) : null;
+      if (!owner || !tagRowEl.contains(owner)) return;
+      const to = e.relatedTarget;
+      if (to && to.closest && to.closest(TAG_ROW_TIP_SELECTOR) === owner) return;
+      hidePendingTip(pendingTip && pendingTip.token);
+    });
+    window.addEventListener("resize", function() {
+      if (pendingTip) retryShowPendingTip();
+    });
+    if (typeof ResizeObserver !== "undefined") {
+      try {
+        const tipResizeObserver = new ResizeObserver(function() {
+          if (pendingTip) retryShowPendingTip();
+        });
+        tipResizeObserver.observe(document.body);
+      } catch (_) {}
+    }
 
     document.addEventListener("click", function(e) {
       if (!els.menu.contains(e.target) && !els.moreButton.contains(e.target)) {

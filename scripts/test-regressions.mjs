@@ -766,8 +766,8 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /const isMarkdownEditorKeyEvent = Boolean\(event\.target\?\.closest\?\.\("\.milkdown-editor-root \.ProseMirror"\)\);[\s\S]*?if \(isMarkdownEditorKeyEvent\) return;/,
-  "global keyboard shortcuts must leave ordinary Milkdown typing entirely to the editor"
+  /const isMarkdownEditorKeyEvent = Boolean\(event\.target\?\.closest\?\.\("\.milkdown-editor-root \.ProseMirror"\)\);[\s\S]*?if \(isMarkdownEditorKeyEvent\) return;[\s\S]*?const altKeyChanged = appState\.altKeyPressed !== event\.altKey;[\s\S]*?appState\.altKeyPressed = event\.altKey;[\s\S]*?viewerToolbarState\(\);[\s\S]*?if \(altKeyChanged && appState\.homeTabOpen && !getActiveTab\(\)\) \{[\s\S]*?renderItems\(\);/,
+  "global keyboard shortcuts must only re-render the item list when the Alt state actually changes, never on every keystroke"
 );
 assert.match(
   markdownEditor,
@@ -1390,5 +1390,781 @@ for (const [label, readme] of [["English", readmeEnglish], ["Chinese", readmeChi
     `${label} README must align the body NUTBOOK heading below the icon without treating the host title as editable content`
   );
 }
+
+// Search (Task A0.1): live debounced search, IME, recordHistory contract, failure rollback, empty states.
+const searchFunctions = indexFunctionSection("getSearchKeyword", "searchPlaceholderValues");
+assert.match(searchFunctions, /return appState\.appliedSearch/, "the applied query must come from explicit state");
+assert.doesNotMatch(searchFunctions, /els\.(?:searchInput|homeSearchInput)\?\.value/, "the applied query must not be reconstructed from the live input DOM");
+assert.match(
+  searchFunctions,
+  /async function applySearch\(query\)[\s\S]*?const keyword = normalizeSearchKeyword\(query\)[\s\S]*?const previousApplied = appState\.appliedSearch[\s\S]*?appState\.appliedSearch = keyword[\s\S]*?loadItems\(\{ skipFilesystemSync: true \}\)[\s\S]*?if \(ok === false && appState\.appliedSearch === keyword\)[\s\S]*?appState\.appliedSearch = previousApplied/,
+  "a genuinely failed query (empty or non-empty) must roll the applied search back; a stale request must never roll back and search must never await the filesystem sync"
+);
+assert.match(
+  indexHtml,
+  /async function loadItems\(options = \{\}\)[\s\S]*?const \{ skipFilesystemSync = false \} = options[\s\S]*?!skipFilesystemSync[\s\S]*?await maybeSyncFilesystemState\(\)[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"[\s\S]*?return true[\s\S]*?catch \(error\)[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"/,
+  "loadItems must distinguish a stale (superseded) request from a real failure"
+);
+assert.match(
+  searchFunctions,
+  /function executeSearch\(query, \{ recordHistory \} = \{\}\)[\s\S]*?applySearch\(query\)/,
+  "search must route through a single executeSearch(query, { recordHistory }) entry point"
+);
+assert.doesNotMatch(
+  searchFunctions,
+  /scheduleSearch\([\s\S]*?applySearch\(|handleSearchInput\([\s\S]*?applySearch\(/,
+  "live search and clearing must route through executeSearch, never call applySearch directly, keeping a single record point for A2"
+);
+assert.match(
+  searchFunctions,
+  /function scheduleSearch\(input\)[\s\S]*?const query = input\.value[\s\S]*?clearTimeout\(searchDebounceTimer\)[\s\S]*?setTimeout\(\(\) => \{[\s\S]*?executeSearch\(query, \{ recordHistory: false \}\)[\s\S]*?\}, 200\)/,
+  "live search must debounce input by 200ms, capture the query snapshot, and route through executeSearch with recordHistory=false"
+);
+assert.match(
+  searchFunctions,
+  /function handleSearchInput\(input\)[\s\S]*?const rawValue = input\.value[\s\S]*?appState\.searchDraft = rawValue[\s\S]*?syncSearchInputs\(rawValue\)[\s\S]*?!rawValue\.trim\(\)[\s\S]*?clearTimeout\(searchDebounceTimer\)[\s\S]*?if \(appState\.appliedSearch\)[\s\S]*?executeSearch\("", \{ recordHistory: false \}\)[\s\S]*?scheduleSearch\(input\)/,
+  "clearing must unconditionally cancel any pending debounce, run an immediate empty query only when a search is applied, and otherwise keep the current full list"
+);
+assert.match(
+  indexHtml,
+  /searchDraft: ""[\s\S]*?appliedSearch: ""[\s\S]*?searchEpoch: 0/,
+  "search must maintain explicit draft, applied, and epoch state"
+);
+assert.match(
+  indexHtml,
+  /addEventListener\("compositionstart"[\s\S]*?isComposingSearch = true[\s\S]*?addEventListener\("compositionend"[\s\S]*?isComposingSearch = false[\s\S]*?handleSearchInput\(input\)/,
+  "IME composition must suppress live search until compositionend"
+);
+assert.match(
+  indexHtml,
+  /addEventListener\("input"[\s\S]*?if \(isComposingSearch\) return[\s\S]*?handleSearchInput\(input\)/,
+  "input must be ignored during IME composition"
+);
+assert.match(
+  indexHtml,
+  /addEventListener\("keydown"[\s\S]*?if \(event\.isComposing \|\| isComposingSearch \|\| event\.key === "Process" \|\| event\.keyCode === 229\) return[\s\S]*?if \(event\.key !== "Enter"\) return[\s\S]*?executeSearch\(input\.value, \{ recordHistory: true \}\)/,
+  "Enter must execute immediately with recordHistory, skipping the IME-confirming Enter and Process/229 keys"
+);
+assert.match(
+  indexHtml,
+  /async function loadItems\(options = \{\}\)[\s\S]*?const \{ skipFilesystemSync = false \} = options[\s\S]*?const searchEpoch = \+\+appState\.searchEpoch[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"[\s\S]*?appState\.items = sortItemsInPlace[\s\S]*?return true[\s\S]*?catch \(error\)[\s\S]*?if \(searchEpoch !== appState\.searchEpoch\) return "stale"/,
+  "only the latest search request may update items and report success"
+);
+assert.match(
+  indexHtml,
+  /const hasActiveSearch = Boolean\(appState\.appliedSearch\)[\s\S]*?t\("home\.noSearchResults"\)[\s\S]*?t\("home\.noSearchResultsHint"\)[\s\S]*?const showAddButton =[\s\S]*?!hasActiveSearch/,
+  "search zero-results and an empty library must use distinct empty states and actions"
+);
+assert.match(
+  i18n,
+  /noSearchResults: "没有匹配的文件"[\s\S]*?noSearchResultsHint: "换个关键词试试。"[\s\S]*?noSearchResults: "No matching files"[\s\S]*?noSearchResultsHint: "Try a different search term\."/,
+  "search empty-state copy must exist in both localization dictionaries"
+);
+
+// Typing a single character and clearing it within the 200ms debounce window
+// must cancel the pending timer instead of firing a stale one-character search.
+assert.match(
+  searchFunctions,
+  /function handleSearchInput\(input\)[\s\S]*?!rawValue\.trim\(\)[\s\S]*?clearTimeout\(searchDebounceTimer\)[\s\S]*?if \(appState\.appliedSearch\)[\s\S]*?executeSearch\("", \{ recordHistory: false \}\)[\s\S]*?return[\s\S]*?scheduleSearch\(input\)/,
+  "typing a character then clearing inside the 200ms window must cancel the pending debounce and keep the current full list"
+);
+
+// Search diagnostics must not leak into the shipped frontend.
+assert.doesNotMatch(
+  indexHtml,
+  /logSearchDebug|append_search_debug_log|nutbook-search-debug\.log/,
+  "search diagnostics must be fully removed from the frontend before shipping"
+);
+
+// Multi-library watching: the single-active-library watcher guard must be gone,
+// and the frontend must reconcile watchers for every valid folder/file source
+// via the backend sync command (which also schedules a background catch-up scan).
+assert.doesNotMatch(
+  indexHtml,
+  /watcherStartedForLibraryId/,
+  "the single-active-library watcher guard must not exist; all valid folder/file sources are watched together"
+);
+assert.match(
+  indexHtml,
+  /async function ensureWatcher\(\)[\s\S]*?invoke\("sync_library_watchers"\)/,
+  "the frontend must reconcile watchers through sync_library_watchers, never watch a single active library"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /invoke\("watch_library"[\s\S]*?appState\.activeLibraryId/,
+  "the frontend must not start a watcher for only the active library"
+);
+
+// ---- A1.1 来源徽标（source badges）----
+
+// 1. normalizeItemSummary 归一化 sourceBadges / source_badges。
+assert.match(
+  indexHtml,
+  /function normalizeItemSummary\(item\)[\s\S]*?sourceBadges: Array\.isArray\(item\.sourceBadges \?\? item\.source_badges\)[\s\S]*?map\(normalizeSourceBadge\)\.filter\(Boolean\)[\s\S]*?: \[\]/,
+  "normalizeItemSummary must normalize sourceBadges/source_badges into sourceBadges"
+);
+assert.match(
+  indexHtml,
+  /function normalizeSourceBadge\(badge\)[\s\S]*?kind: badge\.kind[\s\S]*?sourceId: badge\.sourceId \?\? badge\.source_id[\s\S]*?isOwner: Boolean\(badge\.isOwner \?\? badge\.is_owner\)[\s\S]*?available: badge\.available !== false/,
+  "normalizeSourceBadge must handle camelCase and snake_case inputs"
+);
+
+// 2. 网格 DOM 顺序：自定义 primary → 自定义 +N → Project 主徽标 → Project +N → Skill 主徽标 → Skill +N
+// → 类型（类型用缩写 "MD"/"HTML"，全部徽标压在缩略图底部 thumb-chip-row；
+// 卡片标题下方不再单独显示）。自定义标签压缩成 primary +N，不逐条渲染全部标签。
+assert.match(
+  indexHtml,
+  /function thumbnailNode\(item\)[\s\S]*?const chips = \[customPrimary, customMore, projectPrimary, projectMore, skillPrimary, skillMore\][\s\S]*?\.filter\(Boolean\)[\s\S]*?\.join\(""\)/,
+  "grid badge order must be custom primary → custom +N → Project → Skill (in thumb-chip-row); type uses thumb-badge-type"
+);
+assert.match(
+  indexHtml,
+  /const customMore = customTags\.length > 1[\s\S]*?tag-chip-more[\s\S]*?\$\{customTags\.length - 1\}/,
+  "custom tags must collapse extras into a +N chip (primary +N budget)"
+);
+// available=false：中性失效视觉 + aria 说明。
+assert.match(
+  indexHtml,
+  /source-badge--unavailable[\s\S]*?aria-label="\$\{escapeAttribute\(badge\.label \+ \(unavailable \? "（来源不可用）" : ""\)\)\}/,
+  "unavailable source badge must carry neutral unavailable styling + aria label"
+);
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \.source-badge--unavailable \{[\s\S]*?border-style: dashed;[\s\S]*?opacity: 0\.85;/,
+  "unavailable badge must use dashed border + desaturated style (neutral, not pretending available)"
+);
+// A1.1 GUI 反馈：徽标不再使用浏览器原生 title 系统提示，改用 Nutbook 自定义 chip-tooltip 子元素。
+assert.doesNotMatch(
+  indexHtml,
+  /source-badge[^>]*title="/,
+  "source badges must not use native title tooltip (OS system prompt)"
+);
+assert.match(
+  indexHtml,
+  /const badgeClass = \(badge, kindClass\) => \{[\s\S]*?source-badge \$\{kindClass\}\$\{unavailable \? " source-badge--unavailable" : ""\}/,
+  "project badge must embed a Nutbook chip-tooltip carrying all full project names (via badgeClass helper)"
+);
+assert.match(
+  indexHtml,
+  /\.chip-tooltip \{[\s\S]*?position: absolute;[\s\S]*?background: rgba\(24, 24, 28, 0\.94\);[\s\S]*?color: #fff;[\s\S]*?opacity: 0;[\s\S]*?transition: opacity 120ms ease;/,
+  "chip-tooltip must use Nutbook tooltip widget styling (dark pill, fade-in)"
+);
+// 新结构：单个全局 .chip-tooltip--floating 由 JS 控制位置 + 显隐，CSS 用 opacity:0 默认
+assert.match(
+  indexHtml,
+  /\.chip-tooltip\.chip-tooltip--floating \{[\s\S]*?position: fixed;[\s\S]*?width: max-content;[\s\S]*?opacity: 0;[\s\S]*?pointer-events: none;[\s\S]*?z-index: 380;/,
+  "single global floating chip-tooltip widget must use Nutbook tooltip styling"
+);
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row\.thumb-chip-row--type-only \{[\s\S]*?justify-content: flex-end;/,
+  "row with only type badge must justify flex-end (single MD/HTML not stuck at left)"
+);
+assert.match(
+  indexHtml,
+  /thumb-badge-type">\$\{escapeHtml\(item\.fileType === "html" \? "HTML" : "MD"\)\}/,
+  "type chip must use the abbreviation MD / HTML"
+);
+
+// 3. ellipsis 移入内层 label（display:block + overflow hidden + nowrap + text-align:left），
+// 外层 pill 只负责布局；+N（source-badge-more / tag-chip-more）不可压缩（flex: 0 0 auto）。
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \.tag-chip-label,\s*\.thumb-chip-row \.source-badge-label \{[\s\S]*?display: block;[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;[\s\S]*?text-align: left;/,
+  "inner label must own the ellipsis with left alignment"
+);
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \.source-badge-more,\s*\.thumb-chip-row \.tag-chip-more \{[\s\S]*?flex: 0 0 auto;/,
+  "+N badge must never shrink"
+);
+// 外层 pill 不再直接承载 ellipsis（禁 inline-flex + justify-content:center 上做 text-overflow）。
+assert.doesNotMatch(
+  indexHtml,
+  /\.thumb-chip-row \.tag-chip,[\s\S]*?\.source-badge \{[\s\S]*?justify-content: center;[\s\S]{0,120}?text-overflow: ellipsis;/,
+  "ellipsis must live on the inner label, not the centered flex pill"
+);
+// 常态浅色：近白近乎不透明背景 + 深灰文字 + 细灰边框（不再是深黑底白字）。
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \.tag-chip,[\s\S]*?\.source-badge \{[\s\S]*?background: rgba\(255, 255, 255, 0\.94\);[\s\S]*?border: 1px solid rgba\(31, 35, 40, 0\.14\);[\s\S]*?color: #3a3d44;[\s\S]*?cursor: default;/,
+  "badges must default to light pill (near-opaque white bg, gray text, thin border, default cursor)"
+);
+// 标签行从左侧排布，不再 flex-end。
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \{[\s\S]*?justify-content: flex-start;/,
+  "thumb-chip-row must flow from the left by default"
+);
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row\.chip-row--align-end \{[\s\S]*?justify-content: flex-end;/,
+  "thumb-chip-row must align source badges to the right when there are no custom tags"
+);
+// 新结构：thumbnailNode 根据是否有自定义/来源徽标选 row class（align-end 或 type-only）
+assert.match(
+  indexHtml,
+  /hasSources[\s\S]{0,80}?rowClass = "thumb-chip-row thumb-chip-row--type-only"[\s\S]{0,200}?customTags\.length === 0[\s\S]{0,80}?rowClass = "thumb-chip-row chip-row--align-end"/,
+  "thumbnailNode must switch row class based on custom tags / source chips presence"
+);
+// hover / 卡片 focus-visible 只加深一档。
+assert.match(
+  indexHtml,
+  /\.item-card:hover \.thumb-chip-row \.tag-chip,[\s\S]*?\.item-card:focus-visible \.thumb-chip-row \.tag-chip,[\s\S]*?\.item-card:focus-visible \.thumb-badge \{[\s\S]*?background: rgba\(232, 235, 240, 0\.98\);[\s\S]*?border-color: rgba\(31, 35, 40, 0\.28\);[\s\S]*?color: #1f2329;/,
+  "hover and card focus-visible must deepen the badges by exactly one notch"
+);
+
+// 4. tooltip（title）与 aria 包含全部完整来源名，且区分项目来源与 Skill 来源。
+assert.match(
+  indexHtml,
+  /function itemSourceBadgesAria\(item\)[\s\S]*?自定义标签：\$\{customTags\.join\("、"\)\}/,
+  "aria must list all custom tag names"
+);
+assert.match(
+  indexHtml,
+  /function itemSourceBadgesAria\(item\)[\s\S]*?项目来源：\$\{projects\.map\(\(badge\) => badge\.label\)\.join\("、"\)\}/,
+  "aria must distinguish 项目来源 (project sources)"
+);
+assert.match(
+  indexHtml,
+  /function itemSourceBadgesAria\(item\)[\s\S]*?Skill 来源：\$\{skills\.map\(\(badge\) => badge\.label\)\.join\("、"\)\}/,
+  "aria must distinguish Skill 来源 (skill sources)"
+);
+assert.match(
+  indexHtml,
+  /aria-label="\$\{escapeAttribute\(ariaLabel\)\}"[\s\S]*?thumbnailNode\(item\)/,
+  "grid card must use the extended aria-label and embed source badges in thumb-chip-row"
+);
+
+// 5. 非交互徽标：不伪装成按钮。
+assert.doesNotMatch(
+  indexHtml,
+  /<button[^>]*class="[^"]*source-badge/,
+  "source badges must not be rendered as buttons"
+);
+
+// 6. 项目名与 Skill 名使用安全文本（escapeHtml/escapeAttribute）且不进入 i18n 字典。
+assert.match(
+  indexHtml,
+  /function thumbnailNode\(item\)[\s\S]*?escapeHtml\(projects\[0\]\.label\)[\s\S]*?escapeHtml\(skills\[0\]\.label\)/,
+  "project and skill names must be rendered through escapeHtml"
+);
+assert.doesNotMatch(
+  i18n,
+  /用于验证Nutbook项目来源标签超长省略显示行为的中文验收项目|Extraordinarily Long English Skill Name for Nutbook Source Badge Ellipsis Acceptance|项目来源验收/,
+  "user project and skill names must be marked i18n skip and never enter the translation dictionary"
+);
+
+// 7. 网格只有一份标签体系：缩略图底部 thumb-chip-row；卡片标题下方不显示任何 chip。
+assert.doesNotMatch(
+  indexHtml,
+  /itemSourceBadgesHtml\(item/,
+  "card title row must not call itemSourceBadgesHtml (single badge row in thumb-chip-row only)"
+);
+
+// ---- A1.1-PERF 合同（静态守卫）----
+// 8. renderItems 指纹覆盖全部影响 DOM/顺序/aria 的字段（含 sourceBadges 全字段）
+assert.match(
+  indexHtml,
+  /function itemsFingerprint\(items\)[\s\S]*?badge\.kind[\s\S]*?badge\.sourceId[\s\S]*?badge\.label[\s\S]*?badge\.isOwner[\s\S]*?badge\.available/,
+  "itemsFingerprint must cover sourceBadges kind/sourceId/label/isOwner/available"
+);
+assert.match(
+  indexHtml,
+  /function itemsFingerprint\(items\)[\s\S]*?item\.fileName[\s\S]*?item\.title[\s\S]*?item\.pathState[\s\S]*?item\.isFavorite[\s\S]*?item\.thumbnail[\s\S]*?item\.tags/,
+  "itemsFingerprint must cover fileName/title/pathState/favorite/thumbnail/tags"
+);
+
+// 9. 缩略图单卡更新用 template 解析成 Element（不允许字符串 replaceWith）
+assert.match(
+  indexHtml,
+  /function htmlStringToElement\(html\)[\s\S]*?template\.innerHTML[\s\S]*?firstElementChild/,
+  "updateCardThumbnail must parse thumbnailNode HTML via template into a real Element"
+);
+assert.match(
+  indexHtml,
+  /function updateCardThumbnail\(item\)[\s\S]*?hasThumb[\s\S]*?hasType[\s\S]*?wrap\.replaceWith\(freshEl\)/,
+  "updateCardThumbnail must validate thumb/type structure before replaceWith(freshEl)"
+);
+
+// 10. 自动刷新 single-flight：in-flight guard + setTimeout 一轮一轮调度（禁止裸 setInterval 无保护）
+assert.match(
+  indexHtml,
+  /function startAutoRefresh\(\)[\s\S]*?refreshInFlight[\s\S]*?refreshPending[\s\S]*?scheduleAutoRefreshTick/,
+  "auto refresh must use in-flight guard + pending merge + setTimeout scheduling"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /setInterval\(async \(\) => \{[\s\S]*?await loadItems\(\)[\s\S]*?\}, 2500\)/,
+  "auto refresh must not use unguarded setInterval with concurrent loadItems"
+);
+
+// ---- A1.2 Markdown 文档工具栏来源徽标 ----
+// 1. renderDocumentTagChips 只用 item.sourceBadges 投影来源，禁止从 skillBinding / library fallback 补来源。
+const renderDocumentTagChipsSrc = indexHtml.match(/function renderDocumentTagChips\(item, typeLabel\) \{[\s\S]*?\n      \}/);
+assert.ok(renderDocumentTagChipsSrc, "renderDocumentTagChips must exist");
+const docTagChips = renderDocumentTagChipsSrc[0];
+assert.doesNotMatch(
+  docTagChips,
+  /item\.skillBinding|resolveItemSkillBinding|library\.skillBinding|library\?\.skillBinding/,
+  "Markdown toolbar must NOT render sources from item.skillBinding / resolveItemSkillBinding / library.skillBinding"
+);
+// 必须从 item.sourceBadges 投影 Project / Skill（同一 sourceBadges 语义）。
+assert.match(
+  docTagChips,
+  /item\.sourceBadges \|\| \[\][\s\S]*?\.filter\(\(badge\) => badge\.kind === "project"\)/,
+  "Markdown toolbar must project Project badges from item.sourceBadges"
+);
+assert.match(
+  docTagChips,
+  /item\.sourceBadges \|\| \[\][\s\S]*?\.filter\(\(badge\) => badge\.kind === "skill"\)/,
+  "Markdown toolbar must project Skill badges from item.sourceBadges"
+);
+// 顺序固定：自定义 → Project → Skill → 类型。
+assert.match(
+  docTagChips,
+  /return `[\s\S]*?\$\{customTrigger\}[\s\S]*?\$\{customMore\}[\s\S]*?\$\{projectPrimary\}[\s\S]*?\$\{projectMore\}[\s\S]*?\$\{skillPrimary\}[\s\S]*?\$\{skillMore\}[\s\S]*?\$\{typeTag\}/,
+  "Markdown toolbar badge order must be custom → Project → Skill → type"
+);
+// 主名称经 escapeHtml；可用 source-badge-label 承载 ellipsis。
+assert.match(
+  docTagChips,
+  /source-badge-label">\$\{escapeHtml\(projects\[0\]\.label\)\}/,
+  "project primary badge must render its label through escapeHtml"
+);
+assert.match(
+  docTagChips,
+  /source-badge-label">\$\{escapeHtml\(skills\[0\]\.label\)\}/,
+  "skill primary badge must render its label through escapeHtml"
+);
+// available=false：中性失效视觉 + aria（与卡片同 badgeClass 语义）。
+assert.match(
+  docTagChips,
+  /source-badge--unavailable[\s\S]*?aria-label="\$\{escapeAttribute\(badge\.label \+ \(unavailable \? "（来源不可用）" : ""\)\)\}/,
+  "unavailable source badge in toolbar must carry neutral unavailable styling + aria label"
+);
+// 自定义标签交互按钮保留（data-document-tag-trigger / data-document-tag-remove），不改成普通 span。
+assert.match(
+  docTagChips,
+  /<button class="breadcrumb-tag-trigger"[^>]*data-document-tag-trigger="current"[\s\S]*?data-document-tag-remove="true"/,
+  "custom tag must stay an interactive trigger button with remove affordance"
+);
+
+// 2. CSS：文档工具栏来源徽标常态浅底深字、cursor default、+N/类型不可压缩、最大宽度约束。
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge,\s*\.breadcrumb-tags \.tag-chip,\s*\.breadcrumb-tags \.meta-chip \{[\s\S]*?background: rgba\(255, 255, 255, 0\.9\);[\s\S]*?color: var\(--ink-soft\);[\s\S]*?cursor: default;/,
+  "document toolbar badges must default to light pill with the toolbar secondary text color (var(--ink-soft), not darker) and default cursor"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge:hover,[\s\S]*?\.breadcrumb-tags \.meta-chip:hover \{[\s\S]*?color: #1f2329;/,
+  "document toolbar source/type badges must darken text only on hover"
+);
+// A1.3 返工用户反馈（路径空间足够却省略）：路径区必须 flex:1 1 auto 吃满剩余
+// 空间显示完整路径；不能有 margin-right:auto（会把留白推给标签组、路径永远省略）；
+// 空间不足时 #breadcrumbItem 自身 ellipsis 收缩，绝不越出边界覆盖标签。
+assert.match(
+  indexHtml,
+  /\.breadcrumb \{[^{}]*flex: 1 1 auto;[^{}]*overflow: hidden;/,
+  "path area must be flex 1 1 auto (fills remaining space so a fully-qualified path is shown when room allows) and clip at its own boundary"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /\.breadcrumb \{[^{}]*margin-right: auto;/,
+  "path area must NOT carry margin-right:auto (would push whitespace to the tag group and ellipsize the path even when space is available)"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb \{[^{}]*flex: 1 1 auto;[^{}]*margin-right: 12px;/,
+  "path area must keep a fixed 12px margin from the tag group (visual gap preserved while path fills available space)"
+);
+// 标签/来源组不贪婪扩张；chip max-width 收窄（96px）优先保证路径完整显示。
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \{[^{}]*flex: 0 1 auto;[^{}]*max-width: min\(46%, 470px\);/,
+  "tag/source group must NOT use flex 1 1 auto greedy expansion; must carry relative+absolute caps"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge-project \{ max-width: 120px; min-width: 40px; \}/,
+  "toolbar project badge must cap at 120px (one full word) and keep 40px min"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge-skill \{ max-width: 120px; min-width: 40px; \}/,
+  "toolbar skill badge must cap at 120px (one full word) and keep 40px min"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.tag-chip:not\(\.tag-chip-more\) \{ max-width: 176px; min-width: 56px; \}/,
+  "toolbar custom tag must prioritize full display (176px) with a 56px floor (>= 2 CJK chars, never just an ellipsis)"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tag-trigger \{[^{}]*min-width: 56px;/,
+  "custom-tag trigger button must share the chip 56px floor so flex squeeze cannot crush the button and let the chip overflow onto sibling badges (overlap fix)"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags\.host-overlay-mode \{[^{}]*max-width: none;/,
+  "HTML-mode spacer must not inherit the 46%/470px cap, or the overlay slides left and covers the path tail (path must not touch the tags)"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /\.breadcrumb-tags \{[^{}]*flex: 1 1 auto;/,
+  "breadcrumb-tags must not greedily expand to fill remaining toolbar space"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge-more,\s*\.breadcrumb-tags \.tag-chip-more \{[\s\S]*?flex: 0 0 auto;/,
+  "document toolbar +N chips must never shrink"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.tag-chip:not\(\.tag-chip-more\) \{[\s\S]*?min-width: 28px;/,
+  "document toolbar custom tag entry chip must keep a minimum width at min window"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb > span:not\(#breadcrumbItem\) \{[\s\S]*?white-space: nowrap;[\s\S]*?flex: 0 0 auto;/,
+  "breadcrumb fixed label/separator (文件/›) must stay single-line and non-shrinkable, but must NOT hit #breadcrumbItem"
+);
+assert.match(
+  indexHtml,
+  /#breadcrumbItem \{[\s\S]*?flex: 0 1 auto;[\s\S]*?min-width: 0;[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;/,
+  "breadcrumbItem must be shrinkable and ellipsize inside its own bounds so a long path never covers the source tags"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb \{[\s\S]*?overflow: hidden;/,
+  "breadcrumb must clip overflow so path text never draws into the tag area"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.meta-chip \{[\s\S]*?flex: 0 0 auto;/,
+  "document toolbar type chip must never shrink"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge-label,\s*\.breadcrumb-tags \.tag-chip-label \{[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?text-align: left;/,
+  "document toolbar inner label must own ellipsis with left alignment"
+);
+
+// 3. tooltip 复用同一 coordinator（全局单个 floating tip），并覆盖文档工具栏。
+assert.match(
+  indexHtml,
+  /attachChipTooltipRoot\(els\.breadcrumbTags, \{ requireRow: false, preferBelow: true \}\)/,
+  "document toolbar must reuse the same chip-tooltip coordinator (not a behavior-different copy) and force preferBelow to avoid being covered by the path bar"
+);
+// A1.3 用户反馈修复：role=button 卡片 click 后会 focus，禁止 focus 触发卡片级
+// tooltip（之前会把所有 source 名拼接显示在卡片上方遮挡）。
+assert.doesNotMatch(
+  indexHtml,
+  /options\.cardMode/,
+  "chip tooltip root must not carry a cardMode option (would surface a joined card-level tooltip on focus)"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /sourceNamesForCard\s*=\s*\([\s\S]*?\.querySelectorAll\("\.source-badge"\)/,
+  "chip tooltip coordinator must not define a sourceNamesForCard helper that joins card sources"
+);
+// A1.3 用户反馈（hover tooltip 闪烁 + 右边切割）：
+// (a) tooltip <span> 默认 display:inline，width/max-width/white-space 不生效，
+//     必须显式 display:block + white-space:normal + word-break:break-word 限制内容宽度
+//     0 并在 viewport 内 clamp。
+// (b) transition: opacity + cancelAnimationFrame 反复触发造成 opacity 闪烁，禁止回归。
+assert.match(
+  indexHtml,
+  /\.chip-tooltip\.chip-tooltip--floating \{[^{}]*?display: block;[^{}]*?max-width: min\(360px, calc\(100vw - 16px\)\);[^{}]*?word-break: break-word;[^{}]*?transition: none;/,
+  "floating tooltip must be display:block with max-width/word-break/transition:none so it clamps inside the viewport without flicker"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /\.chip-tooltip\.chip-tooltip--floating \{[^{}]*?transition: opacity/,
+  "floating tooltip must not carry an opacity transition (causes flicker with cancelAnimationFrame)"
+);
+assert.match(
+  indexHtml,
+  /anchorObserver\.observe\(els\.breadcrumbTags, \{ childList: true, subtree: true \}\)/,
+  "tooltip coordinator must observe breadcrumbTags so rebuilds hide stale tooltips"
+);
+assert.match(
+  indexHtml,
+  /window\.__nutbookChipTipController\?\.hide\(\);\s*\n\s*els\.breadcrumbTags\.innerHTML = renderDocumentTagChips/,
+  "toolbar redraw must hide any stale tooltip before re-rendering chips"
+);
+assert.match(
+  indexHtml,
+  /\.breadcrumb-tags \.source-badge \.chip-tooltip,[\s\S]*?\.breadcrumb-tags \.tag-chip \.chip-tooltip,[\s\S]*?\.breadcrumb-tags \.meta-chip \.chip-tooltip \{[\s\S]*?display: none;/,
+  "toolbar per-badge chip-tooltip must be a text source only (display:none) so +N/type scrollWidth stays clean"
+);
+
+// ---- A1.2 返工守卫：卡片自定义主标签不被压成纯省略号 ----
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \.tag-chip:not\(\.tag-chip-more\) \{[^{}]*min-width: 52px;/,
+  "card custom primary tag min-width must fit two CJK chars + the ellipsis glyph (e.g. 测试…) with real margin"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /\.thumb-chip-row \.tag-chip \{[^{}]*min-width: 28px;/,
+  "card custom tag must not return to a 28px min-width that collapses to a bare ellipsis"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /\.thumb-chip-row \.tag-chip:not\(\.tag-chip-more\) \{[^{}]*min-width: 46px;/,
+  "card custom tag must not regress to a 46px min-width that only shows one char + ellipsis (测…)"
+);
+assert.match(
+  indexHtml,
+  /\.thumb-chip-row \.source-badge-more,\s*\.thumb-chip-row \.tag-chip-more \{[^{}]*flex: 0 0 auto;[^{}]*min-width: 0;/,
+  "card +N chips must stay non-shrinkable with min-width 0 so the worst layout fits one row"
+);
+
+// ---- A1.2 返工守卫：文档路径语义 ----
+assert.doesNotMatch(
+  indexHtml,
+  /id="breadcrumbLibrary"|els\.breadcrumbLibrary|breadcrumbLibrary\.textContent/,
+  "document toolbar must not render a library crumb (no breadcrumbLibrary element or state writes)"
+);
+assert.match(
+  indexHtml,
+  /const documentPath = tab\.item\?\.filePath \|\| tab\.item\?\.fileName \|\| tab\.preview\?\.title \|\| "";[\s\S]*?els\.breadcrumbItem\.title = documentPath;[\s\S]*?els\.breadcrumbItem\.setAttribute\("aria-label", documentPath\);/,
+  "path must come from the current item filePath and keep the full path in title/aria-label"
+);
+assert.match(
+  indexHtml,
+  /<div class="breadcrumb">[\s\S]*?data-i18n-key="document\.file"[\s\S]*?<span>›<\/span>[\s\S]*?id="breadcrumbItem"/,
+  "breadcrumb must be exactly 文件 › /abs/path (no library crumb between)"
+);
+
+// ---- A1.3 回滚守卫：保住 HTML controls overlay 已验证的按钮 tooltip 路径 ----
+assert.match(
+  runtimeOverlay,
+  /\.action \.tip \{[\s\S]*?top: calc\(100% \+ 8px\);[\s\S]*?pointer-events: none;/,
+  "HTML action tooltips must remain inside the existing controls overlay"
+);
+assert.match(
+  runtimeOverlay,
+  /\.action:hover \.tip \{ opacity: 1; \}/,
+  "HTML action tooltips must remain visible on hover"
+);
+assert.match(
+  runtimeOverlay,
+  /querySelector\("\.row"\)\.addEventListener\("mouseenter"[\s\S]*?controlsHover = true;[\s\S]*?emitLayout\(\);[\s\S]*?querySelector\("\.row"\)\.addEventListener\("mouseleave"[\s\S]*?controlsHover = false;/,
+  "HTML controls row hover must keep driving the stable overlay expansion path"
+);
+assert.match(
+  indexHtml,
+  /if \(appState\.runtimeControlsOverlayMode === "hover"\) return 68;/,
+  "HTML controls hover height must remain 68px so the original button tooltips are not clipped"
+);
+assert.doesNotMatch(
+  indexHtml + runtimeOverlay + htmlRuntimeRust,
+  /runtimeControlsOverlayTooltipIntent|overlay-tooltip-open|overlay-tooltip-close|__NUTBOOK_TOOLTIP_BOUNDS_READY__|tooltip_token/,
+  "the rejected A1.3 tooltip intent/ack state machine must stay removed"
+);
+
+// ---- A1.3 重新修复守卫：overlay 来源徽标 + 实测 viewport 门控 tooltip ----
+assert.match(
+  runtimeOverlay,
+  /id="sourceBadgeChips"[\s\S]*?sourceBadges: \[\]/,
+  "overlay must carry a source badge chip container backed by sourceBadges state"
+);
+assert.match(
+  runtimeOverlay,
+  /const BADGE_TIP_MIN_HEIGHT = 100;[\s\S]*?viewportSupportsBadgeTip\(\) \{[\s\S]*?window\.innerHeight[\s\S]*?>= BADGE_TIP_MIN_HEIGHT/,
+  "badge tooltip must gate on the overlay's measured viewport height, never assume synchronous set_bounds"
+);
+assert.match(
+  runtimeOverlay,
+  /if \(pendingTip\) return "badge-tip";/,
+  "a pending badge tooltip must drive the badge-tip expanded layout mode"
+);
+assert.match(
+  runtimeOverlay,
+  /\.source-badge \{[^{}]*max-width: 120px;[^{}]*min-width: 40px;/,
+  "overlay source badges must cap at 120px (one full word) and keep a 40px readable min-width"
+);
+assert.match(
+  runtimeOverlay,
+  /\.source-badge-more \{[^{}]*flex: 0 0 auto;/,
+  "overlay +N chips must stay non-shrinkable"
+);
+assert.match(
+  indexHtml,
+  /\["hover", "more", "tags", "badge-tip"\]/,
+  "overlay-layout whitelist must accept badge-tip mode"
+);
+assert.match(
+  indexHtml,
+  /if \(appState\.runtimeControlsOverlayMode === "badge-tip"\) return 100;/,
+  "host must expand the controls overlay to 100px for badge tooltips"
+);
+assert.match(
+  indexHtml,
+  /sourceBadges: Array\.isArray\(tab\.item\?\.sourceBadges\) \? tab\.item\.sourceBadges : \[\]/,
+  "host must pass item.sourceBadges into the controls overlay attach payload"
+);
+assert.match(
+  htmlRuntimeRust,
+  /source_badges: Vec<ItemSourceBadge>/,
+  "Rust controls overlay attach must accept structured source_badges"
+);
+assert.match(
+  htmlRuntimeRust,
+  /sourceBadges: \{source_badges_json\}/,
+  "Rust overlay init/update scripts must inject sourceBadges into overlay state"
+);
+
+// ---- A1.3 第二轮守卫：HTML overlay 与 MD 工具栏视觉/压缩统一 + 自定义标签 tooltip ----
+assert.match(
+  runtimeOverlay,
+  /\.source-badge \{[^{}]*background: rgba\(255, 255, 255, 0\.9\);[^{}]*border: 1px solid rgba\(31, 35, 40, 0\.16\);/,
+  "overlay source badges must use the same light near-opaque style as the Markdown toolbar"
+);
+assert.match(
+  runtimeOverlay,
+  /id="customTagBtn"[\s\S]*?class="badge-tip" role="tooltip"[\s\S]*?id="customTagMore" class="tag-chip tag-chip-more"/,
+  "custom tag chip must carry a badge-tip tooltip and a +N chip for multiple tags"
+);
+assert.match(
+  runtimeOverlay,
+  /TAG_ROW_TIP_SELECTOR = "\.source-badge, \.tag-chip\.custom-btn, \.tag-chip-more"/,
+  "badge-tip wiring must cover source badges AND the custom tag chip / +N"
+);
+assert.match(
+  indexHtml,
+  /responsiveBudget = Math\.max\(240, Math\.round\(toolbarWidth \* 0\.46\) \+ actionWidth\)/,
+  "overlay width must be responsive to the toolbar (46% budget) so tags compress with the window"
+);
+assert.match(
+  indexHtml,
+  /els\.breadcrumbTags\.style\.width = reserved > 0 \?/,
+  "main toolbar must reserve the overlay width so the path compresses instead of being covered"
+);
+assert.match(
+  indexHtml,
+  /customTags: Array\.isArray\(tab\.item\?\.tags\) \? tab\.item\.tags : \[\]/,
+  "host must pass all assigned custom tags into the controls overlay"
+);
+assert.match(
+  runtimeOverlay,
+  /\.tag-chip\.custom-btn \{[^{}]*min-width: 56px;[^{}]*max-width: min\(176px, 30vw\);/,
+  "custom tag chip must prioritize full display (176px) with a 56px floor (>= 2 CJK chars, never just an ellipsis)"
+);
+assert.match(
+  indexHtml,
+  /customPrimaryWidth = customTags\.length[\s\S]*?Math\.min\(176, Math\.max\(56, String\(customTags\[0\]\.name[\s\S]*?\* 12 \+ 24\)\)/,
+  "host width budget must use a realistic 12px/char estimate and the 176px custom cap with a 56px floor"
+);
+assert.match(
+  indexHtml,
+  /badgePrimaryWidth = \(badges\) => badges\.length[\s\S]*?Math\.min\(120, Math\.max\(40,[\s\S]*?\* 12 \+ 24\)\)/,
+  "host width budget for source badges must use the 120px one-word cap"
+);
+assert.match(
+  htmlRuntimeRust,
+  /custom_tags: Vec<Tag>/,
+  "Rust controls overlay attach must accept all assigned custom tags"
+);
+
+// ===== A2 最近搜索静态守卫 =====
+assert.match(
+  indexHtml,
+  /const RECENT_SEARCHES_KEY = "nutbook\.recentSearches\.v1"[\s\S]*?const RECENT_SEARCHES_MAX = 3/,
+  "recent search history must live under nutbook.recentSearches.v1 with a 3-item cap"
+);
+assert.match(
+  indexHtml,
+  /function readRecentSearches\(\)[\s\S]*?JSON\.parse\(raw\)[\s\S]*?Array\.isArray\(parsed\)[\s\S]*?catch \(_\)[\s\S]*?return \[\];/,
+  "recent search reads must defensively tolerate corrupted localStorage and fall back to an empty array"
+);
+assert.match(
+  indexHtml,
+  /function writeRecentSearches\(items\)[\s\S]*?storage\.removeItem\(RECENT_SEARCHES_KEY\)[\s\S]*?catch \(_\)/,
+  "recent search writes must be defensive and remove the key when the history empties"
+);
+assert.match(
+  indexHtml,
+  /function recordRecentSearch\(query\)[\s\S]*?toLowerCase\(\) !== keyword\.toLowerCase\(\)[\s\S]*?deduped\.unshift\(keyword\)/,
+  "recording a search must dedupe case-insensitively and keep the newest display text at the front"
+);
+assert.match(
+  indexHtml,
+  /async function executeSearch\(query, \{ recordHistory \} = \{\}\)[\s\S]*?if \(recordHistory && ok !== false\) \{\s*recordRecentSearch\(query\);/,
+  "executeSearch must record history only after a real successful search (zero-result counts, backend failure does not)"
+);
+assert.match(
+  indexHtml,
+  /role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list"/,
+  "both search inputs must expose combobox semantics pointing at the shared history popup"
+);
+assert.match(
+  indexHtml,
+  /<div id="recentSearchPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip><\/div>/,
+  "the shared history popup must be a single i18n-skipped listbox element"
+);
+assert.match(
+  indexHtml,
+  /function openRecentSearchPopup\(anchor\)[\s\S]*?els\.mainShell\.classList\.contains\("home-mode"\)[\s\S]*?document\.activeElement !== anchor[\s\S]*?String\(anchor\.value \|\| ""\)\.trim\(\)/,
+  "the history popup may only open in home-mode when the anchor is focused and its input is empty"
+);
+assert.match(
+  indexHtml,
+  /function closeRecentSearchPopup\(options = \{\}\)[\s\S]*?popup\.classList\.remove\("open"\)[\s\S]*?removeAttribute\("aria-activedescendant"\)/,
+  "closing the popup must reset expanded and activedescendant state on both inputs"
+);
+assert.match(
+  indexHtml,
+  /event\.isComposing \|\| isComposingSearch \|\| event\.key === "Process" \|\| event\.keyCode === 229/,
+  "search key handling must ignore IME composition, the Process key and keyCode 229"
+);
+assert.match(
+  indexHtml,
+  /if \(event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"\)[\s\S]*?moveRecentSearchActive\(event\.key === "ArrowDown" \? 1 : -1\)/,
+  "ArrowUp/ArrowDown must drive listbox navigation inside the history popup"
+);
+assert.match(
+  indexHtml,
+  /if \(event\.key === "Escape"\)[\s\S]*?closeRecentSearchPopup\(\{ refocus: true \}\)/,
+  "Escape must close the history popup and restore focus to the search input"
+);
+assert.match(
+  indexHtml,
+  /if \(event\.key === "Tab"\)[\s\S]*?if \(isRecentSearchPopupOpen\(\)\) closeRecentSearchPopup\(\);[\s\S]*?return;/,
+  "Tab must close the popup and let focus move on naturally"
+);
+assert.match(
+  indexHtml,
+  /querySelectorAll\("\.recent-search-remove"\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?removeRecentSearchItem/,
+  "the per-item delete button must prevent pointerdown blur and stop click propagation without searching"
+);
+assert.match(
+  indexHtml,
+  /function applyRecentSearchItem\(index\)[\s\S]*?syncSearchInputs\(item\)[\s\S]*?executeSearch\(item, \{ recordHistory: false \}\)/,
+  "clicking a history item must sync both search inputs and search without reordering history"
+);
+assert.match(
+  indexHtml,
+  /function removeRecentSearchItem\(index\)[\s\S]*?writeRecentSearches\(items\)[\s\S]*?renderRecentSearchPopup\(\)[\s\S]*?positionRecentSearchPopup\(recentSearchAnchor\)/,
+  "deleting one history item must keep the popup open and re-render in place"
+);
+assert.match(
+  indexHtml,
+  /function handleRecentSearchOutsidePointerDown\(event\)[\s\S]*?recentSearchAnchor && target === recentSearchAnchor[\s\S]*?closeRecentSearchPopup\(\)/,
+  "outside pointerdown must close the popup without closing it when the anchor itself is pressed"
+);
+assert.match(
+  indexHtml,
+  /if \(!homeMode\) closeRecentSearchPopup\(\);/,
+  "switching to document mode must close the history popup so no plain DOM popup can cover the HTML runtime"
+);
+assert.match(
+  indexHtml,
+  /if \(!rawValue\.trim\(\)\)[\s\S]*?openRecentSearchPopup\(input\)[\s\S]*?closeRecentSearchPopup\(\);[\s\S]*?scheduleSearch\(input\)/,
+  "typing must close the popup and clearing the input while focused must reopen it"
+);
 
 console.log("Nutbook regression guards passed.");
