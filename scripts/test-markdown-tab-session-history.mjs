@@ -156,17 +156,15 @@ assert.deepEqual(
   "table-tool preference must hot-toggle on the live session without rebuilding its document"
 );
 
-const undoA = await page.evaluate(async () => {
+const undoA = await page.evaluate(() => {
   const handled = window.appState.activeMarkdownEditor.undo();
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const tab = window.__tabs.get("a");
   return { handled, title: window.appState.activeMarkdownEditor.getDocumentTitle(), dirty: tab.isDirty };
 });
 assert.deepEqual(undoA, { handled: true, title: "A0", dirty: true }, "undo after tab switch must reach the pre-save title and become dirty");
 
-const redoA = await page.evaluate(async () => {
+const redoA = await page.evaluate(() => {
   const handled = window.appState.activeMarkdownEditor.redo();
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const tab = window.__tabs.get("a");
   return { handled, title: window.appState.activeMarkdownEditor.getDocumentTitle(), dirty: tab.isDirty };
 });

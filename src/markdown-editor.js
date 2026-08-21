@@ -1009,16 +1009,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
     const view = getEditorView();
     if (!view) return;
-    const command = event.shiftKey ? redo : undo;
-    const handled = command(view.state, view.dispatch, view);
+    const handled = runHistoryCommand(event.shiftKey ? redo : undo);
     if (!handled) return;
     event.preventDefault();
     event.stopPropagation();
-    view.focus();
-    scheduleFormatToolbarUpdate();
-    scheduleTableToolbarUpdate();
-    scheduleInsertMenuUpdate();
-    scheduleCodeLanguageControlsUpdate();
   };
   root.addEventListener("keydown", handleUndoRedoShortcut, true);
 
@@ -2462,7 +2456,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
 
   function runHistoryCommand(command) {
     if (destroyed) return false;
-    return editor.action((ctx) => {
+    const handled = editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const handled = command(view.state, view.dispatch, view);
       if (handled) {
@@ -2471,14 +2465,21 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         scheduleTableToolbarUpdate();
         scheduleInsertMenuUpdate();
         scheduleCodeLanguageControlsUpdate();
-        // 撤销/重做后立即通知宿主同步顶部标题输入框（绕过常规 260ms 批量
-        // 延迟），否则用户在窗口内按 ⌘Z/⇧⌘Z 会看到 input 没变而以为没反应，
-        // 且 execCommand 链可能把 contenteditable 原生栈与 PM undo 栈拉开
-        // 导致标题失同步。
-        scheduleMarkdownChangeSync(0);
       }
       return handled;
     });
+    if (handled) {
+      // History commands are synchronous, so publish the resulting document to
+      // the host before undo()/redo() returns. A zero-delay timer is not an
+      // ordering guarantee relative to animation frames in Chromium and could
+      // leave the tab title/dirty state stale after a tab switch.
+      if (markdownChangeTimer) {
+        clearTimeout(markdownChangeTimer);
+        markdownChangeTimer = null;
+      }
+      flushMarkdownChangeSync();
+    }
+    return handled;
   }
 
   const api = {
@@ -2488,7 +2489,13 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         clearTimeout(markdownChangeTimer);
         markdownChangeTimer = null;
       }
-      return serializeCurrentDocument();
+      const value = serializeCurrentDocument();
+      // 宿主主动读取文档（suspend/保存/切换 tab 时）意味着宿主已获知该内容。
+      // 同步 lastNotifiedMarkdown，否则后续 undo/redo 的同步 flush 会因
+      // value === lastNotifiedMarkdown 而跳过 onChange，导致宿主侧
+      // tab.draft/isDirty/标题状态滞后（B3 tab session 回归）。
+      lastNotifiedMarkdown = value;
+      return value;
     },
     getBaselineMarkdown() {
       return baselineMarkdown;
