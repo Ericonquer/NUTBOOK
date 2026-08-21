@@ -2448,8 +2448,15 @@
         background: transparent;
         color: var(--ink);
         font-family: var(--font-title);
-        line-height: 1.12;
+        line-height: 1.2;
         padding: 2px 4px;
+        resize: none;
+        overflow-y: hidden;
+        overflow-x: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        vertical-align: bottom;
       }
 
       .markdown-title-input:hover,
@@ -6608,6 +6615,7 @@
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <script src="./i18n.js?v=20260525-update-check"></script>
+    <script src="./assets/markdown-document-title.js?v=20260821-b3"></script>
     <script>
       const i18n = window.NutbookI18n;
       const t = (key) => i18n?.lookup(key) ?? key;
@@ -7108,54 +7116,28 @@
         }, 1400);
       }
 
-      function cleanMarkdownHeadingText(text) {
-        return String(text || "")
-          .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-          .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-          .replace(/<[^>]+>/g, "")
-          .replace(/[`*_~]/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-      }
-
-      function findMarkdownDocumentTitleLine(markdown) {
-        const lines = String(markdown || "").split(/\r?\n/);
-        let fence = "";
-        for (let index = 0; index < lines.length; index += 1) {
-          const line = lines[index];
-          const fenceMatch = line.match(/^\s*(```+|~~~+)/);
-          if (fenceMatch) {
-            fence = fence ? "" : fenceMatch[1][0];
-            continue;
-          }
-          if (fence) continue;
-          const match = line.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/);
-          if (!match) continue;
-          const title = cleanMarkdownHeadingText(match[1]);
-          if (!title) continue;
-          return { index, title };
-        }
-        return null;
-      }
-
+      // B3：标题语义统一由 `window.NutbookDocumentTitle`（src/markdown-document-title.js
+      // 的打包产物）提供，与 Rust `document_title.rs` 共享同一契约；宿主不再维护
+      // 独立的标题正则实现。
       function markdownDocumentTitle(markdown, fallbackTitle = "Markdown") {
-        return findMarkdownDocumentTitleLine(markdown)?.title || fallbackTitle || "Markdown";
+        if (window.NutbookDocumentTitle?.parseDocumentTitle) {
+          return window.NutbookDocumentTitle.parseDocumentTitle(String(markdown || ""), fallbackTitle).displayText;
+        }
+        return String(fallbackTitle || "Markdown");
       }
 
       function setMarkdownDocumentTitle(markdown, title) {
-        const nextTitle = String(title || "").trim();
-        if (!nextTitle) return String(markdown || "");
-        const raw = String(markdown || "");
-        const lines = raw.split(/\r?\n/);
-        const existing = findMarkdownDocumentTitleLine(raw);
-        if (existing) {
-          lines[existing.index] = `# ${nextTitle}`;
-          return lines.join("\n");
+        if (window.NutbookDocumentTitle?.setDocumentTitleInSource) {
+          return window.NutbookDocumentTitle.setDocumentTitleInSource(String(markdown || ""), String(title || "").trim());
         }
-        if (!raw.trim()) {
-          return `# ${nextTitle}\n`;
+        return String(markdown || "");
+      }
+
+      function markdownInlinePlainText(text) {
+        if (window.NutbookDocumentTitle?.inlineDisplayText) {
+          return window.NutbookDocumentTitle.inlineDisplayText(String(text || ""));
         }
-        return `# ${nextTitle}\n\n${raw}`;
+        return String(text || "").trim();
       }
 
       function buildMarkdownOutline(markdown) {
@@ -7172,7 +7154,7 @@
           if (fence) return;
           const match = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
           if (!match) return;
-          const title = cleanMarkdownHeadingText(match[2]);
+          const title = markdownInlinePlainText(match[2]);
           if (!title) return;
           if (match[1].length === 1 && !skippedDocumentTitle) {
             skippedDocumentTitle = true;
@@ -9979,8 +9961,20 @@
       };
 
       async function confirmMarkdownAppExitIfNeeded() {
-        captureActiveMarkdownDraft();
         const activeTabId = appState.activeTabId;
+        // 先收敛标题输入框未提交的值（P0）：标题 textarea 聚焦且尚未
+        // blur/Enter 时，PM 仍是旧标题、dirty=false，不收敛会导致应用
+        // 无提示退出、未保存的标题丢失。composition 未结束时不得强制
+        // 提交或退出，保持应用打开并给出可理解状态。
+        const activeTab = getOpenTab(activeTabId);
+        if (
+          activeTab?.preview?.fileType === "markdown" &&
+          !convergePendingMarkdownTitle(activeTab)
+        ) {
+          setStatus("标题输入法组合中，无法退出；请先确认输入", "warn");
+          return false;
+        }
+        captureActiveMarkdownDraft();
         const dirtyTabs = getOpenTabs().filter((tab) => (
           tab?.preview?.fileType === "markdown" && isMarkdownTabDirty(tab)
         ));
@@ -10128,43 +10122,213 @@
         return Boolean(tab.isDirty) || markdownContentForTab(tab) !== baseline;
       }
 
+      // 当前文档标题（供顶部标题输入框显示）：优先从 editor/draft 的
+      // DocumentTitle 解析结果派生；无有效 H1 时固定回退真实文件名。
+      // 绝不使用可变 draft title 或未保存的 tab.preview.title（B3 复审 P1）。
+      function currentMarkdownDisplayTitle(tab) {
+        if (!tab) return "Markdown";
+        const editor = appState.activeMarkdownEditor;
+        if (editor?.getDocumentTitle && tab.id === appState.activeMarkdownEditorTabId) {
+          const title = editor.getDocumentTitle();
+          if (title) return title;
+          return tab.item?.fileName || "Markdown";
+        }
+        return markdownDocumentTitle(
+          markdownContentForTab(tab),
+          tab.item?.fileName || "Markdown"
+        );
+      }
+
+      // 超长标题自动增高（B3 复审 P2）：textarea 高度随 scrollHeight 增长。
+      function autosizeMarkdownTitleInput(input) {
+        if (!input) return;
+        input.style.height = "auto";
+        input.style.height = `${input.scrollHeight}px`;
+      }
+
+      // 标题输入框的自维护文本 history（B3 复审修复：WKWebView 会把整个输入
+      // 会话合并成单个原生 undo 单元——输入 abc 后按 ⌘Z 一次删光三个字母；
+      // 改为按 input 事件粒度的快照栈，每次用户输入产生一个撤销步骤，
+      // ⌘Z 逐字符回退，⇧⌘Z 逐字符重做。不触碰 ProseMirror。）
+      const titleInputEditSessions = new WeakMap();
+
+      function markdownTitleInputSession(input) {
+        let session = titleInputEditSessions.get(input);
+        if (!session) {
+          session = { undoStack: [], redoStack: [], lastValue: input.value, composingStartValue: null };
+          titleInputEditSessions.set(input, session);
+        }
+        return session;
+      }
+
+      // 程序化设值：清空编辑栈（输入会话被外部打断），并重算高度。
+      // 所有非用户输入引发的 value 更新必须走这里，保证栈与真实值对齐。
+      function setTitleInputValue(input, value) {
+        if (!input) return;
+        const next = String(value ?? "");
+        if (input.value !== next) input.value = next;
+        const session = titleInputEditSessions.get(input);
+        if (session) {
+          session.undoStack.length = 0;
+          session.redoStack.length = 0;
+          session.lastValue = next;
+        }
+        autosizeMarkdownTitleInput(input);
+      }
+
+      // 标题输入框 undo：恢复最近一次输入前快照（逐字符粒度）。
+      function undoMarkdownTitleInput() {
+        const input = document.getElementById("markdownTitleInput");
+        if (!input) return false;
+        const session = titleInputEditSessions.get(input);
+        if (!session || session.undoStack.length === 0) return false;
+        session.redoStack.push(input.value);
+        input.value = session.undoStack.pop();
+        session.lastValue = input.value;
+        autosizeMarkdownTitleInput(input);
+        return true;
+      }
+
+      // 标题输入框 redo：重放被撤销的输入快照。
+      function redoMarkdownTitleInput() {
+        const input = document.getElementById("markdownTitleInput");
+        if (!input) return false;
+        const session = titleInputEditSessions.get(input);
+        if (!session || session.redoStack.length === 0) return false;
+        session.undoStack.push(input.value);
+        input.value = session.redoStack.pop();
+        session.lastValue = input.value;
+        autosizeMarkdownTitleInput(input);
+        return true;
+      }
+
       function commitMarkdownDocumentTitle(tab, input) {
         if (!tab || tab.preview?.fileType !== "markdown" || !input) return;
-        const fallbackTitle = tab.preview?.title || tab.item?.fileName || "Markdown";
         const nextTitle = String(input.value || "").trim();
         if (!nextTitle) {
-          input.value = markdownDocumentTitle(markdownContentForTab(tab), fallbackTitle);
+          setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
           return;
         }
+        const baseline = tab.markdownBaseline ?? tab.preview?.raw ?? "";
+        const editor = appState.activeMarkdownEditor;
+        const editorOwnsContent = editor?.setDocumentTitle && tab.id === appState.activeMarkdownEditorTabId;
+        if (editorOwnsContent) {
+          // Milkdown 活跃：通过一次 ProseMirror transaction 修改标题。
+          // 不销毁、不重建、不重新挂载编辑器；不重置 baseline。
+          const committed = editor.setDocumentTitle(nextTitle);
+          if (!committed) return;
+          tab.draft = editor.getMarkdown();
+          tab.isDirty = tab.draft !== baseline;
+          setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
+          updateMarkdownStatusHint(tab);
+          return;
+        }
+        // 源码 fallback：只修改当前 draft / textarea，不重绘整个 viewer。
         const current = markdownContentForTab(tab);
         const next = setMarkdownDocumentTitle(current, nextTitle);
-        if (next === current && tab.preview.title === nextTitle) return;
-        captureMarkdownScrollForTab(tab);
-        cleanupMarkdownEditor();
+        if (next === current && currentMarkdownDisplayTitle(tab) === nextTitle) return;
         tab.draft = next;
-        tab.preview.title = nextTitle;
-        const baseline = tab.markdownBaseline ?? "";
         tab.isDirty = next !== baseline;
-        renderViewer();
+        const editorArea = document.getElementById("editorArea");
+        if (editorArea && document.activeElement !== editorArea) {
+          editorArea.value = next;
+        }
+        setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
         updateMarkdownStatusHint(tab);
+      }
+
+      // 统一收敛"标题输入框未提交的值"（P0）：⌘S、关闭单个标签、关闭全部
+      // 标签、应用退出共用。标题值与当前文档标题不同且未在 composition 时，
+      // 先通过现有一次 PM transaction / fallback transform 提交标题，再计算
+      // draft/dirty。composition 尚未结束时不得强制提交，返回 false 由调用方
+      // 阻止退出/关闭并给出可理解状态。
+      // 返回 true 表示已收敛（或无需收敛），false 表示 composition 进行中。
+      function convergePendingMarkdownTitle(tab) {
+        if (!tab || tab.preview?.fileType !== "markdown") return true;
+        if (appState.markdownTitleInputComposing) return false;
+        const input = document.getElementById("markdownTitleInput");
+        if (!input) return true;
+        // 标题输入框只属于当前显示的 tab；其他 tab 的标题由 draft 承载。
+        if (tab.id !== appState.activeTabId) return true;
+        const nextTitle = String(input.value || "").trim();
+        const display = currentMarkdownDisplayTitle(tab);
+        if (!nextTitle) {
+          // 用户清空输入：恢复文档当前标题显示（不产生提交）。
+          if (input.value !== display) setTitleInputValue(input, display);
+          return true;
+        }
+        if (nextTitle === display) return true;
+        commitMarkdownDocumentTitle(tab, input);
+        return true;
+      }
+
+      function syncMarkdownTitleInputFromDocument(tab, markdown) {
+        if (!tab || tab.id !== appState.activeTabId) return;
+        const input = document.getElementById("markdownTitleInput");
+        if (!input || document.activeElement === input) return;
+        if (appState.markdownTitleInputComposing) return;
+        // 无 H1 fallback 固定使用真实文件名（不使用 tab.preview.title——
+        // 它是最近一次 durable preview，未保存的标题事务不得改写它）。
+        const display = markdownDocumentTitle(markdown, tab.item?.fileName || "Markdown");
+        if (input.value !== display) {
+          setTitleInputValue(input, display);
+        }
       }
 
       function setupMarkdownTitleInput(tab) {
         const input = document.getElementById("markdownTitleInput");
         if (!input || !tab) return;
+        appState.markdownTitleInputComposing = false;
+        const session = markdownTitleInputSession(input);
+        input.addEventListener("compositionstart", () => {
+          appState.markdownTitleInputComposing = true;
+          // 记录本次组合开始前的 value：整个组合结果只记为一个 undo 单元，
+          // 组合中间态（拼音候选等）不得入栈。
+          session.composingStartValue = input.value;
+        });
+        input.addEventListener("compositionend", () => {
+          appState.markdownTitleInputComposing = false;
+          // 组合结束：若值变化，把整个组合结果记为一个撤销步骤（从组合前值
+          // 一步到组合后值），更新 lastValue 并清空 redo 栈。
+          if (input.value !== session.composingStartValue) {
+            session.undoStack.push(session.composingStartValue);
+            session.redoStack.length = 0;
+            session.lastValue = input.value;
+          }
+          session.composingStartValue = null;
+          autosizeMarkdownTitleInput(input);
+          // composition 期间可能已失焦（blur 时因 composing 跳过 commit），
+          // 结束后若已失焦则补一次收敛提交；仍聚焦时不得自动提交。
+          if (document.activeElement !== input) {
+            commitMarkdownDocumentTitle(tab, input);
+          }
+        });
+        input.addEventListener("input", () => {
+          // 用户输入（非 composition）：每次 input 事件产生一个撤销步骤。
+          // IME composition 的中间态不记录，compositionend 后整体记录一次。
+          if (!appState.markdownTitleInputComposing && input.value !== session.lastValue) {
+            session.undoStack.push(session.lastValue);
+            session.redoStack.length = 0;
+            session.lastValue = input.value;
+          }
+          autosizeMarkdownTitleInput(input);
+        });
         input.addEventListener("keydown", (event) => {
+          if (event.isComposing || event.key === "Process") return;
           if (event.key === "Enter") {
             event.preventDefault();
             input.blur();
           }
           if (event.key === "Escape") {
-            input.value = markdownDocumentTitle(markdownContentForTab(tab), tab.preview?.title || tab.item?.fileName || "Markdown");
+            setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
             input.blur();
           }
         });
         input.addEventListener("blur", () => {
+          if (appState.markdownTitleInputComposing) return;
           commitMarkdownDocumentTitle(tab, input);
         });
+        autosizeMarkdownTitleInput(input);
       }
 
       function updateMarkdownStatusHint(tab) {
@@ -10290,6 +10454,9 @@
               const baseline = tab.markdownBaseline ?? tab.preview.raw ?? "";
               tab.isDirty = value !== baseline;
               scheduleMarkdownOutlineRefresh(tab);
+              // 撤销/重做/编辑后，顶部标题输入框与实际编辑器文档保持同步；
+              // 输入框获得焦点或正在 composition 时不得反向覆盖用户输入。
+              syncMarkdownTitleInputFromDocument(tab, value);
               if (tab.id === appState.activeTabId && tab.isDirty) {
                 setStatus(t("markdown.dirty"), "warn");
               }
@@ -14664,6 +14831,12 @@
           : appState.activeTabId;
         if (tab?.preview?.fileType === "markdown") {
           if (tab.id === appState.activeTabId || tab.id === appState.activeMarkdownEditorTabId) {
+            // 关闭前收敛标题输入框未提交的值（P0 统一收敛）。标题输入框只属于
+            // 当前显示 tab；composition 未结束时不得强制提交，阻止关闭。
+            if (tab.id === appState.activeTabId && !convergePendingMarkdownTitle(tab)) {
+              setStatus("标题输入法组合中，无法关闭；请先确认输入", "warn");
+              return false;
+            }
             captureActiveMarkdownDraft();
           }
           sourcePathMissing = await isOpenTabSourceMissing(tab);
@@ -16088,7 +16261,7 @@ if (!chipTipController) {
           const detail = tab.detail || {};
           const sourceMode = appState.markdownEditMode === "source";
           const markdownContent = tab.draft ?? tab.preview.raw ?? "";
-          const markdownShellTitle = markdownDocumentTitle(markdownContent, tab.preview.title || tab.item.fileName);
+          const markdownShellTitle = markdownDocumentTitle(markdownContent, tab.item?.fileName || "Markdown");
           const markdownOutline = buildMarkdownOutline(markdownContent);
           tab.markdownOutlineSignature = markdownOutlineSignature(markdownOutline);
           const showMarkdownOutline = appState.markdownPreferences.outlineEnabled && markdownOutline.length > 0;
@@ -16104,7 +16277,7 @@ if (!chipTipController) {
                 <div class="content-card editing ${codeThemeClass} ${sourceMode ? "source-editing" : ""}">
                   <div class="content-head">
                     <div class="markdown-title-copy">
-                      <input id="markdownTitleInput" class="content-title markdown-title-input" type="text" value="${escapeAttribute(markdownShellTitle)}" aria-label="文档标题" autocomplete="off" spellcheck="false" />
+                      <textarea id="markdownTitleInput" class="content-title markdown-title-input" rows="1" aria-label="文档标题" autocomplete="off" spellcheck="false">${escapeHtml(markdownShellTitle)}</textarea>
                       <div class="content-meta">修改时间：${escapeHtml(formatTimestamp(detail.modifiedAt || tab.item.modifiedAt || ""))} · 修改后按 ⌘S 保存</div>
                     </div>
                   </div>
@@ -16133,6 +16306,8 @@ if (!chipTipController) {
           if (editorArea) {
             editorArea.addEventListener("input", () => {
               tab.draft = editorArea.value;
+              // 源码模式下输入同步标题输入框（输入框聚焦/composition 时不覆盖）。
+              syncMarkdownTitleInputFromDocument(tab, editorArea.value);
             });
             if (sourceMode) {
               window.requestAnimationFrame(() => {
@@ -17645,17 +17820,42 @@ if (!chipTipController) {
           tab.markdownBaseline = tab.draft;
           tab.isDirty = false;
           tab.item = normalizeItemSummary(freshDetail);
+          // durable save 成功后首页持久 item 状态必须收敛，无论 renderAfter
+          // true/false（save-and-close / 关闭全部标签后 appState.items 不得
+          // 仍是旧标题——P1）。loadItems 只调用一次（B3 复审 P2 已删除重复）。
           await loadItems();
           const refreshedListItem = appState.items.find((entry) => entry.id === tab.id);
           if (refreshedListItem) {
             tab.item = refreshedListItem;
           }
           if (renderAfter) {
+            // 保存后只刷新 preview/input/meta 等局部元素，绝不重建整个
+            // viewer（重建会销毁 milkdownEditorRoot，导致 PM history 全部
+            // 丢失，用户无法 ⌘Z/⇧⌘Z 撤销保存前的修改——B3 GUI 验收）。
+            // 刷新预览 HTML、标题输入框与修改时间。
+            const titleInput = document.getElementById("markdownTitleInput");
+            if (titleInput && freshPreview) {
+              setTitleInputValue(
+                titleInput,
+                markdownDocumentTitle(
+                  tab.draft ?? freshPreview.raw ?? "",
+                  freshPreview.title || tab.item.fileName
+                )
+              );
+            }
+            const metaEl = els.viewerBody?.querySelector?.(".content-meta");
+            if (metaEl) {
+              const ts = freshDetail?.modifiedAt || tab.item?.modifiedAt || "";
+              metaEl.textContent = `修改时间：${formatTimestamp(ts)} · 修改后按 ⌘S 保存`;
+            }
+            const previewEl = els.viewerBody?.querySelector?.(".markdown-preview");
+            if (previewEl && freshPreview?.html != null) {
+              previewEl.innerHTML = freshPreview.html;
+            }
             renderTabs();
-            renderViewer();
+            setStatus(markdownSavedStatus(tab.item.fileName), "ok");
+            showToast("保存成功");
           }
-          setStatus(markdownSavedStatus(tab.item.fileName), "ok");
-          showToast("保存成功");
           return true;
         } catch (error) {
           const conflict = markdownSaveConflict(error);
@@ -17667,6 +17867,17 @@ if (!chipTipController) {
 
       async function saveActiveMarkdown() {
         const tab = getActiveTab();
+        // 保存前收敛标题输入框未提交的值（P0 统一收敛）：用户可能输入新标题后
+        // 直接按 ⌘S 而未 Enter/blur，此时 PM doc 尚未更新，若不先提交，保存的
+        // 将是旧标题，保存后 preview/输入框会"瞬间回到旧标题"。
+        if (tab?.preview?.fileType === "markdown") {
+          if (!convergePendingMarkdownTitle(tab)) {
+            // 输入法组合尚未结束：不强制提交标题，也不保存（避免旧标题写盘后
+            // 覆盖正在组合的输入）。保持应用打开并给出可理解状态。
+            setStatus("标题输入法组合中，请先确认输入再保存", "warn");
+            return;
+          }
+        }
         await saveMarkdownTab(tab);
       }
 
@@ -18223,11 +18434,42 @@ if (!chipTipController) {
         const tag = active?.tagName;
         const isFormField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
         const tab = getActiveTab();
-        if (tab?.preview?.fileType === "markdown" && appState.activeMarkdownEditor) {
-          const handled = action === "redo"
-            ? appState.activeMarkdownEditor.redo?.()
-            : appState.activeMarkdownEditor.undo?.();
-          if (handled) return true;
+        const markdownEditor = appState.activeMarkdownEditor;
+        const isMarkdownTab =
+          tab?.preview?.fileType === "markdown" &&
+          markdownEditor &&
+          tab.id === appState.activeMarkdownEditorTabId;
+        if (isMarkdownTab) {
+          const titleInput = document.getElementById("markdownTitleInput");
+          // 1. 焦点在标题输入框且标题尚未提交（未 Enter/blur）：undo/redo
+          //    只作用于标题输入框自身的文本 history，不触碰 ProseMirror。
+          //    使用自维护的按 input 事件粒度的快照栈（WKWebView 的原生
+          //    undo 会把整个输入会话合并成一个单元——输入 abc 后 ⌘Z 一次
+          //    删光三个字母；自维护栈保证逐字符回退），逐字符撤销/重做。
+          if (active === titleInput) {
+            return action === "redo" ? redoMarkdownTitleInput() : undoMarkdownTitleInput();
+          }
+          // 2. 焦点在 ProseMirror contenteditable：只使用 PM history。
+          if (active?.isContentEditable && active.closest?.(".milkdown-editor-root")) {
+            const handled = action === "redo"
+              ? markdownEditor.redo?.()
+              : markdownEditor.undo?.();
+            if (handled) {
+              // PM undo/redo 成功：立即把顶部标题输入框同步到新文档标题。
+              // 无有效 H1 时 getDocumentTitle() 返回 null，此时显示文件名
+              // fallback（B3 复审 P1：undo 删除插入的 H1 后输入框恢复文件名）。
+              const currentTitle = markdownEditor.getDocumentTitle?.();
+              const display = currentTitle || tab.item?.fileName || "Markdown";
+              if (titleInput && titleInput.value !== display) {
+                setTitleInputValue(titleInput, display);
+              }
+              return true;
+            }
+            // PM undo/redo 栈为空：绝不 fallback 到 document.execCommand。
+            // WKWebView 会重放 contenteditable 原生 undo/redo 快照，与 PM
+            // state 脱节，导致标题/正文 DOM 重复（"连按 ⇧⌘Z 出现两个标题"）。
+            return false;
+          }
         }
         if (isFormField) {
           try {

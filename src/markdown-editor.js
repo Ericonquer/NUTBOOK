@@ -20,6 +20,10 @@ import {
 } from "prosemirror-tables";
 import "@milkdown/kit/prose/tables/style/tables.css";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
+import {
+  parseDocumentTitle,
+  setDocumentTitleInSource
+} from "./markdown-document-title.js";
 
 const instances = new WeakMap();
 const SKILL_FRONTMATTER_FIELDS = ["name", "description", "trigger_keywords"];
@@ -321,6 +325,48 @@ const PORTABLE_IMAGE_NODE_NAME = "portable_image";
 const PORTABLE_IMAGE_WIDTH_LIMITS = Object.freeze({ small: 160, medium: 480 });
 const ALIGNED_TEXT_NODE_NAME = "aligned_text_block";
 const TEXT_ALIGNMENTS = Object.freeze(["center", "right"]);
+
+/**
+ * 在 ProseMirror 文档中定位第一个有效顶层 H1（B3 权威标题契约）。
+ *
+ * - 只接受 doc 直接子节点的 heading level 1，或 `aligned_text_block` 内部的
+ *   heading level 1；blockquote / list 等嵌套块内的 H1 不是文档标题。
+ * - 空 H1（textContent 为空）跳过，继续找下一个。
+ * - 多 H1 只返回第一个有效标题。
+ *
+ * @returns {{ pos: number, node: import("prosemirror-model").Node }|null}
+ */
+function findFirstEffectiveHeading(doc, schema) {
+  const headingType = schema.nodes.heading;
+  if (!headingType) {
+    return null;
+  }
+  let found = null;
+  doc.descendants((node, pos, parent) => {
+    if (found) {
+      return false;
+    }
+    if (parent === doc) {
+      if (node.type === headingType && node.attrs.level === 1 && node.textContent.trim()) {
+        found = { pos, node };
+        return false;
+      }
+      // 只深入 aligned_text_block 检查内部 heading；其他嵌套容器（blockquote、
+      // list）内部的 H1 不参与标题判定。
+      return node.type.name === ALIGNED_TEXT_NODE_NAME;
+    }
+    if (
+      parent.type.name === ALIGNED_TEXT_NODE_NAME &&
+      node.type === headingType &&
+      node.attrs.level === 1 &&
+      node.textContent.trim()
+    ) {
+      found = { pos, node };
+    }
+    return false;
+  });
+  return found;
+}
 
 function meaningfulHtmlChildren(node) {
   return Array.from(node?.childNodes || []).filter((child) => {
@@ -920,6 +966,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   let currentMarkdown = markdown;
   let userInteracted = false;
   let hasDocumentChanges = false;
+  let destroyed = false;
   let editorReady = false;
   let formatToolbar = null;
   let formatToolbarFrame = null;
@@ -1008,20 +1055,24 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     .use(listener)
     .create();
 
-  const serializeCurrentDocument = () => editor.action((ctx) => {
-    const view = ctx.get(editorViewCtx);
-    const serializer = ctx.get(serializerCtx);
-    const bodyMarkdown = serializer(view.state.doc);
-    const serializedFrontmatter = skillFrontmatter
-      ? serializeSkillFrontmatterForEditor(skillFrontmatter)
-      : (documentFrontmatter?.raw || "");
-    currentMarkdown = documentFrontmatter ? `${serializedFrontmatter}${bodyMarkdown}` : bodyMarkdown;
-    return currentMarkdown;
-  });
+  const serializeCurrentDocument = () => {
+    if (destroyed) return currentMarkdown;
+    return editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const serializer = ctx.get(serializerCtx);
+      const bodyMarkdown = serializer(view.state.doc);
+      const serializedFrontmatter = skillFrontmatter
+        ? serializeSkillFrontmatterForEditor(skillFrontmatter)
+        : (documentFrontmatter?.raw || "");
+      currentMarkdown = documentFrontmatter ? `${serializedFrontmatter}${bodyMarkdown}` : bodyMarkdown;
+      return currentMarkdown;
+    });
+  };
   const baselineMarkdown = serializeCurrentDocument();
   lastNotifiedMarkdown = baselineMarkdown;
 
   queueMicrotask(() => {
+    if (destroyed) return;
     editorReady = true;
     setupFormatToolbar();
     setupTableToolbar();
@@ -1035,6 +1086,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   });
 
   function getEditorView() {
+    if (destroyed) return null;
     return editor.action((ctx) => ctx.get(editorViewCtx));
   }
 
@@ -1044,7 +1096,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
 
   function flushMarkdownChangeSync() {
     markdownChangeTimer = null;
-    if (!editorReady) return;
+    if (destroyed || !editorReady) return;
     const view = getEditorView();
     if (view?.composing) {
       scheduleMarkdownChangeSync(180);
@@ -2393,6 +2445,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   }
 
   function runHistoryCommand(command) {
+    if (destroyed) return false;
     return editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const handled = command(view.state, view.dispatch, view);
@@ -2402,6 +2455,11 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         scheduleTableToolbarUpdate();
         scheduleInsertMenuUpdate();
         scheduleCodeLanguageControlsUpdate();
+        // 撤销/重做后立即通知宿主同步顶部标题输入框（绕过常规 260ms 批量
+        // 延迟），否则用户在窗口内按 ⌘Z/⇧⌘Z 会看到 input 没变而以为没反应，
+        // 且 execCommand 链可能把 contenteditable 原生栈与 PM undo 栈拉开
+        // 导致标题失同步。
+        scheduleMarkdownChangeSync(0);
       }
       return handled;
     });
@@ -2419,6 +2477,79 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     getBaselineMarkdown() {
       return baselineMarkdown;
     },
+    /**
+     * 通过一次 ProseMirror transaction 修改文档标题（B3）。
+     *
+     * - 已有有效顶层 H1（含 `aligned_text_block` 内部 H1）→ 替换该 heading 文本。
+     * - 无有效 H1 → 在正文首部插入 H1（YAML frontmatter 已被拆分到编辑器
+     *   外，因此正文首部即 frontmatter 之后）。
+     * - 一次 dispatch 进入 history，成为一个可撤销步骤。
+     * - 不销毁、不重建、不重新挂载编辑器；不重置 baseline。
+     *
+     * @param {string} nextTitle
+     * @returns {boolean} 是否已提交（空标题或正在 composition 时返回 false）
+     */
+    setDocumentTitle(nextTitle) {
+      if (destroyed) return false;
+      const title = String(nextTitle || "").trim();
+      if (!title) {
+        return false;
+      }
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        if (!view || view.composing) {
+          return false;
+        }
+        const state = view.state;
+        const { doc } = state;
+        const target = findFirstEffectiveHeading(doc, state.schema);
+        if (target && target.node.textContent.trim() === title) {
+          // 标题未变化：不 dispatch，避免产生"无变化"的 history 步骤。
+          // （用户 blur 提交后再次 blur / 保存收敛路径可能以相同值重复提交，
+          // 若每次都替换会堆出无意义 undo 条目——undo 一次无视觉变化，
+          // 看起来"⌘Z 需要两次才恢复"。）
+          return false;
+        }
+        let tr = state.tr;
+        if (target) {
+          const textNode = state.schema.text(title);
+          const heading = target.node.type.create(target.node.attrs, textNode);
+          tr = tr.replaceWith(target.pos, target.pos + target.node.nodeSize, heading);
+        } else {
+          const heading = state.schema.nodes.heading.create({ level: 1 }, state.schema.text(title));
+          // 无有效 H1：插入到正文首部（frontmatter 已被拆分到编辑器外）。
+          // Milkdown 的 doc content 从 pos 0 开始；空文档/空段落会被序列化为
+          // `<br />`，因此空段落用 heading 替换，非空文档在 doc 开头插入。
+          const first = doc.firstChild;
+          if (first && first.type.name === "paragraph" && first.textContent.trim() === "") {
+            tr = tr.replaceWith(0, first.nodeSize, heading);
+          } else {
+            tr = tr.insert(0, heading);
+          }
+        }
+        // 标题修改必须是独立 history 步骤：close 当前 open event，
+        // 防止与编辑器内的连续输入被 prosemirror-history 合并成一步。
+        view.dispatch(closeHistory(tr));
+        markUserInteracted();
+        view.focus();
+        return true;
+      });
+    },
+    /**
+     * 读取当前编辑器文档的权威标题（第一个有效顶层 H1 的纯文本）。
+     * @returns {string|null} 无有效 H1 时返回 null
+     */
+    getDocumentTitle() {
+      if (destroyed) return null;
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        if (!view) {
+          return null;
+        }
+        const target = findFirstEffectiveHeading(view.state.doc, view.state.schema);
+        return target ? target.node.textContent.trim() : null;
+      });
+    },
     hasChanges() {
       return hasDocumentChanges || userInteracted;
     },
@@ -2429,16 +2560,19 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       return runHistoryCommand(redo);
     },
     focus() {
+      if (destroyed) return;
       editor.action((ctx) => {
         ctx.get(editorViewCtx).focus();
       });
     },
     blur() {
+      if (destroyed) return;
       editor.action((ctx) => {
         ctx.get(editorViewCtx).dom.blur();
       });
     },
     focusAtText(anchorText, offsetHint = 0) {
+      if (destroyed) return false;
       const normalizedAnchor = normalizeText(anchorText);
       if (!normalizedAnchor) {
         api.focus();
@@ -2472,6 +2606,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       });
     },
     destroy() {
+      destroyed = true;
       if (markdownChangeTimer) {
         clearTimeout(markdownChangeTimer);
         markdownChangeTimer = null;
@@ -2566,5 +2701,8 @@ window.NutbookMarkdownEditor = {
   create: createMilkdownEditor,
   destroy(root) {
     destroyExisting(root);
-  }
+  },
+  // 权威标题语义的静态入口（与 dist/assets/markdown-document-title.js 同一实现）。
+  parseDocumentTitle,
+  setDocumentTitleInSource
 };

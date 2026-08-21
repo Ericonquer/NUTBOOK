@@ -20,6 +20,7 @@ const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8
 const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
 const itemCommandsRust = readFileSync("src-tauri/src/commands/items.rs", "utf8");
 const htmlEditCommandsRust = readFileSync("src-tauri/src/commands/html_edit.rs", "utf8");
+const srcTauriCargoToml = readFileSync("src-tauri/Cargo.toml", "utf8");
 const mainRust = readFileSync("src-tauri/src/main.rs", "utf8");
 const skillDiscoveryRust = readFileSync("src-tauri/src/core/skill_discovery.rs", "utf8");
 const agentProjectsRust = readFileSync("src-tauri/src/commands/agent_projects.rs", "utf8");
@@ -2653,5 +2654,269 @@ assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try 
   assert.equal(result.staleEntry, undefined, "latest ready must clear the stale preview after handoff");
   assert.equal(result.thumbnail?.path, "latest.png");
 }
+
+// PR B / Task B3: unified Markdown document title source of truth.
+const documentTitleAsset = readFileSync("dist/assets/markdown-document-title.js", "utf8");
+const documentTitleSource = readFileSync("src/markdown-document-title.js", "utf8");
+const titleCommitSection = indexFunctionSection("commitMarkdownDocumentTitle", "syncMarkdownTitleInputFromDocument");
+assert.match(documentTitleAsset, /NutbookDocumentTitle/, "the document title asset must expose the shared parser");
+assert.match(documentTitleSource, /export function parseDocumentTitle/, "the source module must export the authoritative parser");
+assert.match(documentTitleSource, /export function setDocumentTitleInSource/, "the source module must export the fallback transform");
+assert.match(documentTitleSource, /export function headingDisplayText/, "the source module must export the AST display-text extractor");
+assert.match(documentTitleSource, /mdast-util-from-markdown/, "the source module must use a real Markdown AST (micromark mdast)");
+assert.doesNotMatch(documentTitleSource, /function inlinePlainText/, "the handwritten inline tokenizer must be removed");
+assert.doesNotMatch(documentTitleSource, /function parseLinkOrImage/, "the recursive link/image tokenizer must be removed");
+assert.match(documentTitleSource, /case "linkReference":/, "reference links must be resolved from the AST label");
+assert.match(markdownEditor, /setDocumentTitle\(nextTitle\)/, "the editor API must expose setDocumentTitle");
+assert.match(markdownEditor, /getDocumentTitle\(\)/, "the editor API must expose getDocumentTitle");
+assert.match(markdownEditor, /findFirstEffectiveHeading/, "the editor must resolve the first effective heading");
+assert.match(markdownEditor, /closeHistory\(tr\)/, "each title edit must close the open history event and stay one step");
+assert.match(markdownEditor, /window\.NutbookMarkdownEditor = \{[\s\S]*?parseDocumentTitle/, "the bundle must expose the shared parser statically");
+assert.doesNotMatch(indexHtml, /function findMarkdownDocumentTitleLine/, "the old line-scan title parser must be removed from the host");
+assert.doesNotMatch(indexHtml, /function cleanMarkdownHeadingText/, "the old regex title cleaner must be removed from the host");
+assert.doesNotMatch(titleCommitSection, /cleanupMarkdownEditor\(\)/, "the title commit path must not destroy the editor");
+assert.doesNotMatch(titleCommitSection, /renderViewer\(\)/, "the title commit path must not remount the viewer");
+assert.match(titleCommitSection, /setDocumentTitle\(nextTitle\)/, "the Milkdown path must call the editor title transaction");
+assert.match(titleCommitSection, /setMarkdownDocumentTitle\(current, nextTitle\)/, "the source fallback must use the shared transform");
+assert.match(indexHtml, /assets\/markdown-document-title\.js/, "the host must load the shared document title asset");
+assert.match(indexHtml, /syncMarkdownTitleInputFromDocument/, "undo/redo and edits must resync the title input");
+assert.match(
+  markdownDocumentRust,
+  /DocumentTitle::parse[\s\S]*?\.display_text/,
+  "the Rust preview title must come from the authoritative DocumentTitle parser"
+);
+assert.match(
+  previewCommandsRust,
+  /DocumentTitle::parse\(&content, &item\.summary\.file_name\)\.display_text/,
+  "the markdown export default file name must use the authoritative parser result"
+);
+
+// B3 复审 P1：标题输入框与 ProseMirror 的 undo 路由重新划分。
+// - 焦点在标题输入框且未提交 → 自维护的按 input 事件粒度的文本 history
+//   （WKWebView 原生 undo 会把整个输入会话合并成一个单元——输入 abc 后
+//   ⌘Z 一次删光三个字母；自维护快照栈保证逐字符回退），不触碰 ProseMirror。
+// - 焦点在 ProseMirror → 只用 PM history，栈空绝不 fallback 到
+//   document.execCommand（WKWebView contenteditable 原生栈污染 PM state）。
+// - PM undo/redo 成功后强制同步标题输入框；无 H1 时显示文件名 fallback。
+const nativeEditHistory = indexFunctionSection("handleNativeEditHistory", "handleNativeMenuAction");
+assert.match(
+  nativeEditHistory,
+  /if \(active === titleInput\)[\s\S]*?(undoMarkdownTitleInput|redoMarkdownTitleInput)/,
+  "焦点在标题输入框（未提交）时 undo/redo 必须走标题输入框自维护文本 history，不触碰 ProseMirror"
+);
+assert.match(
+  nativeEditHistory,
+  /closest\?\.\(\s*"\.milkdown-editor-root"\s*\)[\s\S]*?return false[\s\S]*?if \(isFormField\)/,
+  "PM undo/redo 落空时必须直接返回，不得进入 execCommand fallback"
+);
+assert.match(
+  nativeEditHistory,
+  /const display = currentTitle \|\| tab\.item\?\.fileName/,
+  "PM undo/redo 成功后必须把标题输入框同步到新文档标题（无 H1 显示文件名）"
+);
+assert.match(
+  nativeEditHistory,
+  /if \(isFormField\)[\s\S]*?document\.execCommand/,
+  "普通 input/textarea（非标题输入框）保持原生表单 undo"
+);
+
+// B3 复审修复：标题输入框自维护逐字符 undo/redo（WKWebView 原生 undo 会话
+// 合并）。每次用户 input 事件产生一个快照步骤；程序化设值走 setTitleInputValue
+// 清空编辑栈，保证栈与真实值对齐。
+const titleCommitSetupSection = indexFunctionSection("autosizeMarkdownTitleInput", "updateMarkdownStatusHint");
+assert.match(
+  titleCommitSetupSection,
+  /const titleInputEditSessions = new WeakMap\(\)/,
+  "标题输入框必须维护独立编辑会话（WeakMap）"
+);
+assert.match(
+  titleCommitSetupSection,
+  /function setTitleInputValue[\s\S]*?undoStack\.length = 0/,
+  "程序化设值必须清空标题输入框编辑栈（对齐真实值）"
+);
+assert.match(
+  titleCommitSetupSection,
+  /addEventListener\("input", \(\) => \{[\s\S]*?undoStack\.push\(session\.lastValue\)/,
+  "每次用户 input 事件必须产生一个撤销步骤（逐字符粒度）"
+);
+assert.match(
+  titleCommitSetupSection,
+  /function undoMarkdownTitleInput[\s\S]*?undoStack\.pop\(\)/,
+  "标题输入框 undo 必须恢复最近一次输入前快照"
+);
+
+// B3 GUI 验收修复（保存瞬间回旧标题）+ P0 统一收敛：⌘S 保存前必须把标题
+// 输入框未提交的值 commit 进文档，否则用户输入新标题后直接 ⌘S（未 Enter/blur）
+// 会保存旧标题。收敛逻辑统一收敛到 convergePendingMarkdownTitle（⌘S / 关闭
+// 单个标签 / 关闭全部标签 / 应用退出共用）；composition 中返回 false 不强制提交。
+const saveActiveSection = indexFunctionSection("saveActiveMarkdown", "exportActiveMarkdown");
+assert.match(
+  saveActiveSection,
+  /convergePendingMarkdownTitle\(tab\)/,
+  "⌘S 保存前必须先收敛标题输入框的未提交值（统一收敛函数）"
+);
+assert.match(
+  saveActiveSection,
+  /输入法组合中[\s\S]*?请先确认输入再保存/,
+  "composition 中 ⌘S 必须阻止保存并给出可理解状态"
+);
+const convergeSection = indexFunctionSection("convergePendingMarkdownTitle", "syncMarkdownTitleInputFromDocument");
+assert.match(
+  convergeSection,
+  /function convergePendingMarkdownTitle[\s\S]*?commitMarkdownDocumentTitle\(tab, input\)/,
+  "统一收敛函数必须在标题值不同且非 composition 时通过一次 PM transaction 提交"
+);
+assert.match(
+  convergeSection,
+  /if \(appState\.markdownTitleInputComposing\) return false/,
+  "composition 尚未结束时收敛函数必须返回 false（不得强制提交）"
+);
+
+// B3 GUI 验收修复（保存后无法撤销）：saveMarkdownTab 保存成功后不得调用
+// renderViewer() 重建整个 viewer——重建会销毁 milkdownEditorRoot，导致
+// PM history 全部丢失，用户保存后无法 ⌘Z/⇧⌘Z 撤销保存前的修改。必须改为
+// 局部刷新（preview HTML + input + meta），保留编辑器实例与 history。
+const saveMarkdownTabSection = indexFunctionSection("saveMarkdownTab", "saveActiveMarkdown");
+const saveMarkdownTabRenderBranch = saveMarkdownTabSection.match(/if \(renderAfter\) \{[\s\S]*?\n          \}/);
+assert.ok(saveMarkdownTabRenderBranch, "saveMarkdownTab must have a renderAfter branch");
+assert.doesNotMatch(
+  saveMarkdownTabRenderBranch[0],
+  /\brenderViewer\s*\(\s*\)/,
+  "saveMarkdownTab 的 renderAfter 分支不得调用 renderViewer()，否则会重建编辑器与丢失 PM history"
+);
+assert.match(
+  saveMarkdownTabRenderBranch[0],
+  /previewEl.*innerHTML|querySelector\(\s*"\.markdown-preview"\s*\)/,
+  "renderAfter 分支必须刷新 preview HTML 元素"
+);
+assert.match(
+  saveMarkdownTabRenderBranch[0],
+  /setTitleInputValue\(\s*titleInput\s*,[\s\S]*?markdownDocumentTitle/,
+  "renderAfter 分支必须刷新标题输入框 value（经 setTitleInputValue 对齐编辑栈）"
+);
+
+// B3 P0（标题输入框聚焦未 blur 时应用退出/关闭丢失标题）：退出确认与关闭
+// 标签都必须先收敛标题输入框未提交的值；composition 中阻止退出/关闭。
+const confirmExitSection = indexFunctionSection("confirmMarkdownAppExitIfNeeded", "confirmAppExitIfNeeded");
+assert.match(
+  confirmExitSection,
+  /convergePendingMarkdownTitle\(activeTab\)[\s\S]*?return false/,
+  "应用退出前必须收敛标题输入框未提交的值；composition 中阻止退出"
+);
+assert.match(
+  confirmExitSection,
+  /captureActiveMarkdownDraft\(\)/,
+  "收敛后仍需 capture ProseMirror draft 计算 dirty"
+);
+const closeOpenTabSection = indexFunctionSection("closeOpenTab", "setSidebarCollapsed");
+assert.match(
+  closeOpenTabSection,
+  /convergePendingMarkdownTitle\(tab\)/,
+  "关闭标签前必须收敛标题输入框未提交的值"
+);
+
+// B3 P1（IME 标题撤销栈）：compositionstart 保存组合前值；composition 中间
+// input 不入栈；compositionend 把整个组合结果记为一个 undo 单元。
+assert.match(
+  titleCommitSetupSection,
+  /compositionstart[\s\S]*?composingStartValue = input\.value/,
+  "compositionstart 必须保存本次组合前的 value"
+);
+assert.match(
+  titleCommitSetupSection,
+  /compositionend[\s\S]*?undoStack\.push\(session\.composingStartValue\)/,
+  "compositionend 必须把整个组合结果记为一个 undo 单元"
+);
+assert.match(
+  titleCommitSetupSection,
+  /if \(!appState\.markdownTitleInputComposing && input\.value !== session\.lastValue\)/,
+  "composition 中间 input 不得入栈"
+);
+assert.match(
+  titleCommitSetupSection,
+  /composingStartValue = null/,
+  "compositionend 后必须清除组合前值标记"
+);
+
+// B3 P1（renderAfter=false 持久状态收敛）：durable save 后无论 renderAfter
+// true/false 都 loadItems 一次收敛首页持久 item 状态；loadItems 最多一次。
+const saveMarkdownTabPreRender = saveMarkdownTabSection.slice(0, saveMarkdownTabSection.indexOf("if (renderAfter)"));
+assert.match(
+  saveMarkdownTabPreRender,
+  /await loadItems\(\)/,
+  "loadItems 必须位于 renderAfter 分支之前（renderAfter=false 也要收敛持久 item 状态）"
+);
+assert.equal(
+  (saveMarkdownTabSection.match(/await loadItems\(\)/g) || []).length,
+  1,
+  "saveMarkdownTab 中 loadItems 只能调用一次（B3 复审 P2）"
+);
+
+// B3 复审 P2：durable save 后首页 item 只刷新一次（renderAfter 分支外的重复
+// loadItems 已删除），且 renderAfter=false 退出路径不刷新首页。
+assert.equal(
+  (saveMarkdownTabSection.match(/await loadItems\(\)/g) || []).length,
+  1,
+  "saveMarkdownTab 中 loadItems() 只能出现一次（删除重复刷新）"
+);
+
+// B3 复审 P1：无 H1 文档 undo 后 fallback 恢复文件名。
+// tab.preview 是最近一次 durable preview，未保存标题事务不得改写它。
+const commitSection = indexFunctionSection("commitMarkdownDocumentTitle", "syncMarkdownTitleInputFromDocument");
+assert.doesNotMatch(
+  commitSection,
+  /preview\.title\s*=\s*nextTitle/,
+  "未保存的标题事务不得改写 tab.preview.title（durable preview 仅在保存成功后替换）"
+);
+assert.match(
+  indexHtml,
+  /function currentMarkdownDisplayTitle[\s\S]*?tab\.item\?\.fileName \|\| "Markdown"/,
+  "当前标题必须从 editor/draft 派生，无 H1 fallback 固定使用真实文件名"
+);
+assert.match(
+  indexHtml,
+  /function syncMarkdownTitleInputFromDocument[\s\S]*?tab\.item\?\.fileName \|\| "Markdown"/,
+  "onChange 同步的无 H1 fallback 必须使用真实文件名，不得读 tab.preview.title"
+);
+
+// B3 复审 P2：顶部标题输入框为自动增高 textarea（超长标题换行）。
+assert.match(
+  indexHtml,
+  /<textarea id="markdownTitleInput"/,
+  "标题输入框必须改为 textarea（B3 复审 P2 超长标题自动换行）"
+);
+assert.match(
+  indexHtml,
+  /function autosizeMarkdownTitleInput[\s\S]*?scrollHeight/,
+  "必须提供基于 scrollHeight 的自动增高函数"
+);
+assert.match(
+  indexHtml,
+  /\.markdown-title-input \{[\s\S]*?resize: none[\s\S]*?overflow-wrap: anywhere/,
+  "标题输入框 CSS 必须 resize:none + overflow-wrap:anywhere（长 Latin 不撑出横向滚动）"
+);
+
+// B3 复审 P0：Rust 端使用 pulldown-cmark AST，不再手写行扫描状态机。
+const documentTitleRust = readFileSync("src-tauri/src/core/document_title.rs", "utf8");
+assert.match(
+  documentTitleRust,
+  /pulldown_cmark::\{Event, HeadingLevel, Options, Parser/,
+  "Rust DocumentTitle 必须使用 pulldown-cmark AST parser"
+);
+assert.match(
+  documentTitleRust,
+  /into_offset_iter\(\)/,
+  "Rust parser 必须使用 source offset 迭代器构建 locator"
+);
+assert.doesNotMatch(
+  documentTitleRust,
+  /fn inline_plain_text|fn parse_link_or_image/,
+  "手写 inline tokenizer 与递归链接解析必须从 Rust 移除"
+);
+assert.match(
+  srcTauriCargoToml,
+  /pulldown-cmark = /,
+  "Cargo.toml 必须声明 pulldown-cmark 直接依赖"
+);
 
 console.log("Nutbook regression guards passed.");
