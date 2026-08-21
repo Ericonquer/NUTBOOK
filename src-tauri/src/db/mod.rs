@@ -20,6 +20,7 @@ use crate::{
         document::{content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file},
         thumbnail::{
             desired_key_for_item, expected_render_kind_for_item, generate_html_thumbnail_with_adapter,
+            generate_markdown_default_cover_asset, markdown_default_cover_target, markdown_key_is_current,
             DefaultThumbnailCaptureAdapter, HtmlThumbnailInput,
             ThumbnailBackend, ThumbnailCaptureAdapter, ThumbnailGenerationSnapshot,
             RENDER_KIND_PLACEHOLDER,
@@ -739,7 +740,22 @@ impl Database {
                     modified_at,
                 ),
             ) = row.map_err(|_| AppError::DatabaseError)?;
-            let current_key = desired_key_for_item(&file_type, file_hash.as_deref());
+            // Markdown B4：desired key 依赖标题哈希，无法从 content hash 反推；
+            // 读取路径回落到"存储的 desired_key"自身一致性校验（配合
+            // generated_from_hash == file_hash 的 CAS，内容未变则标题未变，
+            // 存储 key 仍有效）。**必须同时校验 key 版本后缀**：旧
+            // default-cover-v1 / default-cover-v2 / default-cover-v3 / default-cover-v4 /
+            // md-screenshot 行不能把存储 key 当作 current key，否则旧版封面会冒充
+            // v5 ready（返回 None → 前端 thumbnail=null → 自动生成）。
+            // HTML 仍按 content hash 计算确定性 key。
+            let current_key: Option<String> = if file_type == "markdown" {
+                match desired_key.as_deref() {
+                    Some(key) if markdown_key_is_current(key) => desired_key.clone(),
+                    _ => None,
+                }
+            } else {
+                desired_key_for_item(&file_type, file_hash.as_deref())
+            };
             let valid = Self::thumbnail_row_is_valid_ready(
                 &thumbnail,
                 desired_key.as_deref(),
@@ -854,7 +870,16 @@ impl Database {
                 path_state,
                 modified_at,
             )) => {
-                let current_key = desired_key_for_item(&file_type, file_hash.as_deref());
+                // 见上方批量读取路径同样的处理：markdown 回落到存储的 desired_key 自身一致性，
+                // 且必须校验 key 版本后缀属于当前 title-parser + default-cover-v5。
+                let current_key: Option<String> = if file_type == "markdown" {
+                    match desired_key.as_deref() {
+                        Some(key) if markdown_key_is_current(key) => desired_key.clone(),
+                        _ => None,
+                    }
+                } else {
+                    desired_key_for_item(&file_type, file_hash.as_deref())
+                };
                 if Self::thumbnail_row_is_valid_ready(
                     &thumbnail,
                     desired_key.as_deref(),
@@ -2124,12 +2149,22 @@ impl ItemRepository for Database {
                         let summary = markdown_summary(&raw);
                         let hash = content_hash(&raw);
                         let rendered = render_markdown_as_html_for_file(&raw, &item.file_name);
+                        // B4：先由本次磁盘正文计算 markdown 封面目标（标题 key），
+                        // 再在同一事务内比较——只改正文不改标题时保持 ready 并推进
+                        // generated_from_hash；标题变化时精确失效一次（generation +1）。
+                        let target = markdown_default_cover_target(&raw, &item.file_name);
                         transaction
                             .execute(
                                 "UPDATE items SET summary = ?2, file_hash = ?3 WHERE id = ?1",
                                 params![item_id, summary, hash],
                             )
                             .map_err(|_| AppError::DatabaseError)?;
+                        Self::reconcile_markdown_thumbnail_in_transaction(
+                            &transaction,
+                            item_id,
+                            &target.desired_key,
+                            &hash,
+                        )?;
                         transaction
                             .execute(
                                 "INSERT INTO item_content (
@@ -2490,6 +2525,26 @@ impl ItemRepository for Database {
         raw_text: &str,
         rendered_cache: &str,
     ) -> Result<(), AppError> {
+        // B4：事务外先从本次保存的正文计算 markdown 封面目标（display title /
+        // title hash / md-default key / palette index），再在短事务内比较。
+        // file_name 从 items 读取（文件名稳定，不随正文保存变化）；同时事务外 stat
+        // 磁盘拿真实 file_size——保存写盘后字节数变化，若不同步，读取校验的
+        // size+mtime 双比较会把 body-only 保存后的 ready 封面误判失效。
+        let (file_name, file_path): (String, String) = {
+            let connection = self.connection()?;
+            connection
+                .query_row(
+                    "SELECT file_name, file_path FROM items WHERE id = ?1",
+                    params![item_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|_| AppError::ItemNotFound)?
+        };
+        let disk_file_size: i64 = fs::metadata(&file_path)
+            .map(|metadata| metadata.len() as i64)
+            .unwrap_or(0);
+        let target = markdown_default_cover_target(raw_text, &file_name);
+
         let mut connection = self.connection()?;
         let transaction = connection
             .transaction()
@@ -2498,16 +2553,21 @@ impl ItemRepository for Database {
         transaction
             .execute(
                 "UPDATE items
-                 SET summary = ?2, modified_at = ?3, file_hash = ?4, updated_at = ?3
+                 SET summary = ?2, modified_at = ?3, file_hash = ?4, file_size = ?5, updated_at = ?3
                  WHERE id = ?1",
-                params![item_id, summary, modified_at, file_hash],
+                params![item_id, summary, modified_at, file_hash, disk_file_size],
             )
             .map_err(|_| AppError::DatabaseError)?;
 
-        // B1：Markdown 保存也是精确 revision 更新 —— 同一事务把旧缩略图设为 stale
-        // 并递增持久化 generation，使 in-flight 的旧内容生成任务被 CAS 拒绝，
-        // 旧图不能短暂以 ready 落库。
-        Self::invalidate_thumbnail_in_transaction(&transaction, item_id, file_hash)?;
+        // B4：Markdown 封面只依赖标题——标题没变（key 相同）时保持 ready 并仅推进
+        // generated_from_hash；标题变化（key 不同）时精确失效一次（generation 恰好 +1）。
+        // 不再无条件 stale + generation+1（那是 B1 全文截图合同，不符合 B4）。
+        Self::reconcile_markdown_thumbnail_in_transaction(
+            &transaction,
+            item_id,
+            &target.desired_key,
+            file_hash,
+        )?;
 
         transaction
             .execute(
@@ -3027,23 +3087,48 @@ impl Database {
         };
         snapshot.generation = generation;
 
-        // 阶段 3b：事务外 source preparation。Markdown 渲染正文来自 snapshot.source_body
-        // （与 key / source_content_hash 同一磁盘 revision），禁止回落到 item_content.raw_text。
-        let (thumbnail_input, temporary_source_path) = {
-            let connection = self.connection()?;
-            let input = thumbnail_input_for_item(&connection, item_id, &snapshot)?;
-            input
+        // 阶段 3b：事务外生成（截图期间不持有任何数据库 transaction）。
+        // - Markdown B4：直接在内存生成确定性静态 SVG 默认封面，**不创建临时 HTML、
+        //   不调用 Chromium / adapter**（边界 #1）；标题取自同一次 snapshot 的
+        //   DocumentTitle.display_text（与 key 用同一标题，保证 key 与封面一致）。
+        // - HTML：走既有 Chromium 截图路径（B4 不改）。
+        let asset = if snapshot.file_type == "markdown" {
+            // 磁盘正文已就绪（snapshot 阶段读取完成）、SVG 生成尚未开始。B4 的
+            // Markdown 封面生成是纯内存操作；若生成阶段仍持有数据库事务/连接锁，
+            // 另一个连接的写事务会在此被 SQLite 阻塞——测试据此证明生成阶段
+            // 不阻塞写事务。
+            #[cfg(test)]
+            {
+                if let Some(hook) = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap().as_ref() {
+                    hook();
+                }
+            }
+            let file_name = std::path::Path::new(&snapshot.canonical_path)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // 与 key 同源：同一 snapshot 正文 → 同一 display title / title hash →
+            // 同一 palette，保证封面与 desired key、palette 永远一致。
+            let target = markdown_default_cover_target(&snapshot.source_body, &file_name);
+            generate_markdown_default_cover_asset(&target.display_title, &target.title_hash)
+        } else {
+            // Markdown 渲染正文来自 snapshot.source_body（与 key / source_content_hash
+            // 同一磁盘 revision），禁止回落到 item_content.raw_text。
+            let (thumbnail_input, temporary_source_path) = {
+                let connection = self.connection()?;
+                let input = thumbnail_input_for_item(&connection, item_id, &snapshot)?;
+                input
+            };
+            let asset = generate_html_thumbnail_with_adapter(
+                thumbnail_input,
+                ThumbnailBackend::Auto,
+                adapter,
+            );
+            if let Some(path) = temporary_source_path {
+                let _ = fs::remove_file(path);
+            }
+            asset
         };
-
-        // 事务外生成：截图期间不持有任何数据库 transaction。
-        let asset = generate_html_thumbnail_with_adapter(
-            thumbnail_input,
-            ThumbnailBackend::Auto,
-            adapter,
-        );
-        if let Some(path) = temporary_source_path {
-            let _ = fs::remove_file(path);
-        }
 
         // placeholder 不是目标 render kind 的 ready 成品：不写文件、不 commit ready。
         if asset.backend == "placeholder-svg" {
@@ -3171,8 +3256,21 @@ impl Database {
         let source_file_size = metadata.len() as i64;
         let source_body = fs::read_to_string(&identity.file_path).map_err(|_| AppError::IoError)?;
         let source_content_hash = content_hash(&source_body);
-        let desired_key = desired_key_for_item(&identity.file_type, Some(&source_content_hash))
-            .ok_or(AppError::UnsupportedFileType)?;
+        // Markdown B4：desired key 依赖标题哈希，必须从**同一次磁盘 snapshot** 的
+        // DocumentTitle.display_text 计算——禁止回落到可能陈旧的 items.title /
+        // item_content.raw_text（B4 边界 #4）。统一走 markdown_default_cover_target
+        // 计算入口（display title / title hash / md-default key / palette index 同源）。
+        let desired_key = match identity.file_type.as_str() {
+            "markdown" => {
+                let file_name = std::path::Path::new(&identity.file_path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                markdown_default_cover_target(&source_body, &file_name).desired_key
+            }
+            _ => desired_key_for_item(&identity.file_type, Some(&source_content_hash))
+                .ok_or(AppError::UnsupportedFileType)?,
+        };
         let render_kind = expected_render_kind_for_item(&identity.file_type)
             .ok_or(AppError::UnsupportedFileType)?;
         Ok(ThumbnailGenerationSnapshot {
@@ -3777,6 +3875,59 @@ impl Database {
         Ok(())
     }
 
+    /// B4 Markdown 封面合同：保存/外部扫描在事务外由 `markdown_default_cover_target`
+    /// 计算出本次正文的标题 key 后，在短事务内与存储行比较：
+    /// A) 标题 key 没变（只改正文）：保持 ready / desired key / generated key /
+    ///    generation / thumb path，**仅把 generated_from_hash 推进到新的全文
+    ///    source hash**——否则读取校验（generated_from_hash == file_hash）会把
+    ///    ready 行判为失效。生成中的旧 snapshot 仍会因磁盘全文 hash 不同而被
+    ///    discarded，不会覆盖新 revision。
+    /// B) 标题 key 改变：同一短事务写入新 desired key、旧 ready 立即 stale、
+    ///    generation **恰好 +1**（只推进一次），使旧 in-flight 任务被 CAS 拒绝。
+    /// 无 thumbnail 行时不写入（首次生成由 generate 流程 claim 创建）。
+    fn reconcile_markdown_thumbnail_in_transaction(
+        transaction: &Transaction<'_>,
+        item_id: i64,
+        new_desired_key: &str,
+        new_source_hash: &str,
+    ) -> Result<(), AppError> {
+        let current: Option<(Option<String>, i64, String)> = transaction
+            .query_row(
+                "SELECT desired_key, generation, thumb_status
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        let Some((stored_key, _, _)) = current else {
+            return Ok(());
+        };
+        if stored_key.as_deref() == Some(new_desired_key) {
+            // A) 标题没变：只推进 generated_from_hash，ready / key / generation / path 保持。
+            transaction
+                .execute(
+                    "UPDATE thumbnail_cache SET generated_from_hash = ?2 WHERE item_id = ?1",
+                    params![item_id, new_source_hash],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        } else {
+            // B) 标题变：新 key + stale + generation 恰好 +1。
+            transaction
+                .execute(
+                    "UPDATE thumbnail_cache
+                     SET desired_key = ?2, thumb_status = 'stale',
+                         generation = generation + 1, error_message = NULL,
+                         generated_from_hash = ?3
+                     WHERE item_id = ?1",
+                    params![item_id, new_desired_key, new_source_hash],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+        Ok(())
+    }
+
     /// HTML 扫描已观察到 metadata 变化、但正文暂时不可读时的未知 revision 失效。
     /// desired_key 必须清空，旧 generation 必须在第一次进入该状态时递增，从而拒绝
     /// 所有在途旧截图；连续扫描仍不可读时保持幂等，避免无意义地反复递增 generation。
@@ -4058,196 +4209,12 @@ fn thumbnail_input_for_item(
     item_id: i64,
     snapshot: &ThumbnailGenerationSnapshot,
 ) -> Result<(HtmlThumbnailInput, Option<PathBuf>), AppError> {
+    // B4：markdown 不再走临时 HTML→Chromium 截图路径（由 generate_thumbnail_with_adapter
+    // 直接生成静态 SVG 默认封面），此处只为 HTML 准备渲染输入。
     match snapshot.file_type.as_str() {
         "html" => Ok((html_thumbnail_input(connection, item_id)?, None)),
-        "markdown" => markdown_thumbnail_input(connection, item_id, snapshot),
         _ => Err(AppError::UnsupportedFileType),
     }
-}
-
-fn markdown_thumbnail_input(
-    connection: &Connection,
-    item_id: i64,
-    snapshot: &ThumbnailGenerationSnapshot,
-) -> Result<(HtmlThumbnailInput, Option<PathBuf>), AppError> {
-    // 事务内只做 DB SELECT（file_name / title，均为展示用元数据）。
-    // 渲染正文**必须**来自 snapshot.source_body（snapshot 阶段从磁盘读取、与
-    // desired key / source_content_hash 同属一个磁盘 revision）——禁止回落到
-    // 可能陈旧的 item_content.raw_text，否则外部改写 Markdown 而 DB 正文缓存
-    // 未刷新时，会把旧正文截图提交到新 desired key（B1 审查阻塞 1）。
-    let (file_name, title): (String, Option<String>) = connection
-        .query_row(
-            "SELECT items.file_name, items.title
-             FROM items
-             WHERE items.id = ?1",
-            params![item_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|_| AppError::DatabaseError)?;
-
-    // 最小 test-only hook：磁盘正文已就绪（snapshot 阶段读取完成）、HTML 渲染
-    // 尚未开始。若 prepare 阶段仍持有数据库事务/连接锁，另一个连接的写事务会
-    // 在此被 SQLite 锁阻塞——测试据此证明 source preparation 不阻塞写事务。
-    #[cfg(test)]
-    {
-        if let Some(hook) = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap().as_ref() {
-            hook();
-        }
-    }
-
-    let display_title = title
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(file_name.as_str());
-    let html = markdown_thumbnail_document(display_title, &file_name, &snapshot.source_body);
-    let temporary_path = temp_markdown_thumbnail_path(item_id);
-    fs::write(&temporary_path, html).map_err(|_| AppError::IoError)?;
-
-    Ok((
-        HtmlThumbnailInput {
-            file_name,
-            title,
-            raw_text: Some(snapshot.source_body.clone()),
-            source_url: Url::from_file_path(&temporary_path)
-                .ok()
-                .map(|url| url.to_string()),
-        },
-        Some(temporary_path),
-    ))
-}
-
-fn temp_markdown_thumbnail_path(item_id: i64) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!("nutbook-markdown-thumbnail-{item_id}-{nanos}.html"))
-}
-
-fn markdown_thumbnail_document(title: &str, file_name: &str, raw: &str) -> String {
-    let rendered = render_markdown_as_html_for_file(raw, file_name);
-    format!(
-        r#"<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    * {{ box-sizing: border-box; }}
-    html, body {{ margin: 0; width: 100%; min-height: 100%; background: #ffffff; color: #171717; }}
-    body {{
-      font-family: ui-serif, "Songti SC", "STSong", "Times New Roman", serif;
-      padding: 0;
-    }}
-    .page {{
-      width: 100%;
-      min-height: 720px;
-      background: linear-gradient(180deg, #ffffff 0%, #fbfbfa 100%);
-      padding: 56px 68px;
-      overflow: hidden;
-    }}
-    .eyebrow {{
-      display: inline-flex;
-      align-items: center;
-      height: 26px;
-      padding: 0 12px;
-      border-radius: 999px;
-      background: #eeeeec;
-      color: #696966;
-      font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }}
-    h1 {{
-      margin: 22px 0 26px;
-      max-width: 860px;
-      font-size: 42px;
-      line-height: 1.12;
-      letter-spacing: -0.03em;
-    }}
-    article {{
-      max-width: 880px;
-      font-size: 18px;
-      line-height: 1.72;
-      color: #3f3f3d;
-    }}
-    article h1 {{ margin: 30px 0 12px; font-size: 28px; color: #171717; }}
-    article h2 {{ margin: 28px 0 10px; font-size: 23px; color: #1f1f1d; }}
-    article h3 {{ margin: 24px 0 8px; font-size: 20px; color: #242422; }}
-    article h4, article h5, article h6 {{ margin: 20px 0 8px; font-size: 17px; color: #30302e; }}
-    article p {{ margin: 0 0 16px; }}
-    .markdown-frontmatter {{
-      margin: 0 0 24px;
-      padding: 18px 20px;
-      border: 1px solid #e5e1d8;
-      border-radius: 18px;
-      background: #fffaf0;
-      color: #3d362d;
-    }}
-    .markdown-frontmatter-label {{
-      margin-bottom: 10px;
-      color: #8a6f3d;
-      font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
-      letter-spacing: 0.08em;
-    }}
-    .markdown-frontmatter-row {{
-      display: grid;
-      grid-template-columns: 150px minmax(0, 1fr);
-      gap: 14px;
-      padding: 7px 0;
-      border-top: 1px solid rgba(138, 111, 61, 0.14);
-    }}
-    .markdown-frontmatter-row:first-of-type {{ border-top: 0; }}
-    .markdown-frontmatter-key {{
-      color: #7a6a56;
-      font: 600 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-    }}
-    .markdown-frontmatter-values {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 7px;
-      min-width: 0;
-    }}
-    .markdown-frontmatter-value {{
-      max-width: 100%;
-      padding: 2px 8px;
-      border-radius: 8px;
-      background: rgba(138, 111, 61, 0.09);
-      color: #352f28;
-      font-size: 14px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }}
-    article img {{
-      display: block;
-      width: auto;
-      max-width: 100%;
-      max-height: 430px;
-      height: auto;
-      margin: 10px auto 20px;
-      border-radius: 12px;
-      object-fit: contain;
-    }}
-    article p:has(> img:only-child) {{ margin: 0 0 18px; }}
-  </style>
-</head>
-<body>
-  <main class="page">
-    <div class="eyebrow">Markdown</div>
-    <h1>{}</h1>
-    <article>{}</article>
-  </main>
-</body>
-</html>"#,
-        escape_html_text(title),
-        rendered,
-    )
-}
-
-fn escape_html_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 fn current_timestamp() -> String {
@@ -5289,39 +5256,47 @@ mod tests {
     }
 
     #[test]
-    fn markdown_thumbnail_document_constrains_images_to_article_width() {
-        let html = super::markdown_thumbnail_document(
-            "Document with hero image",
-            "document.md",
-            "![Hero](./assets/hero.png)\n\nBody text",
-        );
-
-        assert!(html.contains("article img"));
-        assert!(html.contains("max-width: 100%"));
-        assert!(html.contains("height: auto"));
-        assert!(html.contains("object-fit: contain"));
+    fn markdown_desired_key_requires_title_hash_not_content_hash() {
+        // B4：markdown 的 desired key 依赖标题哈希，无法从源内容 hash 推导；
+        // desired_key_for_item 对 markdown 返回 None，由 snapshot 阶段基于
+        // DocumentTitle.display_text 直接构造 md-default: key。
+        assert!(crate::core::thumbnail::desired_key_for_item("markdown", Some("hash-a")).is_none());
+        assert!(crate::core::thumbnail::desired_key_for_item("markdown", Some("hash-b")).is_none());
+        assert!(crate::core::thumbnail::desired_key_for_item("markdown", None).is_none());
+        // HTML 仍由内容 hash 决定确定性 key。
+        let html_key = crate::core::thumbnail::desired_key_for_item("html", Some("hash-a"));
+        assert!(html_key.is_some());
     }
 
     #[test]
-    fn markdown_thumbnail_cache_key_uses_transition_screenshot_prefix_until_b4() {
-        // B1 阶段 Markdown 仍是临时 HTML→Chromium 截图：desired key 必须用独立过渡
-        // 前缀 md-screenshot:（依赖源内容 hash），不得占用未来 B4 的 md-default: key，
-        // 否则旧截图缓存会在 B4 上线后冒充新默认封面。
-        let key = crate::core::thumbnail::desired_key_for_item("markdown", Some("hash-a"))
-            .expect("markdown screenshot key should exist");
-        assert!(key.starts_with("md-screenshot:"));
-        assert!(key.ends_with(":md-screenshot-v1"));
-        // 内容变化 → key 变化（B1 阶段截图反映全文）。
-        let changed = crate::core::thumbnail::desired_key_for_item("markdown", Some("hash-b"))
-            .expect("markdown screenshot key should exist");
-        assert_ne!(key, changed);
-        // 缺 hash → None（无法验证成图目标）。
-        assert!(crate::core::thumbnail::desired_key_for_item("markdown", None).is_none());
-        // 未来 B4 的 md-default builder 形状契约（当前不用，仅为退休后旧缓存不匹配）。
-        let future_default = crate::core::thumbnail::markdown_default_cover_key("title-hash");
-        assert!(future_default.starts_with("md-default:"));
-        assert!(future_default.ends_with(":title-parser-v1:default-cover-v1"));
-        assert_ne!(key, future_default);
+    fn markdown_default_cover_key_never_collides_with_retired_screenshot_key() {
+        // B4 正式目标 key 契约：md-default:<rendered-title-hash>:title-parser-v1:default-cover-v5。
+        let default_key = crate::core::thumbnail::markdown_default_cover_key("title-hash");
+        assert!(default_key.starts_with("md-default:"));
+        assert!(default_key.ends_with(":title-parser-v1:default-cover-v5"));
+        assert!(!default_key.starts_with("md-screenshot:"));
+        // v5 属于当前契约；v1/v2/v3/v4 不是 current（视觉改版后旧居中浅灰缓存、
+        // 旧书脊、旧圆形色场与旧顶部横线缓存都不得冒充 v5 ready）。
+        assert!(crate::core::thumbnail::markdown_key_is_current(&default_key));
+        for retired_version in [
+            "default-cover-v1",
+            "default-cover-v2",
+            "default-cover-v3",
+            "default-cover-v4",
+        ] {
+            let old_key = format!("md-default:title-hash:title-parser-v1:{retired_version}");
+            assert!(
+                !crate::core::thumbnail::markdown_key_is_current(&old_key),
+                "{old_key} must not be current"
+            );
+            assert_ne!(default_key, old_key);
+        }
+        // 已退休的 md-screenshot key（仅作历史缓存识别）必须与默认封面 key 完全不同前缀，
+        // 旧截图缓存无法冒充新默认封面。
+        let retired = crate::core::thumbnail::markdown_screenshot_key("hash-a");
+        assert!(retired.starts_with("md-screenshot:"));
+        assert!(retired.ends_with(":md-screenshot-v1"));
+        assert_ne!(default_key, retired);
     }
 
     #[test]

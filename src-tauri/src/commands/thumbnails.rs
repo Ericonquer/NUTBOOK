@@ -52,12 +52,12 @@ fn _retain_thumbnail_info(_thumbnail: ThumbnailInfo) {}
 mod tests {
     use crate::{
         core::{
-            document::content_hash,
+            document::{content_hash, file_modified_at_string},
             thumbnail::{
-                html_desired_key, markdown_screenshot_key, ChromiumScreenshotInput,
+                html_desired_key, markdown_default_cover_key, ChromiumScreenshotInput,
                 GeneratedThumbnailAsset, ThumbnailCaptureAdapter, HTML_SCREENSHOT_HEIGHT,
                 HTML_SCREENSHOT_WIDTH, RENDER_KIND_HTML_SCREENSHOT,
-                RENDER_KIND_MARKDOWN_HTML_SCREENSHOT, RENDER_KIND_PLACEHOLDER,
+                RENDER_KIND_MARKDOWN_DEFAULT_COVER, RENDER_KIND_PLACEHOLDER,
             },
         },
         db::{
@@ -161,6 +161,35 @@ mod tests {
             )
             .expect("item");
         (database, source, db_path)
+    }
+
+    /// 用真实 fixture 文件建 item：文件本身不复制、不删除，DB 放在独立临时目录，
+    /// 返回 (database, source_path, db_path) 供清理临时目录。
+    fn setup_markdown_item_from(source_path: &Path, file_name: &str) -> (Database, PathBuf, PathBuf) {
+        let dir = temp_dir();
+        let db_path = dir.join("nutbook.sqlite3");
+        let database = Database::new(&db_path).expect("db");
+        database
+            .upsert_library(library(1, "B1", dir.to_string_lossy().as_ref(), "folder"))
+            .expect("library");
+        database
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: source_path.to_string_lossy().to_string(),
+                    relative_path: file_name.to_string(),
+                    file_name: file_name.to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: fs::metadata(source_path).expect("metadata").len() as i64,
+                    modified_at: "1".to_string(),
+                    created_at: "now".to_string(),
+                    updated_at: "now".to_string(),
+                }],
+            )
+            .expect("item");
+        (database, source_path.to_path_buf(), db_path)
     }
 
     /// 立即返回预设结果的 stub adapter。
@@ -328,37 +357,51 @@ mod tests {
     }
 
     #[test]
-    fn generate_thumbnail_commits_generation_keyed_file_for_markdown() {
-        with_fake_chromium_env(|| {
-            let (database, source, db_path) = setup_markdown_item();
-            let response = database
-                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
-                    response: Ok(sample_png(b"MD-PAYLOAD")),
-                })
-                .expect("markdown thumbnail should generate");
-            assert_eq!(response.thumbnail.status, "ready");
-            let thumb_path = response.thumbnail.path.expect("path should exist");
-            assert!(
-                thumb_path.ends_with(".cache/thumbnails/item-1.1.png"),
-                "generation-keyed path expected, got: {thumb_path}"
-            );
-            assert!(Path::new(&thumb_path).exists(), "cache file must exist");
-            // B1 阶段 Markdown 仍是临时 HTML→Chromium 截图：key 必须用独立过渡前缀
-            // md-screenshot:（依赖源内容 hash），render kind 用 markdown-html-screenshot，
-            // 不得预占未来 B4 的 md-default: key / markdown-default-cover render kind。
-            let expected = markdown_screenshot_key(&content_hash("# Hero Doc\n\nBody"));
-            assert_eq!(response.expected_key.as_deref(), Some(expected.as_str()));
-            assert_eq!(
-                response.thumbnail.render_kind.as_deref(),
-                Some(RENDER_KIND_MARKDOWN_HTML_SCREENSHOT)
-            );
-            let info = database.get_thumbnail_info(1).expect("info").expect("ready");
-            assert_eq!(info.desired_key.as_deref(), Some(expected.as_str()));
-            assert_eq!(info.render_kind.as_deref(), Some(RENDER_KIND_MARKDOWN_HTML_SCREENSHOT));
+    fn generate_markdown_default_cover_commits_generation_keyed_svg_without_engine() {
+        // B4：Markdown 封面由 Rust 直接生成确定性静态 SVG，不依赖 Chromium / adapter。
+        // 传入必失败的 adapter——若生成路径误调用 adapter，测试即失败。
+        let (database, source, db_path) = setup_markdown_item();
+        let response = database
+            .generate_thumbnail_with_adapter(
+                1,
+                &StubCaptureAdapter {
+                    response: Err(
+                        "markdown default cover must not call the capture adapter".to_string(),
+                    ),
+                },
+            )
+            .expect("markdown thumbnail should generate without a screenshot engine");
+        assert_eq!(response.thumbnail.status, "ready");
+        let thumb_path = response.thumbnail.path.expect("path should exist");
+        assert!(
+            thumb_path.ends_with(".cache/thumbnails/item-1.1.svg"),
+            "generation-keyed svg path expected, got: {thumb_path}"
+        );
+        assert!(Path::new(&thumb_path).exists(), "cache file must exist");
+        // B4 正式目标契约：key = md-default:<rendered-title-hash>:title-parser-v1:default-cover-v5，
+        // render kind = markdown-default-cover。# Hero Doc 的 display_text 为 "Hero Doc"。
+        let expected = markdown_default_cover_key(&content_hash("Hero Doc"));
+        assert_eq!(response.expected_key.as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            response.thumbnail.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_DEFAULT_COVER)
+        );
+        let info = database.get_thumbnail_info(1).expect("info").expect("ready");
+        assert_eq!(info.desired_key.as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            info.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_DEFAULT_COVER)
+        );
+        // 生成内容是确定性 SVG，覆盖 16:9 视口并包含磁盘标题。
+        let svg = fs::read_to_string(&thumb_path).expect("read svg");
+        assert!(
+            svg.contains("viewBox=\"0 0 1280 720\""),
+            "cover svg must use the 16:9 viewBox"
+        );
+        assert!(svg.contains("Hero Doc"), "cover svg must contain the disk title");
 
-            let _ = fs::remove_dir_all(source.parent().expect("parent"));
-            let _ = fs::remove_file(db_path);
-        });
+        let _ = fs::remove_dir_all(source.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
     }
 
     #[test]
@@ -1350,7 +1393,7 @@ mod tests {
     }
 
     #[test]
-    fn markdown_save_invalidates_and_bumps_generation() {
+    fn markdown_save_body_only_keeps_ready_cover_and_advances_generated_hash() {
         with_fake_chromium_env(|| {
             let (database, source, db_path) = setup_markdown_item();
             database
@@ -1358,43 +1401,423 @@ mod tests {
                     response: Ok(sample_png(b"MD-READY")),
                 })
                 .expect("generate ready");
-            assert!(
-                database.get_thumbnail_info(1).expect("info").is_some(),
-                "ready before save"
-            );
+            let before = database.get_thumbnail_info(1).expect("info").expect("ready");
+            let before_key = before.desired_key.clone().expect("desired key");
+            let before_path = before.path.clone().expect("path");
+            let before_generation = before.generation.expect("generation");
 
-            // Markdown 保存 = 精确 revision 更新：同一事务把旧缩略图设为 stale 并递增
-            // generation，使 in-flight 旧内容任务被 CAS 拒绝。
+            // 同标题正文保存（标题仍为 "Hero Doc"）：模拟真实保存——写磁盘 + 磁盘 mtime。
+            fs::write(&source, "# Hero Doc\n\nBody v2").expect("write body v2");
+            let metadata = fs::metadata(&source).expect("metadata");
+            let mtime = file_modified_at_string(&metadata).expect("mtime");
             let new_hash = content_hash("# Hero Doc\n\nBody v2");
             database
                 .update_markdown_item_content(
                     1,
                     "summary",
-                    "2",
+                    &mtime,
                     &new_hash,
                     "# Hero Doc\n\nBody v2",
                     "# Hero Doc\n\nBody v2",
                     "<h1>Hero Doc</h1>",
                 )
                 .expect("markdown save");
-            assert!(
-                database.get_thumbnail_info(1).expect("info").is_none(),
-                "saved markdown must invalidate the old ready immediately"
+
+            // B4：只改正文不改标题 → 不调用 SVG 生成器/adapter，ready 直接保持。
+            let info = database.get_thumbnail_info(1).expect("info").expect("ready kept");
+            assert_eq!(
+                info.desired_key.as_deref(),
+                Some(before_key.as_str()),
+                "desired key must stay unchanged for body-only save"
             );
+            assert_eq!(info.generation, Some(before_generation), "generation must not bump");
+            assert_eq!(
+                info.path.as_deref(),
+                Some(before_path.as_str()),
+                "thumb path must stay unchanged"
+            );
+            assert_eq!(
+                info.render_kind.as_deref(),
+                Some(RENDER_KIND_MARKDOWN_DEFAULT_COVER)
+            );
+            // generated_from_hash 必须推进到新的全文 source hash，否则读取校验会判失效。
             let connection = Connection::open(&db_path).expect("open db");
-            let (status, generation): (String, i64) = connection
+            let generated_hash: Option<String> = connection
                 .query_row(
-                    "SELECT thumb_status, generation FROM thumbnail_cache WHERE item_id = 1",
+                    "SELECT generated_from_hash FROM thumbnail_cache WHERE item_id = 1",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| row.get(0),
                 )
-                .expect("thumbnail row");
-            assert_eq!(status, "stale");
-            assert_eq!(generation, 2, "markdown save must bump the persisted generation");
+                .expect("generated hash");
+            let file_hash: Option<String> = connection
+                .query_row(
+                    "SELECT file_hash FROM items WHERE id = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("items hash");
+            drop(connection);
+            assert_eq!(
+                generated_hash.as_deref(),
+                Some(new_hash.as_str()),
+                "generated_from_hash must advance to the new body hash"
+            );
+            assert_eq!(
+                file_hash.as_deref(),
+                Some(new_hash.as_str()),
+                "items.file_hash must advance to the new body hash"
+            );
 
             let _ = fs::remove_dir_all(source.parent().expect("parent"));
             let _ = fs::remove_file(db_path);
         });
+    }
+
+    #[test]
+    fn markdown_save_title_change_invalidates_once_and_generation_plus_one() {
+        with_fake_chromium_env(|| {
+            let (database, source, db_path) = setup_markdown_item();
+            database
+                .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                    response: Ok(sample_png(b"MD-READY")),
+                })
+                .expect("generate ready");
+            let before = database.get_thumbnail_info(1).expect("info").expect("ready");
+            let before_generation = before.generation.expect("generation");
+
+            // 标题变化保存（"# Hero Doc" → "# New Title"）。
+            fs::write(&source, "# New Title\n\nBody v2").expect("write");
+            let metadata = fs::metadata(&source).expect("metadata");
+            let mtime = file_modified_at_string(&metadata).expect("mtime");
+            let new_hash = content_hash("# New Title\n\nBody v2");
+            database
+                .update_markdown_item_content(
+                    1,
+                    "summary",
+                    &mtime,
+                    &new_hash,
+                    "# New Title\n\nBody v2",
+                    "# New Title\n\nBody v2",
+                    "<h1>New Title</h1>",
+                )
+                .expect("markdown save");
+
+            // 旧 ready 立即失效；generation 恰好 +1（不允许 +2）。
+            assert!(
+                database.get_thumbnail_info(1).expect("info").is_none(),
+                "old ready must be invalid after a title change"
+            );
+            let connection = Connection::open(&db_path).expect("open db");
+            let (desired, status, generation): (String, String, i64) = connection
+                .query_row(
+                    "SELECT desired_key, thumb_status, generation FROM thumbnail_cache WHERE item_id = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("thumbnail row");
+            drop(connection);
+            assert_eq!(status, "stale");
+            assert_eq!(
+                generation,
+                before_generation + 1,
+                "generation must advance exactly once"
+            );
+            let expected_key = markdown_default_cover_key(&content_hash("New Title"));
+            assert_eq!(desired, expected_key, "desired key must move to the new title key");
+
+            // 重新生成（不调用 adapter）→ ready，使用新标题。
+            let response = database
+                .generate_thumbnail_with_adapter(
+                    1,
+                    &StubCaptureAdapter {
+                        response: Err("markdown must not call the capture adapter".to_string()),
+                    },
+                )
+                .expect("regenerate");
+            assert_eq!(response.thumbnail.status, "ready");
+            assert_eq!(
+                response.thumbnail.generation,
+                Some(before_generation + 1),
+                "regeneration must reuse the same generation"
+            );
+            let svg = fs::read_to_string(response.thumbnail.path.expect("path")).expect("svg");
+            assert!(svg.contains("New Title"));
+
+            let _ = fs::remove_dir_all(source.parent().expect("parent"));
+            let _ = fs::remove_file(db_path);
+        });
+    }
+
+    /// 模板版本缓存失效：seed 一个 render kind 正确但 key 是 default-cover-v4 的
+    /// ready 行（缓存文件真实存在、stat 与 hash 全匹配）——版本后缀校验必须拒绝它；
+    /// 自动生成后得到 default-cover-v5、generation 推进、新文件为 hover-safe 编辑出版式。
+    #[test]
+    fn markdown_v4_top_rule_cache_is_not_served_and_regenerates_v5() {
+        let (database, source, db_path) = setup_markdown_item();
+        // 收敛 items 到磁盘真实状态，排除 stat 干扰（证明拒绝来自 key 版本校验）。
+        let metadata = fs::metadata(&source).expect("meta");
+        let mtime = file_modified_at_string(&metadata).expect("mtime");
+        let hash = content_hash("# Hero Doc\n\nBody");
+        let connection = Connection::open(&db_path).expect("open db");
+        connection
+            .execute(
+                "UPDATE items SET file_hash = ?1, modified_at = ?2, file_size = ?3 WHERE id = 1",
+                params![hash, mtime, metadata.len() as i64],
+            )
+            .expect("converge items");
+        // seed v4（顶部横线版）ready 行 + 真实存在的缓存文件。
+        let cache_dir = db_path.parent().expect("parent").join(".cache/thumbnails");
+        fs::create_dir_all(&cache_dir).expect("cache dir");
+        let v4_file = cache_dir.join("item-1.1.svg");
+        fs::write(&v4_file, "<svg/>").expect("v4 cache file");
+        let v4_key = format!(
+            "md-default:{}:title-parser-v1:default-cover-v4",
+            content_hash("Hero Doc")
+        );
+        connection
+            .execute(
+                "INSERT INTO thumbnail_cache (
+                    item_id, thumb_path, thumb_status, width, height, generated_from_hash,
+                    last_generated_at, error_message, desired_key, generated_from_key,
+                    render_kind, generation
+                 ) VALUES (1, ?1, 'ready', 1280, 720, ?2, '1', NULL, ?3, ?3, 'markdown-default-cover', 1)",
+                params![
+                    v4_file.to_string_lossy().to_string(),
+                    hash,
+                    v4_key
+                ],
+            )
+            .expect("seed v4 ready");
+        drop(connection);
+
+        // v4（旧顶部横线版）不是当前契约：get_thumbnail_info 与 list 都不能返回它。
+        assert!(
+            database.get_thumbnail_info(1).expect("info").is_none(),
+            "default-cover-v4 must not be served as current ready"
+        );
+        let listed = database.list_items(&ListItemsQuery::default()).expect("list");
+        assert!(
+            listed.items[0].thumbnail.is_none(),
+            "list must not serve the v4 default-cover cache"
+        );
+
+        // 自动生成 → v5：新 key、generation 推进一次、新 generation-keyed 文件。
+        let response = database
+            .generate_thumbnail_with_adapter(
+                1,
+                &StubCaptureAdapter {
+                    response: Err("markdown must not call the capture adapter".to_string()),
+                },
+            )
+            .expect("generate v5");
+        assert_eq!(response.thumbnail.status, "ready");
+        let info = database.get_thumbnail_info(1).expect("info").expect("v5 ready");
+        let expected_key = markdown_default_cover_key(&content_hash("Hero Doc"));
+        assert_eq!(
+            info.desired_key.as_deref(),
+            Some(expected_key.as_str()),
+            "v5 key must be the current contract key"
+        );
+        assert_eq!(info.generation, Some(2), "v4 → v5 must advance generation exactly once");
+        let thumb_path = info.path.clone().expect("path");
+        assert!(
+            thumb_path.ends_with("item-1.2.svg"),
+            "v5 must write a new generation-keyed file, got {thumb_path}"
+        );
+        assert!(Path::new(&thumb_path).exists(), "v5 cache file must exist");
+        // 编辑出版式：背景来自八种浅灰之一；唯一左上横线；无色场/书脊。
+        let svg = fs::read_to_string(&thumb_path).expect("svg");
+        let background = crate::core::thumbnail::MARKDOWN_COVER_BACKGROUNDS
+            [crate::core::thumbnail::stable_background_index(&content_hash("Hero Doc"))];
+        assert!(
+            svg.contains(&format!("fill=\"{background}\"")),
+            "background must match stable mapping"
+        );
+        assert!(
+            svg.contains("<rect x=\"96\" y=\"210\" width=\"216\" height=\"6\" fill=\"#5F6366\"/>"),
+            "v5 must carry the hover-safe editorial rule"
+        );
+        assert_eq!(svg.matches("<ellipse").count(), 0, "color field must be gone");
+        assert!(!svg.contains("width=\"56\" height=\"720\""), "bookspine must be gone");
+        // 旧 v4 文件不再被引用（新 ready 指向 item-1.2.svg）。
+        assert_ne!(thumb_path, v4_file.to_string_lossy().to_string());
+
+        let _ = fs::remove_dir_all(source.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
+    }
+
+    /// B4 外部扫描合同：只改正文不改标题时保持 ready（key/generation/path 不变，
+    /// generated_from_hash 推进）；标题变化时精确失效一次（generation 恰好 +1）。
+    #[test]
+    fn markdown_external_scan_reconciles_title_key_body_only_and_title_change() {
+        let (database, source, db_path) = setup_markdown_item();
+        database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Ok(sample_png(b"MD-READY")),
+            })
+            .expect("generate ready");
+        let before = database.get_thumbnail_info(1).expect("info").expect("ready");
+        let before_key = before.desired_key.clone().expect("key");
+        let before_path = before.path.clone().expect("path");
+        let before_generation = before.generation.expect("generation");
+
+        let record = |path: &Path| IndexedItemRecord {
+            library_id: 1,
+            file_path: path.to_string_lossy().into_owned(),
+            relative_path: "a.md".to_string(),
+            file_name: "a.md".to_string(),
+            file_ext: "md".to_string(),
+            file_type: "markdown".to_string(),
+            file_size: fs::metadata(path).expect("meta").len() as i64,
+            modified_at: file_modified_at_string(&fs::metadata(path).expect("meta")).expect("mtime"),
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+
+        // body-only 扫描：同标题不同正文。
+        fs::write(&source, "# Hero Doc\n\nBody v2").expect("write body v2");
+        database
+            .replace_items_for_library(1, &[record(&source)])
+            .expect("scan body-only");
+        let info = database.get_thumbnail_info(1).expect("info").expect("ready kept");
+        assert_eq!(
+            info.desired_key.as_deref(),
+            Some(before_key.as_str()),
+            "scan body-only must keep the desired key"
+        );
+        assert_eq!(info.generation, Some(before_generation), "scan body-only must not bump");
+        assert_eq!(info.path.as_deref(), Some(before_path.as_str()));
+        let connection = Connection::open(&db_path).expect("open db");
+        let generated_hash: Option<String> = connection
+            .query_row(
+                "SELECT generated_from_hash FROM thumbnail_cache WHERE item_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("generated hash");
+        drop(connection);
+        assert_eq!(
+            generated_hash.as_deref(),
+            Some(content_hash("# Hero Doc\n\nBody v2").as_str()),
+            "scan body-only must advance generated_from_hash"
+        );
+
+        // title-change 扫描：标题变 → 旧 ready 失效、generation 恰好 +1。
+        fs::write(&source, "# Scan Title\n\nBody v3").expect("write title");
+        database
+            .replace_items_for_library(1, &[record(&source)])
+            .expect("scan title change");
+        assert!(
+            database.get_thumbnail_info(1).expect("info").is_none(),
+            "old ready must be invalid after a title-change scan"
+        );
+        let connection = Connection::open(&db_path).expect("open db");
+        let (status, generation): (String, i64) = connection
+            .query_row(
+                "SELECT thumb_status, generation FROM thumbnail_cache WHERE item_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("thumbnail row");
+        drop(connection);
+        assert_eq!(status, "stale");
+        assert_eq!(
+            generation,
+            before_generation + 1,
+            "scan title change must advance generation exactly once"
+        );
+
+        let _ = fs::remove_dir_all(source.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
+    }
+
+    /// B4：body-only 保存撞上旧 in-flight 任务——旧任务因磁盘全文 hash 不同被丢弃，
+    /// 已有同标题 ready 封面不被错误清除，generation 不额外推进。
+    #[test]
+    fn body_only_save_with_in_flight_task_discards_stale_task_and_keeps_ready() {
+        let (database, source, db_path) = setup_markdown_item();
+        database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Ok(sample_png(b"MD-READY")),
+            })
+            .expect("generate ready");
+        let before = database.get_thumbnail_info(1).expect("info").expect("ready");
+        let before_generation = before.generation.expect("generation");
+
+        // in-flight 任务：hook 阻塞在 claim 之后、SVG 生成之前。
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let hook_ran = Arc::new(AtomicBool::new(false));
+        let hook_ran_c = hook_ran.clone();
+        {
+            let mut slot = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap();
+            *slot = Some(Arc::new(move || {
+                hook_ran_c.store(true, Ordering::SeqCst);
+                let _ = release_rx.lock().unwrap().recv();
+            }));
+        }
+        let db_g = database.clone();
+        let in_flight = std::thread::spawn(move || {
+            db_g.generate_thumbnail_with_adapter(
+                1,
+                &StubCaptureAdapter {
+                    response: Err("markdown must not call the capture adapter".to_string()),
+                },
+            )
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while !hook_ran.load(Ordering::SeqCst) {
+            if std::time::Instant::now() > deadline {
+                panic!("generation prepare hook never ran");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // in-flight 期间 body-only 保存（同标题，写磁盘 + DB）。
+        fs::write(&source, "# Hero Doc\n\nBody v2").expect("write");
+        let metadata = fs::metadata(&source).expect("meta");
+        let mtime = file_modified_at_string(&metadata).expect("mtime");
+        let new_hash = content_hash("# Hero Doc\n\nBody v2");
+        database
+            .update_markdown_item_content(
+                1,
+                "summary",
+                &mtime,
+                &new_hash,
+                "# Hero Doc\n\nBody v2",
+                "# Hero Doc\n\nBody v2",
+                "<h1>Hero Doc</h1>",
+            )
+            .expect("markdown save");
+        // 保存后同标题 ready 封面保持（key 没变）。
+        let after_save = database.get_thumbnail_info(1).expect("info").expect("ready kept");
+        assert_eq!(after_save.generation, Some(before_generation));
+
+        // 释放 in-flight 任务：磁盘全文 hash 已变 → 必须被丢弃，不得覆盖新 revision。
+        let _ = release_tx.send(());
+        {
+            let mut slot = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap();
+            *slot = None;
+        }
+        let result = in_flight.join().expect("thread").expect("generate");
+        assert_eq!(
+            result.discarded, true,
+            "stale in-flight task must be discarded by the disk full-body hash"
+        );
+        let final_info = database.get_thumbnail_info(1).expect("info").expect("ready survives");
+        assert_eq!(
+            final_info.generation,
+            Some(before_generation),
+            "generation must not be bumped by the stale task"
+        );
+        assert_eq!(
+            final_info.desired_key.as_deref(),
+            after_save.desired_key.as_deref(),
+            "ready cover must survive the stale in-flight task"
+        );
+
+        let _ = fs::remove_dir_all(source.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
     }
 
     /// 阻塞 1 回归：截图期间源文件被外部**同尺寸**改写（REVISION A → REVISION B，
@@ -1836,98 +2259,156 @@ mod tests {
     // 精确 render kind / 缓存文件存在性 / 保存路径 mtime 与 marker。
     // ------------------------------------------------------------------
 
-    /// 阻塞 1：磁盘 Markdown 从 A 同尺寸改写为 B，但 items.file_hash 与
-    /// item_content.raw_text 仍是 A、不调用 scan。生成后 adapter 看到的临时 HTML
-    /// 必须来自 B（snapshot 磁盘正文），ready 行的 generated_from_hash / desired key
-    /// 必须都属于 B——绝不能把旧正文截图提交到新 desired key。
+    /// B4 边界 #4：Markdown 封面的标题与 desired key 必须来自**同一次磁盘 snapshot**
+    /// 的 DocumentTitle.display_text，禁止回落到可能陈旧的 items.title 或
+    /// item_content.raw_text。DB 元数据陈旧（扫描未跑、编辑缓存未刷新）时，
+    /// 封面与 key 必须仍然反映磁盘正文。
     #[test]
-    fn markdown_generation_renders_disk_body_not_stale_item_content() {
-        with_fake_chromium_env(|| {
-            let (database, source, db_path) = setup_markdown_item();
-            // 同尺寸改写："Body" → "Bodz"（长度相同）。
-            let body_a = "# Hero Doc\n\nBody";
-            let body_b = "# Hero Doc\n\nBodz";
-            assert_eq!(body_a.len(), body_b.len(), "test must be a same-size rewrite");
-            fs::write(&source, body_b).expect("same-size rewrite to B");
+    fn markdown_cover_uses_disk_snapshot_title_not_stale_db_title() {
+        let (database, source, db_path) = setup_markdown_item();
+        // DB 元数据保持陈旧：items.title 与 item_content.raw_text 都是与磁盘正文
+        // 标题（"Hero Doc"）不同的旧值。磁盘正文不做任何改写。
+        let connection = Connection::open(&db_path).expect("open db");
+        connection
+            .execute("UPDATE items SET title = 'Stale DB Title' WHERE id = 1", [])
+            .expect("seed stale items.title");
+        connection
+            .execute(
+                "INSERT INTO item_content (item_id, source_text, raw_text, rendered_cache,
+                                           extracted_title, updated_at)
+                 VALUES (1, ?1, ?1, '<p>stale A body</p>', NULL, '1')
+                 ON CONFLICT(item_id) DO UPDATE SET
+                    source_text = excluded.source_text,
+                    raw_text = excluded.raw_text",
+                params!["# Raw Cached Title\n\nBody"],
+            )
+            .expect("seed stale item_content with a different title");
+        drop(connection);
 
-            // DB 仍是 A 状态：item_content.raw_text 保持 A（编辑缓存未刷新），
-            // items.file_hash 保持 setup 时的 NULL（扫描未跑）。
-            let connection = Connection::open(&db_path).expect("open db");
-            connection
-                .execute(
-                    "INSERT INTO item_content (item_id, source_text, raw_text, rendered_cache,
-                                               extracted_title, updated_at)
-                     VALUES (1, ?1, ?1, '<p>stale A body</p>', NULL, '1')
-                     ON CONFLICT(item_id) DO UPDATE SET
-                        source_text = excluded.source_text,
-                        raw_text = excluded.raw_text",
-                    params![body_a],
-                )
-                .expect("seed stale item_content with A body");
-            drop(connection);
+        // 生成不依赖 Chromium / adapter：传入必失败的 adapter 证明其未被调用。
+        let response = database
+            .generate_thumbnail_with_adapter(
+                1,
+                &StubCaptureAdapter {
+                    response: Err("markdown must not call the capture adapter".to_string()),
+                },
+            )
+            .expect("generate");
+        assert_eq!(response.thumbnail.status, "ready");
 
-            let (adapter, control) = SequencedCaptureAdapter::new();
-            let db_g = database.clone();
-            let adapter_g = adapter.clone();
-            let generation = std::thread::spawn(move || {
-                db_g.generate_thumbnail_with_adapter(1, &adapter_g)
-            });
-            control.wait_until(|| control.captured_count() >= 1);
+        // desired key 必须基于磁盘 snapshot 的 DocumentTitle.display_text（"Hero Doc"），
+        // 而不是 stale items.title（"Stale DB Title"）或 stale raw_text 的标题。
+        let expected = markdown_default_cover_key(&content_hash("Hero Doc"));
+        let info = database.get_thumbnail_info(1).expect("info").expect("ready");
+        assert_eq!(info.desired_key.as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            info.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_DEFAULT_COVER)
+        );
+        // generated_from_hash 仍是全文 content hash（source-revision CAS 校验用）。
+        let connection = Connection::open(&db_path).expect("open db");
+        let generated_hash: Option<String> = connection
+            .query_row(
+                "SELECT generated_from_hash FROM thumbnail_cache WHERE item_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("generated hash");
+        drop(connection);
+        assert_eq!(
+            generated_hash.as_deref(),
+            Some(content_hash("# Hero Doc\n\nBody").as_str()),
+            "generated_from_hash must be the disk body hash"
+        );
+        // 封面 SVG 展示磁盘标题，绝不展示 stale DB 标题。
+        let thumb_path = response.thumbnail.path.expect("path");
+        let svg = fs::read_to_string(&thumb_path).expect("read svg");
+        assert!(svg.contains("Hero Doc"), "cover must show the disk snapshot title");
+        assert!(
+            !svg.contains("Stale DB Title"),
+            "cover must not use stale items.title"
+        );
+        assert!(
+            !svg.contains("Raw Cached Title"),
+            "cover must not use stale item_content.raw_text"
+        );
 
-            // capture 已收到渲染输入：此时临时 HTML 已由 source preparation 写入。
-            // 必须在 release（生成线程随后删除临时文件）之前读取并断言它来自 B。
-            let captured_input = {
-                let captured = control.captured.lock().unwrap();
-                captured.first().expect("captured input").clone()
-            };
-            let temp_path = captured_input
-                .url
-                .strip_prefix("file://")
-                .expect("file url")
-                .to_string();
-            let temp_html = fs::read_to_string(&temp_path).expect("read temp html");
-            assert!(
-                temp_html.contains("Bodz") && !temp_html.contains("Body"),
-                "temp html must render the disk body B (Bodz) and not the stale A body (Body), got: {temp_html}"
-            );
-
-            control.release_with(0, Ok(sample_png(b"MD-B-PAYLOAD")));
-            let response = generation.join().expect("thread").expect("generate");
-
-            assert_eq!(response.discarded, false);
-            assert_eq!(response.thumbnail.status, "ready");
-
-            // ready 行的 desired key / generated_from_hash 都属于 B。
-            let expected = markdown_screenshot_key(&content_hash(body_b));
-            let info = database.get_thumbnail_info(1).expect("info").expect("ready");
-            assert_eq!(info.desired_key.as_deref(), Some(expected.as_str()));
-            assert_eq!(
-                info.render_kind.as_deref(),
-                Some(RENDER_KIND_MARKDOWN_HTML_SCREENSHOT)
-            );
-            let connection = Connection::open(&db_path).expect("open db");
-            let generated_hash: Option<String> = connection
-                .query_row(
-                    "SELECT generated_from_hash FROM thumbnail_cache WHERE item_id = 1",
-                    [],
-                    |row| row.get(0),
-                )
-                .expect("generated hash");
-            assert_eq!(
-                generated_hash.as_deref(),
-                Some(content_hash(body_b).as_str()),
-                "generated_from_hash must be the disk B hash"
-            );
-            drop(connection);
-
-            let _ = fs::remove_dir_all(source.parent().expect("parent"));
-            let _ = fs::remove_file(db_path);
-        });
+        let _ = fs::remove_dir_all(source.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
     }
 
-    /// 阻塞 2：source preparation（磁盘正文读取完成、Markdown 渲染前）期间，
-    /// 另一个数据库连接必须能完成写事务。hook 覆盖的是磁盘读取/Markdown preparation
-    /// 边界（不是 capture adapter）——若该阶段仍持有事务/连接锁，写会 SQLITE_BUSY。
+    /// B4 验收路径：card-revisions 真实 fixture 走完整生成管线（索引 → snapshot →
+    /// 内存 SVG → CAS ready）。封面标题与 desired key 必须同源——都来自同一磁盘
+    /// 正文的 DocumentTitle.display_text；无 H1 fixture 回退到文件名；长标题确定性
+    /// 换行且不产生陈旧标题泄漏。生成不依赖 Chromium / adapter。
+    #[test]
+    fn markdown_default_cover_acceptance_uses_card_revisions_fixtures() {
+        let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/card-revisions");
+        let cases = [
+            ("markdown-default-cover.md", false),
+            ("markdown-no-h1.md", true),
+            ("markdown-frontmatter-fake-h1.md", false), // frontmatter 后正文有真实 H1
+            ("markdown-code-fence-h1.md", false),       // 文件顶部有真实 H1，fence 内为假 H1
+            ("markdown-setext-h1.md", false),
+            ("markdown-aligned-h1.md", false),
+            ("markdown-multiple-h1.md", false),
+            ("markdown-long-cjk-title.md", false),
+            ("markdown-long-latin-title.md", false),
+        ];
+        for (file_name, expect_fallback) in cases {
+            let source_path = fixtures_dir.join(file_name);
+            let raw = fs::read_to_string(&source_path).expect("read fixture");
+            let title = crate::core::document_title::DocumentTitle::parse(&raw, file_name);
+            assert_eq!(
+                title.is_file_name_fallback, expect_fallback,
+                "fixture {file_name} fallback expectation mismatch"
+            );
+            let expected_title = title.display_text.clone();
+
+            let (database, _, db_path) = setup_markdown_item_from(&source_path, file_name);
+            let response = database
+                .generate_thumbnail_with_adapter(
+                    1,
+                    &StubCaptureAdapter {
+                        response: Err("markdown must not call the capture adapter".to_string()),
+                    },
+                )
+                .expect("generate");
+            assert_eq!(response.thumbnail.status, "ready", "fixture {file_name}");
+            // key / render kind 契约：md-default:<title-hash>:title-parser-v1:default-cover-v5。
+            let expected_key = markdown_default_cover_key(&content_hash(&expected_title));
+            assert_eq!(
+                response.expected_key.as_deref(),
+                Some(expected_key.as_str()),
+                "fixture {file_name}"
+            );
+            assert_eq!(
+                response.thumbnail.render_kind.as_deref(),
+                Some(RENDER_KIND_MARKDOWN_DEFAULT_COVER),
+                "fixture {file_name}"
+            );
+            // 封面展示与 key 同源的标题（长标题至少展示开头部分），无陈旧标题泄漏。
+            let thumb_path = response.thumbnail.path.expect("path");
+            let svg = fs::read_to_string(&thumb_path).expect("read svg");
+            let prefix: String = expected_title.chars().take(6).collect();
+            assert!(
+                svg.contains(&prefix),
+                "fixture {file_name}: cover must contain disk title prefix {prefix:?}"
+            );
+            assert!(
+                !svg.contains("Stale"),
+                "fixture {file_name}: cover must not contain stale titles"
+            );
+            // 只清理临时 DB 目录；fixture 文件原地保留。
+            let _ = fs::remove_dir_all(db_path.parent().expect("parent"));
+        }
+    }
+
+    /// 阻塞 2：生成阶段（B4：Markdown 静态 SVG 封面在内存中生成前）期间，
+    /// 另一个数据库连接必须能完成写事务。hook 覆盖的是 claim 之后、SVG 生成的
+    /// 纯内存边界（不调用 Chromium / adapter）——若该阶段仍持有事务/连接锁，
+    /// 写会 SQLITE_BUSY。
     #[test]
     fn source_preparation_does_not_hold_database_write_transaction() {
         with_fake_chromium_env(|| {

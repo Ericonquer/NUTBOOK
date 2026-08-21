@@ -2398,6 +2398,22 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     window.addEventListener("resize", scheduleTableToolbarUpdate);
   }
 
+  function teardownTableToolbar() {
+    if (tableToolbarFrame) {
+      cancelAnimationFrame(tableToolbarFrame);
+      tableToolbarFrame = null;
+    }
+    if (!tableToolbar) return;
+    ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
+      root.removeEventListener(eventName, scheduleTableToolbarUpdate, true);
+    });
+    window.removeEventListener("scroll", scheduleTableToolbarUpdate, true);
+    window.removeEventListener("resize", scheduleTableToolbarUpdate);
+    tableToolbar.remove();
+    tableToolbar = null;
+    tableToolbarVisible = false;
+  }
+
   function hideTableToolbar() {
     if (!tableToolbar) return;
     tableToolbar.classList.remove("visible");
@@ -2553,6 +2569,16 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     hasChanges() {
       return hasDocumentChanges || userInteracted;
     },
+    setTableToolsEnabled(enabled) {
+      if (destroyed) return;
+      tableToolsEnabled = Boolean(enabled);
+      if (tableToolsEnabled) {
+        setupTableToolbar();
+        scheduleTableToolbarUpdate();
+      } else {
+        teardownTableToolbar();
+      }
+    },
     undo() {
       return runHistoryCommand(undo);
     },
@@ -2641,19 +2667,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         codeLanguageLayer.remove();
         codeLanguageLayer = null;
       }
-      if (tableToolbarFrame) {
-        cancelAnimationFrame(tableToolbarFrame);
-        tableToolbarFrame = null;
-      }
-      if (tableToolbar) {
-        ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
-          root.removeEventListener(eventName, scheduleTableToolbarUpdate, true);
-        });
-        window.removeEventListener("scroll", scheduleTableToolbarUpdate, true);
-        window.removeEventListener("resize", scheduleTableToolbarUpdate);
-        tableToolbar.remove();
-        tableToolbar = null;
-      }
+      teardownTableToolbar();
       if (insertMenuFrame) {
         cancelAnimationFrame(insertMenuFrame);
         insertMenuFrame = null;

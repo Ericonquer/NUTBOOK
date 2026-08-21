@@ -785,6 +785,16 @@ assert.match(
 );
 assert.match(
   markdownEditor,
+  /setTableToolsEnabled\(enabled\)[\s\S]*?setupTableToolbar\(\)[\s\S]*?teardownTableToolbar\(\)/,
+  "live Markdown sessions must apply table-tool preference changes without rebuilding PM history"
+);
+assert.match(
+  indexHtml,
+  /if \(key === "tableToolsEnabled"\)[\s\S]*?markdownEditorSessions\.values\(\)[\s\S]*?setTableToolsEnabled\?\.\(value\)/,
+  "the host must propagate table-tool preference changes to every open Markdown session"
+);
+assert.match(
+  markdownEditor,
   /ctx\.set\(defaultValueCtx, editorMarkdown\);/,
   "Milkdown default value should receive markdown body without frontmatter"
 );
@@ -1847,7 +1857,7 @@ assert.match(
 //      队列被接管（runId 改变）时必须取消停止，不得继续处理并以绿色"成功 N/M"收尾。
 assert.match(
   indexHtml,
-  /async function rebuildThumbnailsForItems\(items, \{ onProgress \} = \{\}\)[\s\S]*?const runId = \+\+appState\.thumbnailQueueRunId[\s\S]*?waitForThumbnailSlot\(item\.id, runId\)[\s\S]*?pendingThumbnailIds\.add\(item\.id\)[\s\S]*?generateThumbnailOnce\(item, runId\)[\s\S]*?outcome\.reason === "canceled"[\s\S]*?canceled \+= 1; break/,
+  /async function rebuildThumbnailsForItems\(items, options\)[\s\S]*?const runId = \+\+appState\.thumbnailQueueRunId[\s\S]*?waitForThumbnailSlot\(item\.id, runId\)[\s\S]*?pendingThumbnailIds\.add\(item\.id\)[\s\S]*?generateThumbnailOnce\(item, runId\)[\s\S]*?outcome\.reason === "canceled"[\s\S]*?canceled \+= 1; break/,
   "rebuild must own an exclusive runId, wait for the previous slot owner, and stop counting on canceled"
 );
 assert.match(
@@ -2539,9 +2549,15 @@ assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try 
 //    单卡替换、stale preview 清空；失败切换 placeholder、用缩略图专用文案（不覆盖保存状态）。
 {
   const ensureSrc = extractFunctionSource(indexHtml, "async function ensureDocumentThumbnails(items, options) {");
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const queueSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
   async function runEnsure(mode) {
     return new Function(`
       ${ensureSrc}
+      ${engineSrc}
+      ${needsSrc}
+      ${queueSrc}
       const t = (key) => key;
       const statuses = [];
       const setStatus = (message, tone) => statuses.push({ message, tone });
@@ -2554,6 +2570,7 @@ assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try 
       const delay = async () => {};
       const appState = {
         items: [],
+        thumbnailBackendStatus: { screenshotAvailable: true },
         pendingThumbnailIds: new Set(),
         thumbnailQueueRunId: 0,
         thumbnailQueueActive: false,
@@ -2603,9 +2620,15 @@ assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try 
 {
   const waitSrc = extractFunctionSource(indexHtml, "async function waitForThumbnailSlot(itemId, runId) {");
   const ensureSrc = extractFunctionSource(indexHtml, "async function ensureDocumentThumbnails(items, options) {");
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const queueSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
   const result = await new Function(`
     ${waitSrc}
     ${ensureSrc}
+    ${engineSrc}
+    ${needsSrc}
+    ${queueSrc}
     const t = (key) => key;
     const statuses = [];
     const setStatus = (message, tone) => statuses.push({ message, tone });
@@ -2617,6 +2640,7 @@ assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try 
     const item = { id: 7, fileType: "html", pathState: "valid", thumbnail: null };
     const appState = {
       items: [item],
+      thumbnailBackendStatus: { screenshotAvailable: true },
       pendingThumbnailIds: new Set([7]),
       thumbnailQueueRunId: 10,
       thumbnailQueueActive: true,
@@ -2654,6 +2678,112 @@ assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try 
   assert.equal(result.staleEntry, undefined, "latest ready must clear the stale preview after handoff");
   assert.equal(result.thumbnail?.path, "latest.png");
 }
+
+// PR B / B4 审查阻塞 1：用户主动重建必须包含 ready 项（强制目标），
+// 自动补缺队列不得退化为每次都重建 ready 官方封面。
+{
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const autoSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
+  const forceSrc = extractFunctionSource(indexHtml, "function thumbnailForceRebuildTargets(items) {");
+  const run = new Function(`
+    ${engineSrc}
+    ${needsSrc}
+    ${autoSrc}
+    ${forceSrc}
+    const supportsGeneratedThumbnail = (item) => item.fileType === "html" || item.fileType === "markdown";
+    const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+    const appState = { thumbnailBackendStatus: { screenshotAvailable: true } };
+    const engine = (available) => { appState.thumbnailBackendStatus = { screenshotAvailable: available }; };
+    const readyMd = { id: 1, fileType: "markdown", pathState: "valid", thumbnail: { status: "ready", renderKind: "markdown-default-cover", desiredKey: "md-default:abc:title-parser-v1:default-cover-v5" } };
+    const readyHtml = { id: 2, fileType: "html", pathState: "valid", thumbnail: { status: "ready", renderKind: "html-screenshot", desiredKey: "html:abc:html-card-v1" } };
+    const items = [readyMd, readyHtml];
+    const autoOn = thumbnailAutoQueueTargets(items);
+    const forceOn = thumbnailForceRebuildTargets(items);
+    engine(false);
+    const autoOff = thumbnailAutoQueueTargets(items);
+    const forceOff = thumbnailForceRebuildTargets(items);
+    return {
+      readyMdNeedsGeneration: thumbnailNeedsGeneration(readyMd),
+      autoOn: autoOn.targets.map((item) => item.id),
+      forceOn: forceOn.targets.map((item) => item.id),
+      forceOnSkipped: forceOn.skippedHtml,
+      autoOff: autoOff.targets.map((item) => item.id),
+      forceOff: forceOff.targets.map((item) => item.id),
+      forceOffSkipped: forceOff.skippedHtml
+    };
+  `)();
+  assert.equal(run.readyMdNeedsGeneration, false, "a current ready markdown cover must not need auto generation");
+  assert.deepEqual(run.autoOn, [], "auto queue must not re-generate ready official covers");
+  assert.deepEqual(run.forceOn, [1, 2], "force rebuild must include ready markdown AND ready html when the engine is available");
+  assert.equal(run.forceOnSkipped, 0);
+  assert.deepEqual(run.autoOff, [], "auto queue must stay empty for ready covers even without an engine");
+  assert.deepEqual(run.forceOff, [1], "force rebuild must still include ready markdown without an engine");
+  assert.equal(run.forceOffSkipped, 1, "ready html must be skipped (counted) without an engine");
+}
+
+// B4 审查阻塞 1（可执行完整链路）：rebuildThumbnailsForItems 对已 ready 的
+// Markdown/HTML 必须真正调用 generate_thumbnail；引擎不可用时 Markdown 仍调用、
+// HTML 计入 skipped。
+{
+  const rebuildSrc = extractFunctionSource(indexHtml, "async function rebuildThumbnailsForItems(items, options) {");
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const autoSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
+  const forceSrc = extractFunctionSource(indexHtml, "function thumbnailForceRebuildTargets(items) {");
+  const makeRun = (engineAvailable) => new Function(`
+    ${rebuildSrc}
+    ${engineSrc}
+    ${needsSrc}
+    ${autoSrc}
+    ${forceSrc}
+    const t = (key) => key;
+    const statuses = [];
+    const setStatus = (message, tone) => statuses.push({ message, tone });
+    const openSettingsTab = () => {};
+    const thumbnailProgressMessage = () => "progress";
+    const supportsGeneratedThumbnail = (item) => item.fileType === "html" || item.fileType === "markdown";
+    const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+    const waitForThumbnailSlot = async () => true;
+    const delay = async () => {};
+    const renderItems = () => {};
+    const renderSettingsPanel = () => {};
+    const appState = { thumbnailBackendStatus: { screenshotAvailable: ${engineAvailable} }, thumbnailQueueRunId: 0, thumbnailQueueActive: false, pendingThumbnailIds: new Set() };
+    const generated = [];
+    const generateThumbnailOnce = async (item) => { generated.push(item.id); return { ok: true, reason: "applied" }; };
+    const items = [
+      { id: 1, fileType: "markdown", pathState: "valid", thumbnail: { status: "ready", renderKind: "markdown-default-cover", desiredKey: "md-default:abc:title-parser-v1:default-cover-v5" } },
+      { id: 2, fileType: "html", pathState: "valid", thumbnail: { status: "ready", renderKind: "html-screenshot", desiredKey: "html:abc:html-card-v1" } }
+    ];
+    return rebuildThumbnailsForItems(items, {}).then((result) => ({ generated, result }));
+  `);
+  const withEngine = await makeRun(true)();
+  assert.deepEqual(
+    withEngine.generated.sort(),
+    [1, 2],
+    "force rebuild must invoke generate_thumbnail for ready markdown AND ready html when the engine is available"
+  );
+  assert.equal(withEngine.result.skipped, 0);
+  const withoutEngine = await makeRun(false)();
+  assert.deepEqual(
+    withoutEngine.generated,
+    [1],
+    "force rebuild must still invoke generate_thumbnail for ready markdown without an engine"
+  );
+  assert.equal(withoutEngine.result.skipped, 1, "ready html must be skipped without an engine");
+}
+
+// B4 结构断言：rebuildThumbnailsForItems 走强制目标；设置页反馈写 settingsThumbnailFeedback。
+assert.match(
+  indexHtml,
+  /async function rebuildThumbnailsForItems\(items, options\)[\s\S]*?thumbnailForceRebuildTargets\(items\)/,
+  "rebuild must use the force-rebuild target (all supported items), not the auto-backfill target"
+);
+assert.match(
+  indexHtml,
+  /function showThumbnailRebuildResult\(result, successMessage\)[\s\S]*?setThumbnailSettingsFeedback\(/,
+  "rebuild result must surface inline feedback in settingsThumbnailFeedback"
+);
 
 // PR B / Task B3: unified Markdown document title source of truth.
 const documentTitleAsset = readFileSync("dist/assets/markdown-document-title.js", "utf8");
@@ -2793,6 +2923,57 @@ assert.match(
   saveMarkdownTabRenderBranch[0],
   /setTitleInputValue\(\s*titleInput\s*,[\s\S]*?markdownDocumentTitle/,
   "renderAfter 分支必须刷新标题输入框 value（经 setTitleInputValue 对齐编辑栈）"
+);
+
+// B3 follow-up（切换标签后保存前历史丢失）：打开的 Markdown tab 必须保留
+// 真实 Milkdown/PM 会话；renderViewer 只能 detach，关闭 tab 才 destroy。
+assert.match(
+  indexHtml,
+  /markdownEditorSessions:\s*new Map\(\)/,
+  "open Markdown tabs must own isolated live editor sessions"
+);
+const suspendMarkdownSessionSection = indexFunctionSection("suspendActiveMarkdownEditor", "destroyMarkdownEditorSession");
+assert.match(
+  suspendMarkdownSessionSection,
+  /session\.card\?\.remove\?\.\(\)/,
+  "tab switching must detach the live editor card instead of destroying PM history"
+);
+assert.doesNotMatch(
+  suspendMarkdownSessionSection,
+  /\.destroy\?\.\(/,
+  "suspending an open tab must never destroy its editor"
+);
+const destroyMarkdownSessionSection = indexFunctionSection("destroyMarkdownEditorSession", "destroyAllMarkdownEditorSessions");
+assert.match(
+  destroyMarkdownSessionSection,
+  /session\.editor\.destroy\?\.\(\)[\s\S]*?markdownEditorSessions\.delete\(tabId\)/,
+  "closing a tab must destroy and remove exactly that editor session"
+);
+const renderViewerSessionStart = indexHtml.indexOf("function renderViewer() {");
+const renderViewerSessionEnd = indexHtml.indexOf("function cleanupRuntimeHostSync", renderViewerSessionStart + 1);
+assert.ok(renderViewerSessionStart >= 0 && renderViewerSessionEnd > renderViewerSessionStart, "renderViewer session section must exist");
+const renderViewerSessionSection = indexHtml.slice(renderViewerSessionStart, renderViewerSessionEnd);
+assert.match(
+  renderViewerSessionSection,
+  /captureActiveMarkdownDraft\(\)[\s\S]*?suspendActiveMarkdownEditor\(\)/,
+  "renderViewer must capture then suspend the active Markdown session"
+);
+assert.doesNotMatch(
+  renderViewerSessionSection.slice(0, renderViewerSessionSection.indexOf('if (tab?.preview?.fileType !== "html-runtime")')),
+  /cleanupMarkdownEditor\(\)|destroyMarkdownEditorSession\(/,
+  "ordinary viewer rerenders must not destroy Markdown history"
+);
+const mountMarkdownSessionSection = indexFunctionSection("mountMarkdownEditor", "focusMarkdownEditorFromPendingSelection");
+assert.match(
+  mountMarkdownSessionSection,
+  /markdownEditorSessions\.get\(expectedTabId\)[\s\S]*?placeholderCard\.replaceWith\(preservedSession\.card\)[\s\S]*?activeMarkdownEditor = preservedSession\.editor/,
+  "returning to an open tab must reattach the exact editor instance"
+);
+const closeOpenTabSessionSection = indexFunctionSection("closeOpenTab", "setSidebarCollapsed");
+assert.match(
+  closeOpenTabSessionSection,
+  /destroyMarkdownEditorSession\(tab\.id\)/,
+  "closing a Markdown tab must end its editor-session history boundary"
 );
 
 // B3 P0（标题输入框聚焦未 blur 时应用退出/关闭丢失标题）：退出确认与关闭

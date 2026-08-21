@@ -6799,6 +6799,11 @@
         markdownEditorLoadPromise: null,
         activeMarkdownEditor: null,
         activeMarkdownEditorTabId: null,
+        // One live Milkdown/ProseMirror instance per open Markdown tab.  A tab
+        // switch detaches its content card from the viewer but deliberately keeps the
+        // editor instance (and therefore the real PM history plugin state)
+        // alive.  Closing the tab is the lifecycle boundary that destroys it.
+        markdownEditorSessions: new Map(),
         markdownEditorMountToken: 0,
         markdownOutlineRefreshTimer: null,
         markdownEditScrollTop: 0,
@@ -10061,13 +10066,57 @@
           .join("");
       }
 
-      function cleanupMarkdownEditor() {
+      function suspendActiveMarkdownEditor() {
         hideMarkdownLinkTooltip();
         appState.markdownEditorMountToken += 1;
         if (!appState.activeMarkdownEditor) return;
+        const tabId = appState.activeMarkdownEditorTabId;
+        const session = appState.markdownEditorSessions.get(tabId);
+        if (session?.editor === appState.activeMarkdownEditor) {
+          try {
+            session.editor.blur?.();
+          } catch (_) {
+          }
+          // Detach the whole content card before viewerBody.innerHTML is
+          // replaced. Keeping this exact card preserves the EditorView plus
+          // its title-input and card-level listeners; serializing Markdown
+          // alone cannot preserve PM history or selection.
+          session.card?.remove?.();
+        }
+        appState.activeMarkdownEditor = null;
+        appState.activeMarkdownEditorTabId = null;
+      }
+
+      function destroyMarkdownEditorSession(tabId) {
+        if (tabId == null) return;
+        appState.markdownEditorMountToken += 1;
+        const session = appState.markdownEditorSessions.get(tabId);
+        if (!session) {
+          if (appState.activeMarkdownEditorTabId === tabId) {
+            appState.activeMarkdownEditor = null;
+            appState.activeMarkdownEditorTabId = null;
+          }
+          return;
+        }
         try {
-          appState.activeMarkdownEditor.destroy?.();
+          session.editor.destroy?.();
         } catch (_) {
+        }
+        appState.markdownEditorSessions.delete(tabId);
+        if (appState.activeMarkdownEditorTabId === tabId) {
+          appState.activeMarkdownEditor = null;
+          appState.activeMarkdownEditorTabId = null;
+        }
+      }
+
+      function destroyAllMarkdownEditorSessions() {
+        appState.markdownEditorMountToken += 1;
+        for (const [tabId, session] of appState.markdownEditorSessions) {
+          try {
+            session.editor.destroy?.();
+          } catch (_) {
+          }
+          appState.markdownEditorSessions.delete(tabId);
         }
         appState.activeMarkdownEditor = null;
         appState.activeMarkdownEditorTabId = null;
@@ -10416,6 +10465,31 @@
         try {
           appState.markdownEditorError = "";
           setStatus(t("markdown.loadingEditorStatus"), "warn");
+          const preservedSession = appState.markdownEditorSessions.get(expectedTabId);
+          if (preservedSession?.editor && preservedSession.root && preservedSession.card) {
+            if (!root.isConnected || appState.activeTabId !== expectedTabId) return;
+            const placeholderCard = root.closest(".content-card");
+            if (!placeholderCard) return;
+            placeholderCard.replaceWith(preservedSession.card);
+            preservedSession.card.classList.toggle("markdown-code-theme-light", appState.markdownPreferences.codeBlockTheme === "light");
+            preservedSession.card.classList.toggle("markdown-code-theme-dark", appState.markdownPreferences.codeBlockTheme !== "light");
+            appState.activeMarkdownEditor = preservedSession.editor;
+            appState.activeMarkdownEditorTabId = expectedTabId;
+            preservedSession.card.classList.add("editor-ready");
+            window.requestAnimationFrame(() => setupMarkdownOutline(preservedSession.card));
+            setStatus(isMarkdownTabDirty(tab) ? t("markdown.dirty") : t("markdown.ready"), isMarkdownTabDirty(tab) ? "warn" : "ok");
+            window.requestAnimationFrame(() => {
+              restoreMarkdownScroll(tab, markdownScrollForTab(tab) || 0);
+              if (appState.markdownEditorShouldFocus) {
+                appState.markdownEditorShouldFocus = false;
+                preservedSession.editor.focus?.();
+              } else {
+                preservedSession.editor.blur?.();
+              }
+            });
+            logMarkdownPerf("editor-resumed", mountStartedAt, tab.item?.fileName || "");
+            return;
+          }
           const apiStartedAt = performance.now();
           const api = await loadMarkdownEditorApi();
           logMarkdownPerf("api-ready", apiStartedAt, tab.item?.fileName || "");
@@ -10467,6 +10541,11 @@
             editor.destroy?.();
             return;
           }
+          appState.markdownEditorSessions.set(expectedTabId, {
+            root,
+            card: root.closest(".content-card"),
+            editor
+          });
           appState.activeMarkdownEditor = editor;
           appState.activeMarkdownEditorTabId = expectedTabId;
           tab.markdownBaseline = editor.getBaselineMarkdown?.() ?? content;
@@ -10676,8 +10755,61 @@
         return t("settings.thumbnailEngineAvailable");
       }
 
-      function canGenerateDocumentThumbnails() {
+      // B4 引擎能力拆分：Markdown 默认封面由 Rust 直接生成确定性 SVG，
+      // **不依赖截图引擎**；只有 HTML 截图（html-screenshot）需要 Chromium。
+      function thumbnailScreenshotEngineAvailable() {
         return Boolean(appState.thumbnailBackendStatus?.screenshotAvailable);
+      }
+
+      function canGenerateDocumentThumbnails() {
+        return thumbnailScreenshotEngineAvailable();
+      }
+
+      // 某 item 当前是否需要（重新）生成缩略图：只按真实状态判断
+      // （status / renderKind / desiredKey），不再用 data:image/svg+xml 前缀——
+      // B4 的官方 Markdown 默认封面是真实 .svg 缓存文件路径，不是 placeholder。
+      function thumbnailNeedsGeneration(item) {
+        if (!supportsGeneratedThumbnail(item) || isItemPathMissing(item)) return false;
+        const thumb = item.thumbnail;
+        if (!thumb || thumb.status !== "ready") return true;
+        // render kind 必须精确匹配当前正式路径；markdown-html-screenshot（已退休）、
+        // placeholder、缺失等任何其他 kind 一律按"需要重建"处理。
+        const expectedKind = item.fileType === "html" ? "html-screenshot" : "markdown-default-cover";
+        if (thumb.renderKind !== expectedKind) return true;
+        // 兜底：旧 md-screenshot 过渡缓存（B1-B3）若仍以 ready 泄漏，按默认封面重建。
+        if (
+          item.fileType === "markdown" &&
+          typeof thumb.desiredKey === "string" &&
+          thumb.desiredKey.startsWith("md-screenshot:")
+        ) {
+          return true;
+        }
+        return false;
+      }
+
+      // 自动补缺队列目标：只处理 missing / stale / 错误 render kind / 旧 key 的项。
+      // HTML 项只有在引擎可用时才进入队列；引擎不可用时被跳过（Markdown 照常）。
+      function thumbnailAutoQueueTargets(items) {
+        const needs = items.filter(thumbnailNeedsGeneration);
+        const engineBlocked = !thumbnailScreenshotEngineAvailable();
+        if (!engineBlocked) return { targets: needs, skippedHtml: 0 };
+        const targets = needs.filter((item) => item.fileType !== "html");
+        const skippedHtml = needs.length - targets.length;
+        return { targets, skippedHtml };
+      }
+
+      // 用户主动重建目标：处理**所有**支持的、路径有效的 Markdown/HTML——不因当前
+      // thumbnail 是 ready 就排除（审查阻塞 1）。无截图引擎时：所有 Markdown 仍进入
+      // 重建，HTML 跳过并计入 skippedHtml；有引擎时 HTML 与 Markdown 都重建。
+      function thumbnailForceRebuildTargets(items) {
+        const supported = items.filter(
+          (item) => supportsGeneratedThumbnail(item) && !isItemPathMissing(item)
+        );
+        const engineBlocked = !thumbnailScreenshotEngineAvailable();
+        if (!engineBlocked) return { targets: supported, skippedHtml: 0 };
+        const targets = supported.filter((item) => item.fileType !== "html");
+        const skippedHtml = supported.length - targets.length;
+        return { targets, skippedHtml };
       }
 
       function thumbnailProgressMessage(done, total, mode = t("status.thumbnailRefreshMode")) {
@@ -10732,10 +10864,16 @@
       }
 
       function showThumbnailRebuildResult(result, successMessage) {
-        if (!result || result.reason === "engine-disabled") {
+        if (!result) {
           const message = t("status.thumbnailEngineDisabled");
           setThumbnailSettingsFeedback(message, "error");
           return { message, tone: "error" };
+        }
+        if (result.reason === "engine-disabled") {
+          // 需要重建的只有 HTML 且引擎不可用：明确说明 Markdown 默认封面不受影响。
+          const message = t("status.thumbnailEngineUnavailableMarkdownOk");
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
         }
         if (result.reason === "no-documents") {
           const message = t("status.thumbnailNoDocuments");
@@ -10758,6 +10896,12 @@
           // 未归类的漏项也不能显示绿色成功。正常路径应保证每一项最终归入
           // completed / failed / canceled；这里是最后一道用户可见安全网。
           const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total}`;
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
+        }
+        if (result.skipped > 0) {
+          // 引擎不可用时 HTML 被跳过，Markdown 全部完成：部分成功 + 澄清文案。
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total} — ${t("status.thumbnailEngineUnavailableMarkdownOk")}`;
           setThumbnailSettingsFeedback(message, "warn");
           return { message, tone: "warn" };
         }
@@ -11442,6 +11586,11 @@
           ...appState.markdownPreferences,
           [key]: value
         };
+        if (key === "tableToolsEnabled") {
+          for (const session of appState.markdownEditorSessions.values()) {
+            session.editor.setTableToolsEnabled?.(value);
+          }
+        }
         saveMarkdownPreferences(appState.markdownPreferences);
         renderSettingsPanel();
         renderViewerPreservingMarkdownScroll();
@@ -11654,7 +11803,7 @@
         appState.language = i18n?.setLanguage?.(language) ?? language;
         clearPollutedSearchValues();
         getFileTypeFilter();
-        cleanupMarkdownEditor();
+        destroyAllMarkdownEditorSessions();
         if (els.settingsScrim?.classList.contains("open")) {
           renderSettingsPanel();
         }
@@ -14855,13 +15004,9 @@
               tab.isDirty = false;
             }
           }
+          destroyMarkdownEditorSession(tab.id);
           if (isClosingActiveTab) {
             appState.activeTabId = nextActiveTabId;
-          }
-          if (tab.id === appState.activeTabId) {
-            cleanupMarkdownEditor();
-          } else if (tab.id === appState.activeMarkdownEditorTabId) {
-            cleanupMarkdownEditor();
           }
         }
         if (tab?.preview?.fileType === "html-runtime") {
@@ -15113,6 +15258,7 @@
             appState.activeTabId = tabId;
             appState.isEditing = getOpenTab(tabId)?.preview?.fileType === "markdown";
             appState.markdownEditMode = "rich";
+            appState.markdownEditorShouldFocus = appState.isEditing;
             scheduleRuntimeCleanupAfterTabSwitch(previousTabId, tabId);
             renderTabs();
             renderViewer();
@@ -15429,18 +15575,21 @@
 
       async function ensureDocumentThumbnails(items, options) {
         const quiet = Boolean(options?.quiet);
-        if (!canGenerateDocumentThumbnails()) {
-          if (!quiet && thumbnailEngineNeedsAttention()) {
-            setStatus(t("status.thumbnailEngineDisabled"), "warn");
+        // B4：按真实状态取需要生成的项（自动补缺，不重建已 ready 的官方封面）；
+        // 引擎不可用时 HTML 项跳过，Markdown 默认封面仍排队生成（无引擎依赖）。
+        const { targets, skippedHtml } = thumbnailAutoQueueTargets(items);
+        if (!targets.length) {
+          if (!quiet) {
+            if (skippedHtml > 0) {
+              // 需要重建的只有 HTML 且引擎不可用：明确提示"引擎不可用但 Markdown 仍可生成"，
+              // 而不是笼统的"引擎未启用"。
+              setStatus(t("status.thumbnailEngineUnavailableMarkdownOk"), "warn");
+            } else if (thumbnailEngineNeedsAttention()) {
+              setStatus(t("status.thumbnailEngineDisabled"), "warn");
+            }
           }
           return;
         }
-        const targets = items.filter((item) =>
-          supportsGeneratedThumbnail(item) &&
-          !isItemPathMissing(item) &&
-          (!item.thumbnail?.path || item.thumbnail.path.startsWith("data:image/svg+xml"))
-        );
-        if (!targets.length) return;
 
         const runId = ++appState.thumbnailQueueRunId;
         appState.thumbnailQueueActive = true;
@@ -16136,7 +16285,7 @@ if (!chipTipController) {
         if (appState.activeMarkdownEditor) {
           captureMarkdownScrollForTab(getOpenTab(appState.activeMarkdownEditorTabId));
           captureActiveMarkdownDraft();
-          cleanupMarkdownEditor();
+          suspendActiveMarkdownEditor();
         }
         if (tab?.preview?.fileType !== "html-runtime") {
           appState.runtimeControlsOverlayExpanded = false;
@@ -16295,11 +16444,17 @@ if (!chipTipController) {
             </div>
           `;
           const markdownCard = els.viewerBody.querySelector(".content-card");
-          setupMarkdownOutline(markdownCard);
-          setupMarkdownCodeCopyButton(markdownCard);
-          setupMarkdownLinkHandling(markdownCard, tab);
-          setupMarkdownImageResources(markdownCard, tab);
-          setupMarkdownTitleInput(tab);
+          const hasPreservedMarkdownSession = !sourceMode && appState.markdownEditorSessions.has(tab.id);
+          // A resumed session brings back its original card, title input and
+          // card/root listeners. Binding the temporary placeholder here would
+          // attach duplicate outline toggles before the card is replaced.
+          if (!hasPreservedMarkdownSession) {
+            setupMarkdownOutline(markdownCard);
+            setupMarkdownCodeCopyButton(markdownCard);
+            setupMarkdownLinkHandling(markdownCard, tab);
+            setupMarkdownImageResources(markdownCard, tab);
+            setupMarkdownTitleInput(tab);
+          }
           restoreMarkdownScroll(tab, markdownScrollTop);
 
           const editorArea = document.getElementById("editorArea");
@@ -16319,22 +16474,24 @@ if (!chipTipController) {
           if (!sourceMode) {
             scheduleMarkdownEditorMount(tab);
           }
-          document.getElementById("milkdownEditorRoot")?.addEventListener("dblclick", () => {
-            appState.markdownEditorShouldFocus = true;
-            if (appState.activeMarkdownEditor?.focus) {
-              appState.activeMarkdownEditor.focus();
-              setStatus(t("markdown.focused"), "ok");
-            } else {
-              setStatus(t("markdown.loadingEditor"), "warn");
-            }
-          }, true);
-          document.getElementById("milkdownEditorRoot")?.addEventListener("pointerdown", (event) => {
-            if (event.detail < 2) return;
-            appState.markdownEditorShouldFocus = true;
-            if (appState.activeMarkdownEditor?.focus) {
-              appState.activeMarkdownEditor.focus();
-            }
-          }, true);
+          if (!hasPreservedMarkdownSession) {
+            document.getElementById("milkdownEditorRoot")?.addEventListener("dblclick", () => {
+              appState.markdownEditorShouldFocus = true;
+              if (appState.activeMarkdownEditor?.focus) {
+                appState.activeMarkdownEditor.focus();
+                setStatus(t("markdown.focused"), "ok");
+              } else {
+                setStatus(t("markdown.loadingEditor"), "warn");
+              }
+            }, true);
+            document.getElementById("milkdownEditorRoot")?.addEventListener("pointerdown", (event) => {
+              if (event.detail < 2) return;
+              appState.markdownEditorShouldFocus = true;
+              if (appState.activeMarkdownEditor?.focus) {
+                appState.activeMarkdownEditor.focus();
+              }
+            }, true);
+          }
           if (sourceMode) {
             updateMarkdownStatusHint(tab);
           }
@@ -17129,16 +17286,20 @@ if (!chipTipController) {
         }
       }
 
-      async function rebuildThumbnailsForItems(items, { onProgress } = {}) {
-        if (!canGenerateDocumentThumbnails()) {
-          setStatus(t("status.thumbnailEngineDisabled"), "warn");
-          openSettingsTab("thumbnails");
-          return { total: 0, completed: 0, failed: 0, canceled: 0, reason: "engine-disabled", lastError: null };
-        }
-        const thumbnailItems = items.filter(supportsGeneratedThumbnail);
+      async function rebuildThumbnailsForItems(items, options) {
+        const { onProgress } = options || {};
+        // B4：用户主动重建使用**强制目标**——所有支持的、路径有效的 Markdown/HTML
+        // 都重建，已 ready 的官方封面也重新生成（不再只处理 thumbnailNeedsGeneration）。
+        // 引擎不可用时 HTML 项跳过并计入 skippedHtml，Markdown 仍全量重建。
+        const { targets: thumbnailItems, skippedHtml } = thumbnailForceRebuildTargets(items);
         if (!thumbnailItems.length) {
+          if (skippedHtml > 0) {
+            setStatus(t("status.thumbnailEngineUnavailableMarkdownOk"), "warn");
+            openSettingsTab("thumbnails");
+            return { total: 0, completed: 0, failed: 0, canceled: 0, skipped: skippedHtml, reason: "engine-disabled", lastError: null };
+          }
           setStatus(t("status.thumbnailNoDocuments"), "warn");
-          return { total: 0, completed: 0, failed: 0, canceled: 0, reason: "no-documents", lastError: null };
+          return { total: 0, completed: 0, failed: 0, canceled: 0, skipped: 0, reason: "no-documents", lastError: null };
         }
 
         // 独占固定 runId（阻塞 5 修正）：手动重建与自动刷新互斥，谁后启动谁接管。
@@ -17196,7 +17357,7 @@ if (!chipTipController) {
         renderItems();
         renderSettingsPanel();
         const reason = canceled > 0 ? "canceled" : null;
-        return { total: thumbnailItems.length, completed, failed, canceled, reason, lastError };
+        return { total: thumbnailItems.length, completed, failed, canceled, skipped: skippedHtml, reason, lastError };
       }
 
       async function rebuildVisibleHtmlThumbnails() {
@@ -17300,7 +17461,6 @@ if (!chipTipController) {
         appState.isEditing = false;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
-        cleanupMarkdownEditor();
         setSidebarCollapsed(true);
         renderTabs();
         renderViewer();
@@ -17340,7 +17500,6 @@ if (!chipTipController) {
         appState.isEditing = true;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
-        cleanupMarkdownEditor();
         renderTabs();
         renderViewer();
         await loadItems();
@@ -17383,7 +17542,6 @@ if (!chipTipController) {
         appState.isEditing = false;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
-        cleanupMarkdownEditor();
         renderTabs();
         renderViewer();
         setStatus(markdownOpeningStatus(item?.fileName), "warn");
