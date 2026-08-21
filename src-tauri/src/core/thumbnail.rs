@@ -42,13 +42,6 @@ pub const HTML_SCREENSHOT_HEIGHT: i32 = 720;
 // markdown-image-cover / placeholder；placeholder 永远不能作为目标 render
 // kind 的 ready 成品。
 //
-// 重要边界（B1 审查修正）：B1 阶段 Markdown 仍走"临时 HTML → Chromium 截图"
-// 路径，必须使用独立的过渡 render kind（markdown-html-screenshot）与独立 key
-// 前缀（md-screenshot:），**不得**占用未来 B4 静态 SVG 默认封面的
-// md-default: key / markdown-default-cover render kind。否则旧截图缓存会在 B4
-// 上线后被当成新默认封面缓存，无法证明"旧截图缓存不能冒充新默认封面"。
-// ------------------------------------------------------------------
-
 pub const HTML_CARD_TEMPLATE_VERSION: &str = "html-card-v1";
 pub const TITLE_PARSER_VERSION: &str = "title-parser-v1";
 /// B4 编辑出版式 hover 安全区修正后 bump：旧 default-cover-v1 居中浅灰缓存、
@@ -56,11 +49,8 @@ pub const TITLE_PARSER_VERSION: &str = "title-parser-v1";
 /// 顶部横线缓存都不得再被读取为当前 ready，新 key 一律使用 v5。
 pub const DEFAULT_COVER_VERSION: &str = "default-cover-v5";
 pub const IMAGE_COVER_VERSION: &str = "image-cover-v1";
-/// B1 阶段 Markdown 临时截图的独立模板版本；B4 退休旧路径后此 key 前缀不再产生。
-pub const MARKDOWN_SCREENSHOT_VERSION: &str = "md-screenshot-v1";
 
 pub const RENDER_KIND_HTML_SCREENSHOT: &str = "html-screenshot";
-pub const RENDER_KIND_MARKDOWN_HTML_SCREENSHOT: &str = "markdown-html-screenshot";
 pub const RENDER_KIND_MARKDOWN_DEFAULT_COVER: &str = "markdown-default-cover";
 pub const RENDER_KIND_MARKDOWN_IMAGE_COVER: &str = "markdown-image-cover";
 pub const RENDER_KIND_PLACEHOLDER: &str = "placeholder";
@@ -146,12 +136,6 @@ pub fn markdown_default_cover_target(raw: &str, file_name: &str) -> MarkdownCove
 
 pub fn markdown_image_cover_key(cover_asset_hash: &str) -> String {
     format!("md-image:{cover_asset_hash}:{IMAGE_COVER_VERSION}")
-}
-
-/// B1 阶段 Markdown 临时 HTML→Chromium 截图的确定性 key：只依赖源内容 hash，
-/// 与未来 B4 的 md-default:<title-hash> 完全不同前缀，旧截图缓存无法冒充默认封面。
-pub fn markdown_screenshot_key(source_content_hash: &str) -> String {
-    format!("md-screenshot:{source_content_hash}:{MARKDOWN_SCREENSHOT_VERSION}")
 }
 
 /// placeholder 不是目标 render kind 的 ready 成品；ready 行必须携带真实 render kind。

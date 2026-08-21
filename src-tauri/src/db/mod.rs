@@ -908,7 +908,7 @@ impl Database {
     /// B1 读取安全边界：只有满足以下全部条件的行才作为有效 ready 成图返回：
     /// - status == ready；
     /// - render_kind **精确等于**该 file_type 的预期 kind（html-screenshot /
-    ///   markdown-html-screenshot）；placeholder、缺失、以及任意其他非空 render
+    ///   markdown-default-cover）；placeholder、缺失、以及任意其他非空 render
     ///   kind 一律拒绝，防止旧路径产物冒充当前路径的 ready；
     /// - 行内 desired_key / generated_from_key 都与当前计算的确定性 key 一致；
     /// - generated_from_hash（生成时的源内容 hash）== items.file_hash（当前 source revision）；
@@ -5291,9 +5291,9 @@ mod tests {
             );
             assert_ne!(default_key, old_key);
         }
-        // 已退休的 md-screenshot key（仅作历史缓存识别）必须与默认封面 key 完全不同前缀，
-        // 旧截图缓存无法冒充新默认封面。
-        let retired = crate::core::thumbnail::markdown_screenshot_key("hash-a");
+        // 已退休的 md-screenshot key 只作为历史数据字面量参与拒绝测试；生产代码
+        // 不再保留生成该 key 的函数或版本常量。
+        let retired = "md-screenshot:hash-a:md-screenshot-v1";
         assert!(retired.starts_with("md-screenshot:"));
         assert!(retired.ends_with(":md-screenshot-v1"));
         assert_ne!(default_key, retired);
