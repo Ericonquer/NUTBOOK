@@ -63,6 +63,18 @@ pub(crate) static GENERATION_CLAIM_HOOK: std::sync::Mutex<
     Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 > = std::sync::Mutex::new(None);
 
+// 测试 hook 的线程级"激活"标记：全局 hook 槽被多个测试共享，并行运行时一个测试
+// 设置的 hook 可能被另一个测试的 generate_thumbnail_with_adapter 流程触发（例如
+// save_between_snapshot_and_claim 的 CLAIM_HOOK 被其它测试触发后对 item 1 二次
+// invalidate，generation 被额外推进导致断言失败）。owner 测试在发起 generate 的
+// 线程上置位该标记，触发点只执行标记线程的 hook；非 hook 测试永不触发。
+#[cfg(test)]
+thread_local! {
+    pub(crate) static THUMBNAIL_HOOKS_ACTIVE: std::cell::Cell<bool> = const {
+        std::cell::Cell::new(false)
+    };
+}
+
 // ------------------------------------------------------------------
 // B1：durable source save 与索引同步的 reconciliation marker
 //
@@ -3069,8 +3081,10 @@ impl Database {
         // 从新 revision 倒退成旧值并额外推进 generation。
         #[cfg(test)]
         {
-            if let Some(hook) = crate::db::GENERATION_CLAIM_HOOK.lock().unwrap().as_ref() {
-                hook();
+            if crate::db::THUMBNAIL_HOOKS_ACTIVE.with(|active| active.get()) {
+                if let Some(hook) = crate::db::GENERATION_CLAIM_HOOK.lock().unwrap().as_ref() {
+                    hook();
+                }
             }
         }
 
@@ -3099,8 +3113,10 @@ impl Database {
             // 不阻塞写事务。
             #[cfg(test)]
             {
-                if let Some(hook) = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap().as_ref() {
-                    hook();
+                if crate::db::THUMBNAIL_HOOKS_ACTIVE.with(|active| active.get()) {
+                    if let Some(hook) = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap().as_ref() {
+                        hook();
+                    }
                 }
             }
             let file_name = std::path::Path::new(&snapshot.canonical_path)

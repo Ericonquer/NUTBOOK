@@ -78,6 +78,13 @@ mod tests {
 
     static THUMBNAIL_ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    // 全局 GENERATION_*_HOOK 槽被多个测试共享：并行时一个测试设置的 hook 会被
+    // 另一个测试的 generate_thumbnail_with_adapter 流程触发（hook 闭包固定操作
+    // 各自测试的数据库，导致对方 generation/断言错乱）。持有该 guard 的测试
+    // 独占 hook 槽，配合 db::THUMBNAIL_HOOKS_ACTIVE 线程标记，非 hook 测试的
+    // generate 调用永不触发任何 hook。必须覆盖 spawn/join 全程。
+    static HOOK_TEST_GUARD: Mutex<()> = Mutex::new(());
+
     fn temp_dir() -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1735,6 +1742,7 @@ mod tests {
     /// 已有同标题 ready 封面不被错误清除，generation 不额外推进。
     #[test]
     fn body_only_save_with_in_flight_task_discards_stale_task_and_keeps_ready() {
+        let _hook_guard = HOOK_TEST_GUARD.lock().unwrap();
         let (database, source, db_path) = setup_markdown_item();
         database
             .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
@@ -1758,6 +1766,7 @@ mod tests {
         }
         let db_g = database.clone();
         let in_flight = std::thread::spawn(move || {
+            crate::db::THUMBNAIL_HOOKS_ACTIVE.with(|active| active.set(true));
             db_g.generate_thumbnail_with_adapter(
                 1,
                 &StubCaptureAdapter {
@@ -2411,6 +2420,7 @@ mod tests {
     /// 写会 SQLITE_BUSY。
     #[test]
     fn source_preparation_does_not_hold_database_write_transaction() {
+        let _hook_guard = HOOK_TEST_GUARD.lock().unwrap();
         with_fake_chromium_env(|| {
             let (database, source, db_path) = setup_markdown_item();
             let hook_ran = Arc::new(AtomicBool::new(false));
@@ -2438,6 +2448,7 @@ mod tests {
 
             let db_g = database.clone();
             let generation = std::thread::spawn(move || {
+                crate::db::THUMBNAIL_HOOKS_ACTIVE.with(|active| active.set(true));
                 db_g.generate_thumbnail_with_adapter(
                     1,
                     &StubCaptureAdapter {
@@ -2798,6 +2809,7 @@ mod tests {
     /// desired_key 从新 revision 倒退成旧值，也不能额外推进 generation。
     #[test]
     fn save_between_snapshot_and_claim_supersedes_old_snapshot() {
+        let _hook_guard = HOOK_TEST_GUARD.lock().unwrap();
         with_fake_chromium_env(|| {
             let (database, source, db_path) = setup_html_item();
             let source_str = source.to_string_lossy().to_string();
@@ -2839,6 +2851,7 @@ mod tests {
 
             let db_g = database.clone();
             let generation = std::thread::spawn(move || {
+                crate::db::THUMBNAIL_HOOKS_ACTIVE.with(|active| active.set(true));
                 db_g.generate_thumbnail_with_adapter(
                     1,
                     &StubCaptureAdapter {
