@@ -23,6 +23,17 @@ pub trait ItemRepository {
         raw_text: &str,
         rendered_cache: &str,
     ) -> Result<(), AppError>;
+    /// B1：按 item_id + canonical_path 精确更新 revision，并在同一短事务把旧缩略图
+    /// 设为 stale、递增持久化 generation。不依赖 owner library 或 source_kind；
+    /// ordinary、agent_project 独占、shared item 都可用。
+    fn update_item_revision_and_invalidate(
+        &self,
+        item_id: i64,
+        canonical_path: &str,
+        source_hash: &str,
+        modified_at: &str,
+        file_size: i64,
+    ) -> Result<(), AppError>;
     fn list_ignored_items(&self) -> Result<Vec<IgnoredItemSummary>, AppError>;
     fn restore_ignored_item(&self, item_id: i64) -> Result<(), AppError>;
     fn remove_item_from_nutbook(&self, item_id: i64, now: &str) -> Result<(), AppError>;

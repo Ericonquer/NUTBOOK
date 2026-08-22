@@ -3,6 +3,7 @@ use std::fs;
 use sha2::{Digest, Sha256};
 
 use crate::{
+    core::document_title::DocumentTitle,
     errors::AppError,
     models::{HtmlPreviewPayload, ItemDetail, MarkdownPreviewPayload, PreviewPayload},
 };
@@ -873,26 +874,12 @@ fn markdown_heading(line: &str) -> Option<(usize, &str)> {
     Some((level, rest))
 }
 
-pub fn markdown_h1_title(raw: &str) -> Option<String> {
-    markdown_body_without_frontmatter(raw)
-        .lines()
-        .map(str::trim)
-        .filter_map(|line| match markdown_heading(line) {
-            Some((1, title)) => {
-                let title = title.trim();
-                if title.is_empty() {
-                    None
-                } else {
-                    Some(title.to_string())
-                }
-            }
-            _ => None,
-        })
-        .next()
-}
-
+/// 权威 Markdown 文档标题（兼容包装，语义见 [`DocumentTitle`]）。
+///
+/// B3 起标题语义统一由 `DocumentTitle::parse` 提供；本函数保留旧签名供
+/// preview/导出等既有调用点使用，不再维护独立的行扫描解析。
 pub fn markdown_document_title(raw: &str, fallback_file_name: &str) -> String {
-    markdown_h1_title(raw).unwrap_or_else(|| fallback_file_name.to_string())
+    DocumentTitle::parse(raw, fallback_file_name).display_text
 }
 
 pub fn markdown_summary(raw: &str) -> String {

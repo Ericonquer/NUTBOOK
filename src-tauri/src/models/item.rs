@@ -21,6 +21,17 @@ pub struct ThumbnailInfo {
     pub height: Option<i32>,
     pub last_generated_at: Option<String>,
     pub error_message: Option<String>,
+    /// B1：当前期望的确定性 key（html:<hash>:html-card-vN / md-default:... / md-image:...）。
+    /// 列表/详情只把 desired_key + generation + generated_from_key + render_kind
+    /// 全部匹配的 ready 行当作有效成图返回。
+    #[serde(default)]
+    pub desired_key: Option<String>,
+    /// B1：持久化递增代号；旧任务晚到提交会被 generation 不匹配拒绝。
+    #[serde(default)]
+    pub generation: Option<i64>,
+    /// B1：html-screenshot | markdown-default-cover | markdown-image-cover | placeholder。
+    #[serde(default)]
+    pub render_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -495,8 +506,30 @@ pub struct SaveMarkdownContentResponse {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateThumbnailResponse {
     pub item_id: i64,
+    /// 生成任务开始时作为目标的 desired key。
+    #[serde(default)]
+    pub generated_from_key: Option<String>,
+    /// 任务完成时当前的 desired key；与 generated_from_key 不一致 = 任务已被丢弃。
+    #[serde(default)]
+    pub expected_key: Option<String>,
+    /// 任务快照的 generation；提交时与当前 generation 不一致会被拒绝。
+    #[serde(default)]
+    pub generation: i64,
+    /// true = 生成期间 desired key / generation 已变化，结果被丢弃，旧响应不得写回前端。
+    #[serde(default)]
+    pub discarded: bool,
     #[serde(flatten)]
     pub thumbnail: ThumbnailInfo,
+}
+
+/// 源文件 durable 落盘后索引同步的部分成功语义：
+/// source_saved 恒为 true；index_synchronized=false 时必须写入 reconciliation
+/// marker，绝不能把已落盘的保存伪装成失败。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DurableSaveSyncReport {
+    pub source_saved: bool,
+    pub index_synchronized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

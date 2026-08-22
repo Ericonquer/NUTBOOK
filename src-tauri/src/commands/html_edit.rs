@@ -353,12 +353,63 @@ pub fn commit_html_edit(
     };
     // The commit is already durable. A best-effort refresh must never turn it
     // into an apparent failed save that the user might retry.
-    let _ = crate::commands::library::scan_library_once(&state.database, library.id);
+    //
+    // B1（审查阻塞 6 修正）：durable-save 热路径**不**再调用 scan_library_once——
+    // 递归扫描对 HTML 不更新 file_hash，且 agent_project 等来源会因此触发多余
+    // 的 recursive replace。这里只按 item_id + canonical_path 做精确
+    // update/invalidate（ordinary、agent_project 独占、shared item 同一路径），
+    // 索引同步失败时写可重放 reconciliation marker，绝不伪装成保存失败。
+    //
+    // modified_at 必须是磁盘真实纳秒 mtime（file_modified_at_string）。stat 或
+    // canonical mtime 获取失败时**不**写入伪造的零纳秒 mtime——那会覆盖
+    // scan 刚写入的真实纳秒值，导致读取路径的 mtime 校验永远拒绝该 item 的 ready。
+    // mtime 不可用时索引同步进入 pending（marker 重放时重新 stat/read/hash 磁盘）。
+    let saved_modified_at = std::fs::metadata(&item.summary.file_path)
+        .ok()
+        .and_then(|metadata| crate::core::document::file_modified_at_string(&metadata).ok());
+    let sync = state.database.sync_item_revision_after_durable_save(
+        item.summary.id,
+        &item.summary.file_path,
+        &committed.source_file_hash,
+        saved_modified_at.as_deref(),
+        committed.source_size as i64,
+    );
+    if !sync.index_synchronized {
+        // 部分成功：source 已 durable，索引待同步（marker 已写入，list/启动重放）。
+        // 绝不能把已落盘的保存伪装成失败。
+        eprintln!(
+            "Nutbook: HTML save indexed pending for item {} (reconciliation marker written)",
+            item.summary.id
+        );
+    }
+    // B2：index_synchronized=true 时才把当前 desired key / generation 带回前端，
+    // 使其无需二次 list 即可为当前 item 排队最新 generation（保存流程不等待 Chromium）。
+    // false 时 revision 不确定，desired key 必须为 None，禁止拿不确定 revision 截图。
+    let (desired_key, generation) = if sync.index_synchronized {
+        state
+            .database
+            .thumbnail_queue_state(item.summary.id)
+            .ok()
+            .flatten()
+            .map(|(key, generation)| (key, Some(generation)))
+            .unwrap_or((None, None))
+    } else {
+        (None, None)
+    };
     Ok(CommitHtmlEditResponse {
+        source_saved: sync.source_saved,
+        index_synchronized: sync.index_synchronized,
         source_file_hash: committed.source_file_hash,
         source_modified_at: committed.source_modified_at,
         source_size: committed.source_size,
         normalized_changes: committed.normalized_changes,
+        desired_key,
+        generation,
+        warning: if sync.index_synchronized {
+            None
+        } else {
+            Some("index-pending".to_string())
+        },
     })
 }
 

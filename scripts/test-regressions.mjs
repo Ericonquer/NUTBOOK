@@ -20,6 +20,7 @@ const htmlRuntimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8
 const previewCommandsRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
 const itemCommandsRust = readFileSync("src-tauri/src/commands/items.rs", "utf8");
 const htmlEditCommandsRust = readFileSync("src-tauri/src/commands/html_edit.rs", "utf8");
+const srcTauriCargoToml = readFileSync("src-tauri/Cargo.toml", "utf8");
 const mainRust = readFileSync("src-tauri/src/main.rs", "utf8");
 const skillDiscoveryRust = readFileSync("src-tauri/src/core/skill_discovery.rs", "utf8");
 const agentProjectsRust = readFileSync("src-tauri/src/commands/agent_projects.rs", "utf8");
@@ -41,6 +42,14 @@ function indexFunctionSection(name, nextName) {
 const connectAgentScopes = indexFunctionSection("connectAgentScopesInSettings", "toggleAgentScopeDetails");
 const restoreCachedAgentProjects = indexFunctionSection("restoreCachedAgentProjectsInSettings", "loadAgentProjectsInSettings");
 const openSettingsPanelFromOverlay = indexFunctionSection("openSettingsPanelFromOverlay", "renderSortMenu");
+const thumbnailSettingsControls = indexFunctionSection("syncThumbnailSettingsControls", "runThumbnailSettingsOperation");
+const thumbnailSettingsDetection = indexFunctionSection("refreshThumbnailBackendStatusFromSettings", "enableSystemChromeThumbnails");
+const thumbnailSettingsRebuild = indexFunctionSection("rebuildThumbnailsForItems", "rebuildVisibleHtmlThumbnails");
+
+assert.match(indexHtml, /id="settingsThumbnailFeedback"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"[^>]*hidden/, "thumbnail Settings actions must expose one persistent inline live region instead of relying on the document-only footer status");
+assert.match(thumbnailSettingsControls, /settingsRefreshThumbnailStatusButton[\s\S]*?settingsRebuildVisibleThumbsButton[\s\S]*?settingsRebuildLibraryThumbsButton[\s\S]*?button\.disabled = Boolean\(operation\)[\s\S]*?aria-busy/, "thumbnail detection and both rebuild actions must share one mutually exclusive busy state");
+assert.match(thumbnailSettingsDetection, /thumbnailDetecting[\s\S]*?loadThumbnailBackendStatus\(\{ throwOnError: true \}\)[\s\S]*?thumbnailDetectCompletePrefix[\s\S]*?thumbnailEngineDisplayName\(\)[\s\S]*?thumbnailDetectFailedPrefix/, "thumbnail engine detection must report the detected engine or an actionable failure inside Settings");
+assert.match(thumbnailSettingsRebuild, /let failed = 0[\s\S]*?catch \(error\)[\s\S]*?failed \+= 1[\s\S]*?onProgress\?\./, "thumbnail rebuild must count and surface per-item failures instead of silently swallowing them");
 
 assert.match(indexHtml, /data-settings-tab="skills">产物接入<[\s\S]*?id="settingsSkillsSection"[\s\S]*?>项目产物接入<[\s\S]*?>skill 产物接入</, "settings must expose one Artifact Access section containing project and skill artifact access");
 assert.match(indexHtml, /id="settingsSkillsSection"[\s\S]*?id="settingsAgentProjectList"[\s\S]*?id="settingsDiscoverAgentsButton"/, "project discovery must live inside Artifact Access");
@@ -773,6 +782,16 @@ assert.match(
   markdownEditor,
   /function splitSkillFrontmatterForEditor\(markdown = ""\)/,
   "Milkdown editor should split leading SKILL frontmatter before parsing"
+);
+assert.match(
+  markdownEditor,
+  /setTableToolsEnabled\(enabled\)[\s\S]*?setupTableToolbar\(\)[\s\S]*?teardownTableToolbar\(\)/,
+  "live Markdown sessions must apply table-tool preference changes without rebuilding PM history"
+);
+assert.match(
+  indexHtml,
+  /if \(key === "tableToolsEnabled"\)[\s\S]*?markdownEditorSessions\.values\(\)[\s\S]*?setTableToolsEnabled\?\.\(value\)/,
+  "the host must propagate table-tool preference changes to every open Markdown session"
 );
 assert.match(
   markdownEditor,
@@ -1687,6 +1706,227 @@ assert.match(
   "updateCardThumbnail must validate thumb/type structure before replaceWith(freshEl)"
 );
 
+// 10b. B1 调度正确性（阻塞 3）：只有 discarded 响应不修改 item.thumbnail；
+//     generateThumbnailOnce 必须真正收敛到最新 generation——不设固定次数上限，
+//     连续 discarded 用 80–300ms 退避，退避前后检查 runId。
+//     这里用**可执行行为测试**（抽取函数源码 + stub invoke 实际运行），
+//     不允许仅靠 assert.match 检查源码包含 for/while/retryKey。
+function extractFunctionSource(source, startMarker) {
+  const start = source.indexOf(startMarker);
+  assert.ok(start !== -1, `function source not found: ${startMarker}`);
+  const brace = source.indexOf("{", start);
+  assert.ok(brace !== -1, `function body brace not found: ${startMarker}`);
+  let depth = 0;
+  let i = brace;
+  for (; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  assert.ok(depth === 0 && i < source.length, `balanced function body for ${startMarker}`);
+  return source.slice(start, i + 1);
+}
+
+function buildThumbnailConvergenceHarness(stubResponses, cancelOnInvoke) {
+  const normalizeSrc = extractFunctionSource(indexHtml, "function normalizeThumbnailInfo(thumbnail) {");
+  const applySrc = extractFunctionSource(indexHtml, "function applyGenerateThumbnailResult(item, result) {");
+  const onceSrc = extractFunctionSource(indexHtml, "async function generateThumbnailOnce(item, runId) {");
+  const harness = `
+    const toLocalServerUrl = (p) => p;
+    const cancelOnInvoke = ${JSON.stringify(cancelOnInvoke ?? null)};
+    ${normalizeSrc}
+    ${applySrc}
+    ${onceSrc}
+    const log = [];
+    const appState = { thumbnailQueueRunId: 100 };
+    const responses = ${JSON.stringify(stubResponses)};
+    let calls = 0;
+    const thumbnailAssignments = [];
+    const item = { id: 1 };
+    Object.defineProperty(item, "thumbnail", {
+      get() { return item._thumb; },
+      set(value) { thumbnailAssignments.push(value ? value.path : null); item._thumb = value; },
+      configurable: true,
+    });
+    item._thumb = { path: "old.png", status: "ready" };
+    async function invoke(name, args) {
+      calls += 1;
+      log.push("invoke:" + calls);
+      if (cancelOnInvoke && calls === cancelOnInvoke) appState.thumbnailQueueRunId += 1;
+      return responses.shift();
+    }
+    const delay = async (ms) => { log.push("delay:" + ms); };
+    return generateThumbnailOnce(item, 100).then((outcome) => ({
+      outcome,
+      calls,
+      finalPath: item._thumb ? item._thumb.path : null,
+      thumbnailAssignments,
+      log: log.join(","),
+    }));
+  `;
+  return new Function(harness)();
+}
+
+// 场景 A：连续 5 个 discarded（expectedKey/generation 每次变化），第 6 次 ready。
+// 断言：最终应用第 6 次结果；旧结果从未写入 item.thumbnail；invoke 次数正确（6）。
+{
+  const responses = [
+    { itemId: 1, discarded: true, expectedKey: "k2", generation: 2, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k3", generation: 3, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k4", generation: 4, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k5", generation: 5, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: true, expectedKey: "k6", generation: 6, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: false, status: "ready", path: "new6.png", generation: 6, desiredKey: "k6", renderKind: "html-screenshot" },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, null);
+  assert.equal(run.outcome.ok, true, "must converge after 5 discarded + 1 ready");
+  assert.equal(run.outcome.reason, "applied");
+  assert.equal(run.calls, 6, "invoke must be called exactly once per discarded generation plus the final ready");
+  assert.equal(run.finalPath, "new6.png", "the final ready result must be applied");
+  assert.deepEqual(
+    run.thumbnailAssignments,
+    ["new6.png"],
+    "old discarded results must never be written into item.thumbnail"
+  );
+  assert.deepEqual(
+    (run.log.match(/delay:(\d+)/g) || []).map((part) => part.slice(6)),
+    ["80", "160", "300", "300", "300"],
+    "backoff must ramp 80→160→300 and cap at 300"
+  );
+}
+
+// 场景 B：runId 取消后停止继续调用（不允许静默继续 converge / hot loop）。
+{
+  const responses = [
+    { itemId: 1, discarded: true, expectedKey: "k2", generation: 2, thumbnail: { status: "pending" } },
+    { itemId: 1, discarded: false, status: "ready", path: "should-not-run.png", generation: 2 },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, 1);
+  assert.equal(run.outcome.ok, false, "canceled convergence must not report ok");
+  assert.equal(run.outcome.reason, "canceled");
+  assert.equal(run.calls, 1, "no further invoke after the queue runId was canceled");
+  assert.equal(run.finalPath, "old.png", "canceled convergence must not touch item.thumbnail");
+  assert.deepEqual(run.thumbnailAssignments, [], "canceled convergence must write nothing");
+}
+
+// 场景 C（阻塞 B）：后端返回 status=failed placeholder（截图引擎失败）不是成功——
+// 不得计入 completed，也不得写入 item.thumbnail，且不进入 discarded 补跑循环。
+{
+  const responses = [
+    { itemId: 1, discarded: false, status: "failed", renderKind: "placeholder", errorMessage: "engine down", desiredKey: "k1", generation: 1 },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, null);
+  assert.equal(run.outcome.ok, false, "a failed placeholder response must not report success");
+  assert.equal(run.outcome.reason, "failed");
+  assert.equal(run.calls, 1, "terminal failure must not spin a retry loop");
+  assert.equal(run.finalPath, "old.png", "failed response must not overwrite item.thumbnail");
+  assert.deepEqual(
+    run.thumbnailAssignments,
+    [],
+    "a failed placeholder must never be applied as a ready image"
+  );
+}
+
+// 场景 D（阻塞 B）：status=ready 但 renderKind=placeholder 的响应同样不是成功成图。
+{
+  const responses = [
+    { itemId: 1, discarded: false, status: "ready", renderKind: "placeholder", path: "fake.svg", generation: 1 },
+  ];
+  const run = await buildThumbnailConvergenceHarness(responses, null);
+  assert.equal(run.outcome.ok, false, "a ready-status placeholder must not be accepted");
+  assert.equal(run.outcome.reason, "placeholder");
+  assert.deepEqual(run.thumbnailAssignments, [], "placeholder render kind must never be applied");
+}
+
+// 结构断言保留：applyGenerateThumbnailResult / normalizeThumbnailInfo 契约。
+assert.match(
+  indexHtml,
+  /function applyGenerateThumbnailResult\(item, result\)[\s\S]*?result\.discarded === true[\s\S]*?status !== "ready"[\s\S]*?reason: status === "failed" \? "failed" : "not-ready"/,
+  "applyGenerateThumbnailResult must reject discarded AND treat status=failed/placeholder as failure, not success"
+);
+assert.match(
+  indexHtml,
+  /function normalizeThumbnailInfo\(thumbnail\)[\s\S]*?desiredKey[\s\S]*?generation[\s\S]*?renderKind/,
+  "normalizeThumbnailInfo must carry desiredKey/generation/renderKind through item.thumbnail"
+);
+
+// 10d. B1 阻塞 C：手动重建必须独占固定 runId、使用 pendingThumbnailIds，
+//      队列被接管（runId 改变）时必须取消停止，不得继续处理并以绿色"成功 N/M"收尾。
+assert.match(
+  indexHtml,
+  /async function rebuildThumbnailsForItems\(items, options\)[\s\S]*?const runId = \+\+appState\.thumbnailQueueRunId[\s\S]*?waitForThumbnailSlot\(item\.id, runId\)[\s\S]*?pendingThumbnailIds\.add\(item\.id\)[\s\S]*?generateThumbnailOnce\(item, runId\)[\s\S]*?outcome\.reason === "canceled"[\s\S]*?canceled \+= 1; break/,
+  "rebuild must own an exclusive runId, wait for the previous slot owner, and stop counting on canceled"
+);
+assert.match(
+  indexHtml,
+  /function showThumbnailRebuildResult\(result, successMessage\)[\s\S]*?result\.reason === "canceled"[\s\S]*?setThumbnailSettingsFeedback\(message, "warn"\)/,
+  "a canceled rebuild must not show a green success summary"
+);
+
+// 手动重建接管自动队列时必须等待旧 owner 释放 pending slot，不能静默跳过。
+{
+  const waitSrc = extractFunctionSource(indexHtml, "async function waitForThumbnailSlot(itemId, runId) {");
+  const run = await new Function(`
+    ${waitSrc}
+    const appState = { thumbnailQueueRunId: 9, pendingThumbnailIds: new Set([7]) };
+    const waits = [];
+    async function delay(ms) {
+      waits.push(ms);
+      appState.pendingThumbnailIds.delete(7);
+    }
+    return waitForThumbnailSlot(7, 9).then((acquired) => ({ acquired, waits }));
+  `)();
+  assert.equal(run.acquired, true, "manual rebuild must acquire the slot after the old run releases it");
+  assert.deepEqual(run.waits, [40], "slot takeover must wait with bounded backoff instead of spinning");
+}
+
+// 任意 completed < total 的结果都不能落入绿色成功分支，即使 failed/canceled
+// 因未来调用方 bug 没有正确计数。
+{
+  const showSrc = extractFunctionSource(indexHtml, "function showThumbnailRebuildResult(result, successMessage) {");
+  const run = new Function(`
+    ${showSrc}
+    const feedback = [];
+    const t = (key) => key;
+    const setThumbnailSettingsFeedback = (message, tone) => feedback.push({ message, tone });
+    const normalizeError = (error) => String(error);
+    const outcome = showThumbnailRebuildResult(
+      { total: 3, completed: 2, failed: 0, canceled: 0, reason: null, lastError: null },
+      "done"
+    );
+    return { outcome, feedback };
+  `)();
+  assert.equal(run.outcome.tone, "warn", "incomplete rebuild must not report a green success tone");
+  assert.equal(run.feedback.at(-1)?.tone, "warn", "incomplete rebuild feedback must stay visible as a warning");
+}
+
+// 10c. B1 阻塞 6：HTML durable-save 热路径不得递归扫描，也不得伪造零纳秒 mtime。
+{
+  const commitStart = htmlEditCommandsRust.indexOf("pub fn commit_html_edit");
+  assert.ok(commitStart !== -1, "commit_html_edit must exist in html_edit.rs");
+  const commitEnd = htmlEditCommandsRust.indexOf("\n}\n", commitStart);
+  assert.ok(commitEnd !== -1, "commit_html_edit body must be extractable");
+  const commitBody = htmlEditCommandsRust.slice(commitStart, commitEnd + 3);
+  assert.doesNotMatch(
+    commitBody,
+    /scan_library_once\s*\(/,
+    "commit_html_edit must not trigger a recursive library scan on the durable-save hot path"
+  );
+  assert.doesNotMatch(
+    commitBody,
+    /\.000000000/,
+    "commit_html_edit must not synthesize a fake <seconds>.000000000 mtime"
+  );
+}
+assert.doesNotMatch(
+  htmlEditCommandsRust,
+  /\.000000000/,
+  "no fake zero-nanosecond mtime anywhere in html_edit.rs"
+);
+
 // 10. 自动刷新 single-flight：in-flight guard + setTimeout 一轮一轮调度（禁止裸 setInterval 无保护）
 assert.match(
   indexHtml,
@@ -2165,6 +2405,699 @@ assert.match(
   indexHtml,
   /if \(!rawValue\.trim\(\)\)[\s\S]*?openRecentSearchPopup\(input\)[\s\S]*?closeRecentSearchPopup\(\);[\s\S]*?scheduleSearch\(input\)/,
   "typing must close the popup and clearing the input while focused must reopen it"
+);
+
+// ---- B2：HTML 保存后异步刷新（部分成功合同 + stale preview → ready/placeholder）----
+
+// 1. saveActiveHtmlEditPatch 必须区分"保存成功但索引待同步"与保存失败，且只在
+//    索引同步后排队；排队是 fire-and-forget（保存流程不等待 Chromium）。
+assert.match(
+  indexHtml,
+  /async function saveActiveHtmlEditPatch\(\)[\s\S]*?const indexSyncPending = result\?\.indexSynchronized === false;[\s\S]*?setStatus\(t\("htmlEdit\.savedIndexPending"\), "warn"\)[\s\S]*?queueThumbnailRefreshAfterHtmlSave\(session\.itemId, result\)/,
+  "save must keep the index-pending warning and queue the thumbnail refresh only after index sync"
+);
+assert.match(
+  indexHtml,
+  /if \(indexSyncPending\) \{\s*setStatus\(t\("htmlEdit\.savedIndexPending"\), "warn"\);\s*\} else \{\s*setStatus\(t\("htmlEdit\.saved"\), "ok"\);\s*\}/,
+  "the terminal save status must keep the index-pending warning instead of overwriting it with a plain saved"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /await queueThumbnailRefreshAfterHtmlSave\(/,
+  "the save path must never await the thumbnail queue (no capture on the durable-save critical path)"
+);
+assert.match(
+  indexHtml,
+  /queueThumbnailRefreshAfterHtmlSave\(itemId, commitResult\)[\s\S]*?ensureDocumentThumbnails\(\[item\], \{ quiet: true \}\)/,
+  "the save-triggered queue must target only the current item and stay quiet so it cannot overwrite the save ack"
+);
+
+// 2. stale preview 是会话内非持久视觉 preview，且渲染是纯函数（绝不写回 item.thumbnail）。
+{
+  const thumbNodeSrc = extractFunctionSource(indexHtml, "function thumbnailNode(item) {");
+  assert.match(
+    thumbNodeSrc,
+    /const stalePreview = appState\.stalePreviewThumbnails\.get\(item\.id\);[\s\S]*?stalePreview\.state === "preview"[\s\S]*?canGenerateDocumentThumbnails\(\)/,
+    "stale preview must be a session-only preview gated on engine availability"
+  );
+  assert.match(
+    thumbNodeSrc,
+    /aria-busy="true"[\s\S]*?thumb-refresh-mask[\s\S]*?t\("status\.thumbnailUpdating"\)/,
+    "stale preview must carry aria-busy, a mask and the localized updating label"
+  );
+  assert.doesNotMatch(thumbNodeSrc, /item\.thumbnail = /, "thumbnailNode must be pure and never write item.thumbnail");
+}
+
+// 3. i18n：新文案必须中英双语，不能硬编码用户可见字符串。
+assert.match(i18n, /savedIndexPending: "内容已保存，缩略图索引待同步"/, "zh htmlEdit.savedIndexPending");
+assert.match(i18n, /savedIndexPending: "Saved\. Thumbnail index pending sync\."/, "en htmlEdit.savedIndexPending");
+assert.match(i18n, /thumbnailUpdating: "正在更新缩略图"/, "zh status.thumbnailUpdating");
+assert.match(i18n, /thumbnailUpdating: "Updating thumbnail…"/, "en status.thumbnailUpdating");
+assert.match(i18n, /thumbnailRefreshFailedShort: "缩略图更新失败，可稍后重试"/, "zh status.thumbnailRefreshFailedShort");
+assert.match(i18n, /thumbnailRefreshFailedShort: "Thumbnail update failed\. Try again later\."/, "en status.thumbnailRefreshFailedShort");
+
+// 4. 可执行：queueThumbnailRefreshAfterHtmlSave 记录旧图为 stale preview、置空
+//    item.thumbnail、只为目标 item 排队（quiet）。
+{
+  const queueSrc = extractFunctionSource(indexHtml, "function queueThumbnailRefreshAfterHtmlSave(itemId, commitResult) {");
+  const run = new Function(`
+    ${queueSrc}
+    const queueCalls = [];
+    const updatedCards = [];
+    const appState = {
+      items: [{ id: 1, fileType: "html", pathState: "valid", thumbnail: { path: "old.png", status: "ready" } }],
+      stalePreviewThumbnails: new Map()
+    };
+    const updateCardThumbnail = (item) => updatedCards.push(item.id);
+    const ensureDocumentThumbnails = async (items, options) => {
+      queueCalls.push({ items: items.map((i) => i.id), options });
+    };
+    queueThumbnailRefreshAfterHtmlSave(1, { desiredKey: "k2", generation: 2 });
+    return {
+      staleEntry: appState.stalePreviewThumbnails.get(1),
+      itemThumbnail: appState.items[0].thumbnail,
+      itemRefreshing: appState.items[0]._thumbRefreshing,
+      itemFailed: appState.items[0]._thumbFailed,
+      desiredKey: appState.items[0]._thumbDesiredKey,
+      generation: appState.items[0]._thumbGeneration,
+      updatedCards,
+      queueCalls
+    };
+  `)();
+  assert.equal(run.staleEntry?.state, "preview", "old image must be kept as a session preview");
+  assert.equal(run.staleEntry?.thumbnail?.path, "old.png", "stale preview keeps the old ready path");
+  assert.equal(run.itemThumbnail, null, "item.thumbnail must be nulled so the queue picks it up");
+  assert.equal(run.itemRefreshing, true, "item must be flagged refreshing");
+  assert.equal(run.itemFailed, false);
+  assert.equal(run.desiredKey, "k2", "commit desired key must be projected onto the in-memory item");
+  assert.equal(run.generation, 2, "commit generation must be projected onto the in-memory item");
+  assert.deepEqual(run.updatedCards, [1], "the stale preview must enter the real card DOM before capture starts");
+  assert.equal(run.queueCalls.length, 1, "exactly one queue entry per save");
+  assert.deepEqual(run.queueCalls[0].items, [1], "only the current item is queued");
+  assert.equal(run.queueCalls[0].options.quiet, true, "save-triggered queue must be quiet");
+}
+
+// 5. 可执行：thumbnailNode 的 stale preview → placeholder 语义。
+{
+  const thumbNodeSrc = extractFunctionSource(indexHtml, "function thumbnailNode(item) {");
+  const run = new Function(`
+    ${thumbNodeSrc}
+    const t = (key) => key;
+    const escapeHtml = (value) => String(value ?? "");
+    const escapeAttribute = (value) => String(value ?? "").replace(/"/g, "&quot;");
+    const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+    let engineAvailable = true;
+    const canGenerateDocumentThumbnails = () => engineAvailable;
+    const stalePreviewThumbnails = new Map();
+    const appState = { stalePreviewThumbnails };
+    function render(item) {
+      try {
+        return thumbnailNode(item);
+      } catch (error) {
+        return "THREW:" + error.message;
+      }
+    }
+    const readyItem = { id: 1, fileType: "html", pathState: "valid", tags: [], sourceBadges: [], thumbnail: { path: "http://x/new.png", status: "ready" } };
+    const staleItem = { id: 2, fileType: "html", pathState: "valid", tags: [], sourceBadges: [], thumbnail: null, _thumbRefreshing: true };
+    const failedItem = { id: 3, fileType: "html", pathState: "valid", tags: [], sourceBadges: [], thumbnail: null, _thumbFailed: true };
+    stalePreviewThumbnails.set(2, { thumbnail: { path: "http://x/old.png" }, state: "preview" });
+    stalePreviewThumbnails.set(3, { thumbnail: { path: "http://x/old3.png" }, state: "failed" });
+    const readyHtml = render(readyItem);
+    const staleHtml = render(staleItem);
+    const failedHtml = render(failedItem);
+    engineAvailable = false;
+    const staleHtmlEngineDown = render(staleItem);
+    return { readyHtml, staleHtml, failedHtml, staleHtmlEngineDown };
+  `)();
+  assert.doesNotMatch(run.readyHtml, /thumb-refresh-mask/, "ready must not show the refresh mask");
+  assert.doesNotMatch(run.readyHtml, /aria-busy/, "ready must not be busy");
+  assert.match(run.readyHtml, /new\.png/, "ready image must be shown directly");
+  assert.match(run.staleHtml, /thumb-refreshing/, "stale preview must mark the container");
+  assert.match(run.staleHtml, /aria-busy="true"/, "stale preview must set aria-busy on the thumbnail container");
+  assert.match(run.staleHtml, /thumb-refresh-mask/, "stale preview must have a mask");
+  assert.match(run.staleHtml, /status\.thumbnailUpdating/, "stale preview must use the localized updating label");
+  assert.match(run.staleHtml, /old\.png/, "stale preview may briefly show the old image");
+  assert.doesNotMatch(run.failedHtml, /thumb-refresh-mask/, "a failed entry must not keep impersonating an updating preview");
+  assert.doesNotMatch(run.failedHtml, /old3\.png/, "a failed entry must not show the old image as a product");
+  assert.match(run.failedHtml, /html-thumb-card/, "a failed entry must fall back to the explicit placeholder");
+  assert.doesNotMatch(run.staleHtmlEngineDown, /old\.png/, "engine unavailable must not keep showing the old image");
+  assert.doesNotMatch(run.staleHtmlEngineDown, /aria-busy/, "engine unavailable must not claim it is updating");
+  assert.match(run.staleHtmlEngineDown, /html-thumb-card/, "engine unavailable must show the retryable placeholder");
+}
+
+// 6. 可执行：ensureDocumentThumbnails 的 quiet 语义——成功不清除"已保存"状态、
+//    单卡替换、stale preview 清空；失败切换 placeholder、用缩略图专用文案（不覆盖保存状态）。
+{
+  const ensureSrc = extractFunctionSource(indexHtml, "async function ensureDocumentThumbnails(items, options) {");
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const queueSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
+  async function runEnsure(mode) {
+    return new Function(`
+      ${ensureSrc}
+      ${engineSrc}
+      ${needsSrc}
+      ${queueSrc}
+      const t = (key) => key;
+      const statuses = [];
+      const setStatus = (message, tone) => statuses.push({ message, tone });
+      const canGenerateDocumentThumbnails = () => true;
+      const thumbnailEngineNeedsAttention = () => false;
+      const thumbnailProgressMessage = () => "progress";
+      const supportsGeneratedThumbnail = (item) => item.fileType === "html" || item.fileType === "markdown";
+      const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+      const waitForThumbnailSlot = async () => true;
+      const delay = async () => {};
+      const appState = {
+        items: [],
+        thumbnailBackendStatus: { screenshotAvailable: true },
+        pendingThumbnailIds: new Set(),
+        thumbnailQueueRunId: 0,
+        thumbnailQueueActive: false,
+        stalePreviewThumbnails: new Map()
+      };
+      const updatedCards = [];
+      const updateCardThumbnail = (item) => updatedCards.push(item.id);
+      const mode = ${JSON.stringify(mode)};
+      appState.items.push({ id: 7, fileType: "html", pathState: "valid", thumbnail: null, _thumbRefreshing: true, _thumbFailed: false });
+      appState.stalePreviewThumbnails.set(7, { thumbnail: { path: "old.png" }, state: "preview" });
+      const generateThumbnailOnce = async (item, runId) => {
+        if (mode === "fail") return { ok: false, reason: "failed" };
+        item.thumbnail = { path: "new.png", status: "ready" };
+        return { ok: true, reason: "applied" };
+      };
+      return ensureDocumentThumbnails([appState.items[0]], { quiet: true }).then(() => ({
+        statuses,
+        staleEntry: appState.stalePreviewThumbnails.get(7),
+        itemThumbnail: appState.items[0].thumbnail ? appState.items[0].thumbnail.path : null,
+        itemRefreshing: appState.items[0]._thumbRefreshing,
+        itemFailed: appState.items[0]._thumbFailed,
+        updatedCards
+      }));
+    `)();
+  }
+  const ok = await runEnsure("ok");
+  assert.deepEqual(ok.statuses, [], "quiet success must not overwrite the save ack status");
+  assert.equal(ok.staleEntry, undefined, "ready must clear the stale preview entry");
+  assert.equal(ok.itemThumbnail, "new.png", "ready result must be applied to the item");
+  assert.equal(ok.itemRefreshing, false, "refreshing flag must clear on ready");
+  assert.equal(ok.itemFailed, false);
+  assert.deepEqual(ok.updatedCards, [7], "ready must replace exactly the single card (keyed update)");
+
+  const fail = await runEnsure("fail");
+  assert.equal(fail.statuses.length, 1, "quiet failure must emit exactly one status");
+  assert.equal(fail.statuses[0].message, "status.thumbnailRefreshFailedShort", "thumbnail failure must use its own copy, never a save-failure string");
+  assert.equal(fail.statuses[0].tone, "warn", "failure must never be a green success");
+  assert.equal(fail.staleEntry?.state, "failed", "failure must stop stale preview impersonating ready");
+  assert.equal(fail.itemThumbnail, null, "failed item must not get a ready path");
+  assert.equal(fail.itemRefreshing, false, "refreshing flag must clear on failure");
+  assert.equal(fail.itemFailed, true, "failed item must be flagged for placeholder rendering");
+  assert.deepEqual(fail.updatedCards, [7], "failure must replace the single card with the placeholder");
+}
+
+// 7. 可执行：loadItems / 新 save 取消旧 run 时，新队列即使撞到旧 pending slot
+//    也必须等待 owner 释放后接管，不能把最新 generation 静默漏掉。
+{
+  const waitSrc = extractFunctionSource(indexHtml, "async function waitForThumbnailSlot(itemId, runId) {");
+  const ensureSrc = extractFunctionSource(indexHtml, "async function ensureDocumentThumbnails(items, options) {");
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const queueSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
+  const result = await new Function(`
+    ${waitSrc}
+    ${ensureSrc}
+    ${engineSrc}
+    ${needsSrc}
+    ${queueSrc}
+    const t = (key) => key;
+    const statuses = [];
+    const setStatus = (message, tone) => statuses.push({ message, tone });
+    const canGenerateDocumentThumbnails = () => true;
+    const thumbnailEngineNeedsAttention = () => false;
+    const thumbnailProgressMessage = () => "progress";
+    const supportsGeneratedThumbnail = (item) => item.fileType === "html";
+    const isItemPathMissing = () => false;
+    const item = { id: 7, fileType: "html", pathState: "valid", thumbnail: null };
+    const appState = {
+      items: [item],
+      thumbnailBackendStatus: { screenshotAvailable: true },
+      pendingThumbnailIds: new Set([7]),
+      thumbnailQueueRunId: 10,
+      thumbnailQueueActive: true,
+      stalePreviewThumbnails: new Map([[7, { thumbnail: { path: "old.png" }, state: "preview" }]])
+    };
+    let delayCalls = 0;
+    const delay = async () => {
+      delayCalls += 1;
+      if (delayCalls === 1) appState.pendingThumbnailIds.delete(7);
+    };
+    let generateCalls = 0;
+    const generateThumbnailOnce = async (current, runId) => {
+      generateCalls += 1;
+      current.thumbnail = { path: "latest.png", status: "ready" };
+      return { ok: true, reason: "applied", runId };
+    };
+    const updatedCards = [];
+    const updateCardThumbnail = (current) => updatedCards.push(current.id);
+    return (async () => {
+      await ensureDocumentThumbnails([item], { quiet: true });
+      return {
+        generateCalls,
+        delayCalls,
+        updatedCards,
+        pending: appState.pendingThumbnailIds.has(7),
+        staleEntry: appState.stalePreviewThumbnails.get(7),
+        thumbnail: item.thumbnail
+      };
+    })();
+  `)();
+  assert.equal(result.generateCalls, 1, "the replacement run must generate after the old slot is released");
+  assert.ok(result.delayCalls >= 2, "the replacement run must wait for the old slot and then yield before capture");
+  assert.deepEqual(result.updatedCards, [7], "the handed-off run must settle the current card exactly once");
+  assert.equal(result.pending, false, "the handed-off owner must release the slot");
+  assert.equal(result.staleEntry, undefined, "latest ready must clear the stale preview after handoff");
+  assert.equal(result.thumbnail?.path, "latest.png");
+}
+
+// PR B / B4 审查阻塞 1：用户主动重建必须包含 ready 项（强制目标），
+// 自动补缺队列不得退化为每次都重建 ready 官方封面。
+{
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const autoSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
+  const forceSrc = extractFunctionSource(indexHtml, "function thumbnailForceRebuildTargets(items) {");
+  const run = new Function(`
+    ${engineSrc}
+    ${needsSrc}
+    ${autoSrc}
+    ${forceSrc}
+    const supportsGeneratedThumbnail = (item) => item.fileType === "html" || item.fileType === "markdown";
+    const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+    const appState = { thumbnailBackendStatus: { screenshotAvailable: true } };
+    const engine = (available) => { appState.thumbnailBackendStatus = { screenshotAvailable: available }; };
+    const readyMd = { id: 1, fileType: "markdown", pathState: "valid", thumbnail: { status: "ready", renderKind: "markdown-default-cover", desiredKey: "md-default:abc:title-parser-v1:default-cover-v5" } };
+    const readyHtml = { id: 2, fileType: "html", pathState: "valid", thumbnail: { status: "ready", renderKind: "html-screenshot", desiredKey: "html:abc:html-card-v1" } };
+    const items = [readyMd, readyHtml];
+    const autoOn = thumbnailAutoQueueTargets(items);
+    const forceOn = thumbnailForceRebuildTargets(items);
+    engine(false);
+    const autoOff = thumbnailAutoQueueTargets(items);
+    const forceOff = thumbnailForceRebuildTargets(items);
+    return {
+      readyMdNeedsGeneration: thumbnailNeedsGeneration(readyMd),
+      autoOn: autoOn.targets.map((item) => item.id),
+      forceOn: forceOn.targets.map((item) => item.id),
+      forceOnSkipped: forceOn.skippedHtml,
+      autoOff: autoOff.targets.map((item) => item.id),
+      forceOff: forceOff.targets.map((item) => item.id),
+      forceOffSkipped: forceOff.skippedHtml
+    };
+  `)();
+  assert.equal(run.readyMdNeedsGeneration, false, "a current ready markdown cover must not need auto generation");
+  assert.deepEqual(run.autoOn, [], "auto queue must not re-generate ready official covers");
+  assert.deepEqual(run.forceOn, [1, 2], "force rebuild must include ready markdown AND ready html when the engine is available");
+  assert.equal(run.forceOnSkipped, 0);
+  assert.deepEqual(run.autoOff, [], "auto queue must stay empty for ready covers even without an engine");
+  assert.deepEqual(run.forceOff, [1], "force rebuild must still include ready markdown without an engine");
+  assert.equal(run.forceOffSkipped, 1, "ready html must be skipped (counted) without an engine");
+}
+
+// B4 审查阻塞 1（可执行完整链路）：rebuildThumbnailsForItems 对已 ready 的
+// Markdown/HTML 必须真正调用 generate_thumbnail；引擎不可用时 Markdown 仍调用、
+// HTML 计入 skipped。
+{
+  const rebuildSrc = extractFunctionSource(indexHtml, "async function rebuildThumbnailsForItems(items, options) {");
+  const engineSrc = extractFunctionSource(indexHtml, "function thumbnailScreenshotEngineAvailable() {");
+  const needsSrc = extractFunctionSource(indexHtml, "function thumbnailNeedsGeneration(item) {");
+  const autoSrc = extractFunctionSource(indexHtml, "function thumbnailAutoQueueTargets(items) {");
+  const forceSrc = extractFunctionSource(indexHtml, "function thumbnailForceRebuildTargets(items) {");
+  const makeRun = (engineAvailable) => new Function(`
+    ${rebuildSrc}
+    ${engineSrc}
+    ${needsSrc}
+    ${autoSrc}
+    ${forceSrc}
+    const t = (key) => key;
+    const statuses = [];
+    const setStatus = (message, tone) => statuses.push({ message, tone });
+    const openSettingsTab = () => {};
+    const thumbnailProgressMessage = () => "progress";
+    const supportsGeneratedThumbnail = (item) => item.fileType === "html" || item.fileType === "markdown";
+    const isItemPathMissing = (item) => (item?.pathState || "valid") === "missing";
+    const waitForThumbnailSlot = async () => true;
+    const delay = async () => {};
+    const renderItems = () => {};
+    const renderSettingsPanel = () => {};
+    const appState = { thumbnailBackendStatus: { screenshotAvailable: ${engineAvailable} }, thumbnailQueueRunId: 0, thumbnailQueueActive: false, pendingThumbnailIds: new Set() };
+    const generated = [];
+    const generateThumbnailOnce = async (item) => { generated.push(item.id); return { ok: true, reason: "applied" }; };
+    const items = [
+      { id: 1, fileType: "markdown", pathState: "valid", thumbnail: { status: "ready", renderKind: "markdown-default-cover", desiredKey: "md-default:abc:title-parser-v1:default-cover-v5" } },
+      { id: 2, fileType: "html", pathState: "valid", thumbnail: { status: "ready", renderKind: "html-screenshot", desiredKey: "html:abc:html-card-v1" } }
+    ];
+    return rebuildThumbnailsForItems(items, {}).then((result) => ({ generated, result }));
+  `);
+  const withEngine = await makeRun(true)();
+  assert.deepEqual(
+    withEngine.generated.sort(),
+    [1, 2],
+    "force rebuild must invoke generate_thumbnail for ready markdown AND ready html when the engine is available"
+  );
+  assert.equal(withEngine.result.skipped, 0);
+  const withoutEngine = await makeRun(false)();
+  assert.deepEqual(
+    withoutEngine.generated,
+    [1],
+    "force rebuild must still invoke generate_thumbnail for ready markdown without an engine"
+  );
+  assert.equal(withoutEngine.result.skipped, 1, "ready html must be skipped without an engine");
+}
+
+// B4 结构断言：rebuildThumbnailsForItems 走强制目标；设置页反馈写 settingsThumbnailFeedback。
+assert.match(
+  indexHtml,
+  /async function rebuildThumbnailsForItems\(items, options\)[\s\S]*?thumbnailForceRebuildTargets\(items\)/,
+  "rebuild must use the force-rebuild target (all supported items), not the auto-backfill target"
+);
+assert.match(
+  indexHtml,
+  /function showThumbnailRebuildResult\(result, successMessage\)[\s\S]*?setThumbnailSettingsFeedback\(/,
+  "rebuild result must surface inline feedback in settingsThumbnailFeedback"
+);
+
+// PR B / Task B3: unified Markdown document title source of truth.
+const documentTitleAsset = readFileSync("dist/assets/markdown-document-title.js", "utf8");
+const documentTitleSource = readFileSync("src/markdown-document-title.js", "utf8");
+const titleCommitSection = indexFunctionSection("commitMarkdownDocumentTitle", "syncMarkdownTitleInputFromDocument");
+assert.match(documentTitleAsset, /NutbookDocumentTitle/, "the document title asset must expose the shared parser");
+assert.match(documentTitleSource, /export function parseDocumentTitle/, "the source module must export the authoritative parser");
+assert.match(documentTitleSource, /export function setDocumentTitleInSource/, "the source module must export the fallback transform");
+assert.match(documentTitleSource, /export function headingDisplayText/, "the source module must export the AST display-text extractor");
+assert.match(documentTitleSource, /mdast-util-from-markdown/, "the source module must use a real Markdown AST (micromark mdast)");
+assert.doesNotMatch(documentTitleSource, /function inlinePlainText/, "the handwritten inline tokenizer must be removed");
+assert.doesNotMatch(documentTitleSource, /function parseLinkOrImage/, "the recursive link/image tokenizer must be removed");
+assert.match(documentTitleSource, /case "linkReference":/, "reference links must be resolved from the AST label");
+assert.match(markdownEditor, /setDocumentTitle\(nextTitle\)/, "the editor API must expose setDocumentTitle");
+assert.match(markdownEditor, /getDocumentTitle\(\)/, "the editor API must expose getDocumentTitle");
+assert.match(markdownEditor, /findFirstEffectiveHeading/, "the editor must resolve the first effective heading");
+assert.match(markdownEditor, /closeHistory\(tr\)/, "each title edit must close the open history event and stay one step");
+assert.match(markdownEditor, /window\.NutbookMarkdownEditor = \{[\s\S]*?parseDocumentTitle/, "the bundle must expose the shared parser statically");
+assert.doesNotMatch(indexHtml, /function findMarkdownDocumentTitleLine/, "the old line-scan title parser must be removed from the host");
+assert.doesNotMatch(indexHtml, /function cleanMarkdownHeadingText/, "the old regex title cleaner must be removed from the host");
+assert.doesNotMatch(titleCommitSection, /cleanupMarkdownEditor\(\)/, "the title commit path must not destroy the editor");
+assert.doesNotMatch(titleCommitSection, /renderViewer\(\)/, "the title commit path must not remount the viewer");
+assert.match(titleCommitSection, /setDocumentTitle\(nextTitle\)/, "the Milkdown path must call the editor title transaction");
+assert.match(titleCommitSection, /setMarkdownDocumentTitle\(current, nextTitle\)/, "the source fallback must use the shared transform");
+assert.match(indexHtml, /assets\/markdown-document-title\.js/, "the host must load the shared document title asset");
+assert.match(indexHtml, /syncMarkdownTitleInputFromDocument/, "undo/redo and edits must resync the title input");
+assert.match(
+  markdownDocumentRust,
+  /DocumentTitle::parse[\s\S]*?\.display_text/,
+  "the Rust preview title must come from the authoritative DocumentTitle parser"
+);
+assert.match(
+  previewCommandsRust,
+  /DocumentTitle::parse\(&content, &item\.summary\.file_name\)\.display_text/,
+  "the markdown export default file name must use the authoritative parser result"
+);
+
+// B3 复审 P1：标题输入框与 ProseMirror 的 undo 路由重新划分。
+// - 焦点在标题输入框且未提交 → 自维护的按 input 事件粒度的文本 history
+//   （WKWebView 原生 undo 会把整个输入会话合并成一个单元——输入 abc 后
+//   ⌘Z 一次删光三个字母；自维护快照栈保证逐字符回退），不触碰 ProseMirror。
+// - 焦点在 ProseMirror → 只用 PM history，栈空绝不 fallback 到
+//   document.execCommand（WKWebView contenteditable 原生栈污染 PM state）。
+// - PM undo/redo 成功后强制同步标题输入框；无 H1 时显示文件名 fallback。
+const nativeEditHistory = indexFunctionSection("handleNativeEditHistory", "handleNativeMenuAction");
+assert.match(
+  nativeEditHistory,
+  /if \(active === titleInput\)[\s\S]*?(undoMarkdownTitleInput|redoMarkdownTitleInput)/,
+  "焦点在标题输入框（未提交）时 undo/redo 必须走标题输入框自维护文本 history，不触碰 ProseMirror"
+);
+assert.match(
+  nativeEditHistory,
+  /closest\?\.\(\s*"\.milkdown-editor-root"\s*\)[\s\S]*?return false[\s\S]*?if \(isFormField\)/,
+  "PM undo/redo 落空时必须直接返回，不得进入 execCommand fallback"
+);
+assert.match(
+  nativeEditHistory,
+  /const display = currentTitle \|\| tab\.item\?\.fileName/,
+  "PM undo/redo 成功后必须把标题输入框同步到新文档标题（无 H1 显示文件名）"
+);
+assert.match(
+  nativeEditHistory,
+  /if \(isFormField\)[\s\S]*?document\.execCommand/,
+  "普通 input/textarea（非标题输入框）保持原生表单 undo"
+);
+
+// B3 复审修复：标题输入框自维护逐字符 undo/redo（WKWebView 原生 undo 会话
+// 合并）。每次用户 input 事件产生一个快照步骤；程序化设值走 setTitleInputValue
+// 清空编辑栈，保证栈与真实值对齐。
+const titleCommitSetupSection = indexFunctionSection("autosizeMarkdownTitleInput", "updateMarkdownStatusHint");
+assert.match(
+  titleCommitSetupSection,
+  /const titleInputEditSessions = new WeakMap\(\)/,
+  "标题输入框必须维护独立编辑会话（WeakMap）"
+);
+assert.match(
+  titleCommitSetupSection,
+  /function setTitleInputValue[\s\S]*?undoStack\.length = 0/,
+  "程序化设值必须清空标题输入框编辑栈（对齐真实值）"
+);
+assert.match(
+  titleCommitSetupSection,
+  /addEventListener\("input", \(\) => \{[\s\S]*?undoStack\.push\(session\.lastValue\)/,
+  "每次用户 input 事件必须产生一个撤销步骤（逐字符粒度）"
+);
+assert.match(
+  titleCommitSetupSection,
+  /function undoMarkdownTitleInput[\s\S]*?undoStack\.pop\(\)/,
+  "标题输入框 undo 必须恢复最近一次输入前快照"
+);
+
+// B3 GUI 验收修复（保存瞬间回旧标题）+ P0 统一收敛：⌘S 保存前必须把标题
+// 输入框未提交的值 commit 进文档，否则用户输入新标题后直接 ⌘S（未 Enter/blur）
+// 会保存旧标题。收敛逻辑统一收敛到 convergePendingMarkdownTitle（⌘S / 关闭
+// 单个标签 / 关闭全部标签 / 应用退出共用）；composition 中返回 false 不强制提交。
+const saveActiveSection = indexFunctionSection("saveActiveMarkdown", "exportActiveMarkdown");
+assert.match(
+  saveActiveSection,
+  /convergePendingMarkdownTitle\(tab\)/,
+  "⌘S 保存前必须先收敛标题输入框的未提交值（统一收敛函数）"
+);
+assert.match(
+  saveActiveSection,
+  /输入法组合中[\s\S]*?请先确认输入再保存/,
+  "composition 中 ⌘S 必须阻止保存并给出可理解状态"
+);
+const convergeSection = indexFunctionSection("convergePendingMarkdownTitle", "syncMarkdownTitleInputFromDocument");
+assert.match(
+  convergeSection,
+  /function convergePendingMarkdownTitle[\s\S]*?commitMarkdownDocumentTitle\(tab, input\)/,
+  "统一收敛函数必须在标题值不同且非 composition 时通过一次 PM transaction 提交"
+);
+assert.match(
+  convergeSection,
+  /if \(appState\.markdownTitleInputComposing\) return false/,
+  "composition 尚未结束时收敛函数必须返回 false（不得强制提交）"
+);
+
+// B3 GUI 验收修复（保存后无法撤销）：saveMarkdownTab 保存成功后不得调用
+// renderViewer() 重建整个 viewer——重建会销毁 milkdownEditorRoot，导致
+// PM history 全部丢失，用户保存后无法 ⌘Z/⇧⌘Z 撤销保存前的修改。必须改为
+// 局部刷新（preview HTML + input + meta），保留编辑器实例与 history。
+const saveMarkdownTabSection = indexFunctionSection("saveMarkdownTab", "saveActiveMarkdown");
+const saveMarkdownTabRenderBranch = saveMarkdownTabSection.match(/if \(renderAfter\) \{[\s\S]*?\n          \}/);
+assert.ok(saveMarkdownTabRenderBranch, "saveMarkdownTab must have a renderAfter branch");
+assert.doesNotMatch(
+  saveMarkdownTabRenderBranch[0],
+  /\brenderViewer\s*\(\s*\)/,
+  "saveMarkdownTab 的 renderAfter 分支不得调用 renderViewer()，否则会重建编辑器与丢失 PM history"
+);
+assert.match(
+  saveMarkdownTabRenderBranch[0],
+  /previewEl.*innerHTML|querySelector\(\s*"\.markdown-preview"\s*\)/,
+  "renderAfter 分支必须刷新 preview HTML 元素"
+);
+assert.match(
+  saveMarkdownTabRenderBranch[0],
+  /setTitleInputValue\(\s*titleInput\s*,[\s\S]*?markdownDocumentTitle/,
+  "renderAfter 分支必须刷新标题输入框 value（经 setTitleInputValue 对齐编辑栈）"
+);
+
+// B3 follow-up（切换标签后保存前历史丢失）：打开的 Markdown tab 必须保留
+// 真实 Milkdown/PM 会话；renderViewer 只能 detach，关闭 tab 才 destroy。
+assert.match(
+  indexHtml,
+  /markdownEditorSessions:\s*new Map\(\)/,
+  "open Markdown tabs must own isolated live editor sessions"
+);
+const suspendMarkdownSessionSection = indexFunctionSection("suspendActiveMarkdownEditor", "destroyMarkdownEditorSession");
+assert.match(
+  suspendMarkdownSessionSection,
+  /session\.card\?\.remove\?\.\(\)/,
+  "tab switching must detach the live editor card instead of destroying PM history"
+);
+assert.doesNotMatch(
+  suspendMarkdownSessionSection,
+  /\.destroy\?\.\(/,
+  "suspending an open tab must never destroy its editor"
+);
+const destroyMarkdownSessionSection = indexFunctionSection("destroyMarkdownEditorSession", "destroyAllMarkdownEditorSessions");
+assert.match(
+  destroyMarkdownSessionSection,
+  /session\.editor\.destroy\?\.\(\)[\s\S]*?markdownEditorSessions\.delete\(tabId\)/,
+  "closing a tab must destroy and remove exactly that editor session"
+);
+const renderViewerSessionStart = indexHtml.indexOf("function renderViewer() {");
+const renderViewerSessionEnd = indexHtml.indexOf("function cleanupRuntimeHostSync", renderViewerSessionStart + 1);
+assert.ok(renderViewerSessionStart >= 0 && renderViewerSessionEnd > renderViewerSessionStart, "renderViewer session section must exist");
+const renderViewerSessionSection = indexHtml.slice(renderViewerSessionStart, renderViewerSessionEnd);
+assert.match(
+  renderViewerSessionSection,
+  /captureActiveMarkdownDraft\(\)[\s\S]*?suspendActiveMarkdownEditor\(\)/,
+  "renderViewer must capture then suspend the active Markdown session"
+);
+assert.doesNotMatch(
+  renderViewerSessionSection.slice(0, renderViewerSessionSection.indexOf('if (tab?.preview?.fileType !== "html-runtime")')),
+  /cleanupMarkdownEditor\(\)|destroyMarkdownEditorSession\(/,
+  "ordinary viewer rerenders must not destroy Markdown history"
+);
+const mountMarkdownSessionSection = indexFunctionSection("mountMarkdownEditor", "focusMarkdownEditorFromPendingSelection");
+assert.match(
+  mountMarkdownSessionSection,
+  /markdownEditorSessions\.get\(expectedTabId\)[\s\S]*?placeholderCard\.replaceWith\(preservedSession\.card\)[\s\S]*?activeMarkdownEditor = preservedSession\.editor/,
+  "returning to an open tab must reattach the exact editor instance"
+);
+const closeOpenTabSessionSection = indexFunctionSection("closeOpenTab", "setSidebarCollapsed");
+assert.match(
+  closeOpenTabSessionSection,
+  /destroyMarkdownEditorSession\(tab\.id\)/,
+  "closing a Markdown tab must end its editor-session history boundary"
+);
+
+// B3 P0（标题输入框聚焦未 blur 时应用退出/关闭丢失标题）：退出确认与关闭
+// 标签都必须先收敛标题输入框未提交的值；composition 中阻止退出/关闭。
+const confirmExitSection = indexFunctionSection("confirmMarkdownAppExitIfNeeded", "confirmAppExitIfNeeded");
+assert.match(
+  confirmExitSection,
+  /convergePendingMarkdownTitle\(activeTab\)[\s\S]*?return false/,
+  "应用退出前必须收敛标题输入框未提交的值；composition 中阻止退出"
+);
+assert.match(
+  confirmExitSection,
+  /captureActiveMarkdownDraft\(\)/,
+  "收敛后仍需 capture ProseMirror draft 计算 dirty"
+);
+const closeOpenTabSection = indexFunctionSection("closeOpenTab", "setSidebarCollapsed");
+assert.match(
+  closeOpenTabSection,
+  /convergePendingMarkdownTitle\(tab\)/,
+  "关闭标签前必须收敛标题输入框未提交的值"
+);
+
+// B3 P1（IME 标题撤销栈）：compositionstart 保存组合前值；composition 中间
+// input 不入栈；compositionend 把整个组合结果记为一个 undo 单元。
+assert.match(
+  titleCommitSetupSection,
+  /compositionstart[\s\S]*?composingStartValue = input\.value/,
+  "compositionstart 必须保存本次组合前的 value"
+);
+assert.match(
+  titleCommitSetupSection,
+  /compositionend[\s\S]*?undoStack\.push\(session\.composingStartValue\)/,
+  "compositionend 必须把整个组合结果记为一个 undo 单元"
+);
+assert.match(
+  titleCommitSetupSection,
+  /if \(!appState\.markdownTitleInputComposing && input\.value !== session\.lastValue\)/,
+  "composition 中间 input 不得入栈"
+);
+assert.match(
+  titleCommitSetupSection,
+  /composingStartValue = null/,
+  "compositionend 后必须清除组合前值标记"
+);
+
+// B3 P1（renderAfter=false 持久状态收敛）：durable save 后无论 renderAfter
+// true/false 都 loadItems 一次收敛首页持久 item 状态；loadItems 最多一次。
+const saveMarkdownTabPreRender = saveMarkdownTabSection.slice(0, saveMarkdownTabSection.indexOf("if (renderAfter)"));
+assert.match(
+  saveMarkdownTabPreRender,
+  /await loadItems\(\)/,
+  "loadItems 必须位于 renderAfter 分支之前（renderAfter=false 也要收敛持久 item 状态）"
+);
+assert.equal(
+  (saveMarkdownTabSection.match(/await loadItems\(\)/g) || []).length,
+  1,
+  "saveMarkdownTab 中 loadItems 只能调用一次（B3 复审 P2）"
+);
+
+// B3 复审 P2：durable save 后首页 item 只刷新一次（renderAfter 分支外的重复
+// loadItems 已删除），且 renderAfter=false 退出路径不刷新首页。
+assert.equal(
+  (saveMarkdownTabSection.match(/await loadItems\(\)/g) || []).length,
+  1,
+  "saveMarkdownTab 中 loadItems() 只能出现一次（删除重复刷新）"
+);
+
+// B3 复审 P1：无 H1 文档 undo 后 fallback 恢复文件名。
+// tab.preview 是最近一次 durable preview，未保存标题事务不得改写它。
+const commitSection = indexFunctionSection("commitMarkdownDocumentTitle", "syncMarkdownTitleInputFromDocument");
+assert.doesNotMatch(
+  commitSection,
+  /preview\.title\s*=\s*nextTitle/,
+  "未保存的标题事务不得改写 tab.preview.title（durable preview 仅在保存成功后替换）"
+);
+assert.match(
+  indexHtml,
+  /function currentMarkdownDisplayTitle[\s\S]*?tab\.item\?\.fileName \|\| "Markdown"/,
+  "当前标题必须从 editor/draft 派生，无 H1 fallback 固定使用真实文件名"
+);
+assert.match(
+  indexHtml,
+  /function syncMarkdownTitleInputFromDocument[\s\S]*?tab\.item\?\.fileName \|\| "Markdown"/,
+  "onChange 同步的无 H1 fallback 必须使用真实文件名，不得读 tab.preview.title"
+);
+
+// B3 复审 P2：顶部标题输入框为自动增高 textarea（超长标题换行）。
+assert.match(
+  indexHtml,
+  /<textarea id="markdownTitleInput"/,
+  "标题输入框必须改为 textarea（B3 复审 P2 超长标题自动换行）"
+);
+assert.match(
+  indexHtml,
+  /function autosizeMarkdownTitleInput[\s\S]*?scrollHeight/,
+  "必须提供基于 scrollHeight 的自动增高函数"
+);
+assert.match(
+  indexHtml,
+  /\.markdown-title-input \{[\s\S]*?resize: none[\s\S]*?overflow-wrap: anywhere/,
+  "标题输入框 CSS 必须 resize:none + overflow-wrap:anywhere（长 Latin 不撑出横向滚动）"
+);
+
+// B3 复审 P0：Rust 端使用 pulldown-cmark AST，不再手写行扫描状态机。
+const documentTitleRust = readFileSync("src-tauri/src/core/document_title.rs", "utf8");
+assert.match(
+  documentTitleRust,
+  /pulldown_cmark::\{Event, HeadingLevel, Options, Parser/,
+  "Rust DocumentTitle 必须使用 pulldown-cmark AST parser"
+);
+assert.match(
+  documentTitleRust,
+  /into_offset_iter\(\)/,
+  "Rust parser 必须使用 source offset 迭代器构建 locator"
+);
+assert.doesNotMatch(
+  documentTitleRust,
+  /fn inline_plain_text|fn parse_link_or_image/,
+  "手写 inline tokenizer 与递归链接解析必须从 Rust 移除"
+);
+assert.match(
+  srcTauriCargoToml,
+  /pulldown-cmark = /,
+  "Cargo.toml 必须声明 pulldown-cmark 直接依赖"
 );
 
 console.log("Nutbook regression guards passed.");

@@ -6,9 +6,10 @@ use tauri::Manager;
 use crate::{
     core::{
         document::{
-            content_hash, file_modified_at_string, load_document_payload, markdown_document_title,
-            markdown_summary, render_markdown_as_html_for_file,
+            content_hash, file_modified_at_string, load_document_payload, markdown_summary,
+            render_markdown_as_html_for_file,
         },
+        document_title::DocumentTitle,
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
             attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
@@ -531,7 +532,7 @@ pub fn export_markdown_file(
         .clone()
         .unwrap_or_else(|| std::fs::read_to_string(&item.summary.file_path).unwrap_or_default());
     let default_name = markdown_export_default_file_name(
-        &markdown_document_title(&content, &item.summary.file_name),
+        &DocumentTitle::parse(&content, &item.summary.file_name).display_text,
         &item.summary.file_name,
     );
     let target = rfd::FileDialog::new()

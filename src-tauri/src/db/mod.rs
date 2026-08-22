@@ -12,20 +12,27 @@ use std::{
 use rusqlite::{
     params, params_from_iter, types::Value, Connection, OptionalExtension, Transaction,
 };
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
     core::{
-        document::{content_hash, markdown_summary, render_markdown_as_html_for_file},
-        thumbnail::{generate_html_thumbnail, HtmlThumbnailInput, ThumbnailBackend},
+        document::{content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file},
+        thumbnail::{
+            desired_key_for_item, expected_render_kind_for_item, generate_html_thumbnail_with_adapter,
+            generate_markdown_default_cover_asset, markdown_default_cover_target, markdown_key_is_current,
+            DefaultThumbnailCaptureAdapter, HtmlThumbnailInput,
+            ThumbnailBackend, ThumbnailCaptureAdapter, ThumbnailGenerationSnapshot,
+            RENDER_KIND_PLACEHOLDER,
+        },
     },
     db::repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
     errors::AppError,
     models::{
         ArtifactCandidate, ArtifactCandidateGroupSummary, CreateTagRequest, DeleteTagResponse,
-        GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord, ItemDetail,
-        ItemSourceBadge, ItemSummary, Library, ListItemsQuery, PagedResult, SetItemTagsResponse,
-        SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
+        DurableSaveSyncReport, GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord,
+        ItemDetail, ItemSourceBadge, ItemSummary, Library, ListItemsQuery, PagedResult,
+        SetItemTagsResponse, SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
     },
 };
 
@@ -33,6 +40,53 @@ pub const INITIAL_SCHEMA_SQL: &str = include_str!("../../migrations/0001_initial
 
 pub fn initial_schema_sql() -> &'static str {
     INITIAL_SCHEMA_SQL
+}
+
+// ------------------------------------------------------------------
+// B1 审查阻塞 2：最小 test-only hook
+//
+// 只用于证明"source preparation（磁盘读取 / Markdown 渲染 / 临时 HTML 写入）
+// 不持有数据库事务"。hook 挂在 Markdown 磁盘正文读取完成后、HTML 渲染前：
+// 生成线程在这里暂停，测试从另一个连接完成写事务；若 prepare 阶段仍持有
+// 事务/连接，该写会因 SQLite 锁而失败。生产构建（非 test）中不存在此钩子。
+// ------------------------------------------------------------------
+#[cfg(test)]
+pub(crate) static GENERATION_PREPARE_HOOK: std::sync::Mutex<
+    Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+> = std::sync::Mutex::new(None);
+
+// B1 审查阻塞 A：挂在 prepare（阶段 2）与 claim（阶段 3a）之间的 test-only hook。
+// 用于证明"保存发生在 snapshot 与 claim 之间"时，claim 必须复核阶段 1 读取的
+// file_hash / file_size / modified_at，绝不能把 desired_key 从新 revision 倒退成旧值。
+#[cfg(test)]
+pub(crate) static GENERATION_CLAIM_HOOK: std::sync::Mutex<
+    Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+> = std::sync::Mutex::new(None);
+
+// ------------------------------------------------------------------
+// B1：durable source save 与索引同步的 reconciliation marker
+//
+// 源文件已经 durable 落盘后，索引同步失败不能被伪装成"保存失败"。
+// 索引失败时在 app data 原子写入 per-item marker（临时文件 + rename），
+// 启动 / list 路径根据磁盘真实状态重放：精确更新同一 item、旧缩略图保持
+// stale、marker 只在同步真正成功后删除；恢复失败保留 marker 供下次重试。
+// ------------------------------------------------------------------
+
+pub const RECONCILIATION_MARKER_VERSION: i64 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReconciliationMarker {
+    pub schema_version: i64,
+    pub item_id: i64,
+    pub canonical_path: String,
+    pub source_hash: String,
+    pub modified_at: String,
+    pub file_size: i64,
+    /// 写入时的 generation 参考值；重放时由 update_item_revision_and_invalidate
+    /// 按当前数据库状态重新递增，此字段只用于诊断。
+    pub generation: i64,
+    pub written_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -600,8 +654,8 @@ impl Database {
     }
 
     /// 批量装配一批 item 的 thumbnail（一条 SQL），并复用 load_thumbnail_info
-    /// 相同的 hash/cache-key 校验：只有磁盘 revision 与缓存 key 匹配才返回 ready。
-    /// 禁止逐 item 查 thumbnail（避免 list_items N+1）。
+    /// 相同的 B1 校验：只有 desired key / generation / source revision / render kind /
+    /// 磁盘 stat 全部匹配的 ready 行才返回。禁止逐 item 查 thumbnail（避免 N+1）。
     fn load_thumbnails_batch(
         connection: &Connection,
         item_ids: &[i64],
@@ -614,7 +668,10 @@ impl Database {
             "SELECT thumbnail_cache.item_id, thumbnail_cache.thumb_status, thumbnail_cache.thumb_path,
                     thumbnail_cache.width, thumbnail_cache.height, thumbnail_cache.last_generated_at,
                     thumbnail_cache.error_message, thumbnail_cache.generated_from_hash,
-                    items.file_hash, items.file_type, items.summary
+                    thumbnail_cache.desired_key, thumbnail_cache.generated_from_key,
+                    thumbnail_cache.render_kind, thumbnail_cache.generation,
+                    items.file_hash, items.file_type,
+                    items.file_path, items.file_size, items.path_state, items.modified_at
              FROM thumbnail_cache
              INNER JOIN items ON items.id = thumbnail_cache.item_id
              WHERE thumbnail_cache.item_id IN ({})",
@@ -626,9 +683,16 @@ impl Database {
         let rows = statement
             .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
                 let generated_from_hash: Option<String> = row.get(7)?;
-                let file_hash: Option<String> = row.get(8)?;
-                let file_type: String = row.get(9)?;
-                let summary: Option<String> = row.get(10)?;
+                let desired_key: Option<String> = row.get(8)?;
+                let generated_from_key: Option<String> = row.get(9)?;
+                let render_kind: Option<String> = row.get(10)?;
+                let generation: i64 = row.get(11)?;
+                let file_hash: Option<String> = row.get(12)?;
+                let file_type: String = row.get(13)?;
+                let file_path: String = row.get(14)?;
+                let file_size: i64 = row.get(15)?;
+                let path_state: String = row.get(16)?;
+                let modified_at: String = row.get(17)?;
                 Ok((
                     row.get::<_, i64>(0)?,
                     (
@@ -639,17 +703,74 @@ impl Database {
                             height: row.get(4)?,
                             last_generated_at: row.get(5)?,
                             error_message: row.get(6)?,
+                            desired_key: desired_key.clone(),
+                            generation: Some(generation),
+                            render_kind: render_kind.clone(),
                         },
                         generated_from_hash,
-                        thumbnail_cache_key(&file_type, file_hash.as_deref(), summary.as_deref()),
+                        desired_key,
+                        generated_from_key,
+                        render_kind,
+                        generation,
+                        file_hash,
+                        file_type,
+                        file_path,
+                        file_size,
+                        path_state,
+                        modified_at,
                     ),
                 ))
             })
             .map_err(|_| AppError::DatabaseError)?;
         for row in rows {
-            let (item_id, (thumbnail, generated_from_hash, expected_cache_key)) =
-                row.map_err(|_| AppError::DatabaseError)?;
-            let valid = generated_from_hash == expected_cache_key;
+            let (
+                item_id,
+                (
+                    thumbnail,
+                    generated_from_hash,
+                    desired_key,
+                    generated_from_key,
+                    render_kind,
+                    generation,
+                    file_hash,
+                    file_type,
+                    file_path,
+                    file_size,
+                    path_state,
+                    modified_at,
+                ),
+            ) = row.map_err(|_| AppError::DatabaseError)?;
+            // Markdown B4：desired key 依赖标题哈希，无法从 content hash 反推；
+            // 读取路径回落到"存储的 desired_key"自身一致性校验（配合
+            // generated_from_hash == file_hash 的 CAS，内容未变则标题未变，
+            // 存储 key 仍有效）。**必须同时校验 key 版本后缀**：旧
+            // default-cover-v1 / default-cover-v2 / default-cover-v3 / default-cover-v4 /
+            // md-screenshot 行不能把存储 key 当作 current key，否则旧版封面会冒充
+            // v5 ready（返回 None → 前端 thumbnail=null → 自动生成）。
+            // HTML 仍按 content hash 计算确定性 key。
+            let current_key: Option<String> = if file_type == "markdown" {
+                match desired_key.as_deref() {
+                    Some(key) if markdown_key_is_current(key) => desired_key.clone(),
+                    _ => None,
+                }
+            } else {
+                desired_key_for_item(&file_type, file_hash.as_deref())
+            };
+            let valid = Self::thumbnail_row_is_valid_ready(
+                &thumbnail,
+                desired_key.as_deref(),
+                generated_from_key.as_deref(),
+                render_kind.as_deref(),
+                generation,
+                current_key.as_deref(),
+                generated_from_hash.as_deref(),
+                file_hash.as_deref(),
+                &path_state,
+                &file_path,
+                file_size,
+                &modified_at,
+                expected_render_kind_for_item(&file_type),
+            );
             result.insert(item_id, if valid { Some(thumbnail) } else { None });
         }
         Ok(result)
@@ -688,7 +809,10 @@ impl Database {
                 "SELECT thumbnail_cache.thumb_status, thumbnail_cache.thumb_path, thumbnail_cache.width,
                         thumbnail_cache.height, thumbnail_cache.last_generated_at,
                         thumbnail_cache.error_message, thumbnail_cache.generated_from_hash,
-                        items.file_hash, items.file_type, items.summary
+                        thumbnail_cache.desired_key, thumbnail_cache.generated_from_key,
+                        thumbnail_cache.render_kind, thumbnail_cache.generation,
+                        items.file_hash, items.file_type,
+                        items.file_path, items.file_size, items.path_state, items.modified_at
                  FROM thumbnail_cache
                  INNER JOIN items ON items.id = thumbnail_cache.item_id
                  WHERE thumbnail_cache.item_id = ?1",
@@ -697,9 +821,16 @@ impl Database {
 
         match statement.query_row(params![item_id], |row| {
             let generated_from_hash: Option<String> = row.get(6)?;
-            let file_hash: Option<String> = row.get(7)?;
-            let file_type: String = row.get(8)?;
-            let summary: Option<String> = row.get(9)?;
+            let desired_key: Option<String> = row.get(7)?;
+            let generated_from_key: Option<String> = row.get(8)?;
+            let render_kind: Option<String> = row.get(9)?;
+            let generation: i64 = row.get(10)?;
+            let file_hash: Option<String> = row.get(11)?;
+            let file_type: String = row.get(12)?;
+            let file_path: String = row.get(13)?;
+            let file_size: i64 = row.get(14)?;
+            let path_state: String = row.get(15)?;
+            let modified_at: String = row.get(16)?;
             Ok((
                 ThumbnailInfo {
                     status: row.get(0)?,
@@ -708,20 +839,150 @@ impl Database {
                     height: row.get(3)?,
                     last_generated_at: row.get(4)?,
                     error_message: row.get(5)?,
+                    desired_key: desired_key.clone(),
+                    generation: Some(generation),
+                    render_kind: render_kind.clone(),
                 },
                 generated_from_hash,
-                thumbnail_cache_key(&file_type, file_hash.as_deref(), summary.as_deref()),
+                desired_key,
+                generated_from_key,
+                render_kind,
+                generation,
+                file_hash,
+                file_type,
+                file_path,
+                file_size,
+                path_state,
+                modified_at,
             ))
         }) {
-            Ok((thumbnail, generated_from_hash, expected_cache_key)) => {
-                if generated_from_hash != expected_cache_key {
-                    Ok(None)
+            Ok((
+                thumbnail,
+                generated_from_hash,
+                desired_key,
+                generated_from_key,
+                render_kind,
+                generation,
+                file_hash,
+                file_type,
+                file_path,
+                file_size,
+                path_state,
+                modified_at,
+            )) => {
+                // 见上方批量读取路径同样的处理：markdown 回落到存储的 desired_key 自身一致性，
+                // 且必须校验 key 版本后缀属于当前 title-parser + default-cover-v5。
+                let current_key: Option<String> = if file_type == "markdown" {
+                    match desired_key.as_deref() {
+                        Some(key) if markdown_key_is_current(key) => desired_key.clone(),
+                        _ => None,
+                    }
                 } else {
+                    desired_key_for_item(&file_type, file_hash.as_deref())
+                };
+                if Self::thumbnail_row_is_valid_ready(
+                    &thumbnail,
+                    desired_key.as_deref(),
+                    generated_from_key.as_deref(),
+                    render_kind.as_deref(),
+                    generation,
+                    current_key.as_deref(),
+                    generated_from_hash.as_deref(),
+                    file_hash.as_deref(),
+                    &path_state,
+                    &file_path,
+                    file_size,
+                    &modified_at,
+                    expected_render_kind_for_item(&file_type),
+                ) {
                     Ok(Some(thumbnail))
+                } else {
+                    Ok(None)
                 }
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(_) => Err(AppError::DatabaseError),
+        }
+    }
+
+    /// B1 读取安全边界：只有满足以下全部条件的行才作为有效 ready 成图返回：
+    /// - status == ready；
+    /// - render_kind **精确等于**该 file_type 的预期 kind（html-screenshot /
+    ///   markdown-default-cover）；placeholder、缺失、以及任意其他非空 render
+    ///   kind 一律拒绝，防止旧路径产物冒充当前路径的 ready；
+    /// - 行内 desired_key / generated_from_key 都与当前计算的确定性 key 一致；
+    /// - generated_from_hash（生成时的源内容 hash）== items.file_hash（当前 source revision）；
+    /// - generation >= 1（旧 schema 迁移行不得服务）；
+    /// - thumb_path 非空，且对应的缓存文件真实存在（缺失时返回 None 使前端重新生成，
+    ///   绝不把坏路径伪装成 ready）；
+    /// - 源文件存在、path_state=valid，且便宜磁盘 stat（file_size + 纳秒 mtime）
+    ///   与索引一致。同尺寸改写（size 相同但 mtime 变化）也会被拒绝，
+    ///   不能只因为旧 DB hash 相同就让旧图复活。
+    #[allow(clippy::too_many_arguments)]
+    fn thumbnail_row_is_valid_ready(
+        thumbnail: &ThumbnailInfo,
+        desired_key: Option<&str>,
+        generated_from_key: Option<&str>,
+        render_kind: Option<&str>,
+        generation: i64,
+        current_key: Option<&str>,
+        generated_from_hash: Option<&str>,
+        current_file_hash: Option<&str>,
+        path_state: &str,
+        file_path: &str,
+        file_size: i64,
+        db_modified_at: &str,
+        expected_render_kind: Option<&str>,
+    ) -> bool {
+        if thumbnail.status != "ready" {
+            return false;
+        }
+        // render kind 必须精确等于预期 kind：placeholder、缺失（旧 schema 行）、
+        // 以及任何其他非空值（例如 HTML 行被标成 markdown-html-screenshot）都拒绝。
+        if expected_render_kind.is_none() || render_kind != expected_render_kind {
+            return false;
+        }
+        let Some(current_key) = current_key else {
+            return false;
+        };
+        if desired_key != Some(current_key) || generated_from_key != Some(current_key) {
+            return false;
+        }
+        // 旧 schema 迁移行 generation=0：不是任何真实 generation 的成品，不得服务。
+        if generation < 1 {
+            return false;
+        }
+        // source revision：生成时的内容 hash 必须等于当前索引的 file_hash。
+        if generated_from_hash != current_file_hash {
+            return false;
+        }
+        if path_state != "valid" {
+            return false;
+        }
+        // ready 行必须携带缓存文件路径，且该文件真实存在。缓存 PNG 被删除后
+        // 读取必须返回 None（触发前端重新生成），不能继续返回坏路径。
+        let Some(thumb_path) = thumbnail.path.as_deref() else {
+            return false;
+        };
+        match std::fs::metadata(thumb_path) {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    return false;
+                }
+            }
+            Err(_) => return false,
+        }
+        // 便宜的磁盘 stat：size + 纳秒 mtime 双比较。同尺寸改写（扫描未触发、
+        // DB file_hash 未更新）时 mtime 变化也会拒绝旧图。
+        match std::fs::metadata(file_path) {
+            Ok(metadata) => {
+                let size_ok = metadata.len() as i64 == file_size;
+                let mtime_ok = file_modified_at_string(&metadata)
+                    .map(|mtime| mtime == db_modified_at)
+                    .unwrap_or(false);
+                size_ok && mtime_ok
+            }
+            Err(_) => false,
         }
     }
 
@@ -1696,16 +1957,18 @@ impl ItemRepository for Database {
         // Unchanged files must not be re-read or re-rendered on every scan.
         let mut existing_content_meta = {
             let mut statement = transaction
-                .prepare("SELECT id, modified_at, file_size FROM items")
+                .prepare("SELECT id, modified_at, file_size, file_hash FROM items")
                 .map_err(|_| AppError::DatabaseError)?;
-            let rows: Vec<(i64, String, i64)> = statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            let rows: Vec<(i64, String, i64, Option<String>)> = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
                 .map_err(|_| AppError::DatabaseError)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_| AppError::DatabaseError)?;
-            let mut meta: BTreeMap<i64, (String, i64, bool)> = rows
+            let mut meta: BTreeMap<i64, (String, i64, bool, bool)> = rows
                 .into_iter()
-                .map(|(item_id, modified_at, file_size)| (item_id, (modified_at, file_size, false)))
+                .map(|(item_id, modified_at, file_size, file_hash)| {
+                    (item_id, (modified_at, file_size, false, file_hash.is_some()))
+                })
                 .collect();
             let mut statement = transaction
                 .prepare("SELECT item_id FROM item_content")
@@ -1805,14 +2068,77 @@ impl ItemRepository for Database {
                 item_id
             };
 
-            if item.file_type == "markdown" {
+            if item.file_type == "html" {
+                // B1：HTML 也跟踪源内容 hash —— 新增或文件元数据（高精度 mtime /
+                // file_size）变化时读取内容刷新 file_hash。否则外部修改同一 HTML 后，
+                // 读路径会用陈旧的 DB file_hash 算出旧 desired key，把保存前的旧缩略图
+                // 继续当作有效 ready 返回（"从 A 改 B 后缩略图没更新"根因的扫描侧）。
+                let needs_hash_refresh = match existing_content_meta.get(&item_id) {
+                    None => true,
+                    Some((stored_modified_at, stored_file_size, _, has_hash)) => {
+                        !has_hash
+                            || stored_modified_at != &item.modified_at
+                            || stored_file_size != &item.file_size
+                    }
+                };
+                if needs_hash_refresh {
+                    match fs::read_to_string(&item.file_path) {
+                        Ok(raw) => {
+                            let hash = content_hash(&raw);
+                            transaction
+                                .execute(
+                                    "UPDATE items SET file_hash = ?2 WHERE id = ?1",
+                                    params![item_id, hash],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
+                            // B2：外部修改走与保存一致的精确失效语义——同一短事务把旧缩略图
+                            // 设为 stale、desired key 推进、generation 递增，使 in-flight 的
+                            // 旧内容生成任务被 CAS 拒绝；旧 ready 绝不能被当作有效缓存继续服务。
+                            Self::invalidate_thumbnail_in_transaction(&transaction, item_id, &hash)?;
+                            let has_content = existing_content_meta
+                                .get(&item_id)
+                                .map(|entry| entry.2)
+                                .unwrap_or(false);
+                            existing_content_meta.insert(
+                                item_id,
+                                (item.modified_at.clone(), item.file_size, has_content, true),
+                            );
+                        }
+                        Err(_) => {
+                            // 扫描已提交新 metadata，但正文暂时不可读时，绝不能留下
+                            // “新 metadata + 旧 hash/ready”的稳定组合：读取路径会把旧图
+                            // 误当当前 revision，且后续 metadata 不再变化时永远不重试。
+                            // 将 hash 置为未知并使旧 generation 失效；下一次扫描即使
+                            // mtime/size 相同，也会因 has_hash=false 再次尝试读取。
+                            transaction
+                                .execute(
+                                    "UPDATE items SET file_hash = NULL WHERE id = ?1",
+                                    params![item_id],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
+                            Self::invalidate_thumbnail_unknown_revision_in_transaction(
+                                &transaction,
+                                item_id,
+                            )?;
+                            let has_content = existing_content_meta
+                                .get(&item_id)
+                                .map(|entry| entry.2)
+                                .unwrap_or(false);
+                            existing_content_meta.insert(
+                                item_id,
+                                (item.modified_at.clone(), item.file_size, has_content, false),
+                            );
+                        }
+                    }
+                }
+            } else if item.file_type == "markdown" {
                 // 增量刷新：只有新增、item_content 缺失或文件元数据
                 // （高精度 mtime / file_size）变化的 Markdown 才重新读取/渲染；
                 // 未变化文件跳过，避免每次扫描都重复 render_markdown_as_html_for_file
                 // （一次扫描末尾统一 rebuild FTS 一次）。
                 let needs_refresh = match existing_content_meta.get(&item_id) {
                     None => true,
-                    Some((stored_modified_at, stored_file_size, has_content)) => {
+                    Some((stored_modified_at, stored_file_size, has_content, _)) => {
                         !has_content
                             || stored_modified_at != &item.modified_at
                             || stored_file_size != &item.file_size
@@ -1823,12 +2149,22 @@ impl ItemRepository for Database {
                         let summary = markdown_summary(&raw);
                         let hash = content_hash(&raw);
                         let rendered = render_markdown_as_html_for_file(&raw, &item.file_name);
+                        // B4：先由本次磁盘正文计算 markdown 封面目标（标题 key），
+                        // 再在同一事务内比较——只改正文不改标题时保持 ready 并推进
+                        // generated_from_hash；标题变化时精确失效一次（generation +1）。
+                        let target = markdown_default_cover_target(&raw, &item.file_name);
                         transaction
                             .execute(
                                 "UPDATE items SET summary = ?2, file_hash = ?3 WHERE id = ?1",
                                 params![item_id, summary, hash],
                             )
                             .map_err(|_| AppError::DatabaseError)?;
+                        Self::reconcile_markdown_thumbnail_in_transaction(
+                            &transaction,
+                            item_id,
+                            &target.desired_key,
+                            &hash,
+                        )?;
                         transaction
                             .execute(
                                 "INSERT INTO item_content (
@@ -1844,7 +2180,7 @@ impl ItemRepository for Database {
                             .map_err(|_| AppError::DatabaseError)?;
                         existing_content_meta.insert(
                             item_id,
-                            (item.modified_at.clone(), item.file_size, true),
+                            (item.modified_at.clone(), item.file_size, true, true),
                         );
                     }
                 }
@@ -1928,6 +2264,9 @@ impl ItemRepository for Database {
     }
 
     fn list_items(&self, query: &ListItemsQuery) -> Result<PagedResult<ItemSummary>, AppError> {
+        // B1：进入 list 路径时按磁盘真实状态重放 reconciliation marker
+        // （marker 目录不存在时为廉价 no-op；失败保留 marker 供下次重试）。
+        let _ = self.replay_reconciliation_markers();
         let connection = self.connection()?;
         let include_deleted = query.include_deleted.unwrap_or(false);
         let sort_column = match query.sort_by.as_deref() {
@@ -2186,6 +2525,26 @@ impl ItemRepository for Database {
         raw_text: &str,
         rendered_cache: &str,
     ) -> Result<(), AppError> {
+        // B4：事务外先从本次保存的正文计算 markdown 封面目标（display title /
+        // title hash / md-default key / palette index），再在短事务内比较。
+        // file_name 从 items 读取（文件名稳定，不随正文保存变化）；同时事务外 stat
+        // 磁盘拿真实 file_size——保存写盘后字节数变化，若不同步，读取校验的
+        // size+mtime 双比较会把 body-only 保存后的 ready 封面误判失效。
+        let (file_name, file_path): (String, String) = {
+            let connection = self.connection()?;
+            connection
+                .query_row(
+                    "SELECT file_name, file_path FROM items WHERE id = ?1",
+                    params![item_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|_| AppError::ItemNotFound)?
+        };
+        let disk_file_size: i64 = fs::metadata(&file_path)
+            .map(|metadata| metadata.len() as i64)
+            .unwrap_or(0);
+        let target = markdown_default_cover_target(raw_text, &file_name);
+
         let mut connection = self.connection()?;
         let transaction = connection
             .transaction()
@@ -2194,11 +2553,21 @@ impl ItemRepository for Database {
         transaction
             .execute(
                 "UPDATE items
-                 SET summary = ?2, modified_at = ?3, file_hash = ?4, updated_at = ?3
+                 SET summary = ?2, modified_at = ?3, file_hash = ?4, file_size = ?5, updated_at = ?3
                  WHERE id = ?1",
-                params![item_id, summary, modified_at, file_hash],
+                params![item_id, summary, modified_at, file_hash, disk_file_size],
             )
             .map_err(|_| AppError::DatabaseError)?;
+
+        // B4：Markdown 封面只依赖标题——标题没变（key 相同）时保持 ready 并仅推进
+        // generated_from_hash；标题变化（key 不同）时精确失效一次（generation 恰好 +1）。
+        // 不再无条件 stale + generation+1（那是 B1 全文截图合同，不符合 B4）。
+        Self::reconcile_markdown_thumbnail_in_transaction(
+            &transaction,
+            item_id,
+            &target.desired_key,
+            file_hash,
+        )?;
 
         transaction
             .execute(
@@ -2274,6 +2643,24 @@ impl ItemRepository for Database {
         Self::rebuild_fts_index(&transaction)?;
         transaction.commit().map_err(|_| AppError::DatabaseError)?;
         Ok(())
+    }
+
+    fn update_item_revision_and_invalidate(
+        &self,
+        item_id: i64,
+        canonical_path: &str,
+        source_hash: &str,
+        modified_at: &str,
+        file_size: i64,
+    ) -> Result<(), AppError> {
+        Database::update_item_revision_and_invalidate_impl(
+            self,
+            item_id,
+            canonical_path,
+            source_hash,
+            modified_at,
+            file_size,
+        )
     }
 
     fn list_ignored_items(&self) -> Result<Vec<IgnoredItemSummary>, AppError> {
@@ -2587,71 +2974,229 @@ impl TagRepository for Database {
 
 impl ThumbnailRepository for Database {
     fn generate_thumbnail(&self, item_id: i64) -> Result<GenerateThumbnailResponse, AppError> {
-        let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|_| AppError::DatabaseError)?;
+        self.generate_thumbnail_with_adapter(item_id, &DefaultThumbnailCaptureAdapter)
+    }
 
-        let (file_type, file_hash, summary): (String, Option<String>, Option<String>) = transaction
-            .query_row(
-                "SELECT file_type, file_hash, summary
-                 FROM items
-                 WHERE id = ?1 AND is_deleted = 0",
-                params![item_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .map_err(|_| AppError::ItemNotFound)?;
+    fn get_thumbnail_info(&self, item_id: i64) -> Result<Option<ThumbnailInfo>, AppError> {
+        let connection = self.connection()?;
+        Self::load_thumbnail_info(&connection, item_id)
+    }
+}
 
-        if file_type != "html" && file_type != "markdown" {
-            return Err(AppError::UnsupportedFileType);
+/// thumbnail_cache 当前行的只读投影，供生成流程的 CAS 判断与响应构造使用。
+#[derive(Debug, Clone)]
+struct ThumbnailCacheRow {
+    desired_key: Option<String>,
+    generation: i64,
+    status: String,
+    thumb_path: Option<String>,
+    width: Option<i32>,
+    height: Option<i32>,
+    last_generated_at: Option<String>,
+    error_message: Option<String>,
+    render_kind: Option<String>,
+    generated_from_key: Option<String>,
+    generated_from_hash: Option<String>,
+}
+
+impl ThumbnailCacheRow {
+    fn into_thumbnail_info(self) -> ThumbnailInfo {
+        ThumbnailInfo {
+            status: self.status,
+            path: self.thumb_path,
+            width: self.width,
+            height: self.height,
+            last_generated_at: self.last_generated_at,
+            error_message: self.error_message,
+            desired_key: self.desired_key,
+            generation: Some(self.generation),
+            render_kind: self.render_kind,
+        }
+    }
+}
+
+/// 阶段 1 短 DB 读的 item 投影：只有数据库字段，不含任何文件内容。
+/// 磁盘 revision 由阶段 2（prepare_thumbnail_snapshot，事务外）读取。
+#[derive(Debug, Clone)]
+struct ItemThumbnailIdentity {
+    file_type: String,
+    file_path: String,
+    db_file_hash: Option<String>,
+    db_file_size: i64,
+    db_modified_at: String,
+}
+
+/// 阶段 3a claim 的结果：
+/// - `Claimed(generation)`：snapshot 仍是当前 revision，已分配 generation；
+/// - `Superseded`：snapshot 与 claim 之间发生并发保存/invalidate（当前 DB revision
+///   与阶段 1 读取的不一致），本 snapshot 过期，调用方必须丢弃并携带当前 expected key。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaimOutcome {
+    Claimed(i64),
+    Superseded,
+}
+
+const THUMBNAIL_ENGINE_UNAVAILABLE_MESSAGE: &str =
+    "截图引擎不可用：请启用系统 Chrome 或安装截图后端后重试";
+
+impl Database {
+    /// B1 唯一目标的核心：事务外生成 + 异步 CAS。
+    ///
+    /// 三阶段边界（B1 审查阻塞 2 修正）：
+    /// 1. 短 DB 读取 item identity + 现有 thumbnail state（无文件/渲染 I/O，立即释放）；
+    /// 2. 事务外 source snapshot：磁盘 metadata / 正文读取 / hash / desired key / render kind；
+    /// 3a. 短 DB claim：核对 identity、收敛 items revision、分配 generation、写 pending；
+    /// 3b. 事务外 source preparation + capture：Markdown 渲染、临时 HTML 写入、截图
+    ///     全部不持有数据库 transaction；commit 前重读磁盘 hash 复核；
+    /// 4. 短 DB CAS：只有 item + desired key + generation 全部仍匹配才写 ready；
+    /// 5. 不匹配返回 discarded/stale，绝不覆盖新 revision。
+    ///
+    /// 物理文件使用 generation 唯一路径 item-<id>.<generation>.<ext>；CAS 失败
+    /// 只清理该任务自己的未引用文件，不会覆盖或删除新 generation 的成品。
+    pub fn generate_thumbnail_with_adapter(
+        &self,
+        item_id: i64,
+        adapter: &dyn ThumbnailCaptureAdapter,
+    ) -> Result<GenerateThumbnailResponse, AppError> {
+        // 阶段 1：短 DB 读 identity，无文件/渲染 I/O，立即释放连接。
+        let identity = self.read_item_thumbnail_identity(item_id)?;
+
+        // 阶段 2：事务外 source snapshot（磁盘读取 + hash + desired key / render kind）。
+        let mut snapshot = Self::prepare_thumbnail_snapshot(item_id, &identity)?;
+
+        // B1 审查阻塞 A：prepare 与 claim 之间的 test-only hook。并发保存发生在这个
+        // 窗口时，claim 必须通过 revision 复核拒绝旧 snapshot，否则 desired_key 会
+        // 从新 revision 倒退成旧值并额外推进 generation。
+        #[cfg(test)]
+        {
+            if let Some(hook) = crate::db::GENERATION_CLAIM_HOOK.lock().unwrap().as_ref() {
+                hook();
+            }
         }
 
+        // 阶段 3a：短 DB claim——核对 identity、复核阶段 1 revision 未变、收敛 items
+        // revision、分配 generation、key 变化时写 pending。commit 后立即释放，之后
+        // 的所有文件/渲染 I/O 都不持事务。Superseded 表示 snapshot 期间已有并发保存/
+        // invalidate：直接丢弃并携带当前 expected key，绝不倒退 desired_key。
+        let generation = match self.claim_thumbnail_generation(item_id, &identity, &snapshot)? {
+            ClaimOutcome::Claimed(generation) => generation,
+            ClaimOutcome::Superseded => {
+                let current = self.read_thumbnail_state(item_id)?;
+                return Ok(Self::discarded_thumbnail_response(&snapshot, current));
+            }
+        };
+        snapshot.generation = generation;
+
+        // 阶段 3b：事务外生成（截图期间不持有任何数据库 transaction）。
+        // - Markdown B4：直接在内存生成确定性静态 SVG 默认封面，**不创建临时 HTML、
+        //   不调用 Chromium / adapter**（边界 #1）；标题取自同一次 snapshot 的
+        //   DocumentTitle.display_text（与 key 用同一标题，保证 key 与封面一致）。
+        // - HTML：走既有 Chromium 截图路径（B4 不改）。
+        let asset = if snapshot.file_type == "markdown" {
+            // 磁盘正文已就绪（snapshot 阶段读取完成）、SVG 生成尚未开始。B4 的
+            // Markdown 封面生成是纯内存操作；若生成阶段仍持有数据库事务/连接锁，
+            // 另一个连接的写事务会在此被 SQLite 阻塞——测试据此证明生成阶段
+            // 不阻塞写事务。
+            #[cfg(test)]
+            {
+                if let Some(hook) = crate::db::GENERATION_PREPARE_HOOK.lock().unwrap().as_ref() {
+                    hook();
+                }
+            }
+            let file_name = std::path::Path::new(&snapshot.canonical_path)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // 与 key 同源：同一 snapshot 正文 → 同一 display title / title hash →
+            // 同一 palette，保证封面与 desired key、palette 永远一致。
+            let target = markdown_default_cover_target(&snapshot.source_body, &file_name);
+            generate_markdown_default_cover_asset(&target.display_title, &target.title_hash)
+        } else {
+            // Markdown 渲染正文来自 snapshot.source_body（与 key / source_content_hash
+            // 同一磁盘 revision），禁止回落到 item_content.raw_text。
+            let (thumbnail_input, temporary_source_path) = {
+                let connection = self.connection()?;
+                let input = thumbnail_input_for_item(&connection, item_id, &snapshot)?;
+                input
+            };
+            let asset = generate_html_thumbnail_with_adapter(
+                thumbnail_input,
+                ThumbnailBackend::Auto,
+                adapter,
+            );
+            if let Some(path) = temporary_source_path {
+                let _ = fs::remove_file(path);
+            }
+            asset
+        };
+
+        // placeholder 不是目标 render kind 的 ready 成品：不写文件、不 commit ready。
+        if asset.backend == "placeholder-svg" {
+            return self.finish_thumbnail_placeholder(item_id, &snapshot);
+        }
+
+        // 重新读取当前 desired key + generation。
+        let current = self.read_thumbnail_state(item_id)?;
+        let matches = matches!(
+            current,
+            Some(ref row) if row.desired_key.as_deref() == Some(snapshot.desired_key.as_str())
+                && row.generation == snapshot.generation
+        );
+        if !matches {
+            return Ok(Self::discarded_thumbnail_response(&snapshot, current));
+        }
+
+        // 重读磁盘 revision（阻塞 1/7 保留）：截图期间源文件被外部进程同尺寸改写、而扫描
+        // 尚未触发时，DB 的 key/generation 不会变化，但磁盘内容已不是 snapshot 的
+        // revision。此时旧任务仍必须丢弃，绝不能提交错误成图。
+        let disk_still_matches = fs::read_to_string(&snapshot.canonical_path)
+            .map(|raw| content_hash(&raw) == snapshot.source_content_hash)
+            .unwrap_or(false);
+        if !disk_still_matches {
+            return Ok(Self::discarded_thumbnail_response(&snapshot, current));
+        }
+
+        // generation/key 唯一输出路径：临时文件 + rename（原子落盘）。
         let cache_dir = self.thumbnail_cache_dir();
         fs::create_dir_all(&cache_dir).map_err(|_| AppError::IoError)?;
-
-        let (thumbnail_input, temporary_source_path) =
-            thumbnail_input_for_item(&transaction, item_id, &file_type)?;
-        let asset = generate_html_thumbnail(thumbnail_input, ThumbnailBackend::Auto);
-        if let Some(path) = temporary_source_path {
-            let _ = fs::remove_file(path);
+        let final_path = cache_dir.join(format!(
+            "item-{item_id}.{}.{}",
+            snapshot.generation, asset.file_extension
+        ));
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let temporary_path = cache_dir.join(format!(
+            ".item-{item_id}.{}.tmp-{nonce}",
+            snapshot.generation
+        ));
+        fs::write(&temporary_path, &asset.bytes).map_err(|_| AppError::IoError)?;
+        if fs::rename(&temporary_path, &final_path).is_err() {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(AppError::IoError);
         }
-        let path = cache_dir.join(format!("item-{item_id}.{}", asset.file_extension));
-        fs::write(&path, &asset.bytes).map_err(|_| AppError::IoError)?;
 
+        // CAS 提交：事务内再次核对 desired key + generation，防止 re-read 后 invalidate 抢先。
         let now = current_timestamp();
-        // A1.1-PERF：缩略图只存文件路径（.cache/thumbnails/item-<id>.<ext>），
-        // 禁止把 base64 data URI 写入数据库或返回给前端（43 个 base64 ≈ 7.4MB 导致
-        // list_items 主线程 JSON 序列化 1.16s 中位数）。
-        let path_string = path.to_string_lossy().to_string();
-        transaction
-            .execute(
-                "INSERT INTO thumbnail_cache (
-                    item_id, thumb_path, thumb_status, width, height, generated_from_hash,
-                    last_generated_at, error_message
-                 ) VALUES (?1, ?2, 'ready', ?3, ?4, ?5, ?6, NULL)
-                 ON CONFLICT(item_id) DO UPDATE SET
-                    thumb_path = excluded.thumb_path,
-                    thumb_status = excluded.thumb_status,
-                    width = excluded.width,
-                    height = excluded.height,
-                    generated_from_hash = excluded.generated_from_hash,
-                    last_generated_at = excluded.last_generated_at,
-                    error_message = NULL",
-                params![
-                    item_id,
-                    path_string,
-                    asset.width,
-                    asset.height,
-                    thumbnail_cache_key(&file_type, file_hash.as_deref(), summary.as_deref()),
-                    now
-                ],
-            )
-            .map_err(|_| AppError::DatabaseError)?;
+        let committed = self.cas_commit_thumbnail(item_id, &snapshot, &asset, &final_path, now.clone())?;
+        if !committed {
+            // 只清理本任务自己的未引用文件，绝不动新 generation 的成品。
+            let _ = fs::remove_file(&final_path);
+            let current_after = self.read_thumbnail_state(item_id)?;
+            return Ok(Self::discarded_thumbnail_response(&snapshot, current_after));
+        }
 
-        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        // 提交成功后清理旧 generation 的成品文件（不会命中 .tmp 或当前 generation）。
+        self.cleanup_older_thumbnail_files(item_id, snapshot.generation, asset.file_extension)?;
 
+        let path_string = final_path.to_string_lossy().to_string();
         Ok(GenerateThumbnailResponse {
             item_id,
+            generated_from_key: Some(snapshot.desired_key.clone()),
+            expected_key: Some(snapshot.desired_key.clone()),
+            generation: snapshot.generation,
+            discarded: false,
             thumbnail: ThumbnailInfo {
                 status: "ready".to_string(),
                 path: Some(path_string),
@@ -2659,13 +3204,962 @@ impl ThumbnailRepository for Database {
                 height: Some(asset.height),
                 last_generated_at: Some(now),
                 error_message: None,
+                desired_key: Some(snapshot.desired_key.clone()),
+                generation: Some(snapshot.generation),
+                render_kind: Some(snapshot.render_kind.to_string()),
             },
         })
     }
 
-    fn get_thumbnail_info(&self, item_id: i64) -> Result<Option<ThumbnailInfo>, AppError> {
+    /// 阶段 1：短 DB 读 item identity。只做 SELECT、不做任何文件/渲染 I/O，
+    /// 连接随函数返回立即释放。磁盘 revision 读取在阶段 2（事务外）完成。
+    fn read_item_thumbnail_identity(
+        &self,
+        item_id: i64,
+    ) -> Result<ItemThumbnailIdentity, AppError> {
         let connection = self.connection()?;
-        Self::load_thumbnail_info(&connection, item_id)
+        let identity = connection
+            .query_row(
+                "SELECT file_type, file_path, file_hash, file_size, modified_at
+                 FROM items
+                 WHERE id = ?1 AND is_deleted = 0",
+                params![item_id],
+                |row| {
+                    Ok(ItemThumbnailIdentity {
+                        file_type: row.get(0)?,
+                        file_path: row.get(1)?,
+                        db_file_hash: row.get(2)?,
+                        db_file_size: row.get(3)?,
+                        db_modified_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?
+            .ok_or(AppError::ItemNotFound)?;
+        if identity.file_type != "html" && identity.file_type != "markdown" {
+            return Err(AppError::UnsupportedFileType);
+        }
+        Ok(identity)
+    }
+
+    /// 阶段 2：事务外 source snapshot。磁盘 metadata / 正文读取 / content hash /
+    /// desired key / render kind 计算全部发生在数据库事务与连接之外。
+    /// snapshot 保存本次磁盘读取的正文（source_body），作为 Markdown 渲染的
+    /// 唯一输入，与 key / source_content_hash 属于同一个磁盘 revision。
+    fn prepare_thumbnail_snapshot(
+        item_id: i64,
+        identity: &ItemThumbnailIdentity,
+    ) -> Result<ThumbnailGenerationSnapshot, AppError> {
+        let metadata = fs::metadata(&identity.file_path).map_err(|_| AppError::IoError)?;
+        let source_modified_at = file_modified_at_string(&metadata)?;
+        let source_file_size = metadata.len() as i64;
+        let source_body = fs::read_to_string(&identity.file_path).map_err(|_| AppError::IoError)?;
+        let source_content_hash = content_hash(&source_body);
+        // Markdown B4：desired key 依赖标题哈希，必须从**同一次磁盘 snapshot** 的
+        // DocumentTitle.display_text 计算——禁止回落到可能陈旧的 items.title /
+        // item_content.raw_text（B4 边界 #4）。统一走 markdown_default_cover_target
+        // 计算入口（display title / title hash / md-default key / palette index 同源）。
+        let desired_key = match identity.file_type.as_str() {
+            "markdown" => {
+                let file_name = std::path::Path::new(&identity.file_path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                markdown_default_cover_target(&source_body, &file_name).desired_key
+            }
+            _ => desired_key_for_item(&identity.file_type, Some(&source_content_hash))
+                .ok_or(AppError::UnsupportedFileType)?,
+        };
+        let render_kind = expected_render_kind_for_item(&identity.file_type)
+            .ok_or(AppError::UnsupportedFileType)?;
+        Ok(ThumbnailGenerationSnapshot {
+            item_id,
+            desired_key,
+            render_kind,
+            generation: 0, // 由阶段 3a claim 分配
+            source_content_hash,
+            source_file_size,
+            source_modified_at,
+            canonical_path: identity.file_path.clone(),
+            file_type: identity.file_type.clone(),
+            source_body,
+        })
+    }
+
+    /// 阶段 3a：短 DB claim。在同一短事务内：
+    /// - 核对 item 仍存在且 canonical path 未变（identity 校验）；
+    /// - **复核阶段 1 读取的 file_hash / file_size / modified_at 仍然成立**
+    ///   （B1 审查阻塞 A）：若保存发生在 snapshot 与 claim 之间，当前 DB revision
+    ///   已与阶段 1 读取的不一致——此时不得用旧 snapshot 覆盖新 revision（否则
+    ///   desired_key 会从新 revision 倒退成旧值并额外推进 generation），返回 Superseded；
+    /// - revision 未变时：收敛 items revision（与磁盘 snapshot 不一致则更新）、
+    ///   读现有 desired_key / generation，desired key 变化时递增持久化 generation 并写 pending。
+    /// 事务内不做任何文件/渲染 I/O；commit 后立即释放，供测试证明 prepare/capture
+    /// 阶段不阻塞其他写事务。
+    fn claim_thumbnail_generation(
+        &self,
+        item_id: i64,
+        identity: &ItemThumbnailIdentity,
+        snapshot: &ThumbnailGenerationSnapshot,
+    ) -> Result<ClaimOutcome, AppError> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+
+        // 事务内重读 items 当前状态（不是阶段 1 的陈旧 identity）。
+        let (db_path, current_hash, current_size, current_modified_at): (
+            String,
+            Option<String>,
+            i64,
+            String,
+        ) = transaction
+            .query_row(
+                "SELECT file_path, file_hash, file_size, modified_at
+                 FROM items
+                 WHERE id = ?1 AND is_deleted = 0",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|_| AppError::ItemNotFound)?;
+        if db_path != identity.file_path {
+            return Err(AppError::InvalidParams);
+        }
+
+        // 复核阶段 1 读取的 revision 仍然成立：snapshot 与 claim 之间发生并发保存/
+        // invalidate 时，当前 DB revision 与阶段 1 读取的不一致 → 本 snapshot 过期，
+        // 绝不能把 desired_key 倒退、也不能额外推进 generation。
+        let revision_still_valid = current_hash == identity.db_file_hash
+            && current_size == identity.db_file_size
+            && current_modified_at == identity.db_modified_at;
+        if !revision_still_valid {
+            transaction.commit().map_err(|_| AppError::DatabaseError)?;
+            return Ok(ClaimOutcome::Superseded);
+        }
+
+        // 收敛 index：file_hash / file_size / modified_at 与磁盘 snapshot 不一致时更新，
+        // 否则读取路径的 stat 校验会一直拒绝刚生成的 ready。此处已由 revision_still_valid
+        // 保证没有并发 DB 修改，收敛是安全的。
+        if identity.db_file_hash.as_deref() != Some(snapshot.source_content_hash.as_str())
+            || identity.db_file_size != snapshot.source_file_size
+            || identity.db_modified_at != snapshot.source_modified_at
+        {
+            transaction
+                .execute(
+                    "UPDATE items SET file_hash = ?2, file_size = ?3, modified_at = ?4
+                     WHERE id = ?1",
+                    params![
+                        item_id,
+                        snapshot.source_content_hash,
+                        snapshot.source_file_size,
+                        snapshot.source_modified_at,
+                    ],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+
+        // generation：desired key 变化或行不存在 → 递增并记录；key 相同 → 复用。
+        let (stored_desired, stored_generation): (Option<String>, i64) = transaction
+            .query_row(
+                "SELECT desired_key, generation
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?
+            .unwrap_or((None, 0));
+        let generation = if stored_desired.as_deref() == Some(snapshot.desired_key.as_str()) {
+            stored_generation
+        } else {
+            stored_generation + 1
+        };
+        if stored_desired.as_deref() != Some(snapshot.desired_key.as_str()) {
+            transaction
+                .execute(
+                    "INSERT INTO thumbnail_cache (
+                        item_id, thumb_status, desired_key, generation, error_message
+                     ) VALUES (?1, 'pending', ?2, ?3, NULL)
+                     ON CONFLICT(item_id) DO UPDATE SET
+                        thumb_status = 'pending',
+                        desired_key = excluded.desired_key,
+                        generation = excluded.generation,
+                        error_message = NULL",
+                    params![item_id, snapshot.desired_key, generation],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(ClaimOutcome::Claimed(generation))
+    }
+
+    /// 只读当前 thumbnail_cache 行（不存在返回 None）。
+    fn read_thumbnail_state(&self, item_id: i64) -> Result<Option<ThumbnailCacheRow>, AppError> {
+        let connection = self.connection()?;
+        let row = connection
+            .query_row(
+                "SELECT desired_key, generation, thumb_status, thumb_path, width, height,
+                        last_generated_at, error_message, render_kind,
+                        generated_from_key, generated_from_hash
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| {
+                    Ok(ThumbnailCacheRow {
+                        desired_key: row.get(0)?,
+                        generation: row.get(1)?,
+                        status: row.get(2)?,
+                        thumb_path: row.get(3)?,
+                        width: row.get(4)?,
+                        height: row.get(5)?,
+                        last_generated_at: row.get(6)?,
+                        error_message: row.get(7)?,
+                        render_kind: row.get(8)?,
+                        generated_from_key: row.get(9)?,
+                        generated_from_hash: row.get(10)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(row)
+    }
+
+    /// B2：返回当前 item 的缩略图排队状态（desired key + generation）的窄只读访问器。
+    /// 供 `commit_html_edit` 在 index_synchronized=true 时把结构化状态带回前端，
+    /// 让前端无需二次 list 即可为当前 item 排队当前 generation。行不存在返回 Ok(None)。
+    pub fn thumbnail_queue_state(
+        &self,
+        item_id: i64,
+    ) -> Result<Option<(Option<String>, i64)>, AppError> {
+        Ok(self
+            .read_thumbnail_state(item_id)?
+            .map(|row| (row.desired_key, row.generation)))
+    }
+
+    /// B2：查询仍处于 stale / pending / failed 且 desired key 非空的 item id。
+    /// 窄 SQL 查询，不读取文件内容、不做任何写操作、不是全局扫描器；用于
+    /// marker 重放 / 列表加载后识别"需要补排队"的 item（等价队列入口是前端
+    /// ensureDocumentThumbnails 对可见项按 stale/desired 状态排队）。
+    pub fn stale_desired_item_ids(&self) -> Result<Vec<i64>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT item_id
+                 FROM thumbnail_cache
+                 WHERE thumb_status IN ('stale', 'pending', 'failed')
+                   AND desired_key IS NOT NULL AND desired_key != ''
+                 ORDER BY item_id",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, i64>(0))
+            .map_err(|_| AppError::DatabaseError)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)
+    }
+
+    /// CAS 提交：事务内核对 desired_key + generation 全部匹配才写 ready。
+    fn cas_commit_thumbnail(
+        &self,
+        item_id: i64,
+        snapshot: &ThumbnailGenerationSnapshot,
+        asset: &crate::core::thumbnail::GeneratedThumbnailAsset,
+        final_path: &Path,
+        now: String,
+    ) -> Result<bool, AppError> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+        let current: Option<(Option<String>, i64)> = transaction
+            .query_row(
+                "SELECT desired_key, generation
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        let matches = matches!(
+            current,
+            Some((ref key, generation))
+                if key.as_deref() == Some(snapshot.desired_key.as_str())
+                    && generation == snapshot.generation
+        );
+        if !matches {
+            return Ok(false);
+        }
+
+        let path_string = final_path.to_string_lossy().to_string();
+        transaction
+            .execute(
+                "INSERT INTO thumbnail_cache (
+                    item_id, thumb_path, thumb_status, width, height, generated_from_hash,
+                    last_generated_at, error_message, desired_key, generated_from_key,
+                    render_kind, generation
+                 ) VALUES (?1, ?2, 'ready', ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10)
+                 ON CONFLICT(item_id) DO UPDATE SET
+                    thumb_path = excluded.thumb_path,
+                    thumb_status = excluded.thumb_status,
+                    width = excluded.width,
+                    height = excluded.height,
+                    generated_from_hash = excluded.generated_from_hash,
+                    last_generated_at = excluded.last_generated_at,
+                    error_message = NULL,
+                    desired_key = excluded.desired_key,
+                    generated_from_key = excluded.generated_from_key,
+                    render_kind = excluded.render_kind,
+                    generation = excluded.generation",
+                params![
+                    item_id,
+                    path_string,
+                    asset.width,
+                    asset.height,
+                    snapshot.source_content_hash,
+                    now,
+                    snapshot.desired_key,
+                    snapshot.desired_key,
+                    snapshot.render_kind,
+                    snapshot.generation,
+                ],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(true)
+    }
+
+    /// 生成结果是 placeholder 时：不写文件、不 commit ready，且与 PNG 路径使用
+    /// **相同等级**的 CAS（B1 审查阻塞 4）：
+    /// 1. completion 前重读磁盘 revision，源文件已变化 → 直接 discarded；
+    /// 2. 同一短事务内读取当前 desired_key / generation / status / path / render_kind
+    ///    / generated_from_key / generated_from_hash（不用另一连接的 read_thumbnail_state，
+    ///    避免读到事务开始前的过期快照）；
+    /// 3. 只有 key + generation 与 snapshot 完全匹配才能继续；
+    /// 4. 保留既有 ready 时还必须确认：render kind 精确等于 snapshot.render_kind、
+    ///    generated_from_key/hash 与当前 revision 匹配、缓存文件真实存在；
+    /// 5. 所有写都通过条件 UPDATE（WHERE item_id + desired_key + generation）并检查
+    ///    affected rows：0 行或状态在过程中变化 → 返回 discarded=true + 当前 expected key。
+    /// 绝不把旧 generation 的 placeholder/ready 作为非 discarded 结果返回。
+    fn finish_thumbnail_placeholder(
+        &self,
+        item_id: i64,
+        snapshot: &ThumbnailGenerationSnapshot,
+    ) -> Result<GenerateThumbnailResponse, AppError> {
+        // 与 PNG 路径相同的磁盘复核：截图期间源文件被外部改写（扫描未触发）时丢弃。
+        let disk_still_matches = fs::read_to_string(&snapshot.canonical_path)
+            .map(|raw| content_hash(&raw) == snapshot.source_content_hash)
+            .unwrap_or(false);
+        if !disk_still_matches {
+            let current = self.read_thumbnail_state(item_id)?;
+            return Ok(Self::discarded_thumbnail_response(snapshot, current));
+        }
+
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+
+        // 同一短事务内读取当前状态（快照一致性由事务保证）。
+        let current: Option<ThumbnailCacheRow> = transaction
+            .query_row(
+                "SELECT desired_key, generation, thumb_status, thumb_path, width, height,
+                        last_generated_at, error_message, render_kind,
+                        generated_from_key, generated_from_hash
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| {
+                    Ok(ThumbnailCacheRow {
+                        desired_key: row.get(0)?,
+                        generation: row.get(1)?,
+                        status: row.get(2)?,
+                        thumb_path: row.get(3)?,
+                        width: row.get(4)?,
+                        height: row.get(5)?,
+                        last_generated_at: row.get(6)?,
+                        error_message: row.get(7)?,
+                        render_kind: row.get(8)?,
+                        generated_from_key: row.get(9)?,
+                        generated_from_hash: row.get(10)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+
+        // 只有 desired_key + generation 与 snapshot 完全匹配才能继续。
+        let matches_current = matches!(
+            current,
+            Some(ref row)
+                if row.desired_key.as_deref() == Some(snapshot.desired_key.as_str())
+                    && row.generation == snapshot.generation
+        );
+        if !matches_current {
+            transaction.commit().map_err(|_| AppError::DatabaseError)?;
+            return Ok(Self::discarded_thumbnail_response(snapshot, current));
+        }
+
+        // 既有 ready 是否真 ready：render kind 精确匹配、generated key/hash 与
+        // 当前 revision 匹配、缓存文件真实存在。
+        let preserved_ready = matches!(
+            current,
+            Some(ref row)
+                if row.status == "ready"
+                    && row.render_kind.as_deref() == Some(snapshot.render_kind)
+                    && row.generated_from_key.as_deref() == Some(snapshot.desired_key.as_str())
+                    && row.generated_from_hash.as_deref()
+                        == Some(snapshot.source_content_hash.as_str())
+                    && row.thumb_path.as_deref().map(|p| Path::new(p).is_file()).unwrap_or(false)
+        );
+
+        if preserved_ready {
+            // 确认写：条件 UPDATE（key + generation + status）作为 CAS，防止
+            // 事务快照之后、UPDATE 之前发生并发 invalidate。
+            let affected = transaction
+                .execute(
+                    "UPDATE thumbnail_cache
+                     SET thumb_status = 'ready', error_message = NULL
+                     WHERE item_id = ?1 AND desired_key = ?2 AND generation = ?3
+                       AND thumb_status = 'ready'",
+                    params![item_id, snapshot.desired_key, snapshot.generation],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            if affected == 0 {
+                // 状态在过程中变化：并发 invalidate 抢先。返回 discarded + 当前 expected key。
+                transaction.commit().map_err(|_| AppError::DatabaseError)?;
+                let current_after = self.read_thumbnail_state(item_id)?;
+                return Ok(Self::discarded_thumbnail_response(snapshot, current_after));
+            }
+            transaction.commit().map_err(|_| AppError::DatabaseError)?;
+            return Ok(GenerateThumbnailResponse {
+                item_id,
+                generated_from_key: Some(snapshot.desired_key.clone()),
+                expected_key: Some(snapshot.desired_key.clone()),
+                generation: snapshot.generation,
+                discarded: false,
+                thumbnail: ThumbnailInfo {
+                    status: "ready".to_string(),
+                    path: current.as_ref().and_then(|row| row.thumb_path.clone()),
+                    width: current.as_ref().and_then(|row| row.width),
+                    height: current.as_ref().and_then(|row| row.height),
+                    last_generated_at: current.as_ref().and_then(|row| row.last_generated_at.clone()),
+                    error_message: None,
+                    desired_key: Some(snapshot.desired_key.clone()),
+                    generation: Some(snapshot.generation),
+                    render_kind: Some(snapshot.render_kind.to_string()),
+                },
+            });
+        }
+
+        // 标记 failed（可重试）：条件 UPDATE，检查 affected rows。
+        let affected = transaction
+            .execute(
+                "UPDATE thumbnail_cache
+                 SET thumb_status = 'failed',
+                     render_kind = ?2,
+                     error_message = ?3
+                 WHERE item_id = ?1 AND desired_key = ?4 AND generation = ?5",
+                params![
+                    item_id,
+                    RENDER_KIND_PLACEHOLDER,
+                    THUMBNAIL_ENGINE_UNAVAILABLE_MESSAGE,
+                    snapshot.desired_key,
+                    snapshot.generation,
+                ],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+
+        if affected == 0 {
+            // 状态在过程中变化：并发 invalidate 抢先。返回 discarded + 当前 expected key。
+            let current_after = self.read_thumbnail_state(item_id)?;
+            return Ok(Self::discarded_thumbnail_response(snapshot, current_after));
+        }
+
+        Ok(GenerateThumbnailResponse {
+            item_id,
+            generated_from_key: Some(snapshot.desired_key.clone()),
+            expected_key: Some(snapshot.desired_key.clone()),
+            generation: snapshot.generation,
+            discarded: false,
+            thumbnail: ThumbnailInfo {
+                status: "failed".to_string(),
+                path: None,
+                width: None,
+                height: None,
+                last_generated_at: None,
+                error_message: Some(THUMBNAIL_ENGINE_UNAVAILABLE_MESSAGE.to_string()),
+                desired_key: Some(snapshot.desired_key.clone()),
+                generation: Some(snapshot.generation),
+                render_kind: Some(RENDER_KIND_PLACEHOLDER.to_string()),
+            },
+        })
+    }
+
+    /// 旧任务晚到（desired key / generation 已变化）的丢弃响应：
+    /// 携带 generatedFromKey / expectedKey / generation / discarded=true，
+    /// 前端据此不得写回旧图，并按 expectedKey 补跑最新 generation。
+    fn discarded_thumbnail_response(
+        snapshot: &ThumbnailGenerationSnapshot,
+        current: Option<ThumbnailCacheRow>,
+    ) -> GenerateThumbnailResponse {
+        GenerateThumbnailResponse {
+            item_id: snapshot.item_id,
+            generated_from_key: Some(snapshot.desired_key.clone()),
+            expected_key: current
+                .as_ref()
+                .and_then(|row| row.desired_key.clone()),
+            generation: snapshot.generation,
+            discarded: true,
+            thumbnail: current
+                .map(ThumbnailCacheRow::into_thumbnail_info)
+                .unwrap_or_else(|| ThumbnailInfo {
+                    status: "pending".to_string(),
+                    path: None,
+                    width: None,
+                    height: None,
+                    last_generated_at: None,
+                    error_message: None,
+                    desired_key: Some(snapshot.desired_key.clone()),
+                    generation: Some(snapshot.generation),
+                    render_kind: Some(snapshot.render_kind.to_string()),
+                }),
+        }
+    }
+
+    /// CAS 成功后清理该 item 更早 generation 的成品文件；只匹配
+    /// item-<id>.<数字>.<扩展名> 形态，不碰带点前缀的临时文件或当前 generation。
+    fn cleanup_older_thumbnail_files(
+        &self,
+        item_id: i64,
+        current_generation: i64,
+        extension: &str,
+    ) -> Result<(), AppError> {
+        let cache_dir = self.thumbnail_cache_dir();
+        let Ok(entries) = fs::read_dir(&cache_dir) else {
+            return Ok(());
+        };
+        let prefix = format!("item-{item_id}.");
+        let current_suffix = format!("{current_generation}.{extension}");
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !name.starts_with(&prefix) || name.ends_with(&current_suffix) {
+                continue;
+            }
+            let rest = &name[prefix.len()..];
+            let Some((generation_part, ext)) = rest.rsplit_once('.') else {
+                continue;
+            };
+            if generation_part.is_empty()
+                || !generation_part.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                continue;
+            }
+            if !matches!(ext, "png" | "jpg" | "jpeg" | "webp" | "svg") {
+                continue;
+            }
+            let _ = fs::remove_file(entry.path());
+        }
+        Ok(())
+    }
+
+    /// B1：按 item_id + canonical_path 精确更新 revision，并在同一短事务把旧缩略图
+    /// 设为 stale、递增持久化 generation。不依赖 owner library 或 source_kind；
+    /// ordinary、agent_project 独占、shared item 都可用；禁止为 agent_project
+    /// 调用递归 library scan。
+    pub fn update_item_revision_and_invalidate_impl(
+        &self,
+        item_id: i64,
+        canonical_path: &str,
+        source_hash: &str,
+        modified_at: &str,
+        file_size: i64,
+    ) -> Result<(), AppError> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+
+        let (db_path,): (String,) = transaction
+            .query_row(
+                "SELECT file_path
+                 FROM items
+                 WHERE id = ?1 AND is_deleted = 0",
+                params![item_id],
+                |row| Ok((row.get(0)?,)),
+            )
+            .map_err(|_| AppError::ItemNotFound)?;
+        if db_path != canonical_path {
+            return Err(AppError::InvalidParams);
+        }
+
+        transaction
+            .execute(
+                "UPDATE items
+                 SET file_hash = ?2, modified_at = ?3, file_size = ?4,
+                     updated_at = ?3, path_state = 'valid'
+                 WHERE id = ?1 AND file_path = ?5",
+                params![item_id, source_hash, modified_at, file_size, canonical_path],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+
+        // 同一短事务：旧缩略图设为 stale、递增持久化 generation（使 in-flight
+        // 的同 key 旧任务也会被 CAS 拒绝）。
+        Self::invalidate_thumbnail_in_transaction(&transaction, item_id, source_hash)?;
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(())
+    }
+
+    /// 在同一短事务内把 item 的旧缩略图设为 stale，并按当前状态更新 desired key、
+    /// 递增持久化 generation。source_hash 是源内容 hash（HTML 直接进 desired key；
+    /// Markdown 用于 source-revision 校验）。
+    fn invalidate_thumbnail_in_transaction(
+        transaction: &Transaction<'_>,
+        item_id: i64,
+        source_hash: &str,
+    ) -> Result<(), AppError> {
+        let (file_type,): (String,) = transaction
+            .query_row(
+                "SELECT file_type
+                 FROM items
+                 WHERE id = ?1 AND is_deleted = 0",
+                params![item_id],
+                |row| Ok((row.get(0)?,)),
+            )
+            .map_err(|_| AppError::ItemNotFound)?;
+        let new_desired_key = match desired_key_for_item(&file_type, Some(source_hash)) {
+            Some(key) => key,
+            None => transaction
+                .query_row(
+                    "SELECT COALESCE(desired_key, '')
+                     FROM thumbnail_cache
+                     WHERE item_id = ?1",
+                    params![item_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?
+                .unwrap_or_default(),
+        };
+        let (_, stored_generation): (Option<String>, i64) = transaction
+            .query_row(
+                "SELECT desired_key, generation
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?
+            .unwrap_or((None, 0));
+        let next_generation = stored_generation + 1;
+        transaction
+            .execute(
+                "INSERT INTO thumbnail_cache (
+                    item_id, thumb_status, desired_key, generation, error_message
+                 ) VALUES (?1, 'stale', ?2, ?3, NULL)
+                 ON CONFLICT(item_id) DO UPDATE SET
+                    thumb_status = 'stale',
+                    desired_key = excluded.desired_key,
+                    generation = excluded.generation,
+                    error_message = NULL",
+                params![item_id, new_desired_key, next_generation],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(())
+    }
+
+    /// B4 Markdown 封面合同：保存/外部扫描在事务外由 `markdown_default_cover_target`
+    /// 计算出本次正文的标题 key 后，在短事务内与存储行比较：
+    /// A) 标题 key 没变（只改正文）：保持 ready / desired key / generated key /
+    ///    generation / thumb path，**仅把 generated_from_hash 推进到新的全文
+    ///    source hash**——否则读取校验（generated_from_hash == file_hash）会把
+    ///    ready 行判为失效。生成中的旧 snapshot 仍会因磁盘全文 hash 不同而被
+    ///    discarded，不会覆盖新 revision。
+    /// B) 标题 key 改变：同一短事务写入新 desired key、旧 ready 立即 stale、
+    ///    generation **恰好 +1**（只推进一次），使旧 in-flight 任务被 CAS 拒绝。
+    /// 无 thumbnail 行时不写入（首次生成由 generate 流程 claim 创建）。
+    fn reconcile_markdown_thumbnail_in_transaction(
+        transaction: &Transaction<'_>,
+        item_id: i64,
+        new_desired_key: &str,
+        new_source_hash: &str,
+    ) -> Result<(), AppError> {
+        let current: Option<(Option<String>, i64, String)> = transaction
+            .query_row(
+                "SELECT desired_key, generation, thumb_status
+                 FROM thumbnail_cache
+                 WHERE item_id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        let Some((stored_key, _, _)) = current else {
+            return Ok(());
+        };
+        if stored_key.as_deref() == Some(new_desired_key) {
+            // A) 标题没变：只推进 generated_from_hash，ready / key / generation / path 保持。
+            transaction
+                .execute(
+                    "UPDATE thumbnail_cache SET generated_from_hash = ?2 WHERE item_id = ?1",
+                    params![item_id, new_source_hash],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        } else {
+            // B) 标题变：新 key + stale + generation 恰好 +1。
+            transaction
+                .execute(
+                    "UPDATE thumbnail_cache
+                     SET desired_key = ?2, thumb_status = 'stale',
+                         generation = generation + 1, error_message = NULL,
+                         generated_from_hash = ?3
+                     WHERE item_id = ?1",
+                    params![item_id, new_desired_key, new_source_hash],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+        Ok(())
+    }
+
+    /// HTML 扫描已观察到 metadata 变化、但正文暂时不可读时的未知 revision 失效。
+    /// desired_key 必须清空，旧 generation 必须在第一次进入该状态时递增，从而拒绝
+    /// 所有在途旧截图；连续扫描仍不可读时保持幂等，避免无意义地反复递增 generation。
+    fn invalidate_thumbnail_unknown_revision_in_transaction(
+        transaction: &Transaction<'_>,
+        item_id: i64,
+    ) -> Result<(), AppError> {
+        transaction
+            .execute(
+                "INSERT INTO thumbnail_cache (
+                    item_id, thumb_status, desired_key, generation, error_message
+                 ) VALUES (?1, 'stale', NULL, 1, NULL)
+                 ON CONFLICT(item_id) DO UPDATE SET
+                    generation = CASE
+                        WHEN thumbnail_cache.desired_key IS NOT NULL
+                          OR thumbnail_cache.thumb_status != 'stale'
+                        THEN thumbnail_cache.generation + 1
+                        ELSE thumbnail_cache.generation
+                    END,
+                    thumb_status = 'stale',
+                    desired_key = NULL,
+                    generated_from_key = NULL,
+                    generated_from_hash = NULL,
+                    error_message = NULL",
+                params![item_id],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(())
+    }
+
+    /// durable source save 后的精确索引同步入口（B2 的 HTML commit 会接线调用）。
+    /// source 已 durable 时，索引同步失败绝不能被伪装成保存失败；失败时原子写入
+    /// 可重放 marker 并返回 index_synchronized=false。
+    /// durable save 后的精确 revision 同步（B1 审查阻塞 6）：
+    /// - `modified_at = Some(真实纳秒 mtime)`：按 item_id + canonical_path 精确更新
+    ///   revision 并在同一短事务把旧缩略图设 stale、递增 generation；
+    /// - `modified_at = None`（stat / canonical mtime 获取失败）：**不**写入伪造的
+    ///   零纳秒 mtime、不更新 index；source 已 durable → 索引同步 pending，原子写
+    ///   reconciliation marker，重放时重新 stat/read/hash 磁盘，成功后删除 marker。
+    /// 两种情况下 source save 都算成功（source_saved=true），绝不伪装成保存失败。
+    pub fn sync_item_revision_after_durable_save(
+        &self,
+        item_id: i64,
+        canonical_path: &str,
+        source_hash: &str,
+        modified_at: Option<&str>,
+        file_size: i64,
+    ) -> DurableSaveSyncReport {
+        let mtime = match modified_at {
+            Some(mtime) => mtime,
+            None => {
+                // 拿不到真实 mtime：不碰 index，直接进 marker 队列。
+                let generation = self
+                    .read_thumbnail_state(item_id)
+                    .ok()
+                    .flatten()
+                    .map(|row| row.generation)
+                    .unwrap_or(0);
+                let marker = ReconciliationMarker {
+                    schema_version: RECONCILIATION_MARKER_VERSION,
+                    item_id,
+                    canonical_path: canonical_path.to_string(),
+                    source_hash: source_hash.to_string(),
+                    modified_at: String::new(),
+                    file_size,
+                    generation,
+                    written_at: current_timestamp(),
+                };
+                if let Err(write_error) = self.write_reconciliation_marker(&marker) {
+                    eprintln!(
+                        "Nutbook reconciliation marker write failed for item {item_id}: \
+                         {write_error} (mtime unavailable)"
+                    );
+                }
+                return DurableSaveSyncReport {
+                    source_saved: true,
+                    index_synchronized: false,
+                };
+            }
+        };
+        match self.update_item_revision_and_invalidate(
+            item_id,
+            canonical_path,
+            source_hash,
+            mtime,
+            file_size,
+        ) {
+            Ok(()) => DurableSaveSyncReport {
+                source_saved: true,
+                index_synchronized: true,
+            },
+            Err(error) => {
+                let generation = self
+                    .read_thumbnail_state(item_id)
+                    .ok()
+                    .flatten()
+                    .map(|row| row.generation)
+                    .unwrap_or(0);
+                let marker = ReconciliationMarker {
+                    schema_version: RECONCILIATION_MARKER_VERSION,
+                    item_id,
+                    canonical_path: canonical_path.to_string(),
+                    source_hash: source_hash.to_string(),
+                    modified_at: mtime.to_string(),
+                    file_size,
+                    generation,
+                    written_at: current_timestamp(),
+                };
+                if let Err(write_error) = self.write_reconciliation_marker(&marker) {
+                    eprintln!(
+                        "Nutbook reconciliation marker write failed for item {item_id}: \
+                         {write_error} (index sync error: {error})"
+                    );
+                }
+                DurableSaveSyncReport {
+                    source_saved: true,
+                    index_synchronized: false,
+                }
+            }
+        }
+    }
+
+    /// 原子写入 per-item reconciliation marker（临时文件 + rename，不产生半份 JSON）。
+    pub fn write_reconciliation_marker(
+        &self,
+        marker: &ReconciliationMarker,
+    ) -> Result<(), AppError> {
+        let dir = self.reconciliation_marker_dir();
+        fs::create_dir_all(&dir).map_err(|_| AppError::IoError)?;
+        let path = dir.join(format!("reconcile-{}.json", marker.item_id));
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let temporary = dir.join(format!(".reconcile-{}-{nonce}.tmp", marker.item_id));
+        let json = serde_json::to_vec_pretty(marker).map_err(|_| AppError::InternalError)?;
+        fs::write(&temporary, json).map_err(|_| AppError::IoError)?;
+        fs::rename(&temporary, &path).map_err(|_| AppError::IoError)?;
+        Ok(())
+    }
+
+    /// 启动 / list 路径：根据磁盘真实状态重放 marker。精确更新同一 item、
+    /// 旧缩略图保持 stale、marker 只在同步真正成功后删除；失败保留供下次重试。
+    pub fn replay_reconciliation_markers(&self) -> Result<usize, AppError> {
+        let dir = self.reconciliation_marker_dir();
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return Ok(0);
+        };
+        let mut replayed = 0usize;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_marker = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("reconcile-") && name.ends_with(".json"));
+            if !is_marker {
+                continue;
+            }
+            match self.replay_one_marker(&path) {
+                Ok(handled) => {
+                    if handled {
+                        replayed += 1;
+                    }
+                }
+                Err(error) => {
+                    // 恢复失败：保留 marker 供下次重试。
+                    eprintln!(
+                        "Nutbook reconciliation replay failed for {}: {error}",
+                        path.display()
+                    );
+                }
+            }
+        }
+        Ok(replayed)
+    }
+
+    fn replay_one_marker(&self, path: &Path) -> Result<bool, AppError> {
+        let bytes = fs::read(path).map_err(|_| AppError::IoError)?;
+        let marker: ReconciliationMarker =
+            serde_json::from_slice(&bytes).map_err(|_| AppError::IoError)?;
+        if marker.schema_version != RECONCILIATION_MARKER_VERSION {
+            // 未知版本：保留，不冒险重放。
+            return Ok(false);
+        }
+        let connection = self.connection()?;
+        let item_exists = connection
+            .query_row(
+                "SELECT 1 FROM items WHERE id = ?1",
+                params![marker.item_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?
+            .is_some();
+        if !item_exists {
+            // item 已删除：marker 失去意义，删除。
+            let _ = fs::remove_file(path);
+            return Ok(true);
+        }
+
+        // 磁盘是状态源：重放总是重新读取磁盘内容、以磁盘真实 hash / mtime / size
+        // 收敛索引，绝不信任 marker 里记录的 hash（同尺寸改写场景下 marker hash
+        // 可能已与磁盘不符）。文件缺失 → 保留 marker 等待恢复。
+        let metadata = match fs::metadata(&marker.canonical_path) {
+            Ok(metadata) => metadata,
+            Err(_) => return Ok(false),
+        };
+        let raw = fs::read_to_string(&marker.canonical_path).map_err(|_| AppError::IoError)?;
+        let source_hash = content_hash(&raw);
+        let modified_at = file_modified_at_string(&metadata)?;
+        let file_size = metadata.len() as i64;
+        self.update_item_revision_and_invalidate(
+            marker.item_id,
+            &marker.canonical_path,
+            &source_hash,
+            &modified_at,
+            file_size,
+        )?;
+        // 只有同步真正成功后删除 marker。
+        fs::remove_file(path).map_err(|_| AppError::IoError)?;
+        Ok(true)
+    }
+
+    fn reconciliation_marker_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(".cache")
+            .join("reconcile")
     }
 }
 
@@ -2683,40 +4177,27 @@ fn normalize_keyword_query(keyword: Option<&str>) -> Option<String> {
     }
 }
 
-fn thumbnail_cache_key(file_type: &str, file_hash: Option<&str>, summary: Option<&str>) -> Option<String> {
-    if file_type == "markdown" {
-        let summary_key = summary
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("untitled");
-        return Some(format!(
-            "{}:md-thumb-v4",
-            summary_key
-        ));
-    }
-
-    file_hash.map(str::to_string)
-}
-
 fn html_thumbnail_input(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     item_id: i64,
 ) -> Result<HtmlThumbnailInput, AppError> {
-    let (file_path, file_name, title, raw_text): (String, String, Option<String>, Option<String>) = transaction
+    // 只做 DB SELECT；不持有事务。HTML 的真实渲染输入是磁盘文件本身
+    // （Chromium 加载 file:// URL），因此不读取 item_content.raw_text——
+    // 那可能是陈旧缓存，会与 key / source hash 分属不同 revision。
+    let (file_path, file_name, title): (String, String, Option<String>) = connection
         .query_row(
-            "SELECT items.file_path, items.file_name, items.title, item_content.raw_text
+            "SELECT items.file_path, items.file_name, items.title
              FROM items
-             LEFT JOIN item_content ON item_content.item_id = items.id
              WHERE items.id = ?1",
             params![item_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|_| AppError::DatabaseError)?;
 
     Ok(HtmlThumbnailInput {
         file_name,
         title,
-        raw_text,
+        raw_text: None,
         source_url: Url::from_file_path(Path::new(&file_path))
             .ok()
             .map(|url| url.to_string()),
@@ -2724,189 +4205,16 @@ fn html_thumbnail_input(
 }
 
 fn thumbnail_input_for_item(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     item_id: i64,
-    file_type: &str,
+    snapshot: &ThumbnailGenerationSnapshot,
 ) -> Result<(HtmlThumbnailInput, Option<PathBuf>), AppError> {
-    match file_type {
-        "html" => Ok((html_thumbnail_input(transaction, item_id)?, None)),
-        "markdown" => markdown_thumbnail_input(transaction, item_id),
+    // B4：markdown 不再走临时 HTML→Chromium 截图路径（由 generate_thumbnail_with_adapter
+    // 直接生成静态 SVG 默认封面），此处只为 HTML 准备渲染输入。
+    match snapshot.file_type.as_str() {
+        "html" => Ok((html_thumbnail_input(connection, item_id)?, None)),
         _ => Err(AppError::UnsupportedFileType),
     }
-}
-
-fn markdown_thumbnail_input(
-    transaction: &Transaction<'_>,
-    item_id: i64,
-) -> Result<(HtmlThumbnailInput, Option<PathBuf>), AppError> {
-    let (file_path, file_name, title, raw_text): (String, String, Option<String>, Option<String>) = transaction
-        .query_row(
-            "SELECT items.file_path, items.file_name, items.title, item_content.raw_text
-             FROM items
-             LEFT JOIN item_content ON item_content.item_id = items.id
-             WHERE items.id = ?1",
-            params![item_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .map_err(|_| AppError::DatabaseError)?;
-
-    let raw = match raw_text {
-        Some(value) => value,
-        None => fs::read_to_string(&file_path).map_err(|_| AppError::IoError)?,
-    };
-    let display_title = title
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(file_name.as_str());
-    let html = markdown_thumbnail_document(display_title, &file_name, &raw);
-    let temporary_path = temp_markdown_thumbnail_path(item_id);
-    fs::write(&temporary_path, html).map_err(|_| AppError::IoError)?;
-
-    Ok((
-        HtmlThumbnailInput {
-            file_name,
-            title,
-            raw_text: Some(raw),
-            source_url: Url::from_file_path(&temporary_path)
-                .ok()
-                .map(|url| url.to_string()),
-        },
-        Some(temporary_path),
-    ))
-}
-
-fn temp_markdown_thumbnail_path(item_id: i64) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!("nutbook-markdown-thumbnail-{item_id}-{nanos}.html"))
-}
-
-fn markdown_thumbnail_document(title: &str, file_name: &str, raw: &str) -> String {
-    let rendered = render_markdown_as_html_for_file(raw, file_name);
-    format!(
-        r#"<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    * {{ box-sizing: border-box; }}
-    html, body {{ margin: 0; width: 100%; min-height: 100%; background: #ffffff; color: #171717; }}
-    body {{
-      font-family: ui-serif, "Songti SC", "STSong", "Times New Roman", serif;
-      padding: 0;
-    }}
-    .page {{
-      width: 100%;
-      min-height: 720px;
-      background: linear-gradient(180deg, #ffffff 0%, #fbfbfa 100%);
-      padding: 56px 68px;
-      overflow: hidden;
-    }}
-    .eyebrow {{
-      display: inline-flex;
-      align-items: center;
-      height: 26px;
-      padding: 0 12px;
-      border-radius: 999px;
-      background: #eeeeec;
-      color: #696966;
-      font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }}
-    h1 {{
-      margin: 22px 0 26px;
-      max-width: 860px;
-      font-size: 42px;
-      line-height: 1.12;
-      letter-spacing: -0.03em;
-    }}
-    article {{
-      max-width: 880px;
-      font-size: 18px;
-      line-height: 1.72;
-      color: #3f3f3d;
-    }}
-    article h1 {{ margin: 30px 0 12px; font-size: 28px; color: #171717; }}
-    article h2 {{ margin: 28px 0 10px; font-size: 23px; color: #1f1f1d; }}
-    article h3 {{ margin: 24px 0 8px; font-size: 20px; color: #242422; }}
-    article h4, article h5, article h6 {{ margin: 20px 0 8px; font-size: 17px; color: #30302e; }}
-    article p {{ margin: 0 0 16px; }}
-    .markdown-frontmatter {{
-      margin: 0 0 24px;
-      padding: 18px 20px;
-      border: 1px solid #e5e1d8;
-      border-radius: 18px;
-      background: #fffaf0;
-      color: #3d362d;
-    }}
-    .markdown-frontmatter-label {{
-      margin-bottom: 10px;
-      color: #8a6f3d;
-      font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
-      letter-spacing: 0.08em;
-    }}
-    .markdown-frontmatter-row {{
-      display: grid;
-      grid-template-columns: 150px minmax(0, 1fr);
-      gap: 14px;
-      padding: 7px 0;
-      border-top: 1px solid rgba(138, 111, 61, 0.14);
-    }}
-    .markdown-frontmatter-row:first-of-type {{ border-top: 0; }}
-    .markdown-frontmatter-key {{
-      color: #7a6a56;
-      font: 600 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-    }}
-    .markdown-frontmatter-values {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 7px;
-      min-width: 0;
-    }}
-    .markdown-frontmatter-value {{
-      max-width: 100%;
-      padding: 2px 8px;
-      border-radius: 8px;
-      background: rgba(138, 111, 61, 0.09);
-      color: #352f28;
-      font-size: 14px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }}
-    article img {{
-      display: block;
-      width: auto;
-      max-width: 100%;
-      max-height: 430px;
-      height: auto;
-      margin: 10px auto 20px;
-      border-radius: 12px;
-      object-fit: contain;
-    }}
-    article p:has(> img:only-child) {{ margin: 0 0 18px; }}
-  </style>
-</head>
-<body>
-  <main class="page">
-    <div class="eyebrow">Markdown</div>
-    <h1>{}</h1>
-    <article>{}</article>
-  </main>
-</body>
-</html>"#,
-        escape_html_text(title),
-        rendered,
-    )
-}
-
-fn escape_html_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 fn current_timestamp() -> String {
@@ -3783,9 +5091,14 @@ mod tests {
             .expect("manifest source link");
         connection
             .execute(
+                // B1 起 Markdown 保存会在同一事务创建/更新 thumbnail_cache 行；
+                // 用 upsert 把该行置为 ready，保留本测试"缓存状态随共享 item 保留"的语义。
                 "INSERT INTO thumbnail_cache (
                    item_id, thumb_status, thumb_path, generated_from_hash
-                 ) VALUES (1, 'ready', '/fixture/thumb.png', 'preserved-hash')",
+                 ) VALUES (1, 'ready', '/fixture/thumb.png', 'preserved-hash')
+                 ON CONFLICT(item_id) DO UPDATE SET
+                   thumb_status = 'ready', thumb_path = excluded.thumb_path,
+                   generated_from_hash = excluded.generated_from_hash",
                 [],
             )
             .expect("thumbnail cache");
@@ -3943,25 +5256,47 @@ mod tests {
     }
 
     #[test]
-    fn markdown_thumbnail_document_constrains_images_to_article_width() {
-        let html = super::markdown_thumbnail_document(
-            "Document with hero image",
-            "document.md",
-            "![Hero](./assets/hero.png)\n\nBody text",
-        );
-
-        assert!(html.contains("article img"));
-        assert!(html.contains("max-width: 100%"));
-        assert!(html.contains("height: auto"));
-        assert!(html.contains("object-fit: contain"));
+    fn markdown_desired_key_requires_title_hash_not_content_hash() {
+        // B4：markdown 的 desired key 依赖标题哈希，无法从源内容 hash 推导；
+        // desired_key_for_item 对 markdown 返回 None，由 snapshot 阶段基于
+        // DocumentTitle.display_text 直接构造 md-default: key。
+        assert!(crate::core::thumbnail::desired_key_for_item("markdown", Some("hash-a")).is_none());
+        assert!(crate::core::thumbnail::desired_key_for_item("markdown", Some("hash-b")).is_none());
+        assert!(crate::core::thumbnail::desired_key_for_item("markdown", None).is_none());
+        // HTML 仍由内容 hash 决定确定性 key。
+        let html_key = crate::core::thumbnail::desired_key_for_item("html", Some("hash-a"));
+        assert!(html_key.is_some());
     }
 
     #[test]
-    fn markdown_thumbnail_cache_key_tracks_image_layout_template_version() {
-        let key = super::thumbnail_cache_key("markdown", Some("ignored-file-hash"), Some("Hero Doc"))
-            .expect("markdown thumbnail key should exist");
-
-        assert!(key.ends_with(":md-thumb-v4"));
+    fn markdown_default_cover_key_never_collides_with_retired_screenshot_key() {
+        // B4 正式目标 key 契约：md-default:<rendered-title-hash>:title-parser-v1:default-cover-v5。
+        let default_key = crate::core::thumbnail::markdown_default_cover_key("title-hash");
+        assert!(default_key.starts_with("md-default:"));
+        assert!(default_key.ends_with(":title-parser-v1:default-cover-v5"));
+        assert!(!default_key.starts_with("md-screenshot:"));
+        // v5 属于当前契约；v1/v2/v3/v4 不是 current（视觉改版后旧居中浅灰缓存、
+        // 旧书脊、旧圆形色场与旧顶部横线缓存都不得冒充 v5 ready）。
+        assert!(crate::core::thumbnail::markdown_key_is_current(&default_key));
+        for retired_version in [
+            "default-cover-v1",
+            "default-cover-v2",
+            "default-cover-v3",
+            "default-cover-v4",
+        ] {
+            let old_key = format!("md-default:title-hash:title-parser-v1:{retired_version}");
+            assert!(
+                !crate::core::thumbnail::markdown_key_is_current(&old_key),
+                "{old_key} must not be current"
+            );
+            assert_ne!(default_key, old_key);
+        }
+        // 已退休的 md-screenshot key 只作为历史数据字面量参与拒绝测试；生产代码
+        // 不再保留生成该 key 的函数或版本常量。
+        let retired = "md-screenshot:hash-a:md-screenshot-v1";
+        assert!(retired.starts_with("md-screenshot:"));
+        assert!(retired.ends_with(":md-screenshot-v1"));
+        assert_ne!(default_key, retired);
     }
 
     #[test]

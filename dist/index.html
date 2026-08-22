@@ -809,6 +809,33 @@
         white-space: nowrap;
       }
 
+      .thumbnail-settings-feedback {
+        min-height: 34px;
+        padding: 8px 10px;
+        display: flex;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      .thumbnail-settings-feedback[hidden] {
+        display: none;
+      }
+
+      .thumbnail-settings-feedback[data-tone="ok"] {
+        color: var(--ink);
+      }
+
+      .thumbnail-settings-feedback[data-tone="error"] {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+
       .topbar {
         min-height: 56px;
         padding: 0 16px;
@@ -1697,6 +1724,42 @@
         white-space: nowrap;
       }
 
+      /* B2 stale preview：durable save 且索引同步后、新 generation ready 前，
+         仅在当前页面把旧图作为非持久视觉 preview 显示；遮罩 + "正在更新缩略图"
+         文案，容器 aria-busy=true。stale preview 不是 ready、不参与缓存命中，
+         生成明确失败或引擎不可用时由 thumbnailNode 切换到 placeholder。 */
+      .thumb-refreshing .thumb {
+        filter: saturate(0.72) brightness(0.86);
+      }
+
+      .thumb-refresh-mask {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        background: rgba(30, 30, 34, 0.34);
+        pointer-events: none;
+      }
+
+      .thumb-refresh-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: rgba(18, 18, 22, 0.84);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+      }
+
       /* A1.1 返工：常态浅色（近白近乎不透明 + 深灰文字 + 细灰边框），
          类型徽标（thumb-badge-type）固定不可压缩；视觉权重低于缩略图与标题。 */
       .thumb-badge {
@@ -1991,6 +2054,12 @@
         font-size: 11px;
       }
 
+      .main-shell.home-mode .thumb-refresh-pill {
+        min-height: 28px;
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
       .main-shell.home-mode .thumb-inline {
         width: 100%;
         height: 100%;
@@ -2169,6 +2238,12 @@
       }
 
       .main-shell.home-mode.list-layout .thumb-missing-pill {
+        min-height: 24px;
+        max-width: calc(100% - 8px);
+        font-size: 10px;
+      }
+
+      .main-shell.home-mode.list-layout .thumb-refresh-pill {
         min-height: 24px;
         max-width: calc(100% - 8px);
         font-size: 10px;
@@ -2373,8 +2448,15 @@
         background: transparent;
         color: var(--ink);
         font-family: var(--font-title);
-        line-height: 1.12;
+        line-height: 1.2;
         padding: 2px 4px;
+        resize: none;
+        overflow-y: hidden;
+        overflow-x: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        vertical-align: bottom;
       }
 
       .markdown-title-input:hover,
@@ -6493,7 +6575,8 @@
                 <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" title="只重新生成当前列表中看得见的文件缩略图" data-i18n-title="actions.rebuildVisibleThumbnailsTitle">重建可见文件</button>
                 <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" title="重新生成当前资料库内所有文档缩略图" data-i18n-title="actions.rebuildLibraryThumbnailsTitle">重建资料库</button>
               </div>
-              </div>
+            </div>
+            <div id="settingsThumbnailFeedback" class="thumbnail-settings-feedback" role="status" aria-live="polite" aria-atomic="true" hidden></div>
             <div id="settingsThumbnailStatus" class="settings-kv scrollable"></div>
           </section>
       </div>
@@ -6532,6 +6615,7 @@
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <script src="./i18n.js?v=20260525-update-check"></script>
+    <script src="./assets/markdown-document-title.js?v=20260821-b3"></script>
     <script>
       const i18n = window.NutbookI18n;
       const t = (key) => i18n?.lookup(key) ?? key;
@@ -6656,8 +6740,15 @@
           skillExcluded: true
         },
         thumbnailBackendStatus: null,
+        thumbnailSettingsFeedback: null,
+        thumbnailSettingsOperation: null,
         systemChromeThumbnailEnabled: window.localStorage?.getItem("nutbook.systemChromeThumbnailsEnabled") === "1",
         pendingThumbnailIds: new Set(),
+        // B2：会话内 stale preview —— durable save 且索引同步后、新 generation ready 前，
+        // 仅在当前页面把旧图作为非持久视觉 preview 显示（带遮罩 + aria-busy）。
+        // entry = { thumbnail, state: "preview" | "failed" }；不是后端缓存状态，
+        // 不写回 ready、不参与缓存命中；应用重启后 map 为空 → 显示 placeholder。
+        stalePreviewThumbnails: new Map(),
         thumbnailQueueRunId: 0,
         thumbnailQueueActive: false,
         lastItemsFingerprint: "",
@@ -6708,6 +6799,11 @@
         markdownEditorLoadPromise: null,
         activeMarkdownEditor: null,
         activeMarkdownEditorTabId: null,
+        // One live Milkdown/ProseMirror instance per open Markdown tab.  A tab
+        // switch detaches its content card from the viewer but deliberately keeps the
+        // editor instance (and therefore the real PM history plugin state)
+        // alive.  Closing the tab is the lifecycle boundary that destroys it.
+        markdownEditorSessions: new Map(),
         markdownEditorMountToken: 0,
         markdownOutlineRefreshTimer: null,
         markdownEditScrollTop: 0,
@@ -6849,6 +6945,7 @@
         settingsPreferencesSection: document.getElementById("settingsPreferencesSection"),
         settingsPreferenceList: document.getElementById("settingsPreferenceList"),
         settingsThumbnailsSection: document.getElementById("settingsThumbnailsSection"),
+        settingsThumbnailFeedback: document.getElementById("settingsThumbnailFeedback"),
         settingsThumbnailStatus: document.getElementById("settingsThumbnailStatus"),
         settingsRefreshThumbnailStatusButton: document.getElementById("settingsRefreshThumbnailStatusButton"),
         settingsRebuildVisibleThumbsButton: document.getElementById("settingsRebuildVisibleThumbsButton"),
@@ -7024,54 +7121,28 @@
         }, 1400);
       }
 
-      function cleanMarkdownHeadingText(text) {
-        return String(text || "")
-          .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-          .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-          .replace(/<[^>]+>/g, "")
-          .replace(/[`*_~]/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-      }
-
-      function findMarkdownDocumentTitleLine(markdown) {
-        const lines = String(markdown || "").split(/\r?\n/);
-        let fence = "";
-        for (let index = 0; index < lines.length; index += 1) {
-          const line = lines[index];
-          const fenceMatch = line.match(/^\s*(```+|~~~+)/);
-          if (fenceMatch) {
-            fence = fence ? "" : fenceMatch[1][0];
-            continue;
-          }
-          if (fence) continue;
-          const match = line.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/);
-          if (!match) continue;
-          const title = cleanMarkdownHeadingText(match[1]);
-          if (!title) continue;
-          return { index, title };
-        }
-        return null;
-      }
-
+      // B3：标题语义统一由 `window.NutbookDocumentTitle`（src/markdown-document-title.js
+      // 的打包产物）提供，与 Rust `document_title.rs` 共享同一契约；宿主不再维护
+      // 独立的标题正则实现。
       function markdownDocumentTitle(markdown, fallbackTitle = "Markdown") {
-        return findMarkdownDocumentTitleLine(markdown)?.title || fallbackTitle || "Markdown";
+        if (window.NutbookDocumentTitle?.parseDocumentTitle) {
+          return window.NutbookDocumentTitle.parseDocumentTitle(String(markdown || ""), fallbackTitle).displayText;
+        }
+        return String(fallbackTitle || "Markdown");
       }
 
       function setMarkdownDocumentTitle(markdown, title) {
-        const nextTitle = String(title || "").trim();
-        if (!nextTitle) return String(markdown || "");
-        const raw = String(markdown || "");
-        const lines = raw.split(/\r?\n/);
-        const existing = findMarkdownDocumentTitleLine(raw);
-        if (existing) {
-          lines[existing.index] = `# ${nextTitle}`;
-          return lines.join("\n");
+        if (window.NutbookDocumentTitle?.setDocumentTitleInSource) {
+          return window.NutbookDocumentTitle.setDocumentTitleInSource(String(markdown || ""), String(title || "").trim());
         }
-        if (!raw.trim()) {
-          return `# ${nextTitle}\n`;
+        return String(markdown || "");
+      }
+
+      function markdownInlinePlainText(text) {
+        if (window.NutbookDocumentTitle?.inlineDisplayText) {
+          return window.NutbookDocumentTitle.inlineDisplayText(String(text || ""));
         }
-        return `# ${nextTitle}\n\n${raw}`;
+        return String(text || "").trim();
       }
 
       function buildMarkdownOutline(markdown) {
@@ -7088,7 +7159,7 @@
           if (fence) return;
           const match = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
           if (!match) return;
-          const title = cleanMarkdownHeadingText(match[2]);
+          const title = markdownInlinePlainText(match[2]);
           if (!title) return;
           if (match[1].length === 1 && !skippedDocumentTitle) {
             skippedDocumentTitle = true;
@@ -9371,6 +9442,17 @@
             // The commit is now the source of truth for presentation pixels.
             // Do not show a previous page bitmap after a successful save.
             discardPresentationThumbnailsForItem(session.itemId);
+            // B2 部分成功合同：前端只根据 durable save ack（sourceSaved）更新保存状态。
+            // indexSynchronized=false 时内容已保存、缩略图索引待同步（marker 已写，
+            // list/启动重放后补排队），保留明确警告语义，绝不能把它当成保存失败。
+            // indexSynchronized=true 时后台为当前 item 排队最新 generation，保存流程
+            // 不等待 Chromium，toolbar ack / markSaved / 离开协调器都不被截图阻塞。
+            const indexSyncPending = result?.indexSynchronized === false;
+            if (indexSyncPending) {
+              setStatus(t("htmlEdit.savedIndexPending"), "warn");
+            } else {
+              queueThumbnailRefreshAfterHtmlSave(session.itemId, result);
+            }
             if (markHtmlEditPatchOutOfSync(session, savedChangesJson)) {
               setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
               // Toolbar presentation is deliberately outside the persistence
@@ -9436,7 +9518,13 @@
             session.changes = {};
             session.requiresPatchReconciliation = false;
             session.persistedChanges = {};
-            setStatus(t("htmlEdit.saved"), "ok");
+            // 保存成功但索引待同步时，最终状态必须是明确警告，不能被普通"已保存"覆盖；
+            // 也不得把缩略图失败伪装成保存失败。
+            if (indexSyncPending) {
+              setStatus(t("htmlEdit.savedIndexPending"), "warn");
+            } else {
+              setStatus(t("htmlEdit.saved"), "ok");
+            }
             if (session.presentation) {
               // The preview is a separate, read-only document.  Recreate it
               // only after Rust has committed the source so it cannot keep a
@@ -9878,8 +9966,20 @@
       };
 
       async function confirmMarkdownAppExitIfNeeded() {
-        captureActiveMarkdownDraft();
         const activeTabId = appState.activeTabId;
+        // 先收敛标题输入框未提交的值（P0）：标题 textarea 聚焦且尚未
+        // blur/Enter 时，PM 仍是旧标题、dirty=false，不收敛会导致应用
+        // 无提示退出、未保存的标题丢失。composition 未结束时不得强制
+        // 提交或退出，保持应用打开并给出可理解状态。
+        const activeTab = getOpenTab(activeTabId);
+        if (
+          activeTab?.preview?.fileType === "markdown" &&
+          !convergePendingMarkdownTitle(activeTab)
+        ) {
+          setStatus("标题输入法组合中，无法退出；请先确认输入", "warn");
+          return false;
+        }
+        captureActiveMarkdownDraft();
         const dirtyTabs = getOpenTabs().filter((tab) => (
           tab?.preview?.fileType === "markdown" && isMarkdownTabDirty(tab)
         ));
@@ -9966,13 +10066,57 @@
           .join("");
       }
 
-      function cleanupMarkdownEditor() {
+      function suspendActiveMarkdownEditor() {
         hideMarkdownLinkTooltip();
         appState.markdownEditorMountToken += 1;
         if (!appState.activeMarkdownEditor) return;
+        const tabId = appState.activeMarkdownEditorTabId;
+        const session = appState.markdownEditorSessions.get(tabId);
+        if (session?.editor === appState.activeMarkdownEditor) {
+          try {
+            session.editor.blur?.();
+          } catch (_) {
+          }
+          // Detach the whole content card before viewerBody.innerHTML is
+          // replaced. Keeping this exact card preserves the EditorView plus
+          // its title-input and card-level listeners; serializing Markdown
+          // alone cannot preserve PM history or selection.
+          session.card?.remove?.();
+        }
+        appState.activeMarkdownEditor = null;
+        appState.activeMarkdownEditorTabId = null;
+      }
+
+      function destroyMarkdownEditorSession(tabId) {
+        if (tabId == null) return;
+        appState.markdownEditorMountToken += 1;
+        const session = appState.markdownEditorSessions.get(tabId);
+        if (!session) {
+          if (appState.activeMarkdownEditorTabId === tabId) {
+            appState.activeMarkdownEditor = null;
+            appState.activeMarkdownEditorTabId = null;
+          }
+          return;
+        }
         try {
-          appState.activeMarkdownEditor.destroy?.();
+          session.editor.destroy?.();
         } catch (_) {
+        }
+        appState.markdownEditorSessions.delete(tabId);
+        if (appState.activeMarkdownEditorTabId === tabId) {
+          appState.activeMarkdownEditor = null;
+          appState.activeMarkdownEditorTabId = null;
+        }
+      }
+
+      function destroyAllMarkdownEditorSessions() {
+        appState.markdownEditorMountToken += 1;
+        for (const [tabId, session] of appState.markdownEditorSessions) {
+          try {
+            session.editor.destroy?.();
+          } catch (_) {
+          }
+          appState.markdownEditorSessions.delete(tabId);
         }
         appState.activeMarkdownEditor = null;
         appState.activeMarkdownEditorTabId = null;
@@ -10027,43 +10171,213 @@
         return Boolean(tab.isDirty) || markdownContentForTab(tab) !== baseline;
       }
 
+      // 当前文档标题（供顶部标题输入框显示）：优先从 editor/draft 的
+      // DocumentTitle 解析结果派生；无有效 H1 时固定回退真实文件名。
+      // 绝不使用可变 draft title 或未保存的 tab.preview.title（B3 复审 P1）。
+      function currentMarkdownDisplayTitle(tab) {
+        if (!tab) return "Markdown";
+        const editor = appState.activeMarkdownEditor;
+        if (editor?.getDocumentTitle && tab.id === appState.activeMarkdownEditorTabId) {
+          const title = editor.getDocumentTitle();
+          if (title) return title;
+          return tab.item?.fileName || "Markdown";
+        }
+        return markdownDocumentTitle(
+          markdownContentForTab(tab),
+          tab.item?.fileName || "Markdown"
+        );
+      }
+
+      // 超长标题自动增高（B3 复审 P2）：textarea 高度随 scrollHeight 增长。
+      function autosizeMarkdownTitleInput(input) {
+        if (!input) return;
+        input.style.height = "auto";
+        input.style.height = `${input.scrollHeight}px`;
+      }
+
+      // 标题输入框的自维护文本 history（B3 复审修复：WKWebView 会把整个输入
+      // 会话合并成单个原生 undo 单元——输入 abc 后按 ⌘Z 一次删光三个字母；
+      // 改为按 input 事件粒度的快照栈，每次用户输入产生一个撤销步骤，
+      // ⌘Z 逐字符回退，⇧⌘Z 逐字符重做。不触碰 ProseMirror。）
+      const titleInputEditSessions = new WeakMap();
+
+      function markdownTitleInputSession(input) {
+        let session = titleInputEditSessions.get(input);
+        if (!session) {
+          session = { undoStack: [], redoStack: [], lastValue: input.value, composingStartValue: null };
+          titleInputEditSessions.set(input, session);
+        }
+        return session;
+      }
+
+      // 程序化设值：清空编辑栈（输入会话被外部打断），并重算高度。
+      // 所有非用户输入引发的 value 更新必须走这里，保证栈与真实值对齐。
+      function setTitleInputValue(input, value) {
+        if (!input) return;
+        const next = String(value ?? "");
+        if (input.value !== next) input.value = next;
+        const session = titleInputEditSessions.get(input);
+        if (session) {
+          session.undoStack.length = 0;
+          session.redoStack.length = 0;
+          session.lastValue = next;
+        }
+        autosizeMarkdownTitleInput(input);
+      }
+
+      // 标题输入框 undo：恢复最近一次输入前快照（逐字符粒度）。
+      function undoMarkdownTitleInput() {
+        const input = document.getElementById("markdownTitleInput");
+        if (!input) return false;
+        const session = titleInputEditSessions.get(input);
+        if (!session || session.undoStack.length === 0) return false;
+        session.redoStack.push(input.value);
+        input.value = session.undoStack.pop();
+        session.lastValue = input.value;
+        autosizeMarkdownTitleInput(input);
+        return true;
+      }
+
+      // 标题输入框 redo：重放被撤销的输入快照。
+      function redoMarkdownTitleInput() {
+        const input = document.getElementById("markdownTitleInput");
+        if (!input) return false;
+        const session = titleInputEditSessions.get(input);
+        if (!session || session.redoStack.length === 0) return false;
+        session.undoStack.push(input.value);
+        input.value = session.redoStack.pop();
+        session.lastValue = input.value;
+        autosizeMarkdownTitleInput(input);
+        return true;
+      }
+
       function commitMarkdownDocumentTitle(tab, input) {
         if (!tab || tab.preview?.fileType !== "markdown" || !input) return;
-        const fallbackTitle = tab.preview?.title || tab.item?.fileName || "Markdown";
         const nextTitle = String(input.value || "").trim();
         if (!nextTitle) {
-          input.value = markdownDocumentTitle(markdownContentForTab(tab), fallbackTitle);
+          setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
           return;
         }
+        const baseline = tab.markdownBaseline ?? tab.preview?.raw ?? "";
+        const editor = appState.activeMarkdownEditor;
+        const editorOwnsContent = editor?.setDocumentTitle && tab.id === appState.activeMarkdownEditorTabId;
+        if (editorOwnsContent) {
+          // Milkdown 活跃：通过一次 ProseMirror transaction 修改标题。
+          // 不销毁、不重建、不重新挂载编辑器；不重置 baseline。
+          const committed = editor.setDocumentTitle(nextTitle);
+          if (!committed) return;
+          tab.draft = editor.getMarkdown();
+          tab.isDirty = tab.draft !== baseline;
+          setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
+          updateMarkdownStatusHint(tab);
+          return;
+        }
+        // 源码 fallback：只修改当前 draft / textarea，不重绘整个 viewer。
         const current = markdownContentForTab(tab);
         const next = setMarkdownDocumentTitle(current, nextTitle);
-        if (next === current && tab.preview.title === nextTitle) return;
-        captureMarkdownScrollForTab(tab);
-        cleanupMarkdownEditor();
+        if (next === current && currentMarkdownDisplayTitle(tab) === nextTitle) return;
         tab.draft = next;
-        tab.preview.title = nextTitle;
-        const baseline = tab.markdownBaseline ?? "";
         tab.isDirty = next !== baseline;
-        renderViewer();
+        const editorArea = document.getElementById("editorArea");
+        if (editorArea && document.activeElement !== editorArea) {
+          editorArea.value = next;
+        }
+        setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
         updateMarkdownStatusHint(tab);
+      }
+
+      // 统一收敛"标题输入框未提交的值"（P0）：⌘S、关闭单个标签、关闭全部
+      // 标签、应用退出共用。标题值与当前文档标题不同且未在 composition 时，
+      // 先通过现有一次 PM transaction / fallback transform 提交标题，再计算
+      // draft/dirty。composition 尚未结束时不得强制提交，返回 false 由调用方
+      // 阻止退出/关闭并给出可理解状态。
+      // 返回 true 表示已收敛（或无需收敛），false 表示 composition 进行中。
+      function convergePendingMarkdownTitle(tab) {
+        if (!tab || tab.preview?.fileType !== "markdown") return true;
+        if (appState.markdownTitleInputComposing) return false;
+        const input = document.getElementById("markdownTitleInput");
+        if (!input) return true;
+        // 标题输入框只属于当前显示的 tab；其他 tab 的标题由 draft 承载。
+        if (tab.id !== appState.activeTabId) return true;
+        const nextTitle = String(input.value || "").trim();
+        const display = currentMarkdownDisplayTitle(tab);
+        if (!nextTitle) {
+          // 用户清空输入：恢复文档当前标题显示（不产生提交）。
+          if (input.value !== display) setTitleInputValue(input, display);
+          return true;
+        }
+        if (nextTitle === display) return true;
+        commitMarkdownDocumentTitle(tab, input);
+        return true;
+      }
+
+      function syncMarkdownTitleInputFromDocument(tab, markdown) {
+        if (!tab || tab.id !== appState.activeTabId) return;
+        const input = document.getElementById("markdownTitleInput");
+        if (!input || document.activeElement === input) return;
+        if (appState.markdownTitleInputComposing) return;
+        // 无 H1 fallback 固定使用真实文件名（不使用 tab.preview.title——
+        // 它是最近一次 durable preview，未保存的标题事务不得改写它）。
+        const display = markdownDocumentTitle(markdown, tab.item?.fileName || "Markdown");
+        if (input.value !== display) {
+          setTitleInputValue(input, display);
+        }
       }
 
       function setupMarkdownTitleInput(tab) {
         const input = document.getElementById("markdownTitleInput");
         if (!input || !tab) return;
+        appState.markdownTitleInputComposing = false;
+        const session = markdownTitleInputSession(input);
+        input.addEventListener("compositionstart", () => {
+          appState.markdownTitleInputComposing = true;
+          // 记录本次组合开始前的 value：整个组合结果只记为一个 undo 单元，
+          // 组合中间态（拼音候选等）不得入栈。
+          session.composingStartValue = input.value;
+        });
+        input.addEventListener("compositionend", () => {
+          appState.markdownTitleInputComposing = false;
+          // 组合结束：若值变化，把整个组合结果记为一个撤销步骤（从组合前值
+          // 一步到组合后值），更新 lastValue 并清空 redo 栈。
+          if (input.value !== session.composingStartValue) {
+            session.undoStack.push(session.composingStartValue);
+            session.redoStack.length = 0;
+            session.lastValue = input.value;
+          }
+          session.composingStartValue = null;
+          autosizeMarkdownTitleInput(input);
+          // composition 期间可能已失焦（blur 时因 composing 跳过 commit），
+          // 结束后若已失焦则补一次收敛提交；仍聚焦时不得自动提交。
+          if (document.activeElement !== input) {
+            commitMarkdownDocumentTitle(tab, input);
+          }
+        });
+        input.addEventListener("input", () => {
+          // 用户输入（非 composition）：每次 input 事件产生一个撤销步骤。
+          // IME composition 的中间态不记录，compositionend 后整体记录一次。
+          if (!appState.markdownTitleInputComposing && input.value !== session.lastValue) {
+            session.undoStack.push(session.lastValue);
+            session.redoStack.length = 0;
+            session.lastValue = input.value;
+          }
+          autosizeMarkdownTitleInput(input);
+        });
         input.addEventListener("keydown", (event) => {
+          if (event.isComposing || event.key === "Process") return;
           if (event.key === "Enter") {
             event.preventDefault();
             input.blur();
           }
           if (event.key === "Escape") {
-            input.value = markdownDocumentTitle(markdownContentForTab(tab), tab.preview?.title || tab.item?.fileName || "Markdown");
+            setTitleInputValue(input, currentMarkdownDisplayTitle(tab));
             input.blur();
           }
         });
         input.addEventListener("blur", () => {
+          if (appState.markdownTitleInputComposing) return;
           commitMarkdownDocumentTitle(tab, input);
         });
+        autosizeMarkdownTitleInput(input);
       }
 
       function updateMarkdownStatusHint(tab) {
@@ -10151,6 +10465,31 @@
         try {
           appState.markdownEditorError = "";
           setStatus(t("markdown.loadingEditorStatus"), "warn");
+          const preservedSession = appState.markdownEditorSessions.get(expectedTabId);
+          if (preservedSession?.editor && preservedSession.root && preservedSession.card) {
+            if (!root.isConnected || appState.activeTabId !== expectedTabId) return;
+            const placeholderCard = root.closest(".content-card");
+            if (!placeholderCard) return;
+            placeholderCard.replaceWith(preservedSession.card);
+            preservedSession.card.classList.toggle("markdown-code-theme-light", appState.markdownPreferences.codeBlockTheme === "light");
+            preservedSession.card.classList.toggle("markdown-code-theme-dark", appState.markdownPreferences.codeBlockTheme !== "light");
+            appState.activeMarkdownEditor = preservedSession.editor;
+            appState.activeMarkdownEditorTabId = expectedTabId;
+            preservedSession.card.classList.add("editor-ready");
+            window.requestAnimationFrame(() => setupMarkdownOutline(preservedSession.card));
+            setStatus(isMarkdownTabDirty(tab) ? t("markdown.dirty") : t("markdown.ready"), isMarkdownTabDirty(tab) ? "warn" : "ok");
+            window.requestAnimationFrame(() => {
+              restoreMarkdownScroll(tab, markdownScrollForTab(tab) || 0);
+              if (appState.markdownEditorShouldFocus) {
+                appState.markdownEditorShouldFocus = false;
+                preservedSession.editor.focus?.();
+              } else {
+                preservedSession.editor.blur?.();
+              }
+            });
+            logMarkdownPerf("editor-resumed", mountStartedAt, tab.item?.fileName || "");
+            return;
+          }
           const apiStartedAt = performance.now();
           const api = await loadMarkdownEditorApi();
           logMarkdownPerf("api-ready", apiStartedAt, tab.item?.fileName || "");
@@ -10189,6 +10528,9 @@
               const baseline = tab.markdownBaseline ?? tab.preview.raw ?? "";
               tab.isDirty = value !== baseline;
               scheduleMarkdownOutlineRefresh(tab);
+              // 撤销/重做/编辑后，顶部标题输入框与实际编辑器文档保持同步；
+              // 输入框获得焦点或正在 composition 时不得反向覆盖用户输入。
+              syncMarkdownTitleInputFromDocument(tab, value);
               if (tab.id === appState.activeTabId && tab.isDirty) {
                 setStatus(t("markdown.dirty"), "warn");
               }
@@ -10199,6 +10541,11 @@
             editor.destroy?.();
             return;
           }
+          appState.markdownEditorSessions.set(expectedTabId, {
+            root,
+            card: root.closest(".content-card"),
+            editor
+          });
           appState.activeMarkdownEditor = editor;
           appState.activeMarkdownEditorTabId = expectedTabId;
           tab.markdownBaseline = editor.getBaselineMarkdown?.() ?? content;
@@ -10369,7 +10716,10 @@
           width: thumbnail.width ?? null,
           height: thumbnail.height ?? null,
           lastGeneratedAt: thumbnail.lastGeneratedAt ?? thumbnail.last_generated_at ?? null,
-          errorMessage: thumbnail.errorMessage ?? thumbnail.error_message ?? null
+          errorMessage: thumbnail.errorMessage ?? thumbnail.error_message ?? null,
+          desiredKey: thumbnail.desiredKey ?? thumbnail.desired_key ?? null,
+          generation: thumbnail.generation ?? null,
+          renderKind: thumbnail.renderKind ?? thumbnail.render_kind ?? null
         };
       }
 
@@ -10405,14 +10755,159 @@
         return t("settings.thumbnailEngineAvailable");
       }
 
-      function canGenerateDocumentThumbnails() {
+      // B4 引擎能力拆分：Markdown 默认封面由 Rust 直接生成确定性 SVG，
+      // **不依赖截图引擎**；只有 HTML 截图（html-screenshot）需要 Chromium。
+      function thumbnailScreenshotEngineAvailable() {
         return Boolean(appState.thumbnailBackendStatus?.screenshotAvailable);
+      }
+
+      function canGenerateDocumentThumbnails() {
+        return thumbnailScreenshotEngineAvailable();
+      }
+
+      // 某 item 当前是否需要（重新）生成缩略图：只按真实状态判断
+      // （status / renderKind / desiredKey），不再用 data:image/svg+xml 前缀——
+      // B4 的官方 Markdown 默认封面是真实 .svg 缓存文件路径，不是 placeholder。
+      function thumbnailNeedsGeneration(item) {
+        if (!supportsGeneratedThumbnail(item) || isItemPathMissing(item)) return false;
+        const thumb = item.thumbnail;
+        if (!thumb || thumb.status !== "ready") return true;
+        // render kind 必须精确匹配当前正式路径；markdown-html-screenshot（已退休）、
+        // placeholder、缺失等任何其他 kind 一律按"需要重建"处理。
+        const expectedKind = item.fileType === "html" ? "html-screenshot" : "markdown-default-cover";
+        if (thumb.renderKind !== expectedKind) return true;
+        // 兜底：旧 md-screenshot 过渡缓存（B1-B3）若仍以 ready 泄漏，按默认封面重建。
+        if (
+          item.fileType === "markdown" &&
+          typeof thumb.desiredKey === "string" &&
+          thumb.desiredKey.startsWith("md-screenshot:")
+        ) {
+          return true;
+        }
+        return false;
+      }
+
+      // 自动补缺队列目标：只处理 missing / stale / 错误 render kind / 旧 key 的项。
+      // HTML 项只有在引擎可用时才进入队列；引擎不可用时被跳过（Markdown 照常）。
+      function thumbnailAutoQueueTargets(items) {
+        const needs = items.filter(thumbnailNeedsGeneration);
+        const engineBlocked = !thumbnailScreenshotEngineAvailable();
+        if (!engineBlocked) return { targets: needs, skippedHtml: 0 };
+        const targets = needs.filter((item) => item.fileType !== "html");
+        const skippedHtml = needs.length - targets.length;
+        return { targets, skippedHtml };
+      }
+
+      // 用户主动重建目标：处理**所有**支持的、路径有效的 Markdown/HTML——不因当前
+      // thumbnail 是 ready 就排除（审查阻塞 1）。无截图引擎时：所有 Markdown 仍进入
+      // 重建，HTML 跳过并计入 skippedHtml；有引擎时 HTML 与 Markdown 都重建。
+      function thumbnailForceRebuildTargets(items) {
+        const supported = items.filter(
+          (item) => supportsGeneratedThumbnail(item) && !isItemPathMissing(item)
+        );
+        const engineBlocked = !thumbnailScreenshotEngineAvailable();
+        if (!engineBlocked) return { targets: supported, skippedHtml: 0 };
+        const targets = supported.filter((item) => item.fileType !== "html");
+        const skippedHtml = supported.length - targets.length;
+        return { targets, skippedHtml };
       }
 
       function thumbnailProgressMessage(done, total, mode = t("status.thumbnailRefreshMode")) {
         return thumbnailEngineKind() === "system-chrome"
           ? `${t("status.thumbnailChromeProgressPrefix")}${done}/${total}`
           : `${t("status.thumbnailProgressPrefix")}${mode}${t("status.thumbnailProgressInfix")}${done}/${total}`;
+      }
+
+      function setThumbnailSettingsFeedback(message = "", tone = "info") {
+        appState.thumbnailSettingsFeedback = message ? { message, tone } : null;
+        syncThumbnailSettingsControls();
+      }
+
+      function syncThumbnailSettingsControls() {
+        const operation = appState.thumbnailSettingsOperation;
+        const buttonOperations = new Map([
+          [els.settingsRefreshThumbnailStatusButton, "detect"],
+          [els.settingsRebuildVisibleThumbsButton, "visible"],
+          [els.settingsRebuildLibraryThumbsButton, "library"]
+        ]);
+        buttonOperations.forEach((buttonOperation, button) => {
+          if (!button) return;
+          button.disabled = Boolean(operation);
+          button.setAttribute("aria-busy", operation === buttonOperation ? "true" : "false");
+        });
+
+        const feedback = appState.thumbnailSettingsFeedback;
+        if (!els.settingsThumbnailFeedback) return;
+        els.settingsThumbnailFeedback.hidden = !feedback;
+        els.settingsThumbnailFeedback.textContent = feedback?.message || "";
+        els.settingsThumbnailFeedback.dataset.tone = feedback?.tone || "info";
+      }
+
+      async function runThumbnailSettingsOperation(operation, task) {
+        if (appState.thumbnailSettingsOperation) return null;
+        const operationButton = {
+          detect: els.settingsRefreshThumbnailStatusButton,
+          visible: els.settingsRebuildVisibleThumbsButton,
+          library: els.settingsRebuildLibraryThumbsButton
+        }[operation];
+        appState.thumbnailSettingsOperation = operation;
+        syncThumbnailSettingsControls();
+        try {
+          return await task();
+        } finally {
+          appState.thumbnailSettingsOperation = null;
+          syncThumbnailSettingsControls();
+          if (appState.isSettingsOpen && appState.settingsTab === "thumbnails") {
+            operationButton?.focus({ preventScroll: true });
+          }
+        }
+      }
+
+      function showThumbnailRebuildResult(result, successMessage) {
+        if (!result) {
+          const message = t("status.thumbnailEngineDisabled");
+          setThumbnailSettingsFeedback(message, "error");
+          return { message, tone: "error" };
+        }
+        if (result.reason === "engine-disabled") {
+          // 需要重建的只有 HTML 且引擎不可用：明确说明 Markdown 默认封面不受影响。
+          const message = t("status.thumbnailEngineUnavailableMarkdownOk");
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
+        }
+        if (result.reason === "no-documents") {
+          const message = t("status.thumbnailNoDocuments");
+          setThumbnailSettingsFeedback(message, "info");
+          return { message, tone: "warn" };
+        }
+        if (result.reason === "canceled") {
+          // 队列被后续操作接管（自动刷新/设置切换）：不得显示"成功 N/M"。
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total}`;
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
+        }
+        if (result.failed > 0) {
+          const detail = result.lastError ? ` — ${normalizeError(result.lastError)}` : "";
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.failed}/${result.total}${detail}`;
+          setThumbnailSettingsFeedback(message, "error");
+          return { message, tone: "error" };
+        }
+        if (result.completed !== result.total) {
+          // 未归类的漏项也不能显示绿色成功。正常路径应保证每一项最终归入
+          // completed / failed / canceled；这里是最后一道用户可见安全网。
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total}`;
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
+        }
+        if (result.skipped > 0) {
+          // 引擎不可用时 HTML 被跳过，Markdown 全部完成：部分成功 + 澄清文案。
+          const message = `${t("status.thumbnailRebuildPartialPrefix")}${result.completed}/${result.total} — ${t("status.thumbnailEngineUnavailableMarkdownOk")}`;
+          setThumbnailSettingsFeedback(message, "warn");
+          return { message, tone: "warn" };
+        }
+        const message = `${successMessage} ${result.completed}/${result.total}`;
+        setThumbnailSettingsFeedback(message, "ok");
+        return { message, tone: "ok" };
       }
 
       function thumbnailEngineNeedsAttention() {
@@ -11091,6 +11586,11 @@
           ...appState.markdownPreferences,
           [key]: value
         };
+        if (key === "tableToolsEnabled") {
+          for (const session of appState.markdownEditorSessions.values()) {
+            session.editor.setTableToolsEnabled?.(value);
+          }
+        }
         saveMarkdownPreferences(appState.markdownPreferences);
         renderSettingsPanel();
         renderViewerPreservingMarkdownScroll();
@@ -11303,7 +11803,7 @@
         appState.language = i18n?.setLanguage?.(language) ?? language;
         clearPollutedSearchValues();
         getFileTypeFilter();
-        cleanupMarkdownEditor();
+        destroyAllMarkdownEditorSessions();
         if (els.settingsScrim?.classList.contains("open")) {
           renderSettingsPanel();
         }
@@ -13643,6 +14143,7 @@
             </div>
           ` : ""}
         ` : `<div class="settings-empty">${t("settings.thumbnailStatusLoading")}</div>`;
+        syncThumbnailSettingsControls();
 
         document.getElementById("settingsCopyThumbnailInstallCommandButton")?.addEventListener("click", copyThumbnailInstallCommand);
         document.getElementById("settingsEnableSystemChromeButton")?.addEventListener("click", enableSystemChromeThumbnails);
@@ -14376,7 +14877,10 @@
               width: 1,
               height: 1,
               lastGeneratedAt: new Date().toISOString(),
-              errorMessage: null
+              errorMessage: null,
+              desiredKey: `html:mock:html-card-v1`,
+              generation: 1,
+              renderKind: "html-screenshot"
             };
           }
           return {
@@ -14386,7 +14890,13 @@
             width: 1,
             height: 1,
             lastGeneratedAt: new Date().toISOString(),
-            errorMessage: null
+            errorMessage: null,
+            generatedFromKey: "html:mock:html-card-v1",
+            expectedKey: "html:mock:html-card-v1",
+            generation: 1,
+            discarded: false,
+            desiredKey: "html:mock:html-card-v1",
+            renderKind: "html-screenshot"
           };
         }
         if (command === "generate_presentation_thumbnail") {
@@ -14470,6 +14980,12 @@
           : appState.activeTabId;
         if (tab?.preview?.fileType === "markdown") {
           if (tab.id === appState.activeTabId || tab.id === appState.activeMarkdownEditorTabId) {
+            // 关闭前收敛标题输入框未提交的值（P0 统一收敛）。标题输入框只属于
+            // 当前显示 tab；composition 未结束时不得强制提交，阻止关闭。
+            if (tab.id === appState.activeTabId && !convergePendingMarkdownTitle(tab)) {
+              setStatus("标题输入法组合中，无法关闭；请先确认输入", "warn");
+              return false;
+            }
             captureActiveMarkdownDraft();
           }
           sourcePathMissing = await isOpenTabSourceMissing(tab);
@@ -14488,13 +15004,9 @@
               tab.isDirty = false;
             }
           }
+          destroyMarkdownEditorSession(tab.id);
           if (isClosingActiveTab) {
             appState.activeTabId = nextActiveTabId;
-          }
-          if (tab.id === appState.activeTabId) {
-            cleanupMarkdownEditor();
-          } else if (tab.id === appState.activeMarkdownEditorTabId) {
-            cleanupMarkdownEditor();
           }
         }
         if (tab?.preview?.fileType === "html-runtime") {
@@ -14746,6 +15258,7 @@
             appState.activeTabId = tabId;
             appState.isEditing = getOpenTab(tabId)?.preview?.fileType === "markdown";
             appState.markdownEditMode = "rich";
+            appState.markdownEditorShouldFocus = appState.isEditing;
             scheduleRuntimeCleanupAfterTabSwitch(previousTabId, tabId);
             renderTabs();
             renderViewer();
@@ -14869,6 +15382,43 @@
             </div>
           `;
         }
+        // B2 stale preview：durable save 且索引同步后、新 generation ready 前，
+        // 仅在当前页面把旧图作为非持久视觉 preview 显示（遮罩 + 文案 + aria-busy）。
+        // 生成明确失败（state=failed）或引擎不可用时切换为 placeholder，绝不把
+        // stale 图冒充 ready 成品；stale preview 不写回 ready、不参与缓存命中。
+        const stalePreview = appState.stalePreviewThumbnails.get(item.id);
+        if (
+          stalePreview &&
+          stalePreview.state === "preview" &&
+          stalePreview.thumbnail?.path &&
+          canGenerateDocumentThumbnails()
+        ) {
+          const previewPath = stalePreview.thumbnail.path;
+          let previewInner = "";
+          if (previewPath.startsWith("data:image/svg+xml;base64,")) {
+            const encoded = previewPath.slice("data:image/svg+xml;base64,".length);
+            try {
+              const svgMarkup = atob(encoded);
+              if (svgMarkup) previewInner = svgMarkup;
+            } catch (_) {
+              previewInner = "";
+            }
+          } else {
+            previewInner = `<img class="thumb" src="${escapeAttribute(previewPath)}" alt="" />`;
+          }
+          if (previewInner) {
+            return `
+              <div class="thumb-wrap thumb-refreshing ${pathMissing ? "path-missing" : ""}" aria-busy="true">
+                <div class="thumb thumb-inline" aria-hidden="true">
+                  ${previewInner}
+                  <div class="thumb-refresh-mask" aria-hidden="true"><span class="thumb-refresh-pill">${t("status.thumbnailUpdating")}</span></div>
+                </div>
+                ${missingMask}
+                ${badge}
+              </div>
+            `;
+          }
+        }
         if (item.fileType === "html") {
           return `
             <div class="thumb-wrap ${pathMissing ? "path-missing" : ""}">
@@ -14903,49 +15453,188 @@
         return item.fileType === "html" || item.fileType === "markdown";
       }
 
-      async function ensureDocumentThumbnails(items) {
-        if (!canGenerateDocumentThumbnails()) {
-          if (thumbnailEngineNeedsAttention()) {
-            setStatus(t("status.thumbnailEngineDisabled"), "warn");
+      // B1 调度正确性（审查阻塞 3/4 修正）：
+      // - 后端 CAS 保证非 discarded 响应即"提交时最新状态"；discarded 响应不得修改
+      //   item.thumbnail；
+      // - **只有 status=ready 且 render kind 非 placeholder 的响应才算成功应用**
+      //   （审查阻塞 4）：后端返回的 status=failed placeholder（截图引擎失败）不是
+      //   成功——调用方必须把它计入 failed，设置页绝不能显示"重建成功"；
+      // - in-flight 期间 desired key 连续变化（R1→R2→R3→…）时，每次 discarded 后按
+      //   响应 expectedKey 继续处理最新 generation，**不设固定次数上限**——连续超过
+      //   5 次 revision 变化也必须最终收敛，不允许静默放弃后依赖"下次列表刷新"；
+      // - 连续 discarded 使用 80–300ms 短退避，退避前后都检查 queue runId；
+      // - 只有三种情况可以结束：ready 结果成功应用；当前 queue runId 已取消；明确的
+      //   终止错误（failed placeholder / 无可补跑的 expectedKey / 后端异常）已记录。
+      // - 调用方必须只把 { ok: true } 计入 completed；canceled / failed / terminal /
+      //   error 不得计入 completed。pendingThumbnailIds 由调用方覆盖整个收敛过程。
+      function applyGenerateThumbnailResult(item, result) {
+        if (!result) return { applied: false, reason: "empty" };
+        if (result.discarded === true) return { applied: false, reason: "discarded" };
+        // 只有 ready 成图才算成功应用；failed（placeholder / 引擎不可用）是明确失败。
+        const status = result.status ?? result.thumbnail?.status ?? null;
+        if (status !== "ready") {
+          return { applied: false, reason: status === "failed" ? "failed" : "not-ready" };
+        }
+        const renderKind = result.renderKind ?? result.thumbnail?.renderKind ?? null;
+        if (renderKind === "placeholder") {
+          return { applied: false, reason: "placeholder" };
+        }
+        const expectedKey = result.expectedKey ?? result.desiredKey ?? null;
+        if (expectedKey) item._thumbDesiredKey = expectedKey;
+        item.thumbnail = normalizeThumbnailInfo({
+          status: result.status || result.thumbnail?.status || "ready",
+          path: result.path || result.thumbnail?.path || null,
+          width: result.width || result.thumbnail?.width || null,
+          height: result.height || result.thumbnail?.height || null,
+          lastGeneratedAt: result.lastGeneratedAt || result.thumbnail?.lastGeneratedAt || null,
+          errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null,
+          desiredKey: expectedKey || result.thumbnail?.desiredKey || null,
+          generation: result.generation ?? result.thumbnail?.generation ?? null,
+          renderKind: result.renderKind || result.thumbnail?.renderKind || null
+        });
+        return { applied: true, reason: "ready" };
+      }
+
+      async function generateThumbnailOnce(item, runId) {
+        const queueActive = () => runId === undefined || runId === appState.thumbnailQueueRunId;
+        let backoff = 80;
+        for (;;) {
+          if (!queueActive()) return { ok: false, reason: "canceled" };
+          let result;
+          try {
+            result = await invoke("generate_thumbnail", { itemId: item.id });
+          } catch (error) {
+            console.error("generate_thumbnail failed for item", item.id, error);
+            return { ok: false, reason: "error", error };
+          }
+          if (!queueActive()) return { ok: false, reason: "canceled" };
+          const apply = applyGenerateThumbnailResult(item, result);
+          if (apply.applied) return { ok: true, reason: "applied" };
+          if (apply.reason === "discarded") {
+            // discarded：按响应 expectedKey 继续收敛最新 generation（R3 之后的响应
+            // 也绝不被忽略）。
+            const retryKey = result?.expectedKey ?? result?.desiredKey ?? null;
+            if (!retryKey) {
+              console.error("generate_thumbnail discarded without expectedKey for item", item.id, result);
+              return { ok: false, reason: "terminal" };
+            }
+            item._thumbDesiredKey = retryKey;
+            await delay(backoff);
+            backoff = Math.min(backoff * 2, 300);
+            continue;
+          }
+          // failed / placeholder / not-ready / empty：明确的终止错误，不循环重试
+          // （引擎失败重试也不会成功），已记录。
+          if (apply.reason === "failed" || apply.reason === "placeholder") {
+            console.error("generate_thumbnail reported failure for item", item.id, result);
+          }
+          return { ok: false, reason: apply.reason };
+        }
+      }
+
+      async function waitForThumbnailSlot(itemId, runId) {
+        // 手动重建接管自动队列时，旧 run 可能仍在一次 invoke / backoff 中并持有
+        // pending slot。等待旧 owner 观察到 runId 变化并在 finally 释放；直接跳过会
+        // 产生既未 completed 也未 failed 的漏项，直接并发则破坏 single-flight。
+        let backoff = 40;
+        while (appState.pendingThumbnailIds.has(itemId)) {
+          if (runId !== appState.thumbnailQueueRunId) return false;
+          await delay(backoff);
+          backoff = Math.min(backoff * 2, 200);
+        }
+        return runId === appState.thumbnailQueueRunId;
+      }
+
+      // B2：HTML durable save 且索引同步成功后调用。保存流程不等待 Chromium：
+      // 只把该 item 的旧缓存降级为会话内 stale preview，并为其排队当前
+      // desired key/generation（fire-and-forget）。indexSynchronized=false 时不调用
+      // 本函数——revision 不确定，禁止拿不确定 revision 排队截图；marker 重放后由
+      // list 加载路径（thumbnail:null → ensureDocumentThumbnails）补排队。
+      function queueThumbnailRefreshAfterHtmlSave(itemId, commitResult) {
+        const numericId = Number(itemId);
+        const existing = appState.items.find((candidate) => candidate.id === numericId);
+        const oldThumbnail = existing?.thumbnail || null;
+        if (oldThumbnail?.path) {
+          appState.stalePreviewThumbnails.set(numericId, { thumbnail: oldThumbnail, state: "preview" });
+        }
+        // 未在可见列表（筛选/分页）时用合成 item 仍让后端排队生成；卡片不可见时
+        // updateCardThumbnail 自然 no-op，回到主页后按 list 状态收敛。
+        const item = existing || { id: numericId, fileType: "html", pathState: "valid", thumbnail: null };
+        if (existing) {
+          existing._thumbRefreshing = true;
+          existing._thumbFailed = false;
+          if (commitResult?.desiredKey) existing._thumbDesiredKey = commitResult.desiredKey;
+          if (commitResult?.generation != null) existing._thumbGeneration = Number(commitResult.generation);
+          existing.thumbnail = null;
+          // 先把当前卡片立即切成 stale preview，再异步等待/截图；否则快速返回主页或
+          // 慢截图期间 Map 虽已记录，真实 DOM 仍会继续显示无遮罩的旧 ready 图。
+          updateCardThumbnail(existing);
+        }
+        ensureDocumentThumbnails([item], { quiet: true });
+      }
+
+      async function ensureDocumentThumbnails(items, options) {
+        const quiet = Boolean(options?.quiet);
+        // B4：按真实状态取需要生成的项（自动补缺，不重建已 ready 的官方封面）；
+        // 引擎不可用时 HTML 项跳过，Markdown 默认封面仍排队生成（无引擎依赖）。
+        const { targets, skippedHtml } = thumbnailAutoQueueTargets(items);
+        if (!targets.length) {
+          if (!quiet) {
+            if (skippedHtml > 0) {
+              // 需要重建的只有 HTML 且引擎不可用：明确提示"引擎不可用但 Markdown 仍可生成"，
+              // 而不是笼统的"引擎未启用"。
+              setStatus(t("status.thumbnailEngineUnavailableMarkdownOk"), "warn");
+            } else if (thumbnailEngineNeedsAttention()) {
+              setStatus(t("status.thumbnailEngineDisabled"), "warn");
+            }
           }
           return;
         }
-        const targets = items.filter((item) =>
-          supportsGeneratedThumbnail(item) &&
-          !isItemPathMissing(item) &&
-          !appState.pendingThumbnailIds.has(item.id) &&
-          (!item.thumbnail?.path || item.thumbnail.path.startsWith("data:image/svg+xml"))
-        );
-        if (!targets.length) return;
 
         const runId = ++appState.thumbnailQueueRunId;
         appState.thumbnailQueueActive = true;
         let completed = 0;
-        setStatus(thumbnailProgressMessage(0, targets.length), "warn");
+        let failed = 0;
+        if (!quiet) setStatus(thumbnailProgressMessage(0, targets.length), "warn");
 
         for (const queuedItem of targets) {
           if (runId !== appState.thumbnailQueueRunId) break;
-          const item = appState.items.find((candidate) => candidate.id === queuedItem.id);
-          if (!item || appState.pendingThumbnailIds.has(item.id)) continue;
+          const item = appState.items.find((candidate) => candidate.id === queuedItem.id) || queuedItem;
+          if (!item) continue;
+
+          // loadItems / 新 save 会用新 runId 接管队列。若旧 owner 尚在 invoke/backoff
+          // 中持有该 item 的 slot，新 owner 必须等待 finally 释放后再接管；不能直接
+          // continue，否则“保存 → 立即回主页”会产生永久漏项，直到用户再次刷新。
+          if (!(await waitForThumbnailSlot(item.id, runId))) break;
 
           appState.pendingThumbnailIds.add(item.id);
           try {
             // Yield to the UI between browser captures so large first scans do not feel frozen.
             await delay(80);
-            const result = await invoke("generate_thumbnail", { itemId: item.id });
+            const outcome = await generateThumbnailOnce(item, runId);
             if (runId !== appState.thumbnailQueueRunId) break;
-            item.thumbnail = normalizeThumbnailInfo({
-              status: result.status || result.thumbnail?.status || "ready",
-              path: result.path || result.thumbnail?.path || null,
-              width: result.width || result.thumbnail?.width || null,
-              height: result.height || result.thumbnail?.height || null,
-              lastGeneratedAt: result.lastGeneratedAt || result.thumbnail?.lastGeneratedAt || null,
-              errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null
-            });
+            if (!outcome.ok) {
+              // canceled / terminal / error / failed 不得计入 completed。
+              // failed（截图引擎失败）计入 failed，结束时不得显示"全部成功"。
+              if (outcome.reason !== "canceled") {
+                failed += 1;
+                // 明确失败：停止 stale preview（旧图不再冒充 ready），
+                // 单卡切换到 placeholder/retry 状态。
+                item._thumbRefreshing = false;
+                item._thumbFailed = true;
+                const staleEntry = appState.stalePreviewThumbnails.get(item.id);
+                if (staleEntry) staleEntry.state = "failed";
+                updateCardThumbnail(item);
+              }
+              continue;
+            }
             completed += 1;
-            // 缩略图完成：只更新该卡片的 thumb-wrap（keyed 增量），不重建整表
+            // ready 收敛：清 stale preview，单卡替换为新 generation（不整表重绘）。
+            appState.stalePreviewThumbnails.delete(item.id);
+            item._thumbRefreshing = false;
+            item._thumbFailed = false;
             updateCardThumbnail(item);
-            setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
+            if (!quiet) setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
           } catch (_) {
           } finally {
             appState.pendingThumbnailIds.delete(item.id);
@@ -14954,7 +15643,16 @@
 
         if (runId === appState.thumbnailQueueRunId) {
           appState.thumbnailQueueActive = false;
-          setStatus(t("status.thumbnailRefreshComplete"), "ok");
+          if (quiet) {
+            // 保存触发的单 item 队列不覆盖"已保存"ack；失败时给出缩略图专用文案，
+            // 绝不用"保存失败"冒充，也不覆盖保存失败状态。
+            if (failed > 0) setStatus(t("status.thumbnailRefreshFailedShort"), "warn");
+          } else if (failed > 0) {
+            // 有失败项：不得以"全部成功"收尾。
+            setStatus(thumbnailProgressMessage(completed, targets.length), "warn");
+          } else {
+            setStatus(t("status.thumbnailRefreshComplete"), "ok");
+          }
         }
       }
 
@@ -15587,7 +16285,7 @@ if (!chipTipController) {
         if (appState.activeMarkdownEditor) {
           captureMarkdownScrollForTab(getOpenTab(appState.activeMarkdownEditorTabId));
           captureActiveMarkdownDraft();
-          cleanupMarkdownEditor();
+          suspendActiveMarkdownEditor();
         }
         if (tab?.preview?.fileType !== "html-runtime") {
           appState.runtimeControlsOverlayExpanded = false;
@@ -15712,7 +16410,7 @@ if (!chipTipController) {
           const detail = tab.detail || {};
           const sourceMode = appState.markdownEditMode === "source";
           const markdownContent = tab.draft ?? tab.preview.raw ?? "";
-          const markdownShellTitle = markdownDocumentTitle(markdownContent, tab.preview.title || tab.item.fileName);
+          const markdownShellTitle = markdownDocumentTitle(markdownContent, tab.item?.fileName || "Markdown");
           const markdownOutline = buildMarkdownOutline(markdownContent);
           tab.markdownOutlineSignature = markdownOutlineSignature(markdownOutline);
           const showMarkdownOutline = appState.markdownPreferences.outlineEnabled && markdownOutline.length > 0;
@@ -15728,7 +16426,7 @@ if (!chipTipController) {
                 <div class="content-card editing ${codeThemeClass} ${sourceMode ? "source-editing" : ""}">
                   <div class="content-head">
                     <div class="markdown-title-copy">
-                      <input id="markdownTitleInput" class="content-title markdown-title-input" type="text" value="${escapeAttribute(markdownShellTitle)}" aria-label="文档标题" autocomplete="off" spellcheck="false" />
+                      <textarea id="markdownTitleInput" class="content-title markdown-title-input" rows="1" aria-label="文档标题" autocomplete="off" spellcheck="false">${escapeHtml(markdownShellTitle)}</textarea>
                       <div class="content-meta">修改时间：${escapeHtml(formatTimestamp(detail.modifiedAt || tab.item.modifiedAt || ""))} · 修改后按 ⌘S 保存</div>
                     </div>
                   </div>
@@ -15746,17 +16444,25 @@ if (!chipTipController) {
             </div>
           `;
           const markdownCard = els.viewerBody.querySelector(".content-card");
-          setupMarkdownOutline(markdownCard);
-          setupMarkdownCodeCopyButton(markdownCard);
-          setupMarkdownLinkHandling(markdownCard, tab);
-          setupMarkdownImageResources(markdownCard, tab);
-          setupMarkdownTitleInput(tab);
+          const hasPreservedMarkdownSession = !sourceMode && appState.markdownEditorSessions.has(tab.id);
+          // A resumed session brings back its original card, title input and
+          // card/root listeners. Binding the temporary placeholder here would
+          // attach duplicate outline toggles before the card is replaced.
+          if (!hasPreservedMarkdownSession) {
+            setupMarkdownOutline(markdownCard);
+            setupMarkdownCodeCopyButton(markdownCard);
+            setupMarkdownLinkHandling(markdownCard, tab);
+            setupMarkdownImageResources(markdownCard, tab);
+            setupMarkdownTitleInput(tab);
+          }
           restoreMarkdownScroll(tab, markdownScrollTop);
 
           const editorArea = document.getElementById("editorArea");
           if (editorArea) {
             editorArea.addEventListener("input", () => {
               tab.draft = editorArea.value;
+              // 源码模式下输入同步标题输入框（输入框聚焦/composition 时不覆盖）。
+              syncMarkdownTitleInputFromDocument(tab, editorArea.value);
             });
             if (sourceMode) {
               window.requestAnimationFrame(() => {
@@ -15768,22 +16474,24 @@ if (!chipTipController) {
           if (!sourceMode) {
             scheduleMarkdownEditorMount(tab);
           }
-          document.getElementById("milkdownEditorRoot")?.addEventListener("dblclick", () => {
-            appState.markdownEditorShouldFocus = true;
-            if (appState.activeMarkdownEditor?.focus) {
-              appState.activeMarkdownEditor.focus();
-              setStatus(t("markdown.focused"), "ok");
-            } else {
-              setStatus(t("markdown.loadingEditor"), "warn");
-            }
-          }, true);
-          document.getElementById("milkdownEditorRoot")?.addEventListener("pointerdown", (event) => {
-            if (event.detail < 2) return;
-            appState.markdownEditorShouldFocus = true;
-            if (appState.activeMarkdownEditor?.focus) {
-              appState.activeMarkdownEditor.focus();
-            }
-          }, true);
+          if (!hasPreservedMarkdownSession) {
+            document.getElementById("milkdownEditorRoot")?.addEventListener("dblclick", () => {
+              appState.markdownEditorShouldFocus = true;
+              if (appState.activeMarkdownEditor?.focus) {
+                appState.activeMarkdownEditor.focus();
+                setStatus(t("markdown.focused"), "ok");
+              } else {
+                setStatus(t("markdown.loadingEditor"), "warn");
+              }
+            }, true);
+            document.getElementById("milkdownEditorRoot")?.addEventListener("pointerdown", (event) => {
+              if (event.detail < 2) return;
+              appState.markdownEditorShouldFocus = true;
+              if (appState.activeMarkdownEditor?.focus) {
+                appState.activeMarkdownEditor.focus();
+              }
+            }, true);
+          }
           if (sourceMode) {
             updateMarkdownStatusHint(tab);
           }
@@ -16510,7 +17218,7 @@ if (!chipTipController) {
         }
       }
 
-      async function loadThumbnailBackendStatus() {
+      async function loadThumbnailBackendStatus({ throwOnError = false } = {}) {
         try {
           appState.thumbnailBackendStatus = normalizeThumbnailBackendStatus(
             await invoke("get_thumbnail_backend_status")
@@ -16520,8 +17228,31 @@ if (!chipTipController) {
           if (appState.isSettingsOpen && appState.settingsTab === "thumbnails") {
             renderSettingsPanel();
           }
-        } catch (_) {
+          return appState.thumbnailBackendStatus;
+        } catch (error) {
+          if (throwOnError) throw error;
+          return null;
         }
+      }
+
+      async function refreshThumbnailBackendStatusFromSettings() {
+        return runThumbnailSettingsOperation("detect", async () => {
+          setThumbnailSettingsFeedback(t("status.thumbnailDetecting"), "info");
+          setStatus(t("status.thumbnailDetecting"), "warn");
+          try {
+            await loadThumbnailBackendStatus({ throwOnError: true });
+            const message = `${t("status.thumbnailDetectCompletePrefix")}${thumbnailEngineDisplayName()}`;
+            const tone = appState.thumbnailBackendStatus?.screenshotAvailable ? "ok" : "error";
+            setThumbnailSettingsFeedback(message, tone);
+            setStatus(t("status.thumbnailStatusRefreshed"), tone);
+            return appState.thumbnailBackendStatus;
+          } catch (error) {
+            const message = `${t("status.thumbnailDetectFailedPrefix")}${normalizeError(error)}`;
+            setThumbnailSettingsFeedback(message, "error");
+            setStatus(message, "error");
+            return null;
+          }
+        });
       }
 
       async function enableSystemChromeThumbnails() {
@@ -16555,65 +17286,133 @@ if (!chipTipController) {
         }
       }
 
-      async function rebuildThumbnailsForItems(items) {
-        if (!canGenerateDocumentThumbnails()) {
-          setStatus(t("status.thumbnailEngineDisabled"), "warn");
-          openSettingsTab("thumbnails");
-          return;
-        }
-        const thumbnailItems = items.filter(supportsGeneratedThumbnail);
+      async function rebuildThumbnailsForItems(items, options) {
+        const { onProgress } = options || {};
+        // B4：用户主动重建使用**强制目标**——所有支持的、路径有效的 Markdown/HTML
+        // 都重建，已 ready 的官方封面也重新生成（不再只处理 thumbnailNeedsGeneration）。
+        // 引擎不可用时 HTML 项跳过并计入 skippedHtml，Markdown 仍全量重建。
+        const { targets: thumbnailItems, skippedHtml } = thumbnailForceRebuildTargets(items);
         if (!thumbnailItems.length) {
+          if (skippedHtml > 0) {
+            setStatus(t("status.thumbnailEngineUnavailableMarkdownOk"), "warn");
+            openSettingsTab("thumbnails");
+            return { total: 0, completed: 0, failed: 0, canceled: 0, skipped: skippedHtml, reason: "engine-disabled", lastError: null };
+          }
           setStatus(t("status.thumbnailNoDocuments"), "warn");
-          return;
+          return { total: 0, completed: 0, failed: 0, canceled: 0, skipped: 0, reason: "no-documents", lastError: null };
         }
 
+        // 独占固定 runId（阻塞 5 修正）：手动重建与自动刷新互斥，谁后启动谁接管。
+        // 期间 runId 被其他操作（自动刷新 / 设置切换）修改时，本循环必须停止，
+        // 被取消的项不得计入 completed，也不得显示"成功 N/M"。
+        const runId = ++appState.thumbnailQueueRunId;
+        appState.thumbnailQueueActive = true;
         let completed = 0;
+        let failed = 0;
+        let canceled = 0;
+        let lastError = null;
         setStatus(thumbnailProgressMessage(0, thumbnailItems.length, t("status.thumbnailRebuildMode")), "warn");
+        onProgress?.({ completed, failed, canceled, total: thumbnailItems.length });
         for (const item of thumbnailItems) {
+          if (runId !== appState.thumbnailQueueRunId) { canceled += 1; break; }
+          // 先等待被本 run 取消的旧 owner 释放 slot，再由手动操作占用；不能直接
+          // continue，否则该 item 会成为未计数漏项并可能显示绿色“成功 N/M”。
+          if (!(await waitForThumbnailSlot(item.id, runId))) { canceled += 1; break; }
+          appState.pendingThumbnailIds.add(item.id);
           try {
             await delay(80);
-            const result = await invoke("generate_thumbnail", { itemId: item.id });
-            item.thumbnail = normalizeThumbnailInfo({
-              status: result.status || result.thumbnail?.status || "ready",
-              path: result.path || result.thumbnail?.path || null,
-              width: result.width || result.thumbnail?.width || null,
-              height: result.height || result.thumbnail?.height || null,
-              lastGeneratedAt: result.lastGeneratedAt || result.thumbnail?.lastGeneratedAt || null,
-              errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null
-            });
+            // B1：旧响应不得覆盖新 generation；晚到被丢弃时按 expectedKey 持续收敛。
+            // 只有 { ok: true } 计入 completed；canceled / failed / terminal / error 不计入。
+            const outcome = await generateThumbnailOnce(item, runId);
+            if (runId !== appState.thumbnailQueueRunId) { canceled += 1; break; }
+            if (!outcome.ok) {
+              if (outcome.reason === "canceled") { canceled += 1; break; }
+              failed += 1;
+              lastError = outcome.error ?? new Error(outcome.reason || "thumbnail generation failed");
+              renderItems();
+              const processed = completed + failed;
+              const progressMessage = thumbnailProgressMessage(processed, thumbnailItems.length, t("status.thumbnailRebuildMode"));
+              setStatus(progressMessage, failed ? "error" : "warn");
+              onProgress?.({ completed, failed, canceled, total: thumbnailItems.length, lastError });
+              continue;
+            }
             completed += 1;
-            setStatus(thumbnailProgressMessage(completed, thumbnailItems.length, t("status.thumbnailRebuildMode")), "warn");
             renderItems();
-          } catch (_) {
+          } catch (error) {
+            failed += 1;
+            lastError = error;
+          } finally {
+            appState.pendingThumbnailIds.delete(item.id);
           }
+          const processed = completed + failed;
+          const progressMessage = thumbnailProgressMessage(processed, thumbnailItems.length, t("status.thumbnailRebuildMode"));
+          setStatus(progressMessage, failed ? "error" : "warn");
+          onProgress?.({ completed, failed, canceled, total: thumbnailItems.length, lastError });
         }
 
+        if (runId === appState.thumbnailQueueRunId) {
+          // 只有自己仍是当前队列时才释放 active 标志；被接管（取消）时不动。
+          appState.thumbnailQueueActive = false;
+        }
         renderItems();
         renderSettingsPanel();
+        const reason = canceled > 0 ? "canceled" : null;
+        return { total: thumbnailItems.length, completed, failed, canceled, skipped: skippedHtml, reason, lastError };
       }
 
       async function rebuildVisibleHtmlThumbnails() {
-        await rebuildThumbnailsForItems(appState.items);
-        setStatus(t("status.thumbnailRebuildVisibleComplete"), "ok");
+        return runThumbnailSettingsOperation("visible", async () => {
+          setThumbnailSettingsFeedback(thumbnailProgressMessage(0, appState.items.filter(supportsGeneratedThumbnail).length, t("status.thumbnailRebuildMode")), "info");
+          try {
+            const result = await rebuildThumbnailsForItems(appState.items, {
+              onProgress: ({ completed, failed, total }) => {
+                setThumbnailSettingsFeedback(thumbnailProgressMessage(completed + failed, total, t("status.thumbnailRebuildMode")), failed ? "error" : "info");
+              }
+            });
+            const outcome = showThumbnailRebuildResult(result, t("status.thumbnailRebuildVisibleComplete"));
+            setStatus(outcome.message, outcome.tone);
+            return result;
+          } catch (error) {
+            setThumbnailSettingsFeedback(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            setStatus(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            return null;
+          }
+        });
       }
 
       async function rebuildCurrentLibraryHtmlThumbnails() {
-        if (!appState.activeLibraryId) {
-          setStatus(t("status.thumbnailNoLibrary"), "warn");
-          return;
-        }
+        return runThumbnailSettingsOperation("library", async () => {
+          if (!appState.activeLibraryId) {
+            setThumbnailSettingsFeedback(t("status.thumbnailNoLibrary"), "error");
+            setStatus(t("status.thumbnailNoLibrary"), "warn");
+            return null;
+          }
 
-        const result = await invoke("list_items", {
-          libraryId: appState.activeLibraryId,
-          fileTypes: ["html", "markdown"],
-          page: 1,
-          pageSize: 500,
-          sortBy: "modified_at",
-          sortOrder: "desc"
+          setThumbnailSettingsFeedback(t("status.thumbnailRebuildPreparing"), "info");
+          try {
+            const result = await invoke("list_items", {
+              libraryId: appState.activeLibraryId,
+              fileTypes: ["html", "markdown"],
+              page: 1,
+              pageSize: 500,
+              sortBy: "modified_at",
+              sortOrder: "desc"
+            });
+            const rebuildResult = await rebuildThumbnailsForItems((result.items || []).map(normalizeItemSummary), {
+              onProgress: ({ completed, failed, total }) => {
+                setThumbnailSettingsFeedback(thumbnailProgressMessage(completed + failed, total, t("status.thumbnailRebuildMode")), failed ? "error" : "info");
+              }
+            });
+            await loadItems();
+            const outcome = showThumbnailRebuildResult(rebuildResult, t("status.thumbnailRebuildLibraryComplete"));
+            setStatus(outcome.message, outcome.tone);
+            return rebuildResult;
+          } catch (error) {
+            setThumbnailSettingsFeedback(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            setStatus(`${t("status.thumbnailRebuildFailedPrefix")}${normalizeError(error)}`, "error");
+            return null;
+          }
         });
-        await rebuildThumbnailsForItems((result.items || []).map(normalizeItemSummary));
-        await loadItems();
-        setStatus(t("status.thumbnailRebuildLibraryComplete"), "ok");
       }
 
       function artifactRuntimeType(detail) {
@@ -16662,7 +17461,6 @@ if (!chipTipController) {
         appState.isEditing = false;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
-        cleanupMarkdownEditor();
         setSidebarCollapsed(true);
         renderTabs();
         renderViewer();
@@ -16702,7 +17500,6 @@ if (!chipTipController) {
         appState.isEditing = true;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
-        cleanupMarkdownEditor();
         renderTabs();
         renderViewer();
         await loadItems();
@@ -16745,7 +17542,6 @@ if (!chipTipController) {
         appState.isEditing = false;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
-        cleanupMarkdownEditor();
         renderTabs();
         renderViewer();
         setStatus(markdownOpeningStatus(item?.fileName), "warn");
@@ -17182,17 +17978,42 @@ if (!chipTipController) {
           tab.markdownBaseline = tab.draft;
           tab.isDirty = false;
           tab.item = normalizeItemSummary(freshDetail);
+          // durable save 成功后首页持久 item 状态必须收敛，无论 renderAfter
+          // true/false（save-and-close / 关闭全部标签后 appState.items 不得
+          // 仍是旧标题——P1）。loadItems 只调用一次（B3 复审 P2 已删除重复）。
           await loadItems();
           const refreshedListItem = appState.items.find((entry) => entry.id === tab.id);
           if (refreshedListItem) {
             tab.item = refreshedListItem;
           }
           if (renderAfter) {
+            // 保存后只刷新 preview/input/meta 等局部元素，绝不重建整个
+            // viewer（重建会销毁 milkdownEditorRoot，导致 PM history 全部
+            // 丢失，用户无法 ⌘Z/⇧⌘Z 撤销保存前的修改——B3 GUI 验收）。
+            // 刷新预览 HTML、标题输入框与修改时间。
+            const titleInput = document.getElementById("markdownTitleInput");
+            if (titleInput && freshPreview) {
+              setTitleInputValue(
+                titleInput,
+                markdownDocumentTitle(
+                  tab.draft ?? freshPreview.raw ?? "",
+                  freshPreview.title || tab.item.fileName
+                )
+              );
+            }
+            const metaEl = els.viewerBody?.querySelector?.(".content-meta");
+            if (metaEl) {
+              const ts = freshDetail?.modifiedAt || tab.item?.modifiedAt || "";
+              metaEl.textContent = `修改时间：${formatTimestamp(ts)} · 修改后按 ⌘S 保存`;
+            }
+            const previewEl = els.viewerBody?.querySelector?.(".markdown-preview");
+            if (previewEl && freshPreview?.html != null) {
+              previewEl.innerHTML = freshPreview.html;
+            }
             renderTabs();
-            renderViewer();
+            setStatus(markdownSavedStatus(tab.item.fileName), "ok");
+            showToast("保存成功");
           }
-          setStatus(markdownSavedStatus(tab.item.fileName), "ok");
-          showToast("保存成功");
           return true;
         } catch (error) {
           const conflict = markdownSaveConflict(error);
@@ -17204,6 +18025,17 @@ if (!chipTipController) {
 
       async function saveActiveMarkdown() {
         const tab = getActiveTab();
+        // 保存前收敛标题输入框未提交的值（P0 统一收敛）：用户可能输入新标题后
+        // 直接按 ⌘S 而未 Enter/blur，此时 PM doc 尚未更新，若不先提交，保存的
+        // 将是旧标题，保存后 preview/输入框会"瞬间回到旧标题"。
+        if (tab?.preview?.fileType === "markdown") {
+          if (!convergePendingMarkdownTitle(tab)) {
+            // 输入法组合尚未结束：不强制提交标题，也不保存（避免旧标题写盘后
+            // 覆盖正在组合的输入）。保持应用打开并给出可理解状态。
+            setStatus("标题输入法组合中，请先确认输入再保存", "warn");
+            return;
+          }
+        }
         await saveMarkdownTab(tab);
       }
 
@@ -17760,11 +18592,42 @@ if (!chipTipController) {
         const tag = active?.tagName;
         const isFormField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
         const tab = getActiveTab();
-        if (tab?.preview?.fileType === "markdown" && appState.activeMarkdownEditor) {
-          const handled = action === "redo"
-            ? appState.activeMarkdownEditor.redo?.()
-            : appState.activeMarkdownEditor.undo?.();
-          if (handled) return true;
+        const markdownEditor = appState.activeMarkdownEditor;
+        const isMarkdownTab =
+          tab?.preview?.fileType === "markdown" &&
+          markdownEditor &&
+          tab.id === appState.activeMarkdownEditorTabId;
+        if (isMarkdownTab) {
+          const titleInput = document.getElementById("markdownTitleInput");
+          // 1. 焦点在标题输入框且标题尚未提交（未 Enter/blur）：undo/redo
+          //    只作用于标题输入框自身的文本 history，不触碰 ProseMirror。
+          //    使用自维护的按 input 事件粒度的快照栈（WKWebView 的原生
+          //    undo 会把整个输入会话合并成一个单元——输入 abc 后 ⌘Z 一次
+          //    删光三个字母；自维护栈保证逐字符回退），逐字符撤销/重做。
+          if (active === titleInput) {
+            return action === "redo" ? redoMarkdownTitleInput() : undoMarkdownTitleInput();
+          }
+          // 2. 焦点在 ProseMirror contenteditable：只使用 PM history。
+          if (active?.isContentEditable && active.closest?.(".milkdown-editor-root")) {
+            const handled = action === "redo"
+              ? markdownEditor.redo?.()
+              : markdownEditor.undo?.();
+            if (handled) {
+              // PM undo/redo 成功：立即把顶部标题输入框同步到新文档标题。
+              // 无有效 H1 时 getDocumentTitle() 返回 null，此时显示文件名
+              // fallback（B3 复审 P1：undo 删除插入的 H1 后输入框恢复文件名）。
+              const currentTitle = markdownEditor.getDocumentTitle?.();
+              const display = currentTitle || tab.item?.fileName || "Markdown";
+              if (titleInput && titleInput.value !== display) {
+                setTitleInputValue(titleInput, display);
+              }
+              return true;
+            }
+            // PM undo/redo 栈为空：绝不 fallback 到 document.execCommand。
+            // WKWebView 会重放 contenteditable 原生 undo/redo 快照，与 PM
+            // state 脱节，导致标题/正文 DOM 重复（"连按 ⇧⌘Z 出现两个标题"）。
+            return false;
+          }
         }
         if (isFormField) {
           try {
@@ -18255,12 +19118,7 @@ if (!chipTipController) {
             first.focus();
           }
         });
-        els.settingsRefreshThumbnailStatusButton.addEventListener("click", async () => {
-          setStatus(t("status.thumbnailDetecting"), "warn");
-          await loadThumbnailBackendStatus();
-          renderSettingsPanel();
-          setStatus(t("status.thumbnailStatusRefreshed"), "ok");
-        });
+        els.settingsRefreshThumbnailStatusButton.addEventListener("click", refreshThumbnailBackendStatusFromSettings);
         els.settingsRebuildVisibleThumbsButton.addEventListener("click", rebuildVisibleHtmlThumbnails);
         els.settingsRebuildLibraryThumbsButton.addEventListener("click", rebuildCurrentLibraryHtmlThumbnails);
         els.openCurrentFolderButton.addEventListener("click", () => {
