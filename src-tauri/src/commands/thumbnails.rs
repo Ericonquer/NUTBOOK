@@ -2364,6 +2364,14 @@ mod tests {
             ("markdown-multiple-h1.md", false),
             ("markdown-long-cjk-title.md", false),
             ("markdown-long-latin-title.md", false),
+            // PR C / C0：带 canonical comment 与图片的 fixture 走同一真实链路
+            // （索引 → snapshot → 生成 → CAS ready），标题契约不被 comment/图片
+            // 干扰；这些文档仍只能产出 B4 默认标题封面，绝不落入图片封面路径。
+            ("markdown-cover-image.md", false),
+            ("markdown-duplicate-cover.md", false),
+            ("markdown-missing-cover.md", false),
+            ("markdown-remote-cover.md", false),
+            ("markdown-portable-cover.md", false),
         ];
         for (file_name, expect_fallback) in cases {
             let source_path = fixtures_dir.join(file_name);

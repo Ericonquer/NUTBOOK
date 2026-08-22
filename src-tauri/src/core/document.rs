@@ -1330,4 +1330,238 @@ mod tests {
             _ => panic!("expected html payload"),
         }
     }
+
+    // ------------------------------------------------------------------
+    // PR C / C0：Markdown 封面图可验收基线
+    // 只证明当前行为（comment/图片均为普通正文、无任何封面路径），不实现封面。
+    // ------------------------------------------------------------------
+
+    fn card_revision(file_name: &str) -> String {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/card-revisions")
+            .join(file_name);
+        std::fs::read_to_string(&path).expect("card-revision fixture must exist")
+    }
+
+    #[test]
+    fn cover_fixtures_are_readable_by_the_current_render_chain() {
+        for file_name in [
+            "markdown-cover-image.md",
+            "markdown-duplicate-cover.md",
+            "markdown-missing-cover.md",
+            "markdown-remote-cover.md",
+            "markdown-portable-cover.md",
+        ] {
+            let raw = card_revision(file_name);
+            let html = render_markdown_as_html_for_file(&raw, file_name);
+            assert!(!html.is_empty(), "{file_name} must render");
+        }
+    }
+
+    #[test]
+    fn canonical_cover_comment_renders_as_plain_escaped_text() {
+        // C0 characterization：canonical comment 对当前产品只是普通 HTML comment，
+        // 渲染为转义正文文本，不产生任何封面 wrapper/UI。
+        let html = render_markdown_as_html("<!-- nutbook-cover -->");
+        assert_eq!(html, "<p>&lt;!-- nutbook-cover --&gt;</p>");
+    }
+
+    #[test]
+    fn cover_image_fixture_keeps_plain_body_image_semantics() {
+        let raw = card_revision("markdown-cover-image.md");
+        let html = render_markdown_as_html_for_file(&raw, "markdown-cover-image.md");
+        // comment 保持普通转义文本。
+        assert!(html.contains("&lt;!-- nutbook-cover --&gt;"), "{html}");
+        // 普通独立图片块保持 <p><img></p> 语义。
+        assert!(
+            html.contains(r#"<img src="./assets/cover-landscape.png" alt="Landscape 4:3">"#),
+            "{html}"
+        );
+        // 带链接的独立图片块当前保持普通段落文本语义（不解析、不迁移、不成为封面）。
+        assert!(
+            html.contains("[![Linked landscape](./assets/cover-landscape.png)](https://example.invalid/album)"),
+            "{html}"
+        );
+        // 安全/不安全 SVG、伪 MIME、超限资源、方图、竖图、极宽图全部只是普通图片行。
+        for (src, alt) in [
+            ("./assets/cover-landscape.svg", "Safe landscape SVG"),
+            ("./assets/cover-unsafe.svg", "Unsafe SVG"),
+            ("./assets/cover-fake-mime.png", "Fake MIME"),
+            ("./assets/cover-oversized-dimensions.png", "Oversized dimensions"),
+            ("./assets/cover-square.png", "Square"),
+            ("./assets/cover-portrait.jpg", "Portrait"),
+            ("./assets/cover-ultrawide.png", "Ultrawide"),
+        ] {
+            assert!(
+                html.contains(&format!(r#"<img src="{src}" alt="{alt}">"#)),
+                "{html}"
+            );
+        }
+        // 当前渲染不出现任何封面专用 UI 标记。
+        assert!(!html.contains("nutbook-cover-image"), "{html}");
+        assert!(!html.contains("cover-wrapper"), "{html}");
+    }
+
+    #[test]
+    fn cover_duplicate_fixture_keeps_both_comments_plain() {
+        let raw = card_revision("markdown-duplicate-cover.md");
+        let html = render_markdown_as_html_for_file(&raw, "markdown-duplicate-cover.md");
+        // 两个独立段落的 comment（fixture 正文中的反引号引用文本不在此计数）。
+        assert_eq!(
+            html.matches("<p>&lt;!-- nutbook-cover --&gt;</p>").count(),
+            2,
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn cover_missing_fixture_stays_openable_as_plain_image() {
+        let raw = card_revision("markdown-missing-cover.md");
+        let html = render_markdown_as_html_for_file(&raw, "markdown-missing-cover.md");
+        assert!(
+            html.contains(r#"<img src="./assets/does-not-exist.png" alt="Missing asset">"#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn cover_remote_fixture_keeps_url_as_plain_image() {
+        let raw = card_revision("markdown-remote-cover.md");
+        let html = render_markdown_as_html_for_file(&raw, "markdown-remote-cover.md");
+        // http/https URL 保持普通 <img src> 语法；当前无远程封面路径。
+        assert!(
+            html.contains(
+                r#"<img src="https://example.invalid/covers/landscape-16x9.png" alt="Remote landscape">"#
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn cover_portable_fixture_renders_as_plain_body_image_blocks() {
+        let raw = card_revision("markdown-portable-cover.md");
+        let html = render_markdown_as_html_for_file(&raw, "markdown-portable-cover.md");
+        assert!(html.contains(r#"<p align="center">"#), "{html}");
+        assert!(
+            html.contains(
+                r#"<img src="./assets/cover-landscape.png" alt="Portable centered landscape" width="480">"#
+            ),
+            "{html}"
+        );
+        assert!(html.contains(r#"<p align="right">"#), "{html}");
+        assert!(
+            html.contains(r#"href="https://example.invalid/album" title="Open album">"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<img src="./assets/cover-landscape.png" alt="Linked portable landscape" width="320">"#
+            ),
+            "{html}"
+        );
+        assert!(!html.contains("cover-wrapper"), "{html}");
+    }
+
+    #[test]
+    fn cover_assets_are_present_with_expected_mime_dimensions_and_safety() {
+        // C0 资产完整性（窄 fixture 检查）：渲染链路不读取图片字节，因此必须
+        // 直接验证真实文件存在、magic MIME、像素尺寸/比例与 SVG 风险语料。
+        // 负面样本遵循「一次只错一个条件」：伪 MIME 仅扩展名与 magic 不一致
+        // （比例合法 16:9），超限图仅像素尺寸超限（比例合法 16:9）。
+        let assets_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/card-revisions/assets");
+
+        for name in [
+            "cover-landscape.png",
+            "cover-landscape.svg",
+            "cover-unsafe.svg",
+            "cover-portrait.jpg",
+            "cover-square.png",
+            "cover-ultrawide.png",
+            "cover-fake-mime.png",
+            "cover-oversized-dimensions.png",
+        ] {
+            assert!(assets_dir.join(name).is_file(), "{name} must exist");
+        }
+
+        // PNG：magic 签名 + IHDR 宽高。
+        let png_dimensions = |name: &str| -> (u32, u32) {
+            let bytes = std::fs::read(assets_dir.join(name)).expect("read png");
+            assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "{name} must be a real PNG");
+            let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
+            let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+            (width, height)
+        };
+        // JPEG：magic + SOF 段宽高（JPEG 中高在前、宽在后）。
+        let jpeg_dimensions = |name: &str| -> (u32, u32) {
+            let bytes = std::fs::read(assets_dir.join(name)).expect("read jpeg");
+            assert_eq!(&bytes[..3], b"\xFF\xD8\xFF", "{name} must be a real JPEG");
+            let mut cursor = 2usize;
+            loop {
+                assert!(bytes[cursor] == 0xFF, "{name}: expected marker");
+                let marker = bytes[cursor + 1];
+                let is_sof = (0xC0..=0xCF).contains(&marker)
+                    && !matches!(marker, 0xC4 | 0xC8 | 0xCC);
+                if is_sof {
+                    let height = u16::from_be_bytes(bytes[cursor + 5..cursor + 7].try_into().unwrap());
+                    let width = u16::from_be_bytes(bytes[cursor + 7..cursor + 9].try_into().unwrap());
+                    return (width as u32, height as u32);
+                }
+                let length =
+                    u16::from_be_bytes(bytes[cursor + 2..cursor + 4].try_into().unwrap()) as usize;
+                cursor += 2 + length;
+            }
+        };
+        let svg_text = |name: &str| -> String {
+            std::fs::read_to_string(assets_dir.join(name)).expect("read svg")
+        };
+
+        // 比例/尺寸契约。
+        assert_eq!(
+            png_dimensions("cover-landscape.png"),
+            (640, 480),
+            "landscape PNG must be the 4:3 legal boundary"
+        );
+        assert_eq!(png_dimensions("cover-square.png"), (256, 256));
+        let ultrawide = png_dimensions("cover-ultrawide.png");
+        assert!(
+            ultrawide.0 as f64 / ultrawide.1 as f64 > 2.0,
+            "ultrawide must exceed 2:1"
+        );
+        let oversized = png_dimensions("cover-oversized-dimensions.png");
+        assert_eq!(
+            oversized,
+            (4608, 2592),
+            "oversized must keep the 16:9 legal aspect"
+        );
+        assert!(
+            oversized.0 > 4096 && oversized.1 > 2048,
+            "oversized must exceed common pixel limits without being a decompression bomb"
+        );
+        // 伪 MIME：扩展名 .png、magic 是 JPEG、比例合法（16:9）。
+        assert_eq!(
+            jpeg_dimensions("cover-fake-mime.png"),
+            (640, 360),
+            "fake MIME must be 16:9 JPEG bytes behind a .png extension"
+        );
+        assert_eq!(jpeg_dimensions("cover-portrait.jpg"), (360, 640));
+
+        // 安全 SVG：禁止脚本/foreignObject/外部资源/动态字体。
+        let safe_svg = svg_text("cover-landscape.svg");
+        assert!(safe_svg.contains("<svg"), "safe svg must be an svg document");
+        for risk in ["<script", "foreignObject", "@import", "@font-face", "<image", "href=\"http"] {
+            assert!(!safe_svg.contains(risk), "safe svg must not contain {risk}");
+        }
+        // 不安全 SVG：必须包含全部四类风险语料。
+        let unsafe_svg = svg_text("cover-unsafe.svg");
+        for risk in [
+            "<script",
+            "foreignObject",
+            "@import",
+            "@font-face",
+            "href=\"https://evil.example",
+        ] {
+            assert!(unsafe_svg.contains(risk), "unsafe svg must contain {risk}");
+        }
+    }
 }

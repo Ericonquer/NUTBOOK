@@ -609,4 +609,42 @@ mod tests {
         }
         assert_eq!(DocumentTitle::parse(&"# [", "f.md").display_text, "[");
     }
+
+    // ------------------------------------------------------------------
+    // PR C / C0：Markdown 封面图可验收基线（标题契约不受 comment/图片干扰）
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn cover_fixtures_keep_first_valid_h1_as_title() {
+        // C0 characterization：canonical comment 与图片行不得占用标题，也不得
+        // 干扰 H1/title contract；markdown-remote-cover.md 的 comment 紧跟独立
+        // 远程图片块，构成 C1 的 canonical「comment + image」形态且全文只有一个
+        // marker。comment 本身不是标题（见 canonical_comment_alone_is_not_a_title）。
+        let cases: &[(&str, &str)] = &[
+            ("markdown-cover-image.md", "Cover image document"),
+            ("markdown-duplicate-cover.md", "Duplicate cover marker"),
+            ("markdown-missing-cover.md", "Missing cover image"),
+            ("markdown-remote-cover.md", "Remote cover image"),
+            ("markdown-portable-cover.md", "Portable cover image"),
+        ];
+        for (file_name, expected) in cases {
+            assert_title(
+                &fixture(file_name),
+                file_name,
+                expected,
+                DocumentTitleSource::AtxH1,
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_comment_alone_is_not_a_title() {
+        // 只有 comment + 图片、没有 H1 的文档必须回退文件名，comment 不得成为标题。
+        let raw = "<!-- nutbook-cover -->\n\n![Landscape](./assets/cover-landscape.png)\n";
+        let title = DocumentTitle::parse(raw, "cover.md");
+        assert_eq!(title.display_text, "cover.md");
+        assert_eq!(title.source, DocumentTitleSource::FileName);
+        assert!(title.is_file_name_fallback);
+        assert!(title.locator.is_none());
+    }
 }
