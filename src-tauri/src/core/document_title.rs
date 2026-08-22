@@ -237,7 +237,7 @@ impl DocumentTitle {
 /// 语义与 `document.rs::split_markdown_frontmatter` 一致：首行 trim 后必须
 /// 恰好是 `---`，然后找到下一个 trim 后为 `---` 的行作为闭合。body 从闭合行
 /// 之后的第一个字符开始。
-fn strip_frontmatter(raw: &str) -> (&str, usize) {
+pub(crate) fn strip_frontmatter(raw: &str) -> (&str, usize) {
     let mut lines = raw.lines();
     let first = match lines.next() {
         Some(line) => line.trim(),
@@ -622,6 +622,8 @@ mod tests {
         // marker。comment 本身不是标题（见 canonical_comment_alone_is_not_a_title）。
         let cases: &[(&str, &str)] = &[
             ("markdown-cover-image.md", "Cover image document"),
+            ("markdown-cover-plain.md", "Plain cover image"),
+            ("markdown-cover-linked.md", "Linked cover image"),
             ("markdown-duplicate-cover.md", "Duplicate cover marker"),
             ("markdown-missing-cover.md", "Missing cover image"),
             ("markdown-remote-cover.md", "Remote cover image"),
@@ -646,5 +648,19 @@ mod tests {
         assert_eq!(title.source, DocumentTitleSource::FileName);
         assert!(title.is_file_name_fallback);
         assert!(title.locator.is_none());
+    }
+
+    #[test]
+    fn heading_with_formatted_image_alt_collects_plain_text() {
+        // C0 characterization（alt 契约基线）：pulldown-cmark 会把 H1 内图片的
+        // 格式化 alt 发射为 Image 内部事件（Text + emphasis/strong/strikethrough
+        // 容器 + Code）。标题解析必须按「收集纯文本语义」处理这些事件（跳过容器
+        // 但保留内部 Text、Code 与 break），而不是遇到非 Text 就返回 None 或丢弃
+        // 整个标题。这是 C1 nutbook-cover 解析器要复用的模式。
+        let raw = "# 标题 ![a *bold* `code` ~~strike~~ 尾](img.png)\n";
+        let title = DocumentTitle::parse(raw, "f.md");
+        assert_eq!(title.display_text, "标题 a bold code strike 尾");
+        assert_eq!(title.source, DocumentTitleSource::AtxH1);
+        assert!(!title.is_file_name_fallback);
     }
 }

@@ -20,14 +20,14 @@ fn escape_html_attribute(input: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PortableHtmlTag {
-    name: String,
-    closing: bool,
-    self_closing: bool,
-    attributes: Vec<(String, String)>,
+pub(crate) struct PortableHtmlTag {
+    pub(crate) name: String,
+    pub(crate) closing: bool,
+    pub(crate) self_closing: bool,
+    pub(crate) attributes: Vec<(String, String)>,
 }
 
-fn parse_portable_html_tag(input: &str, cursor: &mut usize) -> Option<PortableHtmlTag> {
+pub(crate) fn parse_portable_html_tag(input: &str, cursor: &mut usize) -> Option<PortableHtmlTag> {
     let bytes = input.as_bytes();
     if bytes.get(*cursor) != Some(&b'<') {
         return None;
@@ -118,7 +118,7 @@ fn parse_portable_html_tag(input: &str, cursor: &mut usize) -> Option<PortableHt
     })
 }
 
-fn skip_portable_html_whitespace(input: &str, cursor: &mut usize) {
+pub(crate) fn skip_portable_html_whitespace(input: &str, cursor: &mut usize) {
     while input
         .as_bytes()
         .get(*cursor)
@@ -128,7 +128,7 @@ fn skip_portable_html_whitespace(input: &str, cursor: &mut usize) {
     }
 }
 
-fn portable_tag_attribute<'a>(tag: &'a PortableHtmlTag, name: &str) -> Option<&'a str> {
+pub(crate) fn portable_tag_attribute<'a>(tag: &'a PortableHtmlTag, name: &str) -> Option<&'a str> {
     tag.attributes
         .iter()
         .find_map(|(attribute, value)| (attribute == name).then_some(value.as_str()))
@@ -205,7 +205,7 @@ fn consume_portable_closing_tag(input: &str, cursor: &mut usize, name: &str) -> 
     tag.closing && !tag.self_closing && tag.name == name && tag.attributes.is_empty()
 }
 
-fn validate_portable_image_html_structure(input: &str) -> bool {
+pub(crate) fn validate_portable_image_html_structure(input: &str) -> bool {
     let mut cursor = 0;
     skip_portable_html_whitespace(input, &mut cursor);
     let Some(first) = parse_portable_html_tag(input, &mut cursor) else {
@@ -1347,6 +1347,8 @@ mod tests {
     fn cover_fixtures_are_readable_by_the_current_render_chain() {
         for file_name in [
             "markdown-cover-image.md",
+            "markdown-cover-plain.md",
+            "markdown-cover-linked.md",
             "markdown-duplicate-cover.md",
             "markdown-missing-cover.md",
             "markdown-remote-cover.md",
@@ -1400,6 +1402,39 @@ mod tests {
         // 当前渲染不出现任何封面专用 UI 标记。
         assert!(!html.contains("nutbook-cover-image"), "{html}");
         assert!(!html.contains("cover-wrapper"), "{html}");
+    }
+
+    #[test]
+    fn cover_formatted_and_padded_alt_keep_current_plain_image_semantics() {
+        // C0 characterization（alt 契约基线）：格式化 alt（emphasis/code/
+        // strikethrough）与 padded alt 在当前渲染链路中保持普通正文图片语义，
+        // 且 alt 字面被保留——不 trim 边缘空格、不丢失 markdown 标记。
+        // C1 的 nutbook-cover 解析器必须允许 pulldown-cmark 在 Image 内产生的
+        // emphasis/strong/strikethrough 容器、Code、break 等合法事件并收集纯
+        // 文本语义，且不得 trim 最终 alt；本测试钉住当前渲染行为作为基线。
+        let raw = card_revision("markdown-cover-image.md");
+        let html = render_markdown_as_html_for_file(&raw, "markdown-cover-image.md");
+        // 格式化 alt：字面标记保留（当前手写渲染器不做 alt 内 markdown 解析）。
+        assert!(
+            html.contains(r#"<img src="./assets/cover-landscape.png" alt="Emphasis *bold* alt">"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<img src="./assets/cover-landscape.png" alt="Code `inline` alt">"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<img src="./assets/cover-landscape.png" alt="Strike ~~gone~~ alt">"#),
+            "{html}"
+        );
+        // padded alt：边缘空格保留，不得被 trim。
+        assert!(
+            html.contains(r#"<img src="./assets/cover-landscape.png" alt="  Padded alt  ">"#),
+            "{html}"
+        );
+        // 仍只是普通正文图片，无任何封面路径。
+        assert!(!html.contains("cover-wrapper"), "{html}");
+        assert!(!html.contains("nutbook-cover-image"), "{html}");
     }
 
     #[test]

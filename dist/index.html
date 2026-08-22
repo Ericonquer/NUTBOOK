@@ -2879,6 +2879,39 @@
         outline: none;
       }
 
+      /* PR C / C1：封面 wrapper（markdown-cover-image-block）继承 portable 排版
+         语义——alignment 由外层 flex justify-content 驱动，与 portable-image-block
+         同一实现，避免打开封面文档时视觉排版变化。 */
+      .milkdown-editor-root .markdown-cover-image-block {
+        display: flex;
+        width: 100%;
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block.nutbook-image-align-center {
+        justify-content: center;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block.nutbook-image-align-right {
+        justify-content: flex-end;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block > a {
+        display: inline-flex;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block img {
+        width: auto;
+        height: auto;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block.ProseMirror-selectednode {
+        outline: none;
+      }
+
       .markdown-preview h1,
       .markdown-preview h2,
       .markdown-preview h3,

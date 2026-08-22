@@ -2368,6 +2368,8 @@ mod tests {
             // （索引 → snapshot → 生成 → CAS ready），标题契约不被 comment/图片
             // 干扰；这些文档仍只能产出 B4 默认标题封面，绝不落入图片封面路径。
             ("markdown-cover-image.md", false),
+            ("markdown-cover-plain.md", false),
+            ("markdown-cover-linked.md", false),
             ("markdown-duplicate-cover.md", false),
             ("markdown-missing-cover.md", false),
             ("markdown-remote-cover.md", false),

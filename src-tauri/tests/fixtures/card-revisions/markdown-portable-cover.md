@@ -1,10 +1,8 @@
 # Portable cover image
 
-本文档验证 portable image 语法（GitHub HTML 形态）与 canonical comment marker 的基线行为。portable image 在当前产品中渲染为普通正文图片块，comment 不改变其语义。
+本文档验证 portable image 语法（GitHub HTML 形态）与 canonical comment marker 的语义。顶层 marker 紧跟第一个独立 portable 图片块，构成 C1 的 canonical portable 封面样本；第二个带链接的 portable 块是普通正文图片。
 
 <!-- nutbook-cover -->
-
-## 居中固定宽度 portable image
 
 <p align="center">
   <img src="./assets/cover-landscape.png" alt="Portable centered landscape" width="480">
@@ -18,4 +16,4 @@
   </a>
 </p>
 
-portable image 保持当前正文图片语义，卡片仍使用默认标题封面，不出现任何图片封面。
+portable image 保持当前正文图片语义；封面身份不改变图片位置、缩进、属性或链接，卡片在本阶段仍使用默认标题封面。
