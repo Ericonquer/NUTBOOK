@@ -7,6 +7,7 @@ import { keymap } from "@milkdown/kit/prose/keymap";
 import { liftListItem } from "@milkdown/kit/prose/schema-list";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { $nodeSchema, $remark } from "@milkdown/kit/utils";
 import { setBlockType, toggleMark } from "prosemirror-commands";
 import { fromMarkdown } from "mdast-util-from-markdown";
@@ -1379,6 +1380,65 @@ function localImageSrcPlugin(resolveImageSrc) {
   });
 }
 
+// 16.47 方案A（滚动跳变根因修复）：宿主不再向 ProseMirror 内容区写入
+// 标题隐藏类与大纲定位属性——宿主的 setAttribute/classList 写入会被
+// PM DOMObserver 读回为外部输入，触发 sameDoc 全树重绘，图片重建导致
+// scrollHeight 塌缩并被 WKWebView 双重钳制 scrollTop（详见 MEMORY.md 16.47）。
+// 改由本 decoration plugin 依据文档结构派生视图层属性：
+// - 文档顺序首个 H1 → 追加 markdown-document-title-source 类（位于
+//   aligned_text_block 内时不加；该 H1 不参与大纲序号）；
+// - 其余 h1~h6 按文档顺序获得 data-markdown-outline-index。
+// 语义与宿主原 assignMarkdownOutlineTargets 对编辑器容器的处理逐条一致；
+// 装饰只作用于视图 DOM，不进入 Markdown 序列化，也不会形成宿主外部写入被
+// DOMObserver 再次读回的 mutation 回环。
+function collectMarkdownOutlineDecorations(doc) {
+  const decorations = [];
+  let skippedDocumentTitle = false;
+  let outlineIndex = 0;
+  const walk = (node, from, insideAlignedBlock) => {
+    node.forEach((child, offset) => {
+      const childFrom = from + offset + 1;
+      const childInsideAlignedBlock = insideAlignedBlock || child.type.name === ALIGNED_TEXT_NODE_NAME;
+      if (child.type.name === "heading") {
+        const childTo = childFrom + child.nodeSize;
+        if (Number(child.attrs.level) === 1 && !skippedDocumentTitle) {
+          skippedDocumentTitle = true;
+          if (!childInsideAlignedBlock) {
+            decorations.push(Decoration.node(childFrom, childTo, { class: "markdown-document-title-source" }));
+          }
+        } else {
+          decorations.push(Decoration.node(childFrom, childTo, { "data-markdown-outline-index": String(outlineIndex) }));
+          outlineIndex += 1;
+        }
+        return;
+      }
+      if (child.childCount) {
+        walk(child, childFrom, childInsideAlignedBlock);
+      }
+    });
+  };
+  walk(doc, -1, false);
+  return decorations;
+}
+
+function markdownOutlineDecorationPlugin() {
+  return new Plugin({
+    state: {
+      init: (_, state) => DecorationSet.create(state.doc, collectMarkdownOutlineDecorations(state.doc)),
+      apply: (tr, value) => (
+        tr.docChanged
+          ? DecorationSet.create(tr.doc, collectMarkdownOutlineDecorations(tr.doc))
+          : value
+      )
+    },
+    props: {
+      decorations(state) {
+        return this.getState(state);
+      }
+    }
+  });
+}
+
 function proseNodeContainsImage(node) {
   if (!node) return false;
   if (["image", PORTABLE_IMAGE_NODE_NAME].includes(node.type?.name)) return true;
@@ -1547,6 +1607,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         pastePlainTextWhenLeavingList(),
         markdownImageAssetRemovalPlugin(onRemoveImageAsset),
         localImageSrcPlugin(resolveImageSrc),
+        markdownOutlineDecorationPlugin(),
         ...plugins
       ].filter(Boolean));
       ctx.update(listenerCtx, (listenerManager) => listenerManager

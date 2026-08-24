@@ -7373,26 +7373,33 @@
 
       function assignMarkdownOutlineTargets(card) {
         if (!card) return;
-        const selectors = "h1, h2, h3, h4, h5, h6";
-        [card.querySelector(".markdown-preview"), card.querySelector(".milkdown-editor-root .ProseMirror")].forEach((container) => {
-          if (!container) return;
-          container.querySelectorAll(".markdown-document-title-source").forEach((heading) => {
-            heading.classList.remove("markdown-document-title-source");
-          });
-          let skippedDocumentTitle = false;
-          let outlineIndex = 0;
-          container.querySelectorAll(selectors).forEach((heading) => {
-            if (heading.tagName === "H1" && !skippedDocumentTitle) {
-              skippedDocumentTitle = true;
-              if (!heading.closest('[data-type="aligned-text-block"]')) {
-                heading.classList.add("markdown-document-title-source");
-              }
-              delete heading.dataset.markdownOutlineIndex;
-              return;
+        // 16.47 方案A（滚动跳变根因修复）：本函数曾同时处理 .markdown-preview
+        // 与 .milkdown-editor-root .ProseMirror。向编辑器内容区写 class /
+        // data-markdown-outline-index 会被 ProseMirror 的 DOMObserver 读回为
+        // 外部输入，触发 sameDoc 全树重绘（h1/p/h2/封面节点全部重建），
+        // 图片重载导致 scrollHeight 塌缩、scrollTop 被双重钳制而永久跳变
+        // （证据链见 MEMORY.md 16.47）。现在宿主只处理阅读态预览容器；
+        // 编辑器内容区的标题隐藏类与大纲序号由 markdown-editor 的
+        // markdownOutlineDecorationPlugin 依据文档结构提供，属性名与语义
+        // 保持不变，大纲点击在两种模式下仍查询同一 data-markdown-outline-index。
+        const container = card.querySelector(".markdown-preview");
+        if (!container) return;
+        container.querySelectorAll(".markdown-document-title-source").forEach((heading) => {
+          heading.classList.remove("markdown-document-title-source");
+        });
+        let skippedDocumentTitle = false;
+        let outlineIndex = 0;
+        container.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
+          if (heading.tagName === "H1" && !skippedDocumentTitle) {
+            skippedDocumentTitle = true;
+            if (!heading.closest('[data-type="aligned-text-block"]')) {
+              heading.classList.add("markdown-document-title-source");
             }
-            heading.dataset.markdownOutlineIndex = String(outlineIndex);
-            outlineIndex += 1;
-          });
+            delete heading.dataset.markdownOutlineIndex;
+            return;
+          }
+          heading.dataset.markdownOutlineIndex = String(outlineIndex);
+          outlineIndex += 1;
         });
       }
 

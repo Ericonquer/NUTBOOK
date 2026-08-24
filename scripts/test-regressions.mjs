@@ -45,6 +45,7 @@ const openSettingsPanelFromOverlay = indexFunctionSection("openSettingsPanelFrom
 const thumbnailSettingsControls = indexFunctionSection("syncThumbnailSettingsControls", "runThumbnailSettingsOperation");
 const thumbnailSettingsDetection = indexFunctionSection("refreshThumbnailBackendStatusFromSettings", "enableSystemChromeThumbnails");
 const thumbnailSettingsRebuild = indexFunctionSection("rebuildThumbnailsForItems", "rebuildVisibleHtmlThumbnails");
+const markdownOutlineTargets = indexFunctionSection("assignMarkdownOutlineTargets", "refreshMarkdownOutline");
 
 assert.match(indexHtml, /id="settingsThumbnailFeedback"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"[^>]*hidden/, "thumbnail Settings actions must expose one persistent inline live region instead of relying on the document-only footer status");
 assert.match(thumbnailSettingsControls, /settingsRefreshThumbnailStatusButton[\s\S]*?settingsRebuildVisibleThumbsButton[\s\S]*?settingsRebuildLibraryThumbsButton[\s\S]*?button\.disabled = Boolean\(operation\)[\s\S]*?aria-busy/, "thumbnail detection and both rebuild actions must share one mutually exclusive busy state");
@@ -1388,6 +1389,26 @@ assert.match(
   indexHtml,
   /heading\.closest\('\[data-type="aligned-text-block"\]'\)[\s\S]*?markdown-document-title-source/,
   "an aligned body H1 must remain visible while the host document title continues to use its separate title source"
+);
+assert.match(
+  markdownOutlineTargets,
+  /card\.querySelector\("\.markdown-preview"\)/,
+  "the host outline target writer must remain scoped to the read-only Markdown preview"
+);
+assert.doesNotMatch(
+  markdownOutlineTargets,
+  /card\.querySelector\("\.milkdown-editor-root \.ProseMirror"\)|container\s*=\s*card\.querySelector\([^)]*ProseMirror/,
+  "the host must never write outline classes or indexes into ProseMirror-managed DOM"
+);
+assert.match(
+  markdownEditor,
+  /function collectMarkdownOutlineDecorations[\s\S]*?Decoration\.node[\s\S]*?markdown-document-title-source[\s\S]*?data-markdown-outline-index[\s\S]*?function markdownOutlineDecorationPlugin[\s\S]*?DecorationSet\.create[\s\S]*?tr\.docChanged/,
+  "the editor must derive title visibility and outline indexes through ProseMirror decorations"
+);
+assert.match(
+  markdownEditor,
+  /localImageSrcPlugin\(resolveImageSrc\),[\s\S]*?markdownOutlineDecorationPlugin\(\)/,
+  "the Markdown outline decoration plugin must remain registered in the editor"
 );
 for (const key of ["markdown.saveAndClose", "markdown.discardAndClose", "markdown.continueEditing", "markdown.textAlignBlockOnly", "markdown.saveConflict", "markdown.saveConflictToast"]) {
   assert.match(i18n, new RegExp(key.split(".").pop()), `${key} must exist in both localization dictionaries`);
