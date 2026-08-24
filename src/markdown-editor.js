@@ -989,6 +989,56 @@ function findCoverImageNode(state) {
   return found;
 }
 
+// 封面身份切换会把 paragraph / portable block 与 cover atom 互换。即使两套 CSS
+// 的视觉尺寸一致，不同 WebView 的 inline baseline / scroll anchoring 仍可能让正在
+// 操作的图片在屏幕上偏移几像素；A→B 转移还会同时改写目标上方的旧封面。以目标
+// 图片为视觉锚点，并只补偿最近的真实滚动容器，避免把身份修改变成导航动作。
+function captureImageViewportAnchor(view, pos) {
+  const nodeDom = view?.nodeDOM?.(pos);
+  const element = nodeDom instanceof Element
+    ? (nodeDom.matches("img") ? nodeDom : nodeDom.querySelector("img"))
+    : null;
+  if (!element) return null;
+  let scrollParent = element.parentElement;
+  while (scrollParent) {
+    const style = getComputedStyle(scrollParent);
+    const overflowY = style.overflowY;
+    if ((overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay")
+      && scrollParent.scrollHeight > scrollParent.clientHeight) {
+      break;
+    }
+    scrollParent = scrollParent.parentElement;
+  }
+  const rect = element.getBoundingClientRect();
+  return {
+    top: rect.top,
+    left: rect.left,
+    scrollParent,
+    windowX: window.scrollX,
+    windowY: window.scrollY
+  };
+}
+
+function restoreImageViewportAnchor(view, anchor, pos) {
+  if (!anchor) return;
+  const nodeDom = view?.nodeDOM?.(pos);
+  const element = nodeDom instanceof Element
+    ? (nodeDom.matches("img") ? nodeDom : nodeDom.querySelector("img"))
+    : null;
+  if (!element) return;
+  const rect = element.getBoundingClientRect();
+  const deltaX = rect.left - anchor.left;
+  const deltaY = rect.top - anchor.top;
+  if (anchor.scrollParent?.isConnected) {
+    if (Math.abs(deltaX) > 0.5) anchor.scrollParent.scrollLeft += deltaX;
+    if (Math.abs(deltaY) > 0.5) anchor.scrollParent.scrollTop += deltaY;
+    return;
+  }
+  if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
+    window.scrollTo(anchor.windowX + deltaX, anchor.windowY + deltaY);
+  }
+}
+
 function coverAttrsFromPortable(node) {
   return {
     nodeKind: "portable-image",
@@ -1314,10 +1364,15 @@ function localImageSrcPlugin(resolveImageSrc) {
       });
       observer.observe(view.dom, { childList: true, subtree: true });
       const frame = requestAnimationFrame(() => normalizeImages(view.dom));
+      // 封面身份 transaction 会同步重建一到两张图片；由该低频操作显式触发，
+      // 确保首次布局前已将相对 src 改写为宿主可加载 URL。普通输入不触发扫描。
+      const normalizeAfterIdentityChange = () => normalizeImages(view.dom);
+      view.dom.addEventListener("nutbook:normalize-local-images", normalizeAfterIdentityChange);
       return {
         destroy() {
           observer.disconnect();
           cancelAnimationFrame(frame);
+          view.dom.removeEventListener("nutbook:normalize-local-images", normalizeAfterIdentityChange);
         }
       };
     }
@@ -2368,6 +2423,33 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     return committed;
   }
 
+  // 鼠标点击图片工具栏时 pointerdown 已阻止按钮抢走焦点，封面身份 transaction
+  // 不应再次 focus 编辑器。键盘激活则不同：被激活的按钮会在二态切换后隐藏，需把
+  // 焦点送回正文；直接使用 DOM focus({ preventScroll: true })，并同步恢复所有祖先
+  // 滚动位置，规避 WKWebView 对 preventScroll 支持不完整时的选区轻微滚动。
+  function focusEditorAfterKeyboardToolbarAction() {
+    const view = getEditorView();
+    if (!view?.dom?.isConnected) return;
+    const scrollSnapshots = [];
+    for (let element = view.dom.parentElement; element; element = element.parentElement) {
+      scrollSnapshots.push({ element, left: element.scrollLeft, top: element.scrollTop });
+    }
+    const windowLeft = window.scrollX;
+    const windowTop = window.scrollY;
+    try {
+      view.dom.focus({ preventScroll: true });
+    } catch {
+      view.dom.focus();
+    }
+    scrollSnapshots.forEach(({ element, left, top }) => {
+      if (element.scrollLeft !== left) element.scrollLeft = left;
+      if (element.scrollTop !== top) element.scrollTop = top;
+    });
+    if (window.scrollX !== windowLeft || window.scrollY !== windowTop) {
+      window.scrollTo(windowLeft, windowTop);
+    }
+  }
+
   function createImageAlignToolbar() {
     const toolbar = document.createElement("div");
     toolbar.className = "markdown-image-align-toolbar";
@@ -2391,23 +2473,31 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       </button>
     `).join("");
     const activateToolbarButton = (button) => {
-      if (!button || button.disabled || button.hidden) return;
+      if (!button || button.disabled || button.hidden) return false;
       if (button.dataset.imageCover === "set") {
-        setTargetAsCover().catch(reportImageSizeError);
+        return setTargetAsCover().catch((error) => {
+          reportImageSizeError(error);
+          return false;
+        });
       } else if (button.dataset.imageCover === "remove") {
-        removeCurrentCover();
+        return removeCurrentCover();
       } else if (button.dataset.imageAlign) {
-        setImageAlignment(button.dataset.imageAlign).catch(reportImageSizeError);
-      } else {
-        setImageSize(button.dataset.imageSize || "large").catch(reportImageSizeError);
+        return setImageAlignment(button.dataset.imageAlign).catch((error) => {
+          reportImageSizeError(error);
+          return false;
+        });
       }
+      return setImageSize(button.dataset.imageSize || "large").catch((error) => {
+        reportImageSizeError(error);
+        return false;
+      });
     };
     toolbar.addEventListener("pointerdown", (event) => {
       const button = event.target.closest("button[data-image-align], button[data-image-size], button[data-image-cover]");
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      activateToolbarButton(button);
+      void activateToolbarButton(button);
     });
     // pointerdown 用于保住 ProseMirror 图片选择；键盘不会产生 pointer 事件，
     // 因此 Enter/Space 必须走等价路径。preventDefault 避免随后生成第二次 click。
@@ -2417,7 +2507,9 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      activateToolbarButton(button);
+      Promise.resolve(activateToolbarButton(button)).finally(() => {
+        focusEditorAfterKeyboardToolbarAction();
+      });
     });
     toolbar.addEventListener("pointerenter", () => {
       scheduleImageAlignToolbarUpdate();
@@ -3214,6 +3306,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         const cover = findCoverImageNode(state);
         const targetStart = target.blockStart;
         const targetEnd = target.blockEnd;
+        const viewportAnchor = captureImageViewportAnchor(view, targetStart);
         let tr = state.tr;
         if (cover) {
           // A→B：同一 transaction 解包 A、包裹 B。先处理位置靠后的节点，
@@ -3237,8 +3330,14 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         // 打上 scrollIntoView meta。否则用户从图片工具栏执行时，正文会为了新的
         // selection 额外滚动一次，表现为页面重定向/抖动。
         view.dispatch(closeHistory(tr));
+        // replace transaction 会同步重建节点 DOM；A→B 还会同时重建旧封面。
+        // 若只等 localImageSrcPlugin 的 MutationObserver，WKWebView 会先用无法
+        // 直接加载的相对 src 完成一次 0 高度布局，再在微任务中恢复图片，引发
+        // 宿主滚动锚定。仅在低频封面身份操作后同步解析，避免普通输入时全量扫描。
+        view.dom.dispatchEvent(new Event("nutbook:normalize-local-images"));
+        const nextCover = findCoverImageNode(view.state);
+        if (nextCover) restoreImageViewportAnchor(view, viewportAnchor, nextCover.pos);
         markUserInteracted();
-        view.focus();
         scheduleFormatToolbarUpdate();
         scheduleTableToolbarUpdate();
         scheduleInsertMenuUpdate();
@@ -3261,6 +3360,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         }
         const cover = findCoverImageNode(view.state);
         if (!cover) return false;
+        const viewportAnchor = captureImageViewportAnchor(view, cover.pos);
         const block = rebuildImageBlock(view.state.schema, cover.node.attrs);
         let tr = view.state.tr.replaceWith(
           cover.pos,
@@ -3270,8 +3370,9 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         // 取消封面同样只改变身份；保留 transaction 自动映射后的 selection 和当前
         // viewport，避免工具栏操作引发一次无意的页面滚动。
         view.dispatch(closeHistory(tr));
+        view.dom.dispatchEvent(new Event("nutbook:normalize-local-images"));
+        restoreImageViewportAnchor(view, viewportAnchor, cover.pos);
         markUserInteracted();
-        view.focus();
         scheduleFormatToolbarUpdate();
         scheduleTableToolbarUpdate();
         scheduleInsertMenuUpdate();

@@ -19,6 +19,10 @@ const acceptanceMarkdown = readFileSync(
   "src-tauri/tests/fixtures/card-revisions/markdown-cover-image.md",
   "utf8"
 );
+const portableAcceptanceMarkdown = readFileSync(
+  "src-tauri/tests/fixtures/card-revisions/markdown-portable-cover.md",
+  "utf8"
+);
 
 // 真实 GUI 保存会规范化普通 image alt；提交前必须保证 C0/C1 建立的格式化 alt
 // 语料没有被验收副作用抹平，也没有把临时封面身份写回基线样本。
@@ -68,23 +72,36 @@ try {
   await page.waitForFunction(() => Boolean(window.NutbookMarkdownEditor?.create));
 
   async function mountEditor(markdown, options = {}) {
-    return page.evaluate(async ({ source, validateResult }) => {
+    return page.evaluate(async ({ source, validateResult, resolveLocalImages }) => {
       const root = document.getElementById("editor");
       root.innerHTML = "";
       window.__coverChanges = [];
+      window.__coverRawSrcSnapshots = [];
       window.__coverEditor = await window.NutbookMarkdownEditor.create({
         root,
         markdown: source,
         language: "zh-CN",
+        resolveImageSrc(src) {
+          if (!resolveLocalImages || !String(src).startsWith("./assets/")) return src;
+          return "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+        },
         onValidateCoverAsset() {
           return validateResult !== false;
         },
         onCoverChange(result) {
           window.__coverChanges.push(result);
+          window.__coverRawSrcSnapshots.push(Array.from(
+            document.querySelectorAll('.ProseMirror img[src^="./assets/"]'),
+            (image) => image.getAttribute("alt")
+          ));
         }
       });
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }, { source: markdown, validateResult: options.validateResult ?? true });
+    }, {
+      source: markdown,
+      validateResult: options.validateResult ?? true,
+      resolveLocalImages: options.resolveLocalImages === true
+    });
   }
 
   async function getCoverState() {
@@ -471,45 +488,126 @@ try {
   assert.ok(/<!-- nutbook-cover -->[\s\S]*?<p align="center">[\s\S]*?<a href="https:\/\/example\.invalid\/album"/.test(mdAfterCover), `problem 11: cover serialization must keep center alignment, not revert to rawSource right: ${mdAfterCover}`);
 
   // ---------------------------------------------------------------- 12
-  // 用户验收遗留：格式化 alt 的三张图片通过工具栏设为/取消封面时，页面曾发生
-  // 一次重定向滚动。封面身份 transaction 必须保留原 selection/viewport，不发送
-  // scrollIntoView intent。将目标放在 viewport 底部能稳定暴露旧实现的跳动。
-  await page.setViewportSize({ width: 1280, height: 420 });
-  const spacer = Array.from({ length: 18 }, (_, index) => `段落 ${index + 1}：用于构造真实长文滚动面。`).join("\n\n");
-  await mountEditor(`# Scroll stability\n\n${spacer}\n\n![Emphasis *bold* alt](./assets/a.png)\n\n${spacer}\n\n![Code \`inline\` alt](./assets/b.png)\n\n${spacer}\n\n![Strike ~~gone~~ alt](./assets/c.png)\n\n${spacer}\n`);
-  for (const alt of ["Emphasis bold alt", "Code inline alt", "Strike gone alt"]) {
+  // 用户验收遗留：格式化 alt 的三张普通图片，以及带链接的 portable image，
+  // 通过鼠标工具栏设为/取消封面时曾发生一次轻微滚动。Nutbook 的真实滚动源是
+  // viewerBody，而不是 window；同时鼠标 pointerdown 已保住编辑器焦点，身份操作
+  // 不得再调用 DOM focus。旧测试只断言 window.scrollY，因此会漏掉真实 GUI 回归。
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await page.evaluate(() => {
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    const root = document.getElementById("editor");
+    const viewer = document.createElement("div");
+    viewer.id = "viewerBodyScrollProbe";
+    // 240px 让较短的 portable fixture 也有足够 scroll range，可验证 A→B 同时
+    // 改写目标上方旧封面时的视觉锚点补偿；真实应用 viewport 更大、重排更轻。
+    viewer.style.cssText = "height:240px;overflow-y:auto;overflow-x:hidden;padding:26px 28px 28px;box-sizing:border-box";
+    root.parentNode.insertBefore(viewer, root);
+    viewer.appendChild(root);
+  });
+  const scrollCases = [
+    { markdown: acceptanceMarkdown, alt: "Emphasis bold alt" },
+    { markdown: acceptanceMarkdown, alt: "Code inline alt" },
+    { markdown: acceptanceMarkdown, alt: "Strike gone alt" },
+    { markdown: portableAcceptanceMarkdown, alt: "Linked portable landscape" }
+  ];
+  for (const { markdown, alt } of scrollCases) {
+    await mountEditor(markdown, { resolveLocalImages: true });
     const selector = `.ProseMirror img[alt="${alt}"]`;
     await page.evaluate((imageAlt) => {
+      const viewer = document.getElementById("viewerBodyScrollProbe");
       const image = document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`);
-      const targetTop = image.getBoundingClientRect().top + window.scrollY - (window.innerHeight - 86);
-      window.scrollTo(0, Math.max(0, targetTop));
+      const viewerRect = viewer.getBoundingClientRect();
+      const imageRect = image.getBoundingClientRect();
+      viewer.scrollTop = Math.max(0, viewer.scrollTop + imageRect.top - viewerRect.top - (viewer.clientHeight - 86));
+      const editor = document.querySelector(".ProseMirror");
+      const nativeFocus = editor.focus.bind(editor);
+      editor.__nutbookFocusCalls = 0;
+      editor.focus = (...args) => {
+        editor.__nutbookFocusCalls += 1;
+        return nativeFocus(...args);
+      };
     }, alt);
     // 先把目标放到 viewport 底部，再 hover 并点击。若在 hover 后二次滚动，真实
     // pointer 会离开图片、工具栏可能正常关闭，测试会把用户输入缺失误判成实现失败。
     await hoverImageAndExpectSet(selector);
-    const beforeSetScroll = await page.evaluate(() => Math.round(window.scrollY));
+    const beforeSet = await page.evaluate((imageAlt) => {
+      const viewer = document.getElementById("viewerBodyScrollProbe");
+      const viewerRect = viewer.getBoundingClientRect();
+      const imageRect = document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`).getBoundingClientRect();
+      const editor = document.querySelector(".ProseMirror");
+      return {
+        scrollTop: Math.round(viewer.scrollTop),
+        imageTop: Math.round(imageRect.top - viewerRect.top),
+        focusCalls: editor.__nutbookFocusCalls,
+        windowScrollY: Math.round(window.scrollY)
+      };
+    }, alt);
     await clickToolbarCoverSet();
+    const rawSrcAfterSet = await page.evaluate(() => window.__coverRawSrcSnapshots.at(-1));
+    assert.deepEqual(
+      rawSrcAfterSet,
+      [],
+      `${alt}: replacement images must receive resolved local URLs before onCoverChange`
+    );
     await page.waitForFunction((imageAlt) => Boolean(
       document.querySelector(`.ProseMirror .markdown-cover-image-block img[alt="${imageAlt}"]`)
     ), alt, { timeout: 2000 });
-    const afterSetScroll = await page.evaluate(() => Math.round(window.scrollY));
-    assert.ok(
-      Math.abs(afterSetScroll - beforeSetScroll) <= 1,
-      `${alt}: setting cover must not scroll the page (before=${beforeSetScroll}, after=${afterSetScroll})`
-    );
+    const afterSet = await page.evaluate((imageAlt) => {
+      const viewer = document.getElementById("viewerBodyScrollProbe");
+      const viewerRect = viewer.getBoundingClientRect();
+      const imageRect = document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`).getBoundingClientRect();
+      const editor = document.querySelector(".ProseMirror");
+      return {
+        scrollTop: Math.round(viewer.scrollTop),
+        imageTop: Math.round(imageRect.top - viewerRect.top),
+        focusCalls: editor.__nutbookFocusCalls,
+        windowScrollY: Math.round(window.scrollY)
+      };
+    }, alt);
+    assert.ok(Math.abs(afterSet.imageTop - beforeSet.imageTop) <= 1, `${alt}: setting cover must keep the image visually anchored (${beforeSet.imageTop} -> ${afterSet.imageTop})`);
+    assert.equal(afterSet.focusCalls, beforeSet.focusCalls, `${alt}: pointer setting cover must not refocus ProseMirror`);
+    assert.equal(afterSet.windowScrollY, beforeSet.windowScrollY, `${alt}: setting cover must not scroll window`);
+    if (alt !== "Linked portable landscape") {
+      assert.ok(Math.abs(afterSet.scrollTop - beforeSet.scrollTop) <= 1, `${alt}: setting cover must keep viewerBody.scrollTop stable (${beforeSet.scrollTop} -> ${afterSet.scrollTop})`);
+    }
 
     await hoverImageAndExpectRemove(`.ProseMirror .markdown-cover-image-block img[alt="${alt}"]`);
-    const beforeRemoveScroll = await page.evaluate(() => Math.round(window.scrollY));
+    const beforeRemove = await page.evaluate((imageAlt) => {
+      const viewer = document.getElementById("viewerBodyScrollProbe");
+      const viewerRect = viewer.getBoundingClientRect();
+      const imageRect = document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`).getBoundingClientRect();
+      const editor = document.querySelector(".ProseMirror");
+      return {
+        scrollTop: Math.round(viewer.scrollTop),
+        imageTop: Math.round(imageRect.top - viewerRect.top),
+        focusCalls: editor.__nutbookFocusCalls,
+        windowScrollY: Math.round(window.scrollY)
+      };
+    }, alt);
     await clickToolbarCoverRemove();
     await page.waitForFunction((imageAlt) => (
       Boolean(document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`))
       && !document.querySelector(`.ProseMirror .markdown-cover-image-block img[alt="${imageAlt}"]`)
     ), alt, { timeout: 2000 });
-    const afterRemoveScroll = await page.evaluate(() => Math.round(window.scrollY));
-    assert.ok(
-      Math.abs(afterRemoveScroll - beforeRemoveScroll) <= 1,
-      `${alt}: removing cover must not scroll the page (before=${beforeRemoveScroll}, after=${afterRemoveScroll})`
-    );
+    const afterRemove = await page.evaluate((imageAlt) => {
+      const viewer = document.getElementById("viewerBodyScrollProbe");
+      const viewerRect = viewer.getBoundingClientRect();
+      const imageRect = document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`).getBoundingClientRect();
+      const editor = document.querySelector(".ProseMirror");
+      return {
+        scrollTop: Math.round(viewer.scrollTop),
+        imageTop: Math.round(imageRect.top - viewerRect.top),
+        focusCalls: editor.__nutbookFocusCalls,
+        windowScrollY: Math.round(window.scrollY)
+      };
+    }, alt);
+    assert.ok(Math.abs(afterRemove.imageTop - beforeRemove.imageTop) <= 1, `${alt}: removing cover must keep the image visually anchored (${beforeRemove.imageTop} -> ${afterRemove.imageTop})`);
+    assert.equal(afterRemove.focusCalls, beforeRemove.focusCalls, `${alt}: pointer removing cover must not refocus ProseMirror`);
+    assert.equal(afterRemove.windowScrollY, beforeRemove.windowScrollY, `${alt}: removing cover must not scroll window`);
+    if (alt !== "Linked portable landscape") {
+      assert.ok(Math.abs(afterRemove.scrollTop - beforeRemove.scrollTop) <= 1, `${alt}: removing cover must keep viewerBody.scrollTop stable (${beforeRemove.scrollTop} -> ${afterRemove.scrollTop})`);
+    }
   }
 
   assert.equal(pageErrors.length, 0, "page must be error free: " + pageErrors.join("; "));
