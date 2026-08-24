@@ -34,6 +34,14 @@ libc = "0.2"
 base64 = "0.22"
 chrono = "0.4"
 pulldown-cmark = "0.13"
+# PR C / C2：Markdown 封面位图解码（PNG/JPEG/WebP/GIF 首帧）与像素级裁切。
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# PR C / C2：受限静态 SVG renderer（usvg 安全模式不执行脚本、不加载外部资源）。
+resvg = "0.45"
+# PR C / C2：SVG XML 安全检查（script / foreignObject / 外部资源 / 动态字体拒绝）。
+roxmltree = "0.20"
+# PR C / C2：JPEG/PNG EXIF orientation（90/270 旋转时交换宽高并旋转裁切）。
+kamadak-exif = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSWindow"] }

@@ -305,13 +305,16 @@ const INSERT_ICON_SVG = {
   list: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 6h8M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="4.8" cy="6" r="1" fill="currentColor"/><circle cx="4.8" cy="10" r="1" fill="currentColor"/><circle cx="4.8" cy="14" r="1" fill="currentColor"/></svg>`,
   orderedList: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 6h8M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.3 7V4.5l-.8.4M3.5 9.2c.2-.3.6-.5 1-.5.7 0 1.1.4 1.1 1 0 .4-.3.8-.8 1.2l-1.2.9h2M3.6 13.2c.2-.2.5-.3.9-.3.7 0 1.1.3 1.1.8 0 .4-.3.7-.8.8.6.1 1 .4 1 .9 0 .6-.5 1-1.3 1-.4 0-.8-.1-1.1-.3" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   table: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM3.5 8.5h13M8 5v10M12.5 5v10" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/></svg>`,
-  code: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.4 6.6-3.2 3.4 3.2 3.4M12.6 6.6l3.2 3.4-3.2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  code: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.4 6.6-3.2 3.4 3.2 3.4M12.6 6.6l3.2 3.4-3.2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  cover: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="M4.3 13.4 7 10.7l2.2 2 2.9-3.4 3.6 4.1" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.4 7.6h3.4M14.1 5.9v3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`
 };
 
 const IMAGE_ALIGN_ICON_SVG = {
   left: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M4 8h8.5M4 11.5h12M4 15h8.5" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
   center: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M6.2 8h7.6M4 11.5h12M6.2 15h7.6" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
-  right: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M7.5 8H16M4 11.5h12M7.5 15H16" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`
+  right: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M7.5 8H16M4 11.5h12M7.5 15H16" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
+  coverSet: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="M4.3 13.4 7 10.7l2.2 2 2.9-3.4 3.6 4.1" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.4 7.6h3.4M14.1 5.9v3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+  coverRemove: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="m7 9.3 6 6M13 9.3l-6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
 };
 
 const IMAGE_SIZE_ICON_SVG = {
@@ -836,9 +839,15 @@ function serializeCoverDestination(value) {
 }
 
 // 结构化重建图片块语法（仅当 raw source 不可用或排版被修改时使用）。
+// plain/linked 图片的对齐 token（nutbook-align=…）写入 title，与普通图片的
+// alignment 语义一致，保证「+ → 封面图」新图默认居中在保存后仍保持。
 function serializeCoverImageBody(attrs = {}) {
   if (attrs.nodeKind === "portable-image") return serializePortableImageHtml(attrs);
-  const title = attrs.title ? ` ${serializeCoverTitle(attrs.title)}` : "";
+  const alignmentToken = ["left", "center", "right"].includes(attrs.alignment)
+    ? `nutbook-align=${attrs.alignment}`
+    : "";
+  const titleParts = [attrs.title, alignmentToken].filter(Boolean);
+  const title = titleParts.length ? ` ${serializeCoverTitle(titleParts.join(" "))}` : "";
   const image = `![${escapeCoverAlt(attrs.alt)}](${serializeCoverDestination(attrs.src)}${title})`;
   if (attrs.nodeKind === "linked-image") {
     const linkTitle = attrs.linkTitle ? ` ${serializeCoverTitle(attrs.linkTitle)}` : "";
@@ -910,6 +919,17 @@ const markdownCoverImageSchema = $nodeSchema(MARKDOWN_COVER_IMAGE_NODE_NAME, () 
     const media = attrs.linkHref
       ? ["a", { href: attrs.linkHref, title: attrs.linkTitle || null }, image]
       : image;
+    // .markdown-cover-media 是相对定位容器：wrapper 用 text-align 对齐并占满行宽，
+    // media 容器宽度跟随图片，badge（::after）挂 media 容器，保证居中/右对齐时
+    // 徽标仍落在图片左上角。
+    // 关键：media 必须收缩到图片「渲染宽度」而非自然宽。inline-block 的 media 其
+    // shrink-to-fit 宽度取的是图片自然宽（img 的 max-width 上限只约束渲染宽、不收缩
+    // 首选宽），居中时 media 被居中、图片在 media 内居中，徽标锚定 media 左缘会落到
+    // 图片左侧。给 media 套用与 img 相同的上限即可让两者等宽、徽标压在图片上。
+    const mediaAttrs = { class: "markdown-cover-media", "data-cover-badge": coverBadgeText() };
+    if (displayWidthPx != null) {
+      mediaAttrs.style = `max-width:min(${displayWidthPx}px, 100%)`;
+    }
     return ["div", {
       class: `markdown-cover-image-block${alignment ? ` nutbook-image-align-${alignment}` : ""}`,
       "data-type": "markdown-cover-image",
@@ -917,7 +937,7 @@ const markdownCoverImageSchema = $nodeSchema(MARKDOWN_COVER_IMAGE_NODE_NAME, () 
       "data-nutbook-node-kind": attrs.nodeKind,
       "data-nutbook-image-align": alignment,
       "data-nutbook-display-width": displayWidthPx == null ? "" : String(displayWidthPx)
-    }, media];
+    }, ["div", mediaAttrs, media]];
   },
   parseMarkdown: {
     match: (node) => node.type === "markdownCoverImage",
@@ -949,6 +969,13 @@ const markdownCoverImageSchema = $nodeSchema(MARKDOWN_COVER_IMAGE_NODE_NAME, () 
   }
 }));
 
+// 轻量「封面」身份徽标文案（模块级 i18n，toDOM 静态渲染用；装饰性不进入
+// 可访问性树，封面状态由图片工具栏「取消封面」aria-label/tooltip 表达）。
+function coverBadgeText() {
+  const i18n = typeof window !== "undefined" ? window.NutbookI18n : null;
+  return i18n?.lookup?.("markdown.coverBadge", i18n.currentLanguage?.()) || "封面";
+}
+
 // 从 ProseMirror 文档定位唯一封面 wrapper 节点。
 function findCoverImageNode(state) {
   let found = null;
@@ -972,7 +999,8 @@ function coverAttrsFromPortable(node) {
     displayWidthPx: node.attrs.displayWidthPx ?? null,
     linkHref: node.attrs.linkHref || "",
     linkTitle: node.attrs.linkTitle || "",
-    rawSource: node.attrs.rawSource || ""
+    rawSource: node.attrs.rawSource || "",
+    presentationDirty: node.attrs.presentationDirty || false
   };
 }
 
@@ -1021,7 +1049,7 @@ function createCoverNode(schema, attrs) {
   return type.create({
     ...attrs,
     markerRaw: MARKDOWN_COVER_MARKER,
-    presentationDirty: false
+    presentationDirty: attrs.presentationDirty ?? false
   });
 }
 
@@ -1050,13 +1078,29 @@ function independentImageBlockAt(state, pos) {
   const portableType = schema.nodes[PORTABLE_IMAGE_NODE_NAME];
   const paragraphType = schema.nodes.paragraph;
   if (!imageType || !paragraphType || !portableType) return null;
-  const resolved = Math.max(0, Math.min(Number(pos) || 0, state.doc.content.size));
-  // 若 pos 恰好落在块起始边界，resolve 会停在 doc 层（depth 0）；
-  // 向块内偏移一位以进入块内容。
-  let $pos = state.doc.resolve(resolved);
-  if ($pos.depth === 0 && resolved < state.doc.content.size) {
-    $pos = state.doc.resolve(Math.min(resolved + 1, state.doc.content.size));
+  const safePos = Math.max(0, Math.min(Number(pos) || 0, state.doc.content.size));
+  // 顶层 atom 块（如 portable-image-block）的起始位置 resolve 会停在 doc 层
+  // （atom 没有内部位置，resolve 偏移后仍是 depth 0），depth 向上遍历找不到块；
+  // 改用 nodeAt 直接取到该起始位置处的块本身，再取其完整边界。
+  const direct = state.doc.nodeAt(safePos);
+  if (direct) {
+    if (direct.type === portableType) {
+      return { blockStart: safePos, blockEnd: safePos + direct.nodeSize, attrs: coverAttrsFromPortable(direct) };
+    }
+    if (direct.type === paragraphType && direct.childCount === 1) {
+      const child = direct.firstChild;
+      if (child.type === imageType) {
+        const linkMark = imageLinkMark(child);
+        return {
+          blockStart: safePos,
+          blockEnd: safePos + direct.nodeSize,
+          attrs: linkMark ? coverAttrsFromLinkedImage(child, linkMark) : coverAttrsFromImage(child)
+        };
+      }
+    }
   }
+  // pos 落在块「内部」（如 image 节点的 pos 而非所在段落 pos）时，向上找容器。
+  let $pos = state.doc.resolve(safePos);
   for (let depth = $pos.depth; depth >= 1; depth -= 1) {
     const node = $pos.node(depth);
     if (node.type === portableType) {
@@ -1343,7 +1387,7 @@ function alignedTextSelectionState(state, selection = state?.selection) {
   return { supported: true, targets, alignment };
 }
 
-async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onRemoveImageAsset = null, onImageSizeError = null }) {
+async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -1358,7 +1402,8 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   const editorMarkdown = documentFrontmatter ? documentFrontmatter.body : markdown;
   // PR C / C1：duplicate marker 是阻断式文档诊断——文档必须仍可打开，并进入
   // 现有源码 fallback 进行人工修复。这里抛错让宿主现有 catch 切到源码编辑，
-  // 不挂载 Milkdown（用户能看到 marker 文本、可手工修复）。
+  // 不挂载 Milkdown（用户能看到 marker 文本、可手工修复）。C2 不得把该合同
+  // 放宽成视觉编辑器内的不可见/不可可靠修复状态。
   const coverPreflight = preflightCoverMarkers(editorMarkdown);
   if (coverPreflight.duplicate) {
     throw new Error(
@@ -1739,9 +1784,101 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     return runInsertImage(asset.relativePath, asset.fileName);
   }
 
+  // PR C / C2：`+ → 封面图` —— 在当前空段落插入 canonical 封面（marker + 图片），
+  // 默认大图居中、不超过固有尺寸（displayWidthPx null + CSS max-width:100%）。
+  // 已有封面 A 时在同一 transaction 内解包 A（A→C 身份转移，单步 undo/redo 完整
+  // 恢复）；不移动 H1、不创建固定封面槽。picker/copy 晚到时校验 destroyed /
+  // composition / 空段仍有效，失效则拒绝写入错误文档。
+  async function runInsertCoverImage() {
+    if (typeof onInsertCoverAsset !== "function") return false;
+    const view = getEditorView();
+    if (!view || !emptyParagraphSelection(view)) return false;
+    insertMenuSelection = { from: view.state.selection.from };
+    closeInsertMenu({ preserveSelection: true });
+    let asset = null;
+    try {
+      asset = await onInsertCoverAsset();
+    } catch (error) {
+      console.warn("Markdown cover insert failed", error);
+    }
+    if (!asset?.relativePath || destroyed || isEditorComposing()) {
+      if (asset?.stagedAssetId && typeof onReleaseCoverAsset === "function") {
+        await onReleaseCoverAsset(asset);
+      }
+      insertMenuSelection = null;
+      scheduleInsertMenuUpdate();
+      return false;
+    }
+    const inserted = insertCoverAtEmptyParagraph(asset);
+    if (!inserted && asset.stagedAssetId && typeof onReleaseCoverAsset === "function") {
+      await onReleaseCoverAsset(asset);
+    }
+    return inserted;
+  }
+
+  // 在已捕获的空段插入封面 wrapper（与 setCoverImage 同一原子语义：单次 dispatch、
+  // 单 history step；A→C 自动转移；composition/duplicate 拒绝）。
+  function insertCoverAtEmptyParagraph(asset) {
+    const view = getEditorView();
+    if (!view || view.composing) return false;
+    if (coverDiagnostics.some((d) => d.kind === "duplicate")) return false;
+    restoreInsertSelection(view);
+    const target = emptyParagraphSelection(view);
+    if (!target) return false;
+    const schema = view.state.schema;
+    const wrapperType = schema.nodes[MARKDOWN_COVER_IMAGE_NODE_NAME];
+    if (!wrapperType) return false;
+    const coverNode = createCoverNode(schema, {
+      nodeKind: "image",
+      src: asset.relativePath,
+      alt: imageAltFromFileName(asset.fileName || asset.relativePath),
+      title: "",
+      alignment: "center",
+      displayWidthPx: null,
+      linkHref: "",
+      linkTitle: "",
+      rawSource: ""
+    });
+    const existingCover = findCoverImageNode(view.state);
+    const coverStart = existingCover?.pos ?? null;
+    const coverEnd = existingCover
+      ? existingCover.pos + existingCover.node.nodeSize
+      : null;
+    let tr = view.state.tr;
+    let selectionAfter;
+    if (existingCover && coverStart < target.blockStart) {
+      // A 在前：先插入 C（A 的 pos 不受插入影响），再解包 A；selection 经 mapping 修正。
+      tr = tr.replaceWith(target.blockStart, target.blockEnd, coverNode);
+      const afterInsert = target.blockStart + coverNode.nodeSize;
+      tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(schema, existingCover.node.attrs));
+      selectionAfter = tr.mapping.map(afterInsert);
+    } else {
+      // A 在插入点之后（或不存在）：先解包 A（不影响插入点位置），再插入 C。
+      if (existingCover) {
+        tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(schema, existingCover.node.attrs));
+      }
+      tr = tr.replaceWith(target.blockStart, target.blockEnd, coverNode);
+      selectionAfter = tr.mapping.map(target.blockStart + coverNode.nodeSize);
+    }
+    const selectionPos = Math.max(1, Math.min(selectionAfter, tr.doc.content.size));
+    tr.setSelection(TextSelection.near(tr.doc.resolve(selectionPos), -1));
+    view.dispatch(closeHistory(tr.scrollIntoView()));
+    markUserInteracted();
+    view.focus();
+    hideInsertMenu();
+    scheduleFormatToolbarUpdate();
+    scheduleTableToolbarUpdate();
+    scheduleInsertMenuUpdate();
+    return true;
+  }
+
   function runInsertCommand(command) {
     if (command === "image") {
       runInsertImageAsset();
+      return true;
+    }
+    if (command === "cover-image") {
+      runInsertCoverImage();
       return true;
     }
     if (command === "h1") return runInsertHeading(1);
@@ -1869,6 +2006,8 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     menu.setAttribute("aria-label", t("markdown.insertMenu"));
     const items = [
       { command: "image", icon: INSERT_ICON_SVG.image, label: t("markdown.insertImage") },
+      // PR C / C2：「封面图」必须紧邻普通「图片」。
+      { command: "cover-image", icon: INSERT_ICON_SVG.cover, label: t("markdown.insertCoverImage") },
       { command: "h1", icon: INSERT_ICON_SVG.h1, label: t("markdown.insertHeading1") },
       { command: "h2", icon: INSERT_ICON_SVG.h2, label: t("markdown.insertHeading2") },
       { command: "h3", icon: INSERT_ICON_SVG.h3, label: t("markdown.insertHeading3") },
@@ -2007,13 +2146,14 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     if (!imageElement || !view) return null;
     let target = null;
     view.state.doc.descendants((node, pos) => {
-      if (target || !["image", PORTABLE_IMAGE_NODE_NAME].includes(node.type?.name)) return !target;
+      if (target || !["image", PORTABLE_IMAGE_NODE_NAME, MARKDOWN_COVER_IMAGE_NODE_NAME].includes(node.type?.name)) return !target;
       const dom = view.nodeDOM(pos);
       if (dom === imageElement || dom?.contains?.(imageElement)) {
         const $pos = view.state.doc.resolve(pos);
+        const isCover = node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME;
         const isPortable = node.type?.name === PORTABLE_IMAGE_NODE_NAME;
-        const isStandalone = isPortable || ($pos.parent?.type?.name === "paragraph" && $pos.parent.childCount === 1);
-        target = { element: imageElement, node, pos, isPortable, isStandalone };
+        const isStandalone = isCover || isPortable || ($pos.parent?.type?.name === "paragraph" && $pos.parent.childCount === 1);
+        target = { element: imageElement, node, pos, isPortable, isCover, isStandalone };
         return false;
       }
       return true;
@@ -2110,11 +2250,31 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     }
   }
 
+  // PR C / C2：封面 wrapper 排版更新（对齐/尺寸）——保留封面身份，只改 wrapper
+  // attrs；plain/linked 封面改为 portable 表达（与普通图片设对齐的既有行为一致）。
+  function setCoverBlockPresentation(view, target, { alignment, displayWidthPx }) {
+    const node = view.state.doc.nodeAt(target.pos);
+    if (!node || node.type?.name !== MARKDOWN_COVER_IMAGE_NODE_NAME) return false;
+    const tr = view.state.tr.setNodeAttribute(target.pos, "presentationDirty", true);
+    tr.setNodeAttribute(target.pos, "nodeKind", "portable-image");
+    tr.setNodeAttribute(target.pos, "alignment", alignment || "");
+    tr.setNodeAttribute(target.pos, "displayWidthPx", displayWidthPx ?? null);
+    view.dispatch(closeHistory(tr.scrollIntoView()));
+    markUserInteracted();
+    view.focus();
+    scheduleImageAlignToolbarUpdate();
+    return true;
+  }
+
   async function setImageAlignment(alignment) {
     const view = getEditorView();
     if (!view || !activeImageTarget) return false;
     let target = { ...activeImageTarget, node: view.state.doc.nodeAt(activeImageTarget.pos) };
     if (!target.node || !target.isStandalone) return false;
+    if (target.node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME) {
+      const displayWidthPx = target.node.attrs?.displayWidthPx ?? null;
+      return setCoverBlockPresentation(view, target, { alignment, displayWidthPx });
+    }
     let displayWidthPx = target.node.type?.name === PORTABLE_IMAGE_NODE_NAME
       ? target.node.attrs?.displayWidthPx ?? null
       : null;
@@ -2140,6 +2300,18 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     if (!view || !activeImageTarget) return false;
     let target = { ...activeImageTarget, node: view.state.doc.nodeAt(activeImageTarget.pos) };
     if (!target.node || !target.isStandalone) return false;
+    if (target.node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME) {
+      try {
+        const displayWidthPx = await displayWidthForPreset(target, size);
+        return setCoverBlockPresentation(view, target, {
+          alignment: target.node.attrs?.alignment || "",
+          displayWidthPx
+        });
+      } catch (error) {
+        reportImageSizeError(error);
+        return false;
+      }
+    }
     try {
       const displayWidthPx = await displayWidthForPreset(target, size);
       const refreshed = findImageTargetFromElement(target.element, view);
@@ -2152,6 +2324,50 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     }
   }
 
+  // PR C / C2：封面身份操作结果回传宿主（成功/失败状态提示）。
+  // result: { kind: "set" | "remove", ok: boolean, reason?: "validation" }
+  // reason === "validation" 表示校验拒绝——宿主 validate 回调已输出具体原因，
+  // 避免重复提示。
+  function notifyCoverChange(result) {
+    if (typeof onCoverChange === "function") onCoverChange(result);
+  }
+
+  // PR C / C2：把当前悬停/选中的合格图片设为封面。本地图片先经宿主校验
+  // （canonical path / MIME / 尺寸 / 4:3..2:1 / SVG 安全；不重复 copy）；
+  // http/https 在线图片不下载不校验比例即可包裹。校验失败不产生任何身份变化。
+  async function setTargetAsCover() {
+    const view = getEditorView();
+    if (!view || !activeImageTarget) return false;
+    let target = { ...activeImageTarget, node: view.state.doc.nodeAt(activeImageTarget.pos) };
+    if (!target.node || !target.isStandalone) return false;
+    if (target.node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME) return false;
+    const src = String(target.node.attrs?.src || "");
+    if (typeof onValidateCoverAsset === "function" && !/^https?:\/\//i.test(src.trim())) {
+      const ok = await onValidateCoverAsset(src);
+      if (!ok) {
+        notifyCoverChange({ kind: "set", ok: false, reason: "validation" });
+        return false;
+      }
+    }
+    const coverState = api.getCoverState();
+    if (coverState.duplicate) return false;
+    const viewNow = getEditorView();
+    if (!viewNow || viewNow.composing) return false;
+    const refreshed = findImageTargetFromElement(target.element, viewNow);
+    if (!refreshed) return false;
+    const committed = api.setCoverImage(refreshed.pos);
+    notifyCoverChange({ kind: "set", ok: committed });
+    return committed;
+  }
+
+  // PR C / C2：取消当前封面身份（图片原地保留为普通正文；不删除任何资源）。
+  function removeCurrentCover() {
+    if (api.getCoverState().duplicate) return false;
+    const committed = api.removeCover();
+    notifyCoverChange({ kind: "remove", ok: committed });
+    return committed;
+  }
+
   function createImageAlignToolbar() {
     const toolbar = document.createElement("div");
     toolbar.className = "markdown-image-align-toolbar";
@@ -2162,7 +2378,11 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       { type: "align", value: "right", icon: IMAGE_ALIGN_ICON_SVG.right, label: t("markdown.alignRight") },
       { type: "size", value: "small", icon: IMAGE_SIZE_ICON_SVG.small, label: t("markdown.imageSizeSmall") },
       { type: "size", value: "medium", icon: IMAGE_SIZE_ICON_SVG.medium, label: t("markdown.imageSizeMedium") },
-      { type: "size", value: "large", icon: IMAGE_SIZE_ICON_SVG.large, label: t("markdown.imageSizeLarge") }
+      { type: "size", value: "large", icon: IMAGE_SIZE_ICON_SVG.large, label: t("markdown.imageSizeLarge") },
+      // PR C / C2：封面二态工具。合格非封面图片只显示「设为封面」；
+      // 当前封面只显示「取消封面」；不提供替换当前封面的第三态入口。
+      { type: "cover", value: "set", icon: IMAGE_ALIGN_ICON_SVG.coverSet, label: t("markdown.setAsCover") },
+      { type: "cover", value: "remove", icon: IMAGE_ALIGN_ICON_SVG.coverRemove, label: t("markdown.removeCover") }
     ];
     toolbar.innerHTML = items.map((item) => `
       <button type="button" data-image-${item.type}="${item.value}" aria-label="${item.label}">
@@ -2170,16 +2390,34 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         <span class="markdown-image-align-tooltip">${item.label}</span>
       </button>
     `).join("");
-    toolbar.addEventListener("pointerdown", (event) => {
-      const button = event.target.closest("button[data-image-align], button[data-image-size]");
-      if (!button) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (button.dataset.imageAlign) {
+    const activateToolbarButton = (button) => {
+      if (!button || button.disabled || button.hidden) return;
+      if (button.dataset.imageCover === "set") {
+        setTargetAsCover().catch(reportImageSizeError);
+      } else if (button.dataset.imageCover === "remove") {
+        removeCurrentCover();
+      } else if (button.dataset.imageAlign) {
         setImageAlignment(button.dataset.imageAlign).catch(reportImageSizeError);
       } else {
         setImageSize(button.dataset.imageSize || "large").catch(reportImageSizeError);
       }
+    };
+    toolbar.addEventListener("pointerdown", (event) => {
+      const button = event.target.closest("button[data-image-align], button[data-image-size], button[data-image-cover]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      activateToolbarButton(button);
+    });
+    // pointerdown 用于保住 ProseMirror 图片选择；键盘不会产生 pointer 事件，
+    // 因此 Enter/Space 必须走等价路径。preventDefault 避免随后生成第二次 click。
+    toolbar.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const button = event.target.closest("button[data-image-align], button[data-image-size], button[data-image-cover]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      activateToolbarButton(button);
     });
     toolbar.addEventListener("pointerenter", () => {
       scheduleImageAlignToolbarUpdate();
@@ -2243,11 +2481,13 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       return;
     }
     activeImageTarget = refreshedTarget;
-    const title = activeImageTarget.node.attrs?.title || "";
-    const isPortable = activeImageTarget.node.type?.name === PORTABLE_IMAGE_NODE_NAME;
-    const alignment = isPortable ? activeImageTarget.node.attrs?.alignment || "" : imageAlignmentFromTitle(title);
+    const node = activeImageTarget.node;
+    const isCover = node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME;
+    const isPortable = isCover || node.type?.name === PORTABLE_IMAGE_NODE_NAME;
+    const title = node.attrs?.title || "";
+    const alignment = isPortable ? node.attrs?.alignment || "" : imageAlignmentFromTitle(title);
     const size = isPortable
-      ? (activeImageTarget.node.attrs?.displayWidthPx == null ? "large" : "custom")
+      ? (node.attrs?.displayWidthPx == null ? "large" : "custom")
       : imageSizeFromTitle(title);
     const supportsBlockPresentation = activeImageTarget.isStandalone;
     imageAlignToolbar.querySelectorAll("button[data-image-align], button[data-image-size]").forEach((button) => {
@@ -2265,6 +2505,23 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     imageAlignToolbar.querySelectorAll("button[data-image-size]").forEach((button) => {
       button.classList.toggle("active", button.dataset.imageSize === size);
     });
+    // PR C / C2：封面二态——当前封面只显示「取消封面」；合格非封面独立图片
+    // 只显示「设为封面」；两种状态互斥且都只有轻量身份（hover/focus/选中时
+    // 工具栏出现本身即轻量表达，正文常态不显示永久徽标）。
+    const setCoverButton = imageAlignToolbar.querySelector('button[data-image-cover="set"]');
+    const removeCoverButton = imageAlignToolbar.querySelector('button[data-image-cover="remove"]');
+    const isCurrentCover = isCover;
+    const coverState = api.getCoverState();
+    if (setCoverButton) {
+      setCoverButton.disabled = !supportsBlockPresentation;
+      const visible = supportsBlockPresentation && !isCurrentCover && !coverState.duplicate;
+      setCoverButton.hidden = !visible;
+    }
+    if (removeCoverButton) {
+      removeCoverButton.disabled = !supportsBlockPresentation;
+      const visible = supportsBlockPresentation && isCurrentCover && !coverState.duplicate;
+      removeCoverButton.hidden = !visible;
+    }
     const rootRect = root.getBoundingClientRect();
     const imageRect = activeImageTarget.element.getBoundingClientRect();
     const toolbarWidth = imageAlignToolbar.offsetWidth || 108;
@@ -2958,7 +3215,6 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         const targetStart = target.blockStart;
         const targetEnd = target.blockEnd;
         let tr = state.tr;
-        let selectionAfter = targetEnd;
         if (cover) {
           // A→B：同一 transaction 解包 A、包裹 B。先处理位置靠后的节点，
           // 再用 tr.mapping 把靠前替换造成的位置漂移正确映射到新 doc。
@@ -2973,13 +3229,14 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
             tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(state.schema, cover.node.attrs));
             tr = tr.replaceWith(targetStart, targetEnd, createCoverNode(state.schema, target.attrs));
           }
-          selectionAfter = tr.mapping.map(targetEnd);
         } else {
           tr = tr.replaceWith(targetStart, targetEnd, createCoverNode(state.schema, target.attrs));
         }
-        const afterCover = Math.max(1, Math.min(selectionAfter, tr.doc.content.size));
-        tr.setSelection(TextSelection.near(tr.doc.resolve(afterCover), 1));
-        view.dispatch(closeHistory(tr.scrollIntoView()));
+        // 「设为封面」只改变图片身份，不是导航动作。ProseMirror 会把原 selection
+        // 自动映射过 replace steps；不要把光标强制移到目标图片之后，也不要给事务
+        // 打上 scrollIntoView meta。否则用户从图片工具栏执行时，正文会为了新的
+        // selection 额外滚动一次，表现为页面重定向/抖动。
+        view.dispatch(closeHistory(tr));
         markUserInteracted();
         view.focus();
         scheduleFormatToolbarUpdate();
@@ -3010,9 +3267,9 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
           cover.pos + cover.node.nodeSize,
           block
         );
-        const afterBlock = Math.max(1, Math.min(cover.pos + block.nodeSize, tr.doc.content.size));
-        tr.setSelection(TextSelection.near(tr.doc.resolve(afterBlock), 1));
-        view.dispatch(closeHistory(tr.scrollIntoView()));
+        // 取消封面同样只改变身份；保留 transaction 自动映射后的 selection 和当前
+        // viewport，避免工具栏操作引发一次无意的页面滚动。
+        view.dispatch(closeHistory(tr));
         markUserInteracted();
         view.focus();
         scheduleFormatToolbarUpdate();

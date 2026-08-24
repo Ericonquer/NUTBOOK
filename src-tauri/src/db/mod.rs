@@ -18,11 +18,16 @@ use url::Url;
 use crate::{
     core::{
         document::{content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file},
+        markdown_cover_assets,
         thumbnail::{
             desired_key_for_item, expected_render_kind_for_item, generate_html_thumbnail_with_adapter,
-            generate_markdown_default_cover_asset, markdown_default_cover_target, markdown_key_is_current,
+            generate_markdown_default_cover_asset, markdown_cover_projection,
+            markdown_default_cover_target, markdown_image_cover_key, markdown_key_is_current,
             DefaultThumbnailCaptureAdapter, HtmlThumbnailInput,
+            MarkdownCoverMode, MarkdownCoverProjection,
             ThumbnailBackend, ThumbnailCaptureAdapter, ThumbnailGenerationSnapshot,
+            RENDER_KIND_MARKDOWN_DEFAULT_COVER, RENDER_KIND_MARKDOWN_IMAGE_COVER,
+            RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER, RENDER_KIND_HTML_SCREENSHOT,
             RENDER_KIND_PLACEHOLDER,
         },
     },
@@ -677,11 +682,7 @@ impl Database {
             return Ok(result);
         }
         let sql = format!(
-            "SELECT thumbnail_cache.item_id, thumbnail_cache.thumb_status, thumbnail_cache.thumb_path,
-                    thumbnail_cache.width, thumbnail_cache.height, thumbnail_cache.last_generated_at,
-                    thumbnail_cache.error_message, thumbnail_cache.generated_from_hash,
-                    thumbnail_cache.desired_key, thumbnail_cache.generated_from_key,
-                    thumbnail_cache.render_kind, thumbnail_cache.generation,
+            "SELECT thumbnail_cache.item_id, thumbnail_cache.{THUMBNAIL_CACHE_SELECT_COLUMNS},
                     items.file_hash, items.file_type,
                     items.file_path, items.file_size, items.path_state, items.modified_at
              FROM thumbnail_cache
@@ -694,94 +695,92 @@ impl Database {
             .map_err(|_| AppError::DatabaseError)?;
         let rows = statement
             .query_map(params_from_iter(item_ids.iter().map(|id| *id)), |row| {
-                let generated_from_hash: Option<String> = row.get(7)?;
-                let desired_key: Option<String> = row.get(8)?;
-                let generated_from_key: Option<String> = row.get(9)?;
-                let render_kind: Option<String> = row.get(10)?;
-                let generation: i64 = row.get(11)?;
-                let file_hash: Option<String> = row.get(12)?;
-                let file_type: String = row.get(13)?;
-                let file_path: String = row.get(14)?;
-                let file_size: i64 = row.get(15)?;
-                let path_state: String = row.get(16)?;
-                let modified_at: String = row.get(17)?;
+                // 列 0=item_id；列 1..=15=THUMBNAIL_CACHE_SELECT_COLUMNS
+                // （desired_key, generation, thumb_status, thumb_path, width, height,
+                //  last_generated_at, error_message, render_kind, generated_from_key,
+                //  generated_from_hash, cover_asset_path, cover_asset_size,
+                //  cover_asset_modified_at, remote_cover_url）；列 16..=21=items 元数据。
+                let thumbnail = ThumbnailInfo {
+                    status: row.get(3)?,
+                    path: row.get(4)?,
+                    width: row.get(5)?,
+                    height: row.get(6)?,
+                    last_generated_at: row.get(7)?,
+                    error_message: row.get(8)?,
+                    desired_key: row.get(1)?,
+                    generation: Some(row.get(2)?),
+                    render_kind: row.get(9)?,
+                    remote_cover_url: {
+                        let url: String = row.get(15)?;
+                        (!url.is_empty()).then_some(url)
+                    },
+                };
+                let cache_row = ThumbnailCacheRow {
+                    desired_key: row.get(1)?,
+                    generation: row.get(2)?,
+                    status: row.get(3)?,
+                    thumb_path: row.get(4)?,
+                    width: row.get(5)?,
+                    height: row.get(6)?,
+                    last_generated_at: row.get(7)?,
+                    error_message: row.get(8)?,
+                    render_kind: row.get(9)?,
+                    generated_from_key: row.get(10)?,
+                    generated_from_hash: row.get(11)?,
+                    cover_asset_path: row.get(12)?,
+                    cover_asset_size: row.get(13)?,
+                    cover_asset_modified_at: row.get(14)?,
+                    remote_cover_url: row.get(15)?,
+                };
                 Ok((
                     row.get::<_, i64>(0)?,
-                    (
-                        ThumbnailInfo {
-                            status: row.get(1)?,
-                            path: row.get(2)?,
-                            width: row.get(3)?,
-                            height: row.get(4)?,
-                            last_generated_at: row.get(5)?,
-                            error_message: row.get(6)?,
-                            desired_key: desired_key.clone(),
-                            generation: Some(generation),
-                            render_kind: render_kind.clone(),
-                        },
-                        generated_from_hash,
-                        desired_key,
-                        generated_from_key,
-                        render_kind,
-                        generation,
-                        file_hash,
-                        file_type,
-                        file_path,
-                        file_size,
-                        path_state,
-                        modified_at,
-                    ),
+                    thumbnail,
+                    cache_row,
+                    row.get::<_, Option<String>>(16)?,
+                    row.get::<_, String>(17)?,
+                    row.get::<_, String>(18)?,
+                    row.get::<_, i64>(19)?,
+                    row.get::<_, String>(20)?,
+                    row.get::<_, String>(21)?,
                 ))
             })
             .map_err(|_| AppError::DatabaseError)?;
-        for row in rows {
+        for entry in rows {
             let (
                 item_id,
-                (
-                    thumbnail,
-                    generated_from_hash,
-                    desired_key,
-                    generated_from_key,
-                    render_kind,
-                    generation,
-                    file_hash,
-                    file_type,
-                    file_path,
-                    file_size,
-                    path_state,
-                    modified_at,
-                ),
-            ) = row.map_err(|_| AppError::DatabaseError)?;
-            // Markdown B4：desired key 依赖标题哈希，无法从 content hash 反推；
+                thumbnail,
+                cache_row,
+                file_hash,
+                file_type,
+                file_path,
+                file_size,
+                path_state,
+                modified_at,
+            ) = entry.map_err(|_| AppError::DatabaseError)?;
+            // Markdown B4/C2：desired key 依赖标题/封面，无法从 content hash 反推；
             // 读取路径回落到"存储的 desired_key"自身一致性校验（配合
-            // generated_from_hash == file_hash 的 CAS，内容未变则标题未变，
-            // 存储 key 仍有效）。**必须同时校验 key 版本后缀**：旧
-            // default-cover-v1 / default-cover-v2 / default-cover-v3 / default-cover-v4 /
-            // md-screenshot 行不能把存储 key 当作 current key，否则旧版封面会冒充
-            // v5 ready（返回 None → 前端 thumbnail=null → 自动生成）。
+            // generated_from_hash == file_hash 的 CAS，正文未变则标题/封面/URL 未变）。
+            // **必须同时校验 key 版本后缀**：旧 default-cover-v1..v4、md-screenshot
+            // 或任意非当前形状的行不能把存储 key 当作 current key。
             // HTML 仍按 content hash 计算确定性 key。
             let current_key: Option<String> = if file_type == "markdown" {
-                match desired_key.as_deref() {
-                    Some(key) if markdown_key_is_current(key) => desired_key.clone(),
+                match cache_row.desired_key.as_deref() {
+                    Some(key) if markdown_key_is_current(key) => cache_row.desired_key.clone(),
                     _ => None,
                 }
             } else {
                 desired_key_for_item(&file_type, file_hash.as_deref())
             };
-            let valid = Self::thumbnail_row_is_valid_ready(
+            let valid = Self::thumbnail_row_is_servable(
                 &thumbnail,
-                desired_key.as_deref(),
-                generated_from_key.as_deref(),
-                render_kind.as_deref(),
-                generation,
+                &cache_row,
                 current_key.as_deref(),
-                generated_from_hash.as_deref(),
+                &file_type,
                 file_hash.as_deref(),
                 &path_state,
                 &file_path,
                 file_size,
                 &modified_at,
-                expected_render_kind_for_item(&file_type),
             );
             result.insert(item_id, if valid { Some(thumbnail) } else { None });
         }
@@ -816,96 +815,54 @@ impl Database {
         connection: &Connection,
         item_id: i64,
     ) -> Result<Option<ThumbnailInfo>, AppError> {
+        let sql = format!(
+            "SELECT thumbnail_cache.{THUMBNAIL_CACHE_SELECT_COLUMNS},
+                    items.file_hash, items.file_type,
+                    items.file_path, items.file_size, items.path_state, items.modified_at
+             FROM thumbnail_cache
+             INNER JOIN items ON items.id = thumbnail_cache.item_id
+             WHERE thumbnail_cache.item_id = ?1"
+        );
         let mut statement = connection
-            .prepare(
-                "SELECT thumbnail_cache.thumb_status, thumbnail_cache.thumb_path, thumbnail_cache.width,
-                        thumbnail_cache.height, thumbnail_cache.last_generated_at,
-                        thumbnail_cache.error_message, thumbnail_cache.generated_from_hash,
-                        thumbnail_cache.desired_key, thumbnail_cache.generated_from_key,
-                        thumbnail_cache.render_kind, thumbnail_cache.generation,
-                        items.file_hash, items.file_type,
-                        items.file_path, items.file_size, items.path_state, items.modified_at
-                 FROM thumbnail_cache
-                 INNER JOIN items ON items.id = thumbnail_cache.item_id
-                 WHERE thumbnail_cache.item_id = ?1",
-            )
+            .prepare(&sql)
             .map_err(|_| AppError::DatabaseError)?;
 
         match statement.query_row(params![item_id], |row| {
-            let generated_from_hash: Option<String> = row.get(6)?;
-            let desired_key: Option<String> = row.get(7)?;
-            let generated_from_key: Option<String> = row.get(8)?;
-            let render_kind: Option<String> = row.get(9)?;
-            let generation: i64 = row.get(10)?;
-            let file_hash: Option<String> = row.get(11)?;
-            let file_type: String = row.get(12)?;
-            let file_path: String = row.get(13)?;
-            let file_size: i64 = row.get(14)?;
-            let path_state: String = row.get(15)?;
-            let modified_at: String = row.get(16)?;
-            Ok((
-                ThumbnailInfo {
-                    status: row.get(0)?,
-                    path: row.get(1)?,
-                    width: row.get(2)?,
-                    height: row.get(3)?,
-                    last_generated_at: row.get(4)?,
-                    error_message: row.get(5)?,
-                    desired_key: desired_key.clone(),
-                    generation: Some(generation),
-                    render_kind: render_kind.clone(),
-                },
-                generated_from_hash,
-                desired_key,
-                generated_from_key,
-                render_kind,
-                generation,
-                file_hash,
-                file_type,
-                file_path,
-                file_size,
-                path_state,
-                modified_at,
-            ))
-        }) {
+            let cache_row = row_to_thumbnail_cache_row(row)?;
+            let thumbnail = cache_row.clone().into_thumbnail_info();
             Ok((
                 thumbnail,
-                generated_from_hash,
-                desired_key,
-                generated_from_key,
-                render_kind,
-                generation,
-                file_hash,
-                file_type,
-                file_path,
-                file_size,
-                path_state,
-                modified_at,
-            )) => {
+                cache_row,
+                row.get::<_, Option<String>>(15)?,
+                row.get::<_, String>(16)?,
+                row.get::<_, String>(17)?,
+                row.get::<_, i64>(18)?,
+                row.get::<_, String>(19)?,
+                row.get::<_, String>(20)?,
+            ))
+        }) {
+            Ok((thumbnail, cache_row, file_hash, file_type, file_path, file_size, path_state, modified_at)) => {
                 // 见上方批量读取路径同样的处理：markdown 回落到存储的 desired_key 自身一致性，
-                // 且必须校验 key 版本后缀属于当前 title-parser + default-cover-v5。
+                // 且必须校验 key 版本后缀属于当前 title-parser + default-cover-v5 /
+                // image-cover-v1 / remote-cover-v2。
                 let current_key: Option<String> = if file_type == "markdown" {
-                    match desired_key.as_deref() {
-                        Some(key) if markdown_key_is_current(key) => desired_key.clone(),
+                    match cache_row.desired_key.as_deref() {
+                        Some(key) if markdown_key_is_current(key) => cache_row.desired_key.clone(),
                         _ => None,
                     }
                 } else {
                     desired_key_for_item(&file_type, file_hash.as_deref())
                 };
-                if Self::thumbnail_row_is_valid_ready(
+                if Self::thumbnail_row_is_servable(
                     &thumbnail,
-                    desired_key.as_deref(),
-                    generated_from_key.as_deref(),
-                    render_kind.as_deref(),
-                    generation,
+                    &cache_row,
                     current_key.as_deref(),
-                    generated_from_hash.as_deref(),
+                    &file_type,
                     file_hash.as_deref(),
                     &path_state,
                     &file_path,
                     file_size,
                     &modified_at,
-                    expected_render_kind_for_item(&file_type),
                 ) {
                     Ok(Some(thumbnail))
                 } else {
@@ -917,62 +874,96 @@ impl Database {
         }
     }
 
-    /// B1 读取安全边界：只有满足以下全部条件的行才作为有效 ready 成图返回：
-    /// - status == ready；
-    /// - render_kind **精确等于**该 file_type 的预期 kind（html-screenshot /
-    ///   markdown-default-cover）；placeholder、缺失、以及任意其他非空 render
-    ///   kind 一律拒绝，防止旧路径产物冒充当前路径的 ready；
-    /// - 行内 desired_key / generated_from_key 都与当前计算的确定性 key 一致；
-    /// - generated_from_hash（生成时的源内容 hash）== items.file_hash（当前 source revision）；
-    /// - generation >= 1（旧 schema 迁移行不得服务）；
-    /// - thumb_path 非空，且对应的缓存文件真实存在（缺失时返回 None 使前端重新生成，
-    ///   绝不把坏路径伪装成 ready）；
+    /// B1/C2 读取安全边界：只有满足以下全部条件的行才作为有效缩略图返回
+    /// （ready 成图或降级/在线投影）：
+    /// - 本地成图 generation >= 1（旧 schema 迁移行不得服务）；在线只读投影
+    ///   不参加 generation 协议，允许 generation=0；
+    /// - render_kind **精确属于**该 file_type 的预期集合：HTML 必须
+    ///   html-screenshot；Markdown 必须是 markdown-default-cover /
+    ///   markdown-image-cover / markdown-remote-image-cover 之一。placeholder、
+    ///   缺失、以及任何其他非空 kind 一律拒绝，防止旧路径产物冒充当前路径；
+    /// - 行内 desired_key / generated_from_key 都与当前计算的确定性 key 一致
+    ///   （current_key 由调用方按 file_type 版本校验后传入）；
+    /// - generated_from_hash（生成时的源内容 hash）== items.file_hash（当前 source
+    ///   revision）——正文未变则标题/封面 marker/src/URL 均未变；
     /// - 源文件存在、path_state=valid，且便宜磁盘 stat（file_size + 纳秒 mtime）
     ///   与索引一致。同尺寸改写（size 相同但 mtime 变化）也会被拒绝，
-    ///   不能只因为旧 DB hash 相同就让旧图复活。
+    ///   不能只因为旧 DB hash 相同就让旧图复活；
+    /// - thumb_path 非空，且对应的缓存文件真实存在（缺失时返回 None 使前端重新
+    ///   生成，绝不把坏路径伪装成 ready）；在线/降级行的 thumb_path 是标题 SVG
+    ///   fallback（也是真实文件）；
+    /// - 本地状态为 ready，或 failed（仅 markdown-image-cover 降级）；在线投影
+    ///   固定为 stale + markdown-remote-image-cover，不伪装本地 ready；
+    /// - markdown-image-cover 行额外做**封面资源 stat 复核**（cover_asset_path）：
+    ///   资源缺失标记（size=0/mtime=''）且当前仍缺失 → 可服务（降级常态）；
+    ///   资源出现/变化/删除 → 拒绝（触发重新生成，资源恢复后自动升级）。
+    /// - markdown-remote-image-cover 行必须携带非空 remote_cover_url（在线只读
+    ///   投影；在线 bytes 不写本地 ready、不进入本地 CAS）。
     #[allow(clippy::too_many_arguments)]
-    fn thumbnail_row_is_valid_ready(
+    fn thumbnail_row_is_servable(
         thumbnail: &ThumbnailInfo,
-        desired_key: Option<&str>,
-        generated_from_key: Option<&str>,
-        render_kind: Option<&str>,
-        generation: i64,
+        row: &ThumbnailCacheRow,
         current_key: Option<&str>,
-        generated_from_hash: Option<&str>,
+        file_type: &str,
         current_file_hash: Option<&str>,
         path_state: &str,
         file_path: &str,
         file_size: i64,
         db_modified_at: &str,
-        expected_render_kind: Option<&str>,
     ) -> bool {
-        if thumbnail.status != "ready" {
-            return false;
-        }
-        // render kind 必须精确等于预期 kind：placeholder、缺失（旧 schema 行）、
-        // 以及任何其他非空值（例如 HTML 行被标成 markdown-html-screenshot）都拒绝。
-        if expected_render_kind.is_none() || render_kind != expected_render_kind {
-            return false;
-        }
         let Some(current_key) = current_key else {
             return false;
         };
-        if desired_key != Some(current_key) || generated_from_key != Some(current_key) {
+        if row.desired_key.as_deref() != Some(current_key)
+            || row.generated_from_key.as_deref() != Some(current_key)
+        {
             return false;
         }
-        // 旧 schema 迁移行 generation=0：不是任何真实 generation 的成品，不得服务。
-        if generation < 1 {
+        let is_remote_projection =
+            row.render_kind.as_deref() == Some(RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER);
+        // 旧 schema 迁移行 generation=0：不是任何真实 generation 的本地成品，
+        // 不得服务；在线只读投影不参加 generation 协议，允许保留 0。
+        if row.generation < 1 && !is_remote_projection {
+            return false;
+        }
+        // render kind 必须属于当前 file_type 的合法集合。
+        let render_kind_ok = match file_type {
+            "html" => row.render_kind.as_deref() == Some(RENDER_KIND_HTML_SCREENSHOT),
+            "markdown" => matches!(
+                row.render_kind.as_deref(),
+                Some(
+                    RENDER_KIND_MARKDOWN_DEFAULT_COVER
+                        | RENDER_KIND_MARKDOWN_IMAGE_COVER
+                        | RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER
+                )
+            ),
+            _ => false,
+        };
+        if !render_kind_ok {
             return false;
         }
         // source revision：生成时的内容 hash 必须等于当前索引的 file_hash。
-        if generated_from_hash != current_file_hash {
+        if row.generated_from_hash.as_deref() != current_file_hash {
             return false;
         }
         if path_state != "valid" {
             return false;
         }
-        // ready 行必须携带缓存文件路径，且该文件真实存在。缓存 PNG 被删除后
-        // 读取必须返回 None（触发前端重新生成），不能继续返回坏路径。
+        // 在线投影必须保持 `stale`（非 ready），绝不伪装成本地成品；本地封面
+        // 降级行 status=failed 仅对 markdown-image-cover 成立；其余为 ready。
+        if is_remote_projection {
+            if row.status != "stale" {
+                return false;
+            }
+        } else if row.status != "ready"
+            && !(row.status == "failed"
+                && row.render_kind.as_deref() == Some(RENDER_KIND_MARKDOWN_IMAGE_COVER))
+        {
+            return false;
+        }
+        // 所有可服务行都必须携带缓存文件路径（ready 成图或 fallback SVG），
+        // 且该文件真实存在。缓存 PNG/SVG 被删除后读取必须返回 None（触发重新
+        // 生成），不能继续返回坏路径。
         let Some(thumb_path) = thumbnail.path.as_deref() else {
             return false;
         };
@@ -983,6 +974,18 @@ impl Database {
                 }
             }
             Err(_) => return false,
+        }
+        // 在线封面投影必须携带 URL（只读投影，无本地 ready bytes）。
+        if row.render_kind.as_deref() == Some(RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER)
+            && row.remote_cover_url.is_empty()
+        {
+            return false;
+        }
+        // 本地封面资源 stat 复核：markdown-image-cover 行（ready 或降级 failed）。
+        if row.render_kind.as_deref() == Some(RENDER_KIND_MARKDOWN_IMAGE_COVER)
+            && !Self::cover_asset_stat_is_current(row)
+        {
+            return false;
         }
         // 便宜的磁盘 stat：size + 纳秒 mtime 双比较。同尺寸改写（扫描未触发、
         // DB file_hash 未更新）时 mtime 变化也会拒绝旧图。
@@ -995,6 +998,31 @@ impl Database {
                 size_ok && mtime_ok
             }
             Err(_) => false,
+        }
+    }
+
+    /// 封面资源 stat 复核：资源缺失标记（size=0 / mtime=''）且当前仍缺失 → 保持
+    /// 服务（降级常态，不无意义重试）；资源出现 / 变化 / 删除 → 拒绝（重新生成，
+    /// 资源恢复后封面自动升级并移除警告）。
+    fn cover_asset_stat_is_current(row: &ThumbnailCacheRow) -> bool {
+        if row.cover_asset_path.is_empty() {
+            return false;
+        }
+        let current = std::fs::metadata(&row.cover_asset_path)
+            .ok()
+            .map(|metadata| {
+                (
+                    metadata.len() as i64,
+                    file_modified_at_string(&metadata).unwrap_or_default(),
+                )
+            });
+        match (row.cover_asset_size, row.cover_asset_modified_at.as_str(), current) {
+            (0, "", None) => true,
+            (0, "", Some(_)) => false,
+            (size, mtime, Some((current_size, current_mtime))) => {
+                size == current_size && mtime == current_mtime
+            }
+            _ => false,
         }
     }
 
@@ -2161,10 +2189,11 @@ impl ItemRepository for Database {
                         let summary = markdown_summary(&raw);
                         let hash = content_hash(&raw);
                         let rendered = render_markdown_as_html_for_file(&raw, &item.file_name);
-                        // B4：先由本次磁盘正文计算 markdown 封面目标（标题 key），
-                        // 再在同一事务内比较——只改正文不改标题时保持 ready 并推进
-                        // generated_from_hash；标题变化时精确失效一次（generation +1）。
-                        let target = markdown_default_cover_target(&raw, &item.file_name);
+                        // B4/C2：先由本次磁盘正文计算 markdown 封面投影（标题/本地
+                        // 图片/在线），再在同一事务内比较——key 没变（正文/排版变化）
+                        // 保持 ready 并推进 generated_from_hash；key 变化（标题/封面
+                        // 身份/资源/URL）时精确失效一次（generation +1）。
+                        let projection = markdown_cover_projection(&raw, &item.file_path);
                         transaction
                             .execute(
                                 "UPDATE items SET summary = ?2, file_hash = ?3 WHERE id = ?1",
@@ -2174,7 +2203,7 @@ impl ItemRepository for Database {
                         Self::reconcile_markdown_thumbnail_in_transaction(
                             &transaction,
                             item_id,
-                            &target.desired_key,
+                            &projection,
                             &hash,
                         )?;
                         transaction
@@ -2537,25 +2566,24 @@ impl ItemRepository for Database {
         raw_text: &str,
         rendered_cache: &str,
     ) -> Result<(), AppError> {
-        // B4：事务外先从本次保存的正文计算 markdown 封面目标（display title /
-        // title hash / md-default key / palette index），再在短事务内比较。
-        // file_name 从 items 读取（文件名稳定，不随正文保存变化）；同时事务外 stat
+        // B4/C2：事务外先从本次保存的正文计算 markdown 封面投影（默认标题 /
+        // 本地图片资产 / 在线只读投影），再在短事务内比较。同时事务外 stat
         // 磁盘拿真实 file_size——保存写盘后字节数变化，若不同步，读取校验的
         // size+mtime 双比较会把 body-only 保存后的 ready 封面误判失效。
-        let (file_name, file_path): (String, String) = {
+        let (file_path,): (String,) = {
             let connection = self.connection()?;
             connection
                 .query_row(
-                    "SELECT file_name, file_path FROM items WHERE id = ?1",
+                    "SELECT file_path FROM items WHERE id = ?1",
                     params![item_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?,)),
                 )
                 .map_err(|_| AppError::ItemNotFound)?
         };
         let disk_file_size: i64 = fs::metadata(&file_path)
             .map(|metadata| metadata.len() as i64)
             .unwrap_or(0);
-        let target = markdown_default_cover_target(raw_text, &file_name);
+        let projection = markdown_cover_projection(raw_text, &file_path);
 
         let mut connection = self.connection()?;
         let transaction = connection
@@ -2571,13 +2599,13 @@ impl ItemRepository for Database {
             )
             .map_err(|_| AppError::DatabaseError)?;
 
-        // B4：Markdown 封面只依赖标题——标题没变（key 相同）时保持 ready 并仅推进
-        // generated_from_hash；标题变化（key 不同）时精确失效一次（generation 恰好 +1）。
-        // 不再无条件 stale + generation+1（那是 B1 全文截图合同，不符合 B4）。
+        // B4/C2：Markdown 封面只依赖标题/封面投影——key 没变（正文/排版变化）时保持
+        // ready 并仅推进 generated_from_hash；key 变化（标题/封面身份/资源/URL）时
+        // 精确失效一次（generation 恰好 +1）。不再无条件 stale + generation+1。
         Self::reconcile_markdown_thumbnail_in_transaction(
             &transaction,
             item_id,
-            &target.desired_key,
+            &projection,
             file_hash,
         )?;
 
@@ -3009,6 +3037,12 @@ struct ThumbnailCacheRow {
     render_kind: Option<String>,
     generated_from_key: Option<String>,
     generated_from_hash: Option<String>,
+    /// PR C / C2：本地封面资源依赖投影（stat 复核用）。
+    cover_asset_path: String,
+    cover_asset_size: i64,
+    cover_asset_modified_at: String,
+    /// PR C / C2：在线封面只读投影 URL。
+    remote_cover_url: String,
 }
 
 impl ThumbnailCacheRow {
@@ -3023,8 +3057,34 @@ impl ThumbnailCacheRow {
             desired_key: self.desired_key,
             generation: Some(self.generation),
             render_kind: self.render_kind,
+            remote_cover_url: (!self.remote_cover_url.is_empty()).then_some(self.remote_cover_url),
         }
     }
+}
+
+/// thumbnail_cache 的列清单（读路径与 CAS 读取共用；新增封面投影列后必须同步）。
+const THUMBNAIL_CACHE_SELECT_COLUMNS: &str = "desired_key, generation, thumb_status, thumb_path, width, height, \
+     last_generated_at, error_message, render_kind, generated_from_key, generated_from_hash, \
+     cover_asset_path, cover_asset_size, cover_asset_modified_at, remote_cover_url";
+
+fn row_to_thumbnail_cache_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThumbnailCacheRow> {
+    Ok(ThumbnailCacheRow {
+        desired_key: row.get(0)?,
+        generation: row.get(1)?,
+        status: row.get(2)?,
+        thumb_path: row.get(3)?,
+        width: row.get(4)?,
+        height: row.get(5)?,
+        last_generated_at: row.get(6)?,
+        error_message: row.get(7)?,
+        render_kind: row.get(8)?,
+        generated_from_key: row.get(9)?,
+        generated_from_hash: row.get(10)?,
+        cover_asset_path: row.get(11)?,
+        cover_asset_size: row.get(12)?,
+        cover_asset_modified_at: row.get(13)?,
+        remote_cover_url: row.get(14)?,
+    })
 }
 
 /// 阶段 1 短 DB 读的 item 投影：只有数据库字段，不含任何文件内容。
@@ -3076,6 +3136,18 @@ impl Database {
         // 阶段 2：事务外 source snapshot（磁盘读取 + hash + desired key / render kind）。
         let mut snapshot = Self::prepare_thumbnail_snapshot(item_id, &identity)?;
 
+        // 在线封面是只读投影，不是本地生成任务：不 claim generation、不写
+        // pending/ready，也不进入下方本地成图 CAS。这里只物化确定性标题 SVG
+        // fallback，并以 `remote` 状态投影源 URL；远程 bytes 始终由可见卡片的
+        // 被动 <img> 自行加载，失败不会污染本地缓存状态。
+        if snapshot
+            .markdown_cover
+            .as_ref()
+            .is_some_and(|projection| projection.mode == MarkdownCoverMode::RemoteImage)
+        {
+            return self.project_remote_markdown_cover(item_id, &identity, &snapshot);
+        }
+
         // B1 审查阻塞 A：prepare 与 claim 之间的 test-only hook。并发保存发生在这个
         // 窗口时，claim 必须通过 revision 复核拒绝旧 snapshot，否则 desired_key 会
         // 从新 revision 倒退成旧值并额外推进 generation。
@@ -3102,15 +3174,18 @@ impl Database {
         snapshot.generation = generation;
 
         // 阶段 3b：事务外生成（截图期间不持有任何数据库 transaction）。
-        // - Markdown B4：直接在内存生成确定性静态 SVG 默认封面，**不创建临时 HTML、
-        //   不调用 Chromium / adapter**（边界 #1）；标题取自同一次 snapshot 的
-        //   DocumentTitle.display_text（与 key 用同一标题，保证 key 与封面一致）。
+        // - Markdown B4/C2：纯内存生成确定性资产，**不创建临时 HTML、不调用
+        //   Chromium / adapter**：默认封面 → 静态 SVG；本地图片封面 → 受限
+        //   安全解码 + EXIF 方向 + 1280×720 居中裁切 PNG；本地降级/在线封面 →
+        //   标题 SVG fallback（降级行 status=failed；在线封面已在 claim 前走
+        //   独立 remote projection 返回，不会进入本地 ready/CAS）。
         // - HTML：走既有 Chromium 截图路径（B4 不改）。
+        let mut cover_status = "ready";
+        let mut cover_error: Option<String> = None;
         let asset = if snapshot.file_type == "markdown" {
-            // 磁盘正文已就绪（snapshot 阶段读取完成）、SVG 生成尚未开始。B4 的
-            // Markdown 封面生成是纯内存操作；若生成阶段仍持有数据库事务/连接锁，
-            // 另一个连接的写事务会在此被 SQLite 阻塞——测试据此证明生成阶段
-            // 不阻塞写事务。
+            // 磁盘正文已就绪（snapshot 阶段读取完成）、生成尚未开始。Markdown
+            // 封面生成是纯内存操作；若生成阶段仍持有数据库事务/连接锁，另一个
+            // 连接的写事务会在此被 SQLite 阻塞——测试据此证明生成阶段不阻塞写事务。
             #[cfg(test)]
             {
                 if crate::db::THUMBNAIL_HOOKS_ACTIVE.with(|active| active.get()) {
@@ -3119,14 +3194,71 @@ impl Database {
                     }
                 }
             }
-            let file_name = std::path::Path::new(&snapshot.canonical_path)
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_default();
-            // 与 key 同源：同一 snapshot 正文 → 同一 display title / title hash →
-            // 同一 palette，保证封面与 desired key、palette 永远一致。
-            let target = markdown_default_cover_target(&snapshot.source_body, &file_name);
-            generate_markdown_default_cover_asset(&target.display_title, &target.title_hash)
+            let projection_owned = snapshot.markdown_cover.clone().unwrap_or_else(|| {
+                let file_name = std::path::Path::new(&snapshot.canonical_path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let target = markdown_default_cover_target(&snapshot.source_body, &file_name);
+                MarkdownCoverProjection {
+                    mode: MarkdownCoverMode::Default,
+                    desired_key: target.desired_key,
+                    render_kind: RENDER_KIND_MARKDOWN_DEFAULT_COVER,
+                    display_title: target.display_title,
+                    title_hash: target.title_hash,
+                    background_index: target.background_index,
+                    cover_asset_path: String::new(),
+                    cover_asset_size: 0,
+                    cover_asset_modified_at: String::new(),
+                    remote_cover_url: String::new(),
+                    degraded: false,
+                    degraded_reason: None,
+                }
+            });
+            let projection = &projection_owned;
+            let fallback = || {
+                generate_markdown_default_cover_asset(&projection.display_title, &projection.title_hash)
+            };
+            match projection.mode {
+                MarkdownCoverMode::RemoteImage => {
+                    // 在线封面：只生成确定性标题 SVG fallback 占位；URL 由行内
+                    // remote_cover_url 投影，前端可见卡片才 lazy load（不下载、
+                    // 不改写正文、不写本地 ready bytes、不进本地 CAS）。
+                    fallback()
+                }
+                MarkdownCoverMode::LocalImage if !projection.degraded => {
+                    let path = std::path::PathBuf::from(&projection.cover_asset_path);
+                    match markdown_cover_assets::decode_cover_pixels(&path)
+                        .map(|image| markdown_cover_assets::encode_cover_png(&image))
+                    {
+                        Ok(png_bytes) => crate::core::thumbnail::GeneratedThumbnailAsset {
+                            backend: "markdown-image-cover",
+                            content_type: "image/png",
+                            file_extension: "png",
+                            bytes: png_bytes,
+                            svg: String::new(),
+                            width: markdown_cover_assets::IMAGE_COVER_WIDTH as i32,
+                            height: markdown_cover_assets::IMAGE_COVER_HEIGHT as i32,
+                        },
+                        Err(reject) => {
+                            // 生成阶段资源突然失效（缺失/损坏/替换）：降级为标题
+                            // SVG fallback，保留封面身份并写 failed 行。
+                            cover_status = "failed";
+                            cover_error = Some(reject.message);
+                            fallback()
+                        }
+                    }
+                }
+                _ => {
+                    // Default（无 marker）或 LocalImage degraded（缺失/越界/不合格）：
+                    // 标题 SVG；degraded 时保留封面身份并写 failed 行（hover 警告）。
+                    if projection.degraded {
+                        cover_status = "failed";
+                        cover_error = projection.degraded_reason.clone();
+                    }
+                    fallback()
+                }
+            }
         } else {
             // Markdown 渲染正文来自 snapshot.source_body（与 key / source_content_hash
             // 同一磁盘 revision），禁止回落到 item_content.raw_text。
@@ -3149,6 +3281,30 @@ impl Database {
         // placeholder 不是目标 render kind 的 ready 成品：不写文件、不 commit ready。
         if asset.backend == "placeholder-svg" {
             return self.finish_thumbnail_placeholder(item_id, &snapshot);
+        }
+
+        // 本地封面提交前复核资源 revision：生成期间资源被外部替换（markdown 未变）
+        // 时，新 hash 的 desired key 不同 → 丢弃本次成图，由下一次生成补跑。
+        if snapshot
+            .markdown_cover
+            .as_ref()
+            .map(|p| p.mode == MarkdownCoverMode::LocalImage && !p.degraded)
+            .unwrap_or(false)
+        {
+            let projection = snapshot.markdown_cover.as_ref().expect("checked above");
+            let current_asset =
+                markdown_cover_assets::validate_local_cover_asset(std::path::Path::new(
+                    &projection.cover_asset_path,
+                ));
+            let key_matches = current_asset
+                .map(|asset| {
+                    markdown_image_cover_key(&asset.content_hash) == snapshot.desired_key
+                })
+                .unwrap_or(false);
+            if !key_matches {
+                let current = self.read_thumbnail_state(item_id)?;
+                return Ok(Self::discarded_thumbnail_response(&snapshot, current));
+            }
         }
 
         // 重新读取当前 desired key + generation。
@@ -3195,7 +3351,15 @@ impl Database {
 
         // CAS 提交：事务内再次核对 desired key + generation，防止 re-read 后 invalidate 抢先。
         let now = current_timestamp();
-        let committed = self.cas_commit_thumbnail(item_id, &snapshot, &asset, &final_path, now.clone())?;
+        let committed = self.cas_commit_thumbnail(
+            item_id,
+            &snapshot,
+            &asset,
+            &final_path,
+            now.clone(),
+            cover_status,
+            cover_error.as_deref(),
+        )?;
         if !committed {
             // 只清理本任务自己的未引用文件，绝不动新 generation 的成品。
             let _ = fs::remove_file(&final_path);
@@ -3207,6 +3371,7 @@ impl Database {
         self.cleanup_older_thumbnail_files(item_id, snapshot.generation, asset.file_extension)?;
 
         let path_string = final_path.to_string_lossy().to_string();
+        let cover_projection = snapshot.markdown_cover.as_ref();
         Ok(GenerateThumbnailResponse {
             item_id,
             generated_from_key: Some(snapshot.desired_key.clone()),
@@ -3214,15 +3379,20 @@ impl Database {
             generation: snapshot.generation,
             discarded: false,
             thumbnail: ThumbnailInfo {
-                status: "ready".to_string(),
+                status: cover_status.to_string(),
                 path: Some(path_string),
                 width: Some(asset.width),
                 height: Some(asset.height),
                 last_generated_at: Some(now),
-                error_message: None,
+                error_message: cover_error,
                 desired_key: Some(snapshot.desired_key.clone()),
                 generation: Some(snapshot.generation),
                 render_kind: Some(snapshot.render_kind.to_string()),
+                remote_cover_url: cover_projection
+                    .map(|p| {
+                        (!p.remote_cover_url.is_empty()).then_some(p.remote_cover_url.clone())
+                    })
+                    .unwrap_or(None),
             },
         })
     }
@@ -3272,23 +3442,28 @@ impl Database {
         let source_file_size = metadata.len() as i64;
         let source_body = fs::read_to_string(&identity.file_path).map_err(|_| AppError::IoError)?;
         let source_content_hash = content_hash(&source_body);
-        // Markdown B4：desired key 依赖标题哈希，必须从**同一次磁盘 snapshot** 的
-        // DocumentTitle.display_text 计算——禁止回落到可能陈旧的 items.title /
-        // item_content.raw_text（B4 边界 #4）。统一走 markdown_default_cover_target
-        // 计算入口（display title / title hash / md-default key / palette index 同源）。
-        let desired_key = match identity.file_type.as_str() {
+        // Markdown B4/C2：desired key 依赖标题/封面投影，必须从**同一次磁盘
+        // snapshot** 的正文计算——禁止回落到可能陈旧的 items.title /
+        // item_content.raw_text。无 marker/duplicate → md-default 标题 SVG；
+        // marker + 本地资源 → md-image 资产哈希；marker + http/https → md-remote
+        // 只读投影（不下载、不写本地 ready、不进 CAS）。
+        let (desired_key, render_kind, markdown_cover) = match identity.file_type.as_str() {
             "markdown" => {
-                let file_name = std::path::Path::new(&identity.file_path)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                markdown_default_cover_target(&source_body, &file_name).desired_key
+                let projection = markdown_cover_projection(&source_body, &identity.file_path);
+                (
+                    projection.desired_key.clone(),
+                    projection.render_kind,
+                    Some(projection),
+                )
             }
-            _ => desired_key_for_item(&identity.file_type, Some(&source_content_hash))
-                .ok_or(AppError::UnsupportedFileType)?,
+            _ => (
+                desired_key_for_item(&identity.file_type, Some(&source_content_hash))
+                    .ok_or(AppError::UnsupportedFileType)?,
+                expected_render_kind_for_item(&identity.file_type)
+                    .ok_or(AppError::UnsupportedFileType)?,
+                None,
+            ),
         };
-        let render_kind = expected_render_kind_for_item(&identity.file_type)
-            .ok_or(AppError::UnsupportedFileType)?;
         Ok(ThumbnailGenerationSnapshot {
             item_id,
             desired_key,
@@ -3300,6 +3475,7 @@ impl Database {
             canonical_path: identity.file_path.clone(),
             file_type: identity.file_type.clone(),
             source_body,
+            markdown_cover,
         })
     }
 
@@ -3411,6 +3587,182 @@ impl Database {
         Ok(ClaimOutcome::Claimed(generation))
     }
 
+    /// 提交在线 Markdown 封面的只读投影。该路径刻意独立于 generation claim /
+    /// ready CAS：数据库只保存 URL、源 revision 与可显示的标题 SVG fallback，
+    /// `thumb_status='stale'` 明确表示它不是本地 ready 成品；render kind 与 URL
+    /// 共同把这类行解释为可服务的在线投影，而不是待生成的本地缓存。
+    fn project_remote_markdown_cover(
+        &self,
+        item_id: i64,
+        identity: &ItemThumbnailIdentity,
+        snapshot: &ThumbnailGenerationSnapshot,
+    ) -> Result<GenerateThumbnailResponse, AppError> {
+        let projection = snapshot.markdown_cover.as_ref().ok_or(AppError::InternalError)?;
+        if projection.mode != MarkdownCoverMode::RemoteImage
+            || projection.remote_cover_url.is_empty()
+        {
+            return Err(AppError::InvalidParams);
+        }
+
+        // 生成前复核磁盘仍是 snapshot revision；普通 UI 保存会同时更新 DB，
+        // 外部同尺寸改写则由这里的全文 hash 拦住。
+        let disk_still_matches = fs::read_to_string(&snapshot.canonical_path)
+            .map(|raw| content_hash(&raw) == snapshot.source_content_hash)
+            .unwrap_or(false);
+        if !disk_still_matches {
+            let current = self.read_thumbnail_state(item_id)?;
+            return Ok(Self::discarded_thumbnail_response(snapshot, current));
+        }
+
+        let asset = generate_markdown_default_cover_asset(
+            &projection.display_title,
+            &projection.title_hash,
+        );
+        let cache_dir = self.thumbnail_cache_dir();
+        fs::create_dir_all(&cache_dir).map_err(|_| AppError::IoError)?;
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let final_path = cache_dir.join(format!("item-{item_id}.remote-{nonce}.svg"));
+        let temporary_path = cache_dir.join(format!(".item-{item_id}.remote-{nonce}.tmp"));
+        fs::write(&temporary_path, &asset.bytes).map_err(|_| AppError::IoError)?;
+        if fs::rename(&temporary_path, &final_path).is_err() {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(AppError::IoError);
+        }
+
+        let now = current_timestamp();
+        let commit_result = (|| -> Result<(bool, i64, Option<String>), AppError> {
+            let mut connection = self.connection()?;
+            let transaction = connection
+                .transaction()
+                .map_err(|_| AppError::DatabaseError)?;
+            let current_item: (String, Option<String>, i64, String) = transaction
+                .query_row(
+                    "SELECT file_path, file_hash, file_size, modified_at
+                     FROM items WHERE id = ?1 AND is_deleted = 0",
+                    params![item_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(|_| AppError::ItemNotFound)?;
+            let identity_still_matches = current_item.0 == identity.file_path
+                && current_item.1 == identity.db_file_hash
+                && current_item.2 == identity.db_file_size
+                && current_item.3 == identity.db_modified_at;
+            if !identity_still_matches {
+                transaction.commit().map_err(|_| AppError::DatabaseError)?;
+                return Ok((false, 0, None));
+            }
+
+            if identity.db_file_hash.as_deref() != Some(snapshot.source_content_hash.as_str())
+                || identity.db_file_size != snapshot.source_file_size
+                || identity.db_modified_at != snapshot.source_modified_at
+            {
+                transaction
+                    .execute(
+                        "UPDATE items SET file_hash = ?2, file_size = ?3, modified_at = ?4
+                         WHERE id = ?1",
+                        params![
+                            item_id,
+                            snapshot.source_content_hash,
+                            snapshot.source_file_size,
+                            snapshot.source_modified_at,
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+
+            let existing: Option<(i64, Option<String>)> = transaction
+                .query_row(
+                    "SELECT generation, thumb_path FROM thumbnail_cache WHERE item_id = ?1",
+                    params![item_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?;
+            let generation = existing.as_ref().map(|row| row.0).unwrap_or(0);
+            let old_path = existing.and_then(|row| row.1);
+            transaction
+                .execute(
+                    "INSERT INTO thumbnail_cache (
+                        item_id, thumb_path, thumb_status, width, height, generated_from_hash,
+                        last_generated_at, error_message, desired_key, generated_from_key,
+                        render_kind, generation, cover_asset_path, cover_asset_size,
+                        cover_asset_modified_at, remote_cover_url
+                     ) VALUES (?1, ?2, 'stale', ?3, ?4, ?5, ?6, NULL, ?7, ?7, ?8, ?9, '', 0, '', ?10)
+                     ON CONFLICT(item_id) DO UPDATE SET
+                        thumb_path = excluded.thumb_path,
+                        thumb_status = 'stale',
+                        width = excluded.width,
+                        height = excluded.height,
+                        generated_from_hash = excluded.generated_from_hash,
+                        last_generated_at = excluded.last_generated_at,
+                        error_message = NULL,
+                        desired_key = excluded.desired_key,
+                        generated_from_key = excluded.generated_from_key,
+                        render_kind = excluded.render_kind,
+                        cover_asset_path = '', cover_asset_size = 0,
+                        cover_asset_modified_at = '', remote_cover_url = excluded.remote_cover_url",
+                    params![
+                        item_id,
+                        final_path.to_string_lossy().to_string(),
+                        asset.width,
+                        asset.height,
+                        snapshot.source_content_hash,
+                        now,
+                        snapshot.desired_key,
+                        snapshot.render_kind,
+                        generation,
+                        projection.remote_cover_url,
+                    ],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            transaction.commit().map_err(|_| AppError::DatabaseError)?;
+            Ok((true, generation, old_path))
+        })();
+
+        let (committed, generation, old_path) = match commit_result {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = fs::remove_file(&final_path);
+                return Err(error);
+            }
+        };
+        if !committed {
+            let _ = fs::remove_file(&final_path);
+            let current = self.read_thumbnail_state(item_id)?;
+            return Ok(Self::discarded_thumbnail_response(snapshot, current));
+        }
+
+        if let Some(old_path) = old_path {
+            let old = PathBuf::from(old_path);
+            if old != final_path && old.starts_with(&cache_dir) {
+                let _ = fs::remove_file(old);
+            }
+        }
+
+        Ok(GenerateThumbnailResponse {
+            item_id,
+            generated_from_key: Some(snapshot.desired_key.clone()),
+            expected_key: Some(snapshot.desired_key.clone()),
+            generation,
+            discarded: false,
+            thumbnail: ThumbnailInfo {
+                status: "stale".to_string(),
+                path: Some(final_path.to_string_lossy().to_string()),
+                width: Some(asset.width),
+                height: Some(asset.height),
+                last_generated_at: Some(now),
+                error_message: None,
+                desired_key: Some(snapshot.desired_key.clone()),
+                generation: Some(generation),
+                render_kind: Some(RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER.to_string()),
+                remote_cover_url: Some(projection.remote_cover_url.clone()),
+            },
+        })
+    }
+
     /// 只读当前 thumbnail_cache 行（不存在返回 None）。
     fn read_thumbnail_state(&self, item_id: i64) -> Result<Option<ThumbnailCacheRow>, AppError> {
         let connection = self.connection()?;
@@ -3418,25 +3770,13 @@ impl Database {
             .query_row(
                 "SELECT desired_key, generation, thumb_status, thumb_path, width, height,
                         last_generated_at, error_message, render_kind,
-                        generated_from_key, generated_from_hash
+                        generated_from_key, generated_from_hash,
+                        cover_asset_path, cover_asset_size, cover_asset_modified_at,
+                        remote_cover_url
                  FROM thumbnail_cache
                  WHERE item_id = ?1",
                 params![item_id],
-                |row| {
-                    Ok(ThumbnailCacheRow {
-                        desired_key: row.get(0)?,
-                        generation: row.get(1)?,
-                        status: row.get(2)?,
-                        thumb_path: row.get(3)?,
-                        width: row.get(4)?,
-                        height: row.get(5)?,
-                        last_generated_at: row.get(6)?,
-                        error_message: row.get(7)?,
-                        render_kind: row.get(8)?,
-                        generated_from_key: row.get(9)?,
-                        generated_from_hash: row.get(10)?,
-                    })
-                },
+                |row| row_to_thumbnail_cache_row(row),
             )
             .optional()
             .map_err(|_| AppError::DatabaseError)?;
@@ -3455,7 +3795,7 @@ impl Database {
             .map(|row| (row.desired_key, row.generation)))
     }
 
-    /// B2：查询仍处于 stale / pending / failed 且 desired key 非空的 item id。
+    /// B2：查询仍处于 stale / pending / failed 且 desired key 非空、需要本地补排队的 item id。
     /// 窄 SQL 查询，不读取文件内容、不做任何写操作、不是全局扫描器；用于
     /// marker 重放 / 列表加载后识别"需要补排队"的 item（等价队列入口是前端
     /// ensureDocumentThumbnails 对可见项按 stale/desired 状态排队）。
@@ -3467,6 +3807,10 @@ impl Database {
                  FROM thumbnail_cache
                  WHERE thumb_status IN ('stale', 'pending', 'failed')
                    AND desired_key IS NOT NULL AND desired_key != ''
+                   AND NOT (
+                     render_kind = 'markdown-remote-image-cover'
+                     AND remote_cover_url != ''
+                   )
                  ORDER BY item_id",
             )
             .map_err(|_| AppError::DatabaseError)?;
@@ -3477,7 +3821,10 @@ impl Database {
             .map_err(|_| AppError::DatabaseError)
     }
 
-    /// CAS 提交：事务内核对 desired_key + generation 全部匹配才写 ready。
+    /// CAS 提交：事务内核对 desired_key + generation 全部匹配才写行。
+    /// `status` 为 "ready"（默认/本地图片）或 "failed"（本地封面降级）；
+    /// 封面依赖投影列（cover_asset_* / remote_cover_url）随行写入，读取路径据此
+    /// 复核本地资源 stat。在线封面走 project_remote_markdown_cover，不进入本函数。
     fn cas_commit_thumbnail(
         &self,
         item_id: i64,
@@ -3485,6 +3832,8 @@ impl Database {
         asset: &crate::core::thumbnail::GeneratedThumbnailAsset,
         final_path: &Path,
         now: String,
+        status: &str,
+        error_message: Option<&str>,
     ) -> Result<bool, AppError> {
         let mut connection = self.connection()?;
         let transaction = connection
@@ -3510,14 +3859,27 @@ impl Database {
             return Ok(false);
         }
 
+        let projection = snapshot.markdown_cover.as_ref();
+        let cover_asset_path = projection
+            .map(|p| p.cover_asset_path.clone())
+            .unwrap_or_default();
+        let cover_asset_size = projection.map(|p| p.cover_asset_size).unwrap_or(0);
+        let cover_asset_modified_at = projection
+            .map(|p| p.cover_asset_modified_at.clone())
+            .unwrap_or_default();
+        let remote_cover_url = projection
+            .map(|p| p.remote_cover_url.clone())
+            .unwrap_or_default();
+
         let path_string = final_path.to_string_lossy().to_string();
         transaction
             .execute(
                 "INSERT INTO thumbnail_cache (
                     item_id, thumb_path, thumb_status, width, height, generated_from_hash,
                     last_generated_at, error_message, desired_key, generated_from_key,
-                    render_kind, generation
-                 ) VALUES (?1, ?2, 'ready', ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10)
+                    render_kind, generation, cover_asset_path, cover_asset_size,
+                    cover_asset_modified_at, remote_cover_url
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                  ON CONFLICT(item_id) DO UPDATE SET
                     thumb_path = excluded.thumb_path,
                     thumb_status = excluded.thumb_status,
@@ -3525,22 +3887,32 @@ impl Database {
                     height = excluded.height,
                     generated_from_hash = excluded.generated_from_hash,
                     last_generated_at = excluded.last_generated_at,
-                    error_message = NULL,
+                    error_message = excluded.error_message,
                     desired_key = excluded.desired_key,
                     generated_from_key = excluded.generated_from_key,
                     render_kind = excluded.render_kind,
-                    generation = excluded.generation",
+                    generation = excluded.generation,
+                    cover_asset_path = excluded.cover_asset_path,
+                    cover_asset_size = excluded.cover_asset_size,
+                    cover_asset_modified_at = excluded.cover_asset_modified_at,
+                    remote_cover_url = excluded.remote_cover_url",
                 params![
                     item_id,
                     path_string,
+                    status,
                     asset.width,
                     asset.height,
                     snapshot.source_content_hash,
                     now,
+                    error_message,
                     snapshot.desired_key,
                     snapshot.desired_key,
                     snapshot.render_kind,
                     snapshot.generation,
+                    cover_asset_path,
+                    cover_asset_size,
+                    cover_asset_modified_at,
+                    remote_cover_url,
                 ],
             )
             .map_err(|_| AppError::DatabaseError)?;
@@ -3580,32 +3952,17 @@ impl Database {
             .map_err(|_| AppError::DatabaseError)?;
 
         // 同一短事务内读取当前状态（快照一致性由事务保证）。
-        let current: Option<ThumbnailCacheRow> = transaction
-            .query_row(
-                "SELECT desired_key, generation, thumb_status, thumb_path, width, height,
-                        last_generated_at, error_message, render_kind,
-                        generated_from_key, generated_from_hash
+        let current: Option<ThumbnailCacheRow> = {
+            let sql = format!(
+                "SELECT {THUMBNAIL_CACHE_SELECT_COLUMNS}
                  FROM thumbnail_cache
-                 WHERE item_id = ?1",
-                params![item_id],
-                |row| {
-                    Ok(ThumbnailCacheRow {
-                        desired_key: row.get(0)?,
-                        generation: row.get(1)?,
-                        status: row.get(2)?,
-                        thumb_path: row.get(3)?,
-                        width: row.get(4)?,
-                        height: row.get(5)?,
-                        last_generated_at: row.get(6)?,
-                        error_message: row.get(7)?,
-                        render_kind: row.get(8)?,
-                        generated_from_key: row.get(9)?,
-                        generated_from_hash: row.get(10)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(|_| AppError::DatabaseError)?;
+                 WHERE item_id = ?1"
+            );
+            transaction
+                .query_row(&sql, params![item_id], |row| row_to_thumbnail_cache_row(row))
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?
+        };
 
         // 只有 desired_key + generation 与 snapshot 完全匹配才能继续。
         let matches_current = matches!(
@@ -3667,6 +4024,7 @@ impl Database {
                     desired_key: Some(snapshot.desired_key.clone()),
                     generation: Some(snapshot.generation),
                     render_kind: Some(snapshot.render_kind.to_string()),
+                    remote_cover_url: None,
                 },
             });
         }
@@ -3712,6 +4070,7 @@ impl Database {
                 desired_key: Some(snapshot.desired_key.clone()),
                 generation: Some(snapshot.generation),
                 render_kind: Some(RENDER_KIND_PLACEHOLDER.to_string()),
+                remote_cover_url: None,
             },
         })
     }
@@ -3743,6 +4102,7 @@ impl Database {
                     desired_key: Some(snapshot.desired_key.clone()),
                     generation: Some(snapshot.generation),
                     render_kind: Some(snapshot.render_kind.to_string()),
+                    remote_cover_url: None,
                 }),
         }
     }
@@ -3891,20 +4251,22 @@ impl Database {
         Ok(())
     }
 
-    /// B4 Markdown 封面合同：保存/外部扫描在事务外由 `markdown_default_cover_target`
-    /// 计算出本次正文的标题 key 后，在短事务内与存储行比较：
-    /// A) 标题 key 没变（只改正文）：保持 ready / desired key / generated key /
-    ///    generation / thumb path，**仅把 generated_from_hash 推进到新的全文
-    ///    source hash**——否则读取校验（generated_from_hash == file_hash）会把
+    /// B4/C2 Markdown 封面合同：保存/外部扫描在事务外由 `markdown_cover_projection`
+    /// 计算出本次正文的封面投影（默认标题 key / 本地图片资产 key / 在线只读投影），
+    /// 再在短事务内与存储行比较：
+    /// A) key 没变（只改正文/封面排版）：保持 ready / desired key / generated key /
+    ///    generation / thumb path / 封面依赖列，**仅把 generated_from_hash 推进到新的
+    ///    全文 source hash**——否则读取校验（generated_from_hash == file_hash）会把
     ///    ready 行判为失效。生成中的旧 snapshot 仍会因磁盘全文 hash 不同而被
-    ///    discarded，不会覆盖新 revision。
-    /// B) 标题 key 改变：同一短事务写入新 desired key、旧 ready 立即 stale、
-    ///    generation **恰好 +1**（只推进一次），使旧 in-flight 任务被 CAS 拒绝。
+    ///    discarded，不会覆盖新 revision。普通正文、封面位置/尺寸/对齐变化不重裁。
+    /// B) key 改变（标题/封面身份/资源/URL 变化）：同一短事务写入新 desired key、
+    ///    render_kind 与封面依赖投影列，旧 ready 立即 stale、generation **恰好 +1**
+    ///    （只推进一次），使旧 in-flight 任务被 CAS 拒绝。
     /// 无 thumbnail 行时不写入（首次生成由 generate 流程 claim 创建）。
     fn reconcile_markdown_thumbnail_in_transaction(
         transaction: &Transaction<'_>,
         item_id: i64,
-        new_desired_key: &str,
+        projection: &MarkdownCoverProjection,
         new_source_hash: &str,
     ) -> Result<(), AppError> {
         let current: Option<(Option<String>, i64, String)> = transaction
@@ -3920,8 +4282,9 @@ impl Database {
         let Some((stored_key, _, _)) = current else {
             return Ok(());
         };
-        if stored_key.as_deref() == Some(new_desired_key) {
-            // A) 标题没变：只推进 generated_from_hash，ready / key / generation / path 保持。
+        if stored_key.as_deref() == Some(projection.desired_key.as_str()) {
+            // A) key 没变：只推进 generated_from_hash，ready / key / generation /
+            // path / 封面依赖列保持（封面资源未变，无需重裁）。
             transaction
                 .execute(
                     "UPDATE thumbnail_cache SET generated_from_hash = ?2 WHERE item_id = ?1",
@@ -3929,15 +4292,27 @@ impl Database {
                 )
                 .map_err(|_| AppError::DatabaseError)?;
         } else {
-            // B) 标题变：新 key + stale + generation 恰好 +1。
+            // B) key 变：新 key + render kind + 封面依赖列 + stale + generation 恰好 +1。
             transaction
                 .execute(
                     "UPDATE thumbnail_cache
                      SET desired_key = ?2, thumb_status = 'stale',
                          generation = generation + 1, error_message = NULL,
-                         generated_from_hash = ?3
+                         render_kind = ?3,
+                         cover_asset_path = ?4, cover_asset_size = ?5,
+                         cover_asset_modified_at = ?6, remote_cover_url = ?7,
+                         generated_from_hash = ?8
                      WHERE item_id = ?1",
-                    params![item_id, new_desired_key, new_source_hash],
+                    params![
+                        item_id,
+                        projection.desired_key,
+                        projection.render_kind,
+                        projection.cover_asset_path,
+                        projection.cover_asset_size,
+                        projection.cover_asset_modified_at,
+                        projection.remote_cover_url,
+                        new_source_hash,
+                    ],
                 )
                 .map_err(|_| AppError::DatabaseError)?;
         }

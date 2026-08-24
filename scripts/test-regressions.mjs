@@ -3100,4 +3100,206 @@ assert.match(
   "Cargo.toml 必须声明 pulldown-cmark 直接依赖"
 );
 
+// ---------------------------------------------------------------------------
+// PR C / C2：Markdown 封面图守卫
+// - 空行 + 菜单「封面图」紧邻「图片」；图片工具栏二态（设为封面/取消封面）；
+// - 在线封面只读投影（thumb-remote-live + no-referrer + lazy），绝不 inline 远程 SVG；
+// - 本地封面降级（failed + markdown-image-cover）回退标题 SVG + hover 警告；
+// - 无全局"启用 Markdown 封面图"偏好；不修改 thumbnail-settings.json 语义；
+// - 未保存 draft 不改卡片：卡片渲染只读 item.thumbnail（durable save 后才更新）。
+const markdownEditorSource = readFileSync("src/markdown-editor.js", "utf8");
+const thumbnailRust = readFileSync("src-tauri/src/core/thumbnail.rs", "utf8");
+const markdownCoverAssetsRust = readFileSync("src-tauri/src/core/markdown_cover_assets.rs", "utf8");
+const markdownCoverRust = readFileSync("src-tauri/src/core/markdown_cover.rs", "utf8");
+
+assert.match(
+  markdownEditorSource,
+  /\{ command: "image"[\s\S]*?\{ command: "cover-image"/,
+  "+ 菜单中「封面图」必须紧邻普通「图片」"
+);
+assert.match(
+  markdownEditorSource,
+  /data-image-cover="set"[\s\S]*?data-image-cover="remove"/,
+  "图片工具栏必须同时声明「设为封面」与「取消封面」二态按钮"
+);
+assert.match(
+  markdownEditorSource,
+  /insertCoverAtEmptyParagraph[\s\S]*?alignment: "center"[\s\S]*?displayWidthPx: null/,
+  "「+ → 封面图」必须默认居中大图且不设固定宽度（不超过固有尺寸）"
+);
+assert.match(
+  markdownEditorSource,
+  /if \(existingCover && coverStart < target\.blockStart\)[\s\S]*?rebuildImageBlock/,
+  "A→C 身份转移必须同事务解包旧封面（单步 undo/redo 完整恢复）"
+);
+assert.doesNotMatch(
+  markdownEditorSource,
+  /更换封面图/,
+  "不得新增「更换封面图」入口"
+);
+assert.match(
+  indexHtml,
+  /class="thumb thumb-remote-live"[\s\S]{0,120}loading="lazy"[\s\S]{0,120}referrerpolicy="no-referrer"/,
+  "在线封面必须 no-referrer + lazy 加载，禁止 fetch 后 inline"
+);
+assert.match(
+  indexHtml,
+  /NutbookCoverCard\.remoteLoaded[\s\S]*?coverRatioOk[\s\S]*?4 \/ 3[\s\S]*?<= 2/,
+  "在线封面 onload 后必须复核自然尺寸 4:3..2:1 比例"
+);
+assert.match(
+  indexHtml,
+  /thumb-cover-warning[\s\S]*?opacity: 0[\s\S]*?hover[\s\S]*?opacity: 1/,
+  "封面降级警告必须常态隐藏、hover/focus 才显示（无永久错误）"
+);
+assert.match(
+  indexHtml,
+  /\.item-card:focus \.thumb-cover-warning[\s\S]*?opacity: 1/,
+  "封面降级警告必须支持卡片键盘焦点，不能只依赖 hover 或 :focus-visible 推断"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /\.thumb-cover-state\.thumb-cover-warning-on \.thumb-cover-warning/,
+  "远程封面失败状态不能让警告常驻；提示只在 hover/focus 时显示"
+);
+assert.match(
+  indexHtml,
+  /const activationToken = tab\.coverActivationToken \|\| 0;[\s\S]*?open_image_file_dialog[\s\S]*?coverActivationToken[\s\S]*?return null;/,
+  "封面 picker 返回前必须用 activation token 拦截 tab 切走后再切回的旧结果"
+);
+assert.match(
+  indexHtml,
+  /function renderViewer\(\) \{[\s\S]*?tab\.coverActivationToken = \(tab\.coverActivationToken \|\| 0\) \+ 1;/,
+  "真正重新激活 Markdown surface 时必须推进 cover activation token"
+);
+assert.match(
+  indexHtml,
+  /thumbnailNeedsGeneration[\s\S]*?markdown-remote-image-cover[\s\S]*?markdown-image-cover/,
+  "前端必须识别全部三个 Markdown 封面 render kind"
+);
+assert.match(
+  indexHtml,
+  /thumb\.renderKind === "markdown-remote-image-cover"[\s\S]*?thumb\.status === "stale"[\s\S]*?return false;/,
+  "在线封面 stale 投影必须被视为已收敛，不能进入本地生成队列"
+);
+assert.match(
+  thumbnailRust,
+  /RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER: &str = "markdown-remote-image-cover"/,
+  "Rust 必须声明在线封面只读 render kind"
+);
+assert.match(
+  thumbnailRust,
+  /markdown_remote_cover_key[\s\S]*?REMOTE_COVER_VERSION/,
+  "在线封面只读投影必须使用独立 md-remote key（不进入本地 ready/CAS）"
+);
+assert.match(
+  readFileSync("src-tauri/src/db/mod.rs", "utf8"),
+  /fn project_remote_markdown_cover[\s\S]*?thumb_status = 'stale'/,
+  "在线封面数据库投影必须保持 stale，不能伪装为本地 ready 成品"
+);
+assert.match(
+  markdownCoverAssetsRust,
+  /COVER_MIN_ASPECT: f64 = 4\.0 \/ 3\.0[\s\S]*?COVER_MAX_ASPECT: f64 = 2\.0/,
+  "封面比例边界必须为 4:3..2:1"
+);
+assert.match(
+  markdownCoverAssetsRust,
+  /"script" \| "foreignobject" \| "image"/,
+  "SVG 安全校验必须拒绝 script / foreignObject / 外部 image"
+);
+assert.match(
+  markdownCoverRust,
+  /pub fn collect_document_image_srcs/,
+  "Rust 必须提供文档图片 src 收集（staged lease 引用保护）"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /markdownCoverImagesEnabled|启用 Markdown 封面/,
+  "不得新增全局「启用 Markdown 封面图」偏好"
+);
+assert.doesNotMatch(
+  thumbnailRust,
+  /render_markdown_to_image|markdown-detail-screenshot/,
+  "不得复活 Markdown Chromium 截图或未来检查视图入口"
+);
+
+// PR C / C2：Markdown 封面/图片资产命令必须带 `payload` 对象调用（Rust 命令签名
+// 是 `payload: XxxRequest`；裸展开参数会在 Tauri 侧报 missing required key payload，
+// 导致本地封面校验/复制/释放、图片复制/删除全部失效）。
+for (const command of [
+  "copy_markdown_image_asset",
+  "copy_markdown_cover_asset",
+  "validate_markdown_cover_asset",
+  "release_markdown_cover_lease",
+  "delete_markdown_image_asset"
+]) {
+  assert.match(
+    indexHtml,
+    new RegExp(`await invoke\\(\\"${command}\\", \\{\\s*\\n\\s*payload: \\{`),
+    `${command} 必须用 { payload: {...} } 包装调用（裸参数会 missing required key payload）`
+  );
+}
+// PR C / C2：封面图设置成功/失败必须 toast 双提示（与保存成功/失败提醒同一
+// showToast 通道），不能只落状态栏——状态栏可见性不足（用户实测反馈）。
+// 覆盖 5 条反馈路径：`+ → 封面图` 成功/无路径/复制失败、图片工具「设为封面」
+// 校验拒绝、onCoverChange 的 set/remove 成功/失败。
+assert.match(
+  indexHtml,
+  /coverInserted\"[\s\S]{0,80}showToast\(insertedMessage\)/,
+  "「+ → 封面图」成功必须状态栏 + toast 双提示"
+);
+assert.match(
+  indexHtml,
+  /coverInsertFailedPrefix[\s\S]{0,180}showToast\(short\)/,
+  "「+ → 封面图」复制失败必须 toast（短文本走 statusAndShortToast）"
+);
+assert.match(
+  indexHtml,
+  /coverValidationBlockedShort"/,
+  "「设为封面」校验拒绝 toast 必须用 coverValidationBlockedShort"
+);
+assert.match(
+  indexHtml,
+  /onCoverChange\(result\) \{[\s\S]{0,400}showToast\(message\)/,
+  "onCoverChange 成功/失败必须走状态栏 + toast"
+);
+assert.match(
+  indexHtml,
+  /showToast\(message\);[\s\S]{0,400}showToast\(message\)/,
+  "onCoverChange 成功与失败两个分支都必须有 toast"
+);
+
+// PR C / C2：失败 toast 必须用简短口语（不含错误代码 / 绝对路径 / 规则名）；
+// 状态栏保留详细错误代码供调试。
+assert.match(
+  indexHtml,
+  /function statusAndShortToast\(prefixKey, shortKey, error\) \{[\s\S]*?return \{ full, short \};\s*\}/,
+  "必须存在 statusAndShortToast helper（状态栏详细 / toast 简短分离）"
+);
+assert.match(
+  indexHtml,
+  /coverInsertFailedPrefix[\s\S]{0,180}coverInsertBlockedShort/,
+  "「+ → 封面图」失败必须走 statusAndShortToast（短 toast 用 coverInsertBlockedShort）"
+);
+assert.match(
+  indexHtml,
+  /coverValidationFailedPrefix[\s\S]{0,200}coverValidationBlockedShort/,
+  "「设为封面」校验失败必须走 statusAndShortToast（短 toast 用 coverValidationBlockedShort）"
+);
+assert.match(
+  indexHtml,
+  /setStatus\(full, "error"\)[\s\S]{0,40}showToast\(short\)/,
+  "失败 toast 必须用 statusAndShortToast 的 short key（不含错误代码）"
+);
+assert.match(
+  indexHtml,
+  /showToast\(t\("markdown\.coverValidationBlockedShort"\)\)/,
+  "失败 toast 调用点必须从 i18n 拿短文本"
+);
+assert.match(
+  i18n,
+  /coverInsertBlockedShort:[\s\S]*?coverValidationBlockedShort:/,
+  "i18n 必须声明 coverInsertBlockedShort + coverValidationBlockedShort"
+);
+
 console.log("Nutbook regression guards passed.");

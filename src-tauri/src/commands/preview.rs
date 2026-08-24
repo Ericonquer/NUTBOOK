@@ -29,14 +29,17 @@ use crate::{
     models::{
         AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest,
         AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+        CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
         EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
         GetItemPreviewRequest, HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload,
+        ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
         HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
-        SetHtmlRuntimeHostVisibilityRequest,
+        SetHtmlRuntimeHostVisibilityRequest, ValidateMarkdownCoverAssetRequest,
+        ValidateMarkdownCoverAssetResponse,
     },
     state::AppState,
 };
@@ -741,6 +744,216 @@ pub fn delete_markdown_image_asset(
     delete_markdown_image_asset_impl(payload)
 }
 
+// ------------------------------------------------------------------
+// PR C / C2：Markdown 封面资源命令
+//
+// - copy_markdown_cover_asset：复制前完整校验（magic MIME / 扩展 / 字节 /
+//   像素 / 4:3..2:1 / EXIF / SVG 安全）→ 复制到 assets/ → 注册 staged lease；
+//   校验失败不留下半成品文件。
+// - validate_markdown_cover_asset：已有正文本地图片设为封面时不重复 copy，
+//   只校验 canonical path / 边界 / MIME / 尺寸 / 比例。
+// - release_markdown_cover_lease：放弃/关闭/复制晚到时释放 staged lease，
+//   只清理"本会话新建、磁盘 baseline 未引用、当前 draft 未引用"的文件。
+// ------------------------------------------------------------------
+
+fn cover_asset_validation_error(error: &crate::core::markdown_cover_assets::CoverReject) -> AppError {
+    AppError::CoverAssetRejected(format!("{}: {}", error.kind, error.message))
+}
+
+/// 校验 Markdown 中本地 src 的 canonical 解析（越界/符号链接逃逸返回 None）。
+fn resolve_markdown_local_src(
+    markdown_file_path: &str,
+    src: &str,
+) -> Option<std::path::PathBuf> {
+    let markdown_dir = std::path::Path::new(markdown_file_path).parent()?;
+    crate::core::thumbnail::resolve_cover_asset_path(src, markdown_dir)
+}
+
+pub fn copy_markdown_cover_asset_impl(
+    state: &AppState,
+    payload: CopyMarkdownCoverAssetRequest,
+) -> Result<CopyMarkdownCoverAssetResponse, AppError> {
+    let markdown_path = std::path::PathBuf::from(&payload.markdown_file_path);
+    let source_path = std::path::PathBuf::from(&payload.source_image_path);
+    if !source_path.is_file() {
+        return Err(AppError::InvalidParams);
+    }
+
+    // IPC 参数必须绑定到当前 item 的真实磁盘路径，不能信任 renderer 任意传入的
+    // markdown_file_path 后向旁路目录创建 assets/。canonical 比较同时收敛 macOS
+    // `/var` → `/private/var` 等别名。
+    let indexed_markdown_path = std::path::PathBuf::from(
+        state.get_item_detail(payload.item_id)?.summary.file_path,
+    );
+    let requested_markdown = markdown_path
+        .canonicalize()
+        .map_err(|_| AppError::InvalidParams)?;
+    let indexed_markdown = indexed_markdown_path
+        .canonicalize()
+        .map_err(|_| AppError::InvalidParams)?;
+    if requested_markdown != indexed_markdown {
+        return Err(AppError::InvalidParams);
+    }
+
+    // 复制前完整校验：失败不产生任何半成品（不复制、不注册 lease、不写 transaction）。
+    let validated_source =
+        crate::core::markdown_cover_assets::validate_local_cover_asset(&source_path)
+            .map_err(|error| cover_asset_validation_error(&error))?;
+
+    let markdown_dir = markdown_path.parent().ok_or(AppError::InvalidParams)?;
+    let assets_dir = markdown_dir.join("assets");
+    std::fs::create_dir_all(&assets_dir).map_err(|_| AppError::IoError)?;
+
+    let target_path = next_available_asset_path(&assets_dir, &source_path)?;
+    let same_file = match (source_path.canonicalize(), target_path.canonicalize()) {
+        (Ok(source), Ok(target)) => source == target,
+        _ => false,
+    };
+    let created_staged_file = !same_file;
+    let validated = if created_staged_file {
+        if std::fs::copy(&source_path, &target_path).is_err() {
+            let _ = std::fs::remove_file(&target_path);
+            return Err(AppError::IoError);
+        }
+        // 以真正落盘的 bytes 为最终状态源，避免源文件在校验与 copy 之间变化，
+        // 或 copy 失败后留下未校验的半成品。
+        match crate::core::markdown_cover_assets::validate_local_cover_asset(&target_path) {
+            Ok(validated) => validated,
+            Err(error) => {
+                let _ = std::fs::remove_file(&target_path);
+                return Err(cover_asset_validation_error(&error));
+            }
+        }
+    } else {
+        validated_source
+    };
+
+    let file_name = target_path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .ok_or(AppError::InvalidParams)?
+        .to_string();
+    let relative_path = markdown_relative_asset_path(&file_name);
+    // 只有本命令实际新建的文件才是 staged asset。若用户直接选择文档自身
+    // assets/ 里的现有图片，返回同一相对路径但绝不登记 lease；否则放弃/关闭会
+    // 把已提交或正文共享资源误当临时文件删除。
+    let staged_asset_id = if created_staged_file {
+        let staged_asset_id = uuid::Uuid::new_v4().to_string();
+        let lease = crate::state::CoverAssetLease {
+            item_id: payload.item_id,
+            markdown_canonical_path: requested_markdown.to_string_lossy().to_string(),
+            tab_id: payload.tab_id.clone(),
+            operation_generation: payload.operation_generation,
+            staged_asset_id: staged_asset_id.clone(),
+            staged_path: target_path.clone(),
+            relative_src: relative_path.clone(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        if state.register_cover_asset_lease(lease).is_err() {
+            let _ = std::fs::remove_file(&target_path);
+            return Err(AppError::InternalError);
+        }
+        staged_asset_id
+    } else {
+        String::new()
+    };
+
+    Ok(CopyMarkdownCoverAssetResponse {
+        relative_path,
+        staged_asset_id,
+        file_name,
+        natural_width: validated.natural_width,
+        natural_height: validated.natural_height,
+    })
+}
+
+#[tauri::command]
+pub fn copy_markdown_cover_asset(
+    state: tauri::State<'_, AppState>,
+    payload: CopyMarkdownCoverAssetRequest,
+) -> Result<CopyMarkdownCoverAssetResponse, AppError> {
+    copy_markdown_cover_asset_impl(&state, payload)
+}
+
+pub fn validate_markdown_cover_asset_impl(
+    state: &AppState,
+    payload: ValidateMarkdownCoverAssetRequest,
+) -> Result<ValidateMarkdownCoverAssetResponse, AppError> {
+    // 与 copy 命令保持相同的 item/path 绑定。校验虽不写盘，但也不能让 renderer
+    // 借任意 markdown_file_path 探测资料库外的本地文件。
+    let requested_markdown = std::path::PathBuf::from(&payload.markdown_file_path)
+        .canonicalize()
+        .map_err(|_| AppError::InvalidParams)?;
+    let indexed_markdown = std::path::PathBuf::from(
+        state.get_item_detail(payload.item_id)?.summary.file_path,
+    )
+    .canonicalize()
+    .map_err(|_| AppError::InvalidParams)?;
+    if requested_markdown != indexed_markdown {
+        return Err(AppError::InvalidParams);
+    }
+    let Some(resolved) = resolve_markdown_local_src(&payload.markdown_file_path, &payload.src)
+    else {
+        return Ok(ValidateMarkdownCoverAssetResponse {
+            valid: false,
+            reason: Some(format!("cover src `{}` escapes the document directory", payload.src)),
+            natural_width: None,
+            natural_height: None,
+        });
+    };
+    match crate::core::markdown_cover_assets::validate_local_cover_asset(&resolved) {
+        Ok(asset) => Ok(ValidateMarkdownCoverAssetResponse {
+            valid: true,
+            reason: None,
+            natural_width: Some(asset.natural_width),
+            natural_height: Some(asset.natural_height),
+        }),
+        Err(error) => Ok(ValidateMarkdownCoverAssetResponse {
+            valid: false,
+            reason: Some(error.message),
+            natural_width: None,
+            natural_height: None,
+        }),
+    }
+}
+
+#[tauri::command]
+pub fn validate_markdown_cover_asset(
+    state: tauri::State<'_, AppState>,
+    payload: ValidateMarkdownCoverAssetRequest,
+) -> Result<ValidateMarkdownCoverAssetResponse, AppError> {
+    validate_markdown_cover_asset_impl(&state, payload)
+}
+
+pub fn release_markdown_cover_lease_impl(
+    state: &AppState,
+    payload: ReleaseMarkdownCoverLeaseRequest,
+) -> Result<ReleaseMarkdownCoverLeaseResponse, AppError> {
+    // 磁盘 baseline 引用保护：读取当前磁盘 Markdown，收集其中出现的全部图片 src。
+    let baseline_srcs = state
+        .get_item_detail(payload.item_id)
+        .ok()
+        .and_then(|item| std::fs::read_to_string(item.summary.file_path).ok())
+        .map(|raw| crate::core::markdown_cover::collect_document_image_srcs(&raw))
+        .unwrap_or_default();
+    let cleaned = state.release_cover_asset_leases(
+        payload.item_id,
+        &payload.tab_id,
+        payload.operation_generation,
+        &payload.draft_image_srcs,
+        &baseline_srcs,
+    )?;
+    Ok(ReleaseMarkdownCoverLeaseResponse { cleaned })
+}
+
+#[tauri::command]
+pub fn release_markdown_cover_lease(
+    state: tauri::State<'_, AppState>,
+    payload: ReleaseMarkdownCoverLeaseRequest,
+) -> Result<ReleaseMarkdownCoverLeaseResponse, AppError> {
+    release_markdown_cover_lease_impl(&state, payload)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, time::{SystemTime, UNIX_EPOCH}};
@@ -752,7 +965,17 @@ mod tests {
         state::AppState,
     };
 
-    use super::{copy_markdown_image_asset_impl, delete_markdown_image_asset_impl, markdown_export_default_file_name, save_markdown_content_impl};
+    use super::{
+        copy_markdown_cover_asset_impl, copy_markdown_image_asset_impl,
+        delete_markdown_image_asset_impl, markdown_export_default_file_name,
+        release_markdown_cover_lease_impl, save_markdown_content_impl,
+        validate_markdown_cover_asset_impl,
+    };
+    use crate::errors::AppError;
+    use crate::models::{
+        CopyMarkdownCoverAssetRequest, ReleaseMarkdownCoverLeaseRequest,
+        ValidateMarkdownCoverAssetRequest,
+    };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
@@ -1184,5 +1407,409 @@ mod tests {
 
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_dir_all(root);
+    }
+
+    // ---- PR C / C2：封面资源复制 / 校验 / staged lease ----
+
+    fn card_revision_asset(name: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/card-revisions/assets")
+            .join(name)
+    }
+
+    fn cover_lease_state() -> (std::path::PathBuf, std::path::PathBuf, AppState) {
+        let root = temp_path("cover-lease-root");
+        fs::create_dir_all(&root).expect("root");
+        let markdown_path = root.join("note.md");
+        fs::write(&markdown_path, "# Note").expect("markdown");
+        // DB 放在本测试唯一 root 内，避免并行测试在同一毫秒生成相同 temp 名称。
+        let db_path = root.join("cover-lease.sqlite3");
+        let database = Database::new(&db_path).expect("db");
+        let state = AppState::new(database, std::env::temp_dir());
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Cover".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "note.md".to_string(),
+                    file_name: "note.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: 6,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
+        (root, markdown_path, state)
+    }
+
+    #[test]
+    fn copy_cover_asset_validates_before_copy_and_registers_lease() {
+        let (root, markdown_path, state) = cover_lease_state();
+        let response = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 3,
+            },
+        )
+        .expect("legal landscape PNG must copy");
+        assert!(response.relative_path.starts_with("./assets/"), "{:?}", response.relative_path);
+        assert_eq!(response.natural_width, 640);
+        assert_eq!(response.natural_height, 480);
+        assert!(!response.staged_asset_id.is_empty());
+        // staged 文件真实存在，且 lease 已登记（item + tab + generation 匹配）。
+        let copied = root.join("assets").join(&response.file_name);
+        assert!(copied.is_file(), "staged asset must exist on disk");
+        assert!(
+            state
+                .cover_asset_lease_matches(1, "tab-1", 3, &response.staged_asset_id)
+                .expect("lease query"),
+            "lease must bind item/tab/generation"
+        );
+        assert!(
+            !state
+                .cover_asset_lease_matches(1, "tab-2", 3, &response.staged_asset_id)
+                .expect("lease query"),
+            "different tab must not match the lease"
+        );
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+    }
+
+    #[test]
+    fn copy_cover_asset_does_not_lease_or_delete_an_existing_document_asset() {
+        let (root, markdown_path, state) = cover_lease_state();
+        let assets = root.join("assets");
+        fs::create_dir_all(&assets).expect("assets");
+        let existing = assets.join("cover-landscape.png");
+        fs::copy(card_revision_asset("cover-landscape.png"), &existing).expect("existing asset");
+
+        let response = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: existing.to_string_lossy().to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 1,
+            },
+        )
+        .expect("existing in-document asset remains a valid cover choice");
+
+        assert_eq!(response.relative_path, "./assets/cover-landscape.png");
+        assert!(response.staged_asset_id.is_empty(), "pre-existing assets are not staged");
+        let cleaned = state
+            .release_cover_asset_leases(1, "tab-1", 1, &[], &[])
+            .expect("release");
+        assert!(cleaned.is_empty());
+        assert!(existing.is_file(), "release must never delete a pre-existing/shared asset");
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+    }
+
+    #[test]
+    fn copy_cover_asset_rejects_a_markdown_path_not_owned_by_the_item() {
+        let (root, _markdown_path, state) = cover_lease_state();
+        let other = root.join("other.md");
+        fs::write(&other, "# Other").expect("other markdown");
+        let error = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: other.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 1,
+            },
+        )
+        .expect_err("IPC path must match the indexed item path");
+        assert!(matches!(error, AppError::InvalidParams));
+        assert!(!other.parent().unwrap().join("assets").exists());
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+    }
+
+    #[test]
+    fn copy_cover_asset_rejects_every_negative_sample_without_side_effects() {
+        let cases = [
+            ("cover-square.png", "aspect"),
+            ("cover-portrait.jpg", "aspect"),
+            ("cover-ultrawide.png", "aspect"),
+            ("cover-fake-mime.png", "mime-mismatch"),
+            ("cover-oversized-dimensions.png", "pixel-limit"),
+            ("cover-unsafe.svg", "svg-unsafe-element"),
+        ];
+        for (name, expected_kind) in cases {
+            let (root, markdown_path, state) = cover_lease_state();
+            let error = copy_markdown_cover_asset_impl(
+                &state,
+                CopyMarkdownCoverAssetRequest {
+                    markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                    source_image_path: card_revision_asset(name).to_string_lossy().to_string(),
+                    item_id: 1,
+                    tab_id: "tab-1".to_string(),
+                    operation_generation: 1,
+                },
+            )
+            .expect_err("negative sample must be rejected before copy");
+            assert!(
+                matches!(&error, AppError::CoverAssetRejected(message) if message.contains(expected_kind)),
+                "{name}: unexpected error {error:?}"
+            );
+            // 失败不留下半成品：assets 目录不存在或为空、无 lease 登记。
+            let assets = root.join("assets");
+            assert!(
+                !assets.exists() || fs::read_dir(&assets).map(|mut d| d.next().is_none()).unwrap_or(false),
+                "{name}: failed copy must not leave staged files"
+            );
+            let _ = fs::remove_dir_all(root);
+            let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+        }
+    }
+
+    #[test]
+    fn release_lease_keeps_draft_referenced_and_cleans_unreferenced_staged() {
+        let (root, markdown_path, state) = cover_lease_state();
+        let response = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 2,
+            },
+        )
+        .expect("copy");
+        let copied = root.join("assets").join(&response.file_name);
+
+        // draft 引用 staged src → release 保留文件（可能是刚保存的封面）。
+        let cleaned = state
+            .release_cover_asset_leases(1, "tab-1", 2, &[response.relative_path.clone()], &[])
+            .expect("release");
+        assert!(cleaned.is_empty(), "draft-referenced staged file must be kept: {cleaned:?}");
+        assert!(copied.is_file(), "file must survive when the draft references it");
+        assert!(
+            !state
+                .cover_asset_lease_matches(1, "tab-1", 2, &response.staged_asset_id)
+                .expect("lease query"),
+            "lease registration must be released even when the file is kept"
+        );
+
+        // 无引用 staged → 物理清理。
+        let response2 = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 2,
+            },
+        )
+        .expect("copy again");
+        let copied2 = root.join("assets").join(&response2.file_name);
+        assert!(copied2.is_file());
+        let cleaned = state
+            .release_cover_asset_leases(1, "tab-1", 2, &[], &[])
+            .expect("release");
+        assert_eq!(cleaned, vec![response2.relative_path.clone()]);
+        assert!(!copied2.exists(), "unreferenced staged asset must be cleaned");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+    }
+
+    #[test]
+    fn release_latest_generation_closes_older_leases_and_normalizes_references() {
+        let (root, markdown_path, state) = cover_lease_state();
+        let first = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 1,
+            },
+        )
+        .expect("first copy");
+        let second = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 2,
+            },
+        )
+        .expect("second copy");
+        let first_path = root.join("assets").join(&first.file_name);
+        let second_path = root.join("assets").join(&second.file_name);
+
+        // 保存/关闭最新 generation 必须一并收口旧 generation；引用写法去掉 `./`
+        // 后仍指向同一文件，因此第一张保留，第二张未引用则清理。
+        let first_without_dot = first.relative_path.trim_start_matches("./").to_string();
+        let cleaned = state
+            .release_cover_asset_leases(1, "tab-1", 2, &[first_without_dot], &[])
+            .expect("release through latest generation");
+        assert_eq!(cleaned, vec![second.relative_path.clone()]);
+        assert!(first_path.is_file(), "normalized draft reference protects the first asset");
+        assert!(!second_path.exists(), "unreferenced latest asset is cleaned");
+        assert!(!state
+            .cover_asset_lease_matches(1, "tab-1", 1, &first.staged_asset_id)
+            .expect("first lease query"));
+        assert!(!state
+            .cover_asset_lease_matches(1, "tab-1", 2, &second.staged_asset_id)
+            .expect("second lease query"));
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+    }
+
+    #[test]
+    fn release_lease_respects_disk_baseline_reference() {
+        let (root, markdown_path, state) = cover_lease_state();
+        let response = copy_markdown_cover_asset_impl(
+            &state,
+            CopyMarkdownCoverAssetRequest {
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                source_image_path: card_revision_asset("cover-landscape.png")
+                    .to_string_lossy()
+                    .to_string(),
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 4,
+            },
+        )
+        .expect("copy");
+        let copied = root.join("assets").join(&response.file_name);
+        // 磁盘 baseline 已把 staged src 写入 Markdown（模拟保存后）→ 命令层读取
+        // 磁盘 baseline 做引用保护，staged 文件不能清理。
+        fs::write(
+            &markdown_path,
+            format!("# Note\n\n<!-- nutbook-cover -->\n\n![]({})\n", response.relative_path),
+        )
+        .expect("baseline write");
+        let cleaned = release_markdown_cover_lease_impl(
+            &state,
+            ReleaseMarkdownCoverLeaseRequest {
+                item_id: 1,
+                tab_id: "tab-1".to_string(),
+                operation_generation: 4,
+                draft_image_srcs: vec![],
+            },
+        )
+        .expect("release");
+        assert!(cleaned.cleaned.is_empty(), "baseline-referenced staged file must be kept: {:?}", cleaned.cleaned);
+        assert!(copied.is_file(), "committed cover must never be deleted");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
+    }
+
+    #[test]
+    fn validate_cover_asset_checks_existing_document_image_without_copy() {
+        let (root, markdown_path, state) = cover_lease_state();
+        let markdown_dir = root.join("assets");
+        fs::create_dir_all(&markdown_dir).expect("assets");
+        // 合法横图 + 无效竖图。
+        fs::copy(
+            card_revision_asset("cover-landscape.png"),
+            markdown_dir.join("ok.png"),
+        )
+        .expect("copy");
+        fs::copy(
+            card_revision_asset("cover-portrait.jpg"),
+            markdown_dir.join("bad.jpg"),
+        )
+        .expect("copy");
+        let ok = validate_markdown_cover_asset_impl(
+            &state,
+            ValidateMarkdownCoverAssetRequest {
+                item_id: 1,
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                src: "./assets/ok.png".to_string(),
+            },
+        )
+        .expect("validate");
+        assert!(ok.valid, "legal in-document landscape must validate");
+        assert_eq!(ok.natural_width, Some(640));
+        let bad = validate_markdown_cover_asset_impl(
+            &state,
+            ValidateMarkdownCoverAssetRequest {
+                item_id: 1,
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                src: "./assets/bad.jpg".to_string(),
+            },
+        )
+        .expect("validate");
+        assert!(!bad.valid, "portrait must be rejected");
+        assert!(
+            bad.reason.as_deref().unwrap_or("").contains("aspect"),
+            "{:?}",
+            bad.reason
+        );
+        // 越界 src → 拒绝。
+        let escaped = validate_markdown_cover_asset_impl(
+            &state,
+            ValidateMarkdownCoverAssetRequest {
+                item_id: 1,
+                markdown_file_path: markdown_path.to_string_lossy().to_string(),
+                src: "../../etc/passwd".to_string(),
+            },
+        )
+        .expect("validate");
+        assert!(!escaped.valid, "escaped src must be rejected");
+        let other_markdown = root.join("other.md");
+        fs::write(&other_markdown, "# Other").expect("other markdown");
+        let mismatch = validate_markdown_cover_asset_impl(
+            &state,
+            ValidateMarkdownCoverAssetRequest {
+                item_id: 1,
+                markdown_file_path: other_markdown.to_string_lossy().to_string(),
+                src: "./assets/ok.png".to_string(),
+            },
+        )
+        .expect_err("validation path must match the indexed item path");
+        assert!(matches!(mismatch, AppError::InvalidParams));
+        // 校验不产生任何复制。
+        assert!(!markdown_dir.join("ok-2.png").exists(), "validation must not copy");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(temp_path("cover-lease-db").with_extension("sqlite3"));
     }
 }

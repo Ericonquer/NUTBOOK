@@ -3,7 +3,7 @@
 // 真实挂载 dist/assets/markdown-editor.js（Playwright + Chromium），验证：
 // - 普通 / linked / portable / remote 四类独立图片块的封面 wrapper 识别
 // - 非顶层 / 非独立图片（inline、跨 heading）拒绝；stray marker 不跨正文
-// - duplicate marker 诊断 + 不静默采用（进入 source fallback 修复语义）
+// - duplicate marker 阻断 Milkdown，交由宿主 source fallback 修复
 // - missing 资源仍保留封面身份（语法层）；越界/missing 的磁盘级诊断由
 //   Rust `markdown_cover` 模块以真实文件系统验证
 // - raw source 往返：转义 alt、空格路径、单/双引号 title、portable 缩进、
@@ -192,27 +192,39 @@ try {
   assert.equal(await getDocumentTitle(), "Portable cover image");
 
   // portable 封面打开文档时排版不得变化：wrapper DOM 必须继承 alignment 与
-  // displayWidthPx 的 class / style（居中、480px 上限），且计算样式必须真正
-  // 命中 dist/index.html 的 CSS（flex + justify-content:center）。
+  // displayWidthPx 的 class / style（居中、480px 上限）。封面 wrapper 居中机制为
+  // block + text-align:center + inline-block media——不再用 flex + justify-content，
+  // 以保留 inline 图片底部的 descender 间隙，使设封面前后与下文间距一致（PR C/C1 修复）。
   const portableDom = await page.evaluate(() => {
     const wrapper = document.querySelector('div[data-type="markdown-cover-image"]');
     const img = wrapper?.querySelector("img");
+    const media = wrapper?.querySelector(".markdown-cover-media");
     const style = wrapper ? getComputedStyle(wrapper) : null;
+    const mediaStyle = media ? getComputedStyle(media) : null;
+    const wRect = wrapper?.getBoundingClientRect();
+    const iRect = img?.getBoundingClientRect();
+    const wrapperCenter = wRect ? wRect.left + wRect.width / 2 : 0;
+    const imgCenter = iRect ? iRect.left + iRect.width / 2 : 0;
     return {
       wrapperClass: wrapper?.className || "",
       dataAlign: wrapper?.dataset?.nutbookImageAlign || "",
       dataWidth: wrapper?.dataset?.nutbookDisplayWidth || "",
       imgStyle: img?.getAttribute("style") || "",
       computedDisplay: style?.display || "",
-      computedJustify: style?.justifyContent || ""
+      computedTextAlign: style?.textAlign || "",
+      mediaDisplay: mediaStyle?.display || "",
+      centerDelta: wRect && iRect ? Math.round(Math.abs(imgCenter - wrapperCenter)) : -1
     };
   });
   assert.match(portableDom.wrapperClass, /nutbook-image-align-center/, `portable cover must keep center alignment class: ${portableDom.wrapperClass}`);
   assert.equal(portableDom.dataAlign, "center", "wrapper data alignment must be center");
   assert.equal(portableDom.dataWidth, "480", "wrapper display width must stay 480");
   assert.match(portableDom.imgStyle, /max-width:\s*min\(480px, 100%\)/, `img must keep the 480px width cap: ${portableDom.imgStyle}`);
-  assert.equal(portableDom.computedDisplay, "flex", `cover wrapper must be flex (CSS must hit dist rules): ${portableDom.computedDisplay}`);
-  assert.equal(portableDom.computedJustify, "center", `portable cover must actually center its image: ${portableDom.computedJustify}`);
+  // 居中机制改为 block + text-align:center + inline-block media（保留 descender 间隙）。
+  assert.equal(portableDom.computedDisplay, "block", `cover wrapper must be block (descender gap preserved): ${portableDom.computedDisplay}`);
+  assert.equal(portableDom.computedTextAlign, "center", `portable cover must center via text-align (CSS must hit dist rules): ${portableDom.computedTextAlign}`);
+  assert.equal(portableDom.mediaDisplay, "inline-block", `media must be inline-block so text-align centers it: ${portableDom.mediaDisplay}`);
+  assert.ok(portableDom.centerDelta <= 2, `portable cover image must be visually centered (centerDelta=${portableDom.centerDelta}px)`);
 
   // ---------------------------------------------------------------- remote
   await mountEditor(REMOTE);

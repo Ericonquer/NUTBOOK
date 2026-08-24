@@ -7,7 +7,7 @@ use rusqlite::{backup::Backup, Connection, OptionalExtension, Transaction};
 
 use crate::errors::AppError;
 
-pub const LATEST_SCHEMA_VERSION: i64 = 6;
+pub const LATEST_SCHEMA_VERSION: i64 = 7;
 const MIGRATION_0002_SQL: &str =
     include_str!("../../migrations/0002_agent_artifact_sources.sql");
 const MIGRATION_0003_SQL: &str =
@@ -18,6 +18,8 @@ const MIGRATION_0005_SQL: &str =
     include_str!("../../migrations/0005_agent_discovery_cache.sql");
 const MIGRATION_0006_SQL: &str =
     include_str!("../../migrations/0006_thumbnail_revision_state.sql");
+const MIGRATION_0007_SQL: &str =
+    include_str!("../../migrations/0007_cover_dependency_columns.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -51,6 +53,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 6,
         name: "thumbnail_revision_state",
         sql: MIGRATION_0006_SQL,
+    },
+    Migration {
+        version: 7,
+        name: "cover_dependency_columns",
+        sql: MIGRATION_0007_SQL,
     },
 ];
 
@@ -133,6 +140,8 @@ fn apply_migrations_transaction(
             apply_manifest_provenance_migration(&transaction)?;
         } else if migration.version == 6 {
             apply_thumbnail_revision_state_migration(&transaction)?;
+        } else if migration.version == 7 {
+            apply_cover_dependency_columns_migration(&transaction)?;
         } else if !already_has_final_agent_schema {
             transaction
                 .execute_batch(migration.sql)
@@ -228,6 +237,31 @@ fn apply_thumbnail_revision_state_migration(transaction: &Transaction<'_>) -> Re
         ("generated_from_key", "TEXT"),
         ("render_kind", "TEXT"),
         ("generation", "INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        if !table_has_column(transaction, "thumbnail_cache", column)? {
+            transaction
+                .execute_batch(&format!(
+                    "ALTER TABLE thumbnail_cache ADD COLUMN {column} {sql_type};"
+                ))
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+    }
+    Ok(())
+}
+
+/// PR C / C2：为 thumbnail_cache 增加封面依赖投影列（cover_asset_path /
+/// cover_asset_size / cover_asset_modified_at / remote_cover_url）。逐列守卫幂等。
+fn apply_cover_dependency_columns_migration(
+    transaction: &Transaction<'_>,
+) -> Result<(), AppError> {
+    if !table_exists(transaction, "thumbnail_cache")? {
+        return Ok(());
+    }
+    for (column, sql_type) in [
+        ("cover_asset_path", "TEXT NOT NULL DEFAULT ''"),
+        ("cover_asset_size", "INTEGER NOT NULL DEFAULT 0"),
+        ("cover_asset_modified_at", "TEXT NOT NULL DEFAULT ''"),
+        ("remote_cover_url", "TEXT NOT NULL DEFAULT ''"),
     ] {
         if !table_has_column(transaction, "thumbnail_cache", column)? {
             transaction

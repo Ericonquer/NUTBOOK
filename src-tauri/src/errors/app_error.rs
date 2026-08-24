@@ -37,6 +37,9 @@ pub enum AppError {
     AssetInvalidType,
     #[error("image asset exceeds the 20 MiB limit")]
     AssetTooLarge,
+    /// PR C / C2：封面资源校验拒绝（MIME/扩展/字节/像素/比例/SVG 安全）。
+    #[error("cover asset rejected: {0}")]
+    CoverAssetRejected(String),
     #[error("HTML edit session is no longer active")]
     InvalidSession,
     #[error("database error")]
@@ -77,6 +80,7 @@ impl AppError {
             AppError::ThumbnailGenerationFailed => "THUMBNAIL_GENERATION_FAILED",
             AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
             AppError::AssetTooLarge => "ASSET_TOO_LARGE",
+            AppError::CoverAssetRejected(_) => "COVER_ASSET_REJECTED",
             AppError::InvalidSession => "INVALID_SESSION",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",

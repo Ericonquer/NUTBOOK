@@ -57,7 +57,8 @@ mod tests {
                 html_desired_key, markdown_default_cover_key, ChromiumScreenshotInput,
                 GeneratedThumbnailAsset, ThumbnailCaptureAdapter, HTML_SCREENSHOT_HEIGHT,
                 HTML_SCREENSHOT_WIDTH, RENDER_KIND_HTML_SCREENSHOT,
-                RENDER_KIND_MARKDOWN_DEFAULT_COVER, RENDER_KIND_PLACEHOLDER,
+                RENDER_KIND_MARKDOWN_DEFAULT_COVER, RENDER_KIND_MARKDOWN_IMAGE_COVER,
+                RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER, RENDER_KIND_PLACEHOLDER,
             },
         },
         db::{
@@ -2365,8 +2366,12 @@ mod tests {
             ("markdown-long-cjk-title.md", false),
             ("markdown-long-latin-title.md", false),
             // PR C / C0：带 canonical comment 与图片的 fixture 走同一真实链路
-            // （索引 → snapshot → 生成 → CAS ready），标题契约不被 comment/图片
-            // 干扰；这些文档仍只能产出 B4 默认标题封面，绝不落入图片封面路径。
+            // （索引 → snapshot → 生成 → CAS ready）。C2 之后这些文档按封面
+            // 模式投影：有 marker + 合法本地横图 → markdown-image-cover（PNG）；
+            // marker + http/https → markdown-remote-image-cover（只读投影 +
+            // 标题 SVG fallback）；marker + 缺失资源 → markdown-image-cover
+            // 降级（status=failed、保留封面身份、标题 SVG fallback）；duplicate /
+            // stray marker → 仍为 markdown-default-cover。
             ("markdown-cover-image.md", false),
             ("markdown-cover-plain.md", false),
             ("markdown-cover-linked.md", false),
@@ -2375,6 +2380,17 @@ mod tests {
             ("markdown-remote-cover.md", false),
             ("markdown-portable-cover.md", false),
         ];
+        let expected_mode = |file_name: &str| -> (&'static str, &'static str) {
+            // (render kind, status)
+            match file_name {
+                "markdown-cover-plain.md"
+                | "markdown-cover-linked.md"
+                | "markdown-portable-cover.md" => (RENDER_KIND_MARKDOWN_IMAGE_COVER, "ready"),
+                "markdown-remote-cover.md" => (RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER, "stale"),
+                "markdown-missing-cover.md" => (RENDER_KIND_MARKDOWN_IMAGE_COVER, "failed"),
+                _ => (RENDER_KIND_MARKDOWN_DEFAULT_COVER, "ready"),
+            }
+        };
         for (file_name, expect_fallback) in cases {
             let source_path = fixtures_dir.join(file_name);
             let raw = fs::read_to_string(&source_path).expect("read fixture");
@@ -2394,31 +2410,101 @@ mod tests {
                     },
                 )
                 .expect("generate");
-            assert_eq!(response.thumbnail.status, "ready", "fixture {file_name}");
-            // key / render kind 契约：md-default:<title-hash>:title-parser-v1:default-cover-v5。
-            let expected_key = markdown_default_cover_key(&content_hash(&expected_title));
+            let (expected_kind, expected_status) = expected_mode(file_name);
             assert_eq!(
-                response.expected_key.as_deref(),
-                Some(expected_key.as_str()),
+                response.thumbnail.status, expected_status,
                 "fixture {file_name}"
             );
             assert_eq!(
                 response.thumbnail.render_kind.as_deref(),
-                Some(RENDER_KIND_MARKDOWN_DEFAULT_COVER),
+                Some(expected_kind),
                 "fixture {file_name}"
             );
-            // 封面展示与 key 同源的标题（长标题至少展示开头部分），无陈旧标题泄漏。
+            // key / render kind 契约：
+            // - md-default:<title-hash>:title-parser-v1:default-cover-v5（默认标题）；
+            // - md-image:<asset-hash>:image-cover-v1（本地图片封面，含降级）；
+            // - md-remote:<url-hash>:<fallback-title-hash>:remote-cover-v2（在线只读投影）。
+            match expected_kind {
+                RENDER_KIND_MARKDOWN_DEFAULT_COVER => {
+                    let expected_key = markdown_default_cover_key(&content_hash(&expected_title));
+                    assert_eq!(
+                        response.expected_key.as_deref(),
+                        Some(expected_key.as_str()),
+                        "fixture {file_name}"
+                    );
+                }
+                RENDER_KIND_MARKDOWN_IMAGE_COVER => {
+                    assert!(
+                        response
+                            .expected_key
+                            .as_deref()
+                            .map(|key| key.starts_with("md-image:"))
+                            .unwrap_or(false),
+                        "fixture {file_name}: expected md-image key, got {:?}",
+                        response.expected_key
+                    );
+                }
+                RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER => {
+                    assert!(
+                        response
+                            .expected_key
+                            .as_deref()
+                            .map(|key| key.starts_with("md-remote:"))
+                            .unwrap_or(false),
+                        "fixture {file_name}: expected md-remote key, got {:?}",
+                        response.expected_key
+                    );
+                    assert_eq!(
+                        response.thumbnail.remote_cover_url.as_deref(),
+                        Some("https://example.invalid/covers/landscape-16x9.png"),
+                        "fixture {file_name}: remote URL must be projected without downloading"
+                    );
+                    assert_eq!(
+                        response.generation, 0,
+                        "fixture {file_name}: remote projection must not claim a local generation"
+                    );
+                }
+                _ => unreachable!(),
+            }
+            let served = database
+                .get_thumbnail_info(1)
+                .expect("read thumbnail projection")
+                .expect("current cover projection must be servable");
+            assert_eq!(served.status, expected_status, "fixture {file_name}: read path status");
+            assert_eq!(
+                served.render_kind.as_deref(),
+                Some(expected_kind),
+                "fixture {file_name}: read path render kind"
+            );
+            if expected_kind == RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER {
+                assert!(
+                    database
+                        .stale_desired_item_ids()
+                        .expect("local retry queue")
+                        .is_empty(),
+                    "remote projection must not enter the local generation retry queue"
+                );
+            }
+            // 封面展示与 key 同源的标题（长标题至少展示开头部分），无陈旧标题泄漏；
+            // 位图封面（PNG）不检查 SVG 文本。
             let thumb_path = response.thumbnail.path.expect("path");
-            let svg = fs::read_to_string(&thumb_path).expect("read svg");
-            let prefix: String = expected_title.chars().take(6).collect();
-            assert!(
-                svg.contains(&prefix),
-                "fixture {file_name}: cover must contain disk title prefix {prefix:?}"
-            );
-            assert!(
-                !svg.contains("Stale"),
-                "fixture {file_name}: cover must not contain stale titles"
-            );
+            let thumb_bytes = fs::read(&thumb_path).expect("read thumb");
+            if expected_kind == RENDER_KIND_MARKDOWN_IMAGE_COVER && expected_status == "ready" {
+                // 本地封面是确定性 1280×720 PNG。
+                let decoded = image::load_from_memory(&thumb_bytes).expect("valid PNG cover");
+                assert_eq!((decoded.width(), decoded.height()), (1280, 720), "fixture {file_name}");
+            } else {
+                let svg = String::from_utf8_lossy(&thumb_bytes);
+                let prefix: String = expected_title.chars().take(6).collect();
+                assert!(
+                    svg.contains(&prefix),
+                    "fixture {file_name}: cover must contain disk title prefix {prefix:?}"
+                );
+                assert!(
+                    !svg.contains("Stale"),
+                    "fixture {file_name}: cover must not contain stale titles"
+                );
+            }
             // 只清理临时 DB 目录；fixture 文件原地保留。
             let _ = fs::remove_dir_all(db_path.parent().expect("parent"));
         }
@@ -2946,5 +3032,194 @@ mod tests {
             let _ = fs::remove_dir_all(source.parent().expect("parent"));
             let _ = fs::remove_file(db_path);
         });
+    }
+
+    // ---- PR C / C2：本地封面 key 与降级恢复 ----
+
+    /// 建一个临时目录内的真实 Markdown（含 canonical cover marker），
+    /// 封面资源复制到同级 assets/；不触碰 tracked fixture。
+    fn setup_cover_item(
+        cover_asset_source: Option<&Path>,
+    ) -> (Database, PathBuf, PathBuf, PathBuf) {
+        let dir = temp_dir();
+        fs::create_dir_all(dir.join("assets")).expect("assets dir");
+        let markdown = dir.join("cover.md");
+        fs::write(
+            &markdown,
+            "# Cover\n\n<!-- nutbook-cover -->\n\n![Cover](./assets/cover.png)\n",
+        )
+        .expect("markdown");
+        let asset = dir.join("assets").join("cover.png");
+        if let Some(source) = cover_asset_source {
+            fs::copy(source, &asset).expect("copy asset");
+        }
+        let db_path = dir.join("nutbook.sqlite3");
+        let database = Database::new(&db_path).expect("db");
+        database
+            .upsert_library(library(1, "B1", dir.to_string_lossy().as_ref(), "folder"))
+            .expect("library");
+        database
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown.to_string_lossy().to_string(),
+                    relative_path: "cover.md".to_string(),
+                    file_name: "cover.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: fs::metadata(&markdown).expect("metadata").len() as i64,
+                    modified_at: "1".to_string(),
+                    created_at: "now".to_string(),
+                    updated_at: "now".to_string(),
+                }],
+            )
+            .expect("item");
+        (database, markdown, asset, db_path)
+    }
+
+    fn fixture_asset(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/card-revisions/assets")
+            .join(name)
+    }
+
+    #[test]
+    fn local_cover_body_only_save_keeps_ready_key_and_generation() {
+        let (database, markdown, _asset, db_path) =
+            setup_cover_item(Some(&fixture_asset("cover-landscape.png")));
+        let response = database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Err("markdown must not call the capture adapter".to_string()),
+            })
+            .expect("generate");
+        assert_eq!(response.thumbnail.status, "ready");
+        assert_eq!(
+            response.thumbnail.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_IMAGE_COVER)
+        );
+        let before = database.get_thumbnail_info(1).expect("info").expect("ready");
+        let before_key = before.desired_key.clone().expect("key");
+        let before_generation = before.generation.expect("generation");
+        let before_path = before.path.clone().expect("path");
+
+        // 只改正文（封面位置/正文文本变化，资源未变）→ key/generation/path 全保持。
+        fs::write(&markdown, "# Cover\n\nBody v2\n\n<!-- nutbook-cover -->\n\n![Cover](./assets/cover.png)\n")
+            .expect("write");
+        let metadata = fs::metadata(&markdown).expect("metadata");
+        let mtime = file_modified_at_string(&metadata).expect("mtime");
+        let new_hash = content_hash(&fs::read_to_string(&markdown).expect("read"));
+        database
+            .update_markdown_item_content(
+                1,
+                "summary",
+                &mtime,
+                &new_hash,
+                &fs::read_to_string(&markdown).expect("read"),
+                &fs::read_to_string(&markdown).expect("read"),
+                "<h1>Cover</h1>",
+            )
+            .expect("markdown save");
+
+        let after = database.get_thumbnail_info(1).expect("info").expect("kept");
+        assert_eq!(after.desired_key.as_deref(), Some(before_key.as_str()), "body-only save must keep md-image key");
+        assert_eq!(after.generation, Some(before_generation), "generation must not bump");
+        assert_eq!(after.path.as_deref(), Some(before_path.as_str()), "ready PNG must be kept");
+        assert_eq!(after.render_kind.as_deref(), Some(RENDER_KIND_MARKDOWN_IMAGE_COVER));
+        let _ = fs::remove_dir_all(markdown.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn local_cover_asset_replace_invalidates_ready_and_regenerates_new_key() {
+        let (database, markdown, asset, db_path) =
+            setup_cover_item(Some(&fixture_asset("cover-landscape.png")));
+        database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Err("must not call adapter".to_string()),
+            })
+            .expect("generate");
+        let before = database.get_thumbnail_info(1).expect("info").expect("ready");
+
+        // Finder 原地替换封面资源（同路径不同内容）→ 读取路径 stat 复核拒绝旧 ready。
+        let different = image::RgbaImage::from_fn(640, 360, |x, y| {
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255])
+        });
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(different)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode png");
+        fs::write(&asset, bytes.into_inner()).expect("replace asset");
+
+        assert!(
+            database.get_thumbnail_info(1).expect("info").is_none(),
+            "replaced cover asset must invalidate the old ready (stat mismatch)"
+        );
+        // 重新生成 → 新资产哈希 → 新 md-image key。
+        let response = database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Err("must not call adapter".to_string()),
+            })
+            .expect("regenerate");
+        assert_eq!(response.thumbnail.status, "ready");
+        assert_eq!(
+            response.thumbnail.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_IMAGE_COVER)
+        );
+        let after = database.get_thumbnail_info(1).expect("info").expect("ready");
+        assert_ne!(
+            after.desired_key.as_deref(),
+            before.desired_key.as_deref(),
+            "asset content change must produce a new md-image key"
+        );
+        let _ = fs::remove_dir_all(markdown.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn degraded_cover_keeps_identity_and_recovers_when_asset_restored() {
+        // 缺失资源：生成 → status=failed、render kind=markdown-image-cover、
+        // fallback 标题 SVG；封面身份保留（后续恢复可自动升级）。
+        let (database, markdown, asset, db_path) = setup_cover_item(None);
+        let response = database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Err("must not call adapter".to_string()),
+            })
+            .expect("generate");
+        assert_eq!(response.thumbnail.status, "failed", "missing asset must degrade");
+        assert_eq!(
+            response.thumbnail.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_IMAGE_COVER),
+            "cover identity must be kept while degraded"
+        );
+        assert!(
+            response.thumbnail.error_message.as_deref().unwrap_or("").contains("does not exist"),
+            "{:?}",
+            response.thumbnail.error_message
+        );
+        let fallback = response.thumbnail.path.expect("fallback svg path");
+        let svg = fs::read_to_string(&fallback).expect("fallback svg");
+        assert!(svg.contains("Cover"), "fallback must be the deterministic title SVG");
+        // 读取路径在资源仍缺失时继续服务降级行（不反复排队）。
+        let degraded = database.get_thumbnail_info(1).expect("info").expect("degraded served");
+        assert_eq!(degraded.status, "failed");
+        // 资源恢复 → stat 复核拒绝旧降级行 → 重新生成 → ready。
+        fs::copy(fixture_asset("cover-landscape.png"), &asset).expect("restore asset");
+        assert!(
+            database.get_thumbnail_info(1).expect("info").is_none(),
+            "restored asset must invalidate the degraded row"
+        );
+        let response = database
+            .generate_thumbnail_with_adapter(1, &StubCaptureAdapter {
+                response: Err("must not call adapter".to_string()),
+            })
+            .expect("regenerate");
+        assert_eq!(response.thumbnail.status, "ready", "recovered cover must become ready");
+        assert_eq!(
+            response.thumbnail.render_kind.as_deref(),
+            Some(RENDER_KIND_MARKDOWN_IMAGE_COVER)
+        );
+        let _ = fs::remove_dir_all(markdown.parent().expect("parent"));
+        let _ = fs::remove_file(db_path);
     }
 }

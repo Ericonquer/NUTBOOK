@@ -461,12 +461,17 @@ fn local_resource_diagnostic(cover: &CoverImage, base_dir: &Path) -> Option<Cove
     let base_canonical = base_dir
         .canonicalize()
         .unwrap_or_else(|_| base_dir.to_path_buf());
-    // 符号链接逃逸：文件存在时用真实路径判断；不存在（含 broken link）时
-    // 退回词法前缀判断，随后由 exists() 给出 MissingResource。
+    // 符号链接逃逸：文件存在时用真实路径判断；不存在（含 broken link）时先用
+    // 父目录的真实路径判断（macOS /var/folders → /private/var/folders 这类符号链接
+    // 会令词法前缀比较把「文档目录内的缺失资源」误判为越界），最后才退回词法前缀，
+    // 随后由 exists() 给出 MissingResource。
     let real = normalized.canonicalize().ok();
     let escaped = match real {
         Some(real) => !real.starts_with(&base_canonical),
-        None => !normalized.starts_with(&base_canonical),
+        None => match normalized.parent().and_then(|parent| parent.canonicalize().ok()) {
+            Some(parent_real) => !parent_real.starts_with(&base_canonical),
+            None => !normalized.starts_with(&base_canonical),
+        },
     };
     if escaped {
         return Some(CoverDiagnostic {
@@ -516,6 +521,63 @@ fn normalize_path(path: &Path) -> PathBuf {
 /// 返回的字符串再次 `parse_cover_metadata` 应得到同一封面身份（幂等）。
 pub fn serialize_cover(cover: &CoverImage) -> String {
     format!("{COVER_MARKER}\n{}", cover.raw_source)
+}
+
+/// 收集文档中出现的全部图片 src（Markdown image destination 与 portable HTML
+/// `<img src>`），用于 staged asset 释放时的引用保护（磁盘 baseline 侧）。
+/// 只做保守收集，不做结构校验；dedup 保持出现顺序。
+pub fn collect_document_image_srcs(raw: &str) -> Vec<String> {
+    let (body, _) = document_title::strip_frontmatter(raw);
+    let events: Vec<(Event<'_>, Range<usize>)> =
+        Parser::new_ext(body, Options::ENABLE_STRIKETHROUGH)
+            .into_offset_iter()
+            .collect();
+    let mut srcs: Vec<String> = Vec::new();
+    for (event, _) in &events {
+        if let Event::Start(Tag::Image { dest_url, .. }) = event {
+            push_unique(&mut srcs, dest_url.to_string());
+        }
+        if let Event::Html(text) = event {
+            collect_img_src_attrs(text, &mut srcs);
+        }
+    }
+    srcs
+}
+
+fn push_unique(srcs: &mut Vec<String>, value: String) {
+    if value.is_empty() || srcs.iter().any(|existing| existing == &value) {
+        return;
+    }
+    srcs.push(value);
+}
+
+/// 从 HTML 事件文本中保守提取 `<img src="...">` 属性值（支持单/双引号）。
+fn collect_img_src_attrs(html: &str, srcs: &mut Vec<String>) {
+    let lower = html.to_ascii_lowercase();
+    let mut search_from = 0usize;
+    while let Some(relative) = lower[search_from..].find("<img") {
+        let tag_start = search_from + relative;
+        let Some(tag_end) = html[tag_start..].find('>') else {
+            break;
+        };
+        let tag_end = tag_start + tag_end;
+        let tag_lower = &lower[tag_start..tag_end];
+        if let Some(attr_start) = tag_lower.find("src") {
+            // 属性名边界：src 后必须紧跟空白或 =。
+            let after = &tag_lower[attr_start + 3..];
+            if after.starts_with('=') || after.starts_with(char::is_whitespace) {
+                if let Some(quote_pos) = after.find(['\'', '"']) {
+                    let quote = after.as_bytes()[quote_pos] as char;
+                    if let Some(rest) = after.get(quote_pos + 1..) {
+                        if let Some(value_end) = rest.find(quote) {
+                            push_unique(srcs, rest[..value_end].trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        search_from = tag_end + 1;
+    }
 }
 
 #[cfg(test)]
