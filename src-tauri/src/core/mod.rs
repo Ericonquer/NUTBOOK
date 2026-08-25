@@ -8,6 +8,8 @@ pub mod html_edit;
 pub mod html_runtime;
 pub mod library;
 pub mod local_server;
+pub mod markdown_cover;
+pub mod markdown_cover_assets;
 pub mod nbskill_package;
 pub mod preview_protocol;
 pub mod scan_coordinator;

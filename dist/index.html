@@ -1918,6 +1918,51 @@
         background: #f4f4f6;
       }
 
+      /* PR C / C2：在线封面 / 本地降级封面卡片状态。
+         标题 SVG fallback 常显；远程 live 图只在 lazy 加载成功且比例合格后整体替换。
+         警告常态隐藏（opacity 0），hover/focus 才显示完整原因——不制造永久错误。 */
+      .thumb-cover-state {
+        position: relative;
+      }
+
+      .thumb-cover-fallback,
+      .thumb-remote-live {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .thumb-remote-live {
+        z-index: 1;
+      }
+
+      .thumb-cover-warning {
+        position: absolute;
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        z-index: 3;
+        padding: 4px 8px;
+        border-radius: 8px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #3a3a3a;
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid rgba(0, 0, 0, 0.14);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease;
+      }
+
+      .thumb-cover-state:hover .thumb-cover-warning,
+      .thumb-cover-state:focus-within .thumb-cover-warning,
+      .item-card:focus .thumb-cover-warning {
+        opacity: 1;
+      }
+
       .thumb-frame {
         pointer-events: none;
         background: #fff;
@@ -2850,22 +2895,22 @@
       }
 
       .milkdown-editor-root .portable-image-block {
-        display: flex;
+        display: block;
         width: 100%;
-        align-items: flex-start;
-        justify-content: flex-start;
+        position: relative;
+        margin: 0 0 16px;
       }
 
       .milkdown-editor-root .portable-image-block.nutbook-image-align-center {
-        justify-content: center;
+        text-align: center;
       }
 
       .milkdown-editor-root .portable-image-block.nutbook-image-align-right {
-        justify-content: flex-end;
+        text-align: right;
       }
 
       .milkdown-editor-root .portable-image-block > a {
-        display: inline-flex;
+        display: inline-block;
         max-width: 100%;
       }
 
@@ -2877,6 +2922,80 @@
 
       .milkdown-editor-root .portable-image-block.ProseMirror-selectednode {
         outline: none;
+      }
+
+      /* PR C / C1：封面 wrapper（markdown-cover-image-block）继承普通图片的
+         行内盒模型语义——普通（未对齐）图片在编辑器里是 display:inline，底部
+         带字脚（descender）间隙；此前用 display:flex + inline-flex 包裹会丢失
+         该间隙，导致设为封面后比普通图片少约 4px 底部间距。改为 block + text-align
+         对齐、media 用 inline-block，使封面图与正文普通图底部间距完全一致。 */
+      .milkdown-editor-root .markdown-cover-image-block {
+        display: block;
+        width: 100%;
+        position: relative;
+        /* 与 ProseMirror paragraph 16px 底部间距对齐：设为封面后不能与下一段
+           紧贴。ProseMirror 不做 block margin collapse，wrapper 无 mb 时与
+           紧邻 paragraph 间距为 0；A→B 身份转移后视觉上两张图贴在一起。 */
+        margin: 0 0 16px;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block.nutbook-image-align-center {
+        text-align: center;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block.nutbook-image-align-right {
+        text-align: right;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block .markdown-cover-media {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block .markdown-cover-media > a {
+        display: inline-flex;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block img {
+        width: auto;
+        height: auto;
+        max-width: 100%;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block.ProseMirror-selectednode {
+        outline: none;
+      }
+
+      /* PR C / C2：轻量「封面」身份徽标——只在 hover / focus / 选中时出现，
+         阅读常态不显示永久徽标；装饰性徽标不进可访问性树（状态由图片工具栏
+         「取消封面」按钮的 aria-label / tooltip 同步表达）。
+         伪元素挂在 .markdown-cover-media（相对定位、宽度跟随图片）上，
+         保证图片居中/右对齐时徽标仍落在图片左上角，而不是 wrapper 左缘。 */
+      .milkdown-editor-root .markdown-cover-image-block .markdown-cover-media::after {
+        content: attr(data-cover-badge);
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 2;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #3a3a3a;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(0, 0, 0, 0.16);
+        opacity: 0;
+        pointer-events: none;
+        user-select: none;
+        transition: opacity 0.12s ease;
+      }
+
+      .milkdown-editor-root .markdown-cover-image-block .markdown-cover-media:hover::after,
+      .milkdown-editor-root .markdown-cover-image-block .markdown-cover-media:focus-within::after,
+      .milkdown-editor-root .markdown-cover-image-block.ProseMirror-selectednode .markdown-cover-media::after {
+        opacity: 1;
       }
 
       .markdown-preview h1,
@@ -5794,6 +5913,10 @@
         cursor: pointer;
       }
 
+      .markdown-image-align-toolbar button[hidden] {
+        display: none;
+      }
+
       .markdown-image-align-toolbar button:hover,
       .markdown-image-align-toolbar button.active {
         background: #1f1f22;
@@ -7105,6 +7228,16 @@
         return `${t(key)}${normalizeError(error)}`;
       }
 
+      // PR C / C2：失败 toast 只用简短口语（不带错误代码/路径），详情留给状态栏；
+      // toast 是醒目弹窗，承担"发生了什么 + 简短原因"；错误代码 / 路径 / 规则名是
+      // 调试信息，不应进 toast。
+      function statusAndShortToast(prefixKey, shortKey, error) {
+        const full = statusError(prefixKey, error);
+        const short = t(shortKey);
+        return { full, short };
+      }
+
+
       function delay(ms) {
         return new Promise((resolve) => window.setTimeout(resolve, ms));
       }
@@ -7240,26 +7373,33 @@
 
       function assignMarkdownOutlineTargets(card) {
         if (!card) return;
-        const selectors = "h1, h2, h3, h4, h5, h6";
-        [card.querySelector(".markdown-preview"), card.querySelector(".milkdown-editor-root .ProseMirror")].forEach((container) => {
-          if (!container) return;
-          container.querySelectorAll(".markdown-document-title-source").forEach((heading) => {
-            heading.classList.remove("markdown-document-title-source");
-          });
-          let skippedDocumentTitle = false;
-          let outlineIndex = 0;
-          container.querySelectorAll(selectors).forEach((heading) => {
-            if (heading.tagName === "H1" && !skippedDocumentTitle) {
-              skippedDocumentTitle = true;
-              if (!heading.closest('[data-type="aligned-text-block"]')) {
-                heading.classList.add("markdown-document-title-source");
-              }
-              delete heading.dataset.markdownOutlineIndex;
-              return;
+        // 16.47 方案A（滚动跳变根因修复）：本函数曾同时处理 .markdown-preview
+        // 与 .milkdown-editor-root .ProseMirror。向编辑器内容区写 class /
+        // data-markdown-outline-index 会被 ProseMirror 的 DOMObserver 读回为
+        // 外部输入，触发 sameDoc 全树重绘（h1/p/h2/封面节点全部重建），
+        // 图片重载导致 scrollHeight 塌缩、scrollTop 被双重钳制而永久跳变
+        // （证据链见 MEMORY.md 16.47）。现在宿主只处理阅读态预览容器；
+        // 编辑器内容区的标题隐藏类与大纲序号由 markdown-editor 的
+        // markdownOutlineDecorationPlugin 依据文档结构提供，属性名与语义
+        // 保持不变，大纲点击在两种模式下仍查询同一 data-markdown-outline-index。
+        const container = card.querySelector(".markdown-preview");
+        if (!container) return;
+        container.querySelectorAll(".markdown-document-title-source").forEach((heading) => {
+          heading.classList.remove("markdown-document-title-source");
+        });
+        let skippedDocumentTitle = false;
+        let outlineIndex = 0;
+        container.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
+          if (heading.tagName === "H1" && !skippedDocumentTitle) {
+            skippedDocumentTitle = true;
+            if (!heading.closest('[data-type="aligned-text-block"]')) {
+              heading.classList.add("markdown-document-title-source");
             }
-            heading.dataset.markdownOutlineIndex = String(outlineIndex);
-            outlineIndex += 1;
-          });
+            delete heading.dataset.markdownOutlineIndex;
+            return;
+          }
+          heading.dataset.markdownOutlineIndex = String(outlineIndex);
+          outlineIndex += 1;
         });
       }
 
@@ -10427,8 +10567,10 @@
         if (!sourceImagePath) return null;
         try {
           const result = await invoke("copy_markdown_image_asset", {
-            markdownFilePath: tab.item.filePath,
-            sourceImagePath
+            payload: {
+              markdownFilePath: tab.item.filePath,
+              sourceImagePath
+            }
           });
           const relativePath = result?.relativePath ?? result?.relative_path ?? "";
           if (!relativePath) return null;
@@ -10443,12 +10585,169 @@
         }
       }
 
+      // PR C / C2：`+ → 封面图` 的宿主侧 picker/copy。复制前由后端完成全部安全
+      // 校验（magic MIME / 扩展 / 字节 / 像素 / 4:3..2:1 / EXIF / SVG 安全），
+      // 校验失败不留下半成品；成功后注册 staged lease 并绑定 item + tab +
+      // operation generation。picker/copy 晚到或 generation 已失效时释放 lease，
+      // 绝不把结果写入错误文档。
+      async function insertMarkdownCoverAssetForTab(tab) {
+        if (!tab?.item?.filePath) {
+          const missingPathMessage = t("markdown.imageInsertMissingPath");
+          setStatus(missingPathMessage, "warn");
+          showToast(missingPathMessage);
+          return null;
+        }
+        tab.coverOperationGeneration = (tab.coverOperationGeneration || 0) + 1;
+        const generation = tab.coverOperationGeneration;
+        const activationToken = tab.coverActivationToken || 0;
+        const sourceImagePath = await invoke("open_image_file_dialog");
+        if (!sourceImagePath) return null;
+        // picker 打开期间切换 tab/关闭/重建编辑 surface：复制前即可判定失效，
+        // 不制造无意义 staged 文件。A→B→A 回到原 tab 时 activation token 已变化，
+        // 也不能让旧 picker 结果穿越两次切换后写回。
+        if (
+          tab.closed
+          || appState.activeTabId !== tab.id
+          || (tab.coverActivationToken || 0) !== activationToken
+          || (tab.coverOperationGeneration || 0) !== generation
+        ) {
+          return null;
+        }
+        try {
+          const result = await invoke("copy_markdown_cover_asset", {
+            payload: {
+              markdownFilePath: tab.item.filePath,
+              sourceImagePath,
+              itemId: tab.id,
+              tabId: String(tab.id),
+              operationGeneration: generation
+            }
+          });
+          const relativePath = result?.relativePath ?? result?.relative_path ?? "";
+          if (!relativePath) {
+            releaseMarkdownCoverLeaseForTab(tab, generation);
+            return null;
+          }
+          // 复制晚到 / 会话代号已失效：释放本次 staged lease，不插入错误文档。
+          if (
+            (tab.coverOperationGeneration ?? 0) !== generation
+            || tab.closed
+            || appState.activeTabId !== tab.id
+            || (tab.coverActivationToken || 0) !== activationToken
+          ) {
+            releaseMarkdownCoverLeaseForTab(tab, generation);
+            return null;
+          }
+          const insertedMessage = t("markdown.coverInserted");
+          setStatus(insertedMessage, "ok");
+          showToast(insertedMessage);
+          return {
+            relativePath,
+            fileName: result?.fileName ?? result?.file_name ?? "",
+            stagedAssetId: result?.stagedAssetId ?? result?.staged_asset_id ?? "",
+            operationGeneration: generation,
+            naturalWidth: Number(result?.naturalWidth ?? result?.natural_width ?? 0),
+            naturalHeight: Number(result?.naturalHeight ?? result?.natural_height ?? 0)
+          };
+        } catch (error) {
+          const { full, short } = statusAndShortToast(
+            "markdown.coverInsertFailedPrefix",
+            "markdown.coverInsertBlockedShort",
+            error
+          );
+          setStatus(full, "error");
+          showToast(short);
+          return null;
+        }
+      }
+
+      // 已有正文本地图片设为封面：不重复 copy，只校验 canonical path / MIME /
+      // 尺寸 / 4:3..2:1（http/https 在线图片不下载不校验比例，直接可设封面）。
+      async function validateMarkdownCoverAssetForTab(tab, src) {
+        if (!tab?.item?.filePath || !src || !appState.isTauri) return false;
+        if (/^https?:\/\//i.test(String(src).trim())) return true;
+        try {
+          const result = await invoke("validate_markdown_cover_asset", {
+            payload: {
+              itemId: tab.id,
+              markdownFilePath: tab.item.filePath,
+              src
+            }
+          });
+          if (result?.valid) return true;
+          const reason = result?.reason || t("markdown.coverAspectHint");
+          // 状态栏 = 详细技术原因（比例 / MIME / SVG 安全规则）；toast = 口语总结。
+          setStatus(`${t("markdown.coverValidationFailedPrefix")}${reason}`, "error");
+          showToast(t("markdown.coverValidationBlockedShort"));
+          return false;
+        } catch (error) {
+          const { full, short } = statusAndShortToast(
+            "markdown.coverValidationFailedPrefix",
+            "markdown.coverValidationBlockedShort",
+            error
+          );
+          setStatus(full, "error");
+          showToast(short);
+          return false;
+        }
+      }
+
+      // 放弃 / 关闭 / 复制晚到时释放 staged lease：只清理"本会话新建、磁盘
+      // baseline 未引用、当前 draft 未引用"的 staged 文件；刚保存的封面（已被
+      // 最终 Markdown 引用）保留。已提交旧封面 / 正文共享图片绝不被删除。
+      async function releaseMarkdownCoverLeaseForTab(tab, generation, { quiet = false } = {}) {
+        if (!tab?.id || !appState.isTauri) return;
+        const operationGeneration = generation ?? tab.coverOperationGeneration ?? 0;
+        if (!operationGeneration) return;
+        const srcs = collectDraftImageSrcs(markdownContentForTab(tab));
+        try {
+          await invoke("release_markdown_cover_lease", {
+            payload: {
+              itemId: tab.id,
+              tabId: String(tab.id),
+              operationGeneration,
+              draftImageSrcs: srcs
+            }
+          });
+        } catch (error) {
+          if (!quiet) console.warn("release cover lease failed", error);
+        }
+      }
+
+      // 从 draft Markdown 保守提取图片 src（引用保护：宁可多保留也不误删）。
+      function collectDraftImageSrcs(markdown = "") {
+        const srcs = [];
+        const seen = new Set();
+        const push = (value) => {
+          const cleaned = String(value || "").trim();
+          if (cleaned && !seen.has(cleaned)) {
+            seen.add(cleaned);
+            srcs.push(cleaned);
+          }
+        };
+        const imagePattern = /!\[[^\]]*\]\(\s*([^)\s]+)(?:\s+["'][^"']*["'])?\s*\)/g;
+        let match = imagePattern.exec(markdown);
+        while (match) {
+          push(match[1]);
+          match = imagePattern.exec(markdown);
+        }
+        const imgPattern = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
+        match = imgPattern.exec(markdown);
+        while (match) {
+          push(match[1]);
+          match = imgPattern.exec(markdown);
+        }
+        return srcs;
+      }
+
       async function deleteMarkdownImageAssetForTab(tab, imageSrc) {
         if (!tab?.item?.filePath || !imageSrc || !appState.isTauri) return false;
         try {
           return await invoke("delete_markdown_image_asset", {
-            markdownFilePath: tab.item.filePath,
-            imageSrc
+            payload: {
+              markdownFilePath: tab.item.filePath,
+              imageSrc
+            }
           });
         } catch (error) {
           console.warn("Markdown image asset delete failed", error);
@@ -10510,6 +10809,30 @@
             },
             onInsertImageAsset() {
               return insertMarkdownImageAssetForTab(tab);
+            },
+            onInsertCoverAsset() {
+              return insertMarkdownCoverAssetForTab(tab);
+            },
+            onReleaseCoverAsset(asset) {
+              return releaseMarkdownCoverLeaseForTab(tab, asset?.operationGeneration, { quiet: true });
+            },
+            onValidateCoverAsset(src) {
+              return validateMarkdownCoverAssetForTab(tab, src);
+            },
+            // PR C / C2：封面身份操作反馈。校验拒绝的原因已由
+            // validateMarkdownCoverAssetForTab 输出，这里不重复提示。
+            onCoverChange(result) {
+              if (!result) return;
+              // 成功/失败与保存提醒同一 toast 通道：状态栏 + 居中 toast 双提示。
+              if (result.ok) {
+                const message = t(result.kind === "remove" ? "markdown.coverRemovedOk" : "markdown.coverSetOk");
+                setStatus(message, "ok");
+                showToast(message);
+              } else if (!(result.kind === "set" && result.reason === "validation")) {
+                const message = t(result.kind === "remove" ? "markdown.coverRemoveFailed" : "markdown.coverSetFailed");
+                setStatus(message, "warn");
+                showToast(message);
+              }
             },
             onRemoveImageAsset(src) {
               return deleteMarkdownImageAssetForTab(tab, src);
@@ -10719,7 +11042,8 @@
           errorMessage: thumbnail.errorMessage ?? thumbnail.error_message ?? null,
           desiredKey: thumbnail.desiredKey ?? thumbnail.desired_key ?? null,
           generation: thumbnail.generation ?? null,
-          renderKind: thumbnail.renderKind ?? thumbnail.render_kind ?? null
+          renderKind: thumbnail.renderKind ?? thumbnail.render_kind ?? null,
+          remoteCoverUrl: thumbnail.remoteCoverUrl ?? thumbnail.remote_cover_url ?? null
         };
       }
 
@@ -10771,11 +11095,36 @@
       function thumbnailNeedsGeneration(item) {
         if (!supportsGeneratedThumbnail(item) || isItemPathMissing(item)) return false;
         const thumb = item.thumbnail;
+        // 本地封面降级（status=failed + markdown-image-cover）是当前状态：
+        // 卡片回退标题 SVG + hover 警告，不反复排队；资源恢复由读取路径的
+        // asset stat 复核触发重新生成（自动升级并移除警告）。
+        if (
+          item.fileType === "markdown" &&
+          thumb &&
+          thumb.renderKind === "markdown-image-cover" &&
+          thumb.status === "failed"
+        ) {
+          return false;
+        }
+        // 在线封面是只读 remote projection：有标题 SVG fallback + URL 即已收敛，
+        // 不参加本地 generation/ready 队列。
+        if (
+          item.fileType === "markdown" &&
+          thumb &&
+          thumb.renderKind === "markdown-remote-image-cover" &&
+          thumb.status === "stale" &&
+          thumb.path &&
+          thumb.remoteCoverUrl
+        ) {
+          return false;
+        }
         if (!thumb || thumb.status !== "ready") return true;
-        // render kind 必须精确匹配当前正式路径；markdown-html-screenshot（已退休）、
-        // placeholder、缺失等任何其他 kind 一律按"需要重建"处理。
-        const expectedKind = item.fileType === "html" ? "html-screenshot" : "markdown-default-cover";
-        if (thumb.renderKind !== expectedKind) return true;
+        // render kind 必须精确匹配当前正式路径之一；markdown-html-screenshot
+        // （已退休）、placeholder、缺失等任何其他 kind 一律按"需要重建"处理。
+        const expectedKinds = item.fileType === "html"
+          ? ["html-screenshot"]
+          : ["markdown-default-cover", "markdown-image-cover", "markdown-remote-image-cover"];
+        if (!expectedKinds.includes(thumb.renderKind)) return true;
         // 兜底：旧 md-screenshot 过渡缓存（B1-B3）若仍以 ready 泄漏，按默认封面重建。
         if (
           item.fileType === "markdown" &&
@@ -15004,7 +15353,15 @@
               tab.isDirty = false;
             }
           }
+          // 先使会话失效，再销毁编辑器。若文件选择/复制 promise 随后才返回，
+          // insertMarkdownCoverAssetForTab 会识别 closed 并释放对应 staged lease，
+          // 不会把晚到结果插回已关闭的 tab。
+          tab.closed = true;
           destroyMarkdownEditorSession(tab.id);
+          // PR C / C2：关闭/放弃时释放本次会话的 staged cover lease。只清理
+          // "本会话新建、磁盘 baseline 未引用、当前 draft 未引用"的 staged 文件；
+          // 已保存（draft 含封面）或正文仍引用的图片保留。fire-and-forget。
+          releaseMarkdownCoverLeaseForTab(tab, tab.coverOperationGeneration, { quiet: true });
           if (isClosingActiveTab) {
             appState.activeTabId = nextActiveTabId;
           }
@@ -15303,6 +15660,21 @@
         return parts.join("；");
       }
 
+      // PR C / C2：封面状态的可访问名称。本地降级（资源缺失/不合格）或在线
+      // 失败时，卡片 aria-label 同步完整原因（"常态无永久错误，hover/focus 才
+      // 可见警告"的视觉约定由 CSS 承担，可访问名称始终可用）。
+      function coverWarningTextForItem(item) {
+        const thumb = item?.thumbnail;
+        if (!thumb) return "";
+        if (thumb.renderKind === "markdown-image-cover" && thumb.status === "failed") {
+          return thumb.errorMessage || t("markdown.coverAssetRejectedTitle");
+        }
+        if (thumb.renderKind === "markdown-remote-image-cover") {
+          return t("status.coverRemoteLoading");
+        }
+        return "";
+      }
+
       function thumbnailNode(item) {
         const pathMissing = isItemPathMissing(item);
         // 自定义标签压缩成 primary +N（与 Project/Skill 同模式）：只显示第一个主标签，
@@ -15356,7 +15728,39 @@
           ? `<div class="thumb-missing-mask"><span class="thumb-missing-pill">文件路径失效</span></div>`
           : "";
         if (item.thumbnail?.path) {
-          if (item.thumbnail.path.startsWith("data:image/svg+xml;base64,")) {
+          const thumb = item.thumbnail;
+          const isRemote = thumb.renderKind === "markdown-remote-image-cover";
+          const isDegradedLocal = thumb.renderKind === "markdown-image-cover" && thumb.status === "failed";
+          // PR C / C2：在线封面 / 本地降级封面 —— 标题 SVG fallback 常显；
+          // 远程图片仅在可见卡片 lazy 加载（no-referrer、异步解码），onload 后
+          // 复核自然尺寸与 4:3..2:1 比例，合格才整体替换；加载前/离线/超时/
+          // 失败/比例变化继续显示标题 SVG。警告常态隐藏，hover/focus 显示完整
+          // 原因，accessible name 同步（卡片级 aria-label 由 renderItems 追加）。
+          if (isRemote || isDegradedLocal) {
+            const warningText = isDegradedLocal
+              ? `${t("markdown.coverLocalDegradedPrefix")}${thumb.errorMessage || t("markdown.coverAssetRejectedTitle")}`
+              : "";
+            // accessible name 同步：记录不含警告的基础 aria（sourceAria 与
+            // renderItems 同一语义），在线加载成功/失败时由控制器增删警告后缀。
+            const coverSourceAria = itemSourceBadgesAria(item);
+            const coverBaseAria = `${pathMissing ? `文件路径失效：${item.title || item.fileName}` : `打开 ${item.title || item.fileName}`}${coverSourceAria ? `，${coverSourceAria}` : ""}`;
+            const remoteLive = isRemote && thumb.remoteCoverUrl
+              ? `<img class="thumb thumb-remote-live" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${escapeAttribute(thumb.remoteCoverUrl)}" data-item-id="${item.id}" data-cover-url="${escapeAttribute(thumb.remoteCoverUrl)}" alt="" aria-hidden="true" style="display:none" onload="NutbookCoverCard.remoteLoaded(this)" onerror="NutbookCoverCard.remoteFailed(this)" />`
+              : "";
+            const warning = warningText
+              ? `<div class="thumb-cover-warning" role="note" aria-hidden="true">${escapeHtml(warningText)}</div>`
+              : `<div class="thumb-cover-warning" role="note" aria-hidden="true"></div>`;
+            return `
+              <div class="thumb-wrap ${pathMissing ? "path-missing" : ""} thumb-cover-state" ${isRemote ? `data-remote-cover-card="${item.id}"` : ""} data-cover-aria-base="${escapeAttribute(coverBaseAria)}">
+                <img class="thumb thumb-cover-fallback" src="${escapeAttribute(thumb.path)}" alt="" />
+                ${remoteLive}
+                ${warning}
+                ${missingMask}
+                ${badge}
+              </div>
+            `;
+          }
+          if (thumb.path.startsWith("data:image/svg+xml;base64,")) {
             const encoded = item.thumbnail.path.slice("data:image/svg+xml;base64,".length);
             let svgMarkup = "";
             try {
@@ -15472,10 +15876,55 @@
         if (result.discarded === true) return { applied: false, reason: "discarded" };
         // 只有 ready 成图才算成功应用；failed（placeholder / 引擎不可用）是明确失败。
         const status = result.status ?? result.thumbnail?.status ?? null;
+        const renderKind = result.renderKind ?? result.thumbnail?.renderKind ?? null;
+        // PR C / C2：本地封面降级是合法当前状态——status=failed +
+        // markdown-image-cover（含 fallback 标题 SVG path + 完整原因）→ 应用为
+        // 降级投影：卡片回退标题 SVG、hover/focus 警告、accessible name 同步；
+        // 资源恢复后由读取路径 stat 复核触发重新生成自动升级。
+        if (status === "failed" && renderKind === "markdown-image-cover" && result.thumbnail?.path) {
+          const expectedKey = result.expectedKey ?? result.desiredKey ?? null;
+          if (expectedKey) item._thumbDesiredKey = expectedKey;
+          item.thumbnail = normalizeThumbnailInfo({
+            status: "failed",
+            path: result.thumbnail.path || null,
+            width: result.thumbnail.width || null,
+            height: result.thumbnail.height || null,
+            lastGeneratedAt: result.thumbnail.lastGeneratedAt || null,
+            errorMessage: result.thumbnail.errorMessage || null,
+            desiredKey: expectedKey || result.thumbnail.desiredKey || null,
+            generation: result.generation ?? result.thumbnail.generation ?? null,
+            renderKind: "markdown-image-cover",
+            remoteCoverUrl: null
+          });
+          return { applied: true, reason: "degraded" };
+        }
+        // 在线封面不是本地 ready：后端返回独立 remote 状态与 fallback 路径，
+        // 前端可见卡片再 lazy load URL。它是已应用的只读投影，不进入本地 CAS。
+        if (
+          status === "stale"
+          && renderKind === "markdown-remote-image-cover"
+          && result.thumbnail?.path
+          && result.thumbnail?.remoteCoverUrl
+        ) {
+          const expectedKey = result.expectedKey ?? result.desiredKey ?? null;
+          if (expectedKey) item._thumbDesiredKey = expectedKey;
+          item.thumbnail = normalizeThumbnailInfo({
+            status: "stale",
+            path: result.thumbnail.path,
+            width: result.thumbnail.width || null,
+            height: result.thumbnail.height || null,
+            lastGeneratedAt: result.thumbnail.lastGeneratedAt || null,
+            errorMessage: null,
+            desiredKey: expectedKey || result.thumbnail.desiredKey || null,
+            generation: result.generation ?? result.thumbnail.generation ?? null,
+            renderKind: "markdown-remote-image-cover",
+            remoteCoverUrl: result.thumbnail.remoteCoverUrl
+          });
+          return { applied: true, reason: "remote" };
+        }
         if (status !== "ready") {
           return { applied: false, reason: status === "failed" ? "failed" : "not-ready" };
         }
-        const renderKind = result.renderKind ?? result.thumbnail?.renderKind ?? null;
         if (renderKind === "placeholder") {
           return { applied: false, reason: "placeholder" };
         }
@@ -15490,7 +15939,8 @@
           errorMessage: result.errorMessage || result.thumbnail?.errorMessage || null,
           desiredKey: expectedKey || result.thumbnail?.desiredKey || null,
           generation: result.generation ?? result.thumbnail?.generation ?? null,
-          renderKind: result.renderKind || result.thumbnail?.renderKind || null
+          renderKind: result.renderKind || result.thumbnail?.renderKind || null,
+          remoteCoverUrl: result.remoteCoverUrl || result.thumbnail?.remoteCoverUrl || null
         });
         return { applied: true, reason: "ready" };
       }
@@ -15687,6 +16137,7 @@
           return;
         }
         wrap.replaceWith(freshEl);
+        window.NutbookCoverCard?.observe?.(freshEl);
         // 更新卡片级 aria-label（来源徽标可能变化）
         const pathMissing = isItemPathMissing(item);
         const sourceAria = itemSourceBadgesAria(item);
@@ -15711,7 +16162,7 @@
           item.pathState || "",
           item.isFavorite ? 1 : 0,
           item.thumbnail
-            ? [item.thumbnail.path || "", item.thumbnail.status || "", item.thumbnail.width || "", item.thumbnail.height || "", item.thumbnail.lastGeneratedAt || "", item.thumbnail.errorMessage || ""]
+            ? [item.thumbnail.path || "", item.thumbnail.status || "", item.thumbnail.width || "", item.thumbnail.height || "", item.thumbnail.lastGeneratedAt || "", item.thumbnail.errorMessage || "", item.thumbnail.renderKind || "", item.thumbnail.desiredKey || "", item.thumbnail.remoteCoverUrl || ""]
             : null,
           (item.tags || []).map((tag) => tag.name || ""),
           (item.sourceBadges || []).map((badge) => [badge.kind || "", badge.sourceId || "", badge.label || "", badge.isOwner ? 1 : 0, badge.available === false ? 0 : 1])
@@ -15785,7 +16236,10 @@
               const baseAria = pathMissing
                 ? `文件路径失效：${item.title || item.fileName}`
                 : `打开 ${item.title || item.fileName}`;
-              const ariaLabel = sourceAria ? `${baseAria}，${sourceAria}` : baseAria;
+              const coverWarning = coverWarningTextForItem(item);
+              const ariaLabel = coverWarning
+                ? `${baseAria}，${sourceAria ? `${sourceAria}，` : ""}${coverWarning}`
+                : (sourceAria ? `${baseAria}，${sourceAria}` : baseAria);
               return `
               <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}" role="button" tabindex="0" aria-label="${escapeAttribute(ariaLabel)}">
                 <button class="card-remove" type="button" data-remove-item="${item.id}" aria-label="从 Nutbook 移除">
@@ -15807,6 +16261,7 @@
             }
           )
           .join("");
+        window.NutbookCoverCard?.observe?.(els.itemList);
 
         els.itemList.querySelectorAll("[data-open-item]").forEach((node) => {
           node.addEventListener("click", async (event) => {
@@ -15948,6 +16403,126 @@ if (!chipTipController) {
           };
           window.__nutbookChipTipController = chipTipController;
         }
+
+        // PR C / C2：在线封面卡片的 lazy 加载 / 比例复核 / 失败与恢复控制器。
+        // 远程 SVG 只能作为被动 <img>（禁止 fetch 后 inline）；no-referrer +
+        // loading=lazy + 异步解码；onload 复核自然尺寸 4:3..2:1，合格才整体替换
+        // 标题 SVG fallback；失败/离线/比例变化继续显示标题 SVG。URL 变化后旧
+        // 异步结果（旧 DOM 元素）已被重渲染替换，此处再复核当前 item URL。
+        window.NutbookCoverCard = {
+          timeoutMs: 15000,
+          observer: null,
+          coverRatioOk(naturalWidth, naturalHeight) {
+            if (!naturalWidth || !naturalHeight) return false;
+            const ratio = naturalWidth / naturalHeight;
+            return ratio >= 4 / 3 && ratio <= 2;
+          },
+          syncCoverCardAria(wrap, warning) {
+            const card = wrap?.closest(".item-card");
+            if (!card) return;
+            const base = wrap.getAttribute("data-cover-aria-base") || "";
+            card.setAttribute("aria-label", warning ? `${base}，${warning}` : base);
+          },
+          remoteLoaded(img) {
+            const wrap = img.closest(".thumb-wrap");
+            if (!wrap || !wrap.isConnected) return;
+            const fallback = wrap.querySelector(".thumb-cover-fallback");
+            const warning = wrap.querySelector(".thumb-cover-warning");
+            const item = appState.items.find((entry) => entry.id === Number(img.dataset.itemId));
+            const currentUrl = item?.thumbnail?.remoteCoverUrl || "";
+            if (currentUrl && currentUrl !== img.dataset.coverUrl) return;
+            if (this.coverRatioOk(img.naturalWidth, img.naturalHeight)) {
+              img.dataset.coverFailed = "false";
+              img.style.display = "block";
+              img.setAttribute("aria-hidden", "false");
+              if (fallback) fallback.style.display = "none";
+              if (warning) warning.textContent = "";
+              wrap.classList.remove("thumb-cover-warning-on");
+              this.syncCoverCardAria(wrap, "");
+            } else {
+              img.dataset.coverFailed = "true";
+              if (warning) warning.textContent = t("status.coverRemoteRatio");
+              wrap.classList.add("thumb-cover-warning-on");
+              this.syncCoverCardAria(wrap, t("status.coverRemoteRatio"));
+            }
+          },
+          remoteFailed(img) {
+            const wrap = img.closest(".thumb-wrap");
+            if (!wrap || !wrap.isConnected) return;
+            const warning = wrap.querySelector(".thumb-cover-warning");
+            const reason = navigator.onLine === false
+              ? t("status.coverRemoteOffline")
+              : t("status.coverRemoteFailed");
+            img.dataset.coverFailed = "true";
+            if (warning) warning.textContent = reason;
+            wrap.classList.add("thumb-cover-warning-on");
+            this.syncCoverCardAria(wrap, reason);
+          },
+          remoteTimedOut(img) {
+            const wrap = img.closest(".thumb-wrap");
+            if (!wrap || !wrap.isConnected || img.style.display === "block") return;
+            const warning = wrap.querySelector(".thumb-cover-warning");
+            const reason = t("status.coverRemoteTimeout");
+            img.dataset.coverFailed = "true";
+            if (warning) warning.textContent = reason;
+            wrap.classList.add("thumb-cover-warning-on");
+            this.syncCoverCardAria(wrap, reason);
+          },
+          arm(img) {
+            if (!img || img.dataset.coverArmed === "true") return;
+            img.dataset.coverArmed = "true";
+            window.setTimeout(() => {
+              if (img.isConnected && img.style.display !== "block") {
+                this.remoteTimedOut(img);
+              }
+            }, this.timeoutMs);
+          },
+          observe(root) {
+            const images = root?.matches?.("img.thumb-remote-live")
+              ? [root]
+              : [...(root?.querySelectorAll?.("img.thumb-remote-live") || [])];
+            if (!images.length) return;
+            if (!("IntersectionObserver" in window)) {
+              images.forEach((img) => this.arm(img));
+              return;
+            }
+            if (!this.observer) {
+              this.observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                  if (!entry.isIntersecting) return;
+                  this.observer.unobserve(entry.target);
+                  this.arm(entry.target);
+                });
+              }, { rootMargin: "160px" });
+            }
+            images.forEach((img) => this.observer.observe(img));
+          },
+          retry(img) {
+            if (!img?.isConnected || img.dataset.coverFailed !== "true") return;
+            const url = img.dataset.coverUrl || "";
+            if (!url) return;
+            img.dataset.coverFailed = "false";
+            img.dataset.coverArmed = "false";
+            img.removeAttribute("src");
+            window.requestAnimationFrame(() => {
+              if (!img.isConnected) return;
+              img.src = url;
+              this.arm(img);
+            });
+          }
+        };
+        window.addEventListener("online", () => {
+          document.querySelectorAll("img.thumb-remote-live[data-cover-failed='true']")
+            .forEach((img) => window.NutbookCoverCard.retry(img));
+        });
+        els.itemList.addEventListener("pointerover", (event) => {
+          const img = event.target.closest?.(".thumb-wrap")?.querySelector?.("img.thumb-remote-live");
+          window.NutbookCoverCard.retry(img);
+        });
+        els.itemList.addEventListener("focusin", (event) => {
+          const img = event.target.closest?.(".item-card")?.querySelector?.("img.thumb-remote-live");
+          window.NutbookCoverCard.retry(img);
+        });
       // 复用同一套 chip-tooltip coordinator（全局单个 floating tip，A1.1 已验证）。
       // 卡片：mouseover 只显示首个 focus 的徽标（role=button 卡片 click 后会 focus，
       // 不能让 focus 触发卡片级组合 tooltip：A1.3 用户报「点击卡片顶部出现长 tooltip」）。
@@ -16282,6 +16857,14 @@ if (!chipTipController) {
       function renderViewer() {
         hideMarkdownLinkTooltip();
         const tab = getActiveTab();
+        // 每次真正激活另一 Markdown surface 都推进 token。文件选择/复制 promise
+        // 捕获该 token，因此 A→B→A 后旧结果仍会失效，而不是仅凭“当前又是 A”误放行。
+        if (
+          tab?.preview?.fileType === "markdown"
+          && tab.id !== appState.activeMarkdownEditorTabId
+        ) {
+          tab.coverActivationToken = (tab.coverActivationToken || 0) + 1;
+        }
         if (appState.activeMarkdownEditor) {
           captureMarkdownScrollForTab(getOpenTab(appState.activeMarkdownEditorTabId));
           captureActiveMarkdownDraft();
@@ -17982,6 +18565,11 @@ if (!chipTipController) {
           // true/false（save-and-close / 关闭全部标签后 appState.items 不得
           // 仍是旧标题——P1）。loadItems 只调用一次（B3 复审 P2 已删除重复）。
           await loadItems();
+          // PR C / C2：保存成功后本次 staged cover lease 转为 committed 语义——
+          // 释放 lease（被最终 Markdown 引用的 staged 文件保留，未引用的清理）。
+          if (typeof releaseMarkdownCoverLeaseForTab === "function") {
+            releaseMarkdownCoverLeaseForTab(tab, tab.coverOperationGeneration, { quiet: true });
+          }
           const refreshedListItem = appState.items.find((entry) => entry.id === tab.id);
           if (refreshedListItem) {
             tab.item = refreshedListItem;

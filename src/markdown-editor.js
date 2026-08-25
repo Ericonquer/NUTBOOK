@@ -7,8 +7,10 @@ import { keymap } from "@milkdown/kit/prose/keymap";
 import { liftListItem } from "@milkdown/kit/prose/schema-list";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { $nodeSchema, $remark } from "@milkdown/kit/utils";
 import { setBlockType, toggleMark } from "prosemirror-commands";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import {
   addColumnAfter,
   addColumnBefore,
@@ -304,13 +306,16 @@ const INSERT_ICON_SVG = {
   list: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 6h8M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="4.8" cy="6" r="1" fill="currentColor"/><circle cx="4.8" cy="10" r="1" fill="currentColor"/><circle cx="4.8" cy="14" r="1" fill="currentColor"/></svg>`,
   orderedList: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 6h8M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.3 7V4.5l-.8.4M3.5 9.2c.2-.3.6-.5 1-.5.7 0 1.1.4 1.1 1 0 .4-.3.8-.8 1.2l-1.2.9h2M3.6 13.2c.2-.2.5-.3.9-.3.7 0 1.1.3 1.1.8 0 .4-.3.7-.8.8.6.1 1 .4 1 .9 0 .6-.5 1-1.3 1-.4 0-.8-.1-1.1-.3" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   table: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM3.5 8.5h13M8 5v10M12.5 5v10" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/></svg>`,
-  code: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.4 6.6-3.2 3.4 3.2 3.4M12.6 6.6l3.2 3.4-3.2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  code: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.4 6.6-3.2 3.4 3.2 3.4M12.6 6.6l3.2 3.4-3.2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  cover: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="M4.3 13.4 7 10.7l2.2 2 2.9-3.4 3.6 4.1" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.4 7.6h3.4M14.1 5.9v3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`
 };
 
 const IMAGE_ALIGN_ICON_SVG = {
   left: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M4 8h8.5M4 11.5h12M4 15h8.5" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
   center: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M6.2 8h7.6M4 11.5h12M6.2 15h7.6" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
-  right: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M7.5 8H16M4 11.5h12M7.5 15H16" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`
+  right: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M7.5 8H16M4 11.5h12M7.5 15H16" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/></svg>`,
+  coverSet: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="M4.3 13.4 7 10.7l2.2 2 2.9-3.4 3.6 4.1" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.4 7.6h3.4M14.1 5.9v3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+  coverRemove: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.2h11a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-11a1.3 1.3 0 0 1-1.3-1.3v-8a1.3 1.3 0 0 1 1.3-1.3Z" fill="none" stroke="currentColor" stroke-width="1.45"/><path d="m7 9.3 6 6M13 9.3l-6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
 };
 
 const IMAGE_SIZE_ICON_SVG = {
@@ -323,6 +328,8 @@ const IMAGE_ALIGNMENT_TOKEN = /(?:^|\s)nutbook-align=(left|center|right)(?=\s|$)
 const IMAGE_SIZE_TOKEN = /(?:^|\s)nutbook-size=(small|medium|large)(?=\s|$)/i;
 const PORTABLE_IMAGE_NODE_NAME = "portable_image";
 const PORTABLE_IMAGE_WIDTH_LIMITS = Object.freeze({ small: 160, medium: 480 });
+const MARKDOWN_COVER_MARKER = "<!-- nutbook-cover -->";
+const MARKDOWN_COVER_IMAGE_NODE_NAME = "markdown_cover_image";
 const ALIGNED_TEXT_NODE_NAME = "aligned_text_block";
 const TEXT_ALIGNMENTS = Object.freeze(["center", "right"]);
 
@@ -686,6 +693,490 @@ const portableImageSchema = $nodeSchema(PORTABLE_IMAGE_NODE_NAME, () => ({
   }
 }));
 
+// ---------------------------------------------------------------------------
+// PR C / Task C1：canonical `<!-- nutbook-cover -->` 封面身份
+//
+// 只识别正文顶层精确 marker + 紧随其后的独立图片块（普通 Markdown image /
+// 链接包裹的单图片 / portable GitHub HTML 图片）。封面只是图片身份，不改变
+// 图片在正文中的位置、语法或排版；serializer 未修改排版时回放 raw source。
+// ---------------------------------------------------------------------------
+
+function isCoverMarkerHtml(node) {
+  return node?.type === "html" && String(node?.value || "").trim() === MARKDOWN_COVER_MARKER;
+}
+
+function sliceRawSource(raw, node) {
+  const start = node?.position?.start?.offset;
+  const end = node?.position?.end?.offset;
+  if (raw && Number.isInteger(start) && Number.isInteger(end) && end > start && end <= raw.length) {
+    return raw.slice(start, end);
+  }
+  return null;
+}
+
+// 判定 mdast 节点是否为「独立图片块」，返回结构化封面身份字段（含 raw source）。
+function coverImageBlockFromMdast(node, raw) {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "portableImage") {
+    return {
+      nodeKind: "portable-image",
+      src: node.src || "",
+      alt: node.alt || "",
+      title: node.title || "",
+      alignment: node.alignment || "",
+      displayWidthPx: node.displayWidthPx ?? null,
+      linkHref: node.linkHref || "",
+      linkTitle: node.linkTitle || "",
+      rawSource: sliceRawSource(raw, node) || node.rawSource || ""
+    };
+  }
+  if (node.type !== "paragraph") return null;
+  if (!Array.isArray(node.children) || node.children.length !== 1) return null;
+  const child = node.children[0];
+  if (child?.type === "image") {
+    return {
+      nodeKind: "image",
+      src: child.url || "",
+      alt: child.alt || "",
+      title: child.title || "",
+      alignment: imageAlignmentFromTitle(child.title || ""),
+      displayWidthPx: null,
+      linkHref: "",
+      linkTitle: "",
+      rawSource: sliceRawSource(raw, node) || ""
+    };
+  }
+  if (
+    child?.type === "link"
+    && Array.isArray(child.children)
+    && child.children.length === 1
+    && child.children[0]?.type === "image"
+  ) {
+    const image = child.children[0];
+    return {
+      nodeKind: "linked-image",
+      src: image.url || "",
+      alt: image.alt || "",
+      title: image.title || "",
+      alignment: imageAlignmentFromTitle(image.title || ""),
+      displayWidthPx: null,
+      linkHref: child.url || "",
+      linkTitle: child.title || "",
+      rawSource: sliceRawSource(raw, node) || ""
+    };
+  }
+  return null;
+}
+
+// 收集「顶层 marker + 紧随独立图片块」候选（remark 与 preflight 共用同一语义）。
+function collectCoverCandidates(tree, raw) {
+  const children = tree?.children;
+  if (!Array.isArray(children)) return [];
+  const candidates = [];
+  for (let index = 0; index < children.length; index += 1) {
+    const node = children[index];
+    if (!isCoverMarkerHtml(node)) continue;
+    const block = coverImageBlockFromMdast(children[index + 1], raw);
+    if (!block) continue;
+    candidates.push({ markerIndex: index, blockIndex: index + 1, block });
+  }
+  return candidates;
+}
+
+// 合并顶层 marker + 紧随独立图片块为 `markdownCoverImage`；多个有效 marker
+// 不合并（保持原样、可编辑修复）并返回 duplicate 诊断；stray marker 不跨正文。
+function transformCoverImageBlocks(tree, raw) {
+  const diagnostics = [];
+  if (!Array.isArray(tree?.children)) return diagnostics;
+  const candidates = collectCoverCandidates(tree, raw);
+  if (candidates.length > 1) {
+    diagnostics.push({ kind: "duplicate", count: candidates.length });
+    return diagnostics;
+  }
+  if (candidates.length !== 1) return diagnostics;
+  const { markerIndex, blockIndex, block } = candidates[0];
+  tree.children.splice(markerIndex, 2, {
+    type: "markdownCoverImage",
+    ...block,
+    markerRaw: MARKDOWN_COVER_MARKER,
+    presentationDirty: false
+  });
+  return diagnostics;
+}
+
+// 编辑器创建前的 duplicate 预检（AST 语义，与 remark 同一候选收集逻辑）。
+// 命中时 createMilkdownEditor 抛错，宿主现有 catch 进入源码 fallback 人工修复。
+function preflightCoverMarkers(markdown) {
+  const tree = fromMarkdown(String(markdown || ""));
+  // 与 remark 管线同一转换：portable GitHub HTML 必须先转成 portableImage 节点，
+  // 否则两份 portable cover 的 html 节点不会被 coverImageBlockFromMdast 识别。
+  visitPortableImageHtml(tree);
+  const count = collectCoverCandidates(tree, null).length;
+  return { count, duplicate: count > 1 };
+}
+
+function escapeCoverAlt(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\]/g, "\\]")
+    .replace(/\n/g, " ");
+}
+
+function serializeCoverTitle(value) {
+  return `"${String(value || "").replace(/"/g, '\\"')}"`;
+}
+
+// CommonMark link destination 编码：裸 destination 不允许 ASCII 空格，
+// 含空白/尖括号的路径必须用 `<...>` 包裹（内部 `<` `>` 转义），裸形式
+// 中的括号转义以保证重解析得到同一 src。此编码是结构化重建（raw source
+// 不可用或排版被修改）时的保底路径。
+function serializeCoverDestination(value) {
+  const raw = String(value || "");
+  if (!raw) return raw;
+  if (/[\s<>]/.test(raw)) {
+    return `<${raw.replace(/</g, "\\<").replace(/>/g, "\\>").replace(/\n/g, " ")}>`;
+  }
+  return raw.replace(/[()]/g, (match) => `\\${match}`);
+}
+
+// 结构化重建图片块语法（仅当 raw source 不可用或排版被修改时使用）。
+// plain/linked 图片的对齐 token（nutbook-align=…）写入 title，与普通图片的
+// alignment 语义一致，保证「+ → 封面图」新图默认居中在保存后仍保持。
+function serializeCoverImageBody(attrs = {}) {
+  if (attrs.nodeKind === "portable-image") return serializePortableImageHtml(attrs);
+  const alignmentToken = ["left", "center", "right"].includes(attrs.alignment)
+    ? `nutbook-align=${attrs.alignment}`
+    : "";
+  const titleParts = [attrs.title, alignmentToken].filter(Boolean);
+  const title = titleParts.length ? ` ${serializeCoverTitle(titleParts.join(" "))}` : "";
+  const image = `![${escapeCoverAlt(attrs.alt)}](${serializeCoverDestination(attrs.src)}${title})`;
+  if (attrs.nodeKind === "linked-image") {
+    const linkTitle = attrs.linkTitle ? ` ${serializeCoverTitle(attrs.linkTitle)}` : "";
+    return `[${image}](${serializeCoverDestination(attrs.linkHref)}${linkTitle})`;
+  }
+  return image;
+}
+
+const markdownCoverImageSchema = $nodeSchema(MARKDOWN_COVER_IMAGE_NODE_NAME, () => ({
+  group: "block",
+  atom: true,
+  selectable: true,
+  draggable: true,
+  defining: true,
+  isolating: true,
+  attrs: {
+    nodeKind: { default: "image", validate: "string" },
+    src: { default: "", validate: "string" },
+    alt: { default: "", validate: "string" },
+    title: { default: "", validate: "string" },
+    alignment: { default: "", validate: "string" },
+    displayWidthPx: { default: null, validate: "number|null" },
+    linkHref: { default: "", validate: "string" },
+    linkTitle: { default: "", validate: "string" },
+    rawSource: { default: "", validate: "string" },
+    markerRaw: { default: MARKDOWN_COVER_MARKER, validate: "string" },
+    presentationDirty: { default: false, validate: "boolean" }
+  },
+  parseDOM: [{
+    tag: 'div[data-type="markdown-cover-image"]',
+    getAttrs: (element) => {
+      const image = element.querySelector("img[src]");
+      const anchor = image?.closest("a[href]");
+      return {
+        nodeKind: element.dataset.nutbookNodeKind || "image",
+        src: image?.dataset.nutbookOriginalSrc || image?.getAttribute("src") || "",
+        alt: image?.getAttribute("alt") || "",
+        title: image?.getAttribute("title") || "",
+        alignment: element.dataset.nutbookImageAlign || "",
+        displayWidthPx: parsePortableImageWidth(element.dataset.nutbookDisplayWidth),
+        linkHref: anchor?.getAttribute("href") || "",
+        linkTitle: anchor?.getAttribute("title") || "",
+        rawSource: element.dataset.nutbookRawSource || "",
+        markerRaw: MARKDOWN_COVER_MARKER,
+        presentationDirty: element.dataset.nutbookPresentationDirty === "true"
+      };
+    }
+  }],
+  toDOM: (node) => {
+    const attrs = node.attrs;
+    const alignment = ["left", "center", "right"].includes(attrs.alignment) ? attrs.alignment : "";
+    const displayWidthPx = parsePortableImageWidth(attrs.displayWidthPx);
+    const imageAttributes = {
+      src: attrs.src,
+      alt: attrs.alt,
+      title: attrs.title || null,
+      class: "nutbook-cover-image",
+      "data-nutbook-cover-image": "true",
+      "data-nutbook-node-kind": attrs.nodeKind,
+      "data-nutbook-image-align": alignment,
+      "data-nutbook-display-width": displayWidthPx == null ? "" : String(displayWidthPx)
+    };
+    // portable 封面继承原图片的 alignment / displayWidthPx 视觉（居中、宽度上限），
+    // 打开文档时排版不得变化。
+    if (displayWidthPx != null) {
+      imageAttributes.style = `width:auto;height:auto;max-width:min(${displayWidthPx}px, 100%)`;
+    }
+    const image = ["img", imageAttributes];
+    const media = attrs.linkHref
+      ? ["a", { href: attrs.linkHref, title: attrs.linkTitle || null }, image]
+      : image;
+    // .markdown-cover-media 是相对定位容器：wrapper 用 text-align 对齐并占满行宽，
+    // media 容器宽度跟随图片，badge（::after）挂 media 容器，保证居中/右对齐时
+    // 徽标仍落在图片左上角。
+    // 关键：media 必须收缩到图片「渲染宽度」而非自然宽。inline-block 的 media 其
+    // shrink-to-fit 宽度取的是图片自然宽（img 的 max-width 上限只约束渲染宽、不收缩
+    // 首选宽），居中时 media 被居中、图片在 media 内居中，徽标锚定 media 左缘会落到
+    // 图片左侧。给 media 套用与 img 相同的上限即可让两者等宽、徽标压在图片上。
+    const mediaAttrs = { class: "markdown-cover-media", "data-cover-badge": coverBadgeText() };
+    if (displayWidthPx != null) {
+      mediaAttrs.style = `max-width:min(${displayWidthPx}px, 100%)`;
+    }
+    return ["div", {
+      class: `markdown-cover-image-block${alignment ? ` nutbook-image-align-${alignment}` : ""}`,
+      "data-type": "markdown-cover-image",
+      "data-nutbook-cover": "true",
+      "data-nutbook-node-kind": attrs.nodeKind,
+      "data-nutbook-image-align": alignment,
+      "data-nutbook-display-width": displayWidthPx == null ? "" : String(displayWidthPx)
+    }, ["div", mediaAttrs, media]];
+  },
+  parseMarkdown: {
+    match: (node) => node.type === "markdownCoverImage",
+    runner: (state, node, type) => {
+      state.addNode(type, {
+        nodeKind: node.nodeKind || "image",
+        src: node.src || "",
+        alt: node.alt || "",
+        title: node.title || "",
+        alignment: node.alignment || "",
+        displayWidthPx: node.displayWidthPx ?? null,
+        linkHref: node.linkHref || "",
+        linkTitle: node.linkTitle || "",
+        rawSource: node.rawSource || "",
+        markerRaw: MARKDOWN_COVER_MARKER,
+        presentationDirty: false
+      });
+    }
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === MARKDOWN_COVER_IMAGE_NODE_NAME,
+    runner: (state, node) => {
+      const attrs = node.attrs;
+      const body = !attrs.presentationDirty && attrs.rawSource
+        ? attrs.rawSource
+        : serializeCoverImageBody(attrs);
+      state.addNode("html", undefined, `${MARKDOWN_COVER_MARKER}\n${body}`);
+    }
+  }
+}));
+
+// 轻量「封面」身份徽标文案（模块级 i18n，toDOM 静态渲染用；装饰性不进入
+// 可访问性树，封面状态由图片工具栏「取消封面」aria-label/tooltip 表达）。
+function coverBadgeText() {
+  const i18n = typeof window !== "undefined" ? window.NutbookI18n : null;
+  return i18n?.lookup?.("markdown.coverBadge", i18n.currentLanguage?.()) || "封面";
+}
+
+// 从 ProseMirror 文档定位唯一封面 wrapper 节点。
+function findCoverImageNode(state) {
+  let found = null;
+  state?.doc?.descendants?.((node, pos) => {
+    if (node.type.name === MARKDOWN_COVER_IMAGE_NODE_NAME) {
+      found = { node, pos };
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+// 封面身份切换会把 paragraph / portable block 与 cover atom 互换。即使两套 CSS
+// 的视觉尺寸一致，不同 WebView 的 inline baseline / scroll anchoring 仍可能让正在
+// 操作的图片在屏幕上偏移几像素；A→B 转移还会同时改写目标上方的旧封面。以目标
+// 图片为视觉锚点，并只补偿最近的真实滚动容器，避免把身份修改变成导航动作。
+function captureImageViewportAnchor(view, pos) {
+  const nodeDom = view?.nodeDOM?.(pos);
+  const element = nodeDom instanceof Element
+    ? (nodeDom.matches("img") ? nodeDom : nodeDom.querySelector("img"))
+    : null;
+  if (!element) return null;
+  let scrollParent = element.parentElement;
+  while (scrollParent) {
+    const style = getComputedStyle(scrollParent);
+    const overflowY = style.overflowY;
+    if ((overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay")
+      && scrollParent.scrollHeight > scrollParent.clientHeight) {
+      break;
+    }
+    scrollParent = scrollParent.parentElement;
+  }
+  const rect = element.getBoundingClientRect();
+  return {
+    top: rect.top,
+    left: rect.left,
+    scrollParent,
+    windowX: window.scrollX,
+    windowY: window.scrollY
+  };
+}
+
+function restoreImageViewportAnchor(view, anchor, pos) {
+  if (!anchor) return;
+  const nodeDom = view?.nodeDOM?.(pos);
+  const element = nodeDom instanceof Element
+    ? (nodeDom.matches("img") ? nodeDom : nodeDom.querySelector("img"))
+    : null;
+  if (!element) return;
+  const rect = element.getBoundingClientRect();
+  const deltaX = rect.left - anchor.left;
+  const deltaY = rect.top - anchor.top;
+  if (anchor.scrollParent?.isConnected) {
+    if (Math.abs(deltaX) > 0.5) anchor.scrollParent.scrollLeft += deltaX;
+    if (Math.abs(deltaY) > 0.5) anchor.scrollParent.scrollTop += deltaY;
+    return;
+  }
+  if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
+    window.scrollTo(anchor.windowX + deltaX, anchor.windowY + deltaY);
+  }
+}
+
+function coverAttrsFromPortable(node) {
+  return {
+    nodeKind: "portable-image",
+    src: node.attrs.src || "",
+    alt: node.attrs.alt || "",
+    title: node.attrs.title || "",
+    alignment: node.attrs.alignment || "",
+    displayWidthPx: node.attrs.displayWidthPx ?? null,
+    linkHref: node.attrs.linkHref || "",
+    linkTitle: node.attrs.linkTitle || "",
+    rawSource: node.attrs.rawSource || "",
+    presentationDirty: node.attrs.presentationDirty || false
+  };
+}
+
+function coverAttrsFromImage(node) {
+  const title = node.attrs.title || "";
+  return {
+    nodeKind: "image",
+    src: node.attrs.src || "",
+    alt: node.attrs.alt || "",
+    title,
+    alignment: imageAlignmentFromTitle(title),
+    displayWidthPx: null,
+    linkHref: "",
+    linkTitle: "",
+    rawSource: ""
+  };
+}
+
+// Milkdown 的 link 是 mark（非 node）：linked image 在 ProseMirror 里表现为
+// image 节点带 link mark。此 helper 返回 image 上的 link mark（若有）。
+function imageLinkMark(image) {
+  if (!image?.marks) return null;
+  for (let index = 0; index < image.marks.length; index += 1) {
+    if (image.marks[index].type.name === "link") return image.marks[index];
+  }
+  return null;
+}
+
+function coverAttrsFromLinkedImage(image, linkMark) {
+  const title = image.attrs.title || "";
+  return {
+    nodeKind: "linked-image",
+    src: image.attrs.src || "",
+    alt: image.attrs.alt || "",
+    title,
+    alignment: imageAlignmentFromTitle(title),
+    displayWidthPx: null,
+    linkHref: linkMark?.attrs.href || "",
+    linkTitle: linkMark?.attrs.title || "",
+    rawSource: ""
+  };
+}
+
+function createCoverNode(schema, attrs) {
+  const type = schema.nodes[MARKDOWN_COVER_IMAGE_NODE_NAME];
+  return type.create({
+    ...attrs,
+    markerRaw: MARKDOWN_COVER_MARKER,
+    presentationDirty: attrs.presentationDirty ?? false
+  });
+}
+
+// 解包封面时重建原图片块（保留 node kind、alt、title、link、尺寸与对齐）。
+function rebuildImageBlock(schema, attrs) {
+  const imageType = schema.nodes.image;
+  const paragraph = schema.nodes.paragraph;
+  if (attrs.nodeKind === "portable-image") {
+    return schema.nodes[PORTABLE_IMAGE_NODE_NAME].create({ ...attrs, presentationDirty: false });
+  }
+  const image = imageType.create({ src: attrs.src, alt: attrs.alt, title: attrs.title || null });
+  if (attrs.nodeKind === "linked-image") {
+    // link 在 Milkdown schema 中是 mark，不是 node。
+    const linkMark = schema.marks.link;
+    if (linkMark) {
+      return paragraph.create(null, image.mark([linkMark.create({ href: attrs.linkHref, title: attrs.linkTitle || null })]));
+    }
+  }
+  return paragraph.create(null, image);
+}
+
+// 定位 pos 处的独立图片块（普通图片段落 / 链接图片段落 / portable 块）。
+function independentImageBlockAt(state, pos) {
+  const schema = state.schema;
+  const imageType = schema.nodes.image;
+  const portableType = schema.nodes[PORTABLE_IMAGE_NODE_NAME];
+  const paragraphType = schema.nodes.paragraph;
+  if (!imageType || !paragraphType || !portableType) return null;
+  const safePos = Math.max(0, Math.min(Number(pos) || 0, state.doc.content.size));
+  // 顶层 atom 块（如 portable-image-block）的起始位置 resolve 会停在 doc 层
+  // （atom 没有内部位置，resolve 偏移后仍是 depth 0），depth 向上遍历找不到块；
+  // 改用 nodeAt 直接取到该起始位置处的块本身，再取其完整边界。
+  const direct = state.doc.nodeAt(safePos);
+  if (direct) {
+    if (direct.type === portableType) {
+      return { blockStart: safePos, blockEnd: safePos + direct.nodeSize, attrs: coverAttrsFromPortable(direct) };
+    }
+    if (direct.type === paragraphType && direct.childCount === 1) {
+      const child = direct.firstChild;
+      if (child.type === imageType) {
+        const linkMark = imageLinkMark(child);
+        return {
+          blockStart: safePos,
+          blockEnd: safePos + direct.nodeSize,
+          attrs: linkMark ? coverAttrsFromLinkedImage(child, linkMark) : coverAttrsFromImage(child)
+        };
+      }
+    }
+  }
+  // pos 落在块「内部」（如 image 节点的 pos 而非所在段落 pos）时，向上找容器。
+  let $pos = state.doc.resolve(safePos);
+  for (let depth = $pos.depth; depth >= 1; depth -= 1) {
+    const node = $pos.node(depth);
+    if (node.type === portableType) {
+      return {
+        blockStart: $pos.before(depth),
+        blockEnd: $pos.after(depth),
+        attrs: coverAttrsFromPortable(node)
+      };
+    }
+    if (node.type === paragraphType && node.childCount === 1) {
+      const child = node.firstChild;
+      if (child.type === imageType) {
+        const linkMark = imageLinkMark(child);
+        return {
+          blockStart: $pos.before(depth),
+          blockEnd: $pos.after(depth),
+          attrs: linkMark ? coverAttrsFromLinkedImage(child, linkMark) : coverAttrsFromImage(child)
+        };
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
 function imageAlignmentFromTitle(title = "") {
   const match = String(title || "").match(IMAGE_ALIGNMENT_TOKEN);
   return match?.[1]?.toLowerCase() || "";
@@ -796,6 +1287,11 @@ function collectImageSources(doc) {
     if (["image", PORTABLE_IMAGE_NODE_NAME].includes(node.type?.name) && node.attrs?.src) {
       sources.add(String(node.attrs.src));
     }
+    // 封面 wrapper 是 atom，src 只存在于 attrs；封面身份变化（包裹/解包/
+    // A→B 转移）不得触发资源删除回调。
+    if (node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME && node.attrs?.src) {
+      sources.add(String(node.attrs.src));
+    }
     return true;
   });
   return sources;
@@ -869,12 +1365,76 @@ function localImageSrcPlugin(resolveImageSrc) {
       });
       observer.observe(view.dom, { childList: true, subtree: true });
       const frame = requestAnimationFrame(() => normalizeImages(view.dom));
+      // 封面身份 transaction 会同步重建一到两张图片；由该低频操作显式触发，
+      // 确保首次布局前已将相对 src 改写为宿主可加载 URL。普通输入不触发扫描。
+      const normalizeAfterIdentityChange = () => normalizeImages(view.dom);
+      view.dom.addEventListener("nutbook:normalize-local-images", normalizeAfterIdentityChange);
       return {
         destroy() {
           observer.disconnect();
           cancelAnimationFrame(frame);
+          view.dom.removeEventListener("nutbook:normalize-local-images", normalizeAfterIdentityChange);
         }
       };
+    }
+  });
+}
+
+// 16.47 方案A（滚动跳变根因修复）：宿主不再向 ProseMirror 内容区写入
+// 标题隐藏类与大纲定位属性——宿主的 setAttribute/classList 写入会被
+// PM DOMObserver 读回为外部输入，触发 sameDoc 全树重绘，图片重建导致
+// scrollHeight 塌缩并被 WKWebView 双重钳制 scrollTop（详见 MEMORY.md 16.47）。
+// 改由本 decoration plugin 依据文档结构派生视图层属性：
+// - 文档顺序首个 H1 → 追加 markdown-document-title-source 类（位于
+//   aligned_text_block 内时不加；该 H1 不参与大纲序号）；
+// - 其余 h1~h6 按文档顺序获得 data-markdown-outline-index。
+// 语义与宿主原 assignMarkdownOutlineTargets 对编辑器容器的处理逐条一致；
+// 装饰只作用于视图 DOM，不进入 Markdown 序列化，也不会形成宿主外部写入被
+// DOMObserver 再次读回的 mutation 回环。
+function collectMarkdownOutlineDecorations(doc) {
+  const decorations = [];
+  let skippedDocumentTitle = false;
+  let outlineIndex = 0;
+  const walk = (node, from, insideAlignedBlock) => {
+    node.forEach((child, offset) => {
+      const childFrom = from + offset + 1;
+      const childInsideAlignedBlock = insideAlignedBlock || child.type.name === ALIGNED_TEXT_NODE_NAME;
+      if (child.type.name === "heading") {
+        const childTo = childFrom + child.nodeSize;
+        if (Number(child.attrs.level) === 1 && !skippedDocumentTitle) {
+          skippedDocumentTitle = true;
+          if (!childInsideAlignedBlock) {
+            decorations.push(Decoration.node(childFrom, childTo, { class: "markdown-document-title-source" }));
+          }
+        } else {
+          decorations.push(Decoration.node(childFrom, childTo, { "data-markdown-outline-index": String(outlineIndex) }));
+          outlineIndex += 1;
+        }
+        return;
+      }
+      if (child.childCount) {
+        walk(child, childFrom, childInsideAlignedBlock);
+      }
+    });
+  };
+  walk(doc, -1, false);
+  return decorations;
+}
+
+function markdownOutlineDecorationPlugin() {
+  return new Plugin({
+    state: {
+      init: (_, state) => DecorationSet.create(state.doc, collectMarkdownOutlineDecorations(state.doc)),
+      apply: (tr, value) => (
+        tr.docChanged
+          ? DecorationSet.create(tr.doc, collectMarkdownOutlineDecorations(tr.doc))
+          : value
+      )
+    },
+    props: {
+      decorations(state) {
+        return this.getState(state);
+      }
     }
   });
 }
@@ -942,7 +1502,7 @@ function alignedTextSelectionState(state, selection = state?.selection) {
   return { supported: true, targets, alignment };
 }
 
-async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onRemoveImageAsset = null, onImageSizeError = null }) {
+async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -955,6 +1515,17 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   const documentFrontmatter = splitSkillFrontmatterForEditor(markdown);
   const skillFrontmatter = isSkillMarkdownFileName(fileName) ? documentFrontmatter : null;
   const editorMarkdown = documentFrontmatter ? documentFrontmatter.body : markdown;
+  // PR C / C1：duplicate marker 是阻断式文档诊断——文档必须仍可打开，并进入
+  // 现有源码 fallback 进行人工修复。这里抛错让宿主现有 catch 切到源码编辑，
+  // 不挂载 Milkdown（用户能看到 marker 文本、可手工修复）。C2 不得把该合同
+  // 放宽成视觉编辑器内的不可见/不可可靠修复状态。
+  const coverPreflight = preflightCoverMarkers(editorMarkdown);
+  if (coverPreflight.duplicate) {
+    throw new Error(
+      `document declares ${coverPreflight.count} valid \`<!-- nutbook-cover -->\` markers; `
+      + "only one cover identity is allowed — repair the source before editing"
+    );
+  }
   const editorMount = document.createElement("div");
   editorMount.className = "milkdown-editor-body";
   const frontmatterPanel = renderSkillFrontmatterPanel(skillFrontmatter);
@@ -988,6 +1559,12 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   let codeLanguageFrame = null;
   let markdownChangeTimer = null;
   let lastNotifiedMarkdown = markdown;
+  // PR C / C1：canonical cover remark（在 portableImageRemark 之后执行，
+  // 先让 GitHub HTML 图片成为 portableImage，再合并 comment + 独立图片块）。
+  let coverDiagnostics = [];
+  const coverImageRemark = $remark("coverImageRemark", () => () => (tree) => {
+    coverDiagnostics = transformCoverImageBlocks(tree, editorMarkdown);
+  });
   const codeLanguageControls = new Map();
   const markUserInteracted = () => {
     if (!userInteracted) {
@@ -1030,6 +1607,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         pastePlainTextWhenLeavingList(),
         markdownImageAssetRemovalPlugin(onRemoveImageAsset),
         localImageSrcPlugin(resolveImageSrc),
+        markdownOutlineDecorationPlugin(),
         ...plugins
       ].filter(Boolean));
       ctx.update(listenerCtx, (listenerManager) => listenerManager
@@ -1041,10 +1619,12 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     })
     .use(alignedTextRemark)
     .use(portableImageRemark)
+    .use(coverImageRemark)
     .use(commonmark)
     .use(gfm)
     .use(alignedTextSchema)
     .use(portableImageSchema)
+    .use(markdownCoverImageSchema)
     .use(history)
     .use(listener)
     .create();
@@ -1320,9 +1900,101 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     return runInsertImage(asset.relativePath, asset.fileName);
   }
 
+  // PR C / C2：`+ → 封面图` —— 在当前空段落插入 canonical 封面（marker + 图片），
+  // 默认大图居中、不超过固有尺寸（displayWidthPx null + CSS max-width:100%）。
+  // 已有封面 A 时在同一 transaction 内解包 A（A→C 身份转移，单步 undo/redo 完整
+  // 恢复）；不移动 H1、不创建固定封面槽。picker/copy 晚到时校验 destroyed /
+  // composition / 空段仍有效，失效则拒绝写入错误文档。
+  async function runInsertCoverImage() {
+    if (typeof onInsertCoverAsset !== "function") return false;
+    const view = getEditorView();
+    if (!view || !emptyParagraphSelection(view)) return false;
+    insertMenuSelection = { from: view.state.selection.from };
+    closeInsertMenu({ preserveSelection: true });
+    let asset = null;
+    try {
+      asset = await onInsertCoverAsset();
+    } catch (error) {
+      console.warn("Markdown cover insert failed", error);
+    }
+    if (!asset?.relativePath || destroyed || isEditorComposing()) {
+      if (asset?.stagedAssetId && typeof onReleaseCoverAsset === "function") {
+        await onReleaseCoverAsset(asset);
+      }
+      insertMenuSelection = null;
+      scheduleInsertMenuUpdate();
+      return false;
+    }
+    const inserted = insertCoverAtEmptyParagraph(asset);
+    if (!inserted && asset.stagedAssetId && typeof onReleaseCoverAsset === "function") {
+      await onReleaseCoverAsset(asset);
+    }
+    return inserted;
+  }
+
+  // 在已捕获的空段插入封面 wrapper（与 setCoverImage 同一原子语义：单次 dispatch、
+  // 单 history step；A→C 自动转移；composition/duplicate 拒绝）。
+  function insertCoverAtEmptyParagraph(asset) {
+    const view = getEditorView();
+    if (!view || view.composing) return false;
+    if (coverDiagnostics.some((d) => d.kind === "duplicate")) return false;
+    restoreInsertSelection(view);
+    const target = emptyParagraphSelection(view);
+    if (!target) return false;
+    const schema = view.state.schema;
+    const wrapperType = schema.nodes[MARKDOWN_COVER_IMAGE_NODE_NAME];
+    if (!wrapperType) return false;
+    const coverNode = createCoverNode(schema, {
+      nodeKind: "image",
+      src: asset.relativePath,
+      alt: imageAltFromFileName(asset.fileName || asset.relativePath),
+      title: "",
+      alignment: "center",
+      displayWidthPx: null,
+      linkHref: "",
+      linkTitle: "",
+      rawSource: ""
+    });
+    const existingCover = findCoverImageNode(view.state);
+    const coverStart = existingCover?.pos ?? null;
+    const coverEnd = existingCover
+      ? existingCover.pos + existingCover.node.nodeSize
+      : null;
+    let tr = view.state.tr;
+    let selectionAfter;
+    if (existingCover && coverStart < target.blockStart) {
+      // A 在前：先插入 C（A 的 pos 不受插入影响），再解包 A；selection 经 mapping 修正。
+      tr = tr.replaceWith(target.blockStart, target.blockEnd, coverNode);
+      const afterInsert = target.blockStart + coverNode.nodeSize;
+      tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(schema, existingCover.node.attrs));
+      selectionAfter = tr.mapping.map(afterInsert);
+    } else {
+      // A 在插入点之后（或不存在）：先解包 A（不影响插入点位置），再插入 C。
+      if (existingCover) {
+        tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(schema, existingCover.node.attrs));
+      }
+      tr = tr.replaceWith(target.blockStart, target.blockEnd, coverNode);
+      selectionAfter = tr.mapping.map(target.blockStart + coverNode.nodeSize);
+    }
+    const selectionPos = Math.max(1, Math.min(selectionAfter, tr.doc.content.size));
+    tr.setSelection(TextSelection.near(tr.doc.resolve(selectionPos), -1));
+    view.dispatch(closeHistory(tr.scrollIntoView()));
+    markUserInteracted();
+    view.focus();
+    hideInsertMenu();
+    scheduleFormatToolbarUpdate();
+    scheduleTableToolbarUpdate();
+    scheduleInsertMenuUpdate();
+    return true;
+  }
+
   function runInsertCommand(command) {
     if (command === "image") {
       runInsertImageAsset();
+      return true;
+    }
+    if (command === "cover-image") {
+      runInsertCoverImage();
       return true;
     }
     if (command === "h1") return runInsertHeading(1);
@@ -1450,6 +2122,8 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     menu.setAttribute("aria-label", t("markdown.insertMenu"));
     const items = [
       { command: "image", icon: INSERT_ICON_SVG.image, label: t("markdown.insertImage") },
+      // PR C / C2：「封面图」必须紧邻普通「图片」。
+      { command: "cover-image", icon: INSERT_ICON_SVG.cover, label: t("markdown.insertCoverImage") },
       { command: "h1", icon: INSERT_ICON_SVG.h1, label: t("markdown.insertHeading1") },
       { command: "h2", icon: INSERT_ICON_SVG.h2, label: t("markdown.insertHeading2") },
       { command: "h3", icon: INSERT_ICON_SVG.h3, label: t("markdown.insertHeading3") },
@@ -1588,13 +2262,14 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     if (!imageElement || !view) return null;
     let target = null;
     view.state.doc.descendants((node, pos) => {
-      if (target || !["image", PORTABLE_IMAGE_NODE_NAME].includes(node.type?.name)) return !target;
+      if (target || !["image", PORTABLE_IMAGE_NODE_NAME, MARKDOWN_COVER_IMAGE_NODE_NAME].includes(node.type?.name)) return !target;
       const dom = view.nodeDOM(pos);
       if (dom === imageElement || dom?.contains?.(imageElement)) {
         const $pos = view.state.doc.resolve(pos);
+        const isCover = node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME;
         const isPortable = node.type?.name === PORTABLE_IMAGE_NODE_NAME;
-        const isStandalone = isPortable || ($pos.parent?.type?.name === "paragraph" && $pos.parent.childCount === 1);
-        target = { element: imageElement, node, pos, isPortable, isStandalone };
+        const isStandalone = isCover || isPortable || ($pos.parent?.type?.name === "paragraph" && $pos.parent.childCount === 1);
+        target = { element: imageElement, node, pos, isPortable, isCover, isStandalone };
         return false;
       }
       return true;
@@ -1691,11 +2366,31 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     }
   }
 
+  // PR C / C2：封面 wrapper 排版更新（对齐/尺寸）——保留封面身份，只改 wrapper
+  // attrs；plain/linked 封面改为 portable 表达（与普通图片设对齐的既有行为一致）。
+  function setCoverBlockPresentation(view, target, { alignment, displayWidthPx }) {
+    const node = view.state.doc.nodeAt(target.pos);
+    if (!node || node.type?.name !== MARKDOWN_COVER_IMAGE_NODE_NAME) return false;
+    const tr = view.state.tr.setNodeAttribute(target.pos, "presentationDirty", true);
+    tr.setNodeAttribute(target.pos, "nodeKind", "portable-image");
+    tr.setNodeAttribute(target.pos, "alignment", alignment || "");
+    tr.setNodeAttribute(target.pos, "displayWidthPx", displayWidthPx ?? null);
+    view.dispatch(closeHistory(tr.scrollIntoView()));
+    markUserInteracted();
+    view.focus();
+    scheduleImageAlignToolbarUpdate();
+    return true;
+  }
+
   async function setImageAlignment(alignment) {
     const view = getEditorView();
     if (!view || !activeImageTarget) return false;
     let target = { ...activeImageTarget, node: view.state.doc.nodeAt(activeImageTarget.pos) };
     if (!target.node || !target.isStandalone) return false;
+    if (target.node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME) {
+      const displayWidthPx = target.node.attrs?.displayWidthPx ?? null;
+      return setCoverBlockPresentation(view, target, { alignment, displayWidthPx });
+    }
     let displayWidthPx = target.node.type?.name === PORTABLE_IMAGE_NODE_NAME
       ? target.node.attrs?.displayWidthPx ?? null
       : null;
@@ -1721,6 +2416,18 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     if (!view || !activeImageTarget) return false;
     let target = { ...activeImageTarget, node: view.state.doc.nodeAt(activeImageTarget.pos) };
     if (!target.node || !target.isStandalone) return false;
+    if (target.node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME) {
+      try {
+        const displayWidthPx = await displayWidthForPreset(target, size);
+        return setCoverBlockPresentation(view, target, {
+          alignment: target.node.attrs?.alignment || "",
+          displayWidthPx
+        });
+      } catch (error) {
+        reportImageSizeError(error);
+        return false;
+      }
+    }
     try {
       const displayWidthPx = await displayWidthForPreset(target, size);
       const refreshed = findImageTargetFromElement(target.element, view);
@@ -1730,6 +2437,77 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     } catch (error) {
       reportImageSizeError(error);
       return false;
+    }
+  }
+
+  // PR C / C2：封面身份操作结果回传宿主（成功/失败状态提示）。
+  // result: { kind: "set" | "remove", ok: boolean, reason?: "validation" }
+  // reason === "validation" 表示校验拒绝——宿主 validate 回调已输出具体原因，
+  // 避免重复提示。
+  function notifyCoverChange(result) {
+    if (typeof onCoverChange === "function") onCoverChange(result);
+  }
+
+  // PR C / C2：把当前悬停/选中的合格图片设为封面。本地图片先经宿主校验
+  // （canonical path / MIME / 尺寸 / 4:3..2:1 / SVG 安全；不重复 copy）；
+  // http/https 在线图片不下载不校验比例即可包裹。校验失败不产生任何身份变化。
+  async function setTargetAsCover() {
+    const view = getEditorView();
+    if (!view || !activeImageTarget) return false;
+    let target = { ...activeImageTarget, node: view.state.doc.nodeAt(activeImageTarget.pos) };
+    if (!target.node || !target.isStandalone) return false;
+    if (target.node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME) return false;
+    const src = String(target.node.attrs?.src || "");
+    if (typeof onValidateCoverAsset === "function" && !/^https?:\/\//i.test(src.trim())) {
+      const ok = await onValidateCoverAsset(src);
+      if (!ok) {
+        notifyCoverChange({ kind: "set", ok: false, reason: "validation" });
+        return false;
+      }
+    }
+    const coverState = api.getCoverState();
+    if (coverState.duplicate) return false;
+    const viewNow = getEditorView();
+    if (!viewNow || viewNow.composing) return false;
+    const refreshed = findImageTargetFromElement(target.element, viewNow);
+    if (!refreshed) return false;
+    const committed = api.setCoverImage(refreshed.pos);
+    notifyCoverChange({ kind: "set", ok: committed });
+    return committed;
+  }
+
+  // PR C / C2：取消当前封面身份（图片原地保留为普通正文；不删除任何资源）。
+  function removeCurrentCover() {
+    if (api.getCoverState().duplicate) return false;
+    const committed = api.removeCover();
+    notifyCoverChange({ kind: "remove", ok: committed });
+    return committed;
+  }
+
+  // 鼠标点击图片工具栏时 pointerdown 已阻止按钮抢走焦点，封面身份 transaction
+  // 不应再次 focus 编辑器。键盘激活则不同：被激活的按钮会在二态切换后隐藏，需把
+  // 焦点送回正文；直接使用 DOM focus({ preventScroll: true })，并同步恢复所有祖先
+  // 滚动位置，规避 WKWebView 对 preventScroll 支持不完整时的选区轻微滚动。
+  function focusEditorAfterKeyboardToolbarAction() {
+    const view = getEditorView();
+    if (!view?.dom?.isConnected) return;
+    const scrollSnapshots = [];
+    for (let element = view.dom.parentElement; element; element = element.parentElement) {
+      scrollSnapshots.push({ element, left: element.scrollLeft, top: element.scrollTop });
+    }
+    const windowLeft = window.scrollX;
+    const windowTop = window.scrollY;
+    try {
+      view.dom.focus({ preventScroll: true });
+    } catch {
+      view.dom.focus();
+    }
+    scrollSnapshots.forEach(({ element, left, top }) => {
+      if (element.scrollLeft !== left) element.scrollLeft = left;
+      if (element.scrollTop !== top) element.scrollTop = top;
+    });
+    if (window.scrollX !== windowLeft || window.scrollY !== windowTop) {
+      window.scrollTo(windowLeft, windowTop);
     }
   }
 
@@ -1743,7 +2521,11 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       { type: "align", value: "right", icon: IMAGE_ALIGN_ICON_SVG.right, label: t("markdown.alignRight") },
       { type: "size", value: "small", icon: IMAGE_SIZE_ICON_SVG.small, label: t("markdown.imageSizeSmall") },
       { type: "size", value: "medium", icon: IMAGE_SIZE_ICON_SVG.medium, label: t("markdown.imageSizeMedium") },
-      { type: "size", value: "large", icon: IMAGE_SIZE_ICON_SVG.large, label: t("markdown.imageSizeLarge") }
+      { type: "size", value: "large", icon: IMAGE_SIZE_ICON_SVG.large, label: t("markdown.imageSizeLarge") },
+      // PR C / C2：封面二态工具。合格非封面图片只显示「设为封面」；
+      // 当前封面只显示「取消封面」；不提供替换当前封面的第三态入口。
+      { type: "cover", value: "set", icon: IMAGE_ALIGN_ICON_SVG.coverSet, label: t("markdown.setAsCover") },
+      { type: "cover", value: "remove", icon: IMAGE_ALIGN_ICON_SVG.coverRemove, label: t("markdown.removeCover") }
     ];
     toolbar.innerHTML = items.map((item) => `
       <button type="button" data-image-${item.type}="${item.value}" aria-label="${item.label}">
@@ -1751,16 +2533,44 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         <span class="markdown-image-align-tooltip">${item.label}</span>
       </button>
     `).join("");
+    const activateToolbarButton = (button) => {
+      if (!button || button.disabled || button.hidden) return false;
+      if (button.dataset.imageCover === "set") {
+        return setTargetAsCover().catch((error) => {
+          reportImageSizeError(error);
+          return false;
+        });
+      } else if (button.dataset.imageCover === "remove") {
+        return removeCurrentCover();
+      } else if (button.dataset.imageAlign) {
+        return setImageAlignment(button.dataset.imageAlign).catch((error) => {
+          reportImageSizeError(error);
+          return false;
+        });
+      }
+      return setImageSize(button.dataset.imageSize || "large").catch((error) => {
+        reportImageSizeError(error);
+        return false;
+      });
+    };
     toolbar.addEventListener("pointerdown", (event) => {
-      const button = event.target.closest("button[data-image-align], button[data-image-size]");
+      const button = event.target.closest("button[data-image-align], button[data-image-size], button[data-image-cover]");
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      if (button.dataset.imageAlign) {
-        setImageAlignment(button.dataset.imageAlign).catch(reportImageSizeError);
-      } else {
-        setImageSize(button.dataset.imageSize || "large").catch(reportImageSizeError);
-      }
+      void activateToolbarButton(button);
+    });
+    // pointerdown 用于保住 ProseMirror 图片选择；键盘不会产生 pointer 事件，
+    // 因此 Enter/Space 必须走等价路径。preventDefault 避免随后生成第二次 click。
+    toolbar.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const button = event.target.closest("button[data-image-align], button[data-image-size], button[data-image-cover]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      Promise.resolve(activateToolbarButton(button)).finally(() => {
+        focusEditorAfterKeyboardToolbarAction();
+      });
     });
     toolbar.addEventListener("pointerenter", () => {
       scheduleImageAlignToolbarUpdate();
@@ -1824,11 +2634,13 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       return;
     }
     activeImageTarget = refreshedTarget;
-    const title = activeImageTarget.node.attrs?.title || "";
-    const isPortable = activeImageTarget.node.type?.name === PORTABLE_IMAGE_NODE_NAME;
-    const alignment = isPortable ? activeImageTarget.node.attrs?.alignment || "" : imageAlignmentFromTitle(title);
+    const node = activeImageTarget.node;
+    const isCover = node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME;
+    const isPortable = isCover || node.type?.name === PORTABLE_IMAGE_NODE_NAME;
+    const title = node.attrs?.title || "";
+    const alignment = isPortable ? node.attrs?.alignment || "" : imageAlignmentFromTitle(title);
     const size = isPortable
-      ? (activeImageTarget.node.attrs?.displayWidthPx == null ? "large" : "custom")
+      ? (node.attrs?.displayWidthPx == null ? "large" : "custom")
       : imageSizeFromTitle(title);
     const supportsBlockPresentation = activeImageTarget.isStandalone;
     imageAlignToolbar.querySelectorAll("button[data-image-align], button[data-image-size]").forEach((button) => {
@@ -1846,6 +2658,23 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     imageAlignToolbar.querySelectorAll("button[data-image-size]").forEach((button) => {
       button.classList.toggle("active", button.dataset.imageSize === size);
     });
+    // PR C / C2：封面二态——当前封面只显示「取消封面」；合格非封面独立图片
+    // 只显示「设为封面」；两种状态互斥且都只有轻量身份（hover/focus/选中时
+    // 工具栏出现本身即轻量表达，正文常态不显示永久徽标）。
+    const setCoverButton = imageAlignToolbar.querySelector('button[data-image-cover="set"]');
+    const removeCoverButton = imageAlignToolbar.querySelector('button[data-image-cover="remove"]');
+    const isCurrentCover = isCover;
+    const coverState = api.getCoverState();
+    if (setCoverButton) {
+      setCoverButton.disabled = !supportsBlockPresentation;
+      const visible = supportsBlockPresentation && !isCurrentCover && !coverState.duplicate;
+      setCoverButton.hidden = !visible;
+    }
+    if (removeCoverButton) {
+      removeCoverButton.disabled = !supportsBlockPresentation;
+      const visible = supportsBlockPresentation && isCurrentCover && !coverState.duplicate;
+      removeCoverButton.hidden = !visible;
+    }
     const rootRect = root.getBoundingClientRect();
     const imageRect = activeImageTarget.element.getBoundingClientRect();
     const toolbarWidth = imageAlignToolbar.offsetWidth || 108;
@@ -2501,6 +3330,177 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       return baselineMarkdown;
     },
     /**
+     * PR C / Task C1：封面身份 API（供 C2 的图片工具栏 / `+` 菜单直接调用）。
+     *
+     * - `setCoverImage(pos)`：把 pos 处的独立图片块包裹为封面；若当前已有封面
+     *   A，则在同一个 transaction 内解包 A、包裹 B（A→B 身份转移）。
+     * - `removeCover()`：仅移除 marker/wrapper，图片原地保留为普通正文。
+     * - `getCoverState()`：读取当前封面身份与结构化诊断。
+     *
+     * 全部走一次 dispatch / 一个 ProseMirror history step；单次 undo/redo 完整
+     * 恢复；不 remount、不重置 baseline、不破坏 selection；composition 期间
+     * 拒绝执行；不触发图片删除或资源清理回调。
+     */
+
+    /**
+     * 包裹 pos 处独立图片块为封面（或 A→B 身份转移）。
+     * @param {number} targetPos 目标图片块内任一位置
+     * @returns {boolean} 是否已提交
+     */
+    setCoverImage(targetPos) {
+      if (destroyed) return false;
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        if (!view || view.composing) {
+          return false;
+        }
+        // duplicate marker 阻断任何封面身份修改（宿主应已 fallback 到源码编辑，
+        // 这里再防御一道，防止其他路径静默创建 wrapper）。
+        if (coverDiagnostics.some((d) => d.kind === "duplicate")) {
+          return false;
+        }
+        const state = view.state;
+        const target = independentImageBlockAt(state, targetPos);
+        if (!target) return false;
+        const wrapperType = state.schema.nodes[MARKDOWN_COVER_IMAGE_NODE_NAME];
+        if (!wrapperType) return false;
+        const cover = findCoverImageNode(state);
+        const targetStart = target.blockStart;
+        const targetEnd = target.blockEnd;
+        const viewportAnchor = captureImageViewportAnchor(view, targetStart);
+        let tr = state.tr;
+        if (cover) {
+          // A→B：同一 transaction 解包 A、包裹 B。先处理位置靠后的节点，
+          // 再用 tr.mapping 把靠前替换造成的位置漂移正确映射到新 doc。
+          const coverStart = cover.pos;
+          const coverEnd = cover.pos + cover.node.nodeSize;
+          if (coverStart < targetStart) {
+            // A 在前：先包裹 B，再解包 A（A 的 pos 不受 B 替换影响）。
+            tr = tr.replaceWith(targetStart, targetEnd, createCoverNode(state.schema, target.attrs));
+            tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(state.schema, cover.node.attrs));
+          } else {
+            // A 在 B 之后：先解包 A，再包裹 B（B 的 pos 不受 A 替换影响）。
+            tr = tr.replaceWith(coverStart, coverEnd, rebuildImageBlock(state.schema, cover.node.attrs));
+            tr = tr.replaceWith(targetStart, targetEnd, createCoverNode(state.schema, target.attrs));
+          }
+        } else {
+          tr = tr.replaceWith(targetStart, targetEnd, createCoverNode(state.schema, target.attrs));
+        }
+        // 「设为封面」只改变图片身份，不是导航动作。ProseMirror 会把原 selection
+        // 自动映射过 replace steps；不要把光标强制移到目标图片之后，也不要给事务
+        // 打上 scrollIntoView meta。否则用户从图片工具栏执行时，正文会为了新的
+        // selection 额外滚动一次，表现为页面重定向/抖动。
+        view.dispatch(closeHistory(tr));
+        // replace transaction 会同步重建节点 DOM；A→B 还会同时重建旧封面。
+        // 若只等 localImageSrcPlugin 的 MutationObserver，WKWebView 会先用无法
+        // 直接加载的相对 src 完成一次 0 高度布局，再在微任务中恢复图片，引发
+        // 宿主滚动锚定。仅在低频封面身份操作后同步解析，避免普通输入时全量扫描。
+        view.dom.dispatchEvent(new Event("nutbook:normalize-local-images"));
+        const nextCover = findCoverImageNode(view.state);
+        if (nextCover) restoreImageViewportAnchor(view, viewportAnchor, nextCover.pos);
+        markUserInteracted();
+        scheduleFormatToolbarUpdate();
+        scheduleTableToolbarUpdate();
+        scheduleInsertMenuUpdate();
+        return true;
+      });
+    },
+    /**
+     * 取消当前封面：仅移除 marker/wrapper，图片原地保留为普通正文。
+     * @returns {boolean} 是否已提交
+     */
+    removeCover() {
+      if (destroyed) return false;
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        if (!view || view.composing) {
+          return false;
+        }
+        if (coverDiagnostics.some((d) => d.kind === "duplicate")) {
+          return false;
+        }
+        const cover = findCoverImageNode(view.state);
+        if (!cover) return false;
+        const viewportAnchor = captureImageViewportAnchor(view, cover.pos);
+        const block = rebuildImageBlock(view.state.schema, cover.node.attrs);
+        let tr = view.state.tr.replaceWith(
+          cover.pos,
+          cover.pos + cover.node.nodeSize,
+          block
+        );
+        // 取消封面同样只改变身份；保留 transaction 自动映射后的 selection 和当前
+        // viewport，避免工具栏操作引发一次无意的页面滚动。
+        view.dispatch(closeHistory(tr));
+        view.dom.dispatchEvent(new Event("nutbook:normalize-local-images"));
+        restoreImageViewportAnchor(view, viewportAnchor, cover.pos);
+        markUserInteracted();
+        scheduleFormatToolbarUpdate();
+        scheduleTableToolbarUpdate();
+        scheduleInsertMenuUpdate();
+        return true;
+      });
+    },
+    /**
+     * 读取当前封面身份与结构化诊断。
+     * @returns {{hasCover:boolean, valid:boolean, duplicate:boolean,
+     *   diagnostics:Array<{kind:string,count?:number}>, nodeKind:string|null,
+     *   pos:number|null, src:string|null}}
+     */
+    getCoverState() {
+      if (destroyed) {
+        return { hasCover: false, valid: false, duplicate: false, diagnostics: [], nodeKind: null, pos: null, src: null };
+      }
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const cover = findCoverImageNode(view.state);
+        const duplicate = coverDiagnostics.some((d) => d.kind === "duplicate");
+        return {
+          hasCover: Boolean(cover),
+          valid: Boolean(cover) && !duplicate,
+          duplicate,
+          diagnostics: coverDiagnostics.map((d) => ({ ...d })),
+          nodeKind: cover?.node.attrs.nodeKind ?? null,
+          pos: cover?.pos ?? null,
+          src: cover?.node.attrs.src ?? null
+        };
+      });
+    },
+    /**
+     * 枚举文档中所有合格「独立图片块」候选（不含当前封面 wrapper）。
+     *
+     * C2 的「设为封面」/hover 身份判定需要枚举候选；返回块起始 pos，
+     * 可直接传给 `setCoverImage(pos)`。
+     * @returns {Array<{pos:number, nodeKind:string, src:string, alt:string}>}
+     */
+    getCoverableImageBlocks() {
+      if (destroyed) return [];
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const blocks = [];
+        view.state.doc.descendants((node, pos) => {
+          if (node.type.name === PORTABLE_IMAGE_NODE_NAME && node.attrs?.src) {
+            blocks.push({ pos, nodeKind: "portable-image", src: String(node.attrs.src), alt: String(node.attrs.alt || "") });
+            return true;
+          }
+          if (node.type.name === "paragraph" && node.childCount === 1) {
+            const child = node.firstChild;
+            if (child.type.name === "image") {
+              // link 是 mark：带 link mark 的独立图片是 linked-image 候选。
+              const linkMark = imageLinkMark(child);
+              blocks.push({
+                pos,
+                nodeKind: linkMark ? "linked-image" : "image",
+                src: String(child.attrs.src || ""),
+                alt: String(child.attrs.alt || "")
+              });
+            }
+          }
+          return true;
+        });
+        return blocks;
+      });
+    },
+    /**
      * 通过一次 ProseMirror transaction 修改文档标题（B3）。
      *
      * - 已有有效顶层 H1（含 `aligned_text_block` 内部 H1）→ 替换该 heading 文本。
@@ -2616,7 +3616,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         const view = ctx.get(editorViewCtx);
         let resolvedPos = null;
         view.state.doc.descendants((node, pos) => {
-          if (!node.isText || resolvedPos !== null) return false;
+          if (resolvedPos !== null) return false;
+          // 封面 wrapper / portable 等 atom 节点没有文本，跳过并继续，
+          // 不能因首个块是 atom 就停止遍历。
+          if (!node.isText) return true;
           const text = node.text || "";
           const normalizedText = normalizeText(text);
           const normalizedIndex = normalizedText.indexOf(normalizedAnchor);

@@ -34,6 +34,7 @@ pub struct AppState {
     html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
     html_edit_path_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     html_edit_session_leases: Mutex<HtmlEditSessionLeases>,
+    cover_asset_leases: Mutex<CoverAssetLeases>,
     pub active_html_edit_item: Mutex<Option<i64>>,
     thumbnail_settings_path: PathBuf,
     update_settings_path: PathBuf,
@@ -75,6 +76,7 @@ impl AppState {
             html_edit_manifest_locks: Mutex::new(HashMap::new()),
             html_edit_path_locks: Mutex::new(HashMap::new()),
             html_edit_session_leases: Mutex::new(HtmlEditSessionLeases::default()),
+            cover_asset_leases: Mutex::new(CoverAssetLeases::default()),
             active_html_edit_item: Mutex::new(None),
             thumbnail_settings_path,
             update_settings_path,
@@ -344,6 +346,54 @@ impl AppState {
         }
         Ok(invalidated)
     }
+
+    // ---- PR C / C2：Markdown 封面 staged asset lease ----
+
+    pub fn register_cover_asset_lease(&self, lease: CoverAssetLease) -> Result<(), AppError> {
+        self.cover_asset_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .register(lease);
+        Ok(())
+    }
+
+    pub fn cover_asset_lease_matches(
+        &self,
+        item_id: i64,
+        tab_id: &str,
+        operation_generation: u64,
+        staged_asset_id: &str,
+    ) -> Result<bool, AppError> {
+        Ok(self.cover_asset_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .matches(item_id, tab_id, operation_generation, staged_asset_id))
+    }
+
+    /// 释放该 (item, tab) 名下 `generation <= operation_generation` 的 staged lease；
+    /// 引用安全（当前 draft 与磁盘 baseline 均未引用）的 staged 文件物理删除，
+    /// 被引用的只释放登记。使用“截至 generation”而不是只释放恰好一代，确保同一
+    /// 编辑器连续选择多张封面后，保存/关闭能收口此前所有 lease；复制晚到释放旧代
+    /// 时仍不会触碰更新 generation 的任务。
+    pub fn release_cover_asset_leases(
+        &self,
+        item_id: i64,
+        tab_id: &str,
+        operation_generation: u64,
+        draft_image_srcs: &[String],
+        baseline_image_srcs: &[String],
+    ) -> Result<Vec<String>, AppError> {
+        Ok(self.cover_asset_leases
+            .lock()
+            .map_err(|_| AppError::InternalError)?
+            .release_group(
+                item_id,
+                tab_id,
+                operation_generation,
+                draft_image_srcs,
+                baseline_image_srcs,
+            ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,6 +432,142 @@ impl HtmlEditSessionLeases {
         self.by_item.get(&item_id)
             .filter(|lease| lease.runtime_session_id == runtime_session_id && lease.generation == generation)
             .map(|lease| lease.provisional_artifact_edit_id.clone())
+    }
+}
+
+// ------------------------------------------------------------------
+// PR C / C2：Markdown 封面 staged asset lease
+//
+// 每次「+ → 封面图」复制本地资源到 assets/ 时注册一条 lease，绑定：
+//   item_id / Markdown canonical path / tab（editor instance）/ operation
+//   generation / staged asset id（uuid）与 staged 相对 src。
+//
+// 覆盖场景（拒绝把晚到/失效请求写入错误文档）：
+// - picker/copy 晚到：返回时校验 active tab + operation generation；
+// - 切换标签或关闭标签：按 tab/generation 释放 lease；
+// - A→B 身份转移 / 撤销 / 重做：不物理删除（图片仍是正文资源）；
+// - 保存失败或冲突后继续编辑：lease 保持；
+// - 放弃与关闭：仅清理"本会话新建、磁盘 baseline 未引用、当前 draft 未引用"
+//   的 staged 文件（引用检查在 release 命令侧完成，lease 只登记所有权）。
+// 严禁删除已提交旧封面、正文仍引用的图片、shared asset。
+// ------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoverAssetLease {
+    pub item_id: i64,
+    pub markdown_canonical_path: String,
+    pub tab_id: String,
+    pub operation_generation: u64,
+    pub staged_asset_id: String,
+    /// staged 复制文件绝对路径。
+    pub staged_path: PathBuf,
+    /// 写入 Markdown 的相对 src（./assets/xxx.png）。
+    pub relative_src: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Default)]
+pub struct CoverAssetLeases {
+    by_staged_id: HashMap<String, CoverAssetLease>,
+}
+
+impl CoverAssetLeases {
+    pub fn register(&mut self, lease: CoverAssetLease) {
+        self.by_staged_id.insert(lease.staged_asset_id.clone(), lease);
+    }
+
+    /// 校验 staged 归属（item + tab + generation + staged id 全部匹配）。
+    pub fn matches(
+        &self,
+        item_id: i64,
+        tab_id: &str,
+        operation_generation: u64,
+        staged_asset_id: &str,
+    ) -> bool {
+        self.by_staged_id.get(staged_asset_id).is_some_and(|lease| {
+            lease.item_id == item_id
+                && lease.tab_id == tab_id
+                && lease.operation_generation == operation_generation
+        })
+    }
+
+    /// 取出该 (item, tab) 名下截至 operation_generation 的全部 lease。
+    pub fn take_through_generation(
+        &mut self,
+        item_id: i64,
+        tab_id: &str,
+        operation_generation: u64,
+    ) -> Vec<CoverAssetLease> {
+        let matching: Vec<String> = self
+            .by_staged_id
+            .iter()
+            .filter(|(_, lease)| {
+                lease.item_id == item_id
+                    && lease.tab_id == tab_id
+                    && lease.operation_generation <= operation_generation
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut leases = Vec::new();
+        for id in matching {
+            if let Some(lease) = self.by_staged_id.remove(&id) {
+                leases.push(lease);
+            }
+        }
+        leases
+    }
+
+    /// 释放并物理删除 staged 文件（仅在满足引用安全条件后由 release 命令调用）。
+    /// 返回已清理的相对 src 列表。
+    pub fn release_group(
+        &mut self,
+        item_id: i64,
+        tab_id: &str,
+        operation_generation: u64,
+        draft_image_srcs: &[String],
+        baseline_image_srcs: &[String],
+    ) -> Vec<String> {
+        let leases = self.take_through_generation(item_id, tab_id, operation_generation);
+        let mut cleaned = Vec::new();
+        for lease in leases {
+            // 引用安全：除了原始字符串相等，还按文档目录解析 canonical 路径。
+            // `./assets/a.png` 与 `assets/a.png` 指向同一文件，不能因 Markdown
+            // 序列化形式变化而误删正文仍引用的 staged/shared 资源。
+            if draft_image_srcs
+                .iter()
+                .any(|src| cover_reference_matches_lease(src, &lease))
+                || baseline_image_srcs
+                    .iter()
+                    .any(|src| cover_reference_matches_lease(src, &lease))
+            {
+                // 被引用：lease 释放但文件保留（可能是刚提交的封面）。
+                continue;
+            }
+            match std::fs::remove_file(&lease.staged_path) {
+                Ok(()) => cleaned.push(lease.relative_src),
+                Err(_) => {}
+            }
+        }
+        cleaned
+    }
+}
+
+fn cover_reference_matches_lease(src: &str, lease: &CoverAssetLease) -> bool {
+    if src == lease.relative_src {
+        return true;
+    }
+    let Some(markdown_dir) = PathBuf::from(&lease.markdown_canonical_path)
+        .parent()
+        .map(std::path::Path::to_path_buf)
+    else {
+        return false;
+    };
+    let Some(resolved) = crate::core::thumbnail::resolve_cover_asset_path(src, &markdown_dir) else {
+        return false;
+    };
+    match (resolved.canonicalize(), lease.staged_path.canonicalize()) {
+        (Ok(reference), Ok(staged)) => reference == staged,
+        _ => resolved == lease.staged_path,
     }
 }
 

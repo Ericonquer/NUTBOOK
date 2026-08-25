@@ -30,6 +30,7 @@ pub use html_edit::{
 pub use item::{
     AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,
     AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+    CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
     CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteLibraryRequest, DeleteMarkdownImageAssetRequest,
     DispatchHtmlRuntimeShortcutRequest,
     DurableSaveSyncReport,
@@ -39,6 +40,7 @@ pub use item::{
     HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery,
     IgnoredItemSummary, MarkItemOpenedRequest, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
+    ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,
     SaveMarkdownContentRequest, SaveMarkdownContentResponse, ScanLibraryRequest, ScanLibraryResponse, SelectLibraryRequest,
     SetHtmlEditToolbarOverlayVisibilityRequest,
@@ -46,6 +48,7 @@ pub use item::{
     SetHtmlRuntimeControlsOverlayVisibilityRequest,
     SetHtmlRuntimeHostVisibilityRequest, ThumbnailInfo, ThumbnailBackendStatusPayload,
     ToggleFavoriteRequest, WatchLibraryRequest, WatchLibraryResponse, ExportMarkdownRequest,
+    ValidateMarkdownCoverAssetRequest, ValidateMarkdownCoverAssetResponse,
     SyncLibraryWatchersResponse,
 };
 pub use library::Library;

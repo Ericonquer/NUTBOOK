@@ -29,9 +29,14 @@ pub struct ThumbnailInfo {
     /// B1：持久化递增代号；旧任务晚到提交会被 generation 不匹配拒绝。
     #[serde(default)]
     pub generation: Option<i64>,
-    /// B1：html-screenshot | markdown-default-cover | markdown-image-cover | placeholder。
+    /// B1：html-screenshot | markdown-default-cover | markdown-image-cover |
+    /// markdown-remote-image-cover | placeholder。
     #[serde(default)]
     pub render_kind: Option<String>,
+    /// PR C / C2：在线封面只读投影（render_kind=markdown-remote-image-cover 时）。
+    /// 源状态是 Markdown 中的 http/https URL；不下载、不写本地 ready、不进 CAS。
+    #[serde(default)]
+    pub remote_cover_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +301,69 @@ pub struct CopyMarkdownImageAssetResponse {
 pub struct DeleteMarkdownImageAssetRequest {
     pub markdown_file_path: String,
     pub image_src: String,
+}
+
+// PR C / C2：Markdown 封面资源复制 / 校验 / staged lease 释放。
+
+/// 「+ → 封面图」复制本地封面资源：校验通过才复制到 assets/ 并注册 staged lease。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyMarkdownCoverAssetRequest {
+    pub markdown_file_path: String,
+    pub source_image_path: String,
+    pub item_id: i64,
+    /// tab / editor instance 标识（同一文档多标签隔离）。
+    pub tab_id: String,
+    /// 会话操作代号：复制晚到 / 撤销 / 放弃 / 关闭时校验失效。
+    pub operation_generation: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyMarkdownCoverAssetResponse {
+    pub relative_path: String,
+    pub staged_asset_id: String,
+    pub file_name: String,
+    /// EXIF orientation 校正后的自然尺寸（前端「默认大图不超固有尺寸」用）。
+    pub natural_width: u32,
+    pub natural_height: u32,
+}
+
+/// 已有正文本地图片设为封面：不重复 copy，只校验 canonical path / MIME / 尺寸 / 比例。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateMarkdownCoverAssetRequest {
+    pub item_id: i64,
+    pub markdown_file_path: String,
+    /// Markdown 中的本地 src（相对/绝对路径）。
+    pub src: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateMarkdownCoverAssetResponse {
+    pub valid: bool,
+    pub reason: Option<String>,
+    pub natural_width: Option<u32>,
+    pub natural_height: Option<u32>,
+}
+
+/// 放弃 / 关闭 / 复制晚到时的 staged lease 释放。只清理"本会话新建、磁盘 baseline
+/// 未引用、当前 draft 未引用"的 staged 文件；被引用（刚提交的封面）只释放登记。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseMarkdownCoverLeaseRequest {
+    pub item_id: i64,
+    pub tab_id: String,
+    pub operation_generation: u64,
+    /// 当前 draft 中出现的图片相对 src（引用保护）。
+    pub draft_image_srcs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseMarkdownCoverLeaseResponse {
+    pub cleaned: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

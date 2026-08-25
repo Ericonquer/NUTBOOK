@@ -1,0 +1,14 @@
+-- PR C / C2：thumbnail_cache 增加封面依赖投影列。
+--
+-- 这些列由 Rust 迁移函数 apply_cover_dependency_columns_migration 逐列守卫添加
+-- （PRAGMA table_info 检查后再 ALTER），本文件只保留 SQL 供 include_str 引用，
+-- 不直接执行，避免对已含新列的库重复 ALTER 报错。
+--
+-- 语义（派生缓存，durable 状态源始终是磁盘 Markdown）：
+--   cover_asset_path        本地封面资源绝对路径（markdown-image-cover /
+--                           markdown-image-cover+failed 行使用；默认/在线行为空）
+--   cover_asset_size        该资源生成时的字节数（读取路径 stat 复核用）
+--   cover_asset_modified_at 该资源生成时的纳秒 mtime（读取路径 stat 复核用；
+--                           资源缺失时记录 ''，表示"当前视为缺失"）
+--   remote_cover_url        在线封面 URL（markdown-remote-image-cover 行使用；
+--                           绝不写本地 ready bytes，也不进入本地 CAS）

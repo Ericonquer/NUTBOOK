@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320">
+  <rect x="0" y="0" width="640" height="320" fill="#d8c878"/>
+  <circle cx="480" cy="160" r="70" fill="#f4e0b4"/>
+  <rect x="0" y="160" width="640" height="160" fill="#6a7a66" opacity="0.72"/>
+  <text x="48" y="88" font-family="sans-serif" font-size="44" fill="#3a3a3a">Cover landscape SVG</text>
+</svg>

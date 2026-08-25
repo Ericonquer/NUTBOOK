@@ -6,7 +6,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::core::{document::content_hash, document_title::DocumentTitle};
+use crate::core::{
+    document::{content_hash, file_modified_at_string},
+    document_title::DocumentTitle,
+    markdown_cover,
+    markdown_cover_assets,
+};
 
 #[cfg(unix)]
 use std::{
@@ -49,10 +54,14 @@ pub const TITLE_PARSER_VERSION: &str = "title-parser-v1";
 /// 顶部横线缓存都不得再被读取为当前 ready，新 key 一律使用 v5。
 pub const DEFAULT_COVER_VERSION: &str = "default-cover-v5";
 pub const IMAGE_COVER_VERSION: &str = "image-cover-v1";
+/// 在线封面只读投影 key 版本。在线封面不下载、不写本地 ready bytes、
+/// 不进入本地 CAS；该 key 只标识「源 Markdown 中该 URL 的投影状态」。
+pub const REMOTE_COVER_VERSION: &str = "remote-cover-v2";
 
 pub const RENDER_KIND_HTML_SCREENSHOT: &str = "html-screenshot";
 pub const RENDER_KIND_MARKDOWN_DEFAULT_COVER: &str = "markdown-default-cover";
 pub const RENDER_KIND_MARKDOWN_IMAGE_COVER: &str = "markdown-image-cover";
+pub const RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER: &str = "markdown-remote-image-cover";
 pub const RENDER_KIND_PLACEHOLDER: &str = "placeholder";
 
 pub fn html_desired_key(source_content_hash: &str) -> String {
@@ -65,6 +74,16 @@ pub fn markdown_default_cover_key(rendered_title_hash: &str) -> String {
     )
 }
 
+/// 在线封面只读投影 key（源 Markdown 中的规范化 http/https URL）。
+pub fn markdown_remote_cover_key(remote_url: &str, title_hash: &str) -> String {
+    // URL 决定在线图片身份；title hash 决定稳定 fallback。两者任一变化都必须
+    // 刷新只读投影，否则同一 URL 下修改标题会长期显示旧 fallback。
+    format!(
+        "md-remote:{}:{title_hash}:{REMOTE_COVER_VERSION}",
+        content_hash(remote_url)
+    )
+}
+
 /// Markdown 默认封面是否属于当前版本契约（title-parser + default-cover v5）。
 /// 读取路径用它对存储的 desired key 做**版本后缀校验**：旧 default-cover-v1、
 /// default-cover-v2、default-cover-v3、default-cover-v4、md-screenshot 或任意
@@ -73,6 +92,18 @@ pub fn markdown_default_cover_key(rendered_title_hash: &str) -> String {
 pub fn markdown_key_is_current(key: &str) -> bool {
     key.starts_with("md-default:")
         && key.ends_with(&format!(":{TITLE_PARSER_VERSION}:{DEFAULT_COVER_VERSION}"))
+        || markdown_image_cover_key_is_current(key)
+        || markdown_remote_cover_key_is_current(key)
+}
+
+/// `md-image:<cover-asset-hash>:image-cover-vN` 当前版本校验。
+pub fn markdown_image_cover_key_is_current(key: &str) -> bool {
+    key.starts_with("md-image:") && key.ends_with(&format!(":{IMAGE_COVER_VERSION}"))
+}
+
+/// `md-remote:<url-hash>:remote-cover-vN` 当前版本校验。
+pub fn markdown_remote_cover_key_is_current(key: &str) -> bool {
+    key.starts_with("md-remote:") && key.ends_with(&format!(":{REMOTE_COVER_VERSION}"))
 }
 
 // ------------------------------------------------------------------
@@ -138,6 +169,197 @@ pub fn markdown_image_cover_key(cover_asset_hash: &str) -> String {
     format!("md-image:{cover_asset_hash}:{IMAGE_COVER_VERSION}")
 }
 
+// ------------------------------------------------------------------
+// PR C / C2：单文件 Markdown 封面模式投影
+//
+// 唯一 durable 状态源是磁盘 Markdown 正文顶层的 canonical marker。保存、
+// 外部扫描、生成与读取四处都从「同一次正文」推导同一投影：
+// - 无 marker / duplicate / marker 后无独立图片块 → Default（标题 SVG）；
+// - marker + http/https URL → RemoteImage（只读投影，不下载不缓存）；
+// - marker + 本地资源 → LocalImage（校验通过 → 资产哈希 key；校验失败 → 保留
+//   封面身份、degraded、key 基于 src 路径哈希，资源恢复后 key 变化自动升级）。
+// ------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkdownCoverMode {
+    Default,
+    LocalImage,
+    RemoteImage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownCoverProjection {
+    pub mode: MarkdownCoverMode,
+    pub desired_key: String,
+    pub render_kind: &'static str,
+    /// 标题投影（默认封面/降级/在线 fallback 的 SVG 输入，与 B4 同一标题契约）。
+    pub display_title: String,
+    pub title_hash: String,
+    pub background_index: usize,
+    /// 本地封面资源绝对路径（LocalImage 行使用；Default/Remote 为空）。
+    pub cover_asset_path: String,
+    /// 校验通过时的资源 stat（读取路径复核）；资源缺失/校验失败时为 0。
+    pub cover_asset_size: i64,
+    pub cover_asset_modified_at: String,
+    /// 在线封面 URL（RemoteImage 行使用；其余为空）。
+    pub remote_cover_url: String,
+    /// LocalImage 身份保留但资源缺失/越界/不合格：卡片回退标题 SVG + hover 警告。
+    pub degraded: bool,
+    pub degraded_reason: Option<String>,
+}
+
+/// 从同一份磁盘 Markdown 计算封面模式投影（C2 的 key/render-kind 权威入口）。
+/// `file_path` 用于解析资源基准目录与文件名标题回退。
+pub fn markdown_cover_projection(raw: &str, file_path: &str) -> MarkdownCoverProjection {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let target = markdown_default_cover_target(raw, &file_name);
+    let base_dir = Path::new(file_path).parent().map(Path::to_path_buf);
+    let parse = markdown_cover::parse_cover_metadata(raw, base_dir.as_deref());
+    let duplicate = parse
+        .diagnostics
+        .iter()
+        .any(|d| d.kind == markdown_cover::CoverDiagnosticKind::Duplicate);
+    let cover = if duplicate { None } else { parse.cover.as_ref() };
+
+    let common = MarkdownCoverProjection {
+        mode: MarkdownCoverMode::Default,
+        desired_key: target.desired_key.clone(),
+        render_kind: RENDER_KIND_MARKDOWN_DEFAULT_COVER,
+        display_title: target.display_title.clone(),
+        title_hash: target.title_hash.clone(),
+        background_index: target.background_index,
+        cover_asset_path: String::new(),
+        cover_asset_size: 0,
+        cover_asset_modified_at: String::new(),
+        remote_cover_url: String::new(),
+        degraded: false,
+        degraded_reason: None,
+    };
+
+    let Some(cover) = cover else {
+        return common;
+    };
+    let src = cover.src.trim();
+    if src.starts_with("http://") || src.starts_with("https://") {
+        let url = src.to_string();
+        return MarkdownCoverProjection {
+            mode: MarkdownCoverMode::RemoteImage,
+            desired_key: markdown_remote_cover_key(&url, &common.title_hash),
+            render_kind: RENDER_KIND_MARKDOWN_REMOTE_IMAGE_COVER,
+            display_title: common.display_title,
+            title_hash: common.title_hash,
+            background_index: common.background_index,
+            cover_asset_path: String::new(),
+            cover_asset_size: 0,
+            cover_asset_modified_at: String::new(),
+            remote_cover_url: url,
+            degraded: false,
+            degraded_reason: None,
+        };
+    }
+
+    // 本地资源：与 markdown_cover::local_resource_diagnostic 同一越界/符号链接语义。
+    let resolved = resolve_cover_asset_path(src, base_dir.as_deref().unwrap_or_else(|| Path::new(".")));
+    match resolved {
+        Some(resolved) => {
+            let stat = std::fs::metadata(&resolved).ok();
+            let file_size = stat.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+            let file_mtime = stat
+                .and_then(|m| file_modified_at_string(&m).ok())
+                .unwrap_or_default();
+            match markdown_cover_assets::validate_local_cover_asset(&resolved) {
+                Ok(asset) => MarkdownCoverProjection {
+                    mode: MarkdownCoverMode::LocalImage,
+                    desired_key: markdown_image_cover_key(&asset.content_hash),
+                    render_kind: RENDER_KIND_MARKDOWN_IMAGE_COVER,
+                    display_title: common.display_title,
+                    title_hash: common.title_hash,
+                    background_index: common.background_index,
+                    cover_asset_path: resolved.to_string_lossy().to_string(),
+                    cover_asset_size: file_size,
+                    cover_asset_modified_at: file_mtime,
+                    remote_cover_url: String::new(),
+                    degraded: false,
+                    degraded_reason: None,
+                },
+                Err(reject) => MarkdownCoverProjection {
+                    mode: MarkdownCoverMode::LocalImage,
+                    // 资源缺失/不合格：key 基于 src 路径哈希（资源恢复后新 key → 自动升级）。
+                    desired_key: markdown_image_cover_key(&content_hash(src)),
+                    render_kind: RENDER_KIND_MARKDOWN_IMAGE_COVER,
+                    display_title: common.display_title,
+                    title_hash: common.title_hash,
+                    background_index: common.background_index,
+                    cover_asset_path: resolved.to_string_lossy().to_string(),
+                    cover_asset_size: 0,
+                    cover_asset_modified_at: String::new(),
+                    remote_cover_url: String::new(),
+                    degraded: true,
+                    degraded_reason: Some(reject.message),
+                },
+            }
+        }
+        None => MarkdownCoverProjection {
+            mode: MarkdownCoverMode::LocalImage,
+            desired_key: markdown_image_cover_key(&content_hash(src)),
+            render_kind: RENDER_KIND_MARKDOWN_IMAGE_COVER,
+            display_title: common.display_title,
+            title_hash: common.title_hash,
+            background_index: common.background_index,
+            cover_asset_path: String::new(),
+            cover_asset_size: 0,
+            cover_asset_modified_at: String::new(),
+            remote_cover_url: String::new(),
+            degraded: true,
+            degraded_reason: Some(format!("cover src `{src}` cannot be resolved inside the document directory")),
+        },
+    }
+}
+
+/// 解析本地封面资源路径（词法归一化 + 越界/符号链接检查，语义与
+/// `markdown_cover::local_resource_diagnostic` 一致；解析失败返回 None）。
+pub fn resolve_cover_asset_path(src: &str, base_dir: &Path) -> Option<std::path::PathBuf> {
+    use std::path::{Component, PathBuf};
+    if src.is_empty() {
+        return None;
+    }
+    let raw_path = Path::new(src);
+    let resolved = if raw_path.is_absolute() {
+        raw_path.to_path_buf()
+    } else {
+        base_dir.join(raw_path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in resolved.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    let base_canonical = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
+    let real = normalized.canonicalize().ok();
+    // 资源不存在（含 broken link）时 canonicalize 返回 None：先用父目录的真实路径
+    // 做边界比较——macOS /var/folders → /private/var/folders 这类符号链接会令词法
+    // 前缀比较把「文档目录内的缺失资源」误判为越界。父目录通常存在（如 assets/）。
+    let escaped = match real {
+        Some(real) => !real.starts_with(&base_canonical),
+        None => match normalized.parent().and_then(|parent| parent.canonicalize().ok()) {
+            Some(parent_real) => !parent_real.starts_with(&base_canonical),
+            None => !normalized.starts_with(&base_canonical),
+        },
+    };
+    if escaped {
+        return None;
+    }
+    Some(normalized)
+}
+
 /// placeholder 不是目标 render kind 的 ready 成品；ready 行必须携带真实 render kind。
 pub fn is_placeholder_render_kind(render_kind: Option<&str>) -> bool {
     matches!(render_kind, Some(RENDER_KIND_PLACEHOLDER))
@@ -189,6 +411,8 @@ pub struct ThumbnailGenerationSnapshot {
     pub file_type: String,
     /// snapshot 阶段从磁盘读取的源正文（Markdown 渲染输入；HTML 仅用于 placeholder 兜底）。
     pub source_body: String,
+    /// PR C / C2：Markdown 封面模式投影（默认/本地图片/在线）；HTML 为 None。
+    pub markdown_cover: Option<MarkdownCoverProjection>,
 }
 
 /// 每个 file_type 当前唯一合法的 render kind：
@@ -1166,7 +1390,9 @@ mod tests {
         adaptive_markdown_cover_font, build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
         capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
         generate_html_thumbnail_with_adapter, generate_markdown_default_cover_asset,
-        generate_markdown_default_cover_svg, markdown_default_cover_key, markdown_default_cover_target, markdown_key_is_current, playwright_chromium_executable_candidates, stable_background_index, system_chrome_thumbnails_enabled,
+        generate_markdown_default_cover_svg, markdown_cover_projection, markdown_default_cover_key,
+        markdown_default_cover_target, markdown_key_is_current, playwright_chromium_executable_candidates,
+        stable_background_index, system_chrome_thumbnails_enabled, MarkdownCoverMode,
         should_launch_system_browser_via_open, svg_text_width, thumbnail_backend_status, wrap_markdown_cover_title, ChromiumScreenshotInput, DefaultThumbnailCaptureAdapter, GeneratedThumbnailAsset, MARKDOWN_COVER_BACKGROUNDS, MARKDOWN_COVER_LINE_HEIGHT_RATIO, MARKDOWN_COVER_TITLE_SAFE_BOTTOM, MARKDOWN_COVER_TITLE_TOP, PresentationScreenshotInput, PresentationThumbnailWorkerInput,
         HtmlThumbnailInput, ThumbnailBackend, ThumbnailCaptureAdapter, HTML_SCREENSHOT_HEIGHT, HTML_SCREENSHOT_WIDTH,
     };
@@ -1372,9 +1598,33 @@ mod tests {
         assert!(!markdown_key_is_current("md-default:title-hash:title-parser-v1:default-cover-v3"));
         assert!(!markdown_key_is_current("md-default:title-hash:title-parser-v1:default-cover-v4"));
         assert!(!markdown_key_is_current("md-screenshot:title-hash:md-screenshot-v1"));
-        assert!(!markdown_key_is_current("md-image:hash:image-cover-v1"));
+        // PR C / C2：md-image / md-remote 是当前封面路径的合法 key；更早版本拒绝。
+        assert!(markdown_key_is_current("md-image:hash:image-cover-v1"));
+        assert!(!markdown_key_is_current("md-image:hash:image-cover-v0"));
+        assert!(markdown_key_is_current("md-remote:urlhash:titlehash:remote-cover-v2"));
+        assert!(!markdown_key_is_current("md-remote:urlhash:remote-cover-v1"));
         assert!(!markdown_key_is_current("html:hash:html-card-v1"));
         assert!(!markdown_key_is_current(""));
+    }
+
+    #[test]
+    fn remote_cover_key_tracks_url_and_fallback_title_without_rewriting_the_url() {
+        let url = "https://example.invalid/cover.png";
+        let first = markdown_cover_projection(
+            &format!("# First\n\n<!-- nutbook-cover -->\n\n![Hero]({url})\n"),
+            "/tmp/note.md",
+        );
+        let renamed = markdown_cover_projection(
+            &format!("# Renamed\n\n<!-- nutbook-cover -->\n\n![Hero]({url})\n"),
+            "/tmp/note.md",
+        );
+        assert_eq!(first.mode, MarkdownCoverMode::RemoteImage);
+        assert_eq!(first.remote_cover_url, url);
+        assert_eq!(renamed.remote_cover_url, url);
+        assert_ne!(
+            first.desired_key, renamed.desired_key,
+            "fallback title changes must invalidate the remote projection"
+        );
     }
 
     #[test]
