@@ -261,6 +261,9 @@ try {
   await runtimePage.locator("#moreButton").focus();
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.locator("#moreButton").getAttribute("aria-expanded"), "true");
+  // 焦点通过 requestAnimationFrame 从触发按钮移到首个 menuitem；CI 的帧调度
+  // 可以晚于 keyboard.press 返回，必须等待真实焦点而非读取前一帧的按钮状态。
+  await runtimePage.waitForFunction(() => document.activeElement?.id === "presentationOption");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "presentationOption");
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "removeOption");
