@@ -1002,6 +1002,10 @@ fn set_nonblocking(fd: RawFd) -> Result<(), String> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err(format!("failed to configure CDP pipe: {}", std::io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
 pub fn export_pdf_with_chromium(input: ChromiumPdfInput) -> Result<(), String> {
     if !input.chromium_path.is_file() {
         return Err("chromium executable not found".to_string());

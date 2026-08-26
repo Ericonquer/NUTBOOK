@@ -45,6 +45,7 @@ use crate::{
             update_html_runtime_controls_overlay,
             forward_html_runtime_view_state,
             HtmlRuntimeSession,
+        },
         thumbnail::{
             export_long_image_with_chromium, export_pdf_with_chromium, find_local_chromium_executable,
             ChromiumLongImageInput, ChromiumPdfInput,
@@ -68,14 +69,9 @@ use crate::{
         GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, ItemDetail, OpenHtmlWindowRequest, PreviewPayload,
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
-        AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest, GetItemPreviewRequest,
-        DispatchHtmlRuntimeShortcutRequest,
-        CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteMarkdownImageAssetRequest, FocusHtmlRuntimeHostRequest,
-        ExportMarkdownHtmlPreferences, ExportMarkdownHtmlRequest, ExportMarkdownHtmlResponse,
         ExportMarkdownLongImagePreflightResponse,
         ExportMarkdownLongImageRequest, ExportMarkdownLongImageResponse, ExportMarkdownPdfRequest, ExportMarkdownPdfResponse,
         ExportMarkdownLongImageToPathRequest, SelectMarkdownLongImageExportPathRequest, SelectMarkdownLongImageExportPathResponse,
-        HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload, ExportMarkdownRequest,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest,
         SetHtmlRuntimeControlsOverlayBoundsRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
@@ -87,9 +83,6 @@ use crate::{
     },
     state::AppState,
 };
-
-use tauri::{path::BaseDirectory, Manager};
-use chrono::{Local, TimeZone};
 
 const PDF_DOCUMENT_TEMPLATE: &str = "document";
 const PDF_REPORT_TEMPLATE: &str = "report";
