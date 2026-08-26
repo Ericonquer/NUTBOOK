@@ -75,7 +75,7 @@ assert.match(indexHtml, /\.settings-modal \.settings-skill-summary > \.button-ro
 assert.match(indexHtml, /#settingsLibrariesSection \.settings-subsection-card \+ \.settings-subsection-card[\s\S]*?padding-top:\s*14px/, "the Removed Files card must retain the same safe top inset as other File Management cards");
 assert.match(indexHtml, /\.agent-inline-actions \.settings-inline-link[\s\S]*?min-height:\s*24px[\s\S]*?padding:\s*0 6px[\s\S]*?\.agent-inline-actions \.settings-inline-link:hover[\s\S]*?background:\s*rgba\(20, 20, 20, 0\.07\)/, "per-file Agent decisions must retain compact hit targets and show a gray hover state");
 assert.match(indexHtml, /function decideSingleArtifactInSettings[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadItems\(\);[\s\S]*?agentDiscoveryPayload = await invoke\("discover_agent_projects"\)/, "individual project artifact decisions must refresh project sources, items, and project summaries together");
-assert.match(indexHtml, /function removeItemFromNutbook[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadItems\(\);[\s\S]*?await loadAgentProjectsInSettings\(\)/, "removing an artifact must refresh project source visibility and any loaded discovery summary");
+assert.match(indexHtml, /async function executeRemoveItem\(itemId\)[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadItems\(\);[\s\S]*?await loadAgentProjectsInSettings\(\)/, "removing an artifact must refresh project source visibility and any loaded discovery summary");
 assert.match(indexHtml, /function restoreIgnoredItem[\s\S]*?await loadLibraries\(\);[\s\S]*?await loadIgnoredItems\(\);[\s\S]*?await loadAgentProjectsInSettings\(\)/, "restoring an artifact must refresh project source visibility and any loaded discovery summary");
 assert.doesNotMatch(indexHtml, /发现并接入由本机 Agent 生成的项目产物，确认前不会导入任何文件/, "Artifact Access must not repeat explanatory copy beneath its page title");
 assert.match(indexHtml, /function loadAgentProjectsInSettings\(\)[\s\S]*?invoke\("discover_agent_projects"\)[\s\S]*?renderSettingsPanel\(\)/, "Artifact Access must render read-only Agent scopes inline without opening a secondary modal");
@@ -897,7 +897,7 @@ assert.match(i18n, /leavePrompt: "有未保存的修改"/, "Chinese leave-confir
 assert.match(i18n, /leavePrompt: "Unsaved changes"/, "English leave-confirm title must be translated");
 assert.match(i18n, /discardAndExit: "不保存退出"/, "Chinese leave-confirm discard action must be translated");
 assert.match(i18n, /discardAndExit: "Discard and Exit"/, "English leave-confirm discard action must be translated");
-assert.match(htmlEditLeaveConfirm, /width: min\(424px, calc\(100vw - 16px\)\);/, "leave-confirm card must use the wider host bounds");
+assert.match(htmlEditLeaveConfirm, /width: min\(420px, calc\(100vw - 48px\)\);/, "leave-confirm card must match appConfirm dialog sizing (420px, 20px radius, pill buttons)");
 assert.match(htmlEditLeaveConfirm, /\.actions \{[\s\S]*flex-wrap: wrap;/, "leave-confirm actions must wrap instead of overflowing on narrow windows");
 
 assert.match(
@@ -3321,6 +3321,128 @@ assert.match(
   i18n,
   /coverInsertBlockedShort:[\s\S]*?coverValidationBlockedShort:/,
   "i18n 必须声明 coverInsertBlockedShort + coverValidationBlockedShort"
+);
+
+// ---- 0.9.0 toolbar menu actions ----
+assert.match(
+  indexHtml,
+  /function viewerToolbarState\(\)[\s\S]*?const isMarkdown = tab\?\.preview\?\.fileType === "markdown";[\s\S]*?const isHtmlRuntime = tab\?\.preview\?\.fileType === "html-runtime";[\s\S]*?if \(isHtmlRuntime\) \{[\s\S]*?els\.documentPrimaryButton\.dataset\.action = "html-edit";[\s\S]*?const label = isEditingActiveHtml \? t\("htmlEdit\.done"\) : t\("htmlEdit\.edit"\);[\s\S]*?\} else if \(isMarkdown\) \{[\s\S]*?els\.documentPrimaryButton\.dataset\.action = "save-markdown";[\s\S]*?els\.documentPrimaryLabel\.style\.display = "none";/,
+  "主工具栏必须按文件类型投影：HTML runtime=编辑/完成（显示 label），Markdown=保存（隐藏 label 仅图标）"
+);
+assert.match(
+  indexHtml,
+  /function renderDocumentMoreMenu\(\)[\s\S]*?if \(isHtmlRuntime\) \{[\s\S]*?action: "toggle-runtime-presentation"[\s\S]*?action: "remove-from-nutbook"[\s\S]*?\} else \{[\s\S]*?action: "export-markdown"[\s\S]*?action: "remove-from-nutbook"/,
+  "更多菜单顺序：HTML=[演示模式, 移除文件]，Markdown=[导出文件, 移除文件]"
+);
+assert.match(
+  indexHtml,
+  /id="hostSettingsMenu"[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon/,
+  "宿主设置菜单（HTML runtime）必须含 5 个图标"
+);
+assert.match(
+  indexHtml,
+  /function renderSettingsMenu\(\)[\s\S]*?SETTINGS_ICON_SVG\.artifactAccess[\s\S]*?SETTINGS_ICON_SVG\.fileManagement[\s\S]*?SETTINGS_ICON_SVG\.tagManagement[\s\S]*?SETTINGS_ICON_SVG\.preferences[\s\S]*?SETTINGS_ICON_SVG\.thumbnails[\s\S]*?menu-option-icon/,
+  "主页面设置菜单必须含 5 个图标"
+);
+assert.match(
+  indexHtml,
+  /async function requestRemoveItemFromNutbook\(itemId\) \{[\s\S]*?const confirmed = await appConfirm\(/,
+  "所有移除入口必须先确认（requestRemoveItemFromNutbook → appConfirm）"
+);
+assert.match(
+  indexHtml,
+  /async function executeRemoveItem\(itemId\) \{[\s\S]*?const closed = await closeOpenTab\(itemId\);[\s\S]*?if \(!closed\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?await invoke\("remove_item_from_nutbook"/,
+  "executeRemoveItem 必须先 closeOpenTab 成功，失败即取消，才改索引"
+);
+assert.match(
+  indexHtml,
+  /if \(action === "request-remove"\) \{[\s\S]*?await showHtmlRemoveConfirmOverlay\(itemId\);[\s\S]*?return;/,
+  "HTML runtime 移除通过 request-remove 回宿主，由独立的 overlay 弹窗确认"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /async function removeItemFromNutbook\(/,
+  "旧的 removeItemFromNutbook 必须已拆分移除"
+);
+assert.match(
+  indexHtml,
+  /async function showHtmlRemoveConfirmOverlay\(itemId\)[\s\S]*?attach_html_edit_leave_confirm_overlay_command[\s\S]*?mode: "remove"[\s\S]*?fileName:[\s\S]*?\}/,
+  "HTML runtime 移除确认必须使用独立的 overlay 弹窗（mode=remove）"
+);
+assert.match(
+  indexHtml,
+  /function isHtmlRemoveConfirmRequestCurrent[\s\S]*?runtimeSurfacesSuspended[\s\S]*?function cancelHtmlRemoveConfirmOverlay[\s\S]*?request\.cancelled = true[\s\S]*?async function showHtmlRemoveConfirmOverlay[\s\S]*?requestId:[\s\S]*?if \(!isHtmlRemoveConfirmRequestCurrent\(request\)\)[\s\S]*?close_html_edit_leave_confirm_overlay_command/,
+  "HTML 移除确认必须用请求 token 复核 late attach，并关闭失效的 child-webview overlay"
+);
+assert.match(
+  indexHtml,
+  /function scheduleRuntimeCleanupAfterTabSwitch[\s\S]*?cancelHtmlRemoveConfirmOverlay[\s\S]*?async function suspendRuntimeSurfaces[\s\S]*?cancelHtmlRemoveConfirmOverlay/,
+  "切 tab 与窗口暂停都必须取消正在 attach 或显示的 HTML 移除确认"
+);
+assert.match(
+  indexHtml,
+  /if \(data\?\.action === "remove-choice"\) \{[\s\S]*?data\.requestId !== request\.requestId[\s\S]*?appState\.htmlRemoveConfirmItemId !== itemId[\s\S]*?if \(data\.choice === "confirm"\) \{[\s\S]*?await executeRemoveItem\(itemId\);/,
+  "HTML runtime 只接受当前 requestId 的移除确认结果，confirm 才执行 executeRemoveItem"
+);
+assert.match(
+  indexHtml,
+  /let primaryActionBusyItemId = null[\s\S]*?function runPrimaryAction[\s\S]*?finally[\s\S]*?setPrimaryActionBusy\(itemId, false\)[\s\S]*?const primaryActionBusy = primaryActionBusyItemId != null[\s\S]*?async function saveActiveMarkdown[\s\S]*?runPrimaryAction\(tab\.id/,
+  "Markdown 保存与 HTML 编辑主操作必须共享全局 busy 锁、禁用当前投影按钮并在 finally 释放"
+);
+assert.match(
+  runtimeOverlay,
+  /isPrimaryBusy: false[\s\S]*?editButton\.disabled = state\.isPrimaryBusy[\s\S]*?aria-busy[\s\S]*?if \(state\.isPrimaryBusy\) return/,
+  "HTML controls overlay 必须投影 busy 状态并阻止重复编辑/完成动作"
+);
+assert.match(
+  indexHtml,
+  /id="documentMoreButton"[\s\S]*?aria-haspopup="menu" aria-expanded="false"[\s\S]*?id="documentMoreMenu"[\s\S]*?role="menu"[\s\S]*?function handleDocumentMoreMenuKeydown[\s\S]*?ArrowDown[\s\S]*?ArrowUp[\s\S]*?Home[\s\S]*?End/,
+  "Markdown 更多菜单必须暴露 menu 语义、aria-expanded 与完整键盘导航"
+);
+assert.match(
+  runtimeOverlay,
+  /id="editButton" class="action"[\s\S]*?id="presentationOption"[\s\S]*?id="removeOption"/,
+  "overlay 必须提升编辑为 actions-row 主按钮（图标），更多菜单含演示模式+移除文件"
+);
+assert.doesNotMatch(
+  runtimeOverlay,
+  /id="removeConfirm"/,
+  "overlay 不应再内置确认弹窗，确认应由独立的 overlay 弹窗完成"
+);
+assert.match(
+  runtimeOverlay,
+  /els\.removeOption\.addEventListener\("click"[\s\S]*?emit\(\{ action: "request-remove" \}\)/,
+  "overlay 移除必须直接回宿主 request-remove，由独立的 overlay 弹窗统一确认"
+);
+assert.match(
+  htmlEditLeaveConfirm,
+  /<button id="saveButton" class="primary"[\s\S]*?removeMode[\s\S]*?save = t\("actions\.confirmRemove"[\s\S]*?remove-choice/,
+  "html-edit-leave-confirm 必须支持 remove 模式并以 primary（黑色）确认按钮渲染"
+);
+assert.match(
+  htmlEditLeaveConfirm,
+  /requestId = config\.requestId[\s\S]*?if \(settled\) return[\s\S]*?payload\.requestId = requestId[\s\S]*?event\.key === "Escape"[\s\S]*?event\.key !== "Tab"[\s\S]*?keepButton\.focus/,
+  "HTML 移除确认必须回传 requestId、单次提交、支持 Escape/Tab trap 并初始聚焦取消"
+);
+assert.match(
+  indexHtml,
+  /title: formatTranslation\("removeConfirm\.title"[\s\S]*?message: t\("removeConfirm\.message"\)/,
+  "主 DOM 移除确认不得硬编码中文，必须使用 removeConfirm i18n"
+);
+assert.match(
+  i18n,
+  /removeConfirm:\s*\{[\s\S]*?title:\s*"从 Nutbook 移除“\{name\}”？"[\s\S]*?message:[\s\S]*?thisFile:/,
+  "i18n 必须提供中文 removeConfirm 弹窗文案"
+);
+assert.match(
+  i18n,
+  /removeConfirm:\s*\{[\s\S]*?title:\s*"Remove “\{name\}” from Nutbook\?"[\s\S]*?message:[\s\S]*?thisFile:/,
+  "i18n 必须提供英文 removeConfirm 弹窗文案"
+);
+assert.match(
+  i18n,
+  /htmlEdit:\s*\{[\s\S]*?editTooltip:\s*"编辑文件"[\s\S]*?editTooltip:\s*"Edit file"/,
+  "htmlEdit.editTooltip 必须同时提供中英文“编辑文件”"
 );
 
 console.log("Nutbook regression guards passed.");

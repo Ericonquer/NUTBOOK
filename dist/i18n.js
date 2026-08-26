@@ -60,7 +60,12 @@
         cancel: "取消",
         moreActions: "更多操作",
         save: "保存",
+        saveFile: "保存文件",
+        saveTooltip: "保存文件",
         export: "导出",
+        exportFile: "导出文件",
+        presentationShortcut: "演示模式",
+        confirmRemove: "确认移除",
         index: "索引",
         scan: "扫描",
         restore: "恢复",
@@ -276,7 +281,9 @@
       },
       htmlEdit: {
         edit: "编辑",
+        editTooltip: "编辑文件",
         exit: "退出编辑",
+        exitTooltip: "保存并退出编辑",
         toolbar: "HTML 编辑工具栏",
         save: "保存",
         done: "完成",
@@ -334,6 +341,14 @@
         saveAndContinue: "保存并继续",
         discardAndContinue: "放弃并继续",
         keepEditing: "继续编辑"
+      },
+      removeConfirm: {
+        title: "从 Nutbook 移除“{name}”？",
+        message: "文件将从 Nutbook 的列表、搜索和已打开标签中移除，但磁盘上的原文件不会被删除。之后可以重新接入。",
+        thisFile: "这个文件",
+        cancelled: "“{name}”的移除已取消",
+        removedToast: "已移除",
+        failedToast: "移除失败"
       },
       markdown: {
         outline: "文档大纲",
@@ -607,7 +622,12 @@
         cancel: "Cancel",
         moreActions: "More Actions",
         save: "Save",
+        saveFile: "Save file",
+        saveTooltip: "Save file",
         export: "Export",
+        exportFile: "Export file",
+        presentationShortcut: "Presentation",
+        confirmRemove: "Confirm removal",
         index: "Show in Folder",
         scan: "Scan",
         restore: "Restore",
@@ -823,7 +843,9 @@
       },
       htmlEdit: {
         edit: "Edit",
+        editTooltip: "Edit file",
         exit: "Exit editing",
+        exitTooltip: "Save and exit editing",
         toolbar: "HTML Edit Toolbar",
         save: "Save",
         done: "Done",
@@ -881,6 +903,14 @@
         saveAndContinue: "Save and Continue",
         discardAndContinue: "Discard and Continue",
         keepEditing: "Keep Editing"
+      },
+      removeConfirm: {
+        title: "Remove “{name}” from Nutbook?",
+        message: "The file will be removed from the Nutbook list, search, and open tabs. The original file on disk will not be deleted and can be reconnected later.",
+        thisFile: "this file",
+        cancelled: "Removal of “{name}” was cancelled",
+        removedToast: "Removed",
+        failedToast: "Removal failed"
       },
       markdown: {
         outline: "Document Outline",

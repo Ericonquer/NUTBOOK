@@ -240,12 +240,14 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.is_favorite,
         payload.is_fullscreen,
         payload.is_editing,
+        payload.is_primary_busy,
         payload.custom_tag,
         payload.available_tags,
         payload.skill_tag,
         payload.type_tag,
         payload.custom_tags,
         payload.source_badges,
+        item.summary.file_name.clone(),
     )?;
     Ok(session.to_payload(false))
 }
@@ -295,7 +297,15 @@ pub fn attach_html_edit_leave_confirm_overlay_command(
         return Err(AppError::UnsupportedFileType);
     }
 
-    attach_html_edit_leave_confirm_overlay(&app, &window, payload.item_id, payload.bounds, payload.mode.as_deref().unwrap_or("leave"))
+    attach_html_edit_leave_confirm_overlay(
+        &app,
+        &window,
+        payload.item_id,
+        payload.bounds,
+        payload.mode.as_deref().unwrap_or("leave"),
+        payload.file_name.as_deref().unwrap_or(""),
+        payload.request_id.as_deref().unwrap_or(""),
+    )
 }
 
 #[tauri::command]
@@ -401,12 +411,14 @@ pub fn attach_markdown_controls_overlay_command(
         payload.is_favorite,
         payload.is_fullscreen,
         payload.is_editing,
+        payload.is_primary_busy,
         payload.custom_tag,
         payload.available_tags,
         payload.skill_tag,
         payload.type_tag,
         payload.custom_tags,
         payload.source_badges,
+        item.summary.file_name.clone(),
     )?;
     Ok(true)
 }

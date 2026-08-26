@@ -51,6 +51,7 @@ await page.evaluate((saveFnSrc) => {
     window.__savedContent = window.appState.activeMarkdownEditor.getMarkdown();
     return true;
   };
+  window.runPrimaryAction = async (_itemId, action) => action();
   (0, eval)(`${saveFnSrc}\nwindow.__saveActiveMarkdown = saveActiveMarkdown;`);
 }, SAVE_FN);
 await page.waitForFunction(() => typeof window.__saveActiveMarkdown === "function");

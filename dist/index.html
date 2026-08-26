@@ -1467,6 +1467,11 @@
       .document-action-button {
         width: 28px;
         height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 0;
+        box-sizing: border-box;
+        appearance: none;
         border: 0;
         border-radius: 999px;
         background: transparent;
@@ -1484,6 +1489,20 @@
         height: 18px;
         color: currentColor;
         flex: 0 0 auto;
+      }
+
+      .document-action-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+      }
+
+      .document-action-icon svg {
+        display: block;
+        width: 16px;
+        height: 16px;
       }
 
       .star-icon-path {
@@ -1509,6 +1528,11 @@
       .document-action-button.active {
         background: #f4f4f6;
         color: #111;
+      }
+
+      .document-action-button:focus-visible {
+        outline: 2px solid #111;
+        outline-offset: 2px;
       }
 
       .document-action-button:disabled {
@@ -1537,6 +1561,7 @@
       }
 
       .document-action-button:hover .document-action-tooltip,
+      .document-action-button:focus-visible .document-action-tooltip,
       .card-remove:hover .card-action-tooltip,
       .card-favorite:hover .card-action-tooltip {
         opacity: 1;
@@ -1664,16 +1689,33 @@
       }
 
       .item-card {
+        display: flex;
+        padding: 0;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 3px rgba(26, 28, 29, 0.03);
+        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      }
+
+      .item-card-open {
+        width: 100%;
         padding: 14px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
         cursor: pointer;
         display: flex;
         gap: 12px;
         align-items: flex-start;
         text-align: left;
-        background: var(--paper);
-        border: 1px solid var(--line);
-        box-shadow: 0 1px 3px rgba(26, 28, 29, 0.03);
-        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        appearance: none;
+      }
+
+      .item-card-open:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: -3px;
+        border-radius: inherit;
       }
 
       .item-card:hover {
@@ -1889,6 +1931,10 @@
       .item-card:hover .thumb-chip-row .meta-chip,
       .item-card:hover .thumb-chip-row .source-badge,
       .item-card:hover .thumb-badge,
+      .item-card:focus-within .thumb-chip-row .tag-chip,
+      .item-card:focus-within .thumb-chip-row .meta-chip,
+      .item-card:focus-within .thumb-chip-row .source-badge,
+      .item-card:focus-within .thumb-badge,
       .item-card:focus-visible .thumb-chip-row .tag-chip,
       .item-card:focus-visible .thumb-chip-row .meta-chip,
       .item-card:focus-visible .thumb-chip-row .source-badge,
@@ -1959,6 +2005,7 @@
 
       .thumb-cover-state:hover .thumb-cover-warning,
       .thumb-cover-state:focus-within .thumb-cover-warning,
+      .item-card:focus-within .thumb-cover-warning,
       .item-card:focus .thumb-cover-warning {
         opacity: 1;
       }
@@ -2062,15 +2109,21 @@
       }
 
       .main-shell.home-mode .item-card {
-        flex-direction: column;
         padding: 0;
         gap: 0;
-        align-items: stretch;
         overflow: hidden;
         border-radius: 14px;
         position: relative;
         flex: 0 0 auto;
         min-height: 188px;
+      }
+
+      .main-shell.home-mode .item-card-open {
+        min-height: inherit;
+        padding: 0;
+        gap: 0;
+        flex-direction: column;
+        align-items: stretch;
       }
 
       .main-shell.home-mode .thumb {
@@ -3598,8 +3651,64 @@
       }
 
       .popover-option:hover,
+      .popover-option:focus-visible,
       .popover-option.active {
         background: rgba(20, 20, 20, 0.06);
+      }
+
+      .popover-option:focus-visible {
+        outline: 2px solid #111;
+        outline-offset: -2px;
+      }
+
+      .menu-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-align: left;
+      }
+      .popover-option.danger-option,
+      .popover-option.danger-option .menu-option-label {
+        color: #1f1f24;
+      }
+      .popover-option.danger-option:hover,
+      .popover-option.danger-option:focus-visible {
+        color: #d93025;
+        background: rgba(217, 48, 37, 0.08);
+      }
+      .popover-option.danger-option:hover .menu-option-icon,
+      .popover-option.danger-option:hover .menu-option-label,
+      .popover-option.danger-option:focus-visible .menu-option-icon,
+      .popover-option.danger-option:focus-visible .menu-option-label {
+        color: #d93025;
+      }
+      .popover-option:disabled,
+      .popover-option.disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .popover-option:disabled .menu-option-icon,
+      .popover-option.disabled .menu-option-icon,
+      .popover-option:disabled .menu-option-label,
+      .popover-option.disabled .menu-option-label {
+        color: inherit;
+      }
+      .menu-option-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+      }
+      .menu-option-icon svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+      }
+      .menu-option-label {
+        font-size: 12px;
+        line-height: 1;
       }
 
       .popover-option.document-tag-option {
@@ -3836,7 +3945,7 @@
       }
 
       .confirm-card {
-        width: min(360px, calc(100vw - 48px));
+        width: min(420px, calc(100vw - 48px));
         padding: 18px;
         border-radius: 20px;
         background: rgba(255, 255, 255, 0.98);
@@ -4098,6 +4207,12 @@
       .settings-section-switch button:focus-visible {
         outline: 2px solid #111 !important;
         outline-offset: 2px;
+      }
+
+      .settings-tab[data-programmatic-focus]:focus,
+      .settings-tab[data-programmatic-focus]:focus-visible {
+        outline: none !important;
+        outline-offset: 0;
       }
 
       .settings-tab:hover {
@@ -6403,8 +6518,8 @@
           <div class="settings-button-wrap">
             <button id="settingsButton" class="nav-item" type="button">
               <span class="material-symbols-outlined nav-icon">settings</span>
-              <span>设置</span>
-              <span class="nav-tooltip">设置</span>
+              <span data-i18n-key="nav.settings">设置</span>
+              <span class="nav-tooltip" data-i18n-key="nav.settings">设置</span>
             </button>
             <button id="thumbnailEngineAlertButton" class="thumbnail-engine-alert" type="button" aria-label="缩略图引擎未启用">
               !
@@ -6462,16 +6577,12 @@
               </svg>
               <span class="document-action-tooltip">收藏文件</span>
             </button>
-            <button id="documentRemoveButton" class="document-action-button" type="button" aria-label="从 Nutbook 移除" disabled>
-              <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
-                <path d="M5.2 2.8h6.6l3 3v9.6a1.6 1.6 0 0 1-1.6 1.6H5.2a1.6 1.6 0 0 1-1.6-1.6V4.4a1.6 1.6 0 0 1 1.6-1.6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
-                <path d="M11.8 2.8v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
-                <path d="M6.7 7.4h4.9M6.7 9.8h4.3M6.7 12.2h4.9" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
-                <path d="m11.9 11.9 4.2 4.2m0-4.2-4.2 4.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
-              </svg>
-              <span id="documentRemoveTooltip" class="document-action-tooltip">移除文件</span>
+            <button id="documentPrimaryButton" class="document-action-button primary-action" type="button" aria-label="保存文档" disabled>
+              <span id="documentPrimaryIcon" class="document-action-icon" aria-hidden="true"></span>
+              <span id="documentPrimaryLabel" class="document-action-label" style="display:none;">保存</span>
+              <span id="documentPrimaryTooltip" class="document-action-tooltip">保存文档</span>
             </button>
-            <button id="documentMoreButton" class="document-action-button" type="button" aria-label="更多操作" disabled>
+            <button id="documentMoreButton" class="document-action-button" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" disabled>
               <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
                 <circle cx="4.7" cy="10" r="1.6" fill="currentColor"></circle>
                 <circle cx="10" cy="10" r="1.6" fill="currentColor"></circle>
@@ -6479,7 +6590,7 @@
               </svg>
               <span class="document-action-tooltip">更多操作</span>
             </button>
-            <div id="documentMoreMenu" class="popover-menu" aria-hidden="true"></div>
+            <div id="documentMoreMenu" class="popover-menu" role="menu" aria-hidden="true"></div>
           </div>
         </div>
 
@@ -6488,7 +6599,6 @@
             <div class="list-header">
               <div>
                 <div class="home-header-copy">
-                  <div class="section-label" data-i18n-key="nav.browse">浏览</div>
                   <h1 id="listTitle" class="home-title">所有文件</h1>
                   <div class="muted" id="listSummary">等待扫描</div>
                 </div>
@@ -6561,11 +6671,11 @@
     </div>
 
     <div id="hostSettingsMenu" class="host-settings-menu" aria-hidden="true">
-      <button class="popover-option" type="button" data-host-settings-tab="skills">产物接入</button>
-      <button class="popover-option" type="button" data-host-settings-tab="libraries">文件管理</button>
-      <button class="popover-option" type="button" data-host-settings-tab="tags">标签管理</button>
-      <button class="popover-option" type="button" data-host-settings-tab="preferences">偏好设定</button>
-      <button class="popover-option" type="button" data-host-settings-tab="thumbnails">缩略图</button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="skills"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13 5v6l-5 2.5L3 11V5z"/><path d="M3 5l5 2.5L13 5M8 7.5V13.5"/></svg></span><span class="menu-option-label">产物接入</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="libraries"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg></span><span class="menu-option-label">文件管理</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="tags"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 2.5H3a.5.5 0 0 0-.5.5v5.5L10 14.5l4-4z"/><circle cx="5.5" cy="5.5" r="1"/></svg></span><span class="menu-option-label">标签管理</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="preferences"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h7M11.5 5h2M2.5 11h2M6.5 11h7"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg></span><span class="menu-option-label">偏好设定</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="thumbnails"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 12l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></span><span class="menu-option-label">缩略图</span></button>
     </div>
 
     <div id="settingsScrim" class="modal-scrim" aria-hidden="true">
@@ -6804,6 +6914,9 @@
         htmlEditDirtyLeaveIntent: null,
         htmlEditLeavePromptOpen: false,
         htmlEditCreateCopyPromptItemId: null,
+        htmlRemoveConfirmItemId: null,
+        htmlRemoveConfirmRequest: null,
+        htmlRemoveConfirmRequestSequence: 0,
         htmlEditMarkSavedWaiters: new Map(),
         htmlEditStateRefreshWaiters: new Map(),
         htmlEditCleanRevisionWaiters: new Map(),
@@ -7010,8 +7123,10 @@
         breadcrumbTags: document.getElementById("breadcrumbTags"),
         documentTagMenu: document.getElementById("documentTagMenu"),
         documentFavoriteButton: document.getElementById("documentFavoriteButton"),
-        documentRemoveButton: document.getElementById("documentRemoveButton"),
-        documentRemoveTooltip: document.getElementById("documentRemoveTooltip"),
+        documentPrimaryButton: document.getElementById("documentPrimaryButton"),
+        documentPrimaryIcon: document.getElementById("documentPrimaryIcon"),
+        documentPrimaryLabel: document.getElementById("documentPrimaryLabel"),
+        documentPrimaryTooltip: document.getElementById("documentPrimaryTooltip"),
         viewerBody: document.getElementById("viewerBody"),
         documentMoreButton: document.getElementById("documentMoreButton"),
         documentMoreMenu: document.getElementById("documentMoreMenu"),
@@ -8361,6 +8476,7 @@
 
       function isHtmlEditBlockingOverlayForItem(itemId) {
         return appState.htmlEditCreateCopyPromptItemId === itemId
+          || appState.htmlRemoveConfirmItemId === itemId
           || Boolean(
             appState.htmlEditLeavePromptOpen
             && appState.htmlEditDirtyLeaveIntent?.itemId === itemId
@@ -8400,11 +8516,46 @@
 
       async function closeHtmlEditLeaveConfirmOverlay(itemId) {
         if (itemId == null) return;
+        const removeRequest = appState.htmlRemoveConfirmRequest;
+        if (removeRequest?.itemId === itemId) {
+          removeRequest.cancelled = true;
+          appState.htmlRemoveConfirmRequest = null;
+        }
         await invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
         if (appState.htmlEditCreateCopyPromptItemId === itemId) {
           appState.htmlEditCreateCopyPromptItemId = null;
         }
+        if (appState.htmlRemoveConfirmItemId === itemId) {
+          appState.htmlRemoveConfirmItemId = null;
+        }
         await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+      }
+
+      function isHtmlRemoveConfirmRequestCurrent(request) {
+        if (!request || request.cancelled || appState.htmlRemoveConfirmRequest !== request) return false;
+        const activeTab = getActiveTab();
+        return appState.htmlRemoveConfirmItemId === request.itemId
+          && activeTab?.id === request.itemId
+          && activeTab.preview?.fileType === "html-runtime"
+          && !appState.runtimeSurfacesSuspended;
+      }
+
+      async function cancelHtmlRemoveConfirmOverlay(itemId, options = {}) {
+        if (itemId == null) return;
+        const request = appState.htmlRemoveConfirmRequest;
+        let closePromise = null;
+        if (request?.itemId === itemId) {
+          request.cancelled = true;
+          request.closePromise ||= invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+          closePromise = request.closePromise;
+        }
+        if (appState.htmlRemoveConfirmItemId === itemId) {
+          appState.htmlRemoveConfirmItemId = null;
+        }
+        await (closePromise || invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false));
+        if (options.restore !== false) {
+          await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+        }
       }
 
       async function showHtmlEditCreateCopyConfirmOverlay(itemId) {
@@ -8428,6 +8579,61 @@
           await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
           throw error;
         }
+      }
+
+      async function showHtmlRemoveConfirmOverlay(itemId) {
+        const existingRequest = appState.htmlRemoveConfirmRequest;
+        if (existingRequest) {
+          if (existingRequest.itemId === itemId && !existingRequest.cancelled) {
+            return existingRequest.promise;
+          }
+          await existingRequest.promise?.catch(() => false);
+          await existingRequest.closePromise?.catch(() => false);
+        }
+        const activeTab = getActiveTab();
+        if (activeTab?.id !== itemId || activeTab.preview?.fileType !== "html-runtime" || appState.runtimeSurfacesSuspended) return false;
+        const request = {
+          itemId,
+          requestId: `remove-${itemId}-${++appState.htmlRemoveConfirmRequestSequence}`,
+          cancelled: false,
+          promise: null
+        };
+        appState.htmlRemoveConfirmRequest = request;
+        appState.htmlRemoveConfirmItemId = itemId;
+        const item = appState.items.find((entry) => entry.id === itemId) || getOpenTab(itemId)?.item;
+        request.promise = (async () => {
+          let keepOpen = false;
+          try {
+            const ready = await waitForHtmlRuntimeOverlayPriority(itemId);
+            if (!ready || !isHtmlRemoveConfirmRequestCurrent(request)) return false;
+            await invoke("attach_html_edit_leave_confirm_overlay_command", {
+              payload: {
+                itemId,
+                bounds: htmlEditLeaveConfirmBounds(),
+                mode: "remove",
+                fileName: item?.fileName || "",
+                requestId: request.requestId
+              }
+            });
+            if (!isHtmlRemoveConfirmRequestCurrent(request)) {
+              await invoke("close_html_edit_leave_confirm_overlay_command", { payload: { itemId } }).catch(() => false);
+              return false;
+            }
+            keepOpen = true;
+            return true;
+          } finally {
+            if (!keepOpen) {
+              if (appState.htmlRemoveConfirmRequest === request) {
+                appState.htmlRemoveConfirmRequest = null;
+              }
+              if (appState.htmlRemoveConfirmItemId === itemId) {
+                appState.htmlRemoveConfirmItemId = null;
+              }
+              await restoreHtmlRuntimeAfterBlockingOverlay(itemId);
+            }
+          }
+        })();
+        return request.promise;
       }
 
       function htmlEditStateRefreshWaiterKey(runtimeSessionId, requestId) {
@@ -10095,6 +10301,24 @@
               await createEditableCopyForActiveHtml(itemId);
             }
           })().catch((error) => console.warn("[html-edit] conversion start failed", normalizeError(error)));
+          return;
+        }
+        if (data?.action === "remove-choice") {
+          const itemId = Number(data.itemId);
+          const request = appState.htmlRemoveConfirmRequest;
+          if (
+            !request
+            || request.itemId !== itemId
+            || data.requestId !== request.requestId
+            || appState.htmlRemoveConfirmItemId !== itemId
+            || getActiveTab()?.id !== itemId
+          ) return;
+          (async () => {
+            await closeHtmlEditLeaveConfirmOverlay(itemId);
+            if (data.choice === "confirm") {
+              await executeRemoveItem(itemId);
+            }
+          })().catch((error) => console.warn("[html-remove] confirm failed", normalizeError(error)));
           return;
         }
         const intent = appState.htmlEditDirtyLeaveIntent;
@@ -12146,10 +12370,16 @@
         }
       }
 
-      async function updateInterfaceLanguage(language) {
+      async function updateInterfaceLanguage(language, { propagateToMain = true } = {}) {
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
         appState.language = i18n?.setLanguage?.(language) ?? language;
+        if (appState.isSettingsOverlay && propagateToMain) {
+          document.title = "__NUTBOOK_SETTINGS_OVERLAY__:" + JSON.stringify({
+            action: "language-change",
+            language: appState.language
+          });
+        }
         clearPollutedSearchValues();
         getFileTypeFilter();
         destroyAllMarkdownEditorSessions();
@@ -12173,19 +12403,37 @@
       }
 
       function renderSettingsMenu() {
-        els.settingsMenu.innerHTML = `
-          <button class="popover-option" type="button" data-open-settings-tab="skills">产物接入</button>
-          <button class="popover-option" type="button" data-open-settings-tab="libraries">文件管理</button>
-          <button class="popover-option" type="button" data-open-settings-tab="tags">标签管理</button>
-          <button class="popover-option" type="button" data-open-settings-tab="preferences">偏好设定</button>
-          <button class="popover-option" type="button" data-open-settings-tab="thumbnails">缩略图</button>
-        `;
+        const items = [
+          { tab: "skills", label: t("settings.skills"), icon: SETTINGS_ICON_SVG.artifactAccess },
+          { tab: "libraries", label: t("settings.libraries"), icon: SETTINGS_ICON_SVG.fileManagement },
+          { tab: "tags", label: t("settings.tags"), icon: SETTINGS_ICON_SVG.tagManagement },
+          { tab: "preferences", label: t("settings.preferences"), icon: SETTINGS_ICON_SVG.preferences },
+          { tab: "thumbnails", label: t("settings.thumbnails"), icon: SETTINGS_ICON_SVG.thumbnails }
+        ];
+        els.settingsMenu.innerHTML = items.map((item) => `
+          <button class="popover-option menu-option" type="button" data-open-settings-tab="${item.tab}">
+            <span class="menu-option-icon" aria-hidden="true">${item.icon}</span>
+            <span class="menu-option-label">${item.label}</span>
+          </button>
+        `).join("");
         els.settingsMenu.classList.toggle("open", appState.isSettingsMenuOpen);
         els.settingsMenu.setAttribute("aria-hidden", appState.isSettingsMenuOpen ? "false" : "true");
         els.settingsMenu.querySelectorAll("[data-open-settings-tab]").forEach((node) => {
           node.addEventListener("click", () => {
             openSettingsTab(node.dataset.openSettingsTab);
           });
+        });
+      }
+
+      function focusSelectedSettingsTab() {
+        requestAnimationFrame(() => {
+          const tab = document.querySelector('[data-settings-tab][aria-selected="true"]');
+          if (!tab) return;
+          tab.dataset.programmaticFocus = "true";
+          tab.addEventListener("blur", () => {
+            delete tab.dataset.programmaticFocus;
+          }, { once: true });
+          tab.focus({ preventScroll: true });
         });
       }
 
@@ -12206,9 +12454,7 @@
         appState.isSettingsOpen = true;
         renderSettingsMenu();
         renderSettingsPanel();
-        requestAnimationFrame(() => {
-          document.querySelector('[data-settings-tab][aria-selected="true"]')?.focus?.();
-        });
+        focusSelectedSettingsTab();
         if (tab === "skills") {
           loadNbskillAgentStatuses().catch(() => {});
           if (appState.settingsArtifactSection === "projects") {
@@ -13299,9 +13545,7 @@
         }
         appState.isSettingsOpen = true;
         renderSettingsPanel();
-        requestAnimationFrame(() => {
-          document.querySelector('[data-settings-tab][aria-selected="true"]')?.focus?.();
-        });
+        focusSelectedSettingsTab();
         await loadLibraries();
         await loadTags();
         await loadIgnoredItems();
@@ -13328,9 +13572,7 @@
         appState.isSettingsOpen = mode !== "menu" && mode !== "about";
         renderSettingsPanel();
         if (appState.isSettingsOpen) {
-          requestAnimationFrame(() => {
-            document.querySelector('[data-settings-tab][aria-selected="true"]')?.focus?.();
-          });
+          focusSelectedSettingsTab();
         }
         renderAboutPanel();
       };
@@ -13497,29 +13739,54 @@
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
-        const options = isHtmlRuntime
-          ? [
-              {
-                action: "toggle-runtime-presentation",
-                label: appState.runtimeFullscreenItemId === tab?.id ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut"),
-                className: "presentation-option",
-                disabled: false
-              }
-            ]
-          : [
-              { action: "save-markdown", label: "保存", disabled: !isMarkdown },
-              { action: "export-markdown", label: "导出", disabled: !isMarkdown }
-            ];
+        // 固定顺序：Markdown=[导出文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
+        let options = [];
+        if (isHtmlRuntime) {
+          options = [
+            {
+              action: "toggle-runtime-presentation",
+              label: appState.runtimeFullscreenItemId === tab?.id ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut"),
+              icon: MENU_ICON_SVG.presentation,
+              disabled: false
+            },
+            {
+              action: "remove-from-nutbook",
+              label: t("actions.removeFile"),
+              icon: MENU_ICON_SVG.removeFile,
+              danger: true,
+              disabled: false
+            }
+          ];
+        } else {
+          options = [
+            {
+              action: "export-markdown",
+              label: t("actions.exportFile"),
+              icon: MENU_ICON_SVG.exportFile,
+              disabled: !isMarkdown
+            },
+            {
+              action: "remove-from-nutbook",
+              label: t("actions.removeFile"),
+              icon: MENU_ICON_SVG.removeFile,
+              danger: true,
+              disabled: false
+            }
+          ];
+        }
         els.documentMoreMenu.innerHTML = options.map((option) => `
-          <button class="popover-option ${option.className || ""} ${option.disabled ? "disabled" : ""}" type="button" data-document-action="${option.action}" ${option.disabled ? "disabled" : ""}>${option.label}</button>
+          <button class="popover-option menu-option${option.danger ? " danger-option" : ""} ${option.disabled ? "disabled" : ""}" type="button" role="menuitem" data-document-action="${option.action}" ${option.disabled ? "disabled" : ""}>
+            <span class="menu-option-icon" aria-hidden="true">${option.icon || ""}</span>
+            <span class="menu-option-label">${option.label}</span>
+          </button>
         `).join("");
         els.documentMoreMenu.classList.toggle("open", appState.isDocumentMoreMenuOpen);
         els.documentMoreMenu.setAttribute("aria-hidden", appState.isDocumentMoreMenuOpen ? "false" : "true");
+        els.documentMoreButton.setAttribute("aria-expanded", appState.isDocumentMoreMenuOpen ? "true" : "false");
         els.documentMoreMenu.querySelectorAll("[data-document-action]").forEach((node) => {
           node.addEventListener("click", async () => {
             const action = node.dataset.documentAction;
-            appState.isDocumentMoreMenuOpen = false;
-            renderDocumentMoreMenu();
+            closeDocumentMoreMenu({ restoreFocus: true });
             if (action === "save-markdown") {
               await saveActiveMarkdown();
               return;
@@ -13530,9 +13797,56 @@
             }
             if (action === "toggle-runtime-presentation") {
               await toggleActiveHtmlRuntimePresentationMode();
+              return;
+            }
+            if (action === "remove-from-nutbook") {
+              const tab = getActiveTab();
+              if (!tab) return;
+              await requestRemoveItemFromNutbook(tab.id);
+              return;
             }
           });
         });
+      }
+
+      function documentMoreMenuItems() {
+        return [...els.documentMoreMenu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+      }
+
+      function openDocumentMoreMenu(focusIndex = 0) {
+        appState.isDocumentMoreMenuOpen = true;
+        renderDocumentMoreMenu();
+        requestAnimationFrame(() => {
+          const items = documentMoreMenuItems();
+          if (!items.length) return;
+          items[Math.max(0, Math.min(focusIndex, items.length - 1))]?.focus();
+        });
+      }
+
+      function closeDocumentMoreMenu(options = {}) {
+        appState.isDocumentMoreMenuOpen = false;
+        renderDocumentMoreMenu();
+        if (options.restoreFocus) {
+          requestAnimationFrame(() => els.documentMoreButton.focus());
+        }
+      }
+
+      function handleDocumentMoreMenuKeydown(event) {
+        const items = documentMoreMenuItems();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeDocumentMoreMenu({ restoreFocus: true });
+          return;
+        }
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || !items.length) return;
+        event.preventDefault();
+        const currentIndex = items.indexOf(document.activeElement);
+        let nextIndex = currentIndex;
+        if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = items.length - 1;
+        else if (event.key === "ArrowDown") nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % items.length;
+        else nextIndex = currentIndex < 0 ? items.length - 1 : (currentIndex - 1 + items.length) % items.length;
+        items[nextIndex]?.focus();
       }
 
       function groupedAgentScopesForSettings() {
@@ -15292,14 +15606,25 @@
         return getOpenTabs().find((tab) => tab.id === tabId) || null;
       }
 
-      function scheduleRuntimeCleanupAfterTabSwitch(previousTabId, nextTabId = null) {
+      async function scheduleRuntimeCleanupAfterTabSwitch(previousTabId, nextTabId = null) {
         if (!previousTabId || previousTabId === nextTabId) return;
         const previousTab = getOpenTab(previousTabId);
         if (previousTab?.preview?.fileType !== "html-runtime") return;
+        await cancelHtmlRemoveConfirmOverlay(previousTabId, { restore: false }).catch(() => {});
         appState.runtimeControlsOverlayExpanded = false;
         appState.runtimeControlsOverlayMode = "default";
         cleanupRuntimeHostSync();
-        scheduleRuntimeSurfaceHide(previousTabId);
+        cancelPendingRuntimeSurfaceHide(previousTabId);
+        const token = nextRuntimeSurfaceToken(previousTabId);
+        await syncHtmlEditReadonlyPatchSurfaceToken(previousTabId, token).catch(() => {});
+        await hideRuntimeSessionSurfaces(previousTabId, { force: true, token });
+        if (appState.activeRuntimeHostId === previousTabId) {
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+        }
+        // 旧 attach/set_bounds IPC 仍可能在强制 hide 后晚到；保留分段复查，
+        // 但目标页面渲染不再只依赖这些 fire-and-forget timer。
+        scheduleRuntimeSurfaceHide(previousTabId).catch(() => {});
       }
 
       async function isOpenTabSourceMissing(tab) {
@@ -15319,6 +15644,9 @@
           if (!canLeaveHtmlEdit) return false;
         }
         captureActiveMarkdownScroll();
+        if (appState.htmlRemoveConfirmItemId === tabId) {
+          await cancelHtmlRemoveConfirmOverlay(tabId, { restore: false });
+        }
         invalidateItemOpenToken(tabId);
         const tab = getOpenTab(tabId);
         let sourcePathMissing = false;
@@ -15554,7 +15882,7 @@
             appState.homeTabOpen = true;
             appState.activeTabId = null;
             appState.isEditing = false;
-            scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
+            await scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
             renderTabs();
             renderViewer();
           });
@@ -15587,7 +15915,7 @@
           appState.homeTabOpen = true;
           appState.activeTabId = null;
           appState.isEditing = false;
-          scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
+          await scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
           renderTabs();
           renderViewer();
         });
@@ -15616,7 +15944,7 @@
             appState.isEditing = getOpenTab(tabId)?.preview?.fileType === "markdown";
             appState.markdownEditMode = "rich";
             appState.markdownEditorShouldFocus = appState.isEditing;
-            scheduleRuntimeCleanupAfterTabSwitch(previousTabId, tabId);
+            await scheduleRuntimeCleanupAfterTabSwitch(previousTabId, tabId);
             renderTabs();
             renderViewer();
             if (getOpenTab(tabId)?.preview?.fileType === "html-runtime") {
@@ -16155,7 +16483,7 @@
       // tags 名称、sourceBadges 的 kind/sourceId/label/isOwner/available。
       // 数据没变就不重建 innerHTML，避免自动刷新/缩略图完成后全量重绘。
       function itemsFingerprint(items) {
-        return JSON.stringify(items.map((item) => [
+        return JSON.stringify([appState.language, appState.altKeyPressed ? 1 : 0, items.map((item) => [
           item.id,
           item.fileName || "",
           item.title || "",
@@ -16166,7 +16494,7 @@
             : null,
           (item.tags || []).map((tag) => tag.name || ""),
           (item.sourceBadges || []).map((badge) => [badge.kind || "", badge.sourceId || "", badge.label || "", badge.isOwner ? 1 : 0, badge.available === false ? 0 : 1])
-        ]));
+        ])]);
       }
 
       function renderItems() {
@@ -16241,21 +16569,23 @@
                 ? `${baseAria}，${sourceAria ? `${sourceAria}，` : ""}${coverWarning}`
                 : (sourceAria ? `${baseAria}，${sourceAria}` : baseAria);
               return `
-              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}" role="button" tabindex="0" aria-label="${escapeAttribute(ariaLabel)}">
-                <button class="card-remove" type="button" data-remove-item="${item.id}" aria-label="从 Nutbook 移除">
+              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}">
+                <button class="card-remove" type="button" data-remove-item="${item.id}" aria-label="${escapeAttribute(t("actions.removeFromNutbook"))}">
                   <span style="font-size:18px; line-height:1; font-weight:500;">×</span>
-                  <span class="card-action-tooltip">${appState.altKeyPressed ? "删除" : "移除"}</span>
+                  <span class="card-action-tooltip">${appState.altKeyPressed ? t("actions.delete") : t("actions.remove")}</span>
                 </button>
-                <button class="card-favorite ${item.isFavorite ? "active" : ""}" type="button" data-toggle-favorite="${item.id}" aria-label="收藏文件">
+                <button class="card-favorite ${item.isFavorite ? "active" : ""}" type="button" data-toggle-favorite="${item.id}" aria-label="${escapeAttribute(t(item.isFavorite ? "actions.unfavoriteFile" : "actions.favoriteFile"))}">
                   <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
                     <path class="star-icon-path" d="M10 2.7 12.1 7l4.7.7-3.4 3.3.8 4.7L10 13.5l-4.2 2.2.8-4.7L3.2 7.7 7.9 7 10 2.7Z"></path>
                   </svg>
-                  <span class="card-action-tooltip">收藏</span>
+                  <span class="card-action-tooltip">${t("actions.favorite")}</span>
                 </button>
-                ${thumbnailNode(item)}
-                <div class="item-main">
-                  <div class="item-card-title">${escapeHtml(item.fileName)}</div>
-                </div>
+                <button class="item-card-open" type="button" data-open-trigger="${item.id}" aria-label="${escapeAttribute(ariaLabel)}">
+                  ${thumbnailNode(item)}
+                  <span class="item-main">
+                    <span class="item-card-title">${escapeHtml(item.fileName)}</span>
+                  </span>
+                </button>
               </article>
             `;
             }
@@ -16263,16 +16593,9 @@
           .join("");
         window.NutbookCoverCard?.observe?.(els.itemList);
 
-        els.itemList.querySelectorAll("[data-open-item]").forEach((node) => {
-          node.addEventListener("click", async (event) => {
-            if (event.target.closest("[data-remove-item], [data-toggle-favorite]")) return;
-            await openItem(Number(node.dataset.openItem));
-          });
-          node.addEventListener("keydown", async (event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              await openItem(Number(node.dataset.openItem));
-            }
+        els.itemList.querySelectorAll("[data-open-trigger]").forEach((node) => {
+          node.addEventListener("click", async () => {
+            await openItem(Number(node.dataset.openTrigger));
           });
         });
         els.itemList.querySelectorAll("[data-toggle-favorite]").forEach((node) => {
@@ -16291,7 +16614,7 @@
           node.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
-            await removeItemFromNutbook(Number(node.dataset.removeItem));
+            await requestRemoveItemFromNutbook(Number(node.dataset.removeItem));
           });
         });
 
@@ -16596,17 +16919,103 @@ if (!chipTipController) {
         `;
       }
 
+      // 内联线性 SVG 图标（16×16，currentColor，约 1.5 描边）。供动态菜单与
+      // 主操作按钮复用；图标统一 aria-hidden，菜单项可访问名称仍来自文字。
+      const MENU_ICON_SVG = {
+        save: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3h8.5l3.5 3.5V16a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 16V4.5A1.5 1.5 0 0 1 4 3Z"/><path d="M6.5 3v4h5"/><path d="M6.5 13h7v3.5h-7z"/></svg>',
+        htmlEditStart: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5-7.5 7.5-3.2.7.7-3.2z"/><path d="M9.8 3.7l2.5 2.5"/></svg>',
+        htmlEditDone: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
+        exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v6"/><path d="M5.5 6l2.5 2.5 2.5-2.5"/><path d="M3 10.5v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2"/></svg>',
+        removeFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5h9"/><path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5"/><path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8"/></svg>',
+        presentation: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="7" rx="1"/><path d="M6.5 12.5h3"/><path d="M8 10.5v2"/></svg>'
+      };
+
+      // 设置菜单图标（16×16，currentColor，约 1.5 描边，线性）。图标 aria-hidden，
+      // 菜单项可访问名称仍来自文字。
+      const SETTINGS_ICON_SVG = {
+        artifactAccess: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13 5v6l-5 2.5L3 11V5z"/><path d="M3 5l5 2.5L13 5M8 7.5V13.5"/></svg>',
+        fileManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg>',
+        tagManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 2.5H3a.5.5 0 0 0-.5.5v5.5L10 14.5l4-4z"/><circle cx="5.5" cy="5.5" r="1"/></svg>',
+        preferences: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h7M11.5 5h2M2.5 11h2M6.5 11h7"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg>',
+        thumbnails: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 12l3.5-3.5 2.5 2.5 2-2 3 3"/></svg>'
+      };
+
+      let primaryActionBusyItemId = null;
+
+      function setPrimaryActionBusy(itemId, busy) {
+        if (busy) {
+          if (primaryActionBusyItemId != null) return false;
+          primaryActionBusyItemId = itemId;
+        } else if (primaryActionBusyItemId === itemId) {
+          primaryActionBusyItemId = null;
+        }
+        viewerToolbarState();
+        if (getOpenTab(itemId)?.preview?.fileType === "html-runtime") {
+          scheduleRuntimeHostSync();
+        }
+        return true;
+      }
+
+      async function runPrimaryAction(itemId, action) {
+        if (!setPrimaryActionBusy(itemId, true)) return false;
+        try {
+          return await action();
+        } finally {
+          setPrimaryActionBusy(itemId, false);
+        }
+      }
+
+      async function runHtmlPrimaryAction(itemId) {
+        return runPrimaryAction(itemId, async () => {
+          if (appState.htmlEditSession?.itemId === itemId) {
+            return confirmHtmlEditLeaveIfNeeded(itemId, { source: "toolbar-primary" });
+          }
+          try {
+            return await requestHtmlEdit(itemId);
+          } catch (error) {
+            setStatus(htmlEditSaveErrorStatus(error), "error");
+            return false;
+          }
+        });
+      }
+
       function viewerToolbarState() {
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
+        const isEditingActiveHtml = isHtmlRuntime && appState.htmlEditSession?.itemId === tab?.id;
         els.documentFavoriteButton.disabled = !tab;
-        els.documentRemoveButton.disabled = !tab;
         els.documentMoreButton.disabled = !isMarkdown && !isHtmlRuntime;
-        els.documentFavoriteButton.classList.toggle("active", Boolean(tab?.item?.isFavorite));
-        if (els.documentRemoveTooltip) {
-          els.documentRemoveTooltip.textContent = appState.altKeyPressed ? "删除文件" : "移除文件";
+        // 主操作按文件类型投影：Markdown=保存，HTML runtime=编辑/完成。
+        const showPrimary = Boolean(tab) && (isMarkdown || isHtmlRuntime);
+        const primaryActionBusy = primaryActionBusyItemId != null;
+        els.documentPrimaryButton.disabled = !showPrimary || primaryActionBusy;
+        els.documentPrimaryButton.setAttribute("aria-busy", primaryActionBusy ? "true" : "false");
+        if (isHtmlRuntime) {
+          els.documentPrimaryButton.dataset.action = "html-edit";
+          els.documentPrimaryLabel.style.display = "";
+          const label = isEditingActiveHtml ? t("htmlEdit.done") : t("htmlEdit.edit");
+          els.documentPrimaryLabel.textContent = label;
+          els.documentPrimaryButton.setAttribute("aria-label", label);
+          els.documentPrimaryIcon.innerHTML = isEditingActiveHtml ? MENU_ICON_SVG.htmlEditDone : MENU_ICON_SVG.htmlEditStart;
+          els.documentPrimaryTooltip.textContent = isEditingActiveHtml ? t("htmlEdit.exitTooltip") : t("htmlEdit.editTooltip");
+          els.documentPrimaryButton.classList.toggle("is-completing", isEditingActiveHtml);
+        } else if (isMarkdown) {
+          els.documentPrimaryButton.dataset.action = "save-markdown";
+          els.documentPrimaryLabel.style.display = "none";
+          els.documentPrimaryButton.setAttribute("aria-label", t("actions.saveFile"));
+          els.documentPrimaryIcon.innerHTML = MENU_ICON_SVG.save;
+          els.documentPrimaryTooltip.textContent = t("actions.saveFile");
+          els.documentPrimaryButton.classList.remove("is-completing");
+        } else {
+          els.documentPrimaryButton.dataset.action = "";
+          els.documentPrimaryLabel.style.display = "none";
+          els.documentPrimaryButton.setAttribute("aria-label", "");
+          els.documentPrimaryIcon.innerHTML = "";
+          els.documentPrimaryTooltip.textContent = "";
+          els.documentPrimaryButton.classList.remove("is-completing");
         }
+        els.documentFavoriteButton.classList.toggle("active", Boolean(tab?.item?.isFavorite));
         els.toolbarActions?.classList.toggle("host-overlay-mode", Boolean(isHtmlRuntime));
       }
 
@@ -16645,21 +17054,13 @@ if (!chipTipController) {
           }
           return;
         }
-        if (action === "remove") {
-          await removeItemFromNutbook(itemId);
+        if (action === "request-remove") {
+          await showHtmlRemoveConfirmOverlay(itemId);
           return;
         }
         if (action === "edit") {
           if (appState.activeTabId !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
-          if (appState.htmlEditSession?.itemId === itemId) {
-            await confirmHtmlEditLeaveIfNeeded(itemId, { source: "runtime-overlay" });
-            return;
-          }
-          try {
-            await requestHtmlEdit(itemId);
-          } catch (error) {
-            setStatus(htmlEditSaveErrorStatus(error), "error");
-          }
+          await runHtmlPrimaryAction(itemId);
           return;
         }
         if (action === "toggle-presentation") {
@@ -17266,12 +17667,16 @@ if (!chipTipController) {
         cleanupRuntimeHostSync();
         appState.activeRuntimeHostId = null;
         appState.runtimeHostLastBoundsKey = null;
-        const suspendPromise = Promise.all(appState.runtimeSessions.map(async (session) => {
+        const removeConfirmItemId = appState.htmlRemoveConfirmItemId;
+        const removeConfirmClose = removeConfirmItemId == null
+          ? Promise.resolve()
+          : cancelHtmlRemoveConfirmOverlay(removeConfirmItemId, { restore: false });
+        const suspendPromise = Promise.all([removeConfirmClose, ...appState.runtimeSessions.map(async (session) => {
           cancelPendingRuntimeSurfaceHide(session.id);
           const token = nextRuntimeSurfaceToken(session.id);
           await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
           await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
-        }));
+        })]);
         appState.runtimeSurfaceSuspendPromise = suspendPromise;
         try {
           await suspendPromise;
@@ -17497,6 +17902,7 @@ if (!chipTipController) {
             isFavorite: Boolean(tab.item?.isFavorite),
             isFullscreen: true,
             isEditing: appState.htmlEditSession?.itemId === tab.id,
+            isPrimaryBusy: primaryActionBusyItemId != null,
             customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
             availableTags: appState.tags,
             skillTag: tab.item?.skillBinding?.displayName ?? null,
@@ -17524,6 +17930,7 @@ if (!chipTipController) {
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: appState.runtimeFullscreenItemId === tab.id,
           isEditing: appState.htmlEditSession?.itemId === tab.id,
+          isPrimaryBusy: primaryActionBusyItemId != null,
           customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
           availableTags: appState.tags,
           skillTag: tab.item?.skillBinding?.displayName ?? null,
@@ -18207,31 +18614,63 @@ if (!chipTipController) {
         }
       }
 
-      async function removeItemFromNutbook(itemId) {
+      // 统一的"从 Nutbook 移除"用户动作入口（主页面 / 卡片来源使用主 DOM 可访问
+      // 确认；HTML runtime 来源由宿主 overlay 自行确认后回调 executeRemoveItem）。
+      // 先确认是否移除，再进入未保存裁决，最后才修改索引。
+      async function requestRemoveItemFromNutbook(itemId) {
         const item = appState.items.find((entry) => entry.id === itemId) || getOpenTab(itemId)?.item;
-        const fileName = item?.fileName || "这个文件";
+        const fileName = item?.fileName || t("removeConfirm.thisFile");
+        const confirmed = await appConfirm({
+          title: formatTranslation("removeConfirm.title", { name: fileName }),
+          message: t("removeConfirm.message"),
+          detail: item?.path || item?.sourcePath || "",
+          confirmText: t("actions.confirmRemove"),
+          cancelText: t("actions.cancel"),
+          danger: false
+        });
+        if (!confirmed) return;
+        await executeRemoveItem(itemId);
+      }
 
+      // 真正执行索引移除：必须先成功关闭 tab（含未保存裁决），再修改索引。
+      // 打开且有未保存修改的文档，关闭失败（继续编辑 / 保存失败）即取消移除。
+      const pendingRemoveItemIds = new Set();
+      async function executeRemoveItem(itemId) {
+        if (pendingRemoveItemIds.has(itemId)) return;
+        pendingRemoveItemIds.add(itemId);
+        const item = appState.items.find((entry) => entry.id === itemId) || getOpenTab(itemId)?.item;
+        const fileName = item?.fileName || t("removeConfirm.thisFile");
         try {
           setStatus(statusWithValue("status.itemRemovingPrefix", fileName), "warn");
+          // 先收敛并关闭：dirty Markdown 进入未保存裁决，HTML 进入退出协调器；
+          // 返回 false（继续编辑 / 失败）即终止移除，保留可恢复界面。
+          const closed = await closeOpenTab(itemId);
+          if (!closed) {
+            setStatus(formatTranslation("removeConfirm.cancelled", { name: fileName }), "warn");
+            return;
+          }
+          // 关闭成功后，再修改索引。
           await maybeSyncFilesystemState(true);
           await invoke("remove_item_from_nutbook", { itemId });
-          await closeOpenTab(itemId).catch(() => {});
           await loadLibraries();
           await loadItems();
           if (appState.agentDiscoveryPayload) {
             await loadAgentProjectsInSettings();
           }
+          renderItems();
           renderTabs();
           renderViewer();
           setStatus(statusWithValue("status.itemRemovedPrefix", fileName), "ok");
-          showToast("已移除");
+          showToast(t("removeConfirm.removedToast"));
         } catch (error) {
           if (isMissingIndexedItemError(error)) {
             await refreshInvalidIndexedItemState(itemId, item, { fileName });
             return;
           }
           setStatus(statusError("status.removeFailedPrefix", error), "error");
-          showToast("移除失败");
+          showToast(t("removeConfirm.failedToast"));
+        } finally {
+          pendingRemoveItemIds.delete(itemId);
         }
       }
 
@@ -18613,6 +19052,8 @@ if (!chipTipController) {
 
       async function saveActiveMarkdown() {
         const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return false;
+        return runPrimaryAction(tab.id, async () => {
         // 保存前收敛标题输入框未提交的值（P0 统一收敛）：用户可能输入新标题后
         // 直接按 ⌘S 而未 Enter/blur，此时 PM doc 尚未更新，若不先提交，保存的
         // 将是旧标题，保存后 preview/输入框会"瞬间回到旧标题"。
@@ -18621,10 +19062,11 @@ if (!chipTipController) {
             // 输入法组合尚未结束：不强制提交标题，也不保存（避免旧标题写盘后
             // 覆盖正在组合的输入）。保持应用打开并给出可理解状态。
             setStatus("标题输入法组合中，请先确认输入再保存", "warn");
-            return;
+            return false;
           }
         }
-        await saveMarkdownTab(tab);
+        return saveMarkdownTab(tab);
+        });
       }
 
       async function exportActiveMarkdown() {
@@ -19144,6 +19586,7 @@ if (!chipTipController) {
         els.fileTypeSelect.value = "";
         syncSearchInputs("");
         renderNavState();
+        await scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
         if (reload) {
           await loadItems();
         }
@@ -19495,6 +19938,7 @@ if (!chipTipController) {
             }
             appState.activeTabId = null;
             appState.isEditing = false;
+            await scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
             await handleBrowseModeChange(node.dataset.navValue, { confirmHtmlEdit: false });
             renderTabs();
             renderViewer();
@@ -19508,6 +19952,7 @@ if (!chipTipController) {
             captureActiveMarkdownDraft();
             appState.activeTabId = null;
             appState.isEditing = false;
+            await scheduleRuntimeCleanupAfterTabSwitch(previousTabId, null);
             await handleTypeFilterChange(node.dataset.navValue);
             renderTabs();
             renderViewer();
@@ -19519,17 +19964,33 @@ if (!chipTipController) {
           await toggleFavorite(tab.id);
           viewerToolbarState();
         });
-        els.documentRemoveButton.addEventListener("click", async () => {
+        els.documentPrimaryButton.addEventListener("click", async () => {
           const tab = getActiveTab();
           if (!tab) return;
-          await removeItemFromNutbook(tab.id);
+          if (tab.preview?.fileType === "markdown") {
+            await saveActiveMarkdown();
+          } else if (tab.preview?.fileType === "html-runtime") {
+            await runHtmlPrimaryAction(tab.id);
+          }
         });
         els.documentMoreButton.addEventListener("click", (event) => {
           event.stopPropagation();
           if (els.documentMoreButton.disabled) return;
-          appState.isDocumentMoreMenuOpen = !appState.isDocumentMoreMenuOpen;
-          renderDocumentMoreMenu();
+          if (appState.isDocumentMoreMenuOpen) closeDocumentMoreMenu();
+          else openDocumentMoreMenu();
         });
+        els.documentMoreButton.addEventListener("keydown", (event) => {
+          if (els.documentMoreButton.disabled) return;
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            event.stopPropagation();
+            openDocumentMoreMenu(event.key === "ArrowUp" ? Number.MAX_SAFE_INTEGER : 0);
+          } else if (event.key === "Escape" && appState.isDocumentMoreMenuOpen) {
+            event.preventDefault();
+            closeDocumentMoreMenu({ restoreFocus: true });
+          }
+        });
+        els.documentMoreMenu.addEventListener("keydown", handleDocumentMoreMenuKeydown);
         els.clearTabsButton.addEventListener("click", async () => {
           const tabsToClose = getOpenTabs();
           for (const tab of tabsToClose) {
@@ -19727,8 +20188,7 @@ if (!chipTipController) {
             renderDocumentTagMenu();
           }
           if (appState.isDocumentMoreMenuOpen && !els.documentMoreMenu.contains(event.target) && !els.documentMoreButton.contains(event.target)) {
-            appState.isDocumentMoreMenuOpen = false;
-            renderDocumentMoreMenu();
+            closeDocumentMoreMenu();
           }
           if (appState.isSettingsMenuOpen && !els.settingsMenu.contains(event.target) && !els.settingsButton.contains(event.target)) {
             appState.isSettingsMenuOpen = false;
@@ -19844,6 +20304,8 @@ if (!chipTipController) {
           setStatus("当前是浏览器 mock 模式；进 Tauri 后会直接调用真实后端。", "warn");
         }
       }
+
+      window.__NUTBOOK_UPDATE_INTERFACE_LANGUAGE__ = (language) => updateInterfaceLanguage(language, { propagateToMain: false });
 
       boot();
     </script>

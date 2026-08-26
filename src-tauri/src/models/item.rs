@@ -466,6 +466,8 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
     pub is_fullscreen: bool,
     #[serde(default)]
     pub is_editing: bool,
+    #[serde(default)]
+    pub is_primary_busy: bool,
     pub custom_tag: Option<Tag>,
     pub available_tags: Vec<Tag>,
     pub skill_tag: Option<String>,
@@ -498,6 +500,10 @@ pub struct AttachHtmlEditLeaveConfirmOverlayRequest {
     pub bounds: RuntimeHostBounds,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

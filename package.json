@@ -1,13 +1,13 @@
 {
   "name": "nutbook",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build:frontend": "vite build --config vite.config.mjs && node scripts/patch-markdown-editor-bundle.mjs && node scripts/build-markdown-document-title.mjs",
     "prepare:nutbook-cli": "node scripts/prepare-nutbook-cli.mjs",
     "check:frontend": "node --check dist/assets/markdown-editor.js",
-    "check:regressions": "node scripts/test-html-edit-image-acceptance-artifact.mjs && node scripts/test-html-edit-converter.mjs && node scripts/test-html-edit-free-image-runtime.mjs && node scripts/test-html-edit-presentation-runtime.mjs && node scripts/test-html-edit-section-navigation-runtime.mjs && node scripts/test-html-edit-inline-mark-blocks.mjs && node scripts/test-markdown-portable-images.mjs && node scripts/test-markdown-cover-metadata.mjs && node scripts/test-markdown-cover-interactions.mjs && node scripts/test-markdown-cover-card-rendering.mjs && node scripts/test-markdown-cover-gui-issues.mjs && node scripts/test-markdown-text-alignment.mjs && node scripts/test-markdown-document-title.mjs && node scripts/test-markdown-undo-redo-guard.mjs && node scripts/test-markdown-save-title-convergence.mjs && node scripts/test-markdown-save-keeps-history.mjs && node scripts/test-markdown-tab-session-history.mjs && node scripts/test-markdown-title-autosize.mjs && node scripts/test-markdown-exit-title-convergence.mjs && node scripts/test-markdown-save-persist-state.mjs && node scripts/test-markdown-skill-frontmatter.mjs && node scripts/test-markdown-close-confirmation.mjs && node scripts/test-regressions.mjs",
+    "check:regressions": "node scripts/test-html-edit-image-acceptance-artifact.mjs && node scripts/test-html-edit-converter.mjs && node scripts/test-html-edit-free-image-runtime.mjs && node scripts/test-html-edit-presentation-runtime.mjs && node scripts/test-html-edit-section-navigation-runtime.mjs && node scripts/test-html-edit-inline-mark-blocks.mjs && node scripts/test-markdown-portable-images.mjs && node scripts/test-markdown-cover-metadata.mjs && node scripts/test-markdown-cover-interactions.mjs && node scripts/test-markdown-cover-card-rendering.mjs && node scripts/test-markdown-cover-gui-issues.mjs && node scripts/test-markdown-text-alignment.mjs && node scripts/test-markdown-document-title.mjs && node scripts/test-markdown-undo-redo-guard.mjs && node scripts/test-markdown-save-title-convergence.mjs && node scripts/test-markdown-save-keeps-history.mjs && node scripts/test-markdown-tab-session-history.mjs && node scripts/test-markdown-title-autosize.mjs && node scripts/test-markdown-exit-title-convergence.mjs && node scripts/test-markdown-save-persist-state.mjs && node scripts/test-markdown-skill-frontmatter.mjs && node scripts/test-markdown-close-confirmation.mjs && node scripts/test-toolbar-menu-actions.mjs && node scripts/test-regressions.mjs",
     "check:markdown-close": "node scripts/test-markdown-close-confirmation.mjs",
     "check:i18n": "node scripts/check-i18n.mjs"
   },
