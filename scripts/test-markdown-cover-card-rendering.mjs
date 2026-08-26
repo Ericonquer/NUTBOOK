@@ -73,6 +73,11 @@ try {
     window.__fallback = document.querySelector(".thumb-cover-fallback");
     window.__wrap = document.querySelector(".thumb-wrap");
     window.__card = document.querySelector(".item-card");
+    // `example.invalid` 是刻意的离线 URL。这个测试直接调用控制器来覆盖
+    // success / ratio-fail / error 状态；若让浏览器真实的 error 事件晚到，
+    // 它会异步覆盖手动设置的比例状态，使断言依赖网络调度时序。
+    window.__live.onload = null;
+    window.__live.onerror = null;
     Object.defineProperty(window.__live, "naturalWidth", { value: 640, configurable: true });
     Object.defineProperty(window.__live, "naturalHeight", { value: 360, configurable: true });
   });

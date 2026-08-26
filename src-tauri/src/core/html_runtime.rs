@@ -439,12 +439,14 @@ pub fn attach_html_runtime_controls_overlay(
     is_favorite: bool,
     is_fullscreen: bool,
     is_editing: bool,
+    is_primary_busy: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
+    file_name: String,
 ) -> Result<bool, AppError> {
     attach_controls_overlay(
         app,
@@ -454,12 +456,14 @@ pub fn attach_html_runtime_controls_overlay(
         is_favorite,
         is_fullscreen,
         is_editing,
+        is_primary_busy,
         custom_tag,
         available_tags,
         skill_tag,
         type_tag,
         custom_tags,
         source_badges,
+        file_name,
     )
 }
 
@@ -471,12 +475,14 @@ pub fn attach_controls_overlay(
     is_favorite: bool,
     is_fullscreen: bool,
     is_editing: bool,
+    is_primary_busy: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
+    file_name: String,
 ) -> Result<bool, AppError> {
     let overlay_label = html_runtime_controls_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
@@ -487,12 +493,14 @@ pub fn attach_controls_overlay(
             is_favorite,
             is_fullscreen,
             is_editing,
+            is_primary_busy,
             custom_tag.clone(),
             available_tags.clone(),
             skill_tag.clone(),
             type_tag.clone(),
             custom_tags.clone(),
             source_badges.clone(),
+            file_name.clone(),
         ));
         let _ = webview.show();
         return Ok(true);
@@ -505,12 +513,14 @@ pub fn attach_controls_overlay(
         is_favorite,
         is_fullscreen,
         is_editing,
+        is_primary_busy,
         custom_tag,
         available_tags,
         skill_tag,
         type_tag,
         custom_tags,
         source_badges,
+        file_name,
     )?;
     let webview = window
         .add_child(
@@ -645,6 +655,8 @@ pub fn attach_html_edit_leave_confirm_overlay(
     item_id: i64,
     bounds: RuntimeHostBounds,
     mode: &str,
+    file_name: &str,
+    request_id: &str,
 ) -> Result<bool, AppError> {
     let overlay_label = html_edit_leave_confirm_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
@@ -660,7 +672,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
         return Ok(true);
     }
 
-    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, mode)?;
+    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, mode, file_name, request_id)?;
     let webview = window
         .add_child(
             builder,
@@ -1200,12 +1212,14 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     is_favorite: bool,
     is_fullscreen: bool,
     is_editing: bool,
+    is_primary_busy: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
+    file_name: String,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("runtime-overlay.html"));
     let init_script = html_runtime_controls_overlay_init_script(
@@ -1213,12 +1227,14 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
         is_favorite,
         is_fullscreen,
         is_editing,
+        is_primary_busy,
         custom_tag,
         available_tags,
         skill_tag,
         type_tag,
         custom_tags,
         source_badges,
+        file_name,
     );
 
     Ok(
@@ -1262,12 +1278,15 @@ fn build_html_edit_toolbar_builder<R: tauri::Runtime>(
 fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
-    item_id: i64, mode: &str,
+    item_id: i64,
+    mode: &str,
+    file_name: &str,
+    request_id: &str,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("html-edit-leave-confirm.html"));
     Ok(
         WebviewBuilder::new(label, overlay_url)
-            .initialization_script(&html_edit_leave_confirm_init_script(item_id, mode))
+            .initialization_script(&html_edit_leave_confirm_init_script(item_id, mode, file_name, request_id))
             .background_color(tauri::webview::Color(0, 0, 0, 0))
             .transparent(true)
             .focused(true)
@@ -1297,6 +1316,29 @@ fn settings_overlay_action_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
     let app_handle = app.clone();
     move |webview, title| {
+        if let Some(raw_payload) = title.strip_prefix(SETTINGS_OVERLAY_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<Value>(raw_payload) {
+                let language = payload
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .filter(|action| *action == "language-change")
+                    .and_then(|_| payload.get("language"))
+                    .and_then(Value::as_str)
+                    .filter(|language| matches!(*language, "zh-CN" | "en-US"));
+                if let Some(language) = language {
+                    if let (Some(main_webview), Ok(language_json)) = (
+                        app_handle.get_webview("main"),
+                        serde_json::to_string(language),
+                    ) {
+                        let _ = main_webview.eval(&format!(
+                            "window.__NUTBOOK_UPDATE_INTERFACE_LANGUAGE__?.({language_json});"
+                        ));
+                    }
+                    let _ = webview.eval("document.title = 'Nutbook Settings';");
+                    return;
+                }
+            }
+        }
         if title == format!("{SETTINGS_OVERLAY_ACTION_PREFIX}close") {
             let _ = webview.hide();
             let _ = webview.close();
@@ -1735,12 +1777,14 @@ fn html_runtime_controls_overlay_init_script(
     is_favorite: bool,
     is_fullscreen: bool,
     is_editing: bool,
+    is_primary_busy: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
+    file_name: String,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
@@ -1748,11 +1792,13 @@ fn html_runtime_controls_overlay_init_script(
     let type_tag_json = serde_json::to_string(&type_tag).unwrap_or_else(|_| "null".to_string());
     let custom_tags_json = serde_json::to_string(&custom_tags).unwrap_or_else(|_| "[]".to_string());
     let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
+    let file_name_json = serde_json::to_string(&file_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json} }};",
+        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, isPrimaryBusy: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json}, fileName: {file_name_json} }};",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
-        if is_editing { "true" } else { "false" }
+        if is_editing { "true" } else { "false" },
+        if is_primary_busy { "true" } else { "false" }
     )
 }
 
@@ -1775,8 +1821,13 @@ fn html_edit_toolbar_init_script(
     format!("window.__NUTBOOK_HTML_EDIT_TOOLBAR__ = {payload};")
 }
 
-fn html_edit_leave_confirm_init_script(item_id: i64, mode: &str) -> String {
-    format!("window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, mode: {} }};", serde_json::to_string(mode).unwrap())
+fn html_edit_leave_confirm_init_script(item_id: i64, mode: &str, file_name: &str, request_id: &str) -> String {
+    format!(
+        "window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, mode: {}, fileName: {}, requestId: {} }};",
+        serde_json::to_string(mode).unwrap(),
+        serde_json::to_string(file_name).unwrap(),
+        serde_json::to_string(request_id).unwrap()
+    )
 }
 
 pub fn html_edit_toolbar_update_script(
@@ -1819,12 +1870,14 @@ fn html_runtime_controls_overlay_update_script(
     is_favorite: bool,
     is_fullscreen: bool,
     is_editing: bool,
+    is_primary_busy: bool,
     custom_tag: Option<Tag>,
     available_tags: Vec<Tag>,
     skill_tag: Option<String>,
     type_tag: Option<String>,
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
+    file_name: String,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
@@ -1832,11 +1885,13 @@ fn html_runtime_controls_overlay_update_script(
     let type_tag_json = serde_json::to_string(&type_tag).unwrap_or_else(|_| "null".to_string());
     let custom_tags_json = serde_json::to_string(&custom_tags).unwrap_or_else(|_| "[]".to_string());
     let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
+    let file_name_json = serde_json::to_string(&file_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}}});",
+        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"isPrimaryBusy\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}, \"fileName\": {file_name_json}}});",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
-        if is_editing { "true" } else { "false" }
+        if is_editing { "true" } else { "false" },
+        if is_primary_busy { "true" } else { "false" }
     )
 }
 

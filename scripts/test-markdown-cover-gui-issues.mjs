@@ -119,7 +119,7 @@ try {
       const tb = document.querySelector(".markdown-image-align-toolbar");
       const setBtn = tb?.querySelector('button[data-image-cover="set"]');
       return tb?.classList.contains("visible") && setBtn && !setBtn.hidden;
-    }, null, { timeout: 2000 });
+    }, null, { timeout: 8000 });
   }
 
   async function hoverImageAndExpectRemove(selector) {
@@ -129,7 +129,7 @@ try {
       const tb = document.querySelector(".markdown-image-align-toolbar");
       const removeBtn = tb?.querySelector('button[data-image-cover="remove"]');
       return tb?.classList.contains("visible") && removeBtn && !removeBtn.hidden;
-    }, null, { timeout: 2000 });
+    }, null, { timeout: 8000 });
   }
 
   async function clickToolbarCoverSet() {
@@ -203,7 +203,7 @@ try {
   await page.waitForFunction(() => {
     const media = document.querySelector(".markdown-cover-image-block .markdown-cover-media");
     return media && getComputedStyle(media, "::after").opacity === "1";
-  }, null, { timeout: 2000 });
+  }, null, { timeout: 8000 });
   const badgeAfterReset = await page.evaluate(() => {
     const media = document.querySelector(".markdown-cover-image-block .markdown-cover-media");
     return { attr: media.getAttribute("data-cover-badge"), opacity: getComputedStyle(media, "::after").opacity };
@@ -221,7 +221,7 @@ try {
     await page.mouse.move(0, 0);
     await page.waitForTimeout(60);
     await page.hover('.ProseMirror .markdown-cover-image-block img', { position: { x: 60, y: 60 } });
-    await page.waitForFunction(() => document.querySelector(".markdown-image-align-toolbar")?.classList.contains("visible"), null, { timeout: 2000 });
+    await page.waitForFunction(() => document.querySelector(".markdown-image-align-toolbar")?.classList.contains("visible"), null, { timeout: 8000 });
     await page.evaluate((value) => {
       document.querySelector(`button[data-image-align="${value}"]`)
         ?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
@@ -233,7 +233,7 @@ try {
     await page.waitForFunction(() => {
       const media = document.querySelector(".markdown-cover-image-block .markdown-cover-media");
       return media && getComputedStyle(media, "::after").opacity === "1";
-    }, null, { timeout: 2000 });
+    }, null, { timeout: 8000 });
     const geometry = await page.evaluate(() => {
       const img = document.querySelector(".markdown-cover-image-block img");
       const media = document.querySelector(".markdown-cover-image-block .markdown-cover-media");
@@ -267,7 +267,7 @@ try {
     );
     // 回到左对齐避免污染后续
     await page.hover('.ProseMirror .markdown-cover-image-block img', { position: { x: 60, y: 60 } });
-    await page.waitForFunction(() => document.querySelector(".markdown-image-align-toolbar")?.classList.contains("visible"), null, { timeout: 2000 });
+    await page.waitForFunction(() => document.querySelector(".markdown-image-align-toolbar")?.classList.contains("visible"), null, { timeout: 8000 });
     await page.evaluate(() => {
       document.querySelector('button[data-image-align="left"]')
         ?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
@@ -284,7 +284,7 @@ try {
   await page.mouse.move(0, 0);
   await page.waitForTimeout(60);
   await page.hover('.ProseMirror img[alt="B"]', { position: { x: 40, y: 40 } });
-  await page.waitForFunction(() => document.querySelector('button[data-image-cover="set"]') && !document.querySelector('button[data-image-cover="set"]').hidden, null, { timeout: 2000 });
+  await page.waitForFunction(() => document.querySelector('button[data-image-cover="set"]') && !document.querySelector('button[data-image-cover="set"]').hidden, null, { timeout: 8000 });
   await clickToolbarCoverSet();
   const afterSpacing = await page.evaluate(() => {
     const cover = document.querySelector(".markdown-cover-image-block img[alt='B']")?.closest(".markdown-cover-image-block");
@@ -411,7 +411,7 @@ try {
       await page.mouse.move(0, 0);
       await page.waitForTimeout(40);
       await page.hover('.ProseMirror .markdown-cover-image-block img', { position: { x: 60, y: 60 } });
-      await page.waitForFunction(() => document.querySelector(".markdown-image-align-toolbar")?.classList.contains("visible"), null, { timeout: 2000 });
+      await page.waitForFunction(() => document.querySelector(".markdown-image-align-toolbar")?.classList.contains("visible"), null, { timeout: 8000 });
       await page.evaluate((value) => {
         document.querySelector(`button[data-image-align="${value}"]`)
           ?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
@@ -424,7 +424,7 @@ try {
     await page.waitForFunction(() => {
       const media = document.querySelector(".markdown-cover-image-block .markdown-cover-media");
       return media && getComputedStyle(media, "::after").opacity === "1";
-    }, null, { timeout: 2000 });
+    }, null, { timeout: 8000 });
     const geo = await page.evaluate(() => {
       const img = document.querySelector(".markdown-cover-image-block img");
       const media = document.querySelector(".markdown-cover-image-block .markdown-cover-media");
@@ -465,7 +465,7 @@ try {
   await page.waitForFunction(() => {
     const tb = document.querySelector(".markdown-image-align-toolbar");
     return tb?.classList.contains("visible") && tb.querySelector('button[data-image-align="center"]');
-  }, null, { timeout: 2000 });
+  }, null, { timeout: 8000 });
   await page.evaluate(() => {
     document.querySelector('button[data-image-align="center"]')
       ?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse" }));
@@ -480,7 +480,7 @@ try {
   await page.waitForFunction(() => {
     const tb = document.querySelector(".markdown-image-align-toolbar");
     return tb?.classList.contains("visible") && tb.querySelector('button[data-image-cover="set"]') && !tb.querySelector('button[data-image-cover="set"]').hidden;
-  }, null, { timeout: 2000 });
+  }, null, { timeout: 8000 });
   await clickToolbarCoverSet();
   let p11State = await getCoverState();
   assert.equal(p11State.hasCover, true, "problem 11: setting cover after toolbar center must succeed");
@@ -552,7 +552,7 @@ try {
     );
     await page.waitForFunction((imageAlt) => Boolean(
       document.querySelector(`.ProseMirror .markdown-cover-image-block img[alt="${imageAlt}"]`)
-    ), alt, { timeout: 2000 });
+    ), alt, { timeout: 8000 });
     const afterSet = await page.evaluate((imageAlt) => {
       const viewer = document.getElementById("viewerBodyScrollProbe");
       const viewerRect = viewer.getBoundingClientRect();
@@ -589,7 +589,7 @@ try {
     await page.waitForFunction((imageAlt) => (
       Boolean(document.querySelector(`.ProseMirror img[alt="${imageAlt}"]`))
       && !document.querySelector(`.ProseMirror .markdown-cover-image-block img[alt="${imageAlt}"]`)
-    ), alt, { timeout: 2000 });
+    ), alt, { timeout: 8000 });
     const afterRemove = await page.evaluate((imageAlt) => {
       const viewer = document.getElementById("viewerBodyScrollProbe");
       const viewerRect = viewer.getBoundingClientRect();

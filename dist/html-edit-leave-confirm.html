@@ -27,30 +27,30 @@
     }
 
     .dialog {
-      width: min(424px, calc(100vw - 16px));
+      width: min(420px, calc(100vw - 48px));
       box-sizing: border-box;
       padding: 18px;
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.99);
-      box-shadow: 0 24px 72px rgba(0, 0, 0, 0.16);
+      border: 1px solid #e2e2e4;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 24px 60px rgba(20, 20, 20, 0.14);
     }
 
     h1 {
-      margin: 0;
-      color: #000;
-      font-size: 15px;
-      font-weight: 650;
-      line-height: 20px;
+      margin: 0 0 8px;
+      color: #151515;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 22px;
       letter-spacing: 0;
     }
 
     p {
-      margin: 8px 0 16px;
+      margin: 0 0 16px;
       color: #555;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 500;
-      line-height: 18px;
+      line-height: 1.6;
       letter-spacing: 0;
     }
 
@@ -62,24 +62,28 @@
     }
 
     button {
-      height: 32px;
-      border: 0;
-      border-radius: 8px;
-      padding: 0 12px;
-      background: #ededed;
-      color: #000;
+      border: 1px solid #e2e2e4;
+      border-radius: 999px;
+      min-height: 34px;
+      padding: 0 14px;
+      background: #ffffff;
+      color: #111111;
       font: inherit;
       font-size: 12px;
       font-weight: 600;
       line-height: 32px;
-      letter-spacing: 0;
+      letter-spacing: -0.01em;
       cursor: pointer;
       white-space: nowrap;
       flex: 0 0 auto;
+      transition: transform 120ms ease, opacity 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
     }
 
-    button:hover, button:focus-visible { background: #e2e2e2; outline: none; }
-    button.primary { background: #000; color: #fff; }
+    button:hover, button:focus-visible { transform: translateY(-1px); }
+    button:focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
+    button[data-programmatic-focus]:focus,
+    button[data-programmatic-focus]:focus-visible { outline: none; outline-offset: 0; }
+    button.primary { background: #000000; color: #ffffff; border-color: transparent; }
     button.primary:hover, button.primary:focus-visible { background: #252525; }
   </style>
 </head>
@@ -98,7 +102,7 @@
   <script>
     const i18n = window.NutbookI18n;
     const t = (key, fallback) => i18n?.lookup(key) ?? fallback;
-    const config = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ || {}; const itemId = config.itemId ?? null; const copyMode = config.mode === "create-copy";
+    const config = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ || {}; const itemId = config.itemId ?? null; const requestId = config.requestId || ""; const copyMode = config.mode === "create-copy"; const removeMode = config.mode === "remove"; const fileName = config.fileName || "";
     const els = {
       title: document.getElementById("title"),
       message: document.getElementById("message"),
@@ -108,18 +112,33 @@
     };
 
     function render() {
-      const title = copyMode ? "此文件不支持 Nutbook 编辑协议" : t("htmlEdit.leavePrompt", "有未保存的修改");
-      const message = copyMode ? "是否尝试创建一个可编辑副本？原文件不会修改。" : t("htmlEdit.leaveMessage", "退出编辑前，可以保存修改或放弃本次修改。");
-      const keep = copyMode ? "继续预览" : t("htmlEdit.keepEditing", "继续编辑");
-      const discard = copyMode ? "" : t("htmlEdit.discardAndExit", "不保存退出");
-      const save = copyMode ? "创建并编辑" : t("htmlEdit.saveAndExit", "保存退出");
+      let title, message, keep, discard, save;
+      if (removeMode) {
+        title = t("removeConfirm.title", "从 Nutbook 移除“{name}”？").replace("{name}", fileName || t("removeConfirm.thisFile", "这个文件"));
+        message = t("removeConfirm.message", "文件将从 Nutbook 的列表、搜索和已打开标签中移除，但磁盘上的原文件不会被删除。之后可以重新接入。");
+        keep = t("actions.cancel", "取消");
+        discard = "";
+        save = t("actions.confirmRemove", "确认移除");
+      } else if (copyMode) {
+        title = "此文件不支持 Nutbook 编辑协议";
+        message = "是否尝试创建一个可编辑副本？原文件不会修改。";
+        keep = "继续预览";
+        discard = "";
+        save = "创建并编辑";
+      } else {
+        title = t("htmlEdit.leavePrompt", "有未保存的修改");
+        message = t("htmlEdit.leaveMessage", "退出编辑前，可以保存修改或放弃本次修改。");
+        keep = t("htmlEdit.keepEditing", "继续编辑");
+        discard = t("htmlEdit.discardAndExit", "不保存退出");
+        save = t("htmlEdit.saveAndExit", "保存退出");
+      }
       els.title.textContent = title;
       els.message.textContent = message;
       els.keepButton.textContent = keep;
       els.keepButton.setAttribute("aria-label", keep);
       els.keepButton.setAttribute("title", keep);
       els.discardButton.textContent = discard;
-      els.discardButton.hidden = copyMode;
+      els.discardButton.hidden = copyMode || removeMode;
       els.discardButton.setAttribute("aria-label", discard);
       els.discardButton.setAttribute("title", discard);
       els.saveButton.textContent = save;
@@ -128,9 +147,20 @@
       i18n?.apply?.(document);
     }
 
+    let settled = false;
     function emit(choice) {
-      const payload = { action: copyMode ? "create-copy-choice" : "leave-choice", choice };
+      if (settled) return;
+      settled = true;
+      Object.values(els).forEach((element) => {
+        if (element instanceof HTMLButtonElement) element.disabled = true;
+      });
+      let action;
+      if (removeMode) action = "remove-choice";
+      else if (copyMode) action = "create-copy-choice";
+      else action = "leave-choice";
+      const payload = { action, choice };
       if (itemId != null) payload.itemId = itemId;
+      if (requestId) payload.requestId = requestId;
       const nextTitle = "__NUTBOOK_HTML_EDIT_LEAVE__:" + JSON.stringify(payload);
       document.title = "Nutbook HTML Edit Leave Confirm";
       setTimeout(function() { document.title = nextTitle; }, 16);
@@ -139,10 +169,36 @@
       }, 96);
     }
 
-    els.keepButton.addEventListener("click", function() { emit(copyMode ? "cancel" : "keep"); });
+    els.keepButton.addEventListener("click", function() { emit(removeMode || copyMode ? "cancel" : "keep"); });
     els.discardButton.addEventListener("click", function() { emit("discard"); });
-    els.saveButton.addEventListener("click", function() { emit(copyMode ? "create" : "save"); });
+    els.saveButton.addEventListener("click", function() { emit(removeMode ? "confirm" : copyMode ? "create" : "save"); });
     render();
+    document.addEventListener("keydown", function(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        emit(removeMode || copyMode ? "cancel" : "keep");
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [els.keepButton, els.discardButton, els.saveButton].filter((button) => !button.hidden && !button.disabled);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }, true);
+    requestAnimationFrame(function() {
+      els.keepButton.dataset.programmaticFocus = "true";
+      els.keepButton.addEventListener("blur", function() {
+        delete els.keepButton.dataset.programmaticFocus;
+      }, { once: true });
+      els.keepButton.focus({ preventScroll: true });
+    });
     i18n?.observe?.();
     document.title = "__NUTBOOK_HTML_EDIT_LEAVE_READY__:" + JSON.stringify({ itemId });
   </script>
