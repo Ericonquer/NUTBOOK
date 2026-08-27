@@ -1,8 +1,12 @@
 use crate::{
-    core::update::{build_update_response, fetch_latest_github_release},
+    commands::window::open_downloaded_installer,
+    core::update::{
+        build_update_response, download_and_verify_update, fetch_latest_github_release,
+    },
     errors::AppError,
     models::{
-        CheckForUpdatesRequest, SetAutoCheckUpdatesRequest, UpdateCheckResponse, UpdateSettings,
+        CheckForUpdatesRequest, DownloadAndInstallUpdateRequest, SetAutoCheckUpdatesRequest,
+        UpdateCheckResponse, UpdateSettings,
     },
     state::AppState,
 };
@@ -48,6 +52,7 @@ pub async fn check_for_updates(
             checked_at: settings.last_checked_at,
             status: "disabled".to_string(),
             error: None,
+            candidate: None,
         });
     }
 
@@ -80,7 +85,31 @@ pub async fn check_for_updates(
                 checked_at,
                 status: "error".to_string(),
                 error: Some(message),
+                candidate: None,
             })
         }
     }
+}
+
+#[tauri::command]
+pub async fn download_and_install_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: DownloadAndInstallUpdateRequest,
+) -> Result<bool, AppError> {
+    state.begin_update_download()?;
+    let current_version = app.package_info().version.to_string();
+    let app_for_download = app.clone();
+    let tag = payload.tag;
+    let asset_key = payload.asset_key;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let (cache_dir, installer_path) =
+            download_and_verify_update(&app_for_download, &current_version, &tag, &asset_key)?;
+        open_downloaded_installer(&cache_dir, &installer_path)
+    })
+    .await;
+    state.finish_update_download();
+    let result = task.map_err(|_| AppError::InternalError)?;
+    result?;
+    Ok(true)
 }

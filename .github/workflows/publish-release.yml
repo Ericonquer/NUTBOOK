@@ -1,0 +1,57 @@
+name: Publish verified draft Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Verified draft version tag to publish (for example v0.9.1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Confirm and publish verified draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recheck the exact draft inventory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          test "${TAG#v}" != "$TAG"
+          version="${TAG#v}"
+          expected=(
+            "NUTBOOK_${version}_x64.dmg"
+            "NUTBOOK_${version}_aarch64.dmg"
+            "NUTBOOK_${version}_x64-setup.exe"
+          )
+          release="$(gh release view "$TAG" --json isDraft,isPrerelease,assets)"
+          test "$(jq -r .isDraft <<<"$release")" = "true"
+          test "$(jq -r .isPrerelease <<<"$release")" = "false"
+          for asset in "${expected[@]}"; do
+            entry="$(jq -cer --arg name "$asset" '[.assets[] | select(.name == $name)] | if length == 1 then .[0] else error("missing or duplicate asset") end' <<<"$release")"
+            test "$(jq -r .size <<<"$entry")" -gt 0
+            checksum="${asset}.sha256"
+            checksum_entry="$(jq -cer --arg name "$checksum" '[.assets[] | select(.name == $name)] | if length == 1 then .[0] else error("missing or duplicate checksum") end' <<<"$release")"
+            test "$(jq -r .size <<<"$checksum_entry")" -gt 0
+            mkdir -p checksums
+            gh release download "$TAG" --pattern "$checksum" --dir checksums --clobber
+            grep -Eq '^[0-9a-f]{64}$' "checksums/$checksum"
+          done
+          test "$(jq '.assets | length' <<<"$release")" -eq 6
+
+      - name: Publish the confirmed draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: gh release edit "$TAG" --draft=false --prerelease=false

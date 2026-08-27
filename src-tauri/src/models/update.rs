@@ -53,6 +53,32 @@ pub struct UpdateCheckResponse {
     pub checked_at: Option<String>,
     pub status: String,
     pub error: Option<String>,
+    pub candidate: Option<UpdateCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCandidate {
+    pub tag: String,
+    pub asset_key: String,
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadAndInstallUpdateRequest {
+    pub tag: String,
+    pub asset_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDownloadProgress {
+    pub tag: String,
+    pub asset_key: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,4 +90,14 @@ pub struct GitHubRelease {
     pub draft: bool,
     #[serde(default)]
     pub prerelease: bool,
+    #[serde(default)]
+    pub assets: Vec<GitHubReleaseAsset>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct GitHubReleaseAsset {
+    pub name: String,
+    pub size: u64,
+    pub browser_download_url: String,
 }

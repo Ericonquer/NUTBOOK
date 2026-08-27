@@ -216,6 +216,9 @@ fn main() {
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
             app.manage(AppState::new(database, app_data_dir.clone()));
+            if let Err(error) = nutbook_backend::core::update::cleanup_update_cache(app.handle()) {
+                eprintln!("Nutbook update-cache cleanup skipped: {error}");
+            }
             let resource_dir = app.path().resource_dir().ok();
             if let Err(error) = deploy_bundled_cli(
                 &app_data_dir,
@@ -331,6 +334,7 @@ fn main() {
             commands::updates::get_update_settings,
             commands::updates::set_auto_check_updates_enabled,
             commands::updates::check_for_updates,
+            commands::updates::download_and_install_update,
             commands::window::start_window_drag_command,
             commands::window::open_external_url_command,
             finalize_html_edit_app_exit_command,

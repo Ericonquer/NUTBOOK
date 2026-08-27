@@ -3749,6 +3749,54 @@
         display: flex;
       }
 
+      .update-modal {
+        width: min(430px, calc(100vw - 48px));
+        padding: 22px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.98);
+        border: 1px solid rgba(20, 20, 20, 0.12);
+        box-shadow: 0 28px 68px rgba(20, 20, 20, 0.16);
+      }
+
+      .update-modal-title {
+        margin: 0;
+        color: #1d1d22;
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      .update-modal-copy {
+        margin: 8px 0 0;
+        color: #62626a;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .update-modal-status {
+        min-height: 20px;
+        margin-top: 16px;
+        color: #62626a;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .update-modal-status[role="alert"] {
+        color: #b13f3f;
+      }
+
+      .update-modal-progress {
+        width: 100%;
+        margin-top: 8px;
+      }
+
+      .update-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
       .about-modal {
         width: min(520px, calc(100vw - 48px));
         max-height: min(720px, calc(100vh - 48px));
@@ -6814,6 +6862,10 @@
           </section>
       </div>
     </div>
+
+    <div id="updateScrim" class="modal-scrim" aria-hidden="true">
+      <div id="updateModal" class="update-modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle"></div>
+    </div>
     <div id="aboutScrim" class="modal-scrim" aria-hidden="true">
       <div class="about-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
         <button id="closeAboutButton" class="icon-button about-close" type="button" aria-label="关闭关于 NUTBOOK">
@@ -7011,6 +7063,7 @@
         documentTagDraft: "",
         localServerOrigin: null,
         isSettingsOpen: false,
+        isUpdateDialogOpen: false,
         settingsReturnFocus: null,
         isAboutOpen: false,
         agentDiscoveryStep: "intro",
@@ -7055,7 +7108,7 @@
           lastKnownReleaseUrl: null
         },
         updateStatus: {
-          currentVersion: "0.3.0",
+          currentVersion: "0.9.0",
           latestVersion: null,
           releaseUrl: null,
           hasUpdate: false,
@@ -7063,8 +7116,15 @@
           status: "idle",
           error: null
         },
+        updateDownload: {
+          inProgress: false,
+          downloadedBytes: 0,
+          totalBytes: null,
+          error: ""
+        },
         updateCheckInFlight: false,
         updateCheckFeedback: "",
+        updateDownloadProgressListening: false,
         updatePreferenceAutoCheckStarted: false,
         thumbnailInstallCommandCopied: false,
         thumbnailInstallCommandCopiedTimer: null,
@@ -7143,6 +7203,8 @@
         settingsButton: document.getElementById("settingsButton"),
         settingsScrim: document.getElementById("settingsScrim"),
         closeSettingsButton: document.getElementById("closeSettingsButton"),
+        updateScrim: document.getElementById("updateScrim"),
+        updateModal: document.getElementById("updateModal"),
         aboutScrim: document.getElementById("aboutScrim"),
         closeAboutButton: document.getElementById("closeAboutButton"),
         aboutTitle: document.getElementById("aboutTitle"),
@@ -12189,13 +12251,21 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "0.3.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "0.9.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           hasUpdate: Boolean(value.hasUpdate),
           checkedAt: value.checkedAt || null,
           status: value.status || "idle",
-          error: value.error || null
+          error: value.error || null,
+          candidate: value.candidate && value.candidate.tag && value.candidate.assetKey
+            ? {
+                tag: value.candidate.tag,
+                assetKey: value.candidate.assetKey,
+                name: value.candidate.name || "",
+                size: Number(value.candidate.size) || 0
+              }
+            : null
         };
       }
 
@@ -12250,9 +12320,7 @@
       function latestVersionHtml() {
         const version = appState.updateStatus.latestVersion || appState.updateSettings.lastKnownLatestVersion;
         if (!version) return "";
-        const url = appState.updateStatus.releaseUrl || appState.updateSettings.lastKnownReleaseUrl;
-        if (!url) return ` · ${t("settings.updateLatestVersion")} ${escapeHtml(version)}`;
-        return ` · ${t("settings.updateLatestVersion")} <button class="settings-inline-link" type="button" data-update-open-release="true" title="${t("settings.openRelease")}">${escapeHtml(version)}</button>`;
+        return ` · ${t("settings.updateLatestVersion")} <button class="settings-inline-link" type="button" data-update-open-dialog="true" title="${t("settings.openUpdatePanel")}">${escapeHtml(version)}</button>`;
       }
 
       function lastUpdateCheckedHtml() {
@@ -12270,8 +12338,141 @@
         const shouldShow = Boolean(appState.updateStatus?.hasUpdate && appState.updateStatus?.releaseUrl);
         els.updateBadge.hidden = !shouldShow;
         els.updateBadge.title = shouldShow
-          ? `打开 ${appState.updateStatus.latestVersion || "新版本"} Release`
+          ? t("settings.openUpdatePanel")
           : "";
+      }
+
+      function formatUpdateBytes(value) {
+        const bytes = Number(value) || 0;
+        if (bytes < 1024 * 1024) return `${Math.max(0, Math.round(bytes / 1024))} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      }
+
+      function updateDialogIsOpen() {
+        return appState.isUpdateDialogOpen || (appState.isSettingsOverlay && appState.settingsOverlayMode === "update");
+      }
+
+      function renderUpdateDialog() {
+        const isOpen = updateDialogIsOpen();
+        els.updateScrim?.classList.toggle("open", isOpen);
+        els.updateScrim?.setAttribute("aria-hidden", isOpen ? "false" : "true");
+        if (!isOpen || !els.updateModal) return;
+
+        const update = appState.updateStatus || {};
+        const candidate = update.candidate;
+        const downloading = appState.updateDownload.inProgress;
+        const latestVersion = update.latestVersion || appState.updateSettings.lastKnownLatestVersion;
+        let title = t("settings.updateChecking");
+        let description = t("settings.updateChecking");
+        let status = "";
+        let statusRole = "status";
+        let primary = "";
+
+        if (appState.updateCheckInFlight) {
+          status = t("settings.updateChecking");
+        } else if (update.status === "available") {
+          title = t("settings.updateReadyTitle");
+          description = formatTranslation("settings.updateDialogAvailableDescription", { version: latestVersion || "" });
+          if (candidate) {
+            if (downloading) {
+              status = appState.updateDownload.totalBytes
+                ? `${formatUpdateBytes(appState.updateDownload.downloadedBytes)} / ${formatUpdateBytes(appState.updateDownload.totalBytes)}`
+                : t("settings.updateDownloading");
+            } else if (appState.updateDownload.error) {
+              status = `${t("settings.updateInstallFailedPrefix")}${appState.updateDownload.error}`;
+              statusRole = "alert";
+            } else {
+              status = appState.updateCheckFeedback === t("settings.updateInstallOpened")
+                ? appState.updateCheckFeedback
+                : candidate.name;
+            }
+            primary = `<button class="button button-primary" type="button" data-update-download-install="true" ${downloading ? "disabled" : ""}>${escapeHtml(downloading ? t("settings.updateDownloading") : t("settings.downloadAndInstall"))}</button>`;
+          } else {
+            status = update.error || t("settings.updateUnsupportedDevice");
+            statusRole = "alert";
+          }
+        } else if (update.status === "current") {
+          title = t("settings.updateDialogCurrentTitle");
+          description = t("settings.updateCurrent");
+        } else if (update.status === "error" || update.status === "unavailable") {
+          title = t("settings.updateDialogUnavailableTitle");
+          description = update.error || t("settings.updateUnavailable");
+          statusRole = "alert";
+        }
+
+        els.updateModal.innerHTML = `
+          <h2 id="updateModalTitle" class="update-modal-title">${escapeHtml(title)}</h2>
+          <p class="update-modal-copy">${escapeHtml(description)}</p>
+          <div class="update-modal-status" role="${statusRole}">${escapeHtml(status)}</div>
+          ${downloading ? `<progress class="update-modal-progress" max="${appState.updateDownload.totalBytes || ""}" value="${appState.updateDownload.totalBytes ? appState.updateDownload.downloadedBytes : ""}"></progress>` : ""}
+          <div class="update-modal-actions">
+            ${update.releaseUrl ? `<button class="button button-secondary" type="button" data-update-open-release="true">${escapeHtml(t("settings.openRelease"))}</button>` : ""}
+            <button class="button button-secondary" type="button" data-update-close="true">${escapeHtml(t("settings.updateLater"))}</button>
+            ${primary}
+          </div>
+        `;
+        els.updateModal.querySelector("[data-update-download-install]")?.addEventListener("click", downloadAndInstallUpdate);
+        els.updateModal.querySelector("[data-update-open-release]")?.addEventListener("click", openUpdateRelease);
+        els.updateModal.querySelector("[data-update-close]")?.addEventListener("click", closeUpdateDialog);
+      }
+
+      function closeUpdateDialog() {
+        if (appState.isSettingsOverlay && appState.settingsOverlayMode === "update") {
+          closeSettingsOverlay();
+          return;
+        }
+        appState.isUpdateDialogOpen = false;
+        renderUpdateDialog();
+      }
+
+      async function openUpdateDialog() {
+        if (appState.isTauri && !appState.isSettingsOverlay) {
+          await openSettingsOverlay("preferences", "update");
+          return;
+        }
+        appState.isUpdateDialogOpen = true;
+        renderUpdateDialog();
+        await loadUpdateSettings();
+        await checkForUpdates({ manual: true, force: true });
+      }
+
+      async function ensureUpdateDownloadProgressListener() {
+        if (appState.updateDownloadProgressListening || typeof listenRaw !== "function") return;
+        appState.updateDownloadProgressListening = true;
+        try {
+          await listenRaw("update-download-progress", (event) => {
+            const progress = event?.payload || {};
+            const candidate = appState.updateStatus?.candidate;
+            if (!appState.updateDownload.inProgress || !candidate || progress.tag !== candidate.tag || progress.assetKey !== candidate.assetKey) return;
+            appState.updateDownload.downloadedBytes = Number(progress.downloadedBytes) || 0;
+            appState.updateDownload.totalBytes = Number.isFinite(Number(progress.totalBytes)) ? Number(progress.totalBytes) : null;
+            renderSettingsPanel();
+            renderUpdateDialog();
+          });
+        } catch (_) {
+          appState.updateDownloadProgressListening = false;
+        }
+      }
+
+      async function downloadAndInstallUpdate() {
+        const candidate = appState.updateStatus?.candidate;
+        if (!candidate || appState.updateDownload.inProgress) return;
+        appState.updateDownload = { inProgress: true, downloadedBytes: 0, totalBytes: candidate.size || null, error: "" };
+        await ensureUpdateDownloadProgressListener();
+        renderSettingsPanel();
+        renderUpdateDialog();
+        try {
+          await invoke("download_and_install_update", { payload: { tag: candidate.tag, assetKey: candidate.assetKey } });
+          appState.updateDownload.inProgress = false;
+          appState.updateCheckFeedback = t("settings.updateInstallOpened");
+          setStatus(t("settings.updateInstallOpened"), "ok");
+        } catch (error) {
+          appState.updateDownload.inProgress = false;
+          appState.updateDownload.error = normalizeError(error);
+          appState.updateCheckFeedback = `${t("settings.updateInstallFailedPrefix")}${appState.updateDownload.error}`;
+        }
+        renderSettingsPanel();
+        renderUpdateDialog();
       }
 
       async function loadUpdateSettings() {
@@ -12282,6 +12483,7 @@
         }
         renderSettingsPanel();
         renderUpdateBadge();
+        renderUpdateDialog();
       }
 
       async function setAutoCheckUpdatesEnabled(enabled) {
@@ -12299,9 +12501,11 @@
           appState.updateCheckFeedback = t("settings.updateSettingsSaved");
           renderSettingsPanel();
           renderUpdateBadge();
+          renderUpdateDialog();
         } catch (error) {
           appState.updateCheckFeedback = `${t("settings.updateSettingsSaveFailedPrefix")}${normalizeError(error)}`;
           renderSettingsPanel();
+          renderUpdateDialog();
         }
       }
 
@@ -12311,6 +12515,7 @@
         appState.updateCheckInFlight = true;
         appState.updateCheckFeedback = manual ? t("settings.updateChecking") : "";
         renderSettingsPanel();
+        renderUpdateDialog();
         try {
           const result = normalizeUpdateStatus(await invoke("check_for_updates", {
             force: Boolean(options.force || manual),
@@ -12320,6 +12525,7 @@
           mergeUpdateResultIntoSettings(result);
           appState.updateCheckFeedback = manual ? updateStatusMessage() : "";
           renderUpdateBadge();
+          renderUpdateDialog();
           return result;
         } catch (error) {
           appState.updateStatus = normalizeUpdateStatus({
@@ -12333,6 +12539,7 @@
           appState.updateCheckInFlight = false;
           renderSettingsPanel();
           renderUpdateBadge();
+          renderUpdateDialog();
         }
       }
 
@@ -13569,8 +13776,10 @@
         document.body.classList.toggle("settings-overlay-menu", mode === "menu");
         appState.settingsTab = tab;
         appState.isAboutOpen = mode === "about";
-        appState.isSettingsOpen = mode !== "menu" && mode !== "about";
+        appState.isSettingsOpen = mode !== "menu" && mode !== "about" && mode !== "update";
+        appState.isUpdateDialogOpen = mode === "update";
         renderSettingsPanel();
+        renderUpdateDialog();
         if (appState.isSettingsOpen) {
           focusSelectedSettingsTab();
         }
@@ -14739,7 +14948,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "0.3.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "0.9.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -14747,6 +14956,15 @@
             </div>
             <button class="preference-toggle ${appState.updateSettings.autoCheckEnabled ? "active" : ""}" type="button" data-update-auto-check-toggle="true" aria-label="${t("settings.autoCheckUpdates")}"></button>
           </div>
+          ${appState.updateStatus?.hasUpdate ? `
+            <div class="preference-row">
+              <div class="preference-copy">
+                <div class="preference-title">${t("settings.updateReadyTitle")}</div>
+                <div class="preference-desc">${escapeHtml(formatTranslation("settings.updateDialogAvailableDescription", { version: appState.updateStatus.latestVersion || "" }))}</div>
+              </div>
+              <button class="settings-inline-link" type="button" data-update-open-dialog="true">${escapeHtml(t("settings.openUpdatePanel"))}</button>
+            </div>
+          ` : ""}
         `;
 
         document.getElementById("settingsLanguageSelect")?.addEventListener("change", (event) => {
@@ -14761,6 +14979,9 @@
           setAutoCheckUpdatesEnabled(!Boolean(appState.updateSettings.autoCheckEnabled));
         });
         els.settingsPreferenceList.querySelector("[data-update-open-release]")?.addEventListener("click", openUpdateRelease);
+        els.settingsPreferenceList.querySelector("[data-update-open-dialog]")?.addEventListener("click", () => {
+          openUpdateDialog().catch((error) => setStatus(`${t("settings.updateFailedPrefix")}${normalizeError(error)}`, "error"));
+        });
         els.settingsPreferenceList.querySelectorAll("[data-preference-toggle]").forEach((node) => {
           node.addEventListener("click", () => {
             const key = node.dataset.preferenceToggle;
@@ -15266,25 +15487,27 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "0.3.0",
-              latestVersion: "v0.3.1",
-              releaseUrl: "https://github.com/leeeric202666-prog/NUTBOOK/releases/tag/v0.3.1",
+              currentVersion: "0.9.0",
+              latestVersion: "v0.9.1",
+              releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
               checkedAt: args.checkedAt || new Date().toISOString(),
               status: "available",
-              error: null
+              error: null,
+              candidate: { tag: "v0.9.1", assetKey: "macos-aarch64-dmg", name: "NUTBOOK_0.9.1_aarch64.dmg", size: 2048000 }
             };
           }
           return {
-            currentVersion: "0.3.0",
-            latestVersion: "0.3.0",
-            releaseUrl: "https://github.com/leeeric202666-prog/NUTBOOK/releases",
+            currentVersion: "0.9.0",
+            latestVersion: "0.9.0",
+            releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
             status: "current",
             error: null
           };
         }
+        if (command === "download_and_install_update") return true;
         if (command === "open_folder_dialog" || command === "open_folder_dialog_at") return null;
         if (command === "open_file_dialog") return null;
         if (command === "open_image_file_dialog") {
@@ -19791,7 +20014,12 @@ if (!chipTipController) {
         });
         els.updateBadge?.addEventListener("click", (event) => {
           event.stopPropagation();
-          openUpdateRelease();
+          openUpdateDialog().catch((error) => {
+            setStatus(`${t("settings.updateFailedPrefix")}${normalizeError(error)}`, "error");
+          });
+        });
+        els.updateScrim?.addEventListener("click", (event) => {
+          if (event.target === els.updateScrim && !appState.updateDownload.inProgress) closeUpdateDialog();
         });
         els.toggleSidebarButton.addEventListener("pointerleave", () => {
           els.toggleSidebarButton.classList.remove("suppress-tooltip");
@@ -20107,6 +20335,11 @@ if (!chipTipController) {
           });
         });
         document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && updateDialogIsOpen() && !appState.updateDownload.inProgress) {
+            event.preventDefault();
+            closeUpdateDialog();
+            return;
+          }
           if (!appState.isSettingsOpen || els.confirmScrim?.classList.contains("open")) return;
           if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
             const activeElement = document.activeElement;
@@ -20217,10 +20450,12 @@ if (!chipTipController) {
           appState.settingsOverlayMode = window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "menu";
           document.body.classList.toggle("settings-overlay-menu", appState.settingsOverlayMode === "menu");
           appState.isAboutOpen = appState.settingsOverlayMode === "about";
-          appState.isSettingsOpen = appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about";
+          appState.isSettingsOpen = appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about" && appState.settingsOverlayMode !== "update";
+          appState.isUpdateDialogOpen = appState.settingsOverlayMode === "update";
           wireEvents();
           renderSettingsMenu();
           renderSettingsPanel();
+          renderUpdateDialog();
           renderAboutPanel();
           i18n?.observe?.();
           if (appState.settingsOverlayMode === "menu") {
@@ -20232,7 +20467,10 @@ if (!chipTipController) {
             });
             scheduleHostSettingsOverlayClose(2400);
           }
-          if (appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about") {
+          if (appState.settingsOverlayMode === "update") {
+            await loadUpdateSettings();
+            await checkForUpdates({ manual: true, force: true });
+          } else if (appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about") {
             await loadLibraries();
             await loadTags();
             await loadIgnoredItems();

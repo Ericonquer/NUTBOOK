@@ -750,7 +750,7 @@ fn settings_overlay_bounds(
     bounds: RuntimeHostBounds,
     mode: Option<&str>,
 ) -> RuntimeHostBounds {
-    if mode != Some("panel") {
+    if !matches!(mode, Some("panel") | Some("update")) {
         return bounds;
     }
 
