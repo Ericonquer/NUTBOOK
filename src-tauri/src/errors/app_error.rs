@@ -33,6 +33,8 @@ pub enum AppError {
     MarkdownSaveFailed,
     #[error("thumbnail generation failed")]
     ThumbnailGenerationFailed,
+    #[error("update failed: {0}")]
+    UpdateFailed(String),
     #[error("invalid image asset type")]
     AssetInvalidType,
     #[error("image asset exceeds the 20 MiB limit")]
@@ -78,6 +80,7 @@ impl AppError {
             AppError::EditConflict => "EDIT_CONFLICT",
             AppError::MarkdownSaveFailed => "MARKDOWN_SAVE_FAILED",
             AppError::ThumbnailGenerationFailed => "THUMBNAIL_GENERATION_FAILED",
+            AppError::UpdateFailed(_) => "UPDATE_FAILED",
             AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
             AppError::AssetTooLarge => "ASSET_TOO_LARGE",
             AppError::CoverAssetRejected(_) => "COVER_ASSET_REJECTED",

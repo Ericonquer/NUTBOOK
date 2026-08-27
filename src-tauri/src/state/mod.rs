@@ -38,6 +38,7 @@ pub struct AppState {
     pub active_html_edit_item: Mutex<Option<i64>>,
     thumbnail_settings_path: PathBuf,
     update_settings_path: PathBuf,
+    update_download_in_progress: Mutex<bool>,
     system_chrome_thumbnails_enabled: Mutex<bool>,
 }
 
@@ -80,6 +81,7 @@ impl AppState {
             active_html_edit_item: Mutex::new(None),
             thumbnail_settings_path,
             update_settings_path,
+            update_download_in_progress: Mutex::new(false),
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
         }
     }
@@ -97,6 +99,26 @@ impl AppState {
             .lock()
             .map(|value| *value)
             .unwrap_or(false)
+    }
+
+    pub fn begin_update_download(&self) -> Result<(), AppError> {
+        let mut in_progress = self
+            .update_download_in_progress
+            .lock()
+            .map_err(|_| AppError::InternalError)?;
+        if *in_progress {
+            return Err(AppError::UpdateFailed(
+                "an update download is already in progress".to_string(),
+            ));
+        }
+        *in_progress = true;
+        Ok(())
+    }
+
+    pub fn finish_update_download(&self) {
+        if let Ok(mut in_progress) = self.update_download_in_progress.lock() {
+            *in_progress = false;
+        }
     }
 
     pub fn set_system_chrome_thumbnails_enabled(&self, enabled: bool) -> Result<(), AppError> {

@@ -62,6 +62,7 @@ pub use tag::{
     SetItemTagsResponse, Tag, UpdateTagRequest,
 };
 pub use update::{
-    CheckForUpdatesRequest, GitHubRelease, SetAutoCheckUpdatesRequest, UpdateCheckResponse,
-    UpdateSettings,
+    CheckForUpdatesRequest, DownloadAndInstallUpdateRequest, GitHubRelease,
+    GitHubReleaseAsset, SetAutoCheckUpdatesRequest, UpdateCandidate, UpdateCheckResponse,
+    UpdateDownloadProgress, UpdateSettings,
 };
