@@ -3015,6 +3015,11 @@
         white-space: nowrap;
       }
 
+      /* 完整来源名交给全局 chip tooltip coordinator；不得退回原生 title 系统提示。 */
+      .inspector-details-chips .inspector-details-source-badge .chip-tooltip {
+        display: none;
+      }
+
       /* 底部打开横条：框体最底部的通栏主按钮。 */
       .inspector-open-bar {
         flex: 0 0 auto;
@@ -17874,6 +17879,7 @@ if (!chipTipController) {
       }
       attachChipTooltipRoot(els.itemList, { requireRow: true });
       attachChipTooltipRoot(els.breadcrumbTags, { requireRow: false, preferBelow: true });
+      attachChipTooltipRoot(els.inspectorDetails, { requireRow: false });
 
       // 全局隐藏（滚动 / resize / 窗口失焦 / 鼠标离开视口）与锚点脱离 DOM 兜底，只挂一次。
       if (!window.__nutbookChipTipGlobalWired) {
@@ -17893,6 +17899,7 @@ if (!chipTipController) {
         });
         anchorObserver.observe(els.itemList, { childList: true, subtree: true });
         if (els.breadcrumbTags) anchorObserver.observe(els.breadcrumbTags, { childList: true, subtree: true });
+        if (els.inspectorDetails) anchorObserver.observe(els.inspectorDetails, { childList: true, subtree: true });
       }
       }
 
@@ -21227,7 +21234,7 @@ if (!chipTipController) {
           const kindClass = badge.kind === "project" ? "source-badge-project" : "source-badge-skill";
           const label = String(badge.label || "").trim();
           if (!label) return "";
-          return `<span class="source-badge inspector-details-source-badge ${kindClass}${unavailable ? " source-badge--unavailable" : ""}" title="${escapeAttribute(label)}" aria-label="${escapeAttribute(label + (unavailable ? "（来源不可用）" : ""))}"><span class="source-badge-label">${escapeHtml(label)}</span></span>`;
+          return `<span class="source-badge inspector-details-source-badge ${kindClass}${unavailable ? " source-badge--unavailable" : ""}" aria-label="${escapeAttribute(label + (unavailable ? "（来源不可用）" : ""))}"><span class="source-badge-label">${escapeHtml(label)}</span><span class="chip-tooltip">${escapeHtml(label)}</span></span>`;
         }).filter(Boolean);
         const tagChips = tags.map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`);
         const libraryName = inspectorLibraryName(item);
