@@ -5,7 +5,10 @@ use sha2::{Digest, Sha256};
 use crate::{
     core::document_title::DocumentTitle,
     errors::AppError,
-    models::{HtmlPreviewPayload, ItemDetail, MarkdownPreviewPayload, PreviewPayload},
+    models::{
+        HtmlPreviewPayload, ItemContentRevision, ItemDetail, MarkdownInspectorSnapshot,
+        MarkdownPreviewPayload, PreviewPayload,
+    },
 };
 
 fn escape_html(input: &str) -> String {
@@ -936,6 +939,7 @@ pub fn load_document_payload(
                 item_id: item.summary.id,
                 file_type: "markdown".to_string(),
                 title: Some(markdown_document_title(&raw, &item.summary.file_name)),
+                revision: content_hash(&raw),
                 raw,
                 html,
                 base_dir,
@@ -965,6 +969,42 @@ pub fn load_document_payload(
         }
         _ => Err(AppError::UnsupportedFileType),
     }
+}
+
+/// 检查视图 Markdown snapshot：读取当前 raw 并计算 revision key（sha256）。
+/// 与 `load_document_payload` 同一文件读取边界，但不生成第二份 HTML 投影；
+/// HTML 等其他类型明确不支持——检查视图只消费已收敛的卡片截图状态。
+pub fn load_markdown_inspector_snapshot(item: &ItemDetail) -> Result<MarkdownInspectorSnapshot, AppError> {
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let raw = fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    let path = std::path::Path::new(&item.summary.file_path);
+    let base_dir = path
+        .parent()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    Ok(MarkdownInspectorSnapshot {
+        item_id: item.summary.id,
+        file_type: "markdown".to_string(),
+        title: Some(markdown_document_title(&raw, &item.summary.file_name)),
+        revision: content_hash(&raw),
+        raw,
+        base_dir,
+        file_path: item.summary.file_path.clone(),
+        file_name: item.summary.file_name.clone(),
+    })
+}
+
+/// 廉价复核入口：只返回文件当前内容 revision。前端在编辑器 ready、图片就绪、
+/// 显示前各调用一次；与 snapshot.revision 不一致即丢弃旧实例并重读。
+pub fn load_item_content_revision(item: &ItemDetail) -> Result<ItemContentRevision, AppError> {
+    let raw = fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    Ok(ItemContentRevision {
+        item_id: item.summary.id,
+        revision: content_hash(&raw),
+    })
 }
 
 #[cfg(test)]
@@ -1285,6 +1325,50 @@ mod tests {
             content_hash("abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn inspector_snapshot_carries_revision_and_rejects_non_markdown() {
+        let path = std::env::temp_dir().join("nutbook-inspector-snapshot.md");
+        std::fs::write(&path, "# Inspector\n\nbody").expect("write markdown fixture");
+        let detail = markdown_detail_for_test(
+            path.to_string_lossy().to_string(),
+            "nutbook-inspector-snapshot.md",
+            None,
+        );
+
+        let snapshot =
+            super::load_markdown_inspector_snapshot(&detail).expect("inspector snapshot");
+        assert_eq!(snapshot.file_type, "markdown");
+        assert_eq!(snapshot.raw, "# Inspector\n\nbody");
+        assert_eq!(snapshot.revision, content_hash("# Inspector\n\nbody"));
+        assert_eq!(snapshot.file_name, "nutbook-inspector-snapshot.md");
+        assert_eq!(
+            snapshot.base_dir,
+            path.parent().map(|value| value.to_string_lossy().to_string()).unwrap_or_default()
+        );
+
+        // revision 复核入口必须与 snapshot 同源：同一内容得到同一 hash。
+        let revision = super::load_item_content_revision(&detail).expect("revision");
+        assert_eq!(revision.revision, snapshot.revision);
+
+        // 外部替换后 revision 必须变化：这是“丢弃旧实例并重读”的判定依据。
+        std::fs::write(&path, "# Replaced\n").expect("replace markdown fixture");
+        let next = super::load_item_content_revision(&detail).expect("next revision");
+        assert_ne!(next.revision, snapshot.revision);
+
+        let _ = std::fs::remove_file(path);
+
+        // 非 Markdown 明确失败：检查视图不得为 HTML 生成第二份内容投影。
+        let html_detail = markdown_detail_for_test("/tmp/whatever.html".to_string(), "whatever.html", None);
+        let html_detail = crate::models::ItemDetail {
+            summary: crate::models::ItemSummary {
+                file_type: "html".to_string(),
+                ..html_detail.summary
+            },
+            ..html_detail
+        };
+        assert!(super::load_markdown_inspector_snapshot(&html_detail).is_err());
     }
 
     #[test]

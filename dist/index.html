@@ -2286,115 +2286,768 @@
         margin-left: auto;
       }
 
-      .main-shell.home-mode.list-layout .list-body {
+      /* ── 检查视图（inspector view）────────────────────────────────────
+       取代旧"带缩略图竖列表"。左栏固定属性列表（名称/类型/来源/修改时间），
+       右栏统一首屏视觉预览；分栏默认 40/60，分隔条列宽固定 10px。
+       两侧轨道由同一组像素宽度驱动，避免卡片外间距在窄栏时跨轨道覆盖。 */
+      .inspector-shell {
+        display: none;
+        flex: 1 1 auto;
+        min-height: 0;
+        min-width: 0;
+      }
+
+      .main-shell.home-mode.inspector-layout .list-body {
+        display: none;
+      }
+
+      .main-shell.home-mode.inspector-layout .inspector-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) 10px minmax(0, 3fr);
+      }
+
+      /* 检查视图占满主区：home 网格的 workspace 默认落在 auto 行（内容高、
+         footer 反占 1fr），内容少时整栏塌缩、右栏舞台被详情区挤没。
+         检查视图激活时把 workspace 行提升为 1fr，高度链才完整。 */
+      .main-shell.home-mode.inspector-layout {
+        grid-template-rows: auto 1fr auto auto;
+      }
+
+      /* 左栏与右栏同规格外框：1px 边框 + 14px 圆角 + 纸面底色，顶底间距与
+         右栏 preview-frame 对齐（16/12），两栏视觉成对。 */
+      .inspector-list-pane {
         display: flex;
         flex-direction: column;
-        padding-top: 4px;
-        gap: 12px;
-      }
-
-      .main-shell.home-mode.list-layout .item-card {
-        flex-direction: row;
-        align-items: center;
-        padding: 14px;
-        gap: 12px;
-        border-radius: 12px;
-        min-height: 96px;
-      }
-
-      .main-shell.home-mode.list-layout .thumb-wrap {
-        flex: 0 0 clamp(116px, 15vw, 148px);
-        width: clamp(116px, 15vw, 148px);
-        height: auto;
-        aspect-ratio: 16 / 9;
-        border-radius: 12px;
-        align-self: center;
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 0;
+        margin: 16px 0 12px 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--paper);
         overflow: hidden;
       }
 
-      .main-shell.home-mode.list-layout .thumb {
+      .inspector-list-head {
+        display: grid;
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        /* 表头本身不裁切文字；横向越界由外层 list pane 统一收口，避免较窄
+           的持久化列宽把“名称 / 修改时间”等标签裁成半行。 */
+        overflow: visible;
+        grid-template-columns: var(--inspector-cols, minmax(0, 1fr) 56px 64px 82px);
+        gap: 8px;
+        /* 列原点必须与行对齐：行轨道起点 = .inspector-rows 左内边距 8 + 行左内边距 14 = 22；
+           右侧 8 与 .inspector-rows 右内边距一致。表头按钮自身无水平内边距（见下），
+           这样每个固定 px 列的边界在表头与数据行里逐像素对齐。 */
+        padding: 6px 8px 6px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .inspector-col-button {
+        border: 0;
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-align: left;
+        /* 无水平内边距：列标签与单元格文本同一 x 起点（对齐是硬要求）。 */
+        padding: 2px 0;
+        border-radius: 6px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        min-width: 0;
+        white-space: nowrap;
+        /* 文字裁切交给内层 label；这里必须允许边界手柄伸进 grid gap，不能
+           把大部分命中区裁掉后只剩几个像素可拖。 */
+        overflow: visible;
+        position: relative;
+      }
+
+      .inspector-col-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: nowrap;
+      }
+
+      .inspector-col-label-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* 列宽拖拽手柄只存在于真实的列间边界：名称|类型、类型|来源、来源|时间。
+         18px 命中带覆盖整段 grid gap；细线只是可发现性提示，实际手柄全高可拖。 */
+      .inspector-col-handle {
         position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        aspect-ratio: auto;
-        border-radius: 12px;
-        border: 1px solid var(--line);
-        object-fit: contain;
-        background: #fff;
+        top: -4px;
+        bottom: -4px;
+        right: -13px;
+        width: 18px;
+        cursor: col-resize !important;
+        touch-action: none;
+        z-index: 3;
       }
 
-      .main-shell.home-mode.list-layout .thumb-inline,
-      .main-shell.home-mode.list-layout .thumb.fallback {
-        width: 100%;
-        height: 100%;
-        aspect-ratio: auto;
+      .inspector-col-handle::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        bottom: 6px;
+        left: 50%;
+        width: 1px;
+        transform: translateX(-50%);
+        border-radius: 2px;
+        background: #d9dadc;
+        transition: background 140ms ease;
       }
 
-      .main-shell.home-mode.list-layout .thumb-missing-mask {
-        padding: 8px;
+      .inspector-col-handle:hover::before,
+      .inspector-col-handle.dragging::before {
+        background: #9a9aa0;
       }
 
-      .main-shell.home-mode.list-layout .thumb-missing-pill {
-        min-height: 24px;
-        max-width: calc(100% - 8px);
-        font-size: 10px;
+      .inspector-col-handle:focus-visible {
+        outline: 2px solid rgba(0, 0, 0, 0.4);
+        outline-offset: 1px;
+        border-radius: 4px;
       }
 
-      .main-shell.home-mode.list-layout .thumb-refresh-pill {
-        min-height: 24px;
-        max-width: calc(100% - 8px);
-        font-size: 10px;
-      }
-
-      .main-shell.home-mode.list-layout .item-main {
-        padding: 0;
-        padding-right: 76px;
-        min-height: auto;
+      /* 类型列内容居中（表头与单元格一致）。 */
+      .inspector-list-head .inspector-col-button[data-inspector-sort="fileType"] {
         justify-content: center;
-        align-self: center;
       }
 
-      .main-shell.home-mode.list-layout .card-favorite,
-      .main-shell.home-mode.list-layout .card-remove {
-        top: 50%;
-        transform: translateY(-50%);
+      .inspector-col-button:hover {
+        color: #000;
         background: rgba(20, 20, 20, 0.04);
       }
 
-      .main-shell.home-mode.list-layout .card-favorite {
-        right: 14px;
+      .inspector-col-button:focus-visible {
+        outline: 2px solid rgba(0, 0, 0, 0.4);
+        outline-offset: 1px;
       }
 
-      .main-shell.home-mode.list-layout .card-remove {
-        left: auto;
-        right: 50px;
+      .inspector-col-button .inspector-sort-arrow {
+        font-size: 12px;
+        line-height: 1;
+        flex: 0 0 auto;
       }
 
-      .item-list-tags {
-        display: none;
+      .inspector-col-button[aria-sort="ascending"],
+      .inspector-col-button[aria-sort="descending"] {
+        color: #000;
       }
 
-      .main-shell.home-mode.list-layout .thumb-chip-row,
-      .main-shell.home-mode.list-layout .thumb-badge {
-        display: none;
+      .inspector-rows {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 6px 8px 10px;
+        outline: none;
       }
 
-      .main-shell.home-mode.list-layout .item-list-tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 6px;
+      .inspector-rows:focus-visible {
+        outline: 2px solid rgba(0, 0, 0, 0.28);
+        outline-offset: -2px;
+        border-radius: 10px;
       }
 
-      .main-shell.home-mode.list-layout .item-list-tags .tag-chip,
-      .main-shell.home-mode.list-layout .item-list-tags .meta-chip {
-        padding: 3px 8px;
+      .inspector-row {
+        display: grid;
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
+        grid-template-columns: var(--inspector-cols, minmax(0, 1fr) 56px 64px 82px);
+        gap: 8px;
+        align-items: center;
+        position: relative;
+        padding: 9px 12px 9px 14px;
+        border-radius: 8px;
+        color: var(--ink);
+        cursor: default;
+        user-select: none;
+      }
+
+      /* 表格感斑马纹：偶数行浅灰衬底。声明顺序在 hover/selected 之前，
+         保证三者同特异性时 hover/选中仍覆盖斑马纹。 */
+      .inspector-row:nth-child(even) {
+        background: #f5f5f7;
+      }
+
+      .inspector-row:hover {
+        background: #e8e8ea;
+      }
+
+      /* 选中态遵循 DESIGN.md 列表规范：2px 黑色竖向 accent bar + 8px 圆角。
+         引入斑马纹后选中底色加深一档（#ececee），与条纹明确区分。 */
+      .inspector-row.selected {
+        background: #ececee;
+      }
+
+      .inspector-row.selected::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+        border-radius: 1px;
+        background: #000;
+      }
+
+      .inspector-row.path-missing .inspector-cell-name {
+        color: #8a8a90;
+      }
+
+      .inspector-cell-name {
+        font-size: 12.5px;
+        line-height: 1.45;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+
+      .inspector-cell-type {
         font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #6a6a72;
+        text-align: center;
+        white-space: nowrap;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .main-shell.home-mode.list-layout .item-list-tags .meta-chip:last-child {
-        margin-left: 0;
+      .inspector-cell-source {
+        font-size: 11px;
+        color: #6f6f75;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+
+      .inspector-cell-time {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: var(--ink-soft);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+
+      .inspector-cell-time-date,
+      .inspector-cell-time-clock {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* 默认完整显示日期；修改时间列被用户拉宽后才显示时分，绝不留下
+         一个被截断的时间字符。由 applyInspectorColumns 的实际列宽标记驱动。 */
+      .inspector-cell-time-clock {
+        display: none;
+      }
+
+      .inspector-shell[data-inspector-time-detail="true"] .inspector-cell-time-clock {
+        display: inline;
+      }
+
+      .inspector-empty {
+        margin-top: 8px;
+      }
+
+      .inspector-splitter {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: col-resize;
+        min-height: 0;
+        touch-action: none;
+      }
+
+      .inspector-splitter::before {
+        content: "";
+        width: 2px;
+        height: 52px;
+        border-radius: 2px;
+        background: var(--line);
+        transition: background 140ms ease;
+      }
+
+      .inspector-splitter:hover::before,
+      .inspector-splitter.dragging::before {
+        background: #9a9aa0;
+      }
+
+      .inspector-splitter:focus-visible {
+        outline: none;
+      }
+
+      .inspector-splitter:focus-visible::before {
+        background: #000;
+        height: 84px;
+      }
+
+      .inspector-preview-pane {
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 0;
+        padding: 16px 16px 12px 0;
+        overflow: clip;
+      }
+
+      /* 右栏单一框体：预览区 + 详情区 + 打开横条共用一个边框圆角容器，
+         不再是上下两个独立卡片。 */
+      .inspector-preview-frame {
+        position: relative;
+        flex: 1 1 auto;
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--paper);
+      }
+
+      /* 预览舞台只承载滚动正文与渐隐。更多控件是独立 native child WebView，
+         绝不在 root WKWebView 内与 Markdown 滚动层共享合成面，也不占布局高度。 */
+      .inspector-preview-stage {
+        position: relative;
+        flex: 1 1 auto;
+        box-sizing: border-box;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        contain: paint;
+      }
+
+      /* 首屏语义：顶部裁切、默认不可滚动。内容宽度复用正式打开页同一公式
+         （content-card: width 100% / max-width 920 / margin auto）。 */
+      .inspector-preview-scroll {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        padding: 26px 28px 28px;
+      }
+
+      /* 展开态允许舞台内滚动；仅留 16px 渐隐，内容自然收进详情区边界。 */
+      .inspector-preview-stage.inspector-preview-expanded .inspector-preview-scroll {
+        overflow-y: auto;
+        padding-bottom: 12px;
+      }
+
+      .inspector-preview-stage.inspector-preview-expanded .inspector-preview-fade {
+        display: block;
+        height: 16px;
+      }
+
+      /* 渐隐层贴住舞台内缘（bottom/left/right 0），与详情区顶边无缝衔接；
+         留 1px 内缩会在图片恰好在底部时露出未遮盖条。 */
+      .inspector-preview-fade {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 88px;
+        z-index: 1;
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--paper));
+        pointer-events: none;
+      }
+
+
+      .inspector-more-button svg {
+        transition: transform 160ms ease;
+      }
+
+      .inspector-more-button.inspector-more-expanded svg {
+        transform: rotate(180deg);
+      }
+
+      .inspector-more-button:hover {
+        background: #eeeef0;
+        color: #000;
+      }
+
+      .inspector-more-button:focus-visible {
+        outline: 2px solid rgba(0, 0, 0, 0.4) !important;
+        outline-offset: 2px;
+      }
+
+      /* 图标按钮 tooltip：复用 home-action-tooltip 视觉。「更多」在舞台底部，
+         气泡放按钮上方；详情区按钮靠右缘，气泡右对齐防溢出框体。 */
+      .inspector-more-button .home-action-tooltip {
+        top: auto;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%) translateY(4px);
+      }
+
+      .inspector-more-button:hover .home-action-tooltip,
+      .inspector-more-button:focus-visible .home-action-tooltip {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      .inspector-preview-card {
+        max-width: 920px;
+        margin: 0 auto;
+        width: 100%;
+        background: transparent;
+      }
+
+      /* 隐藏挂载期：正文卡保持正常文档流（宽度与最终显示逐像素一致，ProseMirror
+         测量不受影响）但不可见，loading 状态层覆盖其上；Milkdown ready / 图片就绪 /
+         显示前三次 revision 复核全部通过后才翻转为可见。 */
+      .inspector-preview-card.inspector-preview-pending {
+        visibility: hidden;
+      }
+
+      /* MD 预览整体缩放 0.75，靠齐 HTML 截图的有效字号（截图按 1280 宽捕获、
+         显示时约 0.68-0.72 倍）。100/0.75 = 133.333% 宽 + 负左边距：
+         缩放后正文仍精确占满内容宽，视觉上“md 去 html 靠拢”。 */
+      .inspector-preview-card.inspector-preview-text {
+        width: 133.333%;
+        max-width: none;
+        margin-left: -16.6665%;
+        transform: scale(0.75);
+        transform-origin: top center;
+      }
+
+      .inspector-preview-card .milkdown-editor-root {
+        display: block;
+      }
+
+      /* 预览不是第二个阅读器：正文链接、图片与控件一律不可鼠标/键盘激活。 */
+      .inspector-preview-card a[href],
+      .inspector-preview-card img,
+      .inspector-preview-card button,
+      .inspector-preview-card input,
+      .inspector-preview-card textarea,
+      .inspector-preview-card select {
+        pointer-events: none;
+      }
+
+      .inspector-preview-card .markdown-title-input {
+        pointer-events: none;
+        resize: none;
+      }
+
+      /* 只读标题壳复用 .markdown-title-input 的排版，但不得出现输入态背景。 */
+      .inspector-preview-card .markdown-title-readout:hover,
+      .inspector-preview-card .markdown-title-readout:focus {
+        background: transparent;
+        outline: none;
+        box-shadow: none;
+      }
+
+      .inspector-html-shot {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .inspector-state {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        text-align: center;
+        padding: 24px;
+        color: #8a8a90;
+      }
+
+      .inspector-state .material-symbols-outlined {
+        font-size: 30px;
+        opacity: 0.7;
+      }
+
+      .inspector-state-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #5f5f66;
+      }
+
+      .inspector-state-hint {
+        font-size: 11.5px;
+        line-height: 1.6;
+        max-width: 360px;
+      }
+
+      .inspector-state .button {
+        margin-top: 8px;
+      }
+
+      .inspector-stale-preview {
+        position: relative;
+        width: 100%;
+      }
+
+      .inspector-stale-mask {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 14px;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .inspector-stale-pill {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: rgba(20, 20, 20, 0.72);
+        color: #fff;
+        font-size: 11px;
+      }
+
+      /* 详情区：框体底部信息区（属性栅格 + 来源/标签/路径行），
+         与预览舞台同处一个边框容器，顶部用分隔线区隔。 */
+      .inspector-details {
+        flex: 0 0 auto;
+        display: block;
+        min-height: 0;
+        padding: 12px 16px 12px;
+        border-top: 1px solid var(--line);
+        background: var(--paper);
+      }
+
+      .inspector-details-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .inspector-details-head .icon-button {
+        margin-left: auto;
+        position: relative;
+        color: #a4a4aa;
+        background: transparent;
+        transition: color 140ms ease, background 140ms ease;
+      }
+
+      .inspector-details-head .icon-button:hover,
+      .inspector-details-head .icon-button:focus-visible {
+        color: #303036;
+        background: rgba(20, 20, 20, 0.06);
+      }
+
+      /* 详情区图标按钮的应用内 tooltip（原生 title 在这里不可发现）：
+         按钮贴详情区右缘，气泡右对齐并允许换行，避免溢出框体被裁剪。 */
+      .inspector-details .icon-button .home-action-tooltip {
+        left: auto;
+        right: -6px;
+        top: calc(100% + 7px);
+        transform: translateY(-4px);
+        white-space: normal;
+        width: max-content;
+        max-width: 240px;
+        text-align: left;
+        line-height: 1.4;
+      }
+
+      .inspector-details .icon-button:hover .home-action-tooltip,
+      .inspector-details .icon-button:focus-visible .home-action-tooltip {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      .inspector-details-empty {
+        color: #8a8a90;
+        font-weight: 500;
+      }
+
+      .inspector-details-missing {
+        flex: 0 0 auto;
+        font-size: 10.5px;
+        color: #93000a;
+        background: #ffdad6;
+        border-radius: 999px;
+        padding: 2px 8px;
+      }
+
+      .inspector-details-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+
+      .inspector-details-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 2px 20px;
+        margin: 8px 0 0;
+      }
+
+      .inspector-details-grid > div,
+      .inspector-details-line {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .inspector-details-grid dt,
+      .inspector-details-line dt,
+      .inspector-details-label {
+        flex: 0 0 auto;
+        color: #8a8a90;
+      }
+
+      .inspector-details-grid dd,
+      .inspector-details-line dd {
+        margin: 0;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .inspector-details-line {
+        margin-top: 4px;
+      }
+
+      .inspector-details-line dd {
+        direction: rtl;
+        text-align: left;
+      }
+
+      /* 路径行例外：绝对路径是 LTR 内容，rtl 反排会把 `/` 与目录段顺序打乱
+         （如 /Users/a/b.md 排成 b.md/a/Users）。固定保留两行高度，让长路径能
+         在第二行继续显示；极长时才截断，完整值仍通过 title 可见。 */
+      .inspector-details-line dd.inspector-details-path {
+        direction: ltr;
+        text-align: left;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.5;
+        min-height: 3em;
+      }
+
+      /* 此选择器必须压过 `.inspector-details-line dd` 的 rtl：后者用于普通
+         长文本省略，而这里是离散标签。令 dd 占据标签标题后的余量，chips 才会
+         从紧贴“标签”的左端开始，而不会按 rtl 从右侧回排。 */
+      .inspector-details-line dd.inspector-details-chips {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        flex: 1 1 auto;
+        min-width: 0;
+        margin-top: 4px;
+        direction: ltr;
+        text-align: left;
+        white-space: normal;
+        overflow: visible;
+      }
+
+      .inspector-details-chips .tag-chip {
+        padding: 2px 8px;
+        font-size: 10.5px;
+      }
+
+      /* 来源徽标与自定义标签共享“标签”行，但保留来源的轻量视觉语义。
+         徽标文本始终单行省略，不能因超长项目/Skill 名抢走整行或撑高详情区。 */
+      .inspector-details-chips .inspector-details-source-badge {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        max-width: min(196px, 100%);
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: #f2f2f4;
+        color: #5f5f66;
+        font-size: 10.5px;
+        line-height: 1.4;
+      }
+
+      .inspector-details-chips .inspector-details-source-badge .source-badge-label {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* 底部打开横条：框体最底部的通栏主按钮。 */
+      .inspector-open-bar {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 42px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0 0 13px 13px;
+        background: #111;
+        color: #fff;
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: background 140ms ease;
+      }
+
+      .inspector-open-bar:hover:not(:disabled) {
+        background: #2b2b2f;
+      }
+
+      .inspector-open-bar:focus-visible {
+        outline: 2px solid rgba(0, 0, 0, 0.5);
+        outline-offset: -3px;
+      }
+
+      .inspector-open-bar:disabled {
+        background: #e2e2e4;
+        color: #8a8a90;
+        cursor: default;
       }
 
       .pill-row {
@@ -6487,16 +7140,6 @@
           gap: 16px;
         }
 
-        .main-shell.home-mode.list-layout .item-card {
-          gap: 10px;
-          padding: 12px;
-        }
-
-        .main-shell.home-mode.list-layout .thumb-wrap {
-          flex-basis: 112px;
-          width: 112px;
-        }
-
         .home-title {
           font-size: 26px;
         }
@@ -6666,6 +7309,24 @@
               </div>
             </div>
             <div id="itemList" class="list-body" data-i18n-skip></div>
+
+            <div id="inspectorShell" class="inspector-shell" hidden>
+              <div class="inspector-list-pane">
+                <div id="inspectorListHead" class="inspector-list-head" role="presentation"></div>
+                <div id="inspectorRows" class="inspector-rows" role="listbox" aria-label="文件列表" tabindex="0" data-i18n-skip></div>
+              </div>
+              <div id="inspectorSplitter" class="inspector-splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="调整左右分栏宽度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="60"></div>
+              <div class="inspector-preview-pane">
+                <div id="inspectorPreviewFrame" class="inspector-preview-frame">
+                  <div id="inspectorPreviewStage" class="inspector-preview-stage">
+                    <div id="inspectorPreviewBody" class="inspector-preview-scroll" data-i18n-skip></div>
+                    <div class="inspector-preview-fade" aria-hidden="true"></div>
+                  </div>
+                  <div id="inspectorDetails" class="inspector-details" data-i18n-skip></div>
+                  <button type="button" id="inspectorOpenBar" class="inspector-open-bar" data-inspector-open="1" disabled></button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="viewer-pane">
@@ -6982,7 +7643,26 @@
         isEditing: false,
         isTauri: Boolean(window.__TAURI_INTERNALS__?.invoke),
         isSidebarCollapsed: false,
-        homeLayout: "grid",
+        // 首页浏览视图是用户工作流偏好：卡片 / 检查视图在重开后恢复；
+        // 排序仍按产品约定不持久化。
+        homeLayout: loadHomeLayoutPreference(),
+        // 检查视图状态：selectionToken 使旧异步 snapshot 晚到必失效；
+        // snapshot.revision 是“当前内容”的权威（selection token 只管选择竞态）。
+        inspector: {
+          selectedItemId: null,
+          selectionToken: 0,
+          sortKey: "modifiedAt",
+          sortDir: "desc",
+          // 检查视图的左右比例与首页视图一同恢复；实际值仍会在窄窗口下受安全宽约束。
+          splitRatio: loadInspectorSplitRatioPreference(),
+          colWidths: loadInspectorColumnWidths(),
+          snapshot: null,
+          editor: null,
+          status: "empty",
+          loadDepth: 0,
+          listFingerprint: "",
+          moreOverlay: { itemId: null, selectionToken: 0, expanded: false, syncRunId: 0, syncPromise: Promise.resolve() }
+        },
         browseMode: "all",
         homeTabOpen: true,
         sortMode: "modifiedAtDesc",
@@ -7156,6 +7836,15 @@
         addFileButtonTopbar: document.getElementById("addFileButtonTopbar"),
         viewModeButton: document.getElementById("viewModeButton"),
         viewModeButtonHome: document.getElementById("viewModeButtonHome"),
+        inspectorShell: document.getElementById("inspectorShell"),
+        inspectorListHead: document.getElementById("inspectorListHead"),
+        inspectorRows: document.getElementById("inspectorRows"),
+        inspectorSplitter: document.getElementById("inspectorSplitter"),
+        inspectorPreviewFrame: document.getElementById("inspectorPreviewFrame"),
+        inspectorPreviewStage: document.getElementById("inspectorPreviewStage"),
+        inspectorPreviewBody: document.getElementById("inspectorPreviewBody"),
+        inspectorOpenBar: document.getElementById("inspectorOpenBar"),
+        inspectorDetails: document.getElementById("inspectorDetails"),
         sortButton: document.getElementById("sortButton"),
         topbarSortButton: document.getElementById("topbarSortButton"),
         sortMenu: document.getElementById("sortMenu"),
@@ -7294,6 +7983,21 @@
             modifiedAt: "1713744001",
             title: "Sample HTML",
             summary: "用于演示 HTML 打开的占位页面。",
+            tags: [],
+            thumbnail: null
+          },
+          {
+            // 无 libraryId 的样例：详情区「所属库」行应整体省略（GUI 验收第二批）。
+            id: 103,
+            filePath: "/Users/hayley/Documents/field-notes.md",
+            relativePath: "Documents/field-notes.md",
+            fileName: "field-notes.md",
+            fileExt: "md",
+            fileType: "markdown",
+            fileSize: 3072,
+            modifiedAt: "1713743999",
+            title: "Field Notes",
+            summary: "无所属库样例（本地文件）。",
             tags: [],
             thumbnail: null
           }
@@ -11874,7 +12578,7 @@
         if (command === "delete_library") {
           return [{ payload: { libraryId: args.libraryId } }, { payload: { library_id: args.libraryId } }, args];
         }
-        if (command === "get_item_detail" || command === "get_item_preview") {
+        if (command === "get_item_detail" || command === "get_item_preview" || command === "get_item_inspector_snapshot" || command === "get_item_content_revision") {
           return [
             { payload: { itemId: args.itemId } },
             { payload: { item_id: args.itemId } },
@@ -12590,6 +13294,11 @@
         clearPollutedSearchValues();
         getFileTypeFilter();
         destroyAllMarkdownEditorSessions();
+        // 检查视图的标题壳/状态文案是渲染期产物：语言切换后销毁重读，
+        // 避免残留旧语言文案（正文 snapshot 会随 revalidate 自动重挂）。
+        if (appState.homeLayout === "inspector") {
+          destroyMarkdownInspector();
+        }
         if (els.settingsScrim?.classList.contains("open")) {
           renderSettingsPanel();
         }
@@ -15603,6 +16312,29 @@
         if (command === "get_item_preview") {
           return structuredClone(mockData.previews[args.itemId]);
         }
+        if (command === "get_item_inspector_snapshot") {
+          const preview = mockData.previews[args.itemId];
+          const item = mockData.items.find((entry) => entry.id === args.itemId);
+          if (!preview || !item) throw new Error("ITEM_NOT_FOUND");
+          return {
+            itemId: args.itemId,
+            fileType: "markdown",
+            title: preview.title || item.fileName,
+            raw: preview.raw || "",
+            revision: `mock-${args.itemId}-${(preview.raw || "").length}`,
+            baseDir: preview.baseDir || "",
+            filePath: item.filePath || item.fileName,
+            fileName: item.fileName
+          };
+        }
+        if (command === "get_item_content_revision") {
+          const preview = mockData.previews[args.itemId];
+          if (!preview) throw new Error("ITEM_NOT_FOUND");
+          return {
+            itemId: args.itemId,
+            revision: `mock-${args.itemId}-${(preview.raw || "").length}`
+          };
+        }
         if (command === "open_html_window") {
           const item = mockData.items.find((entry) => entry.id === args.itemId);
           return {
@@ -15981,12 +16713,35 @@
       }
 
       function applyHomeLayout() {
-        els.mainShell.classList.toggle("list-layout", appState.homeLayout === "list");
+        const inspectorActive = appState.homeLayout === "inspector";
+        els.mainShell.classList.toggle("inspector-layout", inspectorActive);
+        els.mainShell.classList.remove("list-layout");
+        if (els.inspectorShell) {
+          els.inspectorShell.hidden = !inspectorActive;
+        }
         [els.viewModeButton, els.viewModeButtonHome].forEach((button) => {
           if (!button) return;
           const icon = button.querySelector(".material-symbols-outlined");
-          if (icon) icon.textContent = appState.homeLayout === "grid" ? "grid_view" : "view_agenda";
+          if (icon) icon.textContent = inspectorActive ? "grid_view" : "view_agenda";
+          // 状态切换按钮：aria-label 与可见 tooltip 必须描述切换目标，与图标状态同步。
+          const label = inspectorActive ? t("inspector.toGrid") : t("inspector.toInspector");
+          button.setAttribute("aria-label", label);
+          const tooltip = button.querySelector(".home-action-tooltip");
+          if (tooltip) tooltip.textContent = label;
         });
+        if (inspectorActive) {
+          applyInspectorSplitRatio();
+          applyInspectorColumns();
+        } else if (previousInspectorViewActive()) {
+          // 离开检查视图：销毁 inspector 实例、失效异步链，列排序重置（不持久化）。
+          destroyMarkdownInspector();
+          appState.inspector.sortKey = "modifiedAt";
+          appState.inspector.sortDir = "desc";
+        }
+      }
+
+      function previousInspectorViewActive() {
+        return Boolean(appState.inspector.editor || appState.inspector.snapshot || appState.inspector.selectedItemId != null);
       }
 
       function renderNavState() {
@@ -16011,6 +16766,11 @@
         els.mainShell.classList.toggle("no-tabs-mode", !hasActiveTab && !appState.homeTabOpen);
         els.listTitle.textContent = hasActiveTab ? t("home.fileList") : t("nav.all");
         applyHomeLayout();
+        // 回到主页且处于检查视图时重建列表/预览（数据未变时指纹守卫直接跳过）。
+        // 主页 tab 点击路径不经过 loadItems，必须在这里补一次渲染入口。
+        if (homeMode && appState.homeLayout === "inspector") {
+          renderInspectorItems();
+        }
         // A2：切到文档模式 / 离开主页立即关闭最近搜索 popup，
         // 绝不让普通 DOM popup 出现在 HTML runtime child WebView 上方。
         if (!homeMode) closeRecentSearchPopup();
@@ -16670,6 +17430,16 @@
       // 避免整表 innerHTML 重建导致 tooltip 锚点断开、hover 状态丢失、滚动跳动。
       // 替换后必须验证 .thumb-wrap / 缩略图 / 徽标 / 类型标签结构完整；结构不完整时回退整表重建。
       function updateCardThumbnail(item) {
+        // 检查视图：卡片 DOM 不存在；选中项的 HTML 预览随 ready/stale/failed 状态收敛。
+        if (appState.homeLayout === "inspector") {
+          if (item.id === appState.inspector.selectedItemId) {
+            const selected = appState.items.find((entry) => entry.id === item.id);
+            if (selected && selected.fileType !== "markdown") {
+              renderInspectorHtmlPreview(selected);
+            }
+          }
+          return;
+        }
         const card = els.itemList?.querySelector(`[data-open-item="${item.id}"]`);
         if (!card) return;
         const wrap = card.querySelector(".thumb-wrap");
@@ -16721,6 +17491,11 @@
       }
 
       function renderItems() {
+        // 检查视图接管列表渲染：同一份 appState.items（搜索/筛选/范围保持不变）。
+        if (appState.homeLayout === "inspector") {
+          renderInspectorItems();
+          return;
+        }
         const items = appState.items;
         els.listSummary.textContent = `${fileCountText(items.length)}${appState.activeTagFilterIds.length ? (appState.language === "en-US" ? ", with tag filter" : "，含标签筛选") : ""}`;
 
@@ -19951,13 +20726,1164 @@ if (!chipTipController) {
       window.__NUTBOOK_NATIVE_MENU__ = handleNativeMenuAction;
 
       function toggleHomeLayout() {
-        if (!appState.items.length) {
+        if (!appState.items.length && appState.homeLayout !== "inspector") {
           setStatus(t("status.noFilesAddFirst"), "warn");
           return;
         }
-        appState.homeLayout = appState.homeLayout === "grid" ? "list" : "grid";
+        const previousLayout = appState.homeLayout;
+        appState.homeLayout = previousLayout === "grid" ? "inspector" : "grid";
+        saveHomeLayoutPreference();
         applyHomeLayout();
-        setStatus(appState.homeLayout === "grid" ? t("status.gridView") : t("status.listView"), "ok");
+        if (appState.homeLayout === "inspector") {
+          setStatus(t("status.inspectorView"), "ok");
+          // 渲染列表头/行；revalidateInspectorSelection 会自动选中第一条可见结果
+          // （无选择或选择因筛选消失时同规则）。
+          renderInspectorItems();
+        } else {
+          setStatus(t("status.gridView"), "ok");
+        }
+      }
+
+      // 首页视图与检查分栏只保存用户显式选择；localStorage 不可用或旧值无效时
+      // 安全回落默认卡片视图 / 40:60，不把偏好故障扩散到首页渲染。
+      function loadHomeLayoutPreference() {
+        try {
+          const value = window.localStorage?.getItem("nutbook.homeLayout");
+          return value === "inspector" || value === "grid" ? value : "grid";
+        } catch (_) {
+          return "grid";
+        }
+      }
+
+      function saveHomeLayoutPreference() {
+        try {
+          window.localStorage?.setItem("nutbook.homeLayout", appState.homeLayout === "inspector" ? "inspector" : "grid");
+        } catch (_) {
+        }
+      }
+
+      function loadInspectorSplitRatioPreference() {
+        try {
+          const value = Number(window.localStorage?.getItem("nutbook.inspector.splitRatio"));
+          return Number.isFinite(value) && value >= 0 && value <= 1 ? value : 0.6;
+        } catch (_) {
+          return 0.6;
+        }
+      }
+
+      function saveInspectorSplitRatioPreference() {
+        try {
+          const ratio = Number(appState.inspector.splitRatio);
+          if (Number.isFinite(ratio)) {
+            window.localStorage?.setItem("nutbook.inspector.splitRatio", String(Math.min(1, Math.max(0, ratio))));
+          }
+        } catch (_) {
+        }
+      }
+
+      // ── 检查视图（inspector view）──────────────────────────────────────
+      // 左栏固定属性列表（名称/类型/来源/修改时间，排序不持久化）+ 右栏统一
+      // 首屏视觉预览。Markdown 用与正式打开页同一 Milkdown bundle 的只读
+      // inspector；HTML 只消费已合并基线的 revision-aware 卡片截图状态。
+      // 所有可能晚到的异步结果同时受 selection token 与 snapshot revision 双重保护。
+
+      function isInspectorActive() {
+        return appState.homeLayout === "inspector"
+          && Boolean(els.inspectorShell)
+          && !els.inspectorShell.hidden
+          && els.mainShell.classList.contains("home-mode");
+      }
+
+      function isInspectorSelectionCurrent(itemId, token) {
+        return isInspectorActive()
+          && appState.inspector.selectedItemId === itemId
+          && appState.inspector.selectionToken === token;
+      }
+
+      // 来源列只表达 project / skill 来源徽标；用户标签不再混入。
+      // 无任何来源的本地文件回落为「本地」。
+      function inspectorSourceBadges(item) {
+        return (item.sourceBadges || []).map((badge) => badge.label).filter(Boolean);
+      }
+
+      function inspectorSourceLabel(item) {
+        return inspectorSourceBadges(item).join("，") || t("inspector.sourceLocal");
+      }
+
+      function inspectorModifiedTimeValue(item) {
+        const [secs, nanos = "0"] = String(item?.modifiedAt || "0").split(".");
+        return Number(`${Number(secs) || 0}.${nanos}`);
+      }
+
+      function inspectorSortedItems() {
+        const sortKey = appState.inspector.sortKey;
+        const direction = appState.inspector.sortDir === "asc" ? 1 : -1;
+        const sortValue = (item) => {
+          switch (sortKey) {
+            case "fileName":
+              return (item.fileName || "").toLowerCase();
+            case "fileType":
+              return item.fileType === "html" ? "html" : "markdown";
+            case "source":
+              return inspectorSourceLabel(item).toLowerCase();
+            case "modifiedAt":
+            default:
+              return inspectorModifiedTimeValue(item);
+          }
+        };
+        return [...appState.items].sort((a, b) => {
+          const valueA = sortValue(a);
+          const valueB = sortValue(b);
+          if (valueA < valueB) return -direction;
+          if (valueA > valueB) return direction;
+          return a.id - b.id;
+        });
+      }
+
+      function inspectorRowMarkup(item) {
+        const selected = item.id === appState.inspector.selectedItemId;
+        const pathMissing = isItemPathMissing(item);
+        const modifiedDate = formatInspectorListDate(item.modifiedAt || "");
+        const modifiedTime = formatInspectorListTime(item.modifiedAt || "");
+        return `
+          <div class="inspector-row${selected ? " selected" : ""}${pathMissing ? " path-missing" : ""}" role="option" aria-selected="${selected}" data-inspector-item="${item.id}">
+            <span class="inspector-cell-name">${escapeHtml(item.fileName || "")}</span>
+            <span class="inspector-cell-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>
+            <span class="inspector-cell-source">${escapeHtml(inspectorSourceLabel(item))}</span>
+            <span class="inspector-cell-time"><span class="inspector-cell-time-date">${escapeHtml(modifiedDate)}</span><span class="inspector-cell-time-clock">${escapeHtml(modifiedTime)}</span></span>
+          </div>
+        `;
+      }
+
+      function renderInspectorListHead() {
+        if (!els.inspectorListHead) return;
+        // 只有三个真实列间边界可拖。最后一列没有“右缘”可供调整：把它做成
+        // 手柄只会制造反向拖拽或挤压远处列的错觉。
+        const columns = [
+          { key: "fileName", label: t("inspector.colName"), resizable: true },
+          { key: "fileType", label: t("inspector.colType"), resizable: true },
+          { key: "source", label: t("inspector.colSource"), resizable: true },
+          { key: "modifiedAt", label: t("inspector.colModified"), resizable: false }
+        ];
+        const resizeHint = t("inspector.colResizeHint");
+        els.inspectorListHead.innerHTML = columns.map((column) => {
+          const active = appState.inspector.sortKey === column.key;
+          const sortState = active ? (appState.inspector.sortDir === "asc" ? "ascending" : "descending") : "none";
+          const arrow = active ? (appState.inspector.sortDir === "asc" ? "↑" : "↓") : "";
+          const ariaLabel = `${column.label}，${sortState === "none" ? t("inspector.sortHint") : (sortState === "ascending" ? t("inspector.sortAsc") : t("inspector.sortDesc"))}`;
+          const handle = column.resizable
+            ? `<span class="inspector-col-handle" data-inspector-col-handle="${column.key}" title="${escapeAttribute(resizeHint)}" aria-label="${escapeAttribute(column.label)}，${escapeAttribute(resizeHint)}"></span>`
+            : "";
+          return `
+            <button type="button" class="inspector-col-button" data-inspector-sort="${column.key}" aria-sort="${sortState}" aria-label="${escapeAttribute(ariaLabel)}" title="${escapeAttribute(ariaLabel)}">
+              <span class="inspector-col-label"><span class="inspector-col-label-text">${escapeHtml(column.label)}</span><span class="inspector-sort-arrow" aria-hidden="true">${arrow}</span></span>${handle}
+            </button>
+          `;
+        }).join("");
+      }
+
+      function renderInspectorItems() {
+        if (!els.inspectorShell) return;
+        if (!appState.items.length) {
+          appState.inspector.listFingerprint = "";
+          appState.inspector.selectedItemId = null;
+          destroyMarkdownInspector();
+          if (els.inspectorListHead) els.inspectorListHead.innerHTML = "";
+          const hasActiveSearch = Boolean(appState.appliedSearch);
+          const emptyTitle = hasActiveSearch
+            ? t("home.noSearchResults")
+            : appState.browseMode === "starred" ? t("home.noStarred") : appState.browseMode === "recent" ? t("home.noRecent") : t("home.noFiles");
+          els.inspectorRows.innerHTML = `
+            <div class="empty-state inspector-empty">
+              <div>
+                <h2>${emptyTitle}</h2>
+                <div>${hasActiveSearch ? t("home.noSearchResultsHint") : t("home.emptyHint")}</div>
+              </div>
+            </div>
+          `;
+          renderInspectorPreview();
+          renderInspectorDetails();
+          return;
+        }
+        renderInspectorListHead();
+        const sorted = inspectorSortedItems();
+        const fingerprint = JSON.stringify([
+          appState.language,
+          appState.inspector.sortKey,
+          appState.inspector.sortDir,
+          appState.inspector.selectedItemId,
+          sorted.map((item) => [
+            item.id,
+            item.fileName || "",
+            item.pathState || "",
+            item.modifiedAt || "",
+            inspectorSourceLabel(item)
+          ])
+        ]);
+        if (fingerprint === appState.inspector.listFingerprint && els.inspectorRows.firstElementChild) {
+          revalidateInspectorSelection(sorted);
+          return;
+        }
+        appState.inspector.listFingerprint = fingerprint;
+        els.inspectorRows.innerHTML = sorted.map(inspectorRowMarkup).join("");
+        revalidateInspectorSelection(sorted);
+      }
+
+      // 选择复核：进入检查视图、筛选变化或数据刷新后调用。
+      // 选择消失 → 自动选中第一条可见；选择仍在但文件已变化 → 重新读取 snapshot。
+      function revalidateInspectorSelection(sorted) {
+        const selectedId = appState.inspector.selectedItemId;
+        const selected = sorted.find((item) => item.id === selectedId);
+        if (!selected) {
+          if (sorted.length) {
+            selectInspectorItem(sorted[0].id, { skipScroll: true });
+          } else {
+            appState.inspector.selectedItemId = null;
+          }
+          return;
+        }
+        const snapshot = appState.inspector.snapshot;
+        const previewStale = !snapshot
+          || snapshot.itemId !== selected.id
+          || snapshot.sourceModifiedAt !== selected.modifiedAt
+          || snapshot.sourcePathState !== selected.pathState;
+        updateInspectorRowSelection();
+        // 只在可收敛状态自动重载：unavailable / missing 是终态，交给用户动作，
+        // 避免自动刷新周期把失败状态变成无限重载循环。
+        const autoReloadAllowed = appState.inspector.status === "ready" || appState.inspector.status === "empty";
+        if (previewStale && autoReloadAllowed) {
+          selectInspectorItem(selected.id, { skipScroll: true });
+        }
+      }
+
+      function updateInspectorRowSelection() {
+        if (!els.inspectorRows) return;
+        els.inspectorRows.querySelectorAll(".inspector-row").forEach((row) => {
+          const selected = Number(row.dataset.inspectorItem) === appState.inspector.selectedItemId;
+          row.classList.toggle("selected", selected);
+          row.setAttribute("aria-selected", String(selected));
+        });
+      }
+
+      function selectInspectorItem(itemId, options = {}) {
+        appState.inspector.selectedItemId = Number(itemId);
+        // 旧异步 snapshot/旧 editor 一律失效：token 推进 + 立即销毁旧实例。
+        appState.inspector.selectionToken += 1;
+        appState.inspector.loadDepth = 0;
+        updateInspectorRowSelection();
+        renderInspectorDetails();
+        const item = appState.items.find((entry) => entry.id === appState.inspector.selectedItemId);
+        if (!item) {
+          appState.inspector.status = "empty";
+          renderInspectorPreview();
+          return;
+        }
+        loadInspectorPreview(item);
+        if (!options.skipScroll) {
+          document.querySelector(`.inspector-row[data-inspector-item="${appState.inspector.selectedItemId}"]`)
+            ?.scrollIntoView({ block: "nearest" });
+        }
+      }
+
+      function destroyInspectorEditorOnly() {
+        const editor = appState.inspector.editor;
+        appState.inspector.editor = null;
+        appState.inspector.snapshot = null;
+        try {
+          editor?.destroy?.();
+        } catch (_) {
+        }
+        if (els.inspectorPreviewBody) {
+          els.inspectorPreviewBody.innerHTML = "";
+        }
+        // 「更多」随每次加载重置：新文件未 reveal 前不出现，滚动态收起。
+        hideInspectorMoreButton();
+      }
+
+      function destroyMarkdownInspector() {
+        // 推进 token：所有在途 snapshot / revision 复核结果晚到即失效。
+        appState.inspector.selectionToken += 1;
+        appState.inspector.status = "empty";
+        appState.inspector.loadDepth = 0;
+        destroyInspectorEditorOnly();
+      }
+
+      function inspectorStateMarkup(kind) {
+        const states = {
+          empty: {
+            icon: "text_snippet",
+            title: t("inspector.previewEmptyTitle"),
+            hint: t("inspector.previewEmptyHint")
+          },
+          loading: {
+            icon: "hourglass_top",
+            title: t("inspector.previewLoadingTitle"),
+            hint: ""
+          },
+          missing: {
+            icon: "link_off",
+            title: t("inspector.pathMissingTitle"),
+            hint: t("inspector.pathMissingHint")
+          },
+          unavailable: {
+            icon: "visibility_off",
+            title: t("inspector.previewUnavailableTitle"),
+            hint: t("inspector.previewUnavailableHint")
+          },
+          pending: {
+            icon: "hourglass_top",
+            title: t("inspector.htmlPendingTitle"),
+            hint: t("inspector.htmlPendingHint")
+          },
+          failed: {
+            icon: "image_not_supported",
+            title: t("inspector.htmlFailedTitle"),
+            hint: t("inspector.htmlFailedHint")
+          },
+          engineUnavailable: {
+            icon: "image_not_supported",
+            title: t("inspector.htmlEngineTitle"),
+            hint: t("inspector.htmlEngineHint")
+          }
+        };
+        const state = states[kind] || states.empty;
+        const retryButton = kind === "failed"
+          ? `<button type="button" class="button button-ghost" data-inspector-retry-thumbnail="1">${escapeHtml(t("inspector.htmlRetry"))}</button>`
+          : "";
+        return `
+          <div class="inspector-state" role="status" data-inspector-state="${kind}">
+            <span class="material-symbols-outlined" aria-hidden="true">${state.icon}</span>
+            <div class="inspector-state-title">${escapeHtml(state.title)}</div>
+            ${state.hint ? `<div class="inspector-state-hint">${escapeHtml(state.hint)}</div>` : ""}
+            ${retryButton}
+          </div>
+        `;
+      }
+
+      function renderInspectorPreview() {
+        if (!els.inspectorPreviewBody) return;
+        const item = appState.items.find((entry) => entry.id === appState.inspector.selectedItemId);
+        if (!item) {
+          hideInspectorMoreButton();
+          els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("empty");
+          return;
+        }
+        if (isItemPathMissing(item)) {
+          hideInspectorMoreButton();
+          els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("missing");
+          return;
+        }
+        if (item.fileType === "markdown") {
+          // ready 的 DOM 由 mount 流程持有；loading / unavailable / 意外空态在此收敛。
+          if (appState.inspector.status === "loading") {
+            // 隐藏挂载进行中：loading 层已覆盖正文卡，重建 innerHTML 会撕掉
+            // 挂载中的编辑器根；此时 DOM 保持原样即可。
+            if (!els.inspectorPreviewBody.querySelector("[data-inspector-preview].inspector-preview-pending")) {
+              els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("loading");
+            }
+          } else if (appState.inspector.status === "unavailable") {
+            els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("unavailable");
+          } else if (!appState.inspector.editor) {
+            els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("empty");
+          }
+          return;
+        }
+        renderInspectorHtmlPreview(item);
+      }
+
+      // HTML：只消费已合并基线的 thumbnail 状态。ready 图立即显示；
+      // session-local stale preview 仅在来源校验 + 引擎可用 + 刷新进行中时带遮罩显示；
+      // 其余 stale/pending/failed/引擎不可用都是可解释的状态层，不把旧图当 current ready。
+      function renderInspectorHtmlPreview(item) {
+        // HTML 首屏是静态截图，绝不复用上一份 Markdown 的「更多」按钮或展开态。
+        // 显式清空而非只依赖 select → destroy 的隐式顺序，缩略图异步刷新也安全。
+        hideInspectorMoreButton();
+        const staleEntry = appState.stalePreviewThumbnails.get(item.id);
+        const thumb = item.thumbnail;
+        if (thumb?.status === "ready" && thumb.path) {
+          els.inspectorPreviewBody.innerHTML = `
+            <div class="inspector-preview-card" data-inspector-preview="1" data-inspector-html-key="${escapeAttribute(thumb.desiredKey || "")}">
+              <img class="inspector-html-shot" src="${escapeAttribute(thumb.path)}" alt="" draggable="false" />
+            </div>
+          `;
+          return;
+        }
+        if (
+          staleEntry
+          && staleEntry.state === "preview"
+          && staleEntry.thumbnail?.path
+          && canGenerateDocumentThumbnails()
+        ) {
+          const previewPath = staleEntry.thumbnail.path;
+          els.inspectorPreviewBody.innerHTML = `
+            <div class="inspector-preview-card inspector-stale-preview" data-inspector-preview="1" aria-busy="true">
+              <img class="inspector-html-shot" src="${escapeAttribute(previewPath)}" alt="" draggable="false" />
+              <div class="inspector-stale-mask"><span class="inspector-stale-pill">${escapeHtml(t("status.thumbnailUpdating"))}</span></div>
+            </div>
+          `;
+          return;
+        }
+        if (!canGenerateDocumentThumbnails()) {
+          els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("engineUnavailable");
+          return;
+        }
+        if (item._thumbFailed || thumb?.status === "failed" || staleEntry?.state === "failed") {
+          els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("failed");
+          return;
+        }
+        els.inspectorPreviewBody.innerHTML = inspectorStateMarkup("pending");
+      }
+
+      // 失败态“重试”：清 failed 标记并走既有缩略图刷新队列；完成后由
+      // updateCardThumbnail 的 inspector 分支把状态层收敛回 ready/stale/failed。
+      // 入口被详情区与预览区（inspectorStateMarkup 的 failed 按钮）两处委托共用。
+      function retryInspectorThumbnail() {
+        const item = appState.items.find((entry) => entry.id === appState.inspector.selectedItemId);
+        if (!item) return;
+        item._thumbFailed = false;
+        ensureDocumentThumbnails([item]);
+      }
+
+      function formatInspectorFileSize(bytes) {
+        const value = Number(bytes);
+        if (!Number.isFinite(value) || value <= 0) return "—";
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+        if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+        return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+      }
+
+      // 左侧列表只承担扫读和排序：显示完整日期即可。详情区仍使用
+      // formatTimestamp 显示到分钟，避免窄列出现“日期完整、时间只露一个字”的残片。
+      function formatInspectorListDate(value) {
+        if (!value) return "未知";
+        const numeric = Number(value);
+        const date = Number.isFinite(numeric) ? new Date(numeric * 1000) : new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return new Intl.DateTimeFormat("zh-CN", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit"
+        }).format(date);
+      }
+
+      function formatInspectorListTime(value) {
+        if (!value) return "";
+        const numeric = Number(value);
+        const date = Number.isFinite(numeric) ? new Date(numeric * 1000) : new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return new Intl.DateTimeFormat("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23"
+        }).format(date);
+      }
+
+      function inspectorLibraryName(item) {
+        const library = appState.libraries.find((entry) => Number(entry.id) === Number(item.libraryId));
+        return library?.name || "";
+      }
+
+      // 详情区（GUI 验收反馈）：合并进右栏单一框体后的属性信息区。
+      // 头行：名称 + 类型徽标 + （路径失效提示）+ 重置分栏；
+      // 属性栅格：大小 / 修改时间 / 最近打开 / 所属库；之下：合并后的标签（来源徽标 +
+      // 自定义标签）、路径。
+      // 打开入口是框体最底部的通栏横条（#inspectorOpenBar），不在这里渲染。
+      function renderInspectorDetails() {
+        if (!els.inspectorDetails) return;
+        const item = appState.items.find((entry) => entry.id === appState.inspector.selectedItemId);
+        const openBar = els.inspectorOpenBar;
+        if (openBar) {
+          openBar.textContent = t("inspector.openFile");
+          openBar.disabled = !item || isItemPathMissing(item);
+        }
+        // 重置分栏入口：应用内可见 tooltip（原生 title 在真实使用中不可发现），
+        // 图标用恢复语义的 settings_backup_restore（drag_indicator 六点把手被
+        // 误读成拖拽 grip，GUI 验收第二批反馈）。
+        const resetSplitTooltip = t("inspector.resetSplit");
+        const resetSplitButton = `
+          <button type="button" class="icon-button" data-inspector-reset-split="1" aria-label="${escapeAttribute(resetSplitTooltip)}">
+            <span class="material-symbols-outlined" aria-hidden="true">settings_backup_restore</span>
+            <span class="home-action-tooltip">${escapeHtml(resetSplitTooltip)}</span>
+          </button>
+        `;
+        if (!item) {
+          els.inspectorDetails.innerHTML = `
+            <div class="inspector-details-head">
+              <span class="inspector-details-name inspector-details-empty">${escapeHtml(t("inspector.detailsEmpty"))}</span>
+              ${resetSplitButton}
+            </div>
+          `;
+          return;
+        }
+        const pathMissing = isItemPathMissing(item);
+        const relativePath = item.relativePath || item.filePath || item.fileName || "";
+        // 路径按 GUI 验收要求显示文件绝对路径（完整路径同时挂在 title 上）。
+        const absolutePath = item.filePath || relativePath;
+        const sourceBadges = item.sourceBadges || [];
+        const tags = (item.tags || []).map((tag) => tag.name).filter(Boolean);
+        const sourceBadgeChips = sourceBadges.map((badge) => {
+          const unavailable = badge.available === false;
+          const kindClass = badge.kind === "project" ? "source-badge-project" : "source-badge-skill";
+          const label = String(badge.label || "").trim();
+          if (!label) return "";
+          return `<span class="source-badge inspector-details-source-badge ${kindClass}${unavailable ? " source-badge--unavailable" : ""}" title="${escapeAttribute(label)}" aria-label="${escapeAttribute(label + (unavailable ? "（来源不可用）" : ""))}"><span class="source-badge-label">${escapeHtml(label)}</span></span>`;
+        }).filter(Boolean);
+        const tagChips = tags.map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`);
+        const libraryName = inspectorLibraryName(item);
+        const lastOpened = item.lastOpenedAt ? formatTimestamp(item.lastOpenedAt) : t("inspector.detailsNeverOpened");
+        const modified = formatTimestamp(item.modifiedAt || "") || "—";
+        els.inspectorDetails.innerHTML = `
+          <div class="inspector-details-head">
+            <span class="inspector-details-name" title="${escapeAttribute(item.fileName || "")}">${escapeHtml(item.fileName || "")}</span>
+            <span class="thumb-badge thumb-badge-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>
+            ${pathMissing ? `<span class="inspector-details-missing">${escapeHtml(t("inspector.pathMissingTitle"))}</span>` : ""}
+            ${resetSplitButton}
+          </div>
+          <dl class="inspector-details-grid">
+            <div><dt>${escapeHtml(t("inspector.detailsSize"))}</dt><dd>${escapeHtml(formatInspectorFileSize(item.fileSize))}</dd></div>
+            <div><dt>${escapeHtml(t("inspector.colModified"))}</dt><dd>${escapeHtml(modified)}</dd></div>
+            <div><dt>${escapeHtml(t("inspector.detailsOpened"))}</dt><dd>${escapeHtml(lastOpened)}</dd></div>
+            ${libraryName ? `<div><dt>${escapeHtml(t("inspector.detailsLibrary"))}</dt><dd>${escapeHtml(libraryName)}</dd></div>` : ""}
+          </dl>
+          ${sourceBadgeChips.length || tagChips.length ? `
+          <div class="inspector-details-line">
+            <dt>${escapeHtml(t("inspector.detailsTags"))}</dt>
+            <dd class="inspector-details-chips">${sourceBadgeChips.join("")}${tagChips.join("")}</dd>
+          </div>` : ""}
+          <div class="inspector-details-line">
+            <dt>${escapeHtml(t("inspector.detailsPath"))}</dt>
+            <dd class="inspector-details-path" title="${escapeAttribute(absolutePath)}">${escapeHtml(absolutePath)}</dd>
+          </div>
+        `;
+      }
+
+      async function loadInspectorPreview(item) {
+        const token = appState.inspector.selectionToken;
+        if (isItemPathMissing(item)) {
+          appState.inspector.status = "missing";
+          destroyInspectorEditorOnly();
+          renderInspectorPreview();
+          return;
+        }
+        if (item.fileType !== "markdown") {
+          appState.inspector.status = "ready";
+          destroyInspectorEditorOnly();
+          // HTML 没有正文 snapshot；记录来源状态用于自动刷新时的过期判断，
+          // 避免每个刷新周期都重挂 <img>。
+          appState.inspector.snapshot = {
+            itemId: item.id,
+            kind: "html",
+            revision: item.thumbnail?.desiredKey || "",
+            sourceModifiedAt: item.modifiedAt || "",
+            sourcePathState: item.pathState || "valid"
+          };
+          renderInspectorPreview();
+          return;
+        }
+        appState.inspector.status = "loading";
+        destroyInspectorEditorOnly();
+        renderInspectorPreview();
+        try {
+          const snapshot = await invoke("get_item_inspector_snapshot", { itemId: item.id });
+          if (!isInspectorSelectionCurrent(item.id, token)) return;
+          const normalized = {
+            itemId: Number(snapshot.itemId ?? snapshot.item_id ?? item.id),
+            raw: String(snapshot.raw ?? ""),
+            revision: String(snapshot.revision ?? ""),
+            baseDir: String(snapshot.baseDir ?? ""),
+            filePath: String(snapshot.filePath ?? snapshot.file_path ?? item.filePath ?? ""),
+            fileName: String(snapshot.fileName ?? snapshot.file_name ?? item.fileName ?? ""),
+            title: snapshot.title ?? null,
+            sourceModifiedAt: item.modifiedAt || "",
+            sourcePathState: item.pathState || "valid"
+          };
+          const editor = await mountInspectorMarkdownPreview(item, normalized, token);
+          if (!editor) return;
+          if (!isInspectorSelectionCurrent(item.id, token)) return;
+          // 复核 1/3：Milkdown ready —— 读取 → 挂载之间发生外部替换时丢弃旧 snapshot。
+          if (await settleInspectorRevision(item, normalized, token, await verifyInspectorRevision(item, normalized, token))) return;
+          if (!isInspectorSelectionCurrent(item.id, token)) return;
+          // 本地图片就绪后再进入显示判定；慢图不永久阻塞（与正式打开页同一容错）。
+          await waitForInspectorImages(token);
+          if (!isInspectorSelectionCurrent(item.id, token)) return;
+          // 复核 2/3：本地图片就绪。
+          if (await settleInspectorRevision(item, normalized, token, await verifyInspectorRevision(item, normalized, token))) return;
+          if (!isInspectorSelectionCurrent(item.id, token)) return;
+          // 复核 3/3：显示前 —— 契约要求未复核的旧正文绝不短暂可见。
+          if (await settleInspectorRevision(item, normalized, token, await verifyInspectorRevision(item, normalized, token))) return;
+          revealInspectorMarkdownPreview();
+        } catch (error) {
+          if (!isInspectorSelectionCurrent(item.id, token)) return;
+          console.warn("inspector preview failed", error);
+          appState.inspector.status = "unavailable";
+          destroyInspectorEditorOnly();
+          renderInspectorPreview();
+        }
+      }
+
+      async function mountInspectorMarkdownPreview(item, snapshot, token) {
+        const codeThemeClass = appState.markdownPreferences.codeBlockTheme === "light"
+          ? "markdown-code-theme-light"
+          : "markdown-code-theme-dark";
+        const shellTitle = markdownDocumentTitle(snapshot.raw, snapshot.fileName || "Markdown");
+        // 隐藏挂载：loading 状态层覆盖在正文卡上方，正文卡以正常流参与排版但
+        // visibility:hidden。三次 revision 复核全部通过前，正文绝不进入可见区。
+        els.inspectorPreviewBody.innerHTML = `
+          ${inspectorStateMarkup("loading")}
+          <div class="content-card editing editor-ready ${codeThemeClass} inspector-preview-card inspector-preview-text inspector-preview-pending" data-inspector-preview="1" inert>
+            <div class="content-head">
+              <div class="markdown-title-copy">
+                <div class="content-title markdown-title-input markdown-title-readout" data-inspector-title="1">${escapeHtml(shellTitle)}</div>
+                <div class="content-meta">${escapeHtml(t("inspector.modifiedAtPrefix"))}${escapeHtml(formatTimestamp(item.modifiedAt || ""))}</div>
+              </div>
+            </div>
+            <div id="inspectorMilkdownRoot" class="milkdown-editor-root"></div>
+          </div>
+        `;
+        // 根引用在 innerHTML 赋值后立即捕获：等待期间发生整表重建时，
+        // 旧编辑器只会进入已脱离的旧根，不会污染新一轮挂载。
+        const root = els.inspectorPreviewBody.querySelector("#inspectorMilkdownRoot");
+        const api = await loadMarkdownEditorApi();
+        if (!api?.create) {
+          throw new Error("Markdown editor API is unavailable");
+        }
+        if (!isInspectorSelectionCurrent(item.id, token) || !root?.isConnected) return null;
+        const tabLike = {
+          item: { filePath: snapshot.filePath, fileName: snapshot.fileName },
+          preview: { baseDir: snapshot.baseDir }
+        };
+        const editor = await api.create({
+          root,
+          markdown: snapshot.raw,
+          fileName: snapshot.fileName || "",
+          language: appState.language,
+          // 创建期只读：插件/事件边界在编辑器内部裁剪，contenteditable 只是兜底。
+          readOnly: true,
+          resolveImageSrc(src) {
+            return resolveMarkdownImageUrl(src, tabLike) || src;
+          }
+        });
+        if (!isInspectorSelectionCurrent(item.id, token) || !root.isConnected) {
+          editor.destroy?.();
+          return null;
+        }
+        appState.inspector.editor = editor;
+        appState.inspector.snapshot = snapshot;
+        return editor;
+      }
+
+      async function waitForInspectorImages(token, timeoutMs = 10000) {
+        const deadline = performance.now() + timeoutMs;
+        for (;;) {
+          if (!isInspectorActive() || appState.inspector.selectionToken !== token) return;
+          const images = [...(els.inspectorPreviewBody?.querySelectorAll("img") || [])];
+          const pending = images.filter((img) => !img.complete);
+          if (!pending.length || performance.now() > deadline) return;
+          await delay(120);
+        }
+      }
+
+      // revision 复核（无副作用，只判定）：返回 "match" | "mismatch" | "unknown"；
+      // 选择已失效返回 "superseded"，由处置方直接停止且不触碰 DOM。
+      // Milkdown ready / 图片就绪 / 显示前三个时点都会调用本函数。
+      async function verifyInspectorRevision(item, snapshot, token) {
+        let currentRevision = null;
+        try {
+          const current = await invoke("get_item_content_revision", { itemId: item.id });
+          if (!isInspectorSelectionCurrent(item.id, token)) return "superseded";
+          currentRevision = String(current?.revision ?? "");
+        } catch (_) {
+          if (!isInspectorSelectionCurrent(item.id, token)) return "superseded";
+        }
+        if (currentRevision && currentRevision === snapshot.revision) return "match";
+        return currentRevision === null ? "unknown" : "mismatch";
+      }
+
+      // 复核结果的统一处置：不一致/读取失败 → 销毁本次实例并重读 snapshot
+      // （有限深度防循环）；深度耗尽收敛到显式 unavailable。
+      // 未通过复核的内容绝不显示。返回 true 表示调用方应停止当前流程。
+      async function settleInspectorRevision(item, snapshot, token, verdict) {
+        if (verdict === "match") return false;
+        if (verdict === "superseded") return true;
+        if (!isInspectorSelectionCurrent(item.id, token)) return true;
+        destroyInspectorEditorOnly();
+        if (appState.inspector.loadDepth < 3) {
+          appState.inspector.loadDepth += 1;
+          const latest = appState.items.find((entry) => entry.id === item.id);
+          if (latest) {
+            await loadInspectorPreview(latest);
+          }
+          return true;
+        }
+        appState.inspector.status = "unavailable";
+        renderInspectorPreview();
+        return true;
+      }
+
+      // 三次复核全部通过后的唯一显示入口。更多控件属于独立的透明 child
+      // WebView，原生 bounds 从创建起固定，hover 仅在小岛内部显隐 tooltip，
+      // 避免 WKWebView 因 hover resize/reposition 再次合成闪烁。
+      function inspectorMoreOverlayBounds() {
+        const stage = els.inspectorPreviewStage?.getBoundingClientRect();
+        if (!stage || stage.width < 40 || stage.height < 40) return null;
+        const size = 34;
+        const inset = 18;
+        const buttonX = Math.round(stage.left + stage.width / 2 - size / 2);
+        const buttonY = Math.round(stage.bottom - inset - size);
+        // 30px 圆钮落在固定 152px 小岛正中，tooltip 可正上方完整展开；
+        // bounds 固定一次即可，不能根据 hover 改变 native webview bounds。
+        return { x: buttonX - 59, y: buttonY - 40, width: 152, height: 74 };
+      }
+
+      function syncInspectorMoreOverlay() {
+        const overlay = appState.inspector.moreOverlay;
+        const stage = els.inspectorPreviewStage;
+        const itemId = appState.inspector.selectedItemId;
+        const visible = Boolean(
+          isInspectorActive()
+          && itemId != null
+          && appState.inspector.status === "ready"
+          && stage?.classList.contains("inspector-preview-expanded") !== undefined
+        );
+        const previousItemId = overlay.itemId;
+        const nextRunId = ++overlay.syncRunId;
+        overlay.syncPromise = overlay.syncPromise.then(async () => {
+          if (previousItemId != null && (!visible || previousItemId !== itemId)) {
+            await invoke("close_inspector_more_overlay_command", { payload: { itemId: previousItemId } }).catch(() => false);
+          }
+          if (!visible || !isInspectorSelectionCurrent(itemId, appState.inspector.selectionToken) || nextRunId !== overlay.syncRunId) {
+            if (!visible) {
+              overlay.itemId = null;
+              overlay.selectionToken = 0;
+            }
+            return;
+          }
+          const bounds = inspectorMoreOverlayBounds();
+          if (!bounds) return;
+          const expanded = stage.classList.contains("inspector-preview-expanded");
+          const label = t(expanded ? "inspector.showLess" : "inspector.showMore");
+          const selectionToken = appState.inspector.selectionToken;
+          await invoke("attach_inspector_more_overlay_command", {
+            payload: { itemId, selectionToken, bounds, expanded, label }
+          }).catch(() => false);
+          if (nextRunId !== overlay.syncRunId || !isInspectorSelectionCurrent(itemId, selectionToken)) {
+            await invoke("close_inspector_more_overlay_command", { payload: { itemId } }).catch(() => false);
+            return;
+          }
+          overlay.itemId = itemId;
+          overlay.selectionToken = selectionToken;
+          overlay.expanded = expanded;
+        });
+      }
+
+      function setInspectorPreviewExpanded(expanded) {
+        const stage = els.inspectorPreviewStage;
+        if (!stage) return;
+        stage.classList.toggle("inspector-preview-expanded", Boolean(expanded));
+        if (!expanded && els.inspectorPreviewBody) els.inspectorPreviewBody.scrollTop = 0;
+        syncInspectorMoreOverlay();
+      }
+
+      function hideInspectorMoreButton() {
+        const overlay = appState.inspector.moreOverlay;
+        if (els.inspectorPreviewStage) {
+          els.inspectorPreviewStage.classList.remove("inspector-preview-expanded");
+        }
+        const itemId = overlay.itemId;
+        ++overlay.syncRunId;
+        overlay.itemId = null;
+        overlay.selectionToken = 0;
+        if (itemId != null) {
+          overlay.syncPromise = overlay.syncPromise.then(() =>
+            invoke("close_inspector_more_overlay_command", { payload: { itemId } }).catch(() => false)
+          );
+        }
+      }
+
+      function revealInspectorMarkdownPreview() {
+        const body = els.inspectorPreviewBody;
+        if (!body) return;
+        body.querySelector(".inspector-state")?.remove();
+        body.querySelector("[data-inspector-preview].inspector-preview-pending")?.classList.remove("inspector-preview-pending");
+        appState.inspector.status = "ready";
+        body.scrollTop = 0;
+        setInspectorPreviewExpanded(false);
+      }
+
+      // 安全宽（GUI 验收第二批）：左栏最窄 280px（列最小宽总和约 272 + 内边距），
+      // 右栏最窄 340px（预览框 + 详情栅格可读下限）。集中在这里钳制，
+      // 拖拽 / 键盘方向键 / 双击重置 / 持久化恢复四条入口统一受限。
+      const INSPECTOR_LEFT_MIN_PX = 280;
+      const INSPECTOR_RIGHT_MIN_PX = 340;
+
+      function applyInspectorSplitRatio() {
+        if (!els.inspectorShell) return;
+        // 注意不能用 `Number(x) || 0.6`：向右拖到底时 ratio 合法地等于 0，
+        // 会被 || 当成“未设置”吞成 0.6（右栏安全钳制随之失效，实测复现）。
+        const stored = Number(appState.inspector.splitRatio);
+        let ratio = Number.isFinite(stored) ? Math.min(1, Math.max(0, stored)) : 0.6;
+        const width = els.inspectorShell.getBoundingClientRect().width;
+        // 栏未布局（隐藏/首帧）时量不到宽度，跳过像素钳制只做 0..1。
+        if (width > 120) {
+          const usable = Math.max(1, width - 10);
+          const minLeftPx = Math.min(INSPECTOR_LEFT_MIN_PX, usable);
+          const maxLeftPx = Math.max(minLeftPx, usable - INSPECTOR_RIGHT_MIN_PX);
+          const leftPx = Math.min(maxLeftPx, Math.max(minLeftPx, (1 - ratio) * usable));
+          ratio = Math.min(1, Math.max(0, 1 - leftPx / usable));
+        }
+        // 不使用 fr：左右卡片各自有外间距/内边距，fr 轨道在极窄时会让
+        // 视觉盒跨越自己的 track，表现为“右栏向左拖时逐个覆盖左栏”。
+        // 两个 px track 从同一个 usable 宽度计算，分隔条和两栏同步收缩。
+        const usable = Math.max(1, width - 10);
+        const leftPx = Math.round((1 - ratio) * usable * 1000) / 1000;
+        const rightPx = Math.max(0, Math.round((usable - leftPx) * 1000) / 1000);
+        els.inspectorShell.style.gridTemplateColumns = `minmax(0, ${leftPx}px) 10px minmax(0, ${rightPx}px)`;
+        applyInspectorColumns();
+        els.inspectorSplitter?.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+        // 返回钳制后的生效值，调用方（拖拽 move）用它回写状态，避免残留越界原值。
+        return ratio;
+      }
+
+      // ── 检查视图列宽：四列始终是一组固定总宽的轨道。三个列间手柄只在
+      // 紧邻的两列间转移宽度，鼠标方向就是左列边界的移动方向；绝不让远处列
+      // 或“剩余空间吸收列”参与一次拖拽。v5 同时使“日期 82px”的保守旧偏好
+      // 失效，让贴合完整日期的 72px 默认真正回收空间给名称。
+      function loadInspectorColumnWidths() {
+        const key = "nutbook.inspector.colWidths.v5";
+        const limits = {
+          fileName: [64, 560],
+          fileType: [40, 160],
+          source: [48, 260],
+          // 默认显示完整日期；手动调整允许继续压缩，日期按普通单行省略显示。
+          modifiedAt: [64, 220]
+        };
+        try {
+          const raw = window.localStorage?.getItem(key);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          const widths = {};
+          for (const col of Object.keys(limits)) {
+            const value = Number(parsed?.[col]);
+            if (!Number.isFinite(value)) return null;
+            widths[col] = Math.min(limits[col][1], Math.max(limits[col][0], Math.round(value)));
+          }
+          return widths;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function saveInspectorColumnWidths() {
+        try {
+          if (appState.inspector.colWidths) {
+            window.localStorage?.setItem("nutbook.inspector.colWidths.v5", JSON.stringify(appState.inspector.colWidths));
+          } else {
+            window.localStorage?.removeItem("nutbook.inspector.colWidths.v5");
+          }
+          // 清掉无版本旧值，避免后续代码或旧窗口把它重新视为当前偏好。
+          window.localStorage?.removeItem("nutbook.inspector.colWidths");
+          window.localStorage?.removeItem("nutbook.inspector.colWidths.v2");
+          window.localStorage?.removeItem("nutbook.inspector.colWidths.v3");
+          window.localStorage?.removeItem("nutbook.inspector.colWidths.v4");
+        } catch (_) {
+        }
+      }
+
+      // 默认态先给修改时间完整日期所需宽度，其余可用空间优先给名称。用户调整后
+      // 保存四列的实际宽度；窗口大小变化时等比适配到新总宽，保持列间关系。
+      function applyInspectorColumns() {
+        if (!els.inspectorShell) return;
+        const widths = appState.inspector.colWidths;
+        const paneWidth = document.querySelector(".inspector-list-pane")?.clientWidth || 0;
+        // 列轨道必须从“行的实际可用内容宽”推导：rows 左右 padding 16px、
+        // row 左右 padding 26px、三段 gap 共 24px。过去只从 pane 扣 46px，
+        // 漏了 gap，导致最后一列溢出行背景，表现为右侧日期被卡片截断。
+        const rowsWidth = els.inspectorRows?.clientWidth || paneWidth;
+        const available = Math.max(176, rowsWidth - 66);
+        // 默认必须贴合完整日期；但用户已手动调整时，时间列可降到紧凑宽度。
+        const minimum = available < 234
+          ? { fileName: 48, fileType: 32, source: 32, modifiedAt: 64 }
+          : { fileName: 64, fileType: 40, source: 48, modifiedAt: widths ? 64 : 72 };
+        const maximum = { fileName: 560, fileType: 160, source: 260, modifiedAt: 220 };
+        const keys = ["fileName", "fileType", "source", "modifiedAt"];
+        const defaults = available < 234
+          ? { fileName: Math.max(48, available - 128), fileType: 32, source: 32, modifiedAt: 64 }
+          : { fileName: Math.max(64, available - 192), fileType: 56, source: 64, modifiedAt: 72 };
+        const preferred = widths || defaults;
+        const preferredTotal = keys.reduce((total, key) => total + Math.max(0, Number(preferred[key]) || 0), 0);
+        const scale = preferredTotal > 0 ? available / preferredTotal : 1;
+        const effective = {};
+        for (const key of keys) {
+          effective[key] = Math.min(maximum[key], Math.max(minimum[key], Math.round((Number(preferred[key]) || minimum[key]) * scale)));
+        }
+        // 钳制和取整后只可能留下少量差额；优先交给名称，确保标题始终是最宽列。
+        let remainder = available - keys.reduce((total, key) => total + effective[key], 0);
+        for (const key of ["fileName", "modifiedAt", "source", "fileType"]) {
+          if (!remainder) break;
+          const adjustment = remainder > 0
+            ? Math.min(remainder, maximum[key] - effective[key])
+            : Math.max(remainder, minimum[key] - effective[key]);
+          effective[key] += adjustment;
+          remainder -= adjustment;
+        }
+        els.inspectorShell.style.setProperty(
+          "--inspector-cols",
+          `${effective.fileName}px ${effective.fileType}px ${effective.source}px ${effective.modifiedAt}px`
+        );
+        els.inspectorShell.dataset.inspectorTimeDetail = effective.modifiedAt >= 118 ? "true" : "false";
+      }
+
+      function resetInspectorColumns() {
+        appState.inspector.colWidths = null;
+        saveInspectorColumnWidths();
+        applyInspectorColumns();
+      }
+
+      function resetInspectorSplit() {
+        appState.inspector.splitRatio = 0.6;
+        appState.inspector.splitRatio = applyInspectorSplitRatio();
+        saveInspectorSplitRatioPreference();
+        setStatus(t("inspector.splitResetDone"), "ok");
+      }
+
+
+      function wireInspectorEvents() {
+        if (!els.inspectorShell || els.inspectorShell.dataset.inspectorWired === "true") return;
+        els.inspectorShell.dataset.inspectorWired = "true";
+
+        // 列宽拖拽期间抑制随后的 click，避免拖完手柄误触发表头排序。
+        let inspectorColDragUsed = false;
+        els.inspectorListHead?.addEventListener("click", (event) => {
+          // 手柄上的裸点击/拖拽收尾点击不得触发表头排序（拖拽结束的 click
+          // 因 pointer capture 也落在手柄上）。
+          if (event.target.closest("[data-inspector-col-handle]")) return;
+          if (inspectorColDragUsed) {
+            inspectorColDragUsed = false;
+            return;
+          }
+          const button = event.target.closest("[data-inspector-sort]");
+          if (!button) return;
+          const key = button.dataset.inspectorSort;
+          if (appState.inspector.sortKey === key) {
+            appState.inspector.sortDir = appState.inspector.sortDir === "asc" ? "desc" : "asc";
+          } else {
+            appState.inspector.sortKey = key;
+            appState.inspector.sortDir = key === "modifiedAt" ? "desc" : "asc";
+          }
+          renderInspectorItems();
+        });
+
+        // 三个手柄都是相邻列的共享边界：向右只会加宽左列、等量压缩右列。
+        // 修改时间没有右缘手柄；要调整它，请拖动来源｜修改时间之间的边界。
+        els.inspectorListHead?.addEventListener("pointerdown", (event) => {
+          const handle = event.target.closest("[data-inspector-col-handle]");
+          if (!handle) return;
+          event.preventDefault();
+          event.stopPropagation();
+          // 逐列安全区间（与 loadInspectorColumnWidths 内联值保持一致）。
+          const limits = {
+            fileName: [64, 560],
+            fileType: [40, 160],
+            source: [48, 260],
+            modifiedAt: [64, 220]
+          };
+          const columnKey = handle.dataset.inspectorColHandle;
+          const columnKeys = ["fileName", "fileType", "source", "modifiedAt"];
+          const neighborKey = columnKeys[columnKeys.indexOf(columnKey) + 1];
+          if (!neighborKey) return;
+          const measure = (key, fallback) => {
+            const width = els.inspectorListHead.querySelector(`[data-inspector-sort="${key}"]`)?.getBoundingClientRect().width;
+            return Number.isFinite(width) && width > 0 ? Math.round(width) : fallback;
+          };
+          const startX = event.clientX;
+          // 必须量取当前实际轨道，而非直接复用持久化值：分栏/窗口缩放后持久化
+          // 宽度会按比例适配，若从旧值继续算，手柄会在首次移动时跳动或落后鼠标。
+          const startWidths = {
+            fileName: measure("fileName", 180),
+            fileType: measure("fileType", 56),
+            source: measure("source", 90),
+            modifiedAt: measure("modifiedAt", 112)
+          };
+          if (!(columnKey in startWidths)) return;
+          const [minWidth, maxWidth] = limits[columnKey];
+          const [neighborMinWidth, neighborMaxWidth] = limits[neighborKey];
+          const startWidth = Math.min(maxWidth, Math.max(minWidth, startWidths[columnKey]));
+          const startNeighborWidth = Math.min(neighborMaxWidth, Math.max(neighborMinWidth, startWidths[neighborKey]));
+          handle.setPointerCapture(event.pointerId);
+          handle.classList.add("dragging");
+          const move = (moveEvent) => {
+            const requestedDelta = Math.round(moveEvent.clientX - startX);
+            const minDelta = Math.max(minWidth - startWidth, startNeighborWidth - neighborMaxWidth);
+            const maxDelta = Math.min(maxWidth - startWidth, startNeighborWidth - neighborMinWidth);
+            const delta = Math.min(maxDelta, Math.max(minDelta, requestedDelta));
+            const next = startWidth + delta;
+            const nextNeighbor = startNeighborWidth - delta;
+            if (next === appState.inspector.colWidths?.[columnKey] && nextNeighbor === appState.inspector.colWidths?.[neighborKey]) return;
+            inspectorColDragUsed = true;
+            appState.inspector.colWidths = { ...startWidths, [columnKey]: next, [neighborKey]: nextNeighbor };
+            applyInspectorColumns();
+          };
+          const finish = (finishEvent) => {
+            handle.classList.remove("dragging");
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", finish);
+            handle.removeEventListener("pointercancel", finish);
+            try {
+              handle.releasePointerCapture(finishEvent.pointerId);
+            } catch (_) {
+            }
+            saveInspectorColumnWidths();
+            setTimeout(() => {
+              inspectorColDragUsed = false;
+            }, 0);
+          };
+          handle.addEventListener("pointermove", move);
+          handle.addEventListener("pointerup", finish);
+          handle.addEventListener("pointercancel", finish);
+        });
+        els.inspectorListHead?.addEventListener("dblclick", (event) => {
+          if (!event.target.closest("[data-inspector-col-handle]")) return;
+          resetInspectorColumns();
+        });
+
+        els.inspectorRows?.addEventListener("click", (event) => {
+          const row = event.target.closest(".inspector-row");
+          if (!row) return;
+          selectInspectorItem(Number(row.dataset.inspectorItem));
+        });
+        els.inspectorRows?.addEventListener("dblclick", (event) => {
+          const row = event.target.closest(".inspector-row");
+          if (!row) return;
+          openItem(Number(row.dataset.inspectorItem));
+        });
+        els.inspectorRows?.addEventListener("keydown", (event) => {
+          if (event.isComposing) return;
+          const sorted = inspectorSortedItems();
+          if (!sorted.length) return;
+          const currentIndex = sorted.findIndex((item) => item.id === appState.inspector.selectedItemId);
+          let nextIndex = null;
+          if (event.key === "ArrowDown") nextIndex = currentIndex < 0 ? 0 : Math.min(sorted.length - 1, currentIndex + 1);
+          else if (event.key === "ArrowUp") nextIndex = currentIndex < 0 ? 0 : Math.max(0, currentIndex - 1);
+          else if (event.key === "Home") nextIndex = 0;
+          else if (event.key === "End") nextIndex = sorted.length - 1;
+          else if (event.key === "Enter" && currentIndex >= 0) {
+            event.preventDefault();
+            openItem(sorted[currentIndex].id);
+            return;
+          } else {
+            return;
+          }
+          event.preventDefault();
+          selectInspectorItem(sorted[nextIndex].id);
+        });
+
+        // 失败态的“重试”按钮渲染在预览区状态层（inspectorStateMarkup("failed")），
+        // 必须在预览区委托，否则点击永远到不了缩略图刷新队列。
+        els.inspectorPreviewBody?.addEventListener("click", (event) => {
+          if (event.target.closest("[data-inspector-retry-thumbnail]")) {
+            retryInspectorThumbnail();
+          }
+        });
+
+        els.inspectorDetails?.addEventListener("click", (event) => {
+          if (event.target.closest("[data-inspector-reset-split]")) {
+            resetInspectorSplit();
+            return;
+          }
+          if (event.target.closest("[data-inspector-retry-thumbnail]")) {
+            retryInspectorThumbnail();
+          }
+        });
+
+        // 底部打开横条：独立于详情区（框体最后一行），直连 openItem。
+        els.inspectorOpenBar?.addEventListener("click", () => {
+          const itemId = appState.inspector.selectedItemId;
+          if (itemId != null && !els.inspectorOpenBar.disabled) openItem(itemId);
+        });
+
+        // 透明 native 小岛将点击带回主 WebView；selection token 不匹配的旧 overlay
+        // 消息一律丢弃，避免快速换文件后误切换新预览。
+        window.__NUTBOOK_HANDLE_INSPECTOR_MORE_OVERLAY_ACTION__ = (payload) => {
+          const itemId = Number(payload?.itemId);
+          const token = Number(payload?.selectionToken);
+          if (!isInspectorSelectionCurrent(itemId, token)) return;
+          if (payload?.action === "scroll") {
+            const deltaY = Number(payload?.deltaY);
+            if (Number.isFinite(deltaY) && els.inspectorPreviewStage?.classList.contains("inspector-preview-expanded")) {
+              const previewBody = els.inspectorPreviewBody;
+              if (previewBody) previewBody.scrollTop += deltaY;
+            }
+            return;
+          }
+          if (payload?.action !== "toggle") return;
+          const expanded = !els.inspectorPreviewStage?.classList.contains("inspector-preview-expanded");
+          setInspectorPreviewExpanded(expanded);
+          focusMainWebviewSoon();
+        };
+
+        // 分栏拖拽、窗口缩放和详情内容换行都会改变舞台边界。原生小岛不参与
+        // root DOM 布局，故以 ResizeObserver 重新量取实际屏幕 bounds。
+        if (window.ResizeObserver && els.inspectorPreviewFrame) {
+          let inspectorMoreOverlayResizeFrame = 0;
+          new ResizeObserver(() => {
+            cancelAnimationFrame(inspectorMoreOverlayResizeFrame);
+            inspectorMoreOverlayResizeFrame = requestAnimationFrame(() => syncInspectorMoreOverlay());
+          }).observe(els.inspectorPreviewFrame);
+        }
+
+        // 分隔条：指针拖动 + 键盘方向键 + 双击重置 40/60。
+        // 拖动语义：分隔条 1:1 跟随指针。splitRatio 是右栏占比，因此
+        // 左栏目标宽 = 指针位置 - 分隔条半宽（10px 列补偿），右栏 = 其余。
+        // 安全宽钳制统一在 applyInspectorSplitRatio（GUI 验收第二批）：
+        // 旧实现只有 0..1 钳制，左右栏都可以被拖到完全消失。
+        // 旧实现把指针位置直接当右栏占比，分隔条反向逃跑（GUI 验收 P1）。
+        const splitter = els.inspectorSplitter;
+        splitter?.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          splitter.setPointerCapture(event.pointerId);
+          splitter.classList.add("dragging");
+          const move = (moveEvent) => {
+            const shellRect = els.inspectorShell.getBoundingClientRect();
+            const usable = Math.max(1, shellRect.width - 10);
+            const leftPx = Math.min(usable, Math.max(0, moveEvent.clientX - shellRect.left - 5));
+            appState.inspector.splitRatio = Math.min(1, Math.max(0, 1 - leftPx / usable));
+            // 应用并回写钳制后的生效值（指针顶到边界时 ratio=0 是合法值，
+            // 会被安全钳制抬回右栏最小宽，见 applyInspectorSplitRatio）。
+            appState.inspector.splitRatio = applyInspectorSplitRatio();
+          };
+          const finish = (finishEvent) => {
+            splitter.classList.remove("dragging");
+            splitter.removeEventListener("pointermove", move);
+            splitter.removeEventListener("pointerup", finish);
+            splitter.removeEventListener("pointercancel", finish);
+            try {
+              splitter.releasePointerCapture(finishEvent.pointerId);
+            } catch (_) {
+            }
+            saveInspectorSplitRatioPreference();
+          };
+          splitter.addEventListener("pointermove", move);
+          splitter.addEventListener("pointerup", finish);
+          splitter.addEventListener("pointercancel", finish);
+        });
+        splitter?.addEventListener("keydown", (event) => {
+          const step = event.shiftKey ? 0.08 : 0.02;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            appState.inspector.splitRatio = Math.min(1, Math.max(0, appState.inspector.splitRatio - step));
+            appState.inspector.splitRatio = applyInspectorSplitRatio();
+            saveInspectorSplitRatioPreference();
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            appState.inspector.splitRatio = Math.min(1, Math.max(0, appState.inspector.splitRatio + step));
+            appState.inspector.splitRatio = applyInspectorSplitRatio();
+            saveInspectorSplitRatioPreference();
+          }
+        });
+        splitter?.addEventListener("dblclick", () => {
+          resetInspectorSplit();
+        });
       }
 
       function escapeHtml(value) {
@@ -20056,6 +21982,7 @@ if (!chipTipController) {
         [els.viewModeButton, els.viewModeButtonHome].forEach((button) => {
           button?.addEventListener("click", toggleHomeLayout);
         });
+        wireInspectorEvents();
         [els.sortButton, els.topbarSortButton].forEach((button) => {
           button?.addEventListener("click", (event) => {
             event.stopPropagation();
