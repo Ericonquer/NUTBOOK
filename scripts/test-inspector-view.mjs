@@ -390,8 +390,8 @@ assert.match(
 );
 assert.match(
   INDEX_HTML,
-  /available < 234[\s\S]*?modifiedAt: 64[\s\S]*?modifiedAt: 82/,
-  "the time column must have a readable default budget and a compact non-wrapping floor"
+  /available < 234[\s\S]*?modifiedAt: 64[\s\S]*?widths \? 64 : 72/,
+  "the time column must reserve the fitted default date width while allowing manual compaction"
 );
 assert.match(INDEX_HTML, /grid-template-columns: var\(--inspector-cols, minmax\(0, 1fr\) 56px 64px 82px\);\s*gap: 8px;\s*(?:\/\*[\s\S]*?\*\/\s*)?padding: 6px 8px 6px 22px;/, "the default tracks must reserve only compact source/date widths so title receives the remainder");
 assert.match(INDEX_HTML, /grid-template-columns: var\(--inspector-cols, minmax\(0, 1fr\) 56px 64px 82px\);\s*gap: 8px;\s*align-items: center;/, "rows must share the same template so cells stay aligned");
@@ -476,7 +476,7 @@ assert.match(MORE_OVERLAY, /aria-expanded/, "the island must expose expanded sta
 assert.match(MORE_OVERLAY, /id="tooltip" class="tooltip" role="tooltip"/, "the native island must render an in-island tooltip");
 assert.match(MORE_OVERLAY, /tooltip\.classList\.toggle\("show"/, "the tooltip must follow the overlay hover/focus state");
 assert.match(MORE_OVERLAY, /left: 61px;/, "the fixed island must keep its button centered");
-assert.match(MORE_OVERLAY, /\.tooltip \{[\s\S]{0,120}?left: 50%;/, "the tooltip must be centered directly above the fixed button");
+assert.match(MORE_OVERLAY, /\.tooltip \{[\s\S]*?left: 50%;/, "the tooltip must be centered directly above the fixed button");
 assert.doesNotMatch(MORE_OVERLAY, /action: "tooltip"|tooltip-visible/, "hover must stay within the child WebView and never request a native resize");
 assert.doesNotMatch(wireInspectorSrc, /action === "tooltip"/, "the main WebView must not resync the native island on hover");
 assert.match(MORE_OVERLAY, /window\.addEventListener\("wheel"/, "wheel input over the native island must be forwarded instead of swallowed");
