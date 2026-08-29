@@ -130,6 +130,34 @@ pub struct MarkdownPreviewPayload {
     pub html: String,
     pub base_dir: String,
     pub editable: bool,
+    /// 检查视图 revision 合同：raw 的 sha256。前端在 Milkdown ready、本地图片
+    /// 就绪和显示前都必须复核该 key，外部替换后旧 snapshot 不得显示为当前内容。
+    #[serde(default)]
+    pub revision: String,
+}
+
+/// 检查视图专用的 Markdown snapshot：raw + revision key，供主 WebView 挂载
+/// 只读 Milkdown。与正式打开页共用同一解析边界，不生成第二份 HTML 投影。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownInspectorSnapshot {
+    pub item_id: i64,
+    pub file_type: String,
+    pub title: Option<String>,
+    pub raw: String,
+    pub revision: String,
+    pub base_dir: String,
+    pub file_path: String,
+    pub file_name: String,
+}
+
+/// 文件当前内容 revision（sha256）。检查视图在 ready / 显示前各复核一次，
+/// 不一致即销毁旧实例并重读 snapshot。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemContentRevision {
+    pub item_id: i64,
+    pub revision: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -420,6 +448,18 @@ pub struct HtmlEditToolbarFormatState {
 pub struct AttachHtmlRuntimeHostRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
+}
+
+/// 检查视图「更多」控制的小型原生 overlay。它故意只承载按钮本身：正文仍在
+/// 主 WebView 内滚动，避免 WKWebView 把滚动图层错误合成到圆钮像素上。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachInspectorMoreOverlayRequest {
+    pub item_id: i64,
+    pub selection_token: u64,
+    pub bounds: RuntimeHostBounds,
+    pub expanded: bool,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-import { Editor, defaultValueCtx, editorViewCtx, prosePluginsCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, prosePluginsCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
@@ -1502,7 +1502,7 @@ function alignedTextSelectionState(state, selection = state?.selection) {
   return { supported: true, targets, alignment };
 }
 
-async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null }) {
+async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null, readOnly = false }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -1531,8 +1531,21 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   const frontmatterPanel = renderSkillFrontmatterPanel(skillFrontmatter);
   if (frontmatterPanel) {
     root.appendChild(frontmatterPanel);
+    if (readOnly) {
+      // 检查视图：frontmatter 是首屏视觉的一部分，但控件必须不可编辑、不进 Tab 序。
+      frontmatterPanel.querySelectorAll("input,textarea").forEach((control) => {
+        control.disabled = true;
+        control.tabIndex = -1;
+      });
+    }
   }
   root.appendChild(editorMount);
+  if (readOnly) {
+    // 最后一道 DOM 保护：只读实现本体是创建期的插件/事件边界（见下），
+    // contenteditable=false 只兜底拦截残余的浏览器编辑入口。
+    editorMount.setAttribute("contenteditable", "false");
+    editorMount.setAttribute("spellcheck", "false");
+  }
 
   let currentMarkdown = markdown;
   let userInteracted = false;
@@ -1575,11 +1588,13 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       hideInsertMenu();
     }
   };
-  setupSkillFrontmatterEditing(frontmatterPanel, skillFrontmatter, () => {
-    markUserInteracted();
-    hasDocumentChanges = true;
-    scheduleMarkdownChangeSync(80);
-  });
+  if (!readOnly) {
+    setupSkillFrontmatterEditing(frontmatterPanel, skillFrontmatter, () => {
+      markUserInteracted();
+      hasDocumentChanges = true;
+      scheduleMarkdownChangeSync(80);
+    });
+  }
   const interactionEvents = [];
   const handleUndoRedoShortcut = (event) => {
     if (event.isComposing || event.key === "Process") return;
@@ -1591,31 +1606,47 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     event.preventDefault();
     event.stopPropagation();
   };
-  root.addEventListener("keydown", handleUndoRedoShortcut, true);
+  if (!readOnly) {
+    root.addEventListener("keydown", handleUndoRedoShortcut, true);
+  }
 
-  const editor = await Editor.make()
+  const editorBuilder = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, editorMount);
       ctx.set(defaultValueCtx, editorMarkdown);
-      ctx.update(prosePluginsCtx, (plugins) => [
-        keymap({
-          "Mod-z": undo,
-          "Shift-Mod-z": redo,
-          "Mod-y": redo,
-          "Backspace": liftListItemAtParagraphStart
-        }),
-        pastePlainTextWhenLeavingList(),
-        markdownImageAssetRemovalPlugin(onRemoveImageAsset),
-        localImageSrcPlugin(resolveImageSrc),
-        markdownOutlineDecorationPlugin(),
-        ...plugins
-      ].filter(Boolean));
-      ctx.update(listenerCtx, (listenerManager) => listenerManager
-        .updated(() => {
-          if (!editorReady) return;
-          hasDocumentChanges = true;
-          scheduleMarkdownChangeSync();
+      if (readOnly) {
+        // 检查视图只读模式：ProseMirror 层直接关闭可编辑性——不是 CSS 伪装。
+        // 编辑能力在创建期就被裁掉：无编辑工具、无 history、无输入规则副作用、
+        // 无 dirty/baseline 监听、无宿主快捷键链路。
+        ctx.update(editorViewOptionsCtx, (options) => ({
+          ...options,
+          editable: () => false
         }));
+        ctx.update(prosePluginsCtx, () => [
+          localImageSrcPlugin(resolveImageSrc),
+          markdownOutlineDecorationPlugin()
+        ].filter(Boolean));
+      } else {
+        ctx.update(prosePluginsCtx, (plugins) => [
+          keymap({
+            "Mod-z": undo,
+            "Shift-Mod-z": redo,
+            "Mod-y": redo,
+            "Backspace": liftListItemAtParagraphStart
+          }),
+          pastePlainTextWhenLeavingList(),
+          markdownImageAssetRemovalPlugin(onRemoveImageAsset),
+          localImageSrcPlugin(resolveImageSrc),
+          markdownOutlineDecorationPlugin(),
+          ...plugins
+        ].filter(Boolean));
+        ctx.update(listenerCtx, (listenerManager) => listenerManager
+          .updated(() => {
+            if (!editorReady) return;
+            hasDocumentChanges = true;
+            scheduleMarkdownChangeSync();
+          }));
+      }
     })
     .use(alignedTextRemark)
     .use(portableImageRemark)
@@ -1624,10 +1655,12 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     .use(gfm)
     .use(alignedTextSchema)
     .use(portableImageSchema)
-    .use(markdownCoverImageSchema)
-    .use(history)
-    .use(listener)
-    .create();
+    .use(markdownCoverImageSchema);
+  // 只读模式不注册 history：撤销/重做是编辑能力，检查首屏不需要，
+  // 也不能让 Cmd+Z 在预览里产生任何文档变化。.use 必须逐个链式调用。
+  const editor = await (readOnly
+    ? editorBuilder.use(listener)
+    : editorBuilder.use(history).use(listener)).create();
 
   const serializeCurrentDocument = () => {
     if (destroyed) return currentMarkdown;
@@ -1648,6 +1681,11 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   queueMicrotask(() => {
     if (destroyed) return;
     editorReady = true;
+    if (readOnly) {
+      // 检查视图：不创建任何编辑辅助 UI（格式/表格/插入/图片对齐工具条、
+      // 代码语言下拉），保持与正式打开页同一渲染管线的纯只读首屏。
+      return;
+    }
     setupFormatToolbar();
     setupTableToolbar();
     setupInsertMenu();

@@ -28,6 +28,7 @@ pub use html_edit::{
     HtmlEditRole, HtmlEditSessionLeaseRequest, HtmlEditTextAlign, ImportHtmlEditAssetRequest, ImportHtmlEditAssetResponse, SaveHtmlEditConflictCopyRequest, SaveHtmlEditConflictCopyResponse, SaveHtmlEditPatchRequest, WriteEditableHtmlCopyRequest, WriteEditableHtmlCopyResponse, HTML_EDIT_ASSET_MAX_BYTES, HTML_EDIT_COMMIT_MAX_BYTES, HTML_EDIT_COPY_MAX_BYTES, HTML_EDIT_COPY_MAX_FIELDS,
 };
 pub use item::{
+    AttachInspectorMoreOverlayRequest,
     AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,
     AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
     CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
@@ -37,8 +38,8 @@ pub use item::{
     EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
-    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery,
-    IgnoredItemSummary, MarkItemOpenedRequest, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
+    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemContentRevision, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery,
+    IgnoredItemSummary, MarkItemOpenedRequest, MarkdownInspectorSnapshot, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
     ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
     RestoreIgnoredItemRequest, SyncFilesystemStateResponse,

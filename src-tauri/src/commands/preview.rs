@@ -6,13 +6,14 @@ use tauri::Manager;
 use crate::{
     core::{
         document::{
-            content_hash, file_modified_at_string, load_document_payload, markdown_summary,
-            render_markdown_as_html_for_file,
+            content_hash, file_modified_at_string, load_document_payload, load_item_content_revision,
+            load_markdown_inspector_snapshot, markdown_summary, render_markdown_as_html_for_file,
         },
         document_title::DocumentTitle,
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
             attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
+            attach_inspector_more_overlay, close_inspector_more_overlay,
             close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay,
             close_html_presentation_preview, close_html_runtime_window,
             dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
@@ -28,12 +29,13 @@ use crate::{
     errors::AppError,
     models::{
         AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest,
-        AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+        AttachHtmlRuntimeHostRequest, AttachInspectorMoreOverlayRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
         EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
-        GetItemPreviewRequest, HtmlRuntimeSessionPayload, OpenHtmlWindowRequest, PreviewPayload,
+        GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, OpenHtmlWindowRequest, PreviewPayload,
+        MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
@@ -51,6 +53,52 @@ pub fn get_item_preview(
 ) -> Result<PreviewPayload, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
     load_document_payload(&item, |path| state.local_server_file_url(path))
+}
+
+/// 检查视图 Markdown snapshot（raw + revision key）。只读预览的数据源；
+/// 前端在挂载、图片就绪和显示前都要复核 revision，外部替换不得显示旧正文。
+#[tauri::command]
+pub fn get_item_inspector_snapshot(
+    state: tauri::State<'_, AppState>,
+    payload: GetItemPreviewRequest,
+) -> Result<MarkdownInspectorSnapshot, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    load_markdown_inspector_snapshot(&item)
+}
+
+/// 廉价 revision 复核：只返回当前内容 hash，供检查视图丢弃晚到/过期实例。
+#[tauri::command]
+pub fn get_item_content_revision(
+    state: tauri::State<'_, AppState>,
+    payload: GetItemPreviewRequest,
+) -> Result<ItemContentRevision, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    load_item_content_revision(&item)
+}
+
+#[tauri::command]
+pub fn attach_inspector_more_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    payload: AttachInspectorMoreOverlayRequest,
+) -> Result<bool, AppError> {
+    attach_inspector_more_overlay(
+        &app,
+        &window,
+        payload.item_id,
+        payload.selection_token,
+        payload.bounds,
+        payload.expanded,
+        payload.label,
+    )
+}
+
+#[tauri::command]
+pub fn close_inspector_more_overlay_command(
+    app: tauri::AppHandle,
+    payload: CloseHtmlWindowRequest,
+) -> Result<bool, AppError> {
+    close_inspector_more_overlay(&app, payload.item_id)
 }
 
 #[tauri::command]

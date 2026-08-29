@@ -33,6 +33,7 @@ const HTML_EDIT_TOOLBAR_DIAGNOSTIC_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR_D
 const HTML_EDIT_LEAVE_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_LEAVE__:";
 const HTML_EDIT_LEAVE_READY_PREFIX: &str = "__NUTBOOK_HTML_EDIT_LEAVE_READY__:";
 const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
+const INSPECTOR_MORE_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_INSPECTOR_MORE_OVERLAY__:";
 const HTML_EDIT_DEBUG_LOG_PATH: &str = "/tmp/nutbook-html-edit-debug.log";
 static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
 
@@ -132,6 +133,15 @@ struct HtmlControlsActionPayload {
     y: Option<f64>,
     width: Option<f64>,
     height: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InspectorMoreOverlayActionPayload {
+    item_id: i64,
+    selection_token: u64,
+    action: String,
+    delta_y: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -552,6 +562,66 @@ pub fn set_html_runtime_controls_overlay_visibility(
         webview.close().map_err(|_| AppError::InternalError)?;
     }
 
+    Ok(true)
+}
+
+pub fn attach_inspector_more_overlay(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    item_id: i64,
+    selection_token: u64,
+    bounds: RuntimeHostBounds,
+    expanded: bool,
+    label: String,
+) -> Result<bool, AppError> {
+    let overlay_label = inspector_more_overlay_label(item_id);
+    if let Some(webview) = app.get_webview(&overlay_label) {
+        webview
+            .set_bounds(runtime_host_rect(bounds))
+            .map_err(|_| AppError::InternalError)?;
+        webview
+            .eval(&inspector_more_overlay_update_script(
+                item_id,
+                selection_token,
+                expanded,
+                &label,
+            ))
+            .map_err(|_| AppError::InternalError)?;
+        webview.show().map_err(|_| AppError::InternalError)?;
+        return Ok(true);
+    }
+
+    let builder = build_inspector_more_overlay_builder(
+        app,
+        &overlay_label,
+        item_id,
+        selection_token,
+        expanded,
+        &label,
+    )?;
+    let webview = window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(bounds.x, bounds.y),
+            tauri::LogicalSize::new(bounds.width, bounds.height),
+        )
+        .map_err(|_| AppError::InternalError)?;
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+pub fn close_inspector_more_overlay(
+    app: &tauri::AppHandle,
+    item_id: i64,
+) -> Result<bool, AppError> {
+    let label = inspector_more_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+    let _ = webview.hide();
+    webview.close().map_err(|_| AppError::InternalError)?;
     Ok(true)
 }
 
@@ -980,6 +1050,10 @@ pub fn html_runtime_controls_label(item_id: i64) -> String {
     format!("html-controls-{item_id}")
 }
 
+fn inspector_more_overlay_label(item_id: i64) -> String {
+    format!("inspector-more-{item_id}")
+}
+
 pub fn html_edit_toolbar_label(item_id: i64) -> String {
     format!("html-edit-toolbar-{item_id}")
 }
@@ -1247,6 +1321,50 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     )
 }
 
+fn build_inspector_more_overlay_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    item_id: i64,
+    selection_token: u64,
+    expanded: bool,
+    label_text: &str,
+) -> Result<WebviewBuilder<R>, AppError> {
+    let overlay_url = tauri::WebviewUrl::App(PathBuf::from("inspector-more-overlay.html"));
+    Ok(
+        WebviewBuilder::new(label, overlay_url)
+            .initialization_script(&inspector_more_overlay_init_script(
+                item_id,
+                selection_token,
+                expanded,
+                label_text,
+            ))
+            .background_color(tauri::webview::Color(0, 0, 0, 0))
+            .transparent(true)
+            .focused(false)
+            .on_document_title_changed(inspector_more_overlay_action_handler(app)),
+    )
+}
+
+fn inspector_more_overlay_init_script(
+    item_id: i64,
+    selection_token: u64,
+    expanded: bool,
+    label: &str,
+) -> String {
+    format!(
+        "window.__NUTBOOK_INSPECTOR_MORE_OVERLAY_INITIAL__={{itemId:{item_id},selectionToken:{selection_token},expanded:{expanded},label:{label:?}}};window.__NUTBOOK_INSPECTOR_MORE_OVERLAY__?.update?.(window.__NUTBOOK_INSPECTOR_MORE_OVERLAY_INITIAL__);"
+    )
+}
+
+fn inspector_more_overlay_update_script(
+    item_id: i64,
+    selection_token: u64,
+    expanded: bool,
+    label: &str,
+) -> String {
+    inspector_more_overlay_init_script(item_id, selection_token, expanded, label)
+}
+
 fn build_html_edit_toolbar_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
@@ -1447,6 +1565,26 @@ fn runtime_controls_overlay_action_handler<R: tauri::Runtime>(
                 }
             }
             let _ = webview.eval("document.title = 'Nutbook HTML Controls';");
+        }
+    }
+}
+
+fn inspector_more_overlay_action_handler<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
+    let app_handle = app.clone();
+    move |webview, title| {
+        if let Some(rest) = title.strip_prefix(INSPECTOR_MORE_OVERLAY_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<InspectorMoreOverlayActionPayload>(rest) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    if let Ok(payload_json) = serde_json::to_string(&payload) {
+                        let _ = main_webview.eval(&format!(
+                            "window.__NUTBOOK_HANDLE_INSPECTOR_MORE_OVERLAY_ACTION__?.({payload_json});"
+                        ));
+                    }
+                }
+            }
+            let _ = webview.eval("document.title = 'Nutbook Inspector More';");
         }
     }
 }

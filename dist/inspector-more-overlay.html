@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nutbook Inspector More</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    body { position: relative; pointer-events: none; }
+    button {
+      position: absolute;
+      left: 61px;
+      bottom: 2px;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border: 1px solid #bfc0c6;
+      border-radius: 999px;
+      background: #f7f7f8;
+      color: #4c4c54;
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.14);
+      cursor: pointer;
+      pointer-events: auto;
+      transition: background 140ms ease, color 140ms ease;
+    }
+    button:hover { background: #eeeef0; color: #000; }
+    button:focus-visible { outline: 2px solid rgba(0, 0, 0, 0.58); outline-offset: 2px; }
+    svg { width: 16px; height: 16px; transition: transform 160ms ease; }
+    button[aria-expanded="true"] svg { transform: rotate(180deg); }
+    .tooltip {
+      position: absolute;
+      /* 按钮固定在 152px 小岛正中；提示可正上方完整展开。hover 仍绝不
+         resize / reposition 原生 WebView。 */
+      left: 50%;
+      bottom: 40px;
+      box-sizing: border-box;
+      padding: 6px 9px;
+      border-radius: 8px;
+      background: rgba(24, 24, 28, 0.94);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1.2;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 3px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    .tooltip.show { opacity: 1; transform: translate(-50%, 0); }
+  </style>
+</head>
+<body>
+  <button id="more" type="button" aria-expanded="false" aria-label="显示更多内容">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <span id="tooltip" class="tooltip" role="tooltip"></span>
+  <script>
+    (() => {
+      const prefix = "__NUTBOOK_INSPECTOR_MORE_OVERLAY__:";
+      const button = document.getElementById("more");
+      const tooltip = document.getElementById("tooltip");
+      let state = { itemId: 0, selectionToken: 0, expanded: false, label: "" };
+      let pointerInside = false;
+      let pendingWheelDelta = 0;
+      let wheelFrame = 0;
+      const setTooltipVisible = (visible) => tooltip.classList.toggle("show", Boolean(visible));
+      const flushWheel = () => {
+        wheelFrame = 0;
+        const deltaY = pendingWheelDelta;
+        pendingWheelDelta = 0;
+        if (!deltaY) return;
+        document.title = prefix + JSON.stringify({ itemId: state.itemId, selectionToken: state.selectionToken, action: "scroll", deltaY });
+      };
+      const update = (next) => {
+        state = { ...state, ...(next || {}) };
+        button.setAttribute("aria-expanded", state.expanded ? "true" : "false");
+        const label = state.label || (state.expanded ? "收起内容" : "显示更多内容");
+        button.setAttribute("aria-label", label);
+        tooltip.textContent = label;
+      };
+      button.addEventListener("click", () => {
+        document.title = prefix + JSON.stringify({ itemId: state.itemId, selectionToken: state.selectionToken, action: "toggle" });
+        button.blur();
+      });
+      button.addEventListener("pointerenter", () => {
+        pointerInside = true;
+        setTooltipVisible(true);
+      });
+      button.addEventListener("pointerleave", () => {
+        pointerInside = false;
+        setTooltipVisible(false);
+      });
+      button.addEventListener("focus", () => setTooltipVisible(true));
+      button.addEventListener("blur", () => {
+        if (!pointerInside) setTooltipVisible(false);
+      });
+      // 透明区域仍由原生 child WebView 命中，CSS pointer-events 无法让滚轮
+      // 穿透。按动画帧合并后转发给主预览，避免 title bridge 每个 wheel tick 都 IPC。
+      window.addEventListener("wheel", (event) => {
+        if (!state.expanded) return;
+        event.preventDefault();
+        pendingWheelDelta += event.deltaY;
+        if (!wheelFrame) wheelFrame = requestAnimationFrame(flushWheel);
+      }, { passive: false });
+      window.__NUTBOOK_INSPECTOR_MORE_OVERLAY__ = { update };
+      update(window.__NUTBOOK_INSPECTOR_MORE_OVERLAY_INITIAL__);
+    })();
+  </script>
+</body>
+</html>
