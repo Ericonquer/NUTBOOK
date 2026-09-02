@@ -21,12 +21,15 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSResponder, NSWindow};
+use objc2_app_kit::{NSResponder, NSView, NSWindow, NSWindowOrderingMode};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
 
 const HTML_FULLSCREEN_TITLE_PREFIX: &str = "__NUTBOOK_TOGGLE_FULLSCREEN__:";
 const HTML_CONTROLS_ACTION_PREFIX: &str = "__NUTBOOK_HTML_CONTROLS__:";
+const HTML_FIND_ACTION_PREFIX: &str = "__NUTBOOK_HTML_FIND__:";
+const HTML_FIND_RESULT_PREFIX: &str = "__NUTBOOK_HTML_FIND_RESULT__:";
+const HTML_FIND_SHORTCUT_PREFIX: &str = "__NUTBOOK_HTML_FIND_SHORTCUT__:";
 const HTML_EDIT_RUNTIME_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
 const HTML_EDIT_TOOLBAR_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR__:";
 const HTML_EDIT_TOOLBAR_DIAGNOSTIC_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR_DIAGNOSTIC__:";
@@ -36,9 +39,19 @@ const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 const INSPECTOR_MORE_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_INSPECTOR_MORE_OVERLAY__:";
 const HTML_EDIT_DEBUG_LOG_PATH: &str = "/tmp/nutbook-html-edit-debug.log";
 static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+static TOPBAR_TOOLTIP_OWNER: OnceLock<Mutex<Option<i64>>> = OnceLock::new();
+static RUNTIME_CONTROLS_OWNER: OnceLock<Mutex<Option<i64>>> = OnceLock::new();
+
+fn runtime_controls_owner() -> &'static Mutex<Option<i64>> {
+    RUNTIME_CONTROLS_OWNER.get_or_init(|| Mutex::new(None))
+}
 
 fn presentation_preview_instances() -> &'static Mutex<HashMap<i64, String>> {
     PRESENTATION_PREVIEW_INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn topbar_tooltip_owner() -> &'static Mutex<Option<i64>> {
+    TOPBAR_TOOLTIP_OWNER.get_or_init(|| Mutex::new(None))
 }
 
 fn presentation_preview_instance_matches(item_id: i64, instance_id: &str) -> bool {
@@ -133,6 +146,18 @@ struct HtmlControlsActionPayload {
     y: Option<f64>,
     width: Option<f64>,
     height: Option<f64>,
+    seq: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HtmlFindActionPayload {
+    item_id: i64,
+    action: String,
+    query: String,
+    replacement: String,
+    case_sensitive: bool,
+    replace_expanded: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -238,8 +263,10 @@ pub fn close_html_runtime_window(
         closed = true;
     }
 
-    let controls_label = html_runtime_controls_label(item_id);
-    if let Some(webview) = app.get_webview(&controls_label) {
+    // The find surface is kept alive (hidden) while its tab is open so Cmd+F
+    // always shows an already-painted child; release it with the tab.
+    let find_overlay_label = html_find_overlay_label(item_id);
+    if let Some(webview) = app.get_webview(&find_overlay_label) {
         let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
             x: 0.0,
             y: 0.0,
@@ -250,6 +277,17 @@ pub fn close_html_runtime_window(
         webview.close().map_err(|_| AppError::InternalError)?;
         closed = true;
     }
+    if runtime_controls_owner().lock().ok().and_then(|owner| *owner) == Some(item_id) {
+        let controls_label = html_runtime_controls_label(item_id);
+        if let Some(webview) = app.get_webview(&controls_label) {
+            let _ = webview.eval("window.__NUTBOOK_RESET_TRANSIENT_STATE__?.();");
+            webview.hide().map_err(|_| AppError::InternalError)?;
+            closed = true;
+        }
+        if let Ok(mut owner) = runtime_controls_owner().lock() {
+            *owner = None;
+        }
+    }
 
     if close_html_edit_toolbar_overlay(app, item_id)? {
         closed = true;
@@ -257,7 +295,6 @@ pub fn close_html_runtime_window(
     if close_html_edit_leave_confirm_overlay(app, item_id)? {
         closed = true;
     }
-
     Ok(closed)
 }
 
@@ -303,12 +340,6 @@ pub fn set_html_runtime_host_visibility(
     if visible {
         webview.show().map_err(|_| AppError::InternalError)?;
     } else {
-        let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
-            x: 0.0,
-            y: 0.0,
-            width: 1.0,
-            height: 1.0,
-        }));
         webview.hide().map_err(|_| AppError::InternalError)?;
     }
 
@@ -494,6 +525,9 @@ pub fn attach_controls_overlay(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
 ) -> Result<bool, AppError> {
+    if let Ok(mut owner) = runtime_controls_owner().lock() {
+        *owner = Some(item_id);
+    }
     let overlay_label = html_runtime_controls_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
         let set_bounds_result = webview.set_bounds(runtime_host_rect(bounds.clone()));
@@ -513,6 +547,12 @@ pub fn attach_controls_overlay(
             file_name.clone(),
         ));
         let _ = webview.show();
+        // The shared controls surface is created once (at the first HTML tab).
+        // Hosts opened later are appended on top of it, and `show()` alone does
+        // not restore sibling order — expanded menus/tips would paint behind
+        // the active host. Raise the overlay above all hosts on every show.
+        #[cfg(target_os = "macos")]
+        raise_webview_view_native(webview.clone());
         return Ok(true);
     }
 
@@ -549,6 +589,10 @@ pub fn set_html_runtime_controls_overlay_visibility(
     item_id: i64,
     visible: bool,
 ) -> Result<bool, AppError> {
+    let owner_now = runtime_controls_owner().lock().ok().and_then(|owner| *owner);
+    if owner_now != Some(item_id) {
+        return Ok(false);
+    }
     let label = html_runtime_controls_label(item_id);
     let Some(webview) = app.get_webview(&label) else {
         return Ok(false);
@@ -556,12 +600,201 @@ pub fn set_html_runtime_controls_overlay_visibility(
 
     if visible {
         webview.show().map_err(|_| AppError::InternalError)?;
+        // Same sibling-order invariant as the reuse path in
+        // `attach_controls_overlay`: hosts created after this surface sit
+        // above it until it is explicitly raised.
+        #[cfg(target_os = "macos")]
+        raise_webview_view_native(webview.clone());
     } else {
         let _ = webview.eval("window.__NUTBOOK_RESET_TRANSIENT_STATE__?.();");
-        let _ = webview.hide();
-        webview.close().map_err(|_| AppError::InternalError)?;
+        // Keep the window-scoped controls child alive while no HTML owns it.
+        // Recreating this transparent WebView on tab switch or after closing
+        // the last HTML would expose WebKit's incomplete first backing layer.
+        // `close_html_runtime_window` therefore only clears owner + hides it.
+        webview.hide().map_err(|_| AppError::InternalError)?;
     }
 
+    Ok(true)
+}
+
+/// Document find has its own small child surface.  The established controls
+/// island remains dedicated to tags and document actions.
+pub fn attach_html_find_overlay(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+    can_replace: bool,
+    replace_expanded: bool,
+    query: String,
+    count: String,
+    case_sensitive: bool,
+    labels: std::collections::BTreeMap<String, String>,
+    history: Vec<String>,
+) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let update = html_find_overlay_init_script(
+        item_id,
+        can_replace,
+        replace_expanded,
+        &query,
+        &count,
+        case_sensitive,
+        &labels,
+        &history,
+        true,
+    );
+    if let Some(webview) = app.get_webview(&label) {
+        webview.set_bounds(runtime_host_rect(bounds)).map_err(|_| AppError::InternalError)?;
+        let _ = webview.eval(&update);
+        webview.show().map_err(|_| AppError::InternalError)?;
+        // Invariant: find must stay above the controls overlay. Controls now
+        // raises itself on every show (see `attach_controls_overlay`), so a
+        // find surface shown without raising can end up beneath it — two
+        // stacked transparent children in the wrong order is exactly the
+        // black-backing regime.
+        #[cfg(target_os = "macos")]
+        raise_webview_view_native(webview.clone());
+        return Ok(true);
+    }
+    let builder = WebviewBuilder::new(&label, tauri::WebviewUrl::App(PathBuf::from("html-find-overlay.html")))
+        .initialization_script(&update)
+        .background_color(tauri::webview::Color(0, 0, 0, 0))
+        .transparent(true)
+        .focused(true)
+        .on_document_title_changed(html_find_overlay_action_handler(app));
+    let webview = window.add_child(builder, tauri::LogicalPosition::new(bounds.x, bounds.y), tauri::LogicalSize::new(bounds.width, bounds.height)).map_err(|_| AppError::InternalError)?;
+    webview.set_bounds(runtime_host_rect(bounds)).map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// Update only the find panel's document state. Geometry, native visibility,
+/// and focus are owned by their separate lifecycle paths.
+pub fn update_html_find_overlay(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    can_replace: bool,
+    replace_expanded: bool,
+    query: String,
+    count: String,
+    case_sensitive: bool,
+    labels: std::collections::BTreeMap<String, String>,
+    history: Vec<String>,
+) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+    webview
+        .eval(&html_find_overlay_init_script(
+            item_id,
+            can_replace,
+            replace_expanded,
+            &query,
+            &count,
+            case_sensitive,
+            &labels,
+            &history,
+            false,
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// Resize an existing find child without replaying update/show/focus. This is
+/// deliberately a no-op when the surface has already been closed.
+pub fn set_html_find_overlay_bounds(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+pub fn set_html_find_overlay_visibility(app: &tauri::AppHandle, item_id: i64, visible: bool) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else { return Ok(false); };
+    if visible {
+        webview.show().map_err(|_| AppError::InternalError)?;
+        // Keep find above the controls overlay; see the reuse path in
+        // `attach_html_find_overlay`.
+        #[cfg(target_os = "macos")]
+        raise_webview_view_native(webview.clone());
+    } else {
+        // Hide only: recreating this transparent child on the next Cmd+F
+        // can expose WebKit's incomplete first backing layer on cold starts.
+        // After its first explicit attach, keep the surface per open HTML item
+        // and release it in `close_html_runtime_window` when the tab closes.
+        webview.hide().map_err(|_| AppError::InternalError)?;
+    }
+    Ok(true)
+}
+
+pub fn attach_html_find_trigger_tooltip(app: &tauri::AppHandle, window: &tauri::Window, item_id: i64, tooltip_id: &str, bounds: RuntimeHostBounds, label: String, visible: bool) -> Result<bool, AppError> {
+    // A moving WebKit child can leave an old backing layer behind.  Keep one
+    // fixed surface per topbar trigger and only toggle visibility on hover.
+    let overlay_label = html_topbar_tooltip_label(tooltip_id);
+    if let Some(legacy_global) = app.get_webview("html-topbar-tooltip") {
+        let _ = legacy_global.hide();
+        let _ = legacy_global.close();
+    }
+    // Development hot reloads can leave the prior per-item tooltip surface
+    // alive in the native window. Retire that legacy sibling before showing
+    // the window-scoped renderer, otherwise both labels can paint at once.
+    let legacy_label = format!("html-find-trigger-tooltip-{item_id}");
+    if let Some(legacy) = app.get_webview(&legacy_label) {
+        let _ = legacy.hide();
+        let _ = legacy.close();
+    }
+    let label_json = serde_json::to_string(&label).unwrap_or_else(|_| "\"\"".to_string());
+    let update = format!("window.__NUTBOOK_HTML_FIND_TRIGGER_TOOLTIP__?.update?.({label_json});");
+    if let Some(webview) = app.get_webview(&overlay_label) {
+        webview.set_bounds(runtime_host_rect(bounds)).map_err(|_| AppError::InternalError)?;
+        let _ = webview.eval(&update);
+        if visible {
+            if let Ok(mut owner) = topbar_tooltip_owner().lock() { *owner = Some(item_id); }
+            webview.show().map_err(|_| AppError::InternalError)?;
+            #[cfg(target_os = "macos")]
+            raise_webview_view_native(webview.clone());
+        } else { let _ = webview.hide(); }
+        return Ok(true);
+    }
+    let builder = WebviewBuilder::new(&overlay_label, tauri::WebviewUrl::App(PathBuf::from("html-find-trigger-tooltip.html")))
+        .initialization_script(&format!("window.__NUTBOOK_HTML_FIND_TRIGGER_TOOLTIP_INITIAL__={label_json};"))
+        .background_color(tauri::webview::Color(0, 0, 0, 0)).transparent(true).focused(false);
+    let webview = window.add_child(builder, tauri::LogicalPosition::new(bounds.x, bounds.y), tauri::LogicalSize::new(bounds.width, bounds.height)).map_err(|_| AppError::InternalError)?;
+    webview.set_bounds(runtime_host_rect(bounds)).map_err(|_| AppError::InternalError)?;
+    if visible {
+        if let Ok(mut owner) = topbar_tooltip_owner().lock() { *owner = Some(item_id); }
+        #[cfg(target_os = "macos")]
+        raise_webview_view_native(webview.clone());
+    } else { let _ = webview.hide(); }
+    Ok(true)
+}
+
+pub fn set_html_find_trigger_tooltip_visibility(app: &tauri::AppHandle, item_id: i64, tooltip_id: &str, visible: bool) -> Result<bool, AppError> {
+    if visible {
+        let label = html_topbar_tooltip_label(tooltip_id);
+        let Some(webview) = app.get_webview(&label) else { return Ok(false); };
+        if let Ok(mut owner) = topbar_tooltip_owner().lock() { *owner = Some(item_id); }
+        webview.show().map_err(|_| AppError::InternalError)?;
+    } else {
+        let owns_tooltip = topbar_tooltip_owner().lock().ok().is_some_and(|owner| *owner == Some(item_id));
+        if !owns_tooltip { return Ok(false); }
+        if let Ok(mut owner) = topbar_tooltip_owner().lock() { *owner = None; }
+        for surface_id in ["search", "folder", "file"] {
+            if let Some(surface) = app.get_webview(&html_topbar_tooltip_label(surface_id)) {
+                let _ = surface.hide();
+            }
+        }
+    }
     Ok(true)
 }
 
@@ -1023,13 +1256,29 @@ fn recover_webview_focus_native<R: tauri::Runtime>(
 ) {
     let webview_for_main = webview.clone();
     let _ = webview.run_on_main_thread(move || {
-        let _ = webview_for_main.with_webview(|platform_webview| unsafe {
+        let _ = webview_for_main.with_webview(move |platform_webview| unsafe {
             let window: &NSWindow = &*platform_webview.ns_window().cast();
             let view: &WKWebView = &*platform_webview.inner().cast();
             let responder: &NSResponder = view;
             window.makeKeyAndOrderFront(None);
             let _ = responder.becomeFirstResponder();
             let _ = window.makeFirstResponder(Some(responder));
+        });
+    });
+}
+
+/// Child WebViews are sibling NSViews. Showing an existing child does not
+/// change sibling order, so explicitly move it above menus/controls
+/// without making it first responder or stealing the user's pointer focus.
+#[cfg(target_os = "macos")]
+fn raise_webview_view_native<R: tauri::Runtime>(webview: tauri::Webview<R>) {
+    let webview_for_main = webview.clone();
+    let _ = webview.run_on_main_thread(move || {
+        let _ = webview_for_main.with_webview(|platform_webview| unsafe {
+            let view: &NSView = &*platform_webview.inner().cast();
+            if let Some(superview) = view.superview() {
+                superview.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Above, None);
+            }
         });
     });
 }
@@ -1046,8 +1295,20 @@ pub fn html_presentation_preview_label(item_id: i64) -> String {
     format!("html-presentation-preview-{item_id}")
 }
 
-pub fn html_runtime_controls_label(item_id: i64) -> String {
-    format!("html-controls-{item_id}")
+pub fn html_runtime_controls_label(_item_id: i64) -> String {
+    "html-controls-active".to_string()
+}
+
+fn html_find_overlay_label(item_id: i64) -> String {
+    format!("html-find-{item_id}")
+}
+
+fn html_topbar_tooltip_label(tooltip_id: &str) -> String {
+    let stable_id = match tooltip_id {
+        "search" | "folder" | "file" => tooltip_id,
+        _ => "search",
+    };
+    format!("html-topbar-tooltip-{stable_id}")
 }
 
 fn inspector_more_overlay_label(item_id: i64) -> String {
@@ -1556,15 +1817,43 @@ fn runtime_controls_overlay_action_handler<R: tauri::Runtime>(
     move |webview, title| {
         if let Some(rest) = title.strip_prefix(HTML_CONTROLS_ACTION_PREFIX) {
             if let Ok(payload) = serde_json::from_str::<HtmlControlsActionPayload>(rest) {
-                if let Some(main_webview) = app_handle.get_webview("main") {
-                    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
-                    let _ = main_webview.eval(&format!(
-                        "window.__NUTBOOK_HANDLE_HTML_RUNTIME_CONTROLS_ACTION__?.({});",
-                        payload_json
-                    ));
+                let owner_now = runtime_controls_owner()
+                    .lock()
+                    .ok()
+                    .and_then(|owner| *owner);
+                let is_current_owner = owner_now == Some(payload.item_id);
+                if is_current_owner {
+                    if let Some(main_webview) = app_handle.get_webview("main") {
+                        let payload_json = serde_json::to_string(&payload)
+                            .unwrap_or_else(|_| "null".to_string());
+                        let _ = main_webview.eval(&format!(
+                            "window.__NUTBOOK_HANDLE_HTML_RUNTIME_CONTROLS_ACTION__?.({});",
+                            payload_json
+                        ));
+                    }
                 }
             }
             let _ = webview.eval("document.title = 'Nutbook HTML Controls';");
+        }
+    }
+}
+
+fn html_find_overlay_action_handler<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
+    let app_handle = app.clone();
+    move |webview, title| {
+        if let Some(rest) = title.strip_prefix(HTML_FIND_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<HtmlFindActionPayload>(rest) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    if let Ok(payload_json) = serde_json::to_string(&payload) {
+                        let _ = main_webview.eval(&format!(
+                            "window.__NUTBOOK_HANDLE_HTML_FIND_ACTION__?.({payload_json});"
+                        ));
+                    }
+                }
+            }
+            let _ = webview.eval("document.title = 'Nutbook HTML Find';");
         }
     }
 }
@@ -1652,6 +1941,24 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
     let app_handle = app.clone();
     move |webview, title| {
+        if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) {
+            if let Some(item_id) = webview.label().strip_prefix("html-host-").and_then(|value| value.parse::<i64>().ok()) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    let _ = main_webview.eval(&format!("window.__NUTBOOK_OPEN_HTML_FIND__?.({item_id});"));
+                }
+            }
+            let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
+            return;
+        }
+        if let Some(rest) = title.strip_prefix(HTML_FIND_RESULT_PREFIX) {
+            if let Some(main_webview) = app_handle.get_webview("main") {
+                let _ = main_webview.eval(&format!(
+                    "window.__NUTBOOK_HANDLE_HTML_FIND_RESULT__?.({rest});"
+                ));
+            }
+            let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
+            return;
+        }
         if let Some(rest) = title.strip_prefix(HTML_EDIT_RUNTIME_ACTION_PREFIX) {
             if let Ok(payload) = serde_json::from_str::<Value>(rest) {
                 let runtime_type = payload.get("type").and_then(Value::as_str);
@@ -1866,6 +2173,11 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   };
 
   const handleRuntimeShortcut = (event) => {
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && String(event.key).toLowerCase() === 'f') {
+      event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
+      document.title = `__NUTBOOK_HTML_FIND_SHORTCUT__:${Date.now()}`;
+      return;
+    }
     if (isNutbookHtmlEditActive()) return;
     if (
       !event.metaKey &&
@@ -1879,7 +2191,7 @@ pub fn html_runtime_compatibility_script() -> &'static str {
       // page's own key handlers to receive slide shortcuts such as s/f/arrows.
       event.preventDefault();
     }
-    if (event.key === 'f' || event.key === 'F') {
+    if ((event.key === 'f' || event.key === 'F') && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -1991,7 +2303,7 @@ fn settings_overlay_init_script(tab: Option<String>, mode: Option<String>) -> St
     let mode_json = serde_json::to_string(&mode.unwrap_or_else(|| "menu".to_string()))
         .unwrap_or_else(|_| "\"menu\"".to_string());
     format!(
-        "window.__NUTBOOK_SETTINGS_OVERLAY__ = true; window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ = {tab_json}; window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ = {mode_json};"
+        "document.documentElement.dataset.nutbookSettingsOverlay = 'true'; const nutbookSettingsOverlayBootStyle = document.createElement('style'); nutbookSettingsOverlayBootStyle.textContent = 'html[data-nutbook-settings-overlay],html[data-nutbook-settings-overlay] body{{background:transparent!important}}html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .app-shell,html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .footer-bar{{visibility:hidden!important}}'; (document.head || document.documentElement).appendChild(nutbookSettingsOverlayBootStyle); window.__NUTBOOK_SETTINGS_OVERLAY__ = true; window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ = {tab_json}; window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ = {mode_json};"
     )
 }
 
@@ -2033,6 +2345,26 @@ fn html_runtime_controls_overlay_update_script(
     )
 }
 
+fn html_find_overlay_init_script(
+    item_id: i64,
+    can_replace: bool,
+    replace_expanded: bool,
+    query: &str,
+    count: &str,
+    case_sensitive: bool,
+    labels: &std::collections::BTreeMap<String, String>,
+    history: &[String],
+    focus_query: bool,
+) -> String {
+    let query = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".to_string());
+    let count = serde_json::to_string(count).unwrap_or_else(|_| "\"0/0\"".to_string());
+    let labels = serde_json::to_string(labels).unwrap_or_else(|_| "{}".to_string());
+    let history = serde_json::to_string(history).unwrap_or_else(|_| "[]".to_string());
+    format!(
+        "window.__NUTBOOK_HTML_FIND_INITIAL__={{itemId:{item_id},canReplace:{can_replace},replaceExpanded:{replace_expanded},query:{query},count:{count},caseSensitive:{case_sensitive},labels:{labels},history:{history},focusQuery:{focus_query}}};window.__NUTBOOK_HTML_FIND__?.update?.(window.__NUTBOOK_HTML_FIND_INITIAL__);"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use crate::models::{HtmlEditToolbarFormatState, ItemDetail, ItemSummary};
@@ -2064,6 +2396,7 @@ mod tests {
                 source_badges: vec![],
                 tags: vec![],
                 thumbnail: None,
+                snippets: vec![],
             },
             file_hash: None,
             extracted_title: None,

@@ -372,10 +372,6 @@
         display: none;
       }
 
-      .home-search {
-        display: none;
-      }
-
       .icon-button {
         border: 0;
         background: transparent;
@@ -625,6 +621,7 @@
         font-size: 14px;
         font-weight: 600;
       }
+      .item-search-snippet { display: block; max-width: 100%; margin-top: 3px; overflow: hidden; color: #74747c; font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 
       .library-card-meta,
       .item-card-meta,
@@ -986,6 +983,27 @@
         font-size: 12px;
         line-height: 1;
       }
+      .topbar-search-field { position: relative; display: flex; align-items: center; width: 28px; height: 28px; border-radius: 9px; color: #9a9aa1; }
+      .topbar-search-field > .icon-svg { position: absolute; left: 6px; width: 17px; height: 17px; pointer-events: none; }
+      .topbar-search-field .search-input { width: 100%; min-width: 0; height: 28px; padding: 6px 8px 6px 28px; opacity: 0; pointer-events: none; border-radius: 999px; }
+      /* Width interpolation reflows the tab strip every frame. Switch layout
+         immediately, then fade only the composited input surface. */
+      .topbar-search-field:hover, .topbar-search-field:focus-within, .topbar-search-field[data-has-value="true"] { width: 232px; background: #f3f3f5; color: #3a3a40; }
+      .topbar-search-field:hover .search-input, .topbar-search-field:focus-within .search-input, .topbar-search-field[data-has-value="true"] .search-input { opacity: 1; pointer-events: auto; transition: opacity 100ms ease-out; }
+      .topbar-search-field[data-search-scope="document"], .topbar-search-field[data-search-scope="document"]:focus-within { width: 28px; background: transparent; color: #9a9aa1; cursor: pointer; }
+      .topbar-search-field[data-search-scope="document"]:hover { width: 28px; background: #eeeef1; color: #5e5e63; cursor: pointer; }
+      .topbar-search-field[data-search-scope="document"]:focus-visible { outline: 2px solid rgba(0, 0, 0, .36); outline-offset: 2px; }
+      .topbar-search-field[data-search-scope="document"] .search-input { display: none; }
+      .topbar-search-field[data-native-tooltip="true"] .topbar-search-tooltip { display: none; }
+      .topbar-add-button[data-native-tooltip="true"] .topbar-button-tooltip { display: none; }
+      /* HTML runtime uses a native sibling tooltip. Hide every DOM fallback at
+         the shell level so a stale per-button attribute cannot render a second
+         clipped tooltip during an async runtime/tab transition. */
+      body.html-runtime-topbar-tooltips .topbar-search-tooltip,
+      body.html-runtime-topbar-tooltips .topbar-button-tooltip { display: none !important; }
+      .topbar-search-tooltip { position: absolute; left: 50%; top: calc(100% + 8px); z-index: 420; padding: 5px 8px; border-radius: 8px; background: rgba(24, 24, 27, .96); color: #fff; font-size: 11px; line-height: 1; white-space: nowrap; opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(-4px); transition: opacity 140ms ease, transform 140ms ease; }
+      .topbar-search-field[data-search-scope="document"]:hover .topbar-search-tooltip,
+      .topbar-search-field[data-search-scope="document"]:focus-visible .topbar-search-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
 
       /* A2 最近搜索：单个全局 popup，fixed 定位到当前 anchor 输入框下方。
          data-i18n-skip 容器，历史词永不被 i18n 扫描翻译。 */
@@ -6324,6 +6342,34 @@
         display: none;
       }
 
+      .markdown-find-panel {
+        position: fixed; z-index: 35; width: min(560px, calc(100vw - 16px)); min-width: 0; padding: 8px;
+        border: 1px solid rgba(224, 224, 228, .96); border-radius: 12px; background: rgba(255, 255, 255, .98);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .12);
+      }
+      .markdown-find-row { display: flex; align-items: center; gap: 5px; }
+      .markdown-find-row[hidden] { display: none; }
+      .markdown-find-row + .markdown-find-row { margin-top: 6px; }
+      .markdown-find-row input { min-width: 0; flex: 1; height: 28px; padding: 0 8px; border: 1px solid #dedee5; border-radius: 7px; background: var(--paper); color: var(--ink); font: 12px/1.2 var(--font-ui); }
+      .markdown-find-row input::placeholder { color: #9a9aa1; opacity: 1; }
+      .markdown-find-row input:focus { outline: none; border-color: rgba(20, 20, 20, .35); box-shadow: 0 0 0 4px rgba(20, 20, 20, .06); }
+      .markdown-find-row button { height: 28px; min-width: 28px; padding: 0 7px; border: 0; border-radius: 7px; background: transparent; color: #34343a; cursor: pointer; }
+      .markdown-find-row button { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+      .markdown-find-row button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+      .markdown-find-row button:hover, .markdown-find-row button.active { background: #ededf1; }
+      .markdown-find-tooltip { position: absolute; top: calc(100% + 6px); left: 50%; z-index: 2; transform: translate(-50%, -3px); padding: 5px 7px; border-radius: 6px; background: #242428; color: #fff; font-size: 10px; line-height: 1; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 100ms ease, transform 100ms ease; }
+      .markdown-find-row button:hover .markdown-find-tooltip, .markdown-find-row button:focus-visible .markdown-find-tooltip { opacity: 1; transform: translate(-50%, 0); }
+      .markdown-find-row button.active .markdown-find-tooltip { display: none; }
+      .markdown-find-panel.suppress-find-tooltips .markdown-find-tooltip { display: none; }
+      .markdown-find-row [data-find-count] { min-width: 34px; color: #777780; font-size: 11px; text-align: center; }
+      .markdown-find-history { display: flex; gap: 4px; align-items: center; max-width: 340px; margin-top: 7px; padding-top: 7px; border-top: 1px solid rgba(224, 224, 228, .8); overflow: hidden; }
+      .markdown-find-history[hidden] { display: none; }
+      .markdown-find-history-label { flex: 0 0 auto; color: #777780; font-size: 10px; }
+      .markdown-find-history button { min-width: 0; max-width: 96px; height: 22px; padding: 0 7px; overflow: hidden; border: 0; border-radius: 6px; background: #f3f3f5; color: #4a4a50; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+      .markdown-find-history button:hover, .markdown-find-history button:focus-visible { background: #e7e7eb; }
+      .nutbook-find-match { background: rgba(255, 218, 79, .55); }
+      .nutbook-find-current { background: rgba(255, 159, 67, .68); outline: 1px solid rgba(199, 102, 16, .55); }
+
       .markdown-format-toolbar {
         position: absolute;
         z-index: 30;
@@ -7234,7 +7280,11 @@
         <div class="topbar" data-tauri-drag-region>
           <div id="tabsWrap" class="tabs-wrap"></div>
           <div class="topbar-right">
-            <input id="searchInput" class="input search-input" placeholder="搜索文件..." data-i18n-placeholder="home.searchPlaceholder" role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list" />
+            <div class="topbar-search-field" data-has-value="false">
+              <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.55"></circle><path d="m12 12 4 4" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"></path></svg>
+              <input id="searchInput" class="input search-input" placeholder="搜索资料库内容..." data-i18n-placeholder="home.searchPlaceholder" role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list" />
+              <span class="topbar-search-tooltip">搜索资料库内容（⌘K）</span>
+            </div>
             <button id="addFolderButtonTopbar" class="icon-button topbar-add-button folder-add-button" type="button" aria-label="添加文件夹">
               <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M2.8 6.2A2.2 2.2 0 0 1 5 4h3.1l1.7 1.8H15a2.2 2.2 0 0 1 2.2 2.2v6.4a2.2 2.2 0 0 1-2.2 2.2H5a2.2 2.2 0 0 1-2.2-2.2V6.2Z" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"></path>
@@ -7300,7 +7350,6 @@
                 </div>
               </div>
               <div class="home-actions">
-                <input id="homeSearchInput" class="input search-input home-search" placeholder="搜索文件..." data-i18n-placeholder="home.searchPlaceholder" role="combobox" aria-expanded="false" aria-controls="recentSearchPopup" aria-autocomplete="list" />
                 <button id="clearTabsButton" class="button button-ghost">清空标签页</button>
                 <button id="viewModeButtonHome" class="icon-button" type="button" aria-label="切换视图">
                   <span class="material-symbols-outlined">grid_view</span>
@@ -7349,6 +7398,7 @@
         <div id="toast" class="toast" aria-live="polite"></div>
         <div id="markdownLinkTooltip" class="markdown-link-tooltip" role="tooltip" aria-hidden="true" data-i18n-skip></div>
         <div id="recentSearchPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
+        <div id="settingsSearchSuggestionPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
 
         <div class="hidden-controls" aria-hidden="true">
           <section class="field-stack">
@@ -7434,7 +7484,7 @@
                 <div class="settings-artifact-tools">
                   <div class="settings-search-field" data-settings-search-field data-has-value="false">
                     <span class="material-symbols-outlined settings-search-icon" aria-hidden="true">search</span>
-                    <input id="settingsProjectSearchInput" class="input" placeholder="搜索项目或路径..." data-i18n-placeholder="settings.projectSearchPlaceholder" aria-label="搜索项目或路径" data-i18n-aria-label="settings.projectSearchLabel" />
+                    <input id="settingsProjectSearchInput" data-settings-suggestion-kind="project" class="input" placeholder="搜索项目或路径..." data-i18n-placeholder="settings.projectSearchPlaceholder" aria-label="搜索项目或路径" data-i18n-aria-label="settings.projectSearchLabel" />
                   </div>
                   <div class="settings-artifact-sort">
                     <button id="settingsProjectSortButton" class="icon-button" type="button" aria-label="项目排序" data-i18n-aria-label="settings.projectSortLabel" data-tooltip="项目排序" aria-haspopup="menu" aria-expanded="false">
@@ -7452,7 +7502,7 @@
                 <div class="settings-artifact-tools">
                   <div class="settings-search-field" data-settings-search-field data-has-value="false">
                     <span class="material-symbols-outlined settings-search-icon" aria-hidden="true">search</span>
-                    <input id="settingsSkillSearchInput" class="input" placeholder="搜索 skill 或路径..." data-i18n-placeholder="settings.skillSearchPlaceholder" aria-label="搜索 skill 或路径" data-i18n-aria-label="settings.skillSearchLabel" />
+                    <input id="settingsSkillSearchInput" data-settings-suggestion-kind="skill" class="input" placeholder="搜索 skill 或路径..." data-i18n-placeholder="settings.skillSearchPlaceholder" aria-label="搜索 skill 或路径" data-i18n-aria-label="settings.skillSearchLabel" />
                   </div>
                   <div class="settings-artifact-sort">
                     <button id="settingsSkillSortButton" class="icon-button" type="button" aria-label="Skill 排序" data-i18n-aria-label="settings.skillSortLabel" data-tooltip="Skill 排序" aria-haspopup="menu" aria-expanded="false">
@@ -7478,7 +7528,7 @@
                 <div class="settings-tools">
                   <div class="settings-search-field" data-settings-search-field data-has-value="false">
                     <span class="material-symbols-outlined settings-search-icon" aria-hidden="true">search</span>
-                    <input id="settingsSourceSearchInput" class="input" placeholder="搜索来源或路径..." data-i18n-placeholder="settings.sourceSearchPlaceholder" aria-label="搜索来源或路径" data-i18n-aria-label="settings.sourceSearchLabel" />
+                    <input id="settingsSourceSearchInput" data-settings-suggestion-kind="source" class="input" placeholder="搜索来源或路径..." data-i18n-placeholder="settings.sourceSearchPlaceholder" aria-label="搜索来源或路径" data-i18n-aria-label="settings.sourceSearchLabel" />
                   </div>
                   <button id="settingsSourceSortButton" class="icon-button" type="button" aria-label="排序来源" data-i18n-aria-label="actions.sortSources">
                     <span class="material-symbols-outlined">filter_list</span>
@@ -7641,6 +7691,12 @@
         htmlEditRuntimeDocumentReadyWaiters: new Map(),
         activeLibraryId: null,
         activeTabId: null,
+        htmlFind: { itemId: null, query: "", caseSensitive: false, replaceExpanded: false, count: "0/0" },
+        htmlFindOverlayEpoch: 0,
+        htmlFindOverlaySyncLane: Promise.resolve(),
+        htmlFindOverlayLastContentKey: null,
+        htmlFindOverlayLastBoundsKey: null,
+        htmlTopbarTooltipWarm: false,
         activeTagFilterIds: [],
         isSettingsOverlay: Boolean(window.__NUTBOOK_SETTINGS_OVERLAY__),
         settingsOverlayMode: window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "panel",
@@ -7674,6 +7730,9 @@
         searchDraft: "",
         appliedSearch: "",
         searchEpoch: 0,
+        searchSuggestionEpoch: 0,
+        searchSuggestions: [],
+        searchSuggestionActiveIndex: -1,
         settingsTab: "skills",
         settingsArtifactSection: "projects",
         settingsLibrarySection: "folders",
@@ -7732,7 +7791,9 @@
         activeRuntimeHostId: null,
         runtimeFullscreenItemId: null,
         runtimeHostResizeObserver: null,
+        runtimeHostResizeObserverTarget: null,
         runtimeHostLastBoundsKey: null,
+        runtimeControlsOverlayLastKey: null,
         runtimeHostSyncFrame: null,
         runtimeHostSyncRunId: 0,
         runtimeHostSyncInFlight: false,
@@ -7740,9 +7801,11 @@
         runtimeSurfacesSuspended: false,
         runtimeSurfaceSuspendPromise: null,
         runtimeSurfaceTokens: new Map(),
+        runtimeHiddenSurfaceIds: new Set(),
         runtimePatchAppliedKeys: new Map(),
         runtimePatchSurfaceLanes: new Map(),
         itemOpenTokens: new Map(),
+        runtimeNavigationEpoch: 0,
         runtimeControlsOverlayExpanded: false,
         runtimeControlsOverlayMode: "default",
         documentTagDraft: "",
@@ -7861,8 +7924,8 @@
         libraryList: document.getElementById("libraryList"),
         sidebarFootnote: document.getElementById("sidebarFootnote"),
         searchInput: document.getElementById("searchInput"),
-        homeSearchInput: document.getElementById("homeSearchInput"),
         recentSearchPopup: document.getElementById("recentSearchPopup"),
+        settingsSearchSuggestionPopup: document.getElementById("settingsSearchSuggestionPopup"),
         fileTypeSelect: document.getElementById("fileTypeSelect"),
         scanButton: document.getElementById("scanButton"),
         refreshListButton: document.getElementById("refreshListButton"),
@@ -9256,7 +9319,6 @@
 
       async function waitForHtmlRuntimeOverlayPriority(itemId) {
         if (itemId == null) return false;
-        cancelPendingRuntimeSurfaceHide(itemId);
         nextRuntimeSurfaceToken(itemId);
         for (let attempt = 0; attempt < 50; attempt += 1) {
           if (
@@ -10361,6 +10423,7 @@
             return;
           }
           await syncHtmlEditToolbar();
+          if (appState.htmlFind.itemId === itemId) await updateActiveHtmlFindContent();
           if (!isCurrent()) {
             await closeStaleHtmlEditToolbar(itemId);
           }
@@ -12577,6 +12640,7 @@
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
+        if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command" || command === "attach_html_find_trigger_tooltip_command" || command === "set_html_find_trigger_tooltip_visibility_command") return [{ payload: args }];
         if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
@@ -12663,8 +12727,72 @@
         }, 200);
       }
 
+      let searchSuggestionTimer = null;
+      function scheduleSearchSuggestions(input) {
+        clearTimeout(searchSuggestionTimer);
+        const prefix = String(input?.value || "").trim();
+        if (!prefix) { appState.searchSuggestions = []; return; }
+        const epoch = ++appState.searchSuggestionEpoch;
+        searchSuggestionTimer = setTimeout(async () => {
+          try {
+            const suggestions = await invoke("suggest_items", { prefix, limit: 8 });
+            if (epoch !== appState.searchSuggestionEpoch || document.activeElement !== input || input.value.trim() !== prefix) return;
+            appState.searchSuggestions = Array.isArray(suggestions) ? suggestions : [];
+            renderSearchSuggestions(input);
+          } catch (_) {
+            if (epoch === appState.searchSuggestionEpoch) appState.searchSuggestions = [];
+          }
+        }, 100);
+      }
+
+      function renderSearchSuggestions(anchor) {
+        const popup = els.recentSearchPopup;
+        const suggestions = appState.searchSuggestions;
+        if (!popup || !suggestions.length || !anchor || !els.mainShell.classList.contains("home-mode")) return;
+        recentSearchAnchor = anchor;
+        if (appState.searchSuggestionActiveIndex < 0 || appState.searchSuggestionActiveIndex >= suggestions.length) appState.searchSuggestionActiveIndex = 0;
+        popup.setAttribute("aria-label", t("home.searchPlaceholder"));
+        popup.dataset.searchMode = "suggestions";
+        popup.innerHTML = suggestions.map((suggestion, index) => `
+          <div class="recent-search-option ${index === appState.searchSuggestionActiveIndex ? "active" : ""}" role="option" aria-selected="${index === appState.searchSuggestionActiveIndex}" data-search-suggestion="${index}">
+            <span class="recent-search-text">${escapeHtml(suggestion.label || "")}</span>
+            ${suggestion.sublabel ? `<span class="muted">${escapeHtml(suggestion.sublabel)}</span>` : ""}
+          </div>`).join("");
+        positionRecentSearchPopup(anchor);
+        popup.classList.add("open");
+        anchor.setAttribute("aria-expanded", "true");
+      }
+
+      function moveSearchSuggestionActive(step) {
+        const suggestions = appState.searchSuggestions;
+        if (!suggestions.length) return;
+        appState.searchSuggestionActiveIndex = (appState.searchSuggestionActiveIndex + step + suggestions.length) % suggestions.length;
+        renderSearchSuggestions(recentSearchAnchor || els.searchInput);
+      }
+
+      function applySearchSuggestion(index) {
+        const value = appState.searchSuggestions[index]?.label;
+        if (!value) return;
+        syncSearchInputs(value);
+        appState.searchDraft = value;
+        closeRecentSearchPopup();
+        executeSearch(value, { recordHistory: true });
+      }
+
       function handleSearchInput(input) {
         const rawValue = input.value;
+        const documentFindEditor = currentDocumentFindEditor();
+        // The top field becomes a document-find entry while a Markdown tab is
+        // active. Cmd+K still returns to the home/library search path; this
+        // direct field path never mutates the global result list.
+        if (documentFindEditor?.openFind) {
+          clearTimeout(searchDebounceTimer);
+          clearTimeout(searchSuggestionTimer);
+          closeRecentSearchPopup();
+          if (!rawValue) documentFindEditor.closeFind?.();
+          else documentFindEditor.openFind({ query: rawValue, focus: false });
+          return;
+        }
         appState.searchDraft = rawValue;
         syncSearchInputs(rawValue);
         if (!rawValue.trim()) {
@@ -12680,6 +12808,7 @@
         }
         // A2：开始输入后立即关闭历史列表。
         closeRecentSearchPopup();
+        scheduleSearchSuggestions(input);
         scheduleSearch(input);
       }
 
@@ -12696,7 +12825,7 @@
 
       function clearPollutedSearchValues() {
         const placeholders = searchPlaceholderValues();
-        [els.searchInput, els.homeSearchInput].forEach((input) => {
+        [els.searchInput].forEach((input) => {
           if (input && placeholders.has(String(input.value || "").trim())) {
             input.value = "";
           }
@@ -12762,6 +12891,7 @@
       function renderRecentSearchPopup() {
         const popup = els.recentSearchPopup;
         if (!popup) return;
+        popup.dataset.searchMode = "history";
         const items = readRecentSearches();
         if (!items.length) {
           closeRecentSearchPopup();
@@ -12786,8 +12916,7 @@
         });
       }
 
-      function positionRecentSearchPopup(anchor) {
-        const popup = els.recentSearchPopup;
+      function positionRecentSearchPopup(anchor, popup = els.recentSearchPopup) {
         if (!popup) return;
         const pad = 8;
         const popupWidth = Math.min(Math.max(anchor.offsetWidth, 232), window.innerWidth - pad * 2);
@@ -12821,13 +12950,17 @@
       function closeRecentSearchPopup(options = {}) {
         const popup = els.recentSearchPopup;
         if (!popup) return;
+        ++appState.searchSuggestionEpoch;
+        appState.searchSuggestions = [];
+        appState.searchSuggestionActiveIndex = -1;
         const wasOpen = isRecentSearchPopupOpen();
         const anchor = recentSearchAnchor;
         popup.classList.remove("open");
+        delete popup.dataset.searchMode;
         popup.innerHTML = "";
         recentSearchAnchor = null;
         recentSearchActiveIndex = -1;
-        [els.searchInput, els.homeSearchInput].forEach((input) => {
+        [els.searchInput].forEach((input) => {
           if (!input) return;
           input.setAttribute("aria-expanded", "false");
           input.removeAttribute("aria-activedescendant");
@@ -12909,7 +13042,7 @@
 
       function syncSearchInputs(value) {
         if (els.searchInput && els.searchInput.value !== value) els.searchInput.value = value;
-        if (els.homeSearchInput && els.homeSearchInput.value !== value) els.homeSearchInput.value = value;
+        els.searchInput?.closest(".topbar-search-field")?.setAttribute("data-has-value", value ? "true" : "false");
       }
 
       function sortItemsInPlace(items) {
@@ -15234,6 +15367,19 @@
           input?.addEventListener("focus", () => setSettingsSearchExpanded(field, true));
           input?.addEventListener("blur", () => scheduleSettingsSearchCollapse(field));
           input?.addEventListener("keydown", (event) => {
+            const popup = els.settingsSearchSuggestionPopup;
+            if ((event.key === "ArrowDown" || event.key === "ArrowUp") && popup?.classList.contains("open")) {
+              event.preventDefault();
+              const options = [...popup.querySelectorAll("[data-settings-search-suggestion]")];
+              const current = options.findIndex((option) => option.classList.contains("active"));
+              const next = (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+              options.forEach((option, index) => option.classList.toggle("active", index === next));
+              return;
+            }
+            if (event.key === "Enter" && popup?.classList.contains("open")) {
+              const active = popup.querySelector("[data-settings-search-suggestion].active") || popup.querySelector("[data-settings-search-suggestion]");
+              if (active) { event.preventDefault(); active.click(); return; }
+            }
             if (event.key !== "Escape" || input.value) return;
             event.preventDefault();
             event.stopPropagation();
@@ -15241,6 +15387,29 @@
             field.classList.remove("is-expanded");
           });
         });
+      }
+
+      function showSettingsSearchSuggestions(input) {
+        const popup = els.settingsSearchSuggestionPopup;
+        const kind = input?.dataset.settingsSuggestionKind;
+        const query = String(input?.value || "").trim().toLowerCase();
+        if (!popup || !kind || !query || document.activeElement !== input) { popup?.classList.remove("open"); return; }
+        const candidates = kind === "source"
+          ? appState.libraries.map((library) => ({ label: library.name || library.rootPath, sublabel: library.rootPath }))
+          : kind === "project"
+            ? groupedAgentScopesForSettings().map((group) => ({ label: group.displayName, sublabel: group.rootPath }))
+            : appState.discoveredArtifactSkills.map((skill) => ({ label: skill.name, sublabel: skill.outputPath || skill.manifestPath || "" }));
+        const values = candidates.filter((item) => `${item.label}\n${item.sublabel}`.toLowerCase().includes(query)).slice(0, 8);
+        if (!values.length) { popup.classList.remove("open"); return; }
+        popup.innerHTML = values.map((item, index) => `<div class="recent-search-option ${index === 0 ? "active" : ""}" role="option" data-settings-search-suggestion="${index}" data-settings-search-value="${escapeAttribute(item.label)}"><span class="recent-search-text">${escapeHtml(item.label)}</span>${item.sublabel ? `<span class="muted">${escapeHtml(item.sublabel)}</span>` : ""}</div>`).join("");
+        popup.querySelectorAll("[data-settings-search-suggestion]").forEach((node) => node.addEventListener("click", () => {
+          input.value = node.dataset.settingsSearchValue || "";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          popup.classList.remove("open");
+          input.focus();
+        }));
+        positionRecentSearchPopup(input, popup);
+        popup.classList.add("open");
       }
 
       function bindSettingsSectionSwitchesOnce() {
@@ -16376,7 +16545,7 @@
         if (command === "set_html_runtime_host_visibility_command") {
           return true;
         }
-        if (command === "attach_html_runtime_controls_overlay_command") {
+        if (command === "attach_html_runtime_controls_overlay_command" || command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") {
           return true;
         }
         if (command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command") {
@@ -16558,6 +16727,197 @@
         return getOpenTabs().find((tab) => tab.id === appState.activeTabId) || null;
       }
 
+      function currentDocumentFindEditor() {
+        const activeTab = getActiveTab();
+        return activeTab?.preview?.fileType === "markdown"
+          && activeTab.id === appState.activeMarkdownEditorTabId
+          ? appState.activeMarkdownEditor
+          : null;
+      }
+
+      function activeDocumentSearchKind() {
+        const tab = getActiveTab();
+        if (tab?.preview?.fileType === "markdown" && tab.id === appState.activeMarkdownEditorTabId) return "markdown";
+        if (tab?.preview?.fileType === "html-runtime") return "html";
+        return null;
+      }
+
+      function openActiveDocumentFind() {
+        const kind = activeDocumentSearchKind();
+        if (kind === "markdown") {
+          currentDocumentFindEditor()?.openFind?.();
+          return true;
+        }
+        if (kind === "html") { openActiveHtmlFind().catch(() => {}); return true; }
+        return false;
+      }
+
+      function htmlFindOverlayBounds() {
+        const toolbar = els.documentToolbar?.getBoundingClientRect();
+        const viewer = els.viewerBody?.getBoundingClientRect();
+        // In runtime mode viewerBody itself does not scroll; the scrollbar is
+        // owned by the nested HTML child WebView. Reserve its native gutter
+        // explicitly so the find surface ends on the content side of it.
+        const runtimeScrollbarGutter = 14;
+        const right = Math.round(viewer
+          ? viewer.right - runtimeScrollbarGutter
+          : (toolbar?.right || window.innerWidth));
+        const width = Math.max(300, Math.min(560, right - 24));
+        // The native child must include the transient tooltip below the panel,
+        // otherwise WebKit clips it even when the HTML itself overflows.
+        const hasHistory = readHtmlFindHistory().length > 0;
+        return { x: Math.max(12, Math.round(right - width)), y: Math.max(8, Math.round((toolbar?.bottom || 0) + 8)), width, height: appState.htmlFind.replaceExpanded ? (hasHistory ? 148 : 112) : (hasHistory ? 112 : 76) };
+      }
+
+      const HTML_FIND_HISTORY_KEY = "nutbook.markdownFindHistory.v1";
+      function readHtmlFindHistory() {
+        try {
+          const values = JSON.parse(window.localStorage?.getItem(HTML_FIND_HISTORY_KEY) || "[]");
+          return Array.isArray(values) ? values.filter((value) => typeof value === "string" && value.trim()).slice(0, 3) : [];
+        } catch (_) { return []; }
+      }
+
+      function recordHtmlFindHistory(value) {
+        const query = String(value || "").trim();
+        if (!query) return;
+        try {
+          const next = [query, ...readHtmlFindHistory().filter((item) => item.toLocaleLowerCase() !== query.toLocaleLowerCase())].slice(0, 3);
+          window.localStorage?.setItem(HTML_FIND_HISTORY_KEY, JSON.stringify(next));
+        } catch (_) {}
+      }
+
+      function htmlFindLabels() {
+        return {
+          query: t("markdown.find"),
+          findPlaceholder: t("markdown.findPlaceholder"),
+          matchCase: t("markdown.matchCase"),
+          previousMatch: t("markdown.previousMatch"),
+          nextMatch: t("markdown.nextMatch"),
+          showReplace: t("markdown.showReplace"),
+          closeFind: t("markdown.closeFind"),
+          replace: t("markdown.replace"),
+          replaceAll: t("markdown.replaceAll"),
+          replacePlaceholder: t("markdown.replacePlaceholder"),
+          recentFinds: t("markdown.recentFinds")
+        };
+      }
+
+      function activeHtmlFindContentPayload() {
+        const tab = getActiveTab();
+        if (tab?.preview?.fileType !== "html-runtime" || appState.htmlFind.itemId !== tab.id) return null;
+        return {
+          itemId: tab.id,
+          canReplace: appState.htmlEditSession?.itemId === tab.id,
+          replaceExpanded: appState.htmlFind.replaceExpanded,
+          query: appState.htmlFind.query,
+          count: appState.htmlFind.count,
+          caseSensitive: appState.htmlFind.caseSensitive,
+          labels: htmlFindLabels(),
+          history: readHtmlFindHistory()
+        };
+      }
+
+      function htmlFindContentKey(payload) {
+        return payload ? JSON.stringify(payload) : null;
+      }
+
+      function queueActiveHtmlFindSurfaceSync({ attach = false } = {}) {
+        const itemId = appState.htmlFind.itemId;
+        const epoch = appState.htmlFindOverlayEpoch;
+        if (!itemId) return Promise.resolve(false);
+        const run = async () => {
+          if (appState.htmlFindOverlayEpoch !== epoch || appState.htmlFind.itemId !== itemId) {
+            return false;
+          }
+          const payload = activeHtmlFindContentPayload();
+          if (!payload || payload.itemId !== itemId) {
+            return false;
+          }
+          const contentKey = htmlFindContentKey(payload);
+          if (!attach && appState.htmlFindOverlayLastContentKey === contentKey) return true;
+          const bounds = attach ? htmlFindOverlayBounds() : null;
+          const result = await invoke(
+            attach ? "attach_html_find_overlay_command" : "update_html_find_overlay_command",
+            attach ? { ...payload, bounds } : payload
+          );
+          if (appState.htmlFindOverlayEpoch !== epoch || appState.htmlFind.itemId !== itemId || getActiveTab()?.id !== itemId) {
+            if (attach) await invoke("set_html_find_overlay_visibility_command", { itemId, visible: false }).catch(() => false);
+            return false;
+          }
+          if (result === false) return false;
+          appState.htmlFindOverlayLastContentKey = contentKey;
+          if (attach) appState.htmlFindOverlayLastBoundsKey = JSON.stringify(bounds);
+          return true;
+        };
+        const queued = appState.htmlFindOverlaySyncLane.then(run, run);
+        appState.htmlFindOverlaySyncLane = queued.catch(() => false);
+        return queued;
+      }
+
+      async function openActiveHtmlFind() {
+        const tab = getActiveTab();
+        if (tab?.preview?.fileType !== "html-runtime") return false;
+        if (appState.htmlFind.itemId !== tab.id) {
+          appState.htmlFindOverlayEpoch += 1;
+          appState.htmlFindOverlayLastContentKey = null;
+          appState.htmlFindOverlayLastBoundsKey = null;
+        }
+        appState.htmlFind.itemId = tab.id;
+        return queueActiveHtmlFindSurfaceSync({ attach: true });
+      }
+
+      function updateActiveHtmlFindContent() {
+        return queueActiveHtmlFindSurfaceSync({ attach: false });
+      }
+
+      window.__NUTBOOK_OPEN_HTML_FIND__ = (itemId) => {
+        if (getActiveTab()?.id === itemId) openActiveHtmlFind().catch(() => {});
+      };
+
+      async function closeActiveHtmlFind() {
+        const itemId = appState.htmlFind.itemId;
+        recordHtmlFindHistory(appState.htmlFind.query);
+        appState.htmlFind = { itemId: null, query: "", caseSensitive: false, replaceExpanded: false, count: "0/0" };
+        appState.htmlFindOverlayEpoch += 1;
+        appState.htmlFindOverlayLastContentKey = null;
+        appState.htmlFindOverlayLastBoundsKey = null;
+        if (itemId) await invoke("eval_html_runtime_script_command", { itemId, script: "document.getElementById('nutbook-html-find-selection')?.remove();" }).catch(() => {});
+        await appState.htmlFindOverlaySyncLane.catch(() => false);
+        if (itemId) await invoke("set_html_find_overlay_visibility_command", { itemId, visible: false }).catch(() => {});
+      }
+
+      window.__NUTBOOK_HANDLE_HTML_FIND_ACTION__ = async (payload) => {
+        const tab = getActiveTab();
+        if (!payload || tab?.id !== payload.itemId || tab.preview?.fileType !== "html-runtime" || appState.htmlFind.itemId !== payload.itemId) return;
+        if (payload.action === "close") { await closeActiveHtmlFind(); return; }
+        appState.htmlFind.itemId = payload.itemId;
+        appState.htmlFind.query = String(payload.query || "");
+        appState.htmlFind.caseSensitive = Boolean(payload.caseSensitive);
+        appState.htmlFind.replaceExpanded = Boolean(payload.replaceExpanded);
+        if (payload.action === "layout") {
+          appState.htmlFindOverlayLastBoundsKey = null;
+          await updateActiveHtmlFindContent();
+          scheduleRuntimeHostSync();
+          return;
+        }
+        const query = appState.htmlFind.query;
+        const canReplace = appState.htmlEditSession?.itemId === tab.id;
+        if (query && ["query", "next", "prev", "replace", "replace_all"].includes(payload.action)) {
+          const backwards = payload.action === "prev";
+          const action = payload.action;
+          const replacement = String(payload.replacement || "");
+          const script = `;(()=>{const q=${JSON.stringify(query)}, cs=${Boolean(payload.caseSensitive)}, action=${JSON.stringify(action)}, replacement=${JSON.stringify(replacement)}, itemId=${tab.id};let style=document.getElementById('nutbook-html-find-selection');if(!style){style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{background:rgba(255,159,67,.68)!important;color:inherit!important}::-moz-selection{background:rgba(255,159,67,.68)!important;color:inherit!important}';document.head.append(style);}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0, at=0;while(needle && (at=source.indexOf(needle,at))>=0){total++;at+=Math.max(1,needle.length);}let changed=0;const find=()=>window.find(q,cs,${backwards},true,false,false,false);if(action==='replace'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()&&find()){changed=document.execCommand('insertText',false,replacement)?1:0;}else if(action==='replace_all'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()){for(let i=0;i<1000&&find();i++){if(!document.execCommand('insertText',false,replacement))break;changed++;}}else{find();}document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({itemId,total,changed});})();`;
+          await invoke("eval_html_runtime_script_command", { itemId: tab.id, script });
+        }
+      };
+
+      window.__NUTBOOK_HANDLE_HTML_FIND_RESULT__ = (payload) => {
+        if (!payload || appState.htmlFind.itemId !== payload.itemId) return;
+        const total = Number(payload.total || 0);
+        appState.htmlFind.count = total ? `1/${total}` : "0/0";
+        updateActiveHtmlFindContent().catch(() => {});
+      };
+
       function getOpenTabs() {
         return [...appState.tabs, ...appState.runtimeSessions];
       }
@@ -16566,25 +16926,52 @@
         return getOpenTabs().find((tab) => tab.id === tabId) || null;
       }
 
-      async function scheduleRuntimeCleanupAfterTabSwitch(previousTabId, nextTabId = null) {
-        if (!previousTabId || previousTabId === nextTabId) return;
-        const previousTab = getOpenTab(previousTabId);
-        if (previousTab?.preview?.fileType !== "html-runtime") return;
-        await cancelHtmlRemoveConfirmOverlay(previousTabId, { restore: false }).catch(() => {});
-        appState.runtimeControlsOverlayExpanded = false;
-        appState.runtimeControlsOverlayMode = "default";
-        cleanupRuntimeHostSync();
-        cancelPendingRuntimeSurfaceHide(previousTabId);
-        const token = nextRuntimeSurfaceToken(previousTabId);
-        await syncHtmlEditReadonlyPatchSurfaceToken(previousTabId, token).catch(() => {});
-        await hideRuntimeSessionSurfaces(previousTabId, { force: true, token });
-        if (appState.activeRuntimeHostId === previousTabId) {
+      function nextRuntimeNavigationEpoch() {
+        appState.runtimeNavigationEpoch += 1;
+        return appState.runtimeNavigationEpoch;
+      }
+
+      function isRuntimeNavigationCurrent(epoch) {
+        return epoch === appState.runtimeNavigationEpoch;
+      }
+
+      async function convergeInactiveRuntimeSurfaces(nextTabId, navigationEpoch) {
+        const nextTab = getOpenTab(nextTabId);
+        const keepItemId = nextTab?.preview?.fileType === "html-runtime" ? nextTab.id : null;
+        const staleItemIds = appState.runtimeSessions
+          .map((session) => session.id)
+          .filter((itemId) => itemId !== keepItemId);
+        for (const itemId of staleItemIds) {
+          if (!isRuntimeNavigationCurrent(navigationEpoch)) return false;
+          const token = nextRuntimeSurfaceToken(itemId);
+          await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
+          if (!isRuntimeNavigationCurrent(navigationEpoch)) return false;
+          await hideRuntimeSessionSurfaces(itemId, {
+            force: true,
+            token,
+            navigationEpoch,
+            keepItemId
+          });
+          if (!isRuntimeNavigationCurrent(navigationEpoch)) return false;
+        }
+        if (appState.activeRuntimeHostId !== keepItemId) {
           appState.activeRuntimeHostId = null;
           appState.runtimeHostLastBoundsKey = null;
         }
-        // 旧 attach/set_bounds IPC 仍可能在强制 hide 后晚到；保留分段复查，
-        // 但目标页面渲染不再只依赖这些 fire-and-forget timer。
-        scheduleRuntimeSurfaceHide(previousTabId).catch(() => {});
+        return true;
+      }
+
+      async function scheduleRuntimeCleanupAfterTabSwitch(previousTabId, nextTabId = null) {
+        const navigationEpoch = nextRuntimeNavigationEpoch();
+        const previousTab = getOpenTab(previousTabId);
+        if (previousTab?.preview?.fileType === "html-runtime") {
+          await cancelHtmlRemoveConfirmOverlay(previousTabId, { restore: false }).catch(() => {});
+        }
+        if (!isRuntimeNavigationCurrent(navigationEpoch)) return false;
+        appState.runtimeControlsOverlayExpanded = false;
+        appState.runtimeControlsOverlayMode = "default";
+        cleanupRuntimeHostSync();
+        return convergeInactiveRuntimeSurfaces(nextTabId, navigationEpoch);
       }
 
       async function isOpenTabSourceMissing(tab) {
@@ -16659,7 +17046,6 @@
             appState.activeTabId = nextActiveTabId;
           }
           cleanupRuntimeHostSync();
-          cancelPendingRuntimeSurfaceHide(tabId);
           const closingSurfaceToken = nextRuntimeSurfaceToken(tabId);
           await syncHtmlEditReadonlyPatchSurfaceToken(tabId, closingSurfaceToken).catch(() => {});
           await hideRuntimeSessionSurfaces(tabId, { force: true });
@@ -16670,7 +17056,7 @@
           } catch (error) {
             setStatus(`关闭 HTML Runtime 失败：${normalizeError(error)}`, "error");
           }
-          cancelPendingRuntimeSurfaceHide(tabId);
+          appState.runtimeHiddenSurfaceIds.delete(tabId);
           appState.runtimeSessions = appState.runtimeSessions.filter((session) => session.id !== tabId);
         } else {
           appState.tabs = appState.tabs.filter((tab) => tab.id !== tabId);
@@ -17587,6 +17973,7 @@
                   ${thumbnailNode(item)}
                   <span class="item-main">
                     <span class="item-card-title">${escapeHtml(item.fileName)}</span>
+                    ${appState.appliedSearch && Array.isArray(item.snippets) && item.snippets[0] ? `<span class="item-search-snippet" data-i18n-skip>${escapeHtml(item.snippets[0])}</span>` : ""}
                   </span>
                 </button>
               </article>
@@ -17989,6 +18376,41 @@ if (!chipTipController) {
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
         const isEditingActiveHtml = isHtmlRuntime && appState.htmlEditSession?.itemId === tab?.id;
+        const localFind = isMarkdown || isHtmlRuntime;
+        document.body.classList.toggle("html-runtime-topbar-tooltips", isHtmlRuntime);
+        // HTML runtime uses the native topbar tooltip island.  The DOM copies
+        // must be physically hidden (not only visually overridden), otherwise
+        // a child runtime can expose the tail of the search tooltip beneath
+        // the rightmost native tooltip during a fast hover.
+        const domTopbarTooltips = [
+          els.searchInput?.closest(".topbar-search-field")?.querySelector(".topbar-search-tooltip"),
+          els.addFolderButtonTopbar?.querySelector(".topbar-button-tooltip"),
+          els.addFileButtonTopbar?.querySelector(".topbar-button-tooltip"),
+        ];
+        domTopbarTooltips.forEach((tooltip) => {
+          if (!tooltip) return;
+          tooltip.hidden = isHtmlRuntime;
+          tooltip.setAttribute("aria-hidden", isHtmlRuntime ? "true" : "false");
+        });
+        if (isHtmlRuntime && !appState.htmlTopbarTooltipWarm) {
+          appState.htmlTopbarTooltipWarm = true;
+        }
+        if (els.searchInput) {
+          els.searchInput.placeholder = localFind ? t("markdown.find") : t("home.searchPlaceholder");
+          els.searchInput.setAttribute("aria-label", localFind ? t("markdown.find") : t("home.searchPlaceholder"));
+          els.searchInput.closest(".topbar-search-field")?.setAttribute("data-search-scope", localFind ? "document" : "library");
+          const searchField = els.searchInput.closest(".topbar-search-field");
+          if (searchField) {
+            searchField.setAttribute("data-native-tooltip", isHtmlRuntime ? "true" : "false");
+            if (localFind) { searchField.setAttribute("role", "button"); searchField.tabIndex = 0; }
+            else { searchField.removeAttribute("role"); searchField.removeAttribute("tabindex"); }
+          }
+        [els.addFolderButtonTopbar, els.addFileButtonTopbar].forEach((button) => {
+          button?.setAttribute("data-native-tooltip", isHtmlRuntime ? "true" : "false");
+        });
+          const tooltip = els.searchInput.parentElement?.querySelector(".topbar-search-tooltip");
+          if (tooltip) tooltip.textContent = localFind ? t("markdown.findBody") : `${t("home.searchPlaceholder").replace(/\.\.\.$/, "")}（⌘K）`;
+        }
         els.documentFavoriteButton.disabled = !tab;
         els.documentMoreButton.disabled = !isMarkdown && !isHtmlRuntime;
         // 主操作按文件类型投影：Markdown=保存，HTML runtime=编辑/完成。
@@ -18022,6 +18444,9 @@ if (!chipTipController) {
         }
         els.documentFavoriteButton.classList.toggle("active", Boolean(tab?.item?.isFavorite));
         els.toolbarActions?.classList.toggle("host-overlay-mode", Boolean(isHtmlRuntime));
+        if (isHtmlRuntime && appState.htmlFind.itemId === tab?.id) {
+          updateActiveHtmlFindContent().catch(() => {});
+        }
       }
 
       async function toggleActiveHtmlRuntimePresentationMode() {
@@ -18549,6 +18974,7 @@ if (!chipTipController) {
       function cleanupRuntimeHostSync(options = {}) {
         if (options.invalidate !== false) {
           appState.runtimeHostSyncRunId += 1;
+          appState.runtimeControlsOverlayLastKey = null;
         }
         appState.runtimeHostSyncPending = false;
         if (appState.runtimeHostSyncFrame) {
@@ -18558,20 +18984,23 @@ if (!chipTipController) {
         if (appState.runtimeHostResizeObserver) {
           appState.runtimeHostResizeObserver.disconnect();
           appState.runtimeHostResizeObserver = null;
+          appState.runtimeHostResizeObserverTarget = null;
         }
       }
 
       async function setRuntimeHostVisibility(itemId, visible) {
         try {
-          await invoke("set_html_runtime_host_visibility_command", { itemId, visible });
+          return Boolean(await invoke("set_html_runtime_host_visibility_command", { itemId, visible }));
         } catch (_) {
+          return false;
         }
       }
 
       async function setRuntimeControlsOverlayVisibility(itemId, visible) {
         try {
-          await invoke("set_html_runtime_controls_overlay_visibility_command", { itemId, visible });
+          return Boolean(await invoke("set_html_runtime_controls_overlay_visibility_command", { itemId, visible }));
         } catch (_) {
+          return false;
         }
       }
 
@@ -18593,9 +19022,10 @@ if (!chipTipController) {
         return next;
       }
 
-      function isCurrentItemOpenToken(itemId, token) {
+      function isCurrentItemOpenToken(itemId, token, navigationEpoch = null) {
         if (!itemId || !token) return false;
-        return appState.itemOpenTokens.get(itemId) === token;
+        return appState.itemOpenTokens.get(itemId) === token
+          && (navigationEpoch == null || isRuntimeNavigationCurrent(navigationEpoch));
       }
 
       function invalidateItemOpenToken(itemId) {
@@ -18622,7 +19052,7 @@ if (!chipTipController) {
 
       async function markRuntimeSurfaceActive(itemId) {
         if (!itemId) return;
-        cancelPendingRuntimeSurfaceHide(itemId);
+        appState.runtimeHiddenSurfaceIds.delete(itemId);
         const surfaceToken = nextRuntimeSurfaceToken(itemId);
         await syncHtmlEditReadonlyPatchSurfaceToken(itemId, surfaceToken).catch(() => {});
       }
@@ -18631,27 +19061,43 @@ if (!chipTipController) {
         if (!itemId) return;
         const force = Boolean(options.force);
         const token = options.token ?? currentRuntimeSurfaceToken(itemId);
+        const cleanupIntentIsCurrent = () => (
+          (options.navigationEpoch == null || isRuntimeNavigationCurrent(options.navigationEpoch))
+          && options.keepItemId !== itemId
+        );
+        if (!cleanupIntentIsCurrent()) return;
+        if (appState.runtimeHiddenSurfaceIds.has(itemId) && !options.recoverLateAttach) return;
         if (!force && isRuntimeSurfaceActive(itemId)) {
-          cancelPendingRuntimeSurfaceHide(itemId);
           return;
         }
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
+        if (appState.htmlFind.itemId === itemId) await closeActiveHtmlFind();
+        if (!cleanupIntentIsCurrent()) return;
+        if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
+        await invoke("set_html_find_trigger_tooltip_visibility_command", { itemId, visible: false }).catch(() => false);
+        if (!cleanupIntentIsCurrent()) return;
+        if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
+        if (appState.activeRuntimeHostId === itemId) {
+          appState.runtimeControlsOverlayLastKey = null;
+        }
         await setRuntimeControlsOverlayVisibility(itemId, false);
+        if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         const previewSession = appState.htmlEditSession;
         if (!options.preservePresentationPreview && previewSession?.itemId === itemId) {
           await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId: previewSession.runtimeSessionId, generation: previewSession.generation, previewInstanceId: previewSession.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
         }
+        if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         await setRuntimeHostVisibility(itemId, false);
+        if (cleanupIntentIsCurrent()) appState.runtimeHiddenSurfaceIds.add(itemId);
       }
 
       async function hideStaleRuntimeHostSync(runId, itemId) {
         if (!appState.runtimeSurfacesSuspended && isRuntimeHostSyncCurrent(runId, itemId)) return false;
-        cancelPendingRuntimeSurfaceHide(itemId);
         const token = nextRuntimeSurfaceToken(itemId);
         await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
-        await hideRuntimeSessionSurfaces(itemId, { force: true, token });
+        await hideRuntimeSessionSurfaces(itemId, { force: true, token, recoverLateAttach: true });
         if (appState.activeRuntimeHostId === itemId) {
           appState.activeRuntimeHostId = null;
           appState.runtimeHostLastBoundsKey = null;
@@ -18677,7 +19123,6 @@ if (!chipTipController) {
           ? Promise.resolve()
           : cancelHtmlRemoveConfirmOverlay(removeConfirmItemId, { restore: false });
         const suspendPromise = Promise.all([removeConfirmClose, ...appState.runtimeSessions.map(async (session) => {
-          cancelPendingRuntimeSurfaceHide(session.id);
           const token = nextRuntimeSurfaceToken(session.id);
           await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
           await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
@@ -18712,33 +19157,8 @@ if (!chipTipController) {
         refreshHtmlEditSectionNavigation(editSession);
       }
 
-      var _runtimeSurfaceHideTimers = {};
-      async function scheduleRuntimeSurfaceHide(itemId) {
-        if (!itemId) return;
-        cancelPendingRuntimeSurfaceHide(itemId);
-        var token = nextRuntimeSurfaceToken(itemId);
-        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
-        var runId = `${token}:${Date.now()}:${Math.random()}`;
-        var timers = [];
-        [0, 80, 240, 520].forEach(function(delay) {
-          var timer = window.setTimeout(function() {
-            if (!_runtimeSurfaceHideTimers[itemId] || _runtimeSurfaceHideTimers[itemId].runId !== runId) return;
-            hideRuntimeSessionSurfaces(itemId, { token }).catch(function() {});
-          }, delay);
-          timers.push(timer);
-        });
-        _runtimeSurfaceHideTimers[itemId] = { runId: runId, timers: timers };
-      }
-      function cancelPendingRuntimeSurfaceHide(itemId) {
-        if (!itemId || !_runtimeSurfaceHideTimers[itemId]) return;
-        _runtimeSurfaceHideTimers[itemId].timers.forEach(function(timer) {
-          window.clearTimeout(timer);
-        });
-        delete _runtimeSurfaceHideTimers[itemId];
-      }
-
       async function hideInactiveRuntimeHosts(activeItemId = null, options = {}) {
-        cleanupRuntimeHostSync({ invalidate: options.invalidate !== false });
+        if (options.invalidate !== false) cleanupRuntimeHostSync();
         const sessionsToHide = appState.runtimeSessions.filter((session) => activeItemId == null || session.id !== activeItemId);
         await Promise.all(sessionsToHide.map(async (session) => {
           const token = nextRuntimeSurfaceToken(session.id);
@@ -18760,6 +19180,20 @@ if (!chipTipController) {
           width: Math.round(rect.width),
           height: Math.round(rect.height)
         };
+      }
+
+      function ensureRuntimeHostResizeObserver(mount) {
+        if (!mount || typeof ResizeObserver !== "function") return;
+        if (appState.runtimeHostResizeObserver && appState.runtimeHostResizeObserverTarget === mount) return;
+        if (!appState.runtimeHostResizeObserver) {
+          appState.runtimeHostResizeObserver = new ResizeObserver(() => {
+            scheduleRuntimeHostSync();
+          });
+        } else {
+          appState.runtimeHostResizeObserver.disconnect();
+        }
+        appState.runtimeHostResizeObserverTarget = mount;
+        appState.runtimeHostResizeObserver.observe(mount);
       }
 
       function runtimeControlsOverlayHeight() {
@@ -18830,11 +19264,40 @@ if (!chipTipController) {
         };
       }
 
+      function runtimeControlsOverlaySyncKey(tab, bounds, isFullscreen) {
+        return JSON.stringify({
+          itemId: tab.id,
+          bounds,
+          isFavorite: Boolean(tab.item?.isFavorite),
+          isFullscreen: Boolean(isFullscreen),
+          isEditing: appState.htmlEditSession?.itemId === tab.id,
+          isPrimaryBusy: primaryActionBusyItemId != null,
+          customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
+          availableTags: appState.tags,
+          skillTag: tab.item?.skillBinding?.displayName ?? null,
+          typeTag: "HTML",
+          customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
+          sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : [],
+          mode: appState.runtimeControlsOverlayMode,
+          expanded: appState.runtimeControlsOverlayExpanded
+        });
+      }
+
       function isRuntimeHostSyncCurrent(runId, itemId = null) {
         if (runId != null && runId !== appState.runtimeHostSyncRunId) return false;
         if (itemId == null) return true;
         const activeTab = getActiveTab();
         return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
+      }
+
+      async function syncActiveHtmlFindBounds(tab, runId = null) {
+        if (appState.htmlFind.itemId !== tab?.id) return;
+        const bounds = htmlFindOverlayBounds();
+        const boundsKey = JSON.stringify(bounds);
+        if (appState.htmlFindOverlayLastBoundsKey === boundsKey) return;
+        const updated = await invoke("set_html_find_overlay_bounds_command", { itemId: tab.id, bounds });
+        if (updated === false || !isRuntimeHostSyncCurrent(runId, tab.id) || appState.htmlFind.itemId !== tab.id) return;
+        appState.htmlFindOverlayLastBoundsKey = boundsKey;
       }
 
       async function syncActiveRuntimeHost(runId = null) {
@@ -18851,11 +19314,9 @@ if (!chipTipController) {
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
         if (isHtmlEditBlockingOverlayForItem(tab.id)) {
-          cancelPendingRuntimeSurfaceHide(tab.id);
           nextRuntimeSurfaceToken(tab.id);
           return;
         }
-        cancelPendingRuntimeSurfaceHide(tab.id);
         await markRuntimeSurfaceActive(tab.id);
         const mount = document.getElementById("runtimeHostMount");
         if (!mount) return;
@@ -18901,11 +19362,42 @@ if (!chipTipController) {
         }
 
         if (appState.runtimeFullscreenItemId === tab.id) {
+          const fullscreenControlsBounds = runtimeFullscreenHintOverlayBounds(bounds);
+          const fullscreenControlsKey = runtimeControlsOverlaySyncKey(tab, fullscreenControlsBounds, true);
+          if (appState.runtimeControlsOverlayLastKey !== fullscreenControlsKey) {
+            await invoke("attach_html_runtime_controls_overlay_command", {
+              itemId: tab.id,
+              bounds: fullscreenControlsBounds,
+              isFavorite: Boolean(tab.item?.isFavorite),
+              isFullscreen: true,
+              isEditing: appState.htmlEditSession?.itemId === tab.id,
+              isPrimaryBusy: primaryActionBusyItemId != null,
+              customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
+              availableTags: appState.tags,
+              skillTag: tab.item?.skillBinding?.displayName ?? null,
+              typeTag: "HTML",
+              customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
+              sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
+            });
+            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+            await setRuntimeControlsOverlayVisibility(tab.id, true);
+            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+            appState.runtimeControlsOverlayLastKey = fullscreenControlsKey;
+          }
+          await syncActiveHtmlFindBounds(tab, runId);
+          if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+          ensureRuntimeHostResizeObserver(mount);
+          return;
+        }
+
+        if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+        const controlsKey = runtimeControlsOverlaySyncKey(tab, controlsBounds, false);
+        if (appState.runtimeControlsOverlayLastKey !== controlsKey) {
           await invoke("attach_html_runtime_controls_overlay_command", {
             itemId: tab.id,
-            bounds: runtimeFullscreenHintOverlayBounds(bounds),
+            bounds: controlsBounds,
             isFavorite: Boolean(tab.item?.isFavorite),
-            isFullscreen: true,
+            isFullscreen: false,
             isEditing: appState.htmlEditSession?.itemId === tab.id,
             isPrimaryBusy: primaryActionBusyItemId != null,
             customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
@@ -18918,42 +19410,15 @@ if (!chipTipController) {
           if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           await setRuntimeControlsOverlayVisibility(tab.id, true);
           if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-          if (!appState.runtimeHostResizeObserver) {
-            appState.runtimeHostResizeObserver = new ResizeObserver(() => {
-              scheduleRuntimeHostSync();
-            });
-          }
-          appState.runtimeHostResizeObserver.disconnect();
-          appState.runtimeHostResizeObserver.observe(mount);
-          return;
+          appState.runtimeControlsOverlayLastKey = controlsKey;
+          // Do not create the transparent find child until the user explicitly
+          // opens find. Cold-start A/B proved that staging it beneath the host
+          // can poison unrelated host/controls backing in the window compositor.
         }
 
+        await syncActiveHtmlFindBounds(tab, runId);
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
-        await invoke("attach_html_runtime_controls_overlay_command", {
-          itemId: tab.id,
-          bounds: controlsBounds,
-          isFavorite: Boolean(tab.item?.isFavorite),
-          isFullscreen: appState.runtimeFullscreenItemId === tab.id,
-          isEditing: appState.htmlEditSession?.itemId === tab.id,
-          isPrimaryBusy: primaryActionBusyItemId != null,
-          customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
-          availableTags: appState.tags,
-          skillTag: tab.item?.skillBinding?.displayName ?? null,
-          typeTag: "HTML",
-          customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
-          sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
-        });
-        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-        await setRuntimeControlsOverlayVisibility(tab.id, true);
-        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-
-        if (!appState.runtimeHostResizeObserver) {
-          appState.runtimeHostResizeObserver = new ResizeObserver(() => {
-            scheduleRuntimeHostSync();
-          });
-        }
-        appState.runtimeHostResizeObserver.disconnect();
-        appState.runtimeHostResizeObserver.observe(mount);
+        ensureRuntimeHostResizeObserver(mount);
       }
 
       function scheduleRuntimeHostSync() {
@@ -19414,14 +19879,18 @@ if (!chipTipController) {
         return detail?.fileType === "html" ? "html-runtime" : "content-tab";
       }
 
-      async function openHtmlRuntimeSession(detail, item, openToken) {
+      async function openHtmlRuntimeSession(detail, item, openToken, navigationEpoch) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
         const session = await invoke("open_html_window", { itemId: detail.id });
-        if (!isCurrentItemOpenToken(detail.id, openToken)) {
-          try {
-            await invoke("close_html_window", { itemId: detail.id });
-          } catch (_) {
+        if (!isCurrentItemOpenToken(detail.id, openToken, navigationEpoch)) {
+          // A newer intent for the same item owns the shared runtime session;
+          // an older completion must not close it underneath the new owner.
+          if (appState.itemOpenTokens.get(detail.id) === openToken) {
+            try {
+              await invoke("close_html_window", { itemId: detail.id });
+            } catch (_) {
+            }
           }
           return;
         }
@@ -19457,6 +19926,8 @@ if (!chipTipController) {
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
         setSidebarCollapsed(true);
+        if (!(await convergeInactiveRuntimeSurfaces(detail.id, navigationEpoch))) return;
+        if (!isCurrentItemOpenToken(detail.id, openToken, navigationEpoch)) return;
         renderTabs();
         renderViewer();
         focusMainWebviewSoon();
@@ -19464,11 +19935,11 @@ if (!chipTipController) {
         setStatus(`已打开 HTML Runtime：${detail.fileName || item?.fileName}`, "ok");
       }
 
-      async function openMarkdownContentTab(itemId, item, detail, openToken) {
+      async function openMarkdownContentTab(itemId, item, detail, openToken, navigationEpoch) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
         const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
-        if (!isCurrentItemOpenToken(itemId, openToken)) return;
+        if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
         const tabItem = item || normalizeItemSummary(detail);
         const existing = appState.tabs.find((tab) => tab.id === itemId);
 
@@ -19495,6 +19966,8 @@ if (!chipTipController) {
         appState.isEditing = true;
         appState.markdownEditMode = "rich";
         appState.markdownEditorError = "";
+        if (!(await convergeInactiveRuntimeSurfaces(itemId, navigationEpoch))) return;
+        if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
         renderTabs();
         renderViewer();
         await loadItems();
@@ -19542,40 +20015,46 @@ if (!chipTipController) {
         setStatus(markdownOpeningStatus(item?.fileName), "warn");
       }
 
-      async function openArtifactRuntime(itemId, item, detail, openToken) {
+      async function openArtifactRuntime(itemId, item, detail, openToken, navigationEpoch) {
         if (artifactRuntimeType(detail) === "html-runtime") {
-          await openHtmlRuntimeSession(detail, item, openToken);
+          await openHtmlRuntimeSession(detail, item, openToken, navigationEpoch);
           return;
         }
 
-        await openMarkdownContentTab(itemId, item, detail, openToken);
+        await openMarkdownContentTab(itemId, item, detail, openToken, navigationEpoch);
       }
 
       async function openItem(itemId) {
         const previousTabId = appState.activeTabId;
         if (previousTabId !== itemId && !(await confirmHtmlEditLeaveIfNeeded(previousTabId))) return;
+        const navigationEpoch = nextRuntimeNavigationEpoch();
         const openToken = nextItemOpenToken(itemId);
         try {
           const item = appState.items.find((entry) => entry.id === itemId);
           if (!(await ensureItemStillAvailable(itemId, item))) {
             return;
           }
-          if (!isCurrentItemOpenToken(itemId, openToken)) return;
+          if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
+          if (previousTabId !== itemId) {
+            cleanupRuntimeHostSync();
+            if (!(await convergeInactiveRuntimeSurfaces(null, navigationEpoch))) return;
+          }
+          if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
           if (item?.fileType === "markdown") {
             openMarkdownLoadingTab(itemId, item);
           }
-          if (!isCurrentItemOpenToken(itemId, openToken)) return;
+          if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
           try {
             await invoke("mark_item_opened", { itemId });
           } catch (_) {
           }
-          if (!isCurrentItemOpenToken(itemId, openToken)) return;
+          if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
           const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId }));
-          if (!isCurrentItemOpenToken(itemId, openToken)) return;
+          if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
 
-          await openArtifactRuntime(itemId, item, detail, openToken);
+          await openArtifactRuntime(itemId, item, detail, openToken, navigationEpoch);
         } catch (error) {
-          if (!isCurrentItemOpenToken(itemId, openToken)) return;
+          if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
           const loadingTab = getOpenTab(itemId);
           if (loadingTab?.preview?.fileType === "markdown-loading") {
             appState.tabs = appState.tabs.filter((tab) => tab.id !== itemId);
@@ -21908,6 +22387,17 @@ if (!chipTipController) {
 
       function wireEvents() {
         setupWindowDragRegions();
+        document.addEventListener("keydown", async (event) => {
+          if (event.isComposing || event.keyCode === 229 || !(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "k") return;
+          const target = event.target;
+          const tag = target?.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+          event.preventDefault();
+          if (!els.mainShell.classList.contains("home-mode")) {
+            await showAllFilesHome({ confirmHtmlEdit: true, reload: false, updateStatus: false });
+          }
+          els.searchInput?.focus();
+        }, true);
         document.addEventListener("visibilitychange", () => {
           if (appState.htmlEditLeavePromptOpen) return;
           if (document.hidden) {
@@ -22001,7 +22491,7 @@ if (!chipTipController) {
         els.reloadLibrariesButton.addEventListener("click", loadLibraries);
         els.scanButton.addEventListener("click", scanLibrary);
         els.refreshListButton.addEventListener("click", scanLibrary);
-        [els.searchInput, els.homeSearchInput].forEach((input) => {
+        [els.searchInput].forEach((input) => {
           input?.addEventListener("compositionstart", () => {
             isComposingSearch = true;
           });
@@ -22014,6 +22504,11 @@ if (!chipTipController) {
             handleSearchInput(input);
           });
           input?.addEventListener("focus", () => {
+            const documentFindEditor = currentDocumentFindEditor();
+            if (documentFindEditor?.openFind) {
+              documentFindEditor.openFind({ query: input.value, focus: false });
+              return;
+            }
             // A2：focus 且输入为空时打开共享历史 popup（仅 home-mode）。
             openRecentSearchPopup(input);
           });
@@ -22029,6 +22524,10 @@ if (!chipTipController) {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               if (!isRecentSearchPopupOpen()) return;
               event.preventDefault();
+              if (els.recentSearchPopup?.dataset.searchMode === "suggestions") {
+                moveSearchSuggestionActive(event.key === "ArrowDown" ? 1 : -1);
+                return;
+              }
               moveRecentSearchActive(event.key === "ArrowDown" ? 1 : -1);
               return;
             }
@@ -22045,8 +22544,17 @@ if (!chipTipController) {
             }
             if (event.key !== "Enter") return;
             event.preventDefault();
+            const documentFindEditor = currentDocumentFindEditor();
+            if (documentFindEditor?.openFind) {
+              documentFindEditor.openFind({ query: input.value, focus: true });
+              return;
+            }
             clearTimeout(searchDebounceTimer);
             if (isRecentSearchPopupOpen()) {
+              if (els.recentSearchPopup?.dataset.searchMode === "suggestions") {
+                applySearchSuggestion(appState.searchSuggestionActiveIndex);
+                return;
+              }
               // listbox 路径：Enter 激活高亮的历史词（点击历史同样不重排历史）。
               const item = activeRecentSearchItem();
               if (item != null) {
@@ -22059,8 +22567,60 @@ if (!chipTipController) {
             executeSearch(input.value, { recordHistory: true });
           });
         });
+        const documentSearchButton = els.searchInput?.closest(".topbar-search-field");
+        let htmlFindTriggerTooltipTimer = null;
+        let htmlFindTriggerTooltipIntent = 0;
+        const hideHtmlFindTriggerTooltip = () => {
+          clearTimeout(htmlFindTriggerTooltipTimer);
+          htmlFindTriggerTooltipIntent += 1;
+          const itemId = getActiveTab()?.preview?.fileType === "html-runtime" ? getActiveTab()?.id : null;
+          if (itemId) invoke("set_html_find_trigger_tooltip_visibility_command", { itemId, visible: false }).catch(() => {});
+        };
+        const showHtmlTopbarNativeTooltip = (button, label, tooltipId) => {
+          const tab = getActiveTab();
+          if (!tab || tab.preview?.fileType !== "html-runtime") return;
+          clearTimeout(htmlFindTriggerTooltipTimer);
+          const intent = ++htmlFindTriggerTooltipIntent;
+          htmlFindTriggerTooltipTimer = setTimeout(() => {
+            if (intent !== htmlFindTriggerTooltipIntent || getActiveTab()?.id !== tab.id) return;
+            const rect = button.getBoundingClientRect(); const width = Math.max(96, Math.min(190, Math.ceil(label.length * 7 + 18)));
+            invoke("attach_html_find_trigger_tooltip_command", { itemId: tab.id, tooltipId, label, visible: true, bounds: { x: Math.round(rect.left + rect.width / 2 - width / 2), y: Math.round(rect.bottom + 8), width, height: 24 } }).catch(() => {});
+          }, 60);
+        };
+        const showHtmlFindTriggerTooltip = () => showHtmlTopbarNativeTooltip(documentSearchButton, t("markdown.findBody"), "search");
+        documentSearchButton?.addEventListener("pointerenter", showHtmlFindTriggerTooltip);
+        documentSearchButton?.addEventListener("pointerleave", hideHtmlFindTriggerTooltip);
+        documentSearchButton?.addEventListener("focusin", showHtmlFindTriggerTooltip);
+        documentSearchButton?.addEventListener("focusout", hideHtmlFindTriggerTooltip);
+        documentSearchButton?.addEventListener("click", (event) => {
+          if (!openActiveDocumentFind()) return;
+          hideHtmlFindTriggerTooltip();
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        const bindHtmlTopbarNativeTooltip = (button, labelKey, tooltipId) => {
+          if (!button) return;
+          const show = () => showHtmlTopbarNativeTooltip(button, t(labelKey), tooltipId);
+          button.addEventListener("pointerenter", show);
+          button.addEventListener("pointerleave", hideHtmlFindTriggerTooltip);
+          button.addEventListener("focusin", show);
+          button.addEventListener("focusout", hideHtmlFindTriggerTooltip);
+          button.addEventListener("click", hideHtmlFindTriggerTooltip);
+        };
+        bindHtmlTopbarNativeTooltip(els.addFolderButtonTopbar, "actions.addFolder", "folder");
+        bindHtmlTopbarNativeTooltip(els.addFileButtonTopbar, "actions.addFile", "file");
+        documentSearchButton?.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          if (!openActiveDocumentFind()) return;
+          event.preventDefault();
+        });
         // A2：单个共享 popup 的委托点击（历史词应用）；删除按钮已 stopPropagation，不会走到这里。
         els.recentSearchPopup?.addEventListener("click", (event) => {
+          const suggestion = event.target.closest("[data-search-suggestion]");
+          if (suggestion) {
+            applySearchSuggestion(Number(suggestion.dataset.searchSuggestion));
+            return;
+          }
           const option = event.target.closest(".recent-search-option");
           if (!option) return;
           applyRecentSearchItem(Number(option.dataset.recentIndex));
@@ -22227,10 +22787,12 @@ if (!chipTipController) {
         els.settingsSourceSearchInput?.addEventListener("input", () => {
           appState.settingsSourceSearch = els.settingsSourceSearchInput.value;
           renderSettingsPanel();
+          showSettingsSearchSuggestions(els.settingsSourceSearchInput);
         });
         els.settingsProjectSearchInput?.addEventListener("input", () => {
           appState.settingsProjectSearch = els.settingsProjectSearchInput.value;
           renderSettingsPanel();
+          showSettingsSearchSuggestions(els.settingsProjectSearchInput);
         });
         els.settingsProjectSortButton?.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -22241,6 +22803,7 @@ if (!chipTipController) {
         els.settingsSkillSearchInput?.addEventListener("input", () => {
           appState.settingsSkillSearch = els.settingsSkillSearchInput.value;
           renderSettingsPanel();
+          showSettingsSearchSuggestions(els.settingsSkillSearchInput);
         });
         els.settingsSkillSortButton?.addEventListener("click", (event) => {
           event.stopPropagation();

@@ -93,7 +93,8 @@
         applyLink: "应用链接",
         closeLinkInput: "关闭链接输入框",
         createTag: "新增标签",
-        addTag: "+ 标签"
+        addTag: "+ 标签",
+        close: "关闭"
       },
       settings: {
         title: "设置",
@@ -265,7 +266,7 @@
         recentFirst: "最近添加"
       },
       home: {
-        searchPlaceholder: "搜索文件...",
+        searchPlaceholder: "搜索资料库内容...",
         recentSearches: "最近搜索",
         removeRecentSearch: "删除搜索词 {word}",
         fileList: "文件列表",
@@ -408,6 +409,18 @@
         setAsCover: "设为封面",
         removeCover: "取消封面",
         coverBadge: "封面",
+        find: "查找",
+        findBody: "正文搜索",
+        findPlaceholder: "搜索正文内容…",
+        replacePlaceholder: "替换为…",
+        showReplace: "替换",
+        closeFind: "关闭查找",
+        recentFinds: "最近搜索",
+        replace: "替换",
+        replaceAll: "全部替换",
+        matchCase: "区分大小写",
+        previousMatch: "上一个匹配",
+        nextMatch: "下一个匹配",
         insertHeading1: "一级标题",
         insertHeading2: "二级标题",
         insertHeading3: "三级标题",
@@ -708,7 +721,8 @@
         applyLink: "Apply Link",
         closeLinkInput: "Close Link Input",
         createTag: "Create Tag",
-        addTag: "+ Tag"
+        addTag: "+ Tag",
+        close: "Close"
       },
       settings: {
         title: "Settings",
@@ -880,7 +894,7 @@
         recentFirst: "Recently Added"
       },
       home: {
-        searchPlaceholder: "Search files...",
+        searchPlaceholder: "Search library content...",
         recentSearches: "Recent searches",
         removeRecentSearch: "Remove search {word}",
         fileList: "File List",
@@ -1023,6 +1037,18 @@
         setAsCover: "Set as cover",
         removeCover: "Remove cover",
         coverBadge: "Cover",
+        find: "Find",
+        findBody: "Search document",
+        findPlaceholder: "Search document content…",
+        replacePlaceholder: "Replace with…",
+        showReplace: "Replace",
+        closeFind: "Close find",
+        recentFinds: "Recent searches",
+        replace: "Replace",
+        replaceAll: "Replace All",
+        matchCase: "Match case",
+        previousMatch: "Previous match",
+        nextMatch: "Next match",
         insertHeading1: "Heading 1",
         insertHeading2: "Heading 2",
         insertHeading3: "Heading 3",
@@ -1400,7 +1426,7 @@
     "复制成功": "settings.copySuccess",
     "缩略图引擎状态还没加载出来。": "settings.thumbnailStatusLoading",
     "等待扫描": "home.waitingScan",
-    "搜索文件...": "home.searchPlaceholder",
+    "搜索资料库内容...": "home.searchPlaceholder",
     "最近搜索": "home.recentSearches",
     "删除搜索词 {word}": "home.removeRecentSearch",
     "文件列表": "home.fileList",

@@ -26,6 +26,7 @@ import {
   parseDocumentTitle,
   setDocumentTitleInSource
 } from "./markdown-document-title.js";
+import { findDocumentMatches, replacementPlan } from "./markdown-find-engine.js";
 
 const instances = new WeakMap();
 const SKILL_FRONTMATTER_FIELDS = ["name", "description", "trigger_keywords"];
@@ -1572,6 +1573,28 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   let codeLanguageFrame = null;
   let markdownChangeTimer = null;
   let lastNotifiedMarkdown = markdown;
+  let findPanel = null;
+  let findQueryInput = null;
+  let replaceQueryInput = null;
+  let findReplaceRow = null;
+  let findState = { query: "", caseSensitive: false, current: 0, matches: [] };
+  let findSelectionActive = false;
+  let findPanelFrame = null;
+  const FIND_HISTORY_KEY = "nutbook.markdownFindHistory.v1";
+  const readFindHistory = () => {
+    try {
+      const values = JSON.parse(window.localStorage?.getItem(FIND_HISTORY_KEY) || "[]");
+      return Array.isArray(values) ? values.filter((value) => typeof value === "string" && value.trim()).slice(0, 3) : [];
+    } catch (_) { return []; }
+  };
+  const recordFindHistory = (value) => {
+    const query = String(value || "").trim();
+    if (!query) return;
+    try {
+      const next = [query, ...readFindHistory().filter((item) => item.toLocaleLowerCase() !== query.toLocaleLowerCase())].slice(0, 3);
+      window.localStorage?.setItem(FIND_HISTORY_KEY, JSON.stringify(next));
+    } catch (_) {}
+  };
   // PR C / C1：canonical cover remark（在 portableImageRemark 之后执行，
   // 先让 GitHub HTML 图片成为 portableImage，再合并 comment + 独立图片块）。
   let coverDiagnostics = [];
@@ -1596,6 +1619,26 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     });
   }
   const interactionEvents = [];
+  const findPlugin = new Plugin({
+    state: {
+      init: (_, state) => buildFindDecorations(state.doc),
+      apply: (tr, decorations, _oldState, newState) => {
+        if (tr.docChanged || tr.getMeta(findPlugin)) return buildFindDecorations(newState.doc);
+        return decorations.map(tr.mapping, tr.doc);
+      }
+    },
+    props: { decorations: (state) => findPlugin.getState(state) }
+  });
+  function buildFindDecorations(doc) {
+    findState.matches = findDocumentMatches(doc, findState.query, { caseSensitive: findState.caseSensitive });
+    if (findState.current >= findState.matches.length) findState.current = 0;
+    const decorations = findState.matches.map((match, index) => Decoration.inline(
+      match.from,
+      match.to,
+      { class: index === findState.current ? "nutbook-find-current" : "nutbook-find-match" }
+    ));
+    return DecorationSet.create(doc, decorations);
+  }
   const handleUndoRedoShortcut = (event) => {
     if (event.isComposing || event.key === "Process") return;
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
@@ -1638,6 +1681,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
           markdownImageAssetRemovalPlugin(onRemoveImageAsset),
           localImageSrcPlugin(resolveImageSrc),
           markdownOutlineDecorationPlugin(),
+          findPlugin,
           ...plugins
         ].filter(Boolean));
         ctx.update(listenerCtx, (listenerManager) => listenerManager
@@ -1729,6 +1773,183 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     if (!editorReady) return;
     if (markdownChangeTimer) clearTimeout(markdownChangeTimer);
     markdownChangeTimer = window.setTimeout(flushMarkdownChangeSync, delay);
+  }
+
+  function refreshFind({ scroll = false } = {}) {
+    const view = getEditorView();
+    if (!view) return;
+    view.dispatch(view.state.tr.setMeta(findPlugin, true));
+    updateFindPanel();
+    scheduleFindPanelPosition();
+    const current = findState.matches[findState.current];
+    if (scroll && current) {
+      findSelectionActive = true;
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, current.from, current.to)).scrollIntoView());
+    }
+  }
+
+  function updateFindPanel() {
+    if (!findPanel) return;
+    const count = findPanel.querySelector("[data-find-count]");
+    if (count) count.textContent = `${findState.matches.length ? findState.current + 1 : 0}/${findState.matches.length}`;
+    const caseButton = findPanel.querySelector("[data-find-case]");
+    if (caseButton) caseButton.classList.toggle("active", findState.caseSensitive);
+    const history = findPanel.querySelector("[data-find-history]");
+    if (history) {
+      const values = readFindHistory();
+      history.hidden = !values.length;
+      history.innerHTML = values.length
+        ? `<span class="markdown-find-history-label">${escapeOptionText(t("markdown.recentFinds"))}</span>${values.map((value, index) => `<button type="button" data-find-history-item="${index}" data-i18n-skip title="${escapeOptionText(value)}">${escapeOptionText(value)}</button>`).join("")}`
+        : "";
+      history.querySelectorAll("[data-find-history-item]").forEach((button) => button.addEventListener("click", () => {
+        const value = values[Number(button.dataset.findHistoryItem)] || "";
+        if (!value || !findQueryInput) return;
+        findQueryInput.value = value;
+        findState.query = value;
+        findState.current = 0;
+        refreshFind({ scroll: true });
+      }));
+    }
+  }
+
+  function updateFindPanelPosition() {
+    if (!findPanel) return;
+    const viewport = root.closest(".viewer-body") || root;
+    const rect = viewport.getBoundingClientRect();
+    findPanel.style.top = `${Math.max(8, rect.top + 12)}px`;
+    findPanel.style.right = `${Math.max(12, window.innerWidth - rect.right + 12)}px`;
+  }
+
+  function scheduleFindPanelPosition() {
+    if (!findPanel || findPanelFrame) return;
+    findPanelFrame = requestAnimationFrame(() => {
+      findPanelFrame = null;
+      updateFindPanelPosition();
+    });
+  }
+
+  function closeFind() {
+    if (!findPanel) return;
+    const view = getEditorView();
+    if (view && !view.state.selection.empty) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, view.state.selection.from)));
+    }
+    recordFindHistory(findState.query);
+    findSelectionActive = false;
+    findState = { query: "", caseSensitive: false, current: 0, matches: [] };
+    findPanel.remove();
+    findPanel = null;
+    findQueryInput = null;
+    replaceQueryInput = null;
+    findReplaceRow = null;
+    refreshFind();
+    getEditorView()?.focus();
+  }
+
+  function moveFind(step) {
+    if (!findState.matches.length) return;
+    findState.current = (findState.current + step + findState.matches.length) % findState.matches.length;
+    refreshFind({ scroll: true });
+  }
+
+  function replaceCurrent() {
+    const view = getEditorView();
+    const match = findState.matches[findState.current];
+    if (!view || !match) return;
+    const marks = view.state.doc.resolve(match.from).marks();
+    const tr = view.state.tr.replaceWith(match.from, match.to, view.state.schema.text(replaceQueryInput?.value || "", marks));
+    view.dispatch(tr);
+    markUserInteracted();
+    refreshFind({ scroll: true });
+  }
+
+  function replaceAll() {
+    const view = getEditorView();
+    if (!view || !findState.matches.length) return;
+    const replacement = replaceQueryInput?.value || "";
+    let tr = view.state.tr;
+    for (const match of replacementPlan(findState.matches)) {
+      const marks = view.state.doc.resolve(match.from).marks();
+      tr = tr.replaceWith(match.from, match.to, view.state.schema.text(replacement, marks));
+    }
+    view.dispatch(closeHistory(tr));
+    markUserInteracted();
+    refreshFind({ scroll: true });
+  }
+
+  function openFind({ showReplace = false, query = null, focus = true } = {}) {
+    if (readOnly || destroyed) return;
+    if (!findPanel) {
+      findPanel = document.createElement("div");
+      findPanel.className = "markdown-find-panel";
+      findPanel.setAttribute("role", "dialog");
+      findPanel.setAttribute("aria-label", t("markdown.find"));
+      findPanel.innerHTML = `
+        <div class="markdown-find-row">
+          <input data-find-query type="search" autocomplete="off" placeholder="${escapeOptionText(t("markdown.findPlaceholder"))}" aria-label="${escapeOptionText(t("markdown.find"))}" />
+          <button type="button" data-find-case aria-label="${escapeOptionText(t("markdown.matchCase"))}">Aa<span class="markdown-find-tooltip">${escapeOptionText(t("markdown.matchCase"))}</span></button>
+          <span data-find-count aria-live="polite">0/0</span>
+          <button type="button" data-find-prev aria-label="${escapeOptionText(t("markdown.previousMatch"))}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 12 5-5 5 5"/></svg><span class="markdown-find-tooltip">${escapeOptionText(t("markdown.previousMatch"))}</span></button>
+          <button type="button" data-find-next aria-label="${escapeOptionText(t("markdown.nextMatch"))}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg><span class="markdown-find-tooltip">${escapeOptionText(t("markdown.nextMatch"))}</span></button>
+          <button type="button" data-find-expand aria-label="${escapeOptionText(t("markdown.showReplace"))}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h10m-4-3 4 3-4 3M17 14H7m4-3-4 3 4 3"/></svg><span class="markdown-find-tooltip">${escapeOptionText(t("markdown.showReplace"))}</span></button>
+          <button type="button" data-find-close aria-label="${escapeOptionText(t("markdown.closeFind"))}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8m0-8-8 8"/></svg><span class="markdown-find-tooltip">${escapeOptionText(t("markdown.closeFind"))}</span></button>
+        </div>
+        <div class="markdown-find-row markdown-find-replace" hidden>
+          <input data-replace-query autocomplete="off" placeholder="${escapeOptionText(t("markdown.replacePlaceholder"))}" aria-label="${escapeOptionText(t("markdown.replace"))}" />
+          <button type="button" data-find-replace aria-label="${escapeOptionText(t("markdown.replace"))}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h10m-4-4 4 4-4 4"/><path d="M3 5h4M3 15h4"/></svg><span class="markdown-find-tooltip">${escapeOptionText(t("markdown.replace"))}</span></button>
+          <button type="button" data-find-replace-all aria-label="${escapeOptionText(t("markdown.replaceAll"))}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h10m-4-3 4 3-4 3M3 14h10m-4-3 4 3-4 3"/><path d="M3 10h4"/></svg><span class="markdown-find-tooltip">${escapeOptionText(t("markdown.replaceAll"))}</span></button>
+        </div>
+        <div class="markdown-find-history" data-find-history data-i18n-skip hidden></div>`;
+      root.appendChild(findPanel);
+      findQueryInput = findPanel.querySelector("[data-find-query]");
+      replaceQueryInput = findPanel.querySelector("[data-replace-query]");
+      findReplaceRow = findPanel.querySelector(".markdown-find-replace");
+      findQueryInput.addEventListener("input", () => { findState.query = findQueryInput.value; findState.current = 0; refreshFind({ scroll: true }); });
+      findPanel.querySelector("[data-find-case]").addEventListener("click", () => { findState.caseSensitive = !findState.caseSensitive; findState.current = 0; refreshFind({ scroll: true }); });
+      findPanel.querySelector("[data-find-prev]").addEventListener("click", () => moveFind(-1));
+      findPanel.querySelector("[data-find-next]").addEventListener("click", () => moveFind(1));
+      let findTooltipSuppressOrigin = null;
+      findPanel.querySelector("[data-find-expand]").addEventListener("click", (event) => { findReplaceRow.hidden = !findReplaceRow.hidden; findTooltipSuppressOrigin = { x: event.clientX, y: event.clientY }; findPanel.classList.add("suppress-find-tooltips"); if (!findReplaceRow.hidden) replaceQueryInput.focus(); });
+      findPanel.addEventListener("pointermove", (event) => { if (findTooltipSuppressOrigin && Math.hypot(event.clientX - findTooltipSuppressOrigin.x, event.clientY - findTooltipSuppressOrigin.y) > 4) { findTooltipSuppressOrigin = null; findPanel.classList.remove("suppress-find-tooltips"); } });
+      findPanel.addEventListener("pointerleave", () => { findTooltipSuppressOrigin = null; findPanel.classList.remove("suppress-find-tooltips"); });
+      findPanel.querySelector("[data-find-close]").addEventListener("click", closeFind);
+      findPanel.querySelector("[data-find-replace]").addEventListener("click", replaceCurrent);
+      findPanel.querySelector("[data-find-replace-all]").addEventListener("click", replaceAll);
+      findPanel.addEventListener("keydown", (event) => {
+        if (event.isComposing || event.keyCode === 229) return;
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeFind(); }
+        if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); moveFind(event.shiftKey ? -1 : 1); }
+      });
+    }
+    if (query !== null && findQueryInput) {
+      findQueryInput.value = query;
+      findState.query = query;
+      findState.current = 0;
+    }
+    if (showReplace && findReplaceRow) findReplaceRow.hidden = false;
+    refreshFind();
+    updateFindPanelPosition();
+    if (focus) findQueryInput?.focus();
+  }
+
+  const handleFindShortcut = (event) => {
+    if (readOnly || event.isComposing || event.keyCode === 229 || !(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "f") return;
+    const view = getEditorView();
+    if (!view || !root.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openFind();
+  };
+  if (!readOnly) root.addEventListener("keydown", handleFindShortcut, true);
+  if (!readOnly) {
+    window.addEventListener("scroll", scheduleFindPanelPosition, true);
+    window.addEventListener("resize", scheduleFindPanelPosition);
+  }
+  if (!readOnly) {
+    root.addEventListener("pointerdown", () => { findSelectionActive = false; }, true);
+    root.addEventListener("keydown", (event) => {
+      if (!findPanel?.contains(event.target)) findSelectionActive = false;
+    }, true);
   }
 
   function findActiveTableElement(view) {
@@ -3127,6 +3348,13 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   function updateFormatToolbar() {
     formatToolbarFrame = null;
     if (!formatToolbar || !editorReady) return;
+    // Find navigation selects a result solely for viewport positioning. It is
+    // not a user formatting selection, so the contextual format toolbar must
+    // stay hidden until the user moves the caret or selects text themselves.
+    if (findPanel && findSelectionActive) {
+      hideFormatToolbar();
+      return;
+    }
     if (isEditorComposing()) return;
     const view = getEditorView();
     const selection = view?.state.selection;
@@ -3630,6 +3858,8 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     redo() {
       return runHistoryCommand(redo);
     },
+    openFind,
+    closeFind,
     focus() {
       if (destroyed) return;
       editor.action((ctx) => {
@@ -3681,6 +3911,11 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     },
     destroy() {
       destroyed = true;
+      if (findPanel) findPanel.remove();
+      root.removeEventListener("keydown", handleFindShortcut, true);
+      window.removeEventListener("scroll", scheduleFindPanelPosition, true);
+      window.removeEventListener("resize", scheduleFindPanelPosition);
+      if (findPanelFrame) cancelAnimationFrame(findPanelFrame);
       if (markdownChangeTimer) {
         clearTimeout(markdownChangeTimer);
         markdownChangeTimer = null;

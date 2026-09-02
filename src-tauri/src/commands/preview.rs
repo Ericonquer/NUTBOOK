@@ -12,7 +12,7 @@ use crate::{
         document_title::DocumentTitle,
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
-            attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_runtime_host, attach_settings_overlay,
+            attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_find_overlay, attach_html_find_trigger_tooltip, attach_html_runtime_host, attach_settings_overlay,
             attach_inspector_more_overlay, close_inspector_more_overlay,
             close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay,
             close_html_presentation_preview, close_html_runtime_window,
@@ -21,14 +21,16 @@ use crate::{
             focus_main_webview, open_html_runtime_window,
             set_html_edit_toolbar_overlay_visibility,
             set_html_presentation_preview_visibility, set_html_presentation_preview_active,
-            set_html_runtime_controls_overlay_visibility, set_html_runtime_host_visibility,
+            set_html_runtime_controls_overlay_visibility, set_html_find_overlay_bounds,
+            set_html_find_overlay_visibility, set_html_find_trigger_tooltip_visibility,
+            set_html_runtime_host_visibility, update_html_find_overlay,
             HtmlRuntimeSession,
         },
     },
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
-        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest,
+        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlFindOverlayRequest, AttachHtmlFindTriggerTooltipRequest,
         AttachHtmlRuntimeHostRequest, AttachInspectorMoreOverlayRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
@@ -39,6 +41,8 @@ use crate::{
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
+        SetHtmlFindOverlayBoundsRequest, SetHtmlFindOverlayVisibilityRequest,
+        SetHtmlFindTriggerTooltipVisibilityRequest, UpdateHtmlFindOverlayRequest,
         HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
         SetHtmlRuntimeHostVisibilityRequest, ValidateMarkdownCoverAssetRequest,
         ValidateMarkdownCoverAssetResponse,
@@ -306,6 +310,65 @@ pub fn set_html_runtime_controls_overlay_visibility_command(
     payload: SetHtmlRuntimeControlsOverlayVisibilityRequest,
 ) -> Result<bool, AppError> {
     set_html_runtime_controls_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn attach_html_find_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachHtmlFindOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
+    attach_html_find_overlay(&app, &window, payload.item_id, payload.bounds, payload.can_replace, payload.replace_expanded, payload.query, payload.count, payload.case_sensitive, payload.labels, payload.history)
+}
+
+#[tauri::command]
+pub fn update_html_find_overlay_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: UpdateHtmlFindOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
+    update_html_find_overlay(
+        &app,
+        payload.item_id,
+        payload.can_replace,
+        payload.replace_expanded,
+        payload.query,
+        payload.count,
+        payload.case_sensitive,
+        payload.labels,
+        payload.history,
+    )
+}
+
+#[tauri::command]
+pub fn set_html_find_overlay_bounds_command(
+    app: tauri::AppHandle,
+    payload: SetHtmlFindOverlayBoundsRequest,
+) -> Result<bool, AppError> {
+    set_html_find_overlay_bounds(&app, payload.item_id, payload.bounds)
+}
+
+#[tauri::command]
+pub fn set_html_find_overlay_visibility_command(
+    app: tauri::AppHandle,
+    payload: SetHtmlFindOverlayVisibilityRequest,
+) -> Result<bool, AppError> {
+    set_html_find_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn attach_html_find_trigger_tooltip_command(app: tauri::AppHandle, window: tauri::Window, payload: AttachHtmlFindTriggerTooltipRequest) -> Result<bool, AppError> {
+    attach_html_find_trigger_tooltip(&app, &window, payload.item_id, &payload.tooltip_id, payload.bounds, payload.label, payload.visible)
+}
+
+#[tauri::command]
+pub fn set_html_find_trigger_tooltip_visibility_command(app: tauri::AppHandle, payload: SetHtmlFindTriggerTooltipVisibilityRequest) -> Result<bool, AppError> {
+    set_html_find_trigger_tooltip_visibility(&app, payload.item_id, &payload.tooltip_id, payload.visible)
 }
 
 #[tauri::command]

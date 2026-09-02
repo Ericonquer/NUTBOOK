@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { color: #1a1c1d; font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body { margin: 0; background: transparent; }
+    /* Keep only the unused child-surface area transparent. On macOS WebKit a
+       translucent panel over another child WebView can expose its black first
+       backing layer until the next native resize. The panel itself is opaque. */
+    .panel { width: 100%; padding: 8px; border: 1px solid #e0e0e4; border-radius: 12px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.12); }
+    .row { display: flex; align-items: center; gap: 5px; }
+    .row + .row { margin-top: 6px; }
+    .replace-row[hidden], .replace-toggle[hidden] { display: none; }
+    input { min-width: 0; flex: 1; height: 28px; padding: 0 8px; border: 1px solid #dedee5; border-radius: 7px; background: #fff; color: #1a1c1d; font: 12px/1.2 Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; }
+    input::placeholder { color: #9a9aa1; opacity: 1; }
+    input:focus { outline: none; border-color: rgba(0,0,0,.45); box-shadow: 0 0 0 3px rgba(0,0,0,.07); }
+    button { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 7px; border: 0; border-radius: 7px; background: transparent; color: #34343a; cursor: pointer; font: 12px/1 inherit; }
+    button:hover, button.active { background: #ededf1; }
+    button:focus-visible { outline: 2px solid rgba(0,0,0,.38); outline-offset: 1px; }
+    button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .count { min-width: 34px; color: #777780; font-size: 11px; text-align: center; }
+    .tip { position: absolute; top: calc(100% + 6px); left: 50%; z-index: 3; padding: 5px 7px; border-radius: 6px; background: #242428; color: #fff; font-size: 10px; line-height: 1; white-space: nowrap; opacity: 0; pointer-events: none; transform: translate(-50%,-3px); transition: opacity 100ms ease, transform 100ms ease; }
+    button:hover .tip, button:focus-visible .tip { opacity: 1; transform: translate(-50%,0); }
+    button.active .tip { display: none; }
+    .panel[data-suppress-tips="true"] .tip { display: none; }
+    /* A hidden child WebView does not receive pointerleave. Suppress a stale
+       button :hover when the kept-alive find surface is shown again; keyboard
+       focus remains visible and a real pointer move releases the suppression. */
+    .panel[data-suppress-hover="true"] .row > button:hover:not(.active) { background: transparent; }
+    .panel[data-suppress-hover="true"] button:hover .tip { opacity: 0; transform: translate(-50%,-3px); }
+    .panel[data-suppress-hover="true"] button:focus-visible .tip { opacity: 1; transform: translate(-50%,0); }
+    .panel[data-closing="true"] .row > button:hover:not(.active) { background: transparent; }
+    .panel[data-closing="true"] .tip { display: none; }
+    .history { display: flex; gap: 4px; align-items: center; max-width: 100%; margin-top: 7px; padding-top: 7px; border-top: 1px solid rgba(224,224,228,.8); overflow: hidden; }
+    .history[hidden] { display: none; }
+    .history-label { flex: 0 0 auto; color: #777780; font-size: 10px; }
+    .history button { min-width: 0; max-width: 96px; height: 22px; padding: 0 7px; overflow: hidden; border: 0; border-radius: 6px; background: #f3f3f5; color: #4a4a50; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .history button:hover, .history button:focus-visible { background: #e7e7eb; }
+  </style>
+</head>
+<body>
+  <section class="panel" aria-label="搜索正文内容">
+    <div class="row">
+      <input data-query type="search" autocomplete="off" placeholder="搜索正文内容…" aria-label="搜索正文内容" />
+      <button type="button" data-case aria-label="区分大小写">Aa<span class="tip" data-case-tip>区分大小写</span></button>
+      <span class="count" data-count>0/0</span>
+      <button type="button" data-prev aria-label="上一个结果"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 12 5-5 5 5"/></svg><span class="tip" data-prev-tip>上一个结果</span></button>
+      <button type="button" data-next aria-label="下一个结果"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg><span class="tip" data-next-tip>下一个结果</span></button>
+      <button type="button" class="replace-toggle" data-replace-toggle aria-label="替换" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h10m-4-3 4 3-4 3M17 14H7m4-3 4 3-4 3"/></svg><span class="tip" data-show-replace-tip>替换</span></button>
+      <button type="button" data-close aria-label="关闭查找"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8m0-8-8 8"/></svg><span class="tip" data-close-find-tip>关闭查找</span></button>
+    </div>
+    <div class="row replace-row" data-replace-row hidden>
+      <input data-replacement type="text" autocomplete="off" placeholder="替换为…" aria-label="替换为" />
+      <button type="button" data-replace aria-label="替换"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h10m-4-4 4 4-4 4"/><path d="M3 5h4M3 15h4"/></svg><span class="tip" data-replace-tip>替换</span></button>
+      <button type="button" data-replace-all aria-label="全部替换"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h10m-4-3 4 3-4 3M3 14h10m-4-3 4 3-4 3"/><path d="M3 10h4"/></svg><span class="tip" data-replace-all-tip>全部替换</span></button>
+    </div>
+    <div class="history" data-history hidden></div>
+  </section>
+  <script>
+    (() => {
+      const query = document.querySelector('[data-query]'); const replacement = document.querySelector('[data-replacement]');
+      const panel = document.querySelector('.panel'); const count = document.querySelector('[data-count]'); const caseButton = document.querySelector('[data-case]');
+      const toggle = document.querySelector('[data-replace-toggle]'); const replaceRow = document.querySelector('[data-replace-row]'); const historyRoot = document.querySelector('[data-history]');
+      let state = { itemId: null, canReplace: false, caseSensitive: false, replaceExpanded: false };
+      const emit = (action) => { document.title = '__NUTBOOK_HTML_FIND__:' + JSON.stringify({ itemId: state.itemId, action, query: query.value, replacement: replacement.value, caseSensitive: state.caseSensitive, replaceExpanded: state.replaceExpanded }); };
+      const composing = (event) => event.isComposing || event.keyCode === 229;
+      let suppressOrigin = null;
+      let hoverResetOrigin = null;
+      const armHoverReset = () => { hoverResetOrigin = null; panel.dataset.suppressHover = 'true'; };
+      const releaseHoverReset = () => { hoverResetOrigin = null; delete panel.dataset.suppressHover; };
+      const closeFind = () => { panel.dataset.closing = 'true'; document.activeElement?.blur?.(); armHoverReset(); emit('close'); };
+      query.addEventListener('input', () => emit('query'));
+      query.addEventListener('keydown', (event) => { if (composing(event)) return; if (event.key === 'Enter') { event.preventDefault(); emit(event.shiftKey ? 'prev' : 'next'); } if (event.key === 'Escape') { event.preventDefault(); closeFind(); } });
+      replacement.addEventListener('keydown', (event) => { if (composing(event)) return; if (event.key === 'Escape') { event.preventDefault(); closeFind(); } });
+      document.querySelector('[data-prev]').onclick = () => emit('prev'); document.querySelector('[data-next]').onclick = () => emit('next'); document.querySelector('[data-close]').onclick = closeFind;
+      document.querySelector('[data-replace]').onclick = () => emit('replace'); document.querySelector('[data-replace-all]').onclick = () => emit('replace_all');
+      caseButton.onclick = () => { state.caseSensitive = !state.caseSensitive; caseButton.classList.toggle('active', state.caseSensitive); emit('query'); };
+      toggle.onclick = (event) => { state.replaceExpanded = !state.replaceExpanded; replaceRow.hidden = !state.replaceExpanded; toggle.classList.toggle('active', state.replaceExpanded); suppressOrigin = { x: event.clientX, y: event.clientY }; panel.dataset.suppressTips = 'true'; emit('layout'); if (state.replaceExpanded) replacement.focus(); };
+      panel.addEventListener('pointermove', (event) => {
+        if (suppressOrigin && Math.hypot(event.clientX - suppressOrigin.x, event.clientY - suppressOrigin.y) > 4) { suppressOrigin = null; delete panel.dataset.suppressTips; }
+        if (panel.dataset.suppressHover === 'true') {
+          if (!hoverResetOrigin) hoverResetOrigin = { x: event.screenX, y: event.screenY };
+          else if (Math.hypot(event.screenX - hoverResetOrigin.x, event.screenY - hoverResetOrigin.y) > 4) releaseHoverReset();
+        }
+      });
+      panel.addEventListener('pointerleave', () => { suppressOrigin = null; delete panel.dataset.suppressTips; releaseHoverReset(); });
+      const setLabel = (key, selector, tipSelector = '') => { const value = state.labels?.[key]; const node = document.querySelector(selector); if (node && value) node.setAttribute('aria-label', value); const tip = tipSelector ? document.querySelector(tipSelector) : null; if (tip && value) tip.textContent = value; };
+      const renderHistory = () => {
+        const values = Array.isArray(state.history) ? state.history.filter((value) => typeof value === 'string' && value.trim()).slice(0, 3) : [];
+        historyRoot.hidden = values.length === 0;
+        historyRoot.replaceChildren();
+        if (!values.length) return;
+        const label = document.createElement('span'); label.className = 'history-label'; label.textContent = state.labels?.recentFinds || '最近搜索'; historyRoot.append(label);
+        values.forEach((value) => { const button = document.createElement('button'); button.type = 'button'; button.textContent = value; button.title = value; button.addEventListener('click', () => { query.value = value; emit('query'); }); historyRoot.append(button); });
+      };
+      window.__NUTBOOK_HTML_FIND__ = { update(next = {}) { const focusQuery = Boolean(next.focusQuery); state = { ...state, ...next, focusQuery: false }; if (focusQuery) { delete panel.dataset.closing; armHoverReset(); } if (state.labels?.query) panel.setAttribute('aria-label', state.labels.query); setLabel('query', '[data-query]'); setLabel('matchCase', '[data-case]', '[data-case-tip]'); setLabel('previousMatch', '[data-prev]', '[data-prev-tip]'); setLabel('nextMatch', '[data-next]', '[data-next-tip]'); setLabel('showReplace', '[data-replace-toggle]', '[data-show-replace-tip]'); setLabel('closeFind', '[data-close]', '[data-close-find-tip]'); setLabel('replace', '[data-replace]', '[data-replace-tip]'); setLabel('replaceAll', '[data-replace-all]', '[data-replace-all-tip]'); if (state.labels?.findPlaceholder) query.placeholder = state.labels.findPlaceholder; if (state.labels?.replacePlaceholder) replacement.placeholder = state.labels.replacePlaceholder; if (state.labels?.replace) replacement.setAttribute('aria-label', state.labels.replace); toggle.hidden = !state.canReplace; if (!state.canReplace) state.replaceExpanded = false; replaceRow.hidden = !state.replaceExpanded; toggle.classList.toggle('active', state.replaceExpanded); caseButton.classList.toggle('active', state.caseSensitive); count.textContent = state.count || '0/0'; if (typeof state.query === 'string' && query.value !== state.query) query.value = state.query; renderHistory(); if (focusQuery) requestAnimationFrame(() => query.focus()); } };
+      window.__NUTBOOK_HTML_FIND__?.update(window.__NUTBOOK_HTML_FIND_INITIAL__ || {});
+    })();
+  </script>
+</body>
+</html>

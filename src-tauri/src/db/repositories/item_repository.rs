@@ -4,6 +4,12 @@ use crate::{
 };
 
 pub trait ItemRepository {
+    fn load_search_snippets_batch(
+        &self,
+        connection: &rusqlite::Connection,
+        item_ids: &[i64],
+        keyword: &str,
+    ) -> Result<std::collections::HashMap<i64, Vec<String>>, AppError>;
     fn replace_items_for_library(
         &self,
         library_id: i64,
