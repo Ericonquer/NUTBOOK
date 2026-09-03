@@ -30,10 +30,10 @@ pub use html_edit::{
 pub use item::{
     AttachInspectorMoreOverlayRequest,
     AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest,
-    AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlFindOverlayRequest, AttachHtmlFindTriggerTooltipRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+    AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlFindOverlayRequest, AttachHtmlRuntimeHostRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
     CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
     CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse, DeleteLibraryRequest, DeleteMarkdownImageAssetRequest,
-    DispatchHtmlRuntimeShortcutRequest, SetHtmlFindTriggerTooltipVisibilityRequest,
+    DispatchHtmlRuntimeShortcutRequest,
     DurableSaveSyncReport,
     EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,

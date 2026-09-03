@@ -1038,7 +1038,7 @@
         removeCover: "Remove cover",
         coverBadge: "Cover",
         find: "Find",
-        findBody: "Search document",
+        findBody: "Find",
         findPlaceholder: "Search document content…",
         replacePlaceholder: "Replace with…",
         showReplace: "Replace",

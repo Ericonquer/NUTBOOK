@@ -283,22 +283,37 @@ assert.match(htmlFindOverlayHtml, /\.panel\s*\{[^}]*background:\s*#fff;/, "the n
 assert.doesNotMatch(htmlFindOverlayHtml, /\.panel\s*\{[^}]*background:\s*rgba\(/, "the native find panel must not depend on translucent child-webview compositing");
 assert.match(functionSource("htmlFindOverlayBounds"), /runtimeScrollbarGutter = 14[\s\S]*?viewer\.right - runtimeScrollbarGutter/, "the native find panel right edge must reserve the nested HTML WebView scrollbar gutter");
 assert.match(runtimeRust, /pub fn update_html_find_overlay[\s\S]*?\.eval\([\s\S]*?Ok\(true\)/, "find content updates must use the eval-only host path");
-assert.match(runtimeRust, /pub fn set_html_find_overlay_bounds[\s\S]*?\.set_bounds\([\s\S]*?Ok\(true\)/, "find resize must use the bounds-only host path");
-assert.doesNotMatch(functionSource("syncActiveHtmlFindBounds"), /attach_html_find_overlay_command|update_html_find_overlay_command|set_html_find_overlay_visibility_command/, "resize must not attach, update, show, or hide the find surface");
+assert.match(runtimeRust, /pub fn set_html_find_overlay_bounds[\s\S]*?\.set_bounds\([\s\S]*?Ok\(true\)/, "an explicit find layout change must use the bounds-only host path");
+assert.match(functionSource("syncActiveRuntimeHost"), /await syncActiveHtmlFindLayoutBounds\(tab, runId\)/, "window/runtime resize must keep an open find surface aligned through the bounds-only path");
+assert.match(functionSource("syncActiveHtmlFindLayoutBounds"), /set_html_find_overlay_bounds_command[\s\S]*?!isRuntimeHostSyncCurrent\(runId, tab\.id\)/, "find resize must reject stale bounds results through the active runtime run guard");
+assert.doesNotMatch(functionSource("syncActiveHtmlFindLayoutBounds"), /attach_html_find_overlay_command|update_html_find_overlay_command|set_html_find_overlay_visibility_command|openActiveHtmlFind/, "find resize must not attach, update, show, hide, focus, or reopen the surface");
 const controlsVisibilitySource = runtimeRust.match(/pub fn set_html_runtime_controls_overlay_visibility[\s\S]*?\n}\n\n\/\/\/ Document find/)?.[0] || "";
 assert.match(controlsVisibilitySource, /webview\.hide\(\)/, "inactive HTML controls must be hidden");
-assert.doesNotMatch(controlsVisibilitySource, /webview\.close\(\)/, "switching HTML tabs must not destroy and recreate the controls child");
-assert.match(runtimeRust, /pub fn html_runtime_controls_label\(_item_id: i64\)[\s\S]*?"html-controls-active"/, "all HTML tabs must reuse one window-scoped controls child");
+assert.match(controlsVisibilitySource, /webview\.close\(\)/, "inactive HTML controls must be destroyed instead of retained as a hidden shared child");
+assert.match(runtimeRust, /pub fn html_runtime_controls_label\(item_id: i64\)[\s\S]*?format!\("html-controls-\{item_id\}"\)/, "each HTML tab must own a distinct controls child");
 const closeRuntimeSource = runtimeRust.match(/pub fn close_html_runtime_window[\s\S]*?\n}\n\npub fn attach_html_runtime_host/)?.[0] || "";
-assert.match(closeRuntimeSource, /html_runtime_controls_label\(item_id\)[\s\S]*?webview\.hide\(\)/, "closing the owner tab must return the shared controls child to its dormant state");
-assert.doesNotMatch(closeRuntimeSource.match(/if runtime_controls_owner[\s\S]*?\n    }/)?.[0] || "", /webview\.close\(\)/, "closing the owner tab must not destroy the shared controls child");
-assert.match(controlsVisibilitySource, /runtime_controls_owner\(\)[\s\S]*?!= Some\(item_id\)[\s\S]*?return Ok\(false\)/, "an inactive tab must not hide the shared controls owned by the active HTML tab");
-assert.match(runtimeRust, /runtime_controls_overlay_action_handler[\s\S]*?is_current_owner[\s\S]*?Some\(payload\.item_id\)/, "stale shared-controls actions must be rejected by the native owner guard");
+assert.match(closeRuntimeSource, /html_runtime_controls_label\(item_id\)[\s\S]*?webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "closing an HTML tab must destroy its per-item controls child");
+assert.doesNotMatch(runtimeRust, /runtime_controls_owner|RUNTIME_CONTROLS_OWNER|html-controls-active/, "the rolled-back controls lifecycle must not retain a window-scoped owner or shared label");
+const controlsAttachSource = runtimeRust.match(/pub fn attach_controls_overlay[\s\S]*?\n}\n\npub fn set_html_runtime_controls_overlay_visibility/)?.[0] || "";
+assert.doesNotMatch(controlsAttachSource, /raise_webview_view_native/, "per-item controls must rely on create-after-host ordering instead of native sibling raises");
+const findVisibilitySource = runtimeRust.match(/pub fn set_html_find_overlay_visibility[\s\S]*?\n}\n\npub fn attach_inspector_more_overlay/)?.[0] || "";
+assert.match(findVisibilitySource, /webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "closing find must destroy the child instead of retaining prewarm-era hide-only state");
+assert.doesNotMatch(findVisibilitySource, /raise_webview_view_native/, "find must rely on explicit create-after-controls ordering instead of native sibling raises");
+assert.doesNotMatch(indexHtml, /attach_html_find_trigger_tooltip_command|set_html_find_trigger_tooltip_visibility_command|htmlTopbarTooltipWarm|html-runtime-topbar-tooltips|data-native-tooltip/, "HTML topbar tooltips must not create or retain native child WebViews");
+assert.doesNotMatch(runtimeRust, /TOPBAR_TOOLTIP_OWNER|topbar_tooltip_owner|html_topbar_tooltip_label|raise_webview_view_native|html-find-trigger-tooltip/, "the native topbar tooltip owner, renderer, and raise path must be fully removed");
+assert.match(indexHtml, /class="topbar-search-tooltip"/, "the document search entry must retain its DOM tooltip fallback");
+assert.match(indexHtml, /class="topbar-button-tooltip"/, "the add-folder and add-file entries must retain their DOM tooltip fallbacks");
 const hostVisibilitySource = runtimeRust.match(/pub fn set_html_runtime_host_visibility[\s\S]*?\n}\n\n\/\/\/ The presentation rail/)?.[0] || "";
 assert.match(hostVisibilitySource, /webview\.hide\(\)/, "inactive HTML hosts must be hidden");
-assert.doesNotMatch(hostVisibilitySource, /width:\s*1\.0|height:\s*1\.0|set_bounds/, "ordinary HTML tab switches must never collapse a host to a 1x1 backing layer");
+assert.match(hostVisibilitySource, /set_bounds[\s\S]*?width:\s*1\.0[\s\S]*?height:\s*1\.0[\s\S]*?webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "inactive HTML hosts must be collapsed, hidden, and destroyed instead of accumulating across tabs");
 assert.doesNotMatch(indexHtml, /_runtimeSurfaceHideTimers|\[0,\s*80,\s*240,\s*520\]|scheduleRuntimeSurfaceHide/, "the desired-state coordinator must not retain the old delayed hide storm");
 assert.match(functionSource("hideRuntimeSessionSurfaces"), /runtimeHiddenSurfaceIds\.has\(itemId\)[\s\S]*?!options\.recoverLateAttach[\s\S]*?return/, "an already hidden runtime must not receive duplicate native mutations");
+assert.match(functionSource("hideRuntimeSessionSurfaces"), /refreshHtmlRuntimeViewState\(itemId\)[\s\S]*?setRuntimeHostVisibility\(itemId, false\)/, "the active HTML host must snapshot serializable view state before close-on-switch");
+assert.match(functionSource("suspendRuntimeSurfaces"), /refreshHtmlRuntimeViewState\(activeRuntimeHostId\)[\s\S]*?activeRuntimeHostId = null/, "window suspension must snapshot the active HTML host before clearing its native owner");
+assert.match(functionSource("syncActiveRuntimeHost"), /viewStateSurfaceToken:\s*htmlRuntimeViewStateSurfaceToken\(tab\.id\)[\s\S]*?viewState:\s*tab\.viewState \|\| null/, "a recreated HTML host must receive a new lifetime token and its tab-scoped view state in the attach request");
+assert.match(indexHtml, /__NUTBOOK_HANDLE_HTML_RUNTIME_VIEW_STATE__[\s\S]*?surfaceToken !== htmlRuntimeViewStateSurfaceToken\(itemId\)[\s\S]*?return/, "late state from a destroyed host must be rejected by its lifetime token");
+assert.match(runtimeRust, /html_runtime_view_state_script[\s\S]*?html_runtime_view_state_command[\s\S]*?presentationPageId[\s\S]*?bridge\.goTo\(targetPageId\)[\s\S]*?window\.scrollTo/, "the child runtime shim must capture and restore scroll, hash, and protocol presentation state");
+assert.doesNotMatch(runtimeRust.match(/fn html_runtime_view_state_script[\s\S]*?pub fn html_runtime_compatibility_script/)?.[0] || "", /localStorage|sessionStorage/, "runtime view state must stay in the owning Nutbook tab session instead of modifying page storage");
 
 // The remove-confirm coordinator must reject a late child-webview attach after
 // the active tab changes, clear its blocking state, and close the stale overlay.

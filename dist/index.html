@@ -994,13 +994,6 @@
       .topbar-search-field[data-search-scope="document"]:hover { width: 28px; background: #eeeef1; color: #5e5e63; cursor: pointer; }
       .topbar-search-field[data-search-scope="document"]:focus-visible { outline: 2px solid rgba(0, 0, 0, .36); outline-offset: 2px; }
       .topbar-search-field[data-search-scope="document"] .search-input { display: none; }
-      .topbar-search-field[data-native-tooltip="true"] .topbar-search-tooltip { display: none; }
-      .topbar-add-button[data-native-tooltip="true"] .topbar-button-tooltip { display: none; }
-      /* HTML runtime uses a native sibling tooltip. Hide every DOM fallback at
-         the shell level so a stale per-button attribute cannot render a second
-         clipped tooltip during an async runtime/tab transition. */
-      body.html-runtime-topbar-tooltips .topbar-search-tooltip,
-      body.html-runtime-topbar-tooltips .topbar-button-tooltip { display: none !important; }
       .topbar-search-tooltip { position: absolute; left: 50%; top: calc(100% + 8px); z-index: 420; padding: 5px 8px; border-radius: 8px; background: rgba(24, 24, 27, .96); color: #fff; font-size: 11px; line-height: 1; white-space: nowrap; opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(-4px); transition: opacity 140ms ease, transform 140ms ease; }
       .topbar-search-field[data-search-scope="document"]:hover .topbar-search-tooltip,
       .topbar-search-field[data-search-scope="document"]:focus-visible .topbar-search-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -7689,6 +7682,9 @@
         htmlEditStateRefreshWaiters: new Map(),
         htmlEditCleanRevisionWaiters: new Map(),
         htmlEditRuntimeDocumentReadyWaiters: new Map(),
+        runtimeViewStateWaiters: new Map(),
+        runtimeViewStateSurfaceTokens: new Map(),
+        runtimeViewStateSurfaceSequence: 0,
         activeLibraryId: null,
         activeTabId: null,
         htmlFind: { itemId: null, query: "", caseSensitive: false, replaceExpanded: false, count: "0/0" },
@@ -7696,7 +7692,6 @@
         htmlFindOverlaySyncLane: Promise.resolve(),
         htmlFindOverlayLastContentKey: null,
         htmlFindOverlayLastBoundsKey: null,
-        htmlTopbarTooltipWarm: false,
         activeTagFilterIds: [],
         isSettingsOverlay: Boolean(window.__NUTBOOK_SETTINGS_OVERLAY__),
         settingsOverlayMode: window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "panel",
@@ -12640,8 +12635,8 @@
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
-        if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command" || command === "attach_html_find_trigger_tooltip_command" || command === "set_html_find_trigger_tooltip_visibility_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -16548,7 +16543,7 @@
         if (command === "attach_html_runtime_controls_overlay_command" || command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") {
           return true;
         }
-        if (command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command") {
+        if (command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command") {
           return true;
         }
         if (command === "get_html_edit_converter_script") {
@@ -16897,7 +16892,7 @@
         if (payload.action === "layout") {
           appState.htmlFindOverlayLastBoundsKey = null;
           await updateActiveHtmlFindContent();
-          scheduleRuntimeHostSync();
+          await syncActiveHtmlFindLayoutBounds(tab);
           return;
         }
         const query = appState.htmlFind.query;
@@ -17057,6 +17052,7 @@
             setStatus(`关闭 HTML Runtime 失败：${normalizeError(error)}`, "error");
           }
           appState.runtimeHiddenSurfaceIds.delete(tabId);
+          appState.runtimeViewStateSurfaceTokens.delete(tabId);
           appState.runtimeSessions = appState.runtimeSessions.filter((session) => session.id !== tabId);
         } else {
           appState.tabs = appState.tabs.filter((tab) => tab.id !== tabId);
@@ -18377,37 +18373,15 @@ if (!chipTipController) {
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
         const isEditingActiveHtml = isHtmlRuntime && appState.htmlEditSession?.itemId === tab?.id;
         const localFind = isMarkdown || isHtmlRuntime;
-        document.body.classList.toggle("html-runtime-topbar-tooltips", isHtmlRuntime);
-        // HTML runtime uses the native topbar tooltip island.  The DOM copies
-        // must be physically hidden (not only visually overridden), otherwise
-        // a child runtime can expose the tail of the search tooltip beneath
-        // the rightmost native tooltip during a fast hover.
-        const domTopbarTooltips = [
-          els.searchInput?.closest(".topbar-search-field")?.querySelector(".topbar-search-tooltip"),
-          els.addFolderButtonTopbar?.querySelector(".topbar-button-tooltip"),
-          els.addFileButtonTopbar?.querySelector(".topbar-button-tooltip"),
-        ];
-        domTopbarTooltips.forEach((tooltip) => {
-          if (!tooltip) return;
-          tooltip.hidden = isHtmlRuntime;
-          tooltip.setAttribute("aria-hidden", isHtmlRuntime ? "true" : "false");
-        });
-        if (isHtmlRuntime && !appState.htmlTopbarTooltipWarm) {
-          appState.htmlTopbarTooltipWarm = true;
-        }
         if (els.searchInput) {
           els.searchInput.placeholder = localFind ? t("markdown.find") : t("home.searchPlaceholder");
           els.searchInput.setAttribute("aria-label", localFind ? t("markdown.find") : t("home.searchPlaceholder"));
           els.searchInput.closest(".topbar-search-field")?.setAttribute("data-search-scope", localFind ? "document" : "library");
           const searchField = els.searchInput.closest(".topbar-search-field");
           if (searchField) {
-            searchField.setAttribute("data-native-tooltip", isHtmlRuntime ? "true" : "false");
             if (localFind) { searchField.setAttribute("role", "button"); searchField.tabIndex = 0; }
             else { searchField.removeAttribute("role"); searchField.removeAttribute("tabindex"); }
           }
-        [els.addFolderButtonTopbar, els.addFileButtonTopbar].forEach((button) => {
-          button?.setAttribute("data-native-tooltip", isHtmlRuntime ? "true" : "false");
-        });
           const tooltip = els.searchInput.parentElement?.querySelector(".topbar-search-tooltip");
           if (tooltip) tooltip.textContent = localFind ? t("markdown.findBody") : `${t("home.searchPlaceholder").replace(/\.\.\.$/, "")}（⌘K）`;
         }
@@ -18996,6 +18970,87 @@ if (!chipTipController) {
         }
       }
 
+      function normalizeHtmlRuntimeViewState(rawState) {
+        if (!rawState || typeof rawState !== "object") return null;
+        const finitePosition = (value) => Math.min(100000000, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0));
+        const hash = typeof rawState.hash === "string" && (rawState.hash === "" || rawState.hash.startsWith("#"))
+          ? rawState.hash.slice(0, 2048)
+          : "";
+        return {
+          surfaceToken: Math.max(0, Number(rawState.surfaceToken) || 0),
+          sequence: Math.max(0, Number(rawState.sequence) || 0),
+          scrollX: finitePosition(rawState.scrollX),
+          scrollY: finitePosition(rawState.scrollY),
+          hash,
+          presentationPageId: typeof rawState.presentationPageId === "string"
+            ? rawState.presentationPageId.slice(0, 512)
+            : null
+        };
+      }
+
+      function htmlRuntimeViewStateWaiterKey(itemId, surfaceToken, requestId) {
+        return `${itemId}:${surfaceToken}:${requestId}`;
+      }
+
+      function nextHtmlRuntimeViewStateSurfaceToken(itemId) {
+        const token = ++appState.runtimeViewStateSurfaceSequence;
+        appState.runtimeViewStateSurfaceTokens.set(itemId, token);
+        return token;
+      }
+
+      function htmlRuntimeViewStateSurfaceToken(itemId) {
+        return appState.runtimeViewStateSurfaceTokens.get(itemId) || 0;
+      }
+
+      async function refreshHtmlRuntimeViewState(itemId, timeoutMs = 120) {
+        const session = appState.runtimeSessions.find((entry) => entry.id === itemId);
+        const surfaceToken = htmlRuntimeViewStateSurfaceToken(itemId);
+        if (!session || !surfaceToken) return false;
+        const requestId = `view-${itemId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const key = htmlRuntimeViewStateWaiterKey(itemId, surfaceToken, requestId);
+        return new Promise((resolve) => {
+          let settled = false;
+          const finish = (captured) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeoutId);
+            appState.runtimeViewStateWaiters.delete(key);
+            resolve(Boolean(captured));
+          };
+          const timeoutId = window.setTimeout(() => finish(false), timeoutMs);
+          appState.runtimeViewStateWaiters.set(key, finish);
+          invoke("eval_html_runtime_script_command", {
+            itemId,
+            script: `window.__NUTBOOK_RUNTIME_VIEW_STATE__?.flush?.(${JSON.stringify(requestId)});`
+          }).then((applied) => {
+            if (!applied) finish(false);
+          }).catch(() => finish(false));
+        });
+      }
+
+      window.__NUTBOOK_HANDLE_HTML_RUNTIME_VIEW_STATE__ = function handleHtmlRuntimeViewState(data) {
+        if (!data || data.type !== "html_runtime_view_state") return;
+        const itemId = Number(data.itemId);
+        const surfaceToken = Number(data.surfaceToken);
+        if (!Number.isInteger(itemId) || surfaceToken !== htmlRuntimeViewStateSurfaceToken(itemId)) return;
+        const session = appState.runtimeSessions.find((entry) => entry.id === itemId);
+        if (!session) return;
+        const nextState = normalizeHtmlRuntimeViewState(data);
+        if (!nextState) return;
+        const previousState = session.viewState;
+        if (
+          previousState?.surfaceToken === surfaceToken
+          && Number(previousState.sequence || 0) > nextState.sequence
+        ) return;
+        session.viewState = nextState;
+        const requestId = typeof data.requestId === "string" ? data.requestId : "";
+        if (!requestId) return;
+        const resolveSnapshot = appState.runtimeViewStateWaiters.get(
+          htmlRuntimeViewStateWaiterKey(itemId, surfaceToken, requestId)
+        );
+        resolveSnapshot?.(true);
+      };
+
       async function setRuntimeControlsOverlayVisibility(itemId, visible) {
         try {
           return Boolean(await invoke("set_html_runtime_controls_overlay_visibility_command", { itemId, visible }));
@@ -19071,10 +19126,12 @@ if (!chipTipController) {
           return;
         }
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
-        if (appState.htmlFind.itemId === itemId) await closeActiveHtmlFind();
+        if (appState.activeRuntimeHostId === itemId) {
+          await refreshHtmlRuntimeViewState(itemId).catch(() => false);
+        }
         if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
-        await invoke("set_html_find_trigger_tooltip_visibility_command", { itemId, visible: false }).catch(() => false);
+        if (appState.htmlFind.itemId === itemId) await closeActiveHtmlFind();
         if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
         if (appState.activeRuntimeHostId === itemId) {
@@ -19114,6 +19171,10 @@ if (!chipTipController) {
           editSession.sectionNavigation.pendingRequestId = null;
           editSession.sectionNavigation.pendingPageId = null;
           renderHtmlEditSectionNavigationRail(editSession);
+        }
+        const activeRuntimeHostId = appState.activeRuntimeHostId;
+        if (activeRuntimeHostId != null) {
+          await refreshHtmlRuntimeViewState(activeRuntimeHostId).catch(() => false);
         }
         cleanupRuntimeHostSync();
         appState.activeRuntimeHostId = null;
@@ -19290,7 +19351,7 @@ if (!chipTipController) {
         return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
       }
 
-      async function syncActiveHtmlFindBounds(tab, runId = null) {
+      async function syncActiveHtmlFindLayoutBounds(tab, runId = null) {
         if (appState.htmlFind.itemId !== tab?.id) return;
         const bounds = htmlFindOverlayBounds();
         const boundsKey = JSON.stringify(bounds);
@@ -19317,6 +19378,10 @@ if (!chipTipController) {
           nextRuntimeSurfaceToken(tab.id);
           return;
         }
+        const needsNewViewStateSurface = appState.activeRuntimeHostId !== tab.id
+          || appState.runtimeHiddenSurfaceIds.has(tab.id)
+          || !htmlRuntimeViewStateSurfaceToken(tab.id);
+        if (needsNewViewStateSurface) nextHtmlRuntimeViewStateSurfaceToken(tab.id);
         await markRuntimeSurfaceActive(tab.id);
         const mount = document.getElementById("runtimeHostMount");
         if (!mount) return;
@@ -19348,7 +19413,9 @@ if (!chipTipController) {
           appState.runtimeHostLastHeight = Math.round(bounds.height);
           await invoke("attach_html_runtime_host_command", {
             itemId: tab.id,
-            bounds
+            bounds,
+            viewStateSurfaceToken: htmlRuntimeViewStateSurfaceToken(tab.id),
+            viewState: tab.viewState || null
           });
           if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           appState.runtimeHostLastBoundsKey = boundsKey;
@@ -19384,7 +19451,7 @@ if (!chipTipController) {
             if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
             appState.runtimeControlsOverlayLastKey = fullscreenControlsKey;
           }
-          await syncActiveHtmlFindBounds(tab, runId);
+          await syncActiveHtmlFindLayoutBounds(tab, runId);
           if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
           ensureRuntimeHostResizeObserver(mount);
           return;
@@ -19416,7 +19483,7 @@ if (!chipTipController) {
           // can poison unrelated host/controls backing in the window compositor.
         }
 
-        await syncActiveHtmlFindBounds(tab, runId);
+        await syncActiveHtmlFindLayoutBounds(tab, runId);
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
         ensureRuntimeHostResizeObserver(mount);
       }
@@ -19915,7 +19982,8 @@ if (!chipTipController) {
             item: tabItem,
             detail,
             preview,
-            draft: ""
+            draft: "",
+            viewState: null
           });
         }
 
@@ -20711,6 +20779,7 @@ if (!chipTipController) {
           await Promise.all(
             runtimeIds.map((itemId) => invoke("close_html_window", { itemId }).catch(() => false))
           );
+          runtimeIds.forEach((itemId) => appState.runtimeViewStateSurfaceTokens.delete(itemId));
           appState.tabs = appState.tabs.filter((tab) => tab.item.libraryId !== libraryId);
           appState.runtimeSessions = appState.runtimeSessions.filter((tab) => tab.item.libraryId !== libraryId);
           if (appState.activeTabId && !getOpenTabs().some((tab) => tab.id === appState.activeTabId)) {
@@ -22568,47 +22637,11 @@ if (!chipTipController) {
           });
         });
         const documentSearchButton = els.searchInput?.closest(".topbar-search-field");
-        let htmlFindTriggerTooltipTimer = null;
-        let htmlFindTriggerTooltipIntent = 0;
-        const hideHtmlFindTriggerTooltip = () => {
-          clearTimeout(htmlFindTriggerTooltipTimer);
-          htmlFindTriggerTooltipIntent += 1;
-          const itemId = getActiveTab()?.preview?.fileType === "html-runtime" ? getActiveTab()?.id : null;
-          if (itemId) invoke("set_html_find_trigger_tooltip_visibility_command", { itemId, visible: false }).catch(() => {});
-        };
-        const showHtmlTopbarNativeTooltip = (button, label, tooltipId) => {
-          const tab = getActiveTab();
-          if (!tab || tab.preview?.fileType !== "html-runtime") return;
-          clearTimeout(htmlFindTriggerTooltipTimer);
-          const intent = ++htmlFindTriggerTooltipIntent;
-          htmlFindTriggerTooltipTimer = setTimeout(() => {
-            if (intent !== htmlFindTriggerTooltipIntent || getActiveTab()?.id !== tab.id) return;
-            const rect = button.getBoundingClientRect(); const width = Math.max(96, Math.min(190, Math.ceil(label.length * 7 + 18)));
-            invoke("attach_html_find_trigger_tooltip_command", { itemId: tab.id, tooltipId, label, visible: true, bounds: { x: Math.round(rect.left + rect.width / 2 - width / 2), y: Math.round(rect.bottom + 8), width, height: 24 } }).catch(() => {});
-          }, 60);
-        };
-        const showHtmlFindTriggerTooltip = () => showHtmlTopbarNativeTooltip(documentSearchButton, t("markdown.findBody"), "search");
-        documentSearchButton?.addEventListener("pointerenter", showHtmlFindTriggerTooltip);
-        documentSearchButton?.addEventListener("pointerleave", hideHtmlFindTriggerTooltip);
-        documentSearchButton?.addEventListener("focusin", showHtmlFindTriggerTooltip);
-        documentSearchButton?.addEventListener("focusout", hideHtmlFindTriggerTooltip);
         documentSearchButton?.addEventListener("click", (event) => {
           if (!openActiveDocumentFind()) return;
-          hideHtmlFindTriggerTooltip();
           event.preventDefault();
           event.stopPropagation();
         });
-        const bindHtmlTopbarNativeTooltip = (button, labelKey, tooltipId) => {
-          if (!button) return;
-          const show = () => showHtmlTopbarNativeTooltip(button, t(labelKey), tooltipId);
-          button.addEventListener("pointerenter", show);
-          button.addEventListener("pointerleave", hideHtmlFindTriggerTooltip);
-          button.addEventListener("focusin", show);
-          button.addEventListener("focusout", hideHtmlFindTriggerTooltip);
-          button.addEventListener("click", hideHtmlFindTriggerTooltip);
-        };
-        bindHtmlTopbarNativeTooltip(els.addFolderButtonTopbar, "actions.addFolder", "folder");
-        bindHtmlTopbarNativeTooltip(els.addFileButtonTopbar, "actions.addFile", "file");
         documentSearchButton?.addEventListener("keydown", (event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           if (!openActiveDocumentFind()) return;

@@ -12,7 +12,7 @@ use crate::{
         document_title::DocumentTitle,
         html_runtime::{
             attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
-            attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_find_overlay, attach_html_find_trigger_tooltip, attach_html_runtime_host, attach_settings_overlay,
+            attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_find_overlay, attach_html_runtime_host, attach_settings_overlay,
             attach_inspector_more_overlay, close_inspector_more_overlay,
             close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay,
             close_html_presentation_preview, close_html_runtime_window,
@@ -22,15 +22,16 @@ use crate::{
             set_html_edit_toolbar_overlay_visibility,
             set_html_presentation_preview_visibility, set_html_presentation_preview_active,
             set_html_runtime_controls_overlay_visibility, set_html_find_overlay_bounds,
-            set_html_find_overlay_visibility, set_html_find_trigger_tooltip_visibility,
+            set_html_find_overlay_visibility,
             set_html_runtime_host_visibility, update_html_find_overlay,
+            forward_html_runtime_view_state,
             HtmlRuntimeSession,
         },
     },
     db::repositories::ItemRepository,
     errors::AppError,
     models::{
-        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlFindOverlayRequest, AttachHtmlFindTriggerTooltipRequest,
+        AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlFindOverlayRequest,
         AttachHtmlRuntimeHostRequest, AttachInspectorMoreOverlayRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
@@ -42,7 +43,7 @@ use crate::{
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
         SetHtmlFindOverlayBoundsRequest, SetHtmlFindOverlayVisibilityRequest,
-        SetHtmlFindTriggerTooltipVisibilityRequest, UpdateHtmlFindOverlayRequest,
+        UpdateHtmlFindOverlayRequest,
         HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
         SetHtmlRuntimeHostVisibilityRequest, ValidateMarkdownCoverAssetRequest,
         ValidateMarkdownCoverAssetResponse,
@@ -203,7 +204,14 @@ pub fn attach_html_runtime_host_command(
 
     let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
     let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
-    attach_html_runtime_host(&app, &window, &session, payload.bounds)?;
+    attach_html_runtime_host(
+        &app,
+        &window,
+        &session,
+        payload.bounds,
+        payload.view_state_surface_token,
+        payload.view_state,
+    )?;
     Ok(session.to_payload(false))
 }
 
@@ -362,16 +370,6 @@ pub fn set_html_find_overlay_visibility_command(
 }
 
 #[tauri::command]
-pub fn attach_html_find_trigger_tooltip_command(app: tauri::AppHandle, window: tauri::Window, payload: AttachHtmlFindTriggerTooltipRequest) -> Result<bool, AppError> {
-    attach_html_find_trigger_tooltip(&app, &window, payload.item_id, &payload.tooltip_id, payload.bounds, payload.label, payload.visible)
-}
-
-#[tauri::command]
-pub fn set_html_find_trigger_tooltip_visibility_command(app: tauri::AppHandle, payload: SetHtmlFindTriggerTooltipVisibilityRequest) -> Result<bool, AppError> {
-    set_html_find_trigger_tooltip_visibility(&app, payload.item_id, &payload.tooltip_id, payload.visible)
-}
-
-#[tauri::command]
 pub fn attach_html_edit_toolbar_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
@@ -501,6 +499,14 @@ pub fn html_edit_runtime_message_command(
         .map_err(|_| AppError::InternalError)?;
     log_html_edit_debug("runtime-ipc-forward", crate::core::html_runtime::html_edit_debug_payload_fields(&payload));
     Ok(true)
+}
+
+#[tauri::command]
+pub fn html_runtime_view_state_command(
+    app: tauri::AppHandle,
+    payload: Value,
+) -> Result<bool, AppError> {
+    forward_html_runtime_view_state(&app, &payload)
 }
 
 #[tauri::command]

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{library::Library, skill::SkillBindingSummary, tag::Tag};
 
@@ -459,6 +460,12 @@ pub struct HtmlEditToolbarFormatState {
 pub struct AttachHtmlRuntimeHostRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
+    /// Identifies one concrete child-WebView lifetime. Late messages from a
+    /// host that was destroyed during a tab switch must not overwrite the
+    /// replacement host's restored state.
+    pub view_state_surface_token: u64,
+    #[serde(default)]
+    pub view_state: Option<Value>,
 }
 
 /// 检查视图「更多」控制的小型原生 overlay。它故意只承载按钮本身：正文仍在
@@ -583,29 +590,6 @@ pub struct UpdateHtmlFindOverlayRequest {
 pub struct SetHtmlFindOverlayBoundsRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AttachHtmlFindTriggerTooltipRequest {
-    pub item_id: i64,
-    #[serde(default)]
-    pub tooltip_id: String,
-    pub bounds: RuntimeHostBounds,
-    pub label: String,
-    #[serde(default = "default_true")]
-    pub visible: bool,
-}
-
-fn default_true() -> bool { true }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetHtmlFindTriggerTooltipVisibilityRequest {
-    pub item_id: i64,
-    #[serde(default)]
-    pub tooltip_id: String,
-    pub visible: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
