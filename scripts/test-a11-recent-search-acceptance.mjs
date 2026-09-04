@@ -260,46 +260,39 @@ await page.waitForSelector('.item-card', { timeout: 8000 });
 assert.deepEqual(await history(), ["shared-card", "内部来源验收丙", "revision-beta"], "history must survive a restart (localStorage)");
 console.log("[ok] E-3: history persists across restart");
 
-// ================= Path E-4：共享 coordinator，两框同一历史 =================
-// 真实产品只有顶栏搜索框可见（home-search 输入框是 value 同步的隐藏副本，
-// 见 dist CSS `.home-search { display:none }`）；两框共享同一个 popup 与存储。
+// ================= Path E-4：单一 coordinator 与单一搜索事实源 =================
 await openPopup();
 assert.deepEqual(await popupWords(), ["shared-card", "内部来源验收丙", "revision-beta"], "topbar search box must show the shared history on focus");
 assert.equal(await page.evaluate(() => document.getElementById("searchInput").getAttribute("aria-expanded")), "true", "topbar input must expose aria-expanded=true");
-assert.equal(
-  await page.evaluate(() => document.getElementById("homeSearchInput").getAttribute("aria-controls")),
-  "recentSearchPopup",
-  "the hidden home input must point at the same shared popup"
-);
 await page.keyboard.press("Escape");
 await page.waitForTimeout(50);
 assert.equal(await popupOpen(), false, "Escape must close the popup");
 assert.equal(await page.evaluate(() => document.activeElement === document.getElementById("searchInput")), true, "Escape must keep focus on the search input");
-// 两个输入框 value 保持同步（syncSearchInputs），输入词不重复触发记录。
+// 单一顶栏输入框是搜索值的唯一 DOM 事实源。
 await page.fill("#searchInput", "sync-check");
 assert.equal(
-  await page.evaluate(() => document.getElementById("homeSearchInput").value),
+  await page.evaluate(() => document.getElementById("searchInput").value),
   "sync-check",
-  "typing in the visible box must sync the hidden home box"
+  "typing must preserve the single search input value"
 );
 await clearSearch();
-console.log("[ok] E-4: one shared popup and storage for both search boxes; values stay in sync");
+console.log("[ok] E-4: one shared popup and a single search input source of truth");
 
-// ================= Path E-5：点击历史同步两框并刷新真实搜索结果 =================
+// ================= Path E-5：点击历史并刷新真实搜索结果 =================
 const callsBeforeClick = (await listItemsCalls()).length;
 await page.click("#recentSearchPopup .recent-search-option[data-recent-index='0']");
 // 点击后立即执行一次新搜索并渲染唯一命中卡片。
 await waitCards(1);
 assert.equal(
-  await page.evaluate(() => document.getElementById("searchInput").value === "shared-card" && document.getElementById("homeSearchInput").value === "shared-card"),
+  await page.evaluate(() => document.getElementById("searchInput").value === "shared-card"),
   true,
-  "clicking a history item must sync both search inputs"
+  "clicking a history item must update the search input"
 );
 assert.equal((await listItemsCalls()).length, callsBeforeClick + 1, "clicking a history item must execute exactly one new search");
 assert.equal(await lastCallKeyword(), "shared-card", "the latest executed search must be the clicked history word");
 assert.equal(await page.evaluate(() => Boolean(document.querySelector('[data-open-item="3924"]'))), true, "the matching card must be search-shared-card.html (3924)");
 assert.equal(await popupOpen(), false, "popup must close after applying a history item");
-console.log("[ok] E-5: clicking history syncs both inputs and refreshes results");
+console.log("[ok] E-5: clicking history refreshes results");
 
 // ================= Path E-6：删除中间一条，列表保持打开、结果不变 =================
 await openPopup();

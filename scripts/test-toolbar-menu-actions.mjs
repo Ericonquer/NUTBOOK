@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 const indexHtml = readFileSync("dist/index.html", "utf8");
 const runtimeOverlayHtml = readFileSync("dist/runtime-overlay.html", "utf8");
+const htmlFindOverlayHtml = readFileSync("dist/html-find-overlay.html", "utf8");
 const runtimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8");
 
 assert.doesNotMatch(
@@ -125,48 +126,194 @@ function functionSource(name) {
   throw new Error(`Unable to parse ${name}`);
 }
 
-// Leaving an HTML runtime must synchronously converge the native host and
-// controls before the destination DOM is rendered. Delayed retries remain a
-// late-attach guard, not the primary cleanup path.
+// A destination change must converge every stale HTML child, not only the tab
+// that happened to be active when navigation began. Otherwise A/B/C opens can
+// leave native siblings above a later Markdown tab or the home DOM.
 const switchEvents = [];
 const switchCoordinator = {
   appState: {
     runtimeControlsOverlayExpanded: true,
     runtimeControlsOverlayMode: "more",
     activeRuntimeHostId: 41,
-    runtimeHostLastBoundsKey: "41:old"
+    runtimeHostLastBoundsKey: "41:old",
+    runtimeNavigationEpoch: 0,
+    runtimeSessions: [
+      { id: 41, preview: { fileType: "html-runtime" } },
+      { id: 42, preview: { fileType: "html-runtime" } },
+      { id: 43, preview: { fileType: "html-runtime" } }
+    ]
   },
-  getOpenTab: (itemId) => itemId === 41 ? { id: 41, preview: { fileType: "html-runtime" } } : null,
+  getOpenTab: (itemId) => switchCoordinator.appState.runtimeSessions.find((session) => session.id === itemId) || null,
   cancelHtmlRemoveConfirmOverlay: async () => { switchEvents.push("cancel-confirm"); },
   cleanupRuntimeHostSync: () => { switchEvents.push("invalidate-sync"); },
-  cancelPendingRuntimeSurfaceHide: () => { switchEvents.push("cancel-pending-hide"); },
-  nextRuntimeSurfaceToken: () => { switchEvents.push("advance-token"); return 9; },
-  syncHtmlEditReadonlyPatchSurfaceToken: async () => { switchEvents.push("sync-token"); },
-  hideRuntimeSessionSurfaces: async (_itemId, options) => {
+  cancelPendingRuntimeSurfaceHide: (itemId) => { switchEvents.push(`cancel:${itemId}`); },
+  nextRuntimeSurfaceToken: (itemId) => { switchEvents.push(`token:${itemId}`); return itemId; },
+  syncHtmlEditReadonlyPatchSurfaceToken: async (itemId) => { switchEvents.push(`sync:${itemId}`); },
+  hideRuntimeSessionSurfaces: async (itemId, options) => {
     assert.equal(options.force, true);
-    assert.equal(options.token, 9);
-    switchEvents.push("force-hide");
+    assert.equal(options.token, itemId);
+    assert.equal(options.navigationEpoch, 1);
+    assert.equal(options.keepItemId, null);
+    switchEvents.push(`hide:${itemId}`);
   },
-  scheduleRuntimeSurfaceHide: async () => { switchEvents.push("schedule-recheck"); }
+  scheduleRuntimeSurfaceHide: async (itemId) => { switchEvents.push(`recheck:${itemId}`); }
 };
 vm.createContext(switchCoordinator);
-vm.runInContext(functionSource("scheduleRuntimeCleanupAfterTabSwitch"), switchCoordinator);
+vm.runInContext([
+  functionSource("nextRuntimeNavigationEpoch"),
+  functionSource("isRuntimeNavigationCurrent"),
+  functionSource("convergeInactiveRuntimeSurfaces"),
+  functionSource("scheduleRuntimeCleanupAfterTabSwitch")
+].join("\n"), switchCoordinator);
 await switchCoordinator.scheduleRuntimeCleanupAfterTabSwitch(41, null);
-assert.deepEqual(switchEvents.slice(0, 6), [
-  "cancel-confirm",
-  "invalidate-sync",
-  "cancel-pending-hide",
-  "advance-token",
-  "sync-token",
-  "force-hide"
-]);
+assert.deepEqual(switchEvents.filter((event) => event.startsWith("hide:")), ["hide:41", "hide:42", "hide:43"], "home navigation must hide all registered HTML runtime surfaces");
 assert.equal(switchCoordinator.appState.activeRuntimeHostId, null);
 assert.equal(switchCoordinator.appState.runtimeHostLastBoundsKey, null);
+assert.match(functionSource("openItem"), /const navigationEpoch = nextRuntimeNavigationEpoch\(\)[\s\S]*?isCurrentItemOpenToken\(itemId, openToken, navigationEpoch\)/, "each file-open intent must own a global navigation epoch");
+assert.match(functionSource("openItem"), /previousTabId !== itemId[\s\S]*?cleanupRuntimeHostSync\(\);[\s\S]*?convergeInactiveRuntimeSurfaces\(null, navigationEpoch\)/, "a new file intent must remove the old native surface before its async preview finishes");
+assert.match(functionSource("isCurrentItemOpenToken"), /isRuntimeNavigationCurrent\(navigationEpoch\)/, "a per-item token alone must not permit an older cross-item open to land");
+assert.match(functionSource("openHtmlRuntimeSession"), /itemOpenTokens\.get\(detail\.id\) === openToken[\s\S]*?close_html_window/, "an older same-item completion must not close the newer owner's shared HTML session");
 assert.match(
   indexHtml,
   /async function showAllFilesHome[\s\S]*?appState\.activeTabId = null;[\s\S]*?await scheduleRuntimeCleanupAfterTabSwitch\(previousTabId, null\);[\s\S]*?await loadItems\(\);[\s\S]*?renderTabs\(\);[\s\S]*?renderViewer\(\);/,
   "side-nav All Files must await native runtime cleanup before loading and rendering home"
 );
+
+// Runtime geometry has one long-lived ResizeObserver per mount. Re-observing
+// the same target after every sync re-delivers the initial size and creates a
+// self-scheduling native WebView mutation loop.
+const resizeEvents = [];
+class FakeResizeObserver {
+  constructor(callback) {
+    this.callback = callback;
+    resizeEvents.push("create");
+  }
+  observe(target) { resizeEvents.push(`observe:${target.id}`); }
+  disconnect() { resizeEvents.push("disconnect"); }
+}
+const resizeCoordinator = {
+  appState: { runtimeHostResizeObserver: null, runtimeHostResizeObserverTarget: null },
+  ResizeObserver: FakeResizeObserver,
+  scheduleRuntimeHostSync: () => resizeEvents.push("schedule")
+};
+vm.createContext(resizeCoordinator);
+vm.runInContext(`${functionSource("ensureRuntimeHostResizeObserver")}; globalThis.ensureRuntimeHostResizeObserver = ensureRuntimeHostResizeObserver;`, resizeCoordinator);
+const mountA = { id: "mount-a" };
+const mountB = { id: "mount-b" };
+resizeCoordinator.ensureRuntimeHostResizeObserver(mountA);
+resizeCoordinator.ensureRuntimeHostResizeObserver(mountA);
+assert.deepEqual(resizeEvents, ["create", "observe:mount-a"], "the same runtime mount must never be disconnected and observed again by its own sync");
+resizeCoordinator.appState.runtimeHostResizeObserver.callback();
+assert.equal(resizeEvents.filter((event) => event === "schedule").length, 1, "one ResizeObserver delivery must schedule one host sync");
+resizeCoordinator.ensureRuntimeHostResizeObserver(mountB);
+assert.deepEqual(resizeEvents.slice(-2), ["disconnect", "observe:mount-b"], "a replaced mount must move the single observer subscription exactly once");
+assert.match(
+  functionSource("hideInactiveRuntimeHosts"),
+  /if \(options\.invalidate !== false\) cleanupRuntimeHostSync\(\);/,
+  "the active sync must not tear down its own ResizeObserver while hiding inactive tabs"
+);
+
+// Every structured Tauri command must cross the shared invoke adapter with
+// the named `payload` argument expected by its Rust command signature.
+const commandVariantContext = {};
+vm.createContext(commandVariantContext);
+vm.runInContext(`${functionSource("commandVariants")}; globalThis.commandVariants = commandVariants;`, commandVariantContext);
+assert.doesNotMatch(
+  functionSource("runRuntimeHostSync"),
+  /prewarm_html_(?:find|runtime_controls)_overlay_command|awaitRuntimeControlsPrewarm/,
+  "opening an HTML document must not pre-create transparent child surfaces"
+);
+assert.doesNotMatch(indexHtml, /prewarm_html_(?:find|runtime_controls)_overlay_command/, "the frontend must not retain failed transparent-child prewarm commands");
+assert.doesNotMatch(runtimeRust, /pub fn prewarm_html_(?:find|runtime_controls)_overlay/, "the native runtime must not retain failed transparent-child prewarm paths");
+
+// Find content updates are serialized and deduplicated. Only explicit open may
+// use the attach/show/focus path; render/result updates must stay eval-only.
+let resolveFindAttach;
+const findInvocations = [];
+const findCoordinator = {
+  appState: {
+    htmlFind: { itemId: 41, query: "松塔协议", caseSensitive: false, replaceExpanded: false, count: "0/0" },
+    htmlFindOverlayEpoch: 1,
+    htmlFindOverlaySyncLane: Promise.resolve(),
+    htmlFindOverlayLastContentKey: null,
+    htmlFindOverlayLastBoundsKey: null,
+    htmlEditSession: null
+  },
+  getActiveTab: () => ({ id: 41, preview: { fileType: "html-runtime" } }),
+  htmlFindLabels: () => ({ query: "搜索正文内容" }),
+  readHtmlFindHistory: () => [],
+  htmlFindOverlayBounds: () => ({ x: 880, y: 104, width: 560, height: 76 }),
+  invoke: async (command, args) => {
+    findInvocations.push({ command, args });
+    if (command === "attach_html_find_overlay_command") {
+      await new Promise((resolve) => { resolveFindAttach = resolve; });
+    }
+    return true;
+  }
+};
+vm.createContext(findCoordinator);
+vm.runInContext([
+  functionSource("activeHtmlFindContentPayload"),
+  functionSource("htmlFindContentKey"),
+  functionSource("queueActiveHtmlFindSurfaceSync"),
+  functionSource("updateActiveHtmlFindContent")
+].join("\n"), findCoordinator);
+const openingFind = findCoordinator.queueActiveHtmlFindSurfaceSync({ attach: true });
+while (!resolveFindAttach) await new Promise((resolve) => setTimeout(resolve, 0));
+const renderingFind = findCoordinator.updateActiveHtmlFindContent();
+resolveFindAttach(true);
+await Promise.all([openingFind, renderingFind]);
+assert.deepEqual(
+  findInvocations.map((entry) => entry.command),
+  ["attach_html_find_overlay_command"],
+  "a render queued behind an identical explicit open must not replay find update/show/focus"
+);
+findCoordinator.appState.htmlFindOverlayLastContentKey = null;
+findCoordinator.invoke = async () => false;
+assert.equal(await findCoordinator.updateActiveHtmlFindContent(), false, "a missing native find child must report an unsatisfied content update");
+assert.equal(findCoordinator.appState.htmlFindOverlayLastContentKey, null, "a failed native update must not poison the retry key");
+assert.match(indexHtml, /__NUTBOOK_HANDLE_HTML_FIND_ACTION__[\s\S]*?appState\.htmlFind\.itemId !== payload\.itemId\) return;/, "a title message arriving after close must not resurrect the find owner");
+assert.match(htmlFindOverlayHtml, /const focusQuery = Boolean\(next\.focusQuery\)[\s\S]*?if \(focusQuery\) requestAnimationFrame\(\(\) => query\.focus\(\)\)/, "only an explicit focusQuery update may focus the native find input");
+assert.doesNotMatch(htmlFindOverlayHtml, /renderHistory\(\); requestAnimationFrame\(\(\) => query\.focus\(\)\)/, "ordinary find state updates must not steal focus");
+assert.match(htmlFindOverlayHtml, /if \(focusQuery\) \{ delete panel\.dataset\.closing; armHoverReset\(\); \}/, "every explicit find show must reset closing state and suppress stale hover retained while hidden");
+assert.match(htmlFindOverlayHtml, /const closeFind = \(\) => \{ panel\.dataset\.closing = 'true'; document\.activeElement\?\.blur\?\.\(\); armHoverReset\(\); emit\('close'\); \}/, "find close must synchronously clear focus and paint state before the host hide IPC");
+assert.match(htmlFindOverlayHtml, /data-suppress-hover="true"[\s\S]*?button:hover \.tip \{ opacity: 0;/, "stale find-button hover must not paint its tooltip after reuse");
+assert.match(htmlFindOverlayHtml, /hoverResetOrigin[\s\S]*?Math\.hypot\(event\.screenX - hoverResetOrigin\.x, event\.screenY - hoverResetOrigin\.y\) > 4\) releaseHoverReset\(\)/, "hover suppression must release only after a new physical pointer movement");
+assert.match(htmlFindOverlayHtml, /\.panel\s*\{[^}]*background:\s*#fff;/, "the native find panel must paint an opaque first frame over the HTML child webview");
+assert.doesNotMatch(htmlFindOverlayHtml, /\.panel\s*\{[^}]*background:\s*rgba\(/, "the native find panel must not depend on translucent child-webview compositing");
+assert.match(functionSource("htmlFindOverlayBounds"), /runtimeScrollbarGutter = 14[\s\S]*?viewer\.right - runtimeScrollbarGutter/, "the native find panel right edge must reserve the nested HTML WebView scrollbar gutter");
+assert.match(runtimeRust, /pub fn update_html_find_overlay[\s\S]*?\.eval\([\s\S]*?Ok\(true\)/, "find content updates must use the eval-only host path");
+assert.match(runtimeRust, /pub fn set_html_find_overlay_bounds[\s\S]*?\.set_bounds\([\s\S]*?Ok\(true\)/, "an explicit find layout change must use the bounds-only host path");
+assert.match(functionSource("syncActiveRuntimeHost"), /await syncActiveHtmlFindLayoutBounds\(tab, runId\)/, "window/runtime resize must keep an open find surface aligned through the bounds-only path");
+assert.match(functionSource("syncActiveHtmlFindLayoutBounds"), /set_html_find_overlay_bounds_command[\s\S]*?!isRuntimeHostSyncCurrent\(runId, tab\.id\)/, "find resize must reject stale bounds results through the active runtime run guard");
+assert.doesNotMatch(functionSource("syncActiveHtmlFindLayoutBounds"), /attach_html_find_overlay_command|update_html_find_overlay_command|set_html_find_overlay_visibility_command|openActiveHtmlFind/, "find resize must not attach, update, show, hide, focus, or reopen the surface");
+const controlsVisibilitySource = runtimeRust.match(/pub fn set_html_runtime_controls_overlay_visibility[\s\S]*?\n}\n\n\/\/\/ Document find/)?.[0] || "";
+assert.match(controlsVisibilitySource, /webview\.hide\(\)/, "inactive HTML controls must be hidden");
+assert.match(controlsVisibilitySource, /webview\.close\(\)/, "inactive HTML controls must be destroyed instead of retained as a hidden shared child");
+assert.match(runtimeRust, /pub fn html_runtime_controls_label\(item_id: i64\)[\s\S]*?format!\("html-controls-\{item_id\}"\)/, "each HTML tab must own a distinct controls child");
+const closeRuntimeSource = runtimeRust.match(/pub fn close_html_runtime_window[\s\S]*?\n}\n\npub fn attach_html_runtime_host/)?.[0] || "";
+assert.match(closeRuntimeSource, /html_runtime_controls_label\(item_id\)[\s\S]*?webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "closing an HTML tab must destroy its per-item controls child");
+assert.doesNotMatch(runtimeRust, /runtime_controls_owner|RUNTIME_CONTROLS_OWNER|html-controls-active/, "the rolled-back controls lifecycle must not retain a window-scoped owner or shared label");
+const controlsAttachSource = runtimeRust.match(/pub fn attach_controls_overlay[\s\S]*?\n}\n\npub fn set_html_runtime_controls_overlay_visibility/)?.[0] || "";
+assert.doesNotMatch(controlsAttachSource, /raise_webview_view_native/, "per-item controls must rely on create-after-host ordering instead of native sibling raises");
+const findVisibilitySource = runtimeRust.match(/pub fn set_html_find_overlay_visibility[\s\S]*?\n}\n\npub fn attach_inspector_more_overlay/)?.[0] || "";
+assert.match(findVisibilitySource, /webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "closing find must destroy the child instead of retaining prewarm-era hide-only state");
+assert.doesNotMatch(findVisibilitySource, /raise_webview_view_native/, "find must rely on explicit create-after-controls ordering instead of native sibling raises");
+assert.doesNotMatch(indexHtml, /attach_html_find_trigger_tooltip_command|set_html_find_trigger_tooltip_visibility_command|htmlTopbarTooltipWarm|html-runtime-topbar-tooltips|data-native-tooltip/, "HTML topbar tooltips must not create or retain native child WebViews");
+assert.doesNotMatch(runtimeRust, /TOPBAR_TOOLTIP_OWNER|topbar_tooltip_owner|html_topbar_tooltip_label|raise_webview_view_native|html-find-trigger-tooltip/, "the native topbar tooltip owner, renderer, and raise path must be fully removed");
+assert.match(indexHtml, /class="topbar-search-tooltip"/, "the document search entry must retain its DOM tooltip fallback");
+assert.match(indexHtml, /class="topbar-button-tooltip"/, "the add-folder and add-file entries must retain their DOM tooltip fallbacks");
+const hostVisibilitySource = runtimeRust.match(/pub fn set_html_runtime_host_visibility[\s\S]*?\n}\n\n\/\/\/ The presentation rail/)?.[0] || "";
+assert.match(hostVisibilitySource, /webview\.hide\(\)/, "inactive HTML hosts must be hidden");
+assert.match(hostVisibilitySource, /set_bounds[\s\S]*?width:\s*1\.0[\s\S]*?height:\s*1\.0[\s\S]*?webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "inactive HTML hosts must be collapsed, hidden, and destroyed instead of accumulating across tabs");
+assert.doesNotMatch(indexHtml, /_runtimeSurfaceHideTimers|\[0,\s*80,\s*240,\s*520\]|scheduleRuntimeSurfaceHide/, "the desired-state coordinator must not retain the old delayed hide storm");
+assert.match(functionSource("hideRuntimeSessionSurfaces"), /runtimeHiddenSurfaceIds\.has\(itemId\)[\s\S]*?!options\.recoverLateAttach[\s\S]*?return/, "an already hidden runtime must not receive duplicate native mutations");
+assert.match(functionSource("hideRuntimeSessionSurfaces"), /refreshHtmlRuntimeViewState\(itemId\)[\s\S]*?setRuntimeHostVisibility\(itemId, false\)/, "the active HTML host must snapshot serializable view state before close-on-switch");
+assert.match(functionSource("suspendRuntimeSurfaces"), /refreshHtmlRuntimeViewState\(activeRuntimeHostId\)[\s\S]*?activeRuntimeHostId = null/, "window suspension must snapshot the active HTML host before clearing its native owner");
+assert.match(functionSource("syncActiveRuntimeHost"), /viewStateSurfaceToken:\s*htmlRuntimeViewStateSurfaceToken\(tab\.id\)[\s\S]*?viewState:\s*tab\.viewState \|\| null/, "a recreated HTML host must receive a new lifetime token and its tab-scoped view state in the attach request");
+assert.match(indexHtml, /__NUTBOOK_HANDLE_HTML_RUNTIME_VIEW_STATE__[\s\S]*?surfaceToken !== htmlRuntimeViewStateSurfaceToken\(itemId\)[\s\S]*?return/, "late state from a destroyed host must be rejected by its lifetime token");
+assert.match(runtimeRust, /html_runtime_view_state_script[\s\S]*?html_runtime_view_state_command[\s\S]*?presentationPageId[\s\S]*?bridge\.goTo\(targetPageId\)[\s\S]*?window\.scrollTo/, "the child runtime shim must capture and restore scroll, hash, and protocol presentation state");
+assert.doesNotMatch(runtimeRust.match(/fn html_runtime_view_state_script[\s\S]*?pub fn html_runtime_compatibility_script/)?.[0] || "", /localStorage|sessionStorage/, "runtime view state must stay in the owning Nutbook tab session instead of modifying page storage");
 
 // The remove-confirm coordinator must reject a late child-webview attach after
 // the active tab changes, clear its blocking state, and close the stale overlay.
@@ -279,6 +426,42 @@ try {
   });
   assert.equal(await runtimePage.locator("#editButton").isDisabled(), true);
   assert.equal(await runtimePage.locator("#editButton").getAttribute("aria-busy"), "true");
+
+  const findPage = await browser.newPage({ viewport: { width: 560, height: 112 } });
+  await findPage.addInitScript(() => {
+    window.__NUTBOOK_HTML_FIND_INITIAL__ = {
+      itemId: 41,
+      canReplace: false,
+      replaceExpanded: false,
+      query: "",
+      count: "0/0",
+      caseSensitive: false,
+      labels: { closeFind: "关闭查找" },
+      history: [],
+      focusQuery: false
+    };
+  });
+  await findPage.goto(pathToFileURL(`${process.cwd()}/dist/html-find-overlay.html`).href);
+  const closeFindButton = findPage.locator("[data-close]");
+  const closeFindTip = findPage.locator("[data-close-find-tip]");
+  await closeFindButton.hover();
+  await findPage.waitForFunction(() => getComputedStyle(document.querySelector("[data-close-find-tip]")).opacity === "1");
+  await closeFindButton.click();
+  assert.equal(await findPage.locator(".panel").getAttribute("data-closing"), "true");
+  assert.equal(await findPage.locator(".panel").getAttribute("data-suppress-hover"), "true");
+  assert.equal(await closeFindTip.evaluate((tip) => getComputedStyle(tip).opacity), "0");
+  await findPage.evaluate(() => window.__NUTBOOK_HTML_FIND__?.update({ focusQuery: true }));
+  assert.equal(await findPage.locator(".panel").getAttribute("data-closing"), null);
+  assert.equal(await findPage.locator(".panel").getAttribute("data-suppress-hover"), "true");
+  assert.equal(await closeFindButton.evaluate((button) => getComputedStyle(button).backgroundColor), "rgba(0, 0, 0, 0)");
+  assert.equal(await closeFindTip.evaluate((tip) => getComputedStyle(tip).opacity), "0");
+  const findPanelBox = await findPage.locator(".panel").boundingBox();
+  assert.ok(findPanelBox, "the find panel must have measurable pointer geometry");
+  await findPage.mouse.move(findPanelBox.x + 18, findPanelBox.y + 18);
+  await findPage.mouse.move(findPanelBox.x + 28, findPanelBox.y + 18);
+  await findPage.waitForFunction(() => !document.querySelector(".panel")?.hasAttribute("data-suppress-hover"));
+  await closeFindButton.hover();
+  await findPage.waitForFunction(() => getComputedStyle(document.querySelector("[data-close-find-tip]")).opacity === "1");
 
   const confirmPage = await browser.newPage();
   await confirmPage.addInitScript(() => {

@@ -5,6 +5,7 @@ pub mod cli;
 pub mod document;
 pub mod document_title;
 pub mod html_edit;
+pub mod html_text;
 pub mod html_runtime;
 pub mod library;
 pub mod local_server;

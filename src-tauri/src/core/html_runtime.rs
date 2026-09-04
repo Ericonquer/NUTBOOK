@@ -12,7 +12,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
-    sync::{Mutex, OnceLock},
+    sync::{atomic::{AtomicI64, Ordering}, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
@@ -21,13 +21,21 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSResponder, NSWindow};
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSResponder, NSWindow, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSNotification, NSNotificationCenter};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
 
 const HTML_FULLSCREEN_TITLE_PREFIX: &str = "__NUTBOOK_TOGGLE_FULLSCREEN__:";
 const HTML_CONTROLS_ACTION_PREFIX: &str = "__NUTBOOK_HTML_CONTROLS__:";
+const HTML_FIND_ACTION_PREFIX: &str = "__NUTBOOK_HTML_FIND__:";
+const HTML_FIND_RESULT_PREFIX: &str = "__NUTBOOK_HTML_FIND_RESULT__:";
+const HTML_FIND_SHORTCUT_PREFIX: &str = "__NUTBOOK_HTML_FIND_SHORTCUT__:";
 const HTML_EDIT_RUNTIME_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
+const HTML_RUNTIME_VIEW_STATE_PREFIX: &str = "__NUTBOOK_HTML_RUNTIME_VIEW_STATE__:";
 const HTML_EDIT_TOOLBAR_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR__:";
 const HTML_EDIT_TOOLBAR_DIAGNOSTIC_PREFIX: &str = "__NUTBOOK_HTML_EDIT_TOOLBAR_DIAGNOSTIC__:";
 const HTML_EDIT_LEAVE_ACTION_PREFIX: &str = "__NUTBOOK_HTML_EDIT_LEAVE__:";
@@ -36,6 +44,10 @@ const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 const INSPECTOR_MORE_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_INSPECTOR_MORE_OVERLAY__:";
 const HTML_EDIT_DEBUG_LOG_PATH: &str = "/tmp/nutbook-html-edit-debug.log";
 static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static HTML_FULLSCREEN_FOCUS_ITEM_ID: AtomicI64 = AtomicI64::new(0);
+#[cfg(target_os = "macos")]
+static HTML_FULLSCREEN_FOCUS_OBSERVER: OnceLock<()> = OnceLock::new();
 
 fn presentation_preview_instances() -> &'static Mutex<HashMap<i64, String>> {
     PRESENTATION_PREVIEW_INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -133,6 +145,18 @@ struct HtmlControlsActionPayload {
     y: Option<f64>,
     width: Option<f64>,
     height: Option<f64>,
+    seq: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HtmlFindActionPayload {
+    item_id: i64,
+    action: String,
+    query: String,
+    replacement: String,
+    case_sensitive: bool,
+    replace_expanded: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -238,14 +262,23 @@ pub fn close_html_runtime_window(
         closed = true;
     }
 
-    let controls_label = html_runtime_controls_label(item_id);
-    if let Some(webview) = app.get_webview(&controls_label) {
+    // A stale find surface may still exist if its close action raced with tab
+    // teardown. Close it with the owning tab as a final lifecycle guard.
+    let find_overlay_label = html_find_overlay_label(item_id);
+    if let Some(webview) = app.get_webview(&find_overlay_label) {
         let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
             x: 0.0,
             y: 0.0,
             width: 1.0,
             height: 1.0,
         }));
+        let _ = webview.hide();
+        webview.close().map_err(|_| AppError::InternalError)?;
+        closed = true;
+    }
+    let controls_label = html_runtime_controls_label(item_id);
+    if let Some(webview) = app.get_webview(&controls_label) {
+        let _ = webview.eval("window.__NUTBOOK_RESET_TRANSIENT_STATE__?.();");
         let _ = webview.hide();
         webview.close().map_err(|_| AppError::InternalError)?;
         closed = true;
@@ -257,7 +290,6 @@ pub fn close_html_runtime_window(
     if close_html_edit_leave_confirm_overlay(app, item_id)? {
         closed = true;
     }
-
     Ok(closed)
 }
 
@@ -266,6 +298,8 @@ pub fn attach_html_runtime_host(
     window: &tauri::Window,
     session: &HtmlRuntimeSession,
     bounds: RuntimeHostBounds,
+    view_state_surface_token: u64,
+    view_state: Option<Value>,
 ) -> Result<bool, AppError> {
     let host_label = html_runtime_host_label(session.item_id);
     if let Some(webview) = app.get_webview(&host_label) {
@@ -276,7 +310,13 @@ pub fn attach_html_runtime_host(
         return Ok(true);
     }
 
-    let builder = build_runtime_webview_builder(app, &host_label, session)?;
+    let builder = build_runtime_webview_builder(
+        app,
+        &host_label,
+        session,
+        view_state_surface_token,
+        view_state.as_ref(),
+    )?;
     let webview = window
         .add_child(
             builder,
@@ -309,7 +349,11 @@ pub fn set_html_runtime_host_visibility(
             width: 1.0,
             height: 1.0,
         }));
-        webview.hide().map_err(|_| AppError::InternalError)?;
+        let _ = webview.hide();
+        // Inactive document hosts cannot remain registered as hidden child
+        // WebViews: opening four or more HTML tabs reproducibly poisons the
+        // window compositor and spreads black backing to hosts and controls.
+        webview.close().map_err(|_| AppError::InternalError)?;
     }
 
     Ok(true)
@@ -562,6 +606,112 @@ pub fn set_html_runtime_controls_overlay_visibility(
         webview.close().map_err(|_| AppError::InternalError)?;
     }
 
+    Ok(true)
+}
+
+/// Document find has its own small child surface.  The established controls
+/// island remains dedicated to tags and document actions.
+pub fn attach_html_find_overlay(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+    can_replace: bool,
+    replace_expanded: bool,
+    query: String,
+    count: String,
+    case_sensitive: bool,
+    labels: std::collections::BTreeMap<String, String>,
+    history: Vec<String>,
+) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let update = html_find_overlay_init_script(
+        item_id,
+        can_replace,
+        replace_expanded,
+        &query,
+        &count,
+        case_sensitive,
+        &labels,
+        &history,
+        true,
+    );
+    if let Some(webview) = app.get_webview(&label) {
+        webview.set_bounds(runtime_host_rect(bounds)).map_err(|_| AppError::InternalError)?;
+        let _ = webview.eval(&update);
+        webview.show().map_err(|_| AppError::InternalError)?;
+        return Ok(true);
+    }
+    let builder = WebviewBuilder::new(&label, tauri::WebviewUrl::App(PathBuf::from("html-find-overlay.html")))
+        .initialization_script(&update)
+        .background_color(tauri::webview::Color(0, 0, 0, 0))
+        .transparent(true)
+        .focused(true)
+        .on_document_title_changed(html_find_overlay_action_handler(app));
+    let webview = window.add_child(builder, tauri::LogicalPosition::new(bounds.x, bounds.y), tauri::LogicalSize::new(bounds.width, bounds.height)).map_err(|_| AppError::InternalError)?;
+    webview.set_bounds(runtime_host_rect(bounds)).map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// Update only the find panel's document state. Geometry, native visibility,
+/// and focus are owned by their separate lifecycle paths.
+pub fn update_html_find_overlay(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    can_replace: bool,
+    replace_expanded: bool,
+    query: String,
+    count: String,
+    case_sensitive: bool,
+    labels: std::collections::BTreeMap<String, String>,
+    history: Vec<String>,
+) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+    webview
+        .eval(&html_find_overlay_init_script(
+            item_id,
+            can_replace,
+            replace_expanded,
+            &query,
+            &count,
+            case_sensitive,
+            &labels,
+            &history,
+            false,
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// Resize an existing find child without replaying update/show/focus. This is
+/// deliberately a no-op when the surface has already been closed.
+pub fn set_html_find_overlay_bounds(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(false);
+    };
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+pub fn set_html_find_overlay_visibility(app: &tauri::AppHandle, item_id: i64, visible: bool) -> Result<bool, AppError> {
+    let label = html_find_overlay_label(item_id);
+    let Some(webview) = app.get_webview(&label) else { return Ok(false); };
+    if visible {
+        webview.show().map_err(|_| AppError::InternalError)?;
+    } else {
+        let _ = webview.hide();
+        webview.close().map_err(|_| AppError::InternalError)?;
+    }
     Ok(true)
 }
 
@@ -941,6 +1091,33 @@ pub fn eval_html_runtime_script(
     Ok(true)
 }
 
+pub fn forward_html_runtime_view_state<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    payload: &Value,
+) -> Result<bool, AppError> {
+    if payload.get("type").and_then(Value::as_str) != Some("html_runtime_view_state")
+        || payload.get("itemId").and_then(Value::as_i64).is_none()
+        || payload.get("surfaceToken").and_then(Value::as_u64).filter(|value| *value > 0).is_none()
+        || payload.get("sequence").and_then(Value::as_u64).is_none()
+        || payload.get("scrollX").and_then(Value::as_f64).filter(|value| value.is_finite()).is_none()
+        || payload.get("scrollY").and_then(Value::as_f64).filter(|value| value.is_finite()).is_none()
+        || payload.get("hash").and_then(Value::as_str).filter(|value| value.len() <= 2048).is_none()
+        || payload.get("presentationPageId").and_then(Value::as_str).map(|value| value.len() > 512).unwrap_or(false)
+        || payload.get("requestId").and_then(Value::as_str).map(|value| value.len() > 160).unwrap_or(false)
+    {
+        return Err(AppError::InvalidParams);
+    }
+
+    let main_webview = app.get_webview("main").ok_or(AppError::InternalError)?;
+    let payload_json = serde_json::to_string(payload).map_err(|_| AppError::InternalError)?;
+    main_webview
+        .eval(&format!(
+            "window.__NUTBOOK_HANDLE_HTML_RUNTIME_VIEW_STATE__?.({payload_json});"
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
 pub fn focus_html_runtime_host(
     app: &tauri::AppHandle,
     item_id: i64,
@@ -973,9 +1150,54 @@ pub fn focus_html_runtime_host(
     webview.set_focus().map_err(|_| AppError::InternalError)?;
     #[cfg(target_os = "macos")]
     {
+        HTML_FULLSCREEN_FOCUS_ITEM_ID.store(item_id, Ordering::Release);
+        install_html_fullscreen_focus_observer(app);
         recover_webview_focus_native(webview.clone());
     }
     Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn install_html_fullscreen_focus_observer(app: &tauri::AppHandle) {
+    HTML_FULLSCREEN_FOCUS_OBSERVER.get_or_init(|| {
+        let center = NSNotificationCenter::defaultCenter();
+        // These are immutable AppKit framework notification names. objc2
+        // exposes them as extern statics, so Rust 2024 requires the read to
+        // be explicit even though AppKit owns their lifetime.
+        let notification_names = unsafe {
+            [
+                NSWindowDidEnterFullScreenNotification,
+                NSWindowDidExitFullScreenNotification,
+            ]
+        };
+        for notification_name in notification_names {
+            let app_handle = app.clone();
+            let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                let item_id = HTML_FULLSCREEN_FOCUS_ITEM_ID.load(Ordering::Acquire);
+                if item_id <= 0 {
+                    return;
+                }
+                let Some(webview) = app_handle.get_webview(&html_runtime_host_label(item_id)) else {
+                    return;
+                };
+                let _ = webview.window().set_focus();
+                let _ = webview.set_focus();
+                recover_webview_focus_native(webview);
+            });
+            // NSNotificationCenter owns the observer for the application
+            // lifetime. Keep its token alive for the same lifetime rather
+            // than registering per fullscreen transition.
+            let observer = unsafe {
+                center.addObserverForName_object_queue_usingBlock(
+                    Some(notification_name),
+                    None,
+                    None,
+                    &handler,
+                )
+            };
+            std::mem::forget(observer);
+        }
+    });
 }
 
 pub fn focus_main_webview(
@@ -1023,11 +1245,16 @@ fn recover_webview_focus_native<R: tauri::Runtime>(
 ) {
     let webview_for_main = webview.clone();
     let _ = webview.run_on_main_thread(move || {
-        let _ = webview_for_main.with_webview(|platform_webview| unsafe {
+        let _ = webview_for_main.with_webview(move |platform_webview| unsafe {
             let window: &NSWindow = &*platform_webview.ns_window().cast();
             let view: &WKWebView = &*platform_webview.inner().cast();
             let responder: &NSResponder = view;
             window.makeKeyAndOrderFront(None);
+            // After fullscreen exits, WebKit can leave the former controls
+            // child/IME responder installed. Explicitly clear it before
+            // assigning the runtime WKWebView; a direct replacement may be
+            // declined and makes the second F/Arrow appear to be lost.
+            let _ = window.makeFirstResponder(None);
             let _ = responder.becomeFirstResponder();
             let _ = window.makeFirstResponder(Some(responder));
         });
@@ -1048,6 +1275,10 @@ pub fn html_presentation_preview_label(item_id: i64) -> String {
 
 pub fn html_runtime_controls_label(item_id: i64) -> String {
     format!("html-controls-{item_id}")
+}
+
+fn html_find_overlay_label(item_id: i64) -> String {
+    format!("html-find-{item_id}")
 }
 
 fn inspector_more_overlay_label(item_id: i64) -> String {
@@ -1101,6 +1332,8 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
     session: &HtmlRuntimeSession,
+    view_state_surface_token: u64,
+    view_state: Option<&Value>,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let webview_url = tauri::WebviewUrl::External(
         session
@@ -1112,6 +1345,11 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
     Ok(
         WebviewBuilder::new(label, webview_url)
             .initialization_script(html_runtime_compatibility_script())
+            .initialization_script(&html_runtime_view_state_script(
+                session.item_id,
+                view_state_surface_token,
+                view_state,
+            ))
             .on_new_window(detached_new_window_handler(app))
             .on_document_title_changed(detached_embedded_fullscreen_handler(app)),
     )
@@ -1557,7 +1795,8 @@ fn runtime_controls_overlay_action_handler<R: tauri::Runtime>(
         if let Some(rest) = title.strip_prefix(HTML_CONTROLS_ACTION_PREFIX) {
             if let Ok(payload) = serde_json::from_str::<HtmlControlsActionPayload>(rest) {
                 if let Some(main_webview) = app_handle.get_webview("main") {
-                    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
+                    let payload_json = serde_json::to_string(&payload)
+                        .unwrap_or_else(|_| "null".to_string());
                     let _ = main_webview.eval(&format!(
                         "window.__NUTBOOK_HANDLE_HTML_RUNTIME_CONTROLS_ACTION__?.({});",
                         payload_json
@@ -1565,6 +1804,26 @@ fn runtime_controls_overlay_action_handler<R: tauri::Runtime>(
                 }
             }
             let _ = webview.eval("document.title = 'Nutbook HTML Controls';");
+        }
+    }
+}
+
+fn html_find_overlay_action_handler<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
+    let app_handle = app.clone();
+    move |webview, title| {
+        if let Some(rest) = title.strip_prefix(HTML_FIND_ACTION_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<HtmlFindActionPayload>(rest) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    if let Ok(payload_json) = serde_json::to_string(&payload) {
+                        let _ = main_webview.eval(&format!(
+                            "window.__NUTBOOK_HANDLE_HTML_FIND_ACTION__?.({payload_json});"
+                        ));
+                    }
+                }
+            }
+            let _ = webview.eval("document.title = 'Nutbook HTML Find';");
         }
     }
 }
@@ -1652,6 +1911,31 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
     let app_handle = app.clone();
     move |webview, title| {
+        if let Some(rest) = title.strip_prefix(HTML_RUNTIME_VIEW_STATE_PREFIX) {
+            if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                let _ = forward_html_runtime_view_state(&app_handle, &payload);
+            }
+            let _ = webview.eval("window.__NUTBOOK_RUNTIME_VIEW_STATE__?.ackTitle?.();");
+            return;
+        }
+        if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) {
+            if let Some(item_id) = webview.label().strip_prefix("html-host-").and_then(|value| value.parse::<i64>().ok()) {
+                if let Some(main_webview) = app_handle.get_webview("main") {
+                    let _ = main_webview.eval(&format!("window.__NUTBOOK_OPEN_HTML_FIND__?.({item_id});"));
+                }
+            }
+            let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
+            return;
+        }
+        if let Some(rest) = title.strip_prefix(HTML_FIND_RESULT_PREFIX) {
+            if let Some(main_webview) = app_handle.get_webview("main") {
+                let _ = main_webview.eval(&format!(
+                    "window.__NUTBOOK_HANDLE_HTML_FIND_RESULT__?.({rest});"
+                ));
+            }
+            let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
+            return;
+        }
         if let Some(rest) = title.strip_prefix(HTML_EDIT_RUNTIME_ACTION_PREFIX) {
             if let Ok(payload) = serde_json::from_str::<Value>(rest) {
                 let runtime_type = payload.get("type").and_then(Value::as_str);
@@ -1697,7 +1981,6 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
         if title.starts_with(HTML_FULLSCREEN_TITLE_PREFIX) {
             let window = webview.window();
             let next_fullscreen = !window.is_fullscreen().unwrap_or(false);
-            let webview_label = webview.label().to_string();
             let runtime_focus_script = format!(
                 "try {{ window.__NUTBOOK_HOST_FULLSCREEN__ = {}; window.__NUTBOOK_FOCUS_RUNTIME__?.(); }} catch (_) {{}}",
                 if next_fullscreen { "true" } else { "false" }
@@ -1720,23 +2003,10 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                     ));
                 }
             }
-            if !next_fullscreen {
-                let app_handle_clone = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    for delay in [80_u64, 180, 360, 720, 1100] {
-                        std::thread::sleep(Duration::from_millis(delay));
-                        if let Some(runtime_webview) = app_handle_clone.get_webview(&webview_label) {
-                            let _ = runtime_webview.window().set_focus();
-                            let _ = runtime_webview.eval(
-                                "try { window.__NUTBOOK_HOST_FULLSCREEN__ = false; window.__NUTBOOK_FOCUS_RUNTIME__?.(); } catch (_) {}"
-                            );
-                            let _ = runtime_webview.set_focus();
-                        }
-                    }
-                });
-            } else {
-                let _ = webview.eval(&runtime_focus_script);
-            }
+            // The main WebView owns the post-layout host/controls sync and
+            // returns focus once it has settled. Repeated native timer-based
+            // focus steals can race that sync after the second fullscreen run.
+            let _ = webview.eval(&runtime_focus_script);
             let _ = webview.eval(
                 "document.title = document.title.replace(/^__NUTBOOK_TOGGLE_FULLSCREEN__:\\d+$/, document.location.pathname.split('/').pop() || 'Nutbook Runtime');"
             );
@@ -1744,6 +2014,187 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
         }
 
     }
+}
+
+fn html_runtime_view_state_script(
+    item_id: i64,
+    surface_token: u64,
+    initial_view_state: Option<&Value>,
+) -> String {
+    r#"
+(() => {
+  const itemId = __NUTBOOK_ITEM_ID__;
+  const surfaceToken = __NUTBOOK_SURFACE_TOKEN__;
+  const initialViewState = __NUTBOOK_INITIAL_VIEW_STATE__;
+  const titlePrefix = '__NUTBOOK_HTML_RUNTIME_VIEW_STATE__:';
+  let active = false;
+  let sequence = 0;
+  let reportTimer = 0;
+  let fallbackTitle = null;
+  let activePageId = null;
+  let presentationSubscribed = false;
+  let presentationProbeFrames = 0;
+  let restoreRun = 0;
+  let restoring = false;
+
+  const scrollRoot = () => document.scrollingElement || document.documentElement || document.body;
+  const finitePosition = (value) => Math.min(100000000, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0));
+  const currentState = (requestId = null) => {
+    const root = scrollRoot();
+    return {
+      type: 'html_runtime_view_state',
+      itemId,
+      surfaceToken,
+      sequence: ++sequence,
+      requestId: requestId || null,
+      scrollX: finitePosition(root?.scrollLeft ?? window.scrollX),
+      scrollY: finitePosition(root?.scrollTop ?? window.scrollY),
+      hash: String(location.hash || '').slice(0, 2048),
+      presentationPageId: typeof activePageId === 'string' ? activePageId.slice(0, 512) : null
+    };
+  };
+  const fallbackReport = (payload) => {
+    if (String(document.title || '').startsWith('__NUTBOOK_')) return;
+    fallbackTitle = document.title;
+    document.title = titlePrefix + JSON.stringify(payload);
+  };
+  const emit = (requestId = null) => {
+    if (!active && !requestId) return;
+    const payload = currentState(requestId);
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke === 'function') {
+      Promise.resolve(invoke('html_runtime_view_state_command', { payload })).catch(() => fallbackReport(payload));
+    } else {
+      fallbackReport(payload);
+    }
+  };
+  const scheduleReport = () => {
+    if (!active || restoring) return;
+    window.clearTimeout(reportTimer);
+    reportTimer = window.setTimeout(() => emit(), 90);
+  };
+  const flush = (requestId) => {
+    window.clearTimeout(reportTimer);
+    emit(String(requestId || ''));
+  };
+  const ensurePresentationBridge = async () => {
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    if (!bridge || bridge.version !== 1 || typeof bridge.goTo !== 'function') return null;
+    if (!presentationSubscribed) {
+      presentationSubscribed = true;
+      try {
+        await bridge.whenReady?.();
+        const pageId = await bridge.getActivePageId?.();
+        if (typeof pageId === 'string') activePageId = pageId;
+        bridge.subscribe?.((nextPageId) => {
+          if (typeof nextPageId !== 'string') return;
+          activePageId = nextPageId;
+          scheduleReport();
+        });
+      } catch (_) {}
+    }
+    return bridge;
+  };
+  const probePresentationBridge = () => {
+    ensurePresentationBridge().then((bridge) => {
+      if (bridge || presentationProbeFrames >= 300) return;
+      presentationProbeFrames += 1;
+      requestAnimationFrame(probePresentationBridge);
+    });
+  };
+  const finishRestore = (run) => {
+    if (run !== restoreRun) return;
+    restoring = false;
+    scheduleReport();
+  };
+  const cancelRestoreForUser = (event) => {
+    if (!restoring || event?.isTrusted === false) return;
+    restoreRun += 1;
+    restoring = false;
+    scheduleReport();
+  };
+  const restore = (rawState) => {
+    active = true;
+    const state = rawState && typeof rawState === 'object' ? rawState : null;
+    if (!state) return;
+    const run = ++restoreRun;
+    restoring = true;
+    const targetX = finitePosition(state.scrollX);
+    const targetY = finitePosition(state.scrollY);
+    const targetHash = typeof state.hash === 'string' && (state.hash === '' || state.hash.startsWith('#'))
+      ? state.hash.slice(0, 2048)
+      : '';
+    const targetPageId = typeof state.presentationPageId === 'string'
+      ? state.presentationPageId.slice(0, 512)
+      : null;
+    try {
+      if (location.hash !== targetHash) {
+        history.replaceState(history.state, '', `${location.pathname}${location.search}${targetHash}`);
+      }
+    } catch (_) {}
+    let frame = 0;
+    let pageApplied = !targetPageId;
+    const apply = async () => {
+      if (run !== restoreRun) return;
+      if (!pageApplied) {
+        const bridge = await ensurePresentationBridge();
+        if (run !== restoreRun) return;
+        if (bridge) {
+          try { await bridge.whenReady?.(); await bridge.goTo(targetPageId); activePageId = targetPageId; } catch (_) {}
+          pageApplied = true;
+        }
+      }
+      const root = scrollRoot();
+      const maxX = Math.max(0, Number(root?.scrollWidth || 0) - Number(root?.clientWidth || 0));
+      const maxY = Math.max(0, Number(root?.scrollHeight || 0) - Number(root?.clientHeight || 0));
+      window.scrollTo(Math.min(targetX, maxX), Math.min(targetY, maxY));
+      const positionReady = targetX <= maxX + 1 && targetY <= maxY + 1;
+      if ((positionReady && pageApplied) || frame >= 300) {
+        finishRestore(run);
+        return;
+      }
+      frame += 1;
+      requestAnimationFrame(apply);
+    };
+    apply();
+    window.addEventListener('load', apply, { once: true });
+  };
+
+  window.__NUTBOOK_RUNTIME_VIEW_STATE__ = {
+    restore,
+    flush,
+    ackTitle() {
+      if (fallbackTitle != null && String(document.title || '').startsWith(titlePrefix)) document.title = fallbackTitle;
+      fallbackTitle = null;
+    }
+  };
+  if (initialViewState) {
+    restore(initialViewState);
+  } else if (Object.prototype.hasOwnProperty.call(window, '__NUTBOOK_PENDING_RUNTIME_VIEW_STATE__')) {
+    const pendingState = window.__NUTBOOK_PENDING_RUNTIME_VIEW_STATE__;
+    delete window.__NUTBOOK_PENDING_RUNTIME_VIEW_STATE__;
+    restore(pendingState);
+  }
+  window.addEventListener('scroll', scheduleReport, { passive: true });
+  document.addEventListener('scroll', scheduleReport, { passive: true, capture: true });
+  window.addEventListener('hashchange', scheduleReport);
+  window.addEventListener('wheel', cancelRestoreForUser, { passive: true });
+  window.addEventListener('touchstart', cancelRestoreForUser, { passive: true });
+  window.addEventListener('keydown', (event) => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) cancelRestoreForUser(event);
+  }, true);
+  probePresentationBridge();
+  window.setTimeout(() => { active = true; }, 250);
+})();
+"#
+    .replace("__NUTBOOK_ITEM_ID__", &item_id.to_string())
+    .replace("__NUTBOOK_SURFACE_TOKEN__", &surface_token.to_string())
+    .replace(
+        "__NUTBOOK_INITIAL_VIEW_STATE__",
+        &initial_view_state
+            .and_then(|state| serde_json::to_string(state).ok())
+            .unwrap_or_else(|| "null".to_string()),
+    )
 }
 
 pub fn html_runtime_compatibility_script() -> &'static str {
@@ -1801,6 +2252,74 @@ pub fn html_runtime_compatibility_script() -> &'static str {
       );
       (editable ? active : ensureRuntimeFocusTarget())?.focus?.({ preventScroll: true });
     } catch (_) {}
+  };
+
+  const revealFindSelection = () => {
+    try {
+      const selection = window.getSelection?.();
+      if (!selection?.rangeCount) return;
+      const node = selection.getRangeAt(0).commonAncestorContainer;
+      const anchor = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+      anchor?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    } catch (_) {}
+  };
+
+  // Decks commonly keep their page state in a private `go()` closure. Native
+  // window.find cannot move that state machine, so it only selects text on
+  // the visible slide. Prefer a public presentation bridge; otherwise replay
+  // the deck's own Arrow key handler rather than assuming a hash convention.
+  const findAcrossPresentationPages = ({ query, caseSensitive, backwards, action, done }) => {
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    if (slides.length < 2) return false;
+    const needle = String(query || '');
+    if (!needle) return false;
+    const normalize = (value) => caseSensitive ? String(value || '') : String(value || '').toLocaleLowerCase();
+    const sourceNeedle = normalize(needle);
+    const matches = [];
+    slides.forEach((slide, pageIndex) => {
+      const text = normalize(slide.innerText || slide.textContent || '');
+      let offset = 0;
+      while (sourceNeedle && (offset = text.indexOf(sourceNeedle, offset)) >= 0) {
+        matches.push(pageIndex);
+        offset += Math.max(1, sourceNeedle.length);
+      }
+    });
+    if (!matches.length) return false;
+    const state = window.__NUTBOOK_PRESENTATION_FIND_STATE__ || {};
+    const key = `${caseSensitive ? '1' : '0'}:${needle}`;
+    let cursor;
+    if (state.key !== key || action === 'query') {
+      const activePage = Math.max(0, slides.findIndex((slide) => slide.classList.contains('is-active')));
+      cursor = matches.findIndex((pageIndex) => pageIndex >= activePage);
+      if (cursor < 0) cursor = 0;
+    } else {
+      cursor = Number(state.cursor || 0) + (backwards ? -1 : 1);
+      cursor = (cursor + matches.length) % matches.length;
+    }
+    window.__NUTBOOK_PRESENTATION_FIND_STATE__ = { key, cursor };
+    const targetPage = matches[cursor];
+    const selectOnTargetPage = () => {
+      window.find(needle, Boolean(caseSensitive), Boolean(backwards), true, false, false, false);
+      revealFindSelection();
+      done?.(cursor + 1);
+    };
+    const activePage = Math.max(0, slides.findIndex((slide) => slide.classList.contains('is-active')));
+    if (targetPage === activePage) {
+      selectOnTargetPage();
+      return true;
+    }
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    const targetPageId = slides[targetPage]?.dataset?.nutbookPageId;
+    if (bridge?.version === 1 && targetPageId && bridge.goTo?.(targetPageId) !== false) {
+      requestAnimationFrame(selectOnTargetPage);
+      return true;
+    }
+    const direction = targetPage > activePage ? 'ArrowRight' : 'ArrowLeft';
+    for (let step = 0; step < Math.abs(targetPage - activePage); step += 1) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: direction, code: direction, bubbles: true }));
+    }
+    requestAnimationFrame(() => requestAnimationFrame(selectOnTargetPage));
+    return true;
   };
 
   const isRuntimeFullscreen = () => Boolean(
@@ -1866,6 +2385,11 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   };
 
   const handleRuntimeShortcut = (event) => {
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && String(event.key).toLowerCase() === 'f') {
+      event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
+      document.title = `__NUTBOOK_HTML_FIND_SHORTCUT__:${Date.now()}`;
+      return;
+    }
     if (isNutbookHtmlEditActive()) return;
     if (
       !event.metaKey &&
@@ -1879,7 +2403,7 @@ pub fn html_runtime_compatibility_script() -> &'static str {
       // page's own key handlers to receive slide shortcuts such as s/f/arrows.
       event.preventDefault();
     }
-    if (event.key === 'f' || event.key === 'F') {
+    if ((event.key === 'f' || event.key === 'F') && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -1906,6 +2430,7 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   }, true);
 
   window.__NUTBOOK_FOCUS_RUNTIME__ = focusRuntimeTarget;
+  window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__ = findAcrossPresentationPages;
 })();
 "#
 }
@@ -1991,7 +2516,7 @@ fn settings_overlay_init_script(tab: Option<String>, mode: Option<String>) -> St
     let mode_json = serde_json::to_string(&mode.unwrap_or_else(|| "menu".to_string()))
         .unwrap_or_else(|_| "\"menu\"".to_string());
     format!(
-        "window.__NUTBOOK_SETTINGS_OVERLAY__ = true; window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ = {tab_json}; window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ = {mode_json};"
+        "document.documentElement.dataset.nutbookSettingsOverlay = 'true'; const nutbookSettingsOverlayBootStyle = document.createElement('style'); nutbookSettingsOverlayBootStyle.textContent = 'html[data-nutbook-settings-overlay],html[data-nutbook-settings-overlay] body{{background:transparent!important}}html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .app-shell,html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .footer-bar{{visibility:hidden!important}}'; (document.head || document.documentElement).appendChild(nutbookSettingsOverlayBootStyle); window.__NUTBOOK_SETTINGS_OVERLAY__ = true; window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ = {tab_json}; window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ = {mode_json};"
     )
 }
 
@@ -2033,13 +2558,33 @@ fn html_runtime_controls_overlay_update_script(
     )
 }
 
+fn html_find_overlay_init_script(
+    item_id: i64,
+    can_replace: bool,
+    replace_expanded: bool,
+    query: &str,
+    count: &str,
+    case_sensitive: bool,
+    labels: &std::collections::BTreeMap<String, String>,
+    history: &[String],
+    focus_query: bool,
+) -> String {
+    let query = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".to_string());
+    let count = serde_json::to_string(count).unwrap_or_else(|_| "\"0/0\"".to_string());
+    let labels = serde_json::to_string(labels).unwrap_or_else(|_| "{}".to_string());
+    let history = serde_json::to_string(history).unwrap_or_else(|_| "[]".to_string());
+    format!(
+        "window.__NUTBOOK_HTML_FIND_INITIAL__={{itemId:{item_id},canReplace:{can_replace},replaceExpanded:{replace_expanded},query:{query},count:{count},caseSensitive:{case_sensitive},labels:{labels},history:{history},focusQuery:{focus_query}}};window.__NUTBOOK_HTML_FIND__?.update?.(window.__NUTBOOK_HTML_FIND_INITIAL__);"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use crate::models::{HtmlEditToolbarFormatState, ItemDetail, ItemSummary};
 
     use super::{
         html_edit_toolbar_label, html_edit_toolbar_update_script, html_runtime_compatibility_script,
-        html_runtime_shortcut_script, html_runtime_window_label, presentation_preview_init_script,
+        html_runtime_shortcut_script, html_runtime_view_state_script, html_runtime_window_label, presentation_preview_init_script,
         presentation_preview_update_script, HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlRuntimeSession,
     };
 
@@ -2064,6 +2609,7 @@ mod tests {
                 source_badges: vec![],
                 tags: vec![],
                 thumbnail: None,
+                snippets: vec![],
             },
             file_hash: None,
             extracted_title: None,
@@ -2200,5 +2746,30 @@ mod tests {
         assert!(!script.contains("root.requestFullscreen"));
         assert!(!script.contains("__nutbook_runtime_diag__"));
         assert!(!script.contains("diagnostics mounted"));
+    }
+
+    #[test]
+    fn html_runtime_view_state_script_captures_and_restores_serializable_state() {
+        let initial_state = serde_json::json!({
+            "scrollX": 12,
+            "scrollY": 640,
+            "hash": "#details",
+            "presentationPageId": "page-3"
+        });
+        let script = html_runtime_view_state_script(42, 9, Some(&initial_state));
+
+        assert!(script.contains("const itemId = 42"));
+        assert!(script.contains("const surfaceToken = 9"));
+        assert!(script.contains("#details"));
+        assert!(script.contains("html_runtime_view_state_command"));
+        assert!(script.contains("scrollX"));
+        assert!(script.contains("scrollY"));
+        assert!(script.contains("location.hash"));
+        assert!(script.contains("presentationPageId"));
+        assert!(script.contains("bridge.goTo(targetPageId)"));
+        assert!(script.contains("window.scrollTo"));
+        assert!(script.contains("cancelRestoreForUser"));
+        assert!(!script.contains("localStorage"));
+        assert!(!script.contains("sessionStorage"));
     }
 }

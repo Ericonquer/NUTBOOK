@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{library::Library, skill::SkillBindingSummary, tag::Tag};
 
@@ -73,6 +74,17 @@ pub struct ItemSummary {
     pub source_badges: Vec<ItemSourceBadge>,
     pub tags: Vec<Tag>,
     pub thumbnail: Option<ThumbnailInfo>,
+    #[serde(default)]
+    pub snippets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchSuggestion {
+    pub kind: String,
+    pub label: String,
+    pub sublabel: Option<String>,
+    pub item_id: Option<i64>,
 }
 
 /// 来源徽标的只读投影模型。kind 为 project | skill：
@@ -448,6 +460,12 @@ pub struct HtmlEditToolbarFormatState {
 pub struct AttachHtmlRuntimeHostRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
+    /// Identifies one concrete child-WebView lifetime. Late messages from a
+    /// host that was destroyed during a tab switch must not overwrite the
+    /// replacement host's restored state.
+    pub view_state_surface_token: u64,
+    #[serde(default)]
+    pub view_state: Option<Value>,
 }
 
 /// 检查视图「更多」控制的小型原生 overlay。它故意只承载按钮本身：正文仍在
@@ -521,6 +539,59 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
     pub source_badges: Vec<ItemSourceBadge>,
 }
 
+/// HTML 正文查找使用独立的宿主小岛，不与右上标签 controls overlay 复用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachHtmlFindOverlayRequest {
+    pub item_id: i64,
+    pub bounds: RuntimeHostBounds,
+    #[serde(default)]
+    pub can_replace: bool,
+    #[serde(default)]
+    pub replace_expanded: bool,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub count: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    /// 文案由主界面按当前界面语言投影给独立 child webview，避免 overlay 固定中文。
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    /// 与 Markdown 正文搜索共用的最近三条原始搜索词；不得经过 i18n 转换。
+    #[serde(default)]
+    pub history: Vec<String>,
+}
+
+/// 已创建的 HTML 正文查找 child 只更新内容状态，不改变原生 bounds、可见性或焦点。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateHtmlFindOverlayRequest {
+    pub item_id: i64,
+    #[serde(default)]
+    pub can_replace: bool,
+    #[serde(default)]
+    pub replace_expanded: bool,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub count: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub history: Vec<String>,
+}
+
+/// resize 只更新已存在 find child 的原生几何，不重放内容、show 或 focus。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetHtmlFindOverlayBoundsRequest {
+    pub item_id: i64,
+    pub bounds: RuntimeHostBounds,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachHtmlEditToolbarOverlayRequest {
@@ -567,6 +638,14 @@ pub struct SetHtmlRuntimeControlsOverlayVisibilityRequest {
     pub item_id: i64,
     pub visible: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetHtmlFindOverlayVisibilityRequest {
+    pub item_id: i64,
+    pub visible: bool,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

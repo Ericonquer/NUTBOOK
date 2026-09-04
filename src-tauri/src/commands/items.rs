@@ -19,6 +19,18 @@ fn markdown_modified_at(path: &Path) -> Result<String, AppError> {
     file_modified_at_string(&metadata)
 }
 
+#[tauri::command]
+pub async fn suggest_items(
+    state: tauri::State<'_, AppState>,
+    prefix: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::models::SearchSuggestion>, AppError> {
+    let database = state.database.clone();
+    tauri::async_runtime::spawn_blocking(move || database.suggest_items(&prefix, limit.unwrap_or(8)))
+        .await
+        .map_err(|_| AppError::InternalError)?
+}
+
 pub(crate) fn get_item_detail_impl(
     state: &AppState,
     item_id: i64,

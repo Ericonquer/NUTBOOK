@@ -18,6 +18,7 @@ use url::Url;
 use crate::{
     core::{
         document::{content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file},
+        html_text::extract_indexable_html_text,
         markdown_cover_assets,
         thumbnail::{
             desired_key_for_item, expected_render_kind_for_item, generate_html_thumbnail_with_adapter,
@@ -37,7 +38,7 @@ use crate::{
         ArtifactCandidate, ArtifactCandidateGroupSummary, CreateTagRequest, DeleteTagResponse,
         DurableSaveSyncReport, GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord,
         ItemDetail, ItemSourceBadge, ItemSummary, Library, ListItemsQuery, PagedResult,
-        SetItemTagsResponse, SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
+        SearchSuggestion, SetItemTagsResponse, SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
     },
 };
 
@@ -144,6 +145,45 @@ pub(crate) fn canonical_root_key_for_path(
 }
 
 impl Database {
+    pub fn suggest_items(&self, prefix: &str, limit: usize) -> Result<Vec<SearchSuggestion>, AppError> {
+        let prefix = prefix.trim();
+        if prefix.is_empty() { return Ok(Vec::new()); }
+        let connection = self.connection()?;
+        let limit = limit.clamp(1, 20) as i64;
+        let fts_prefix = format!("\"{}\"*", prefix.replace('"', "\"\""));
+        let match_query = format!("file_name:{fts_prefix} OR title:{fts_prefix}");
+        let mut output = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut statement = connection.prepare(
+            "SELECT i.id, i.title, i.file_name FROM items i
+             WHERE i.is_deleted = 0 AND i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1)
+             ORDER BY CASE WHEN i.title IS NOT NULL AND i.title <> '' THEN 0 ELSE 1 END, i.file_name COLLATE NOCASE LIMIT ?2"
+        ).map_err(|_| AppError::DatabaseError)?;
+        let rows = statement.query_map(params![match_query, limit], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?))
+        }).map_err(|_| AppError::DatabaseError)?;
+        for row in rows {
+            let (id, title, file_name) = row.map_err(|_| AppError::DatabaseError)?;
+            if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
+                if seen.insert(("title".to_string(), title.clone())) { output.push(SearchSuggestion { kind: "title".to_string(), label: title, sublabel: Some(file_name.clone()), item_id: Some(id) }); }
+            }
+            if output.len() < limit as usize && seen.insert(("file".to_string(), file_name.clone())) {
+                output.push(SearchSuggestion { kind: "file".to_string(), label: file_name, sublabel: None, item_id: Some(id) });
+            }
+        }
+        let escaped_like = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let mut tag_statement = connection.prepare("SELECT id, name FROM tags WHERE name LIKE ?1 ESCAPE '\\' ORDER BY name COLLATE NOCASE LIMIT ?2")
+            .map_err(|_| AppError::DatabaseError)?;
+        let tags = tag_statement.query_map(params![format!("{escaped_like}%"), limit], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|_| AppError::DatabaseError)?;
+        for tag in tags {
+            if output.len() >= limit as usize { break; }
+            let (id, name) = tag.map_err(|_| AppError::DatabaseError)?;
+            if seen.insert(("tag".to_string(), name.clone())) { output.push(SearchSuggestion { kind: "tag".to_string(), label: name, sublabel: None, item_id: Some(id) }); }
+        }
+        output.truncate(limit as usize);
+        Ok(output)
+    }
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, AppError> {
         let database = Self { path: path.into() };
         let database_existed_before_startup = database.path.exists()
@@ -2115,8 +2155,9 @@ impl ItemRepository for Database {
                 // 继续当作有效 ready 返回（"从 A 改 B 后缩略图没更新"根因的扫描侧）。
                 let needs_hash_refresh = match existing_content_meta.get(&item_id) {
                     None => true,
-                    Some((stored_modified_at, stored_file_size, _, has_hash)) => {
+                    Some((stored_modified_at, stored_file_size, has_content, has_hash)) => {
                         !has_hash
+                            || !has_content
                             || stored_modified_at != &item.modified_at
                             || stored_file_size != &item.file_size
                     }
@@ -2125,6 +2166,7 @@ impl ItemRepository for Database {
                     match fs::read_to_string(&item.file_path) {
                         Ok(raw) => {
                             let hash = content_hash(&raw);
+                            let semantic_text = extract_indexable_html_text(&raw);
                             transaction
                                 .execute(
                                     "UPDATE items SET file_hash = ?2 WHERE id = ?1",
@@ -2135,13 +2177,21 @@ impl ItemRepository for Database {
                             // 设为 stale、desired key 推进、generation 递增，使 in-flight 的
                             // 旧内容生成任务被 CAS 拒绝；旧 ready 绝不能被当作有效缓存继续服务。
                             Self::invalidate_thumbnail_in_transaction(&transaction, item_id, &hash)?;
-                            let has_content = existing_content_meta
-                                .get(&item_id)
-                                .map(|entry| entry.2)
-                                .unwrap_or(false);
+                            transaction
+                                .execute(
+                                    "INSERT INTO item_content (item_id, source_text, raw_text, rendered_cache, extracted_title, updated_at)
+                                     VALUES (?1, ?2, ?3, NULL, NULL, ?4)
+                                     ON CONFLICT(item_id) DO UPDATE SET
+                                       source_text = excluded.source_text,
+                                       raw_text = excluded.raw_text,
+                                       rendered_cache = NULL,
+                                       updated_at = excluded.updated_at",
+                                    params![item_id, raw, semantic_text, item.modified_at],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
                             existing_content_meta.insert(
                                 item_id,
-                                (item.modified_at.clone(), item.file_size, has_content, true),
+                                (item.modified_at.clone(), item.file_size, true, true),
                             );
                         }
                         Err(_) => {
@@ -2160,13 +2210,15 @@ impl ItemRepository for Database {
                                 &transaction,
                                 item_id,
                             )?;
-                            let has_content = existing_content_meta
-                                .get(&item_id)
-                                .map(|entry| entry.2)
-                                .unwrap_or(false);
+                            // A file which is now unreadable must not retain a
+                            // previous FTS body. Missing content forces a retry
+                            // on the next scan even when metadata is unchanged.
+                            transaction
+                                .execute("DELETE FROM item_content WHERE item_id = ?1", params![item_id])
+                                .map_err(|_| AppError::DatabaseError)?;
                             existing_content_meta.insert(
                                 item_id,
-                                (item.modified_at.clone(), item.file_size, has_content, false),
+                                (item.modified_at.clone(), item.file_size, false, false),
                             );
                         }
                     }
@@ -2304,6 +2356,33 @@ impl ItemRepository for Database {
         Ok((created, updated, deleted))
     }
 
+    fn load_search_snippets_batch(
+        &self,
+        connection: &Connection,
+        item_ids: &[i64],
+        keyword: &str,
+    ) -> Result<HashMap<i64, Vec<String>>, AppError> {
+        if item_ids.is_empty() { return Ok(HashMap::new()); }
+        let placeholders = vec!["?"; item_ids.len()].join(",");
+        let sql = format!(
+            "SELECT item_id, highlight(items_fts, 3, char(1), char(2))
+             FROM items_fts WHERE items_fts MATCH ? AND item_id IN ({placeholders})"
+        );
+        let mut args = vec![Value::Text(keyword.to_owned())];
+        args.extend(item_ids.iter().copied().map(Value::Integer));
+        let mut statement = connection.prepare(&sql).map_err(|_| AppError::DatabaseError)?;
+        let rows = statement.query_map(params_from_iter(args), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|_| AppError::DatabaseError)?;
+        let mut snippets = HashMap::new();
+        for row in rows {
+            let (item_id, highlighted) = row.map_err(|_| AppError::DatabaseError)?;
+            let fragments = snippets_from_highlighted(&highlighted);
+            if !fragments.is_empty() { snippets.insert(item_id, fragments); }
+        }
+        Ok(snippets)
+    }
+
     fn list_items(&self, query: &ListItemsQuery) -> Result<PagedResult<ItemSummary>, AppError> {
         // B1：进入 list 路径时按磁盘真实状态重放 reconciliation marker
         // （marker 目录不存在时为廉价 no-op；失败保留 marker 供下次重试）。
@@ -2354,11 +2433,12 @@ impl ItemRepository for Database {
             where_clauses.push("is_deleted = 0".to_string());
         }
 
-        if let Some(keyword) = normalize_keyword_query(query.keyword.as_deref()) {
+        let search_keyword = normalize_keyword_query(query.keyword.as_deref());
+        if let Some(keyword) = search_keyword.as_ref() {
             where_clauses.push(
                 "id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)".to_string(),
             );
-            args.push(Value::Text(keyword));
+        args.push(Value::Text(keyword.to_owned()));
         }
 
         if let Some(file_types) = query.file_types.as_ref() {
@@ -2434,6 +2514,7 @@ impl ItemRepository for Database {
                 source_badges: Vec::new(),
                 tags: Vec::new(),
                 thumbnail: None,
+                snippets: Vec::new(),
             })
         };
         let mut items = statement
@@ -2448,6 +2529,10 @@ impl ItemRepository for Database {
         let bindings_by_item = Self::load_skill_bindings_batch(&connection, &page_item_ids)?;
         let tags_by_item = Self::load_tags_batch(&connection, &page_item_ids)?;
         let thumbnails_by_item = Self::load_thumbnails_batch(&connection, &page_item_ids)?;
+        let snippets_by_item = match search_keyword.as_deref() {
+            Some(keyword) => self.load_search_snippets_batch(&connection, &page_item_ids, keyword)?,
+            None => HashMap::new(),
+        };
 
         for item in &mut items {
             item.skill_binding =
@@ -2458,6 +2543,7 @@ impl ItemRepository for Database {
                 tags_by_item.get(&item.id).cloned().unwrap_or_default();
             item.thumbnail =
                 thumbnails_by_item.get(&item.id).cloned().unwrap_or_default();
+            item.snippets = snippets_by_item.get(&item.id).cloned().unwrap_or_default();
         }
 
         Ok(PagedResult {
@@ -2506,6 +2592,7 @@ impl ItemRepository for Database {
                         source_badges: Vec::new(),
                         tags: Vec::new(),
                         thumbnail: None,
+                        snippets: Vec::new(),
                     },
                     file_hash: row.get(14)?,
                     extracted_title: row.get(15)?,
@@ -4566,6 +4653,31 @@ fn normalize_keyword_query(keyword: Option<&str>) -> Option<String> {
     } else {
         Some(tokens.join(" "))
     }
+}
+
+/// FTS5 `highlight` tells us the exact token spans that MATCH selected.  Its
+/// output is then clipped by Unicode characters (not bytes or FTS tokens) so
+/// the UI receives short, safe excerpts while retaining query semantics.
+fn snippets_from_highlighted(value: &str) -> Vec<String> {
+    const START: char = '\u{1}';
+    const END: char = '\u{2}';
+    let chars: Vec<char> = value.chars().collect();
+    let mut ranges = Vec::new();
+    let mut open = None;
+    for (index, ch) in chars.iter().enumerate() {
+        if *ch == START { open = Some(index); }
+        if *ch == END {
+            if let Some(start) = open.take() { ranges.push((start, index)); }
+        }
+    }
+    ranges.into_iter().take(2).map(|(start, end)| {
+        let from = start.saturating_sub(30);
+        let to = (end + 31).min(chars.len());
+        let text: String = chars[from..to].iter().filter(|ch| **ch != START && **ch != END).collect();
+        let prefix = if from > 0 { "…" } else { "" };
+        let suffix = if to < chars.len() { "…" } else { "" };
+        format!("{prefix}{}{}", text.trim(), suffix)
+    }).filter(|value| !value.is_empty()).collect()
 }
 
 fn html_thumbnail_input(
