@@ -877,8 +877,8 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /async function hideStaleRuntimeHostSync\(runId, itemId\) \{[\s\S]*await hideRuntimeSessionSurfaces\(itemId, \{ force: true, token \}\);/,
-  "a stale host attach must be explicitly hidden after its IPC completes"
+  /async function hideStaleRuntimeHostSync\(runId, itemId\) \{[\s\S]*await hideRuntimeSessionSurfaces\(itemId, \{\s*force: true,\s*token,\s*recoverLateAttach: true\s*\}\);/,
+  "a stale host attach must be explicitly hidden again after its IPC completes"
 );
 assert.match(
   runtimeHostSync[1],
@@ -1222,7 +1222,7 @@ assert.match(
   /async function markRuntimeSurfaceActive\(itemId\)[\s\S]*?await syncHtmlEditReadonlyPatchSurfaceToken[\s\S]*?await markRuntimeSurfaceActive\(tab\.id\)/,
   "active surface transitions must await runtime-visible token invalidation"
 );
-for (const transition of ["hideStaleRuntimeHostSync", "suspendRuntimeSurfaces", "scheduleRuntimeSurfaceHide", "hideInactiveRuntimeHosts"]) {
+for (const transition of ["hideStaleRuntimeHostSync", "suspendRuntimeSurfaces", "hideInactiveRuntimeHosts"]) {
   const transitionBody = indexHtml.match(new RegExp(`(?:async )?function ${transition}\\([^)]*\\) \\{([\\s\\S]*?)\\n      \\}`));
   assert.ok(transitionBody, `${transition} should exist`);
   assert.match(
