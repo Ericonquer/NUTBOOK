@@ -22512,8 +22512,12 @@ if (!chipTipController) {
           }
           els.searchInput?.focus();
         }, true);
-        document.addEventListener("visibilitychange", async () => {
+        document.addEventListener("visibilitychange", () => {
           if (appState.htmlEditLeavePromptOpen) return;
+          handleRuntimeVisibilityChange().catch(() => {});
+        });
+
+        async function handleRuntimeVisibilityChange() {
           if (document.hidden) {
             // macOS moves a native fullscreen window between Spaces and can
             // transiently mark its main WKWebView as hidden. That is not a
@@ -22531,7 +22535,7 @@ if (!chipTipController) {
           } else {
             resumeRuntimeSurfaces().catch(() => {});
           }
-        });
+        }
         // On macOS, `visibilitychange` can arrive while a restored window still
         // reports its pre-restore layout. Re-sync the native child webview once
         // the host window has regained focus or delivered its final resize.
