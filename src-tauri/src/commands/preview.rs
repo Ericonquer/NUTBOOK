@@ -568,6 +568,11 @@ pub fn set_window_fullscreen_command(
 }
 
 #[tauri::command]
+pub fn is_window_minimized_command(window: tauri::Window) -> Result<bool, AppError> {
+    window.is_minimized().map_err(|_| AppError::InternalError)
+}
+
+#[tauri::command]
 pub fn dispatch_html_runtime_shortcut_command(
     app: tauri::AppHandle,
     payload: DispatchHtmlRuntimeShortcutRequest,

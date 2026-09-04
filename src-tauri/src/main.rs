@@ -318,6 +318,7 @@ fn main() {
             commands::preview::html_edit_runtime_message_command,
             commands::preview::html_runtime_view_state_command,
             commands::preview::set_window_fullscreen_command,
+            commands::preview::is_window_minimized_command,
             commands::preview::dispatch_html_runtime_shortcut_command,
             commands::preview::focus_html_runtime_host_command,
             commands::preview::focus_main_webview_command,

@@ -12633,6 +12633,7 @@
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
         if (command === "list_items") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
+        if (command === "is_window_minimized_command") return [{}];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
@@ -13415,14 +13416,29 @@
       }
 
       async function updateInterfaceLanguage(language, { propagateToMain = true } = {}) {
+        const isSettingsOverlay = appState.isSettingsOverlay;
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
         appState.language = i18n?.setLanguage?.(language) ?? language;
-        if (appState.isSettingsOverlay && propagateToMain) {
+        if (isSettingsOverlay && propagateToMain) {
           document.title = "__NUTBOOK_SETTINGS_OVERLAY__:" + JSON.stringify({
             action: "language-change",
             language: appState.language
           });
+        }
+        // The Settings overlay reuses index.html, but it has no document
+        // runtime to rebuild.  Running the main-window language path here
+        // tears down editor sessions, reloads data, and can stall this native
+        // child for seconds.  Refresh only the overlay's own rendered shell;
+        // the title bridge updates the main WebView independently.
+        if (isSettingsOverlay) {
+          if (els.settingsScrim?.classList.contains("open")) renderSettingsPanel();
+          renderAboutPanel();
+          renderSettingsMenu();
+          renderSortMenu();
+          renderDocumentMoreMenu();
+          setStatus(t("status.languageUpdated"), "ok");
+          return;
         }
         clearPollutedSearchValues();
         getFileTypeFilter();
@@ -16595,6 +16611,9 @@
         if (command === "focus_main_webview_command") {
           return true;
         }
+        if (command === "is_window_minimized_command") {
+          return false;
+        }
         if (command === "close_html_window") {
           return true;
         }
@@ -16901,7 +16920,7 @@
           const backwards = payload.action === "prev";
           const action = payload.action;
           const replacement = String(payload.replacement || "");
-          const script = `;(()=>{const q=${JSON.stringify(query)}, cs=${Boolean(payload.caseSensitive)}, action=${JSON.stringify(action)}, replacement=${JSON.stringify(replacement)}, itemId=${tab.id};let style=document.getElementById('nutbook-html-find-selection');if(!style){style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{background:rgba(255,159,67,.68)!important;color:inherit!important}::-moz-selection{background:rgba(255,159,67,.68)!important;color:inherit!important}';document.head.append(style);}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0, at=0;while(needle && (at=source.indexOf(needle,at))>=0){total++;at+=Math.max(1,needle.length);}let changed=0;const find=()=>window.find(q,cs,${backwards},true,false,false,false);if(action==='replace'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()&&find()){changed=document.execCommand('insertText',false,replacement)?1:0;}else if(action==='replace_all'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()){for(let i=0;i<1000&&find();i++){if(!document.execCommand('insertText',false,replacement))break;changed++;}}else{find();}document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({itemId,total,changed});})();`;
+          const script = `;(()=>{const q=${JSON.stringify(query)}, cs=${Boolean(payload.caseSensitive)}, action=${JSON.stringify(action)}, replacement=${JSON.stringify(replacement)}, itemId=${tab.id};let style=document.getElementById('nutbook-html-find-selection');if(!style){style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{background:rgba(255,159,67,.68)!important;color:inherit!important}::-moz-selection{background:rgba(255,159,67,.68)!important;color:inherit!important}';document.head.append(style);}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0,at=0;while(needle&&(at=source.indexOf(needle,at))>=0){total++;at+=Math.max(1,needle.length);}let changed=0,deferred=false;const report=(current=1)=>{document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({itemId,total,changed,current});};const revealSelection=()=>{const selection=window.getSelection?.();if(!selection?.rangeCount)return;const node=selection.getRangeAt(0).commonAncestorContainer;const anchor=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;anchor?.scrollIntoView?.({block:'nearest',inline:'nearest'});};const find=()=>{if(['query','next','prev'].includes(action)){const handled=window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__?.({query:q,caseSensitive:cs,backwards:${backwards},action,done:report});if(handled){deferred=true;return false;}}const matched=window.find(q,cs,${backwards},true,false,false,false);if(matched)revealSelection();return matched;};if(action==='replace'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()&&find()){changed=document.execCommand('insertText',false,replacement)?1:0;}else if(action==='replace_all'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()){for(let i=0;i<1000&&find();i++){if(!document.execCommand('insertText',false,replacement))break;changed++;}}else{find();}if(!deferred)report();})();`;
           await invoke("eval_html_runtime_script_command", { itemId: tab.id, script });
         }
       };
@@ -16909,7 +16928,8 @@
       window.__NUTBOOK_HANDLE_HTML_FIND_RESULT__ = (payload) => {
         if (!payload || appState.htmlFind.itemId !== payload.itemId) return;
         const total = Number(payload.total || 0);
-        appState.htmlFind.count = total ? `1/${total}` : "0/0";
+        const current = Math.max(1, Math.min(total || 1, Number(payload.current || 1)));
+        appState.htmlFind.count = total ? `${current}/${total}` : "0/0";
         updateActiveHtmlFindContent().catch(() => {});
       };
 
@@ -18432,18 +18452,21 @@ if (!chipTipController) {
         }
         const nextEnabled = appState.runtimeFullscreenItemId !== tab.id;
         clearHostFocus();
-        setRuntimeFullscreenState(tab.id, nextEnabled);
         if (appState.isTauri) {
           try {
             await invoke("set_window_fullscreen_command", { fullscreen: nextEnabled });
+            // Measure and attach only after the native window has adopted its
+            // new fullscreen bounds. Doing this before the command resolves
+            // leaves the host at a stale/zero-size rect on the next exit.
+            setRuntimeFullscreenState(tab.id, nextEnabled);
+            await refocusActiveRuntimeHost(tab.id);
             setStatus(nextEnabled ? t("status.presentationEntered") : t("status.presentationExited"), "ok");
           } catch (error) {
             setStatus(statusError("status.presentationSwitchFailedPrefix", error), "error");
-          } finally {
-            refocusActiveRuntimeHost(tab.id);
           }
           return;
         }
+        setRuntimeFullscreenState(tab.id, nextEnabled);
         setStatus(nextEnabled ? t("status.presentationEntered") : t("status.presentationExited"), "ok");
       }
 
@@ -18573,14 +18596,29 @@ if (!chipTipController) {
         }
       }
 
-      function refocusActiveRuntimeHost(itemId) {
-        if (!appState.isTauri || !itemId) return;
+      async function waitForActiveRuntimeHostSync(itemId) {
+        for (let frame = 0; frame < 24; frame += 1) {
+          const tab = getActiveTab();
+          if (tab?.id !== itemId || tab.preview?.fileType !== "html-runtime") return null;
+          if (!appState.runtimeHostSyncInFlight && !appState.runtimeHostSyncFrame && !appState.runtimeHostSyncPending) return true;
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+        return false;
+      }
+
+      async function refocusActiveRuntimeHost(itemId) {
+        if (!appState.isTauri || !itemId) return false;
+        // Fullscreen reattaches the controls island asynchronously.  Focusing
+        // before that work settles lets the late child attach steal keyboard
+        // focus, so Arrow/Page keys never reach the HTML runtime.
+        const syncSettled = await waitForActiveRuntimeHostSync(itemId);
+        // A fullscreen resize can keep ResizeObserver work pending for more
+        // than a frame budget. That is not a stale tab: still hand focus to
+        // the current host, otherwise the second fullscreen run needs a click
+        // before it can receive Arrow/F again.
+        if (syncSettled === null) return false;
         const hostFullscreen = appState.runtimeFullscreenItemId === itemId;
-        [80, 180, 320].forEach((delay) => {
-          window.setTimeout(() => {
-            invoke("focus_html_runtime_host_command", { itemId, hostFullscreen }).catch(() => {});
-          }, delay);
-        });
+        return invoke("focus_html_runtime_host_command", { itemId, hostFullscreen }).catch(() => false);
       }
 
       function focusMainWebviewSoon() {
@@ -18641,19 +18679,24 @@ if (!chipTipController) {
         scheduleRuntimeHostSync();
       }
 
-      window.__NUTBOOK_SET_RUNTIME_FULLSCREEN__ = setRuntimeFullscreenState;
+      window.__NUTBOOK_SET_RUNTIME_FULLSCREEN__ = (itemId, enabled) => {
+        setRuntimeFullscreenState(itemId, enabled);
+        // Runtime-originated F/Escape has already changed the native window;
+        // coordinate its new bounds before the child takes focus again.
+        refocusActiveRuntimeHost(itemId).catch(() => {});
+      };
       window.__NUTBOOK_EXIT_RUNTIME_FULLSCREEN__ = (source = "native") => {
         if (appState.runtimeFullscreenItemId == null) return false;
         const exitingRuntimeId = appState.runtimeFullscreenItemId;
         clearHostFocus();
-        appState.runtimeFullscreenItemId = null;
-        applyRuntimeFullscreenState();
-        scheduleRuntimeHostSync();
         if (appState.isTauri) {
           invoke("set_window_fullscreen_command", { fullscreen: false })
-            .finally(() => {
+            .then(() => {
+              setRuntimeFullscreenState(exitingRuntimeId, false);
               refocusActiveRuntimeHost(exitingRuntimeId);
             });
+        } else {
+          setRuntimeFullscreenState(exitingRuntimeId, false);
         }
         setStatus(t("status.presentationExited"), "ok");
         return true;
@@ -20431,14 +20474,14 @@ if (!chipTipController) {
           event.preventDefault();
           const exitingRuntimeId = appState.runtimeFullscreenItemId;
           clearHostFocus();
-          appState.runtimeFullscreenItemId = null;
-          applyRuntimeFullscreenState();
-          scheduleRuntimeHostSync();
           if (appState.isTauri) {
             invoke("set_window_fullscreen_command", { fullscreen: false })
-              .finally(() => {
+              .then(() => {
+                setRuntimeFullscreenState(exitingRuntimeId, false);
                 refocusActiveRuntimeHost(exitingRuntimeId);
               });
+          } else {
+            setRuntimeFullscreenState(exitingRuntimeId, false);
           }
           return;
         }
@@ -20466,14 +20509,17 @@ if (!chipTipController) {
             event.preventDefault();
             clearHostFocus();
             const nextEnabled = appState.runtimeFullscreenItemId !== tab.id;
-            setRuntimeFullscreenState(tab.id, nextEnabled);
             if (appState.isTauri) {
               invoke("set_window_fullscreen_command", { fullscreen: nextEnabled })
-                .then(() => setStatus(nextEnabled ? t("status.hostFullscreenEntered") : t("status.hostFullscreenExited"), "ok"))
+                .then(async () => {
+                  setRuntimeFullscreenState(tab.id, nextEnabled);
+                  await refocusActiveRuntimeHost(tab.id);
+                  setStatus(nextEnabled ? t("status.hostFullscreenEntered") : t("status.hostFullscreenExited"), "ok");
+                })
                 .catch(() => setStatus(t("status.hostFullscreenFailed"), "error"))
-                .finally(() => {
-                  refocusActiveRuntimeHost(tab.id);
-                });
+              ;
+            } else {
+              setRuntimeFullscreenState(tab.id, nextEnabled);
             }
             return;
           }
@@ -22467,10 +22513,22 @@ if (!chipTipController) {
           }
           els.searchInput?.focus();
         }, true);
-        document.addEventListener("visibilitychange", () => {
+        document.addEventListener("visibilitychange", async () => {
           if (appState.htmlEditLeavePromptOpen) return;
           if (document.hidden) {
-            suspendRuntimeSurfaces().catch(() => {});
+            // macOS moves a native fullscreen window between Spaces and can
+            // transiently mark its main WKWebView as hidden. That is not a
+            // minimized window; treating it as one closes the active HTML
+            // child and leaves the next F/Arrow without a runtime target.
+            // Ask the native window for the lifecycle fact before tearing
+            // down child surfaces. If that query fails, retain the surface:
+            // a stale child is recoverable, a closed active host is not.
+            const isMinimized = appState.isTauri
+              ? await invoke("is_window_minimized_command").catch(() => false)
+              : true;
+            if (isMinimized && document.hidden) {
+              suspendRuntimeSurfaces().catch(() => {});
+            }
           } else {
             resumeRuntimeSurfaces().catch(() => {});
           }

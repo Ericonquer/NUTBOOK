@@ -12,7 +12,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
-    sync::{Mutex, OnceLock},
+    sync::{atomic::{AtomicI64, Ordering}, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
@@ -21,7 +21,11 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSResponder, NSWindow};
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSResponder, NSWindow, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSNotification, NSNotificationCenter};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
 
@@ -40,6 +44,10 @@ const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 const INSPECTOR_MORE_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_INSPECTOR_MORE_OVERLAY__:";
 const HTML_EDIT_DEBUG_LOG_PATH: &str = "/tmp/nutbook-html-edit-debug.log";
 static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static HTML_FULLSCREEN_FOCUS_ITEM_ID: AtomicI64 = AtomicI64::new(0);
+#[cfg(target_os = "macos")]
+static HTML_FULLSCREEN_FOCUS_OBSERVER: OnceLock<()> = OnceLock::new();
 
 fn presentation_preview_instances() -> &'static Mutex<HashMap<i64, String>> {
     PRESENTATION_PREVIEW_INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -1142,9 +1150,54 @@ pub fn focus_html_runtime_host(
     webview.set_focus().map_err(|_| AppError::InternalError)?;
     #[cfg(target_os = "macos")]
     {
+        HTML_FULLSCREEN_FOCUS_ITEM_ID.store(item_id, Ordering::Release);
+        install_html_fullscreen_focus_observer(app);
         recover_webview_focus_native(webview.clone());
     }
     Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn install_html_fullscreen_focus_observer(app: &tauri::AppHandle) {
+    HTML_FULLSCREEN_FOCUS_OBSERVER.get_or_init(|| {
+        let center = NSNotificationCenter::defaultCenter();
+        // These are immutable AppKit framework notification names. objc2
+        // exposes them as extern statics, so Rust 2024 requires the read to
+        // be explicit even though AppKit owns their lifetime.
+        let notification_names = unsafe {
+            [
+                NSWindowDidEnterFullScreenNotification,
+                NSWindowDidExitFullScreenNotification,
+            ]
+        };
+        for notification_name in notification_names {
+            let app_handle = app.clone();
+            let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                let item_id = HTML_FULLSCREEN_FOCUS_ITEM_ID.load(Ordering::Acquire);
+                if item_id <= 0 {
+                    return;
+                }
+                let Some(webview) = app_handle.get_webview(&html_runtime_host_label(item_id)) else {
+                    return;
+                };
+                let _ = webview.window().set_focus();
+                let _ = webview.set_focus();
+                recover_webview_focus_native(webview);
+            });
+            // NSNotificationCenter owns the observer for the application
+            // lifetime. Keep its token alive for the same lifetime rather
+            // than registering per fullscreen transition.
+            let observer = unsafe {
+                center.addObserverForName_object_queue_usingBlock(
+                    Some(notification_name),
+                    None,
+                    None,
+                    &handler,
+                )
+            };
+            std::mem::forget(observer);
+        }
+    });
 }
 
 pub fn focus_main_webview(
@@ -1197,6 +1250,11 @@ fn recover_webview_focus_native<R: tauri::Runtime>(
             let view: &WKWebView = &*platform_webview.inner().cast();
             let responder: &NSResponder = view;
             window.makeKeyAndOrderFront(None);
+            // After fullscreen exits, WebKit can leave the former controls
+            // child/IME responder installed. Explicitly clear it before
+            // assigning the runtime WKWebView; a direct replacement may be
+            // declined and makes the second F/Arrow appear to be lost.
+            let _ = window.makeFirstResponder(None);
             let _ = responder.becomeFirstResponder();
             let _ = window.makeFirstResponder(Some(responder));
         });
@@ -1923,7 +1981,6 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
         if title.starts_with(HTML_FULLSCREEN_TITLE_PREFIX) {
             let window = webview.window();
             let next_fullscreen = !window.is_fullscreen().unwrap_or(false);
-            let webview_label = webview.label().to_string();
             let runtime_focus_script = format!(
                 "try {{ window.__NUTBOOK_HOST_FULLSCREEN__ = {}; window.__NUTBOOK_FOCUS_RUNTIME__?.(); }} catch (_) {{}}",
                 if next_fullscreen { "true" } else { "false" }
@@ -1946,23 +2003,10 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                     ));
                 }
             }
-            if !next_fullscreen {
-                let app_handle_clone = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    for delay in [80_u64, 180, 360, 720, 1100] {
-                        std::thread::sleep(Duration::from_millis(delay));
-                        if let Some(runtime_webview) = app_handle_clone.get_webview(&webview_label) {
-                            let _ = runtime_webview.window().set_focus();
-                            let _ = runtime_webview.eval(
-                                "try { window.__NUTBOOK_HOST_FULLSCREEN__ = false; window.__NUTBOOK_FOCUS_RUNTIME__?.(); } catch (_) {}"
-                            );
-                            let _ = runtime_webview.set_focus();
-                        }
-                    }
-                });
-            } else {
-                let _ = webview.eval(&runtime_focus_script);
-            }
+            // The main WebView owns the post-layout host/controls sync and
+            // returns focus once it has settled. Repeated native timer-based
+            // focus steals can race that sync after the second fullscreen run.
+            let _ = webview.eval(&runtime_focus_script);
             let _ = webview.eval(
                 "document.title = document.title.replace(/^__NUTBOOK_TOGGLE_FULLSCREEN__:\\d+$/, document.location.pathname.split('/').pop() || 'Nutbook Runtime');"
             );
@@ -2210,6 +2254,74 @@ pub fn html_runtime_compatibility_script() -> &'static str {
     } catch (_) {}
   };
 
+  const revealFindSelection = () => {
+    try {
+      const selection = window.getSelection?.();
+      if (!selection?.rangeCount) return;
+      const node = selection.getRangeAt(0).commonAncestorContainer;
+      const anchor = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+      anchor?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    } catch (_) {}
+  };
+
+  // Decks commonly keep their page state in a private `go()` closure. Native
+  // window.find cannot move that state machine, so it only selects text on
+  // the visible slide. Prefer a public presentation bridge; otherwise replay
+  // the deck's own Arrow key handler rather than assuming a hash convention.
+  const findAcrossPresentationPages = ({ query, caseSensitive, backwards, action, done }) => {
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    if (slides.length < 2) return false;
+    const needle = String(query || '');
+    if (!needle) return false;
+    const normalize = (value) => caseSensitive ? String(value || '') : String(value || '').toLocaleLowerCase();
+    const sourceNeedle = normalize(needle);
+    const matches = [];
+    slides.forEach((slide, pageIndex) => {
+      const text = normalize(slide.innerText || slide.textContent || '');
+      let offset = 0;
+      while (sourceNeedle && (offset = text.indexOf(sourceNeedle, offset)) >= 0) {
+        matches.push(pageIndex);
+        offset += Math.max(1, sourceNeedle.length);
+      }
+    });
+    if (!matches.length) return false;
+    const state = window.__NUTBOOK_PRESENTATION_FIND_STATE__ || {};
+    const key = `${caseSensitive ? '1' : '0'}:${needle}`;
+    let cursor;
+    if (state.key !== key || action === 'query') {
+      const activePage = Math.max(0, slides.findIndex((slide) => slide.classList.contains('is-active')));
+      cursor = matches.findIndex((pageIndex) => pageIndex >= activePage);
+      if (cursor < 0) cursor = 0;
+    } else {
+      cursor = Number(state.cursor || 0) + (backwards ? -1 : 1);
+      cursor = (cursor + matches.length) % matches.length;
+    }
+    window.__NUTBOOK_PRESENTATION_FIND_STATE__ = { key, cursor };
+    const targetPage = matches[cursor];
+    const selectOnTargetPage = () => {
+      window.find(needle, Boolean(caseSensitive), Boolean(backwards), true, false, false, false);
+      revealFindSelection();
+      done?.(cursor + 1);
+    };
+    const activePage = Math.max(0, slides.findIndex((slide) => slide.classList.contains('is-active')));
+    if (targetPage === activePage) {
+      selectOnTargetPage();
+      return true;
+    }
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    const targetPageId = slides[targetPage]?.dataset?.nutbookPageId;
+    if (bridge?.version === 1 && targetPageId && bridge.goTo?.(targetPageId) !== false) {
+      requestAnimationFrame(selectOnTargetPage);
+      return true;
+    }
+    const direction = targetPage > activePage ? 'ArrowRight' : 'ArrowLeft';
+    for (let step = 0; step < Math.abs(targetPage - activePage); step += 1) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: direction, code: direction, bubbles: true }));
+    }
+    requestAnimationFrame(() => requestAnimationFrame(selectOnTargetPage));
+    return true;
+  };
+
   const isRuntimeFullscreen = () => Boolean(
     document.fullscreenElement ||
     document.webkitFullscreenElement ||
@@ -2318,6 +2430,7 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   }, true);
 
   window.__NUTBOOK_FOCUS_RUNTIME__ = focusRuntimeTarget;
+  window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__ = findAcrossPresentationPages;
 })();
 "#
 }
