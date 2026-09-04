@@ -13416,11 +13416,10 @@
       }
 
       async function updateInterfaceLanguage(language, { propagateToMain = true } = {}) {
-        const isSettingsOverlay = appState.isSettingsOverlay;
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
         appState.language = i18n?.setLanguage?.(language) ?? language;
-        if (isSettingsOverlay && propagateToMain) {
+        if (appState.isSettingsOverlay && propagateToMain) {
           document.title = "__NUTBOOK_SETTINGS_OVERLAY__:" + JSON.stringify({
             action: "language-change",
             language: appState.language
@@ -13431,7 +13430,7 @@
         // tears down editor sessions, reloads data, and can stall this native
         // child for seconds.  Refresh only the overlay's own rendered shell;
         // the title bridge updates the main WebView independently.
-        if (isSettingsOverlay) {
+        if (appState.isSettingsOverlay) {
           if (els.settingsScrim?.classList.contains("open")) renderSettingsPanel();
           renderAboutPanel();
           renderSettingsMenu();
