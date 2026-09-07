@@ -34,11 +34,13 @@ use crate::{
     },
     db::repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
     errors::AppError,
+    utils::path_rules::{libraries_overlap, normalized_path_string},
     models::{
         ArtifactCandidate, ArtifactCandidateGroupSummary, CreateTagRequest, DeleteTagResponse,
-        DurableSaveSyncReport, GenerateThumbnailResponse, IgnoredItemSummary, IndexedItemRecord,
-        ItemDetail, ItemSourceBadge, ItemSummary, Library, ListItemsQuery, PagedResult,
-        SearchSuggestion, SetItemTagsResponse, SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
+        DurableSaveSyncReport, FolderIngestDbResult, GenerateThumbnailResponse, IgnoredItemSummary,
+        IndexedItemRecord, ItemDetail, ItemSourceBadge, ItemSummary, Library, ListItemsQuery,
+        PagedResult, PreparedIngestCandidate, SearchSuggestion, SetItemTagsResponse,
+        SkillBindingSummary, Tag, ThumbnailInfo, UpdateTagRequest,
     },
 };
 
@@ -142,6 +144,26 @@ pub(crate) fn canonical_root_key_for_path(
         }
     }
     Ok(normalized.to_string_lossy().into_owned())
+}
+
+/// PreparedIngestCandidate → IndexedItemRecord（供事务内 refresh 路径复用）。
+fn candidate_record(
+    library_id: i64,
+    candidate: &PreparedIngestCandidate,
+    now: &str,
+) -> IndexedItemRecord {
+    IndexedItemRecord {
+        library_id,
+        file_path: candidate.file_path.clone(),
+        relative_path: candidate.relative_path.clone(),
+        file_name: candidate.file_name.clone(),
+        file_ext: candidate.file_ext.clone(),
+        file_type: candidate.file_type.clone(),
+        file_size: candidate.file_size,
+        modified_at: candidate.modified_at.clone(),
+        created_at: now.to_string(),
+        updated_at: now.to_string(),
+    }
 }
 
 impl Database {
@@ -1705,6 +1727,1279 @@ impl Database {
             }
         }
         Ok(candidates)
+    }
+}
+
+// ------------------------------------------------------------------
+// PR A（计划 4.4）：apply_scan_delta —— targeted 增量数据库 API。
+//
+// watcher / targeted upsert 只能调用本 API；输入视为「受影响路径的增量批次」，
+// 绝不像 replace_items_for_library 那样把输入当作权威完整快照去删除未列出的
+// sibling。一次批次 = 一个短事务；FTS 由既有触发器按受影响行增量维护
+// （不执行全量 rebuild；全量 rebuild 仅保留给完整扫描 / repair / catch-up）。
+// ------------------------------------------------------------------
+impl Database {
+    pub fn apply_scan_delta(
+        &self,
+        library_id: i64,
+        delta: &crate::models::ScanDelta,
+    ) -> Result<crate::models::ScanDeltaReport, AppError> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+
+        let source_kind: String = transaction
+            .query_row(
+                "SELECT source_kind FROM libraries WHERE id = ?1",
+                params![library_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?
+            .ok_or(AppError::LibraryNotFound)?;
+        if source_kind == "agent_project" {
+            return Err(AppError::InvalidParams);
+        }
+
+        let mut report = crate::models::ScanDeltaReport::default();
+
+        // Codex review P1-1：delta 事务边界重新核验 removed/ignored。
+        // 用户显式移除的文件不因外部修改 / 改名 / 重新出现而被普通 delta
+        // 恢复（计划 5.2：恢复只能走用户显式重新加入入口）。匹配同时覆盖
+        // file_path 与 canonical identity（/var 与 /private/var 等别名）。
+        let ignored_paths: std::collections::HashSet<String> = {
+            let mut statement = transaction
+                .prepare("SELECT file_path FROM ignored_items")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|_| AppError::DatabaseError)?;
+            rows.collect::<Result<std::collections::HashSet<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+        let ignored_identities: std::collections::HashSet<String> = ignored_paths
+            .iter()
+            .filter_map(|path| {
+                fs::canonicalize(path)
+                    .ok()
+                    .map(|canonical| canonical.to_string_lossy().into_owned())
+            })
+            .collect();
+        let delta_target_is_ignored = |file_path: &str| -> bool {
+            if ignored_paths.contains(file_path) {
+                return true;
+            }
+            fs::canonicalize(file_path)
+                .ok()
+                .map(|canonical| ignored_identities.contains(canonical.to_string_lossy().as_ref()))
+                .unwrap_or(false)
+        };
+
+        // FTS 增量维护集合：item_content 被重写/清空的 item 需要重建 FTS 行；
+        // 软删除的 item 需要移除 FTS 行。（schema 中 FTS 触发器已被启动流程
+        // DROP，FTS 由各写路径自行维护；全量路径用 rebuild，增量路径用 targeted。）
+        let mut fts_refresh_ids: Vec<i64> = Vec::new();
+        let mut fts_delete_ids: Vec<i64> = Vec::new();
+
+        // 1) 实时配对改名：保留 item ID，更新路径与元数据。
+        for rename in &delta.renames {
+            // 用户已移除的文件不随改名/外部修改恢复；ignored 记录保留。
+            if delta_target_is_ignored(&rename.from_path) || delta_target_is_ignored(&rename.to.file_path) {
+                continue;
+            }
+            let existing: Option<(i64,)> = transaction
+                .query_row(
+                    "SELECT id FROM items WHERE file_path = ?1",
+                    params![rename.from_path],
+                    |row| Ok((row.get::<_, i64>(0)?,)),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?;
+            let Some((item_id,)) = existing else {
+                // 无法定位旧路径：按移除+新增语义退化为 upsert。
+                let (item_id, content_touched) = Self::apply_delta_upsert_in_transaction(
+                    &transaction,
+                    library_id,
+                    &rename.to,
+                    &mut report,
+                )?;
+                if content_touched {
+                    fts_refresh_ids.push(item_id);
+                }
+                continue;
+            };
+            let identity = std::fs::canonicalize(&rename.to.file_path)
+                .ok()
+                .map(|canonical| canonical.to_string_lossy().into_owned());
+            transaction
+                .execute(
+                    "UPDATE items SET
+                       file_path = ?2,
+                       relative_path = ?3,
+                       file_name = ?4,
+                       file_ext = ?5,
+                       file_type = ?6,
+                       file_size = ?7,
+                       modified_at = ?8,
+                       identity = COALESCE(?9, identity),
+                       path_state = 'valid',
+                       is_deleted = 0,
+                       updated_at = ?10
+                     WHERE id = ?1",
+                    params![
+                        item_id,
+                        rename.to.file_path,
+                        rename.to.relative_path,
+                        rename.to.file_name,
+                        rename.to.file_ext,
+                        rename.to.file_type,
+                        rename.to.file_size,
+                        rename.to.modified_at,
+                        identity,
+                        rename.to.updated_at,
+                    ],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            // 确保与新 library 的 link 存在（改名可能跨到新来源）。
+            let has_link: i64 = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND library_id = ?2",
+                    params![item_id, library_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            if has_link == 0 {
+                let has_owner: i64 = transaction
+                    .query_row(
+                        "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND is_owner = 1",
+                        params![item_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                         VALUES (?1, ?2, 'legacy', ?3, ?4)",
+                        params![item_id, library_id, if has_owner == 0 { 1 } else { 0 }, rename.to.created_at],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+            // 改名后的正文刷新（路径已变化，正文始终重读一次）。
+            if Self::refresh_delta_item_content_in_transaction(
+                &transaction,
+                item_id,
+                &rename.to,
+                true,
+            )? {
+                fts_refresh_ids.push(item_id);
+            }
+            report.renamed += 1;
+        }
+
+        // 2) Upserts：只更新/插入批次内路径，不触碰 sibling。
+        for item in &delta.upserts {
+            // 用户已移除的文件：普通 delta 不恢复（不更新、不重建行）。
+            if delta_target_is_ignored(&item.file_path) {
+                continue;
+            }
+            let (item_id, content_touched) =
+                Self::apply_delta_upsert_in_transaction(&transaction, library_id, item, &mut report)?;
+            if content_touched {
+                fts_refresh_ids.push(item_id);
+            }
+        }
+
+        // 3) Removals：owner link 转移或软删除；非 owner link 仅删除 link。
+        for removed_path in &delta.removals {
+            let existing: Option<i64> = transaction
+                .query_row(
+                    "SELECT id FROM items WHERE file_path = ?1",
+                    params![removed_path],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?;
+            let Some(item_id) = existing else {
+                continue;
+            };
+            let links = {
+                let mut statement = transaction
+                    .prepare(
+                        "SELECT library_id, is_owner FROM item_sources
+                         WHERE item_id = ?1 ORDER BY library_id",
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                let rows = statement
+                    .query_map(params![item_id], |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? != 0))
+                    })
+                    .map_err(|_| AppError::DatabaseError)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| AppError::DatabaseError)?;
+                rows
+            };
+            let (this_library_is_owner, other_links) = links.iter().fold(
+                (false, Vec::new()),
+                |(owner, mut rest), (link_library_id, link_is_owner)| {
+                    if *link_library_id == library_id {
+                        (owner || *link_is_owner, rest)
+                    } else {
+                        rest.push((*link_library_id, *link_is_owner));
+                        (owner, rest)
+                    }
+                },
+            );
+            let _ = this_library_is_owner;
+            // 删除本库 link。
+            transaction
+                .execute(
+                    "DELETE FROM item_sources WHERE item_id = ?1 AND library_id = ?2",
+                    params![item_id, library_id],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            if other_links.is_empty() {
+                // 无任何其他 link：软删除（FTS 行由下方 targeted 维护移除）。
+                let changed = transaction
+                    .execute(
+                        "UPDATE items SET is_deleted = 1 WHERE id = ?1 AND is_deleted = 0",
+                        params![item_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                if changed > 0 {
+                    report.deleted += changed as u64;
+                    fts_delete_ids.push(item_id);
+                }
+            } else {
+                // 存在其他 link：优先把 owner 转交给 manifest/discovered 等结构化来源。
+                let replacement = transaction
+                    .query_row(
+                        "SELECT library_id
+                         FROM item_sources
+                         WHERE item_id = ?1 AND library_id <> ?2
+                         ORDER BY CASE link_kind
+                           WHEN 'manifest' THEN 0
+                           WHEN 'discovered' THEN 1
+                           ELSE 2
+                         END, library_id
+                         LIMIT 1",
+                        params![item_id, library_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()
+                    .map_err(|_| AppError::DatabaseError)?;
+                if let Some(replacement_library_id) = replacement {
+                    let had_owner = other_links.iter().any(|(_, is_owner)| *is_owner);
+                    if had_owner {
+                        transaction
+                            .execute(
+                                "UPDATE item_sources SET is_owner = 1
+                                 WHERE item_id = ?1 AND library_id = ?2",
+                                params![item_id, replacement_library_id],
+                            )
+                            .map_err(|_| AppError::DatabaseError)?;
+                        transaction
+                            .execute(
+                                "UPDATE items SET library_id = ?2 WHERE id = ?1",
+                                params![item_id, replacement_library_id],
+                            )
+                            .map_err(|_| AppError::DatabaseError)?;
+                    }
+                }
+            }
+        }
+
+        // targeted FTS 维护：只触碰本批次受影响的 FTS 行（计划 4.4：
+        // 「增量批次只更新受影响的 FTS 行」；全量 rebuild 仅保留给
+        // 完整扫描 / repair / catch-up）。
+        for item_id in fts_delete_ids {
+            transaction
+                .execute("DELETE FROM items_fts WHERE rowid = ?1", params![item_id])
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+        for item_id in fts_refresh_ids {
+            transaction
+                .execute("DELETE FROM items_fts WHERE rowid = ?1", params![item_id])
+                .map_err(|_| AppError::DatabaseError)?;
+            transaction
+                .execute(
+                    "INSERT INTO items_fts(rowid, item_id, file_name, title, raw_text)
+                     SELECT i.id, i.id, i.file_name, COALESCE(i.title, ''), COALESCE(c.raw_text, '')
+                     FROM items i
+                     LEFT JOIN item_content c ON c.item_id = i.id
+                     WHERE i.id = ?1 AND i.is_deleted = 0",
+                    params![item_id],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+        }
+
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(report)
+    }
+
+    /// 单文件来源清单（id + root_path），供 folder 接入合并 / 保留分析。
+    pub fn list_single_file_libraries(&self) -> Result<Vec<(i64, String)>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT id, root_path FROM libraries WHERE source_kind = 'file' ORDER BY id")
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|_| AppError::DatabaseError)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|_| AppError::DatabaseError)
+    }
+
+    /// 全库 ignored / removed 路径清单（folder 接入时不自动恢复这些文件）。
+    pub fn list_ignored_paths(&self) -> Result<Vec<String>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT file_path FROM ignored_items")
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|_| AppError::DatabaseError)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|_| AppError::DatabaseError)
+    }
+
+    /// watcher 激活失败时把来源标记为「等待同步」（计划 4.3 末条）。
+    pub fn set_library_sync_state(&self, library_id: i64, sync_state: &str) -> Result<(), AppError> {
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                "UPDATE libraries SET sync_state = ?2, updated_at = updated_at WHERE id = ?1",
+                params![library_id, sync_state],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        if changed == 0 {
+            return Err(AppError::LibraryNotFound);
+        }
+        Ok(())
+    }
+
+    /// Codex review P1-5：按 file_path 读取 item 的内容指纹（hash, size）。
+    /// 供 watcher 实时 rename 配对：改名后旧路径已消失，无法从磁盘读取
+    /// 旧内容，只能以 DB 既有 metadata 为配对依据。
+    pub fn item_fingerprint_by_path(&self, file_path: &str) -> Result<Option<(Option<String>, i64)>, AppError> {
+        let connection = self.connection()?;
+        let row = connection
+            .query_row(
+                "SELECT file_hash, file_size FROM items WHERE file_path = ?1 AND is_deleted = 0",
+                params![file_path],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        Ok(row)
+    }
+
+    /// 目录改名子树更新（计划 §4.4 / Codex R3 P1）：列出位于给定路径前缀下
+    /// 的未删除 item 路径。精确 `starts_with` 前缀过滤（含 `/` 边界），不用
+    /// LIKE——路径里的 `%` / `_` 会破坏 LIKE 语义。
+    pub fn list_item_paths_under_prefix(&self, prefix: &str) -> Result<Vec<String>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT file_path FROM items WHERE is_deleted = 0")
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|_| AppError::DatabaseError)?;
+        let prefix_with_slash = format!("{prefix}/");
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)
+            .map(|paths: Vec<String>| {
+                paths
+                    .into_iter()
+                    .filter(|path| path.starts_with(&prefix_with_slash))
+                    .collect()
+            })
+    }
+
+    /// 各 library 的 sync_state 投影（waiting_sync 恢复消费者使用）。
+    pub fn list_library_sync_states(&self) -> Result<Vec<(i64, String)>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT id, sync_state FROM libraries ORDER BY id")
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|_| AppError::DatabaseError)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|_| AppError::DatabaseError)
+    }
+
+    /// Codex review P1-7：overlap / root-alias 裁决（只读），供接入流程的
+    /// 预检阶段与 `ingest_folder_source` 事务内复核共用，防止两处逻辑漂移。
+    /// 返回 `Ok(Some(id))` = 同一 folder 的幂等重入；`Ok(None)` = 无冲突；
+    /// `Err(LibraryPathOverlap)` = 父子 / alias 重叠拒绝。
+    pub(crate) fn folder_overlap_verdict(
+        existing: &[(i64, String, String, Option<String>)],
+        root: &Path,
+        root_identity: &Option<String>,
+    ) -> Result<Option<i64>, AppError> {
+        let normalized_root = normalized_path_string(root);
+        let mut already_existing_id: Option<i64> = None;
+        for (id, existing_root, source_kind, existing_identity) in existing {
+            if source_kind == "agent_project" {
+                // agent-project 允许与 folder 路径重叠（既有规则）。
+                continue;
+            }
+            let identity_match = root_identity.is_some()
+                && existing_identity.is_some()
+                && root_identity.as_deref() == existing_identity.as_deref();
+            let same_folder = source_kind == "folder"
+                && (normalized_path_string(Path::new(existing_root)) == normalized_root
+                    || identity_match);
+            if same_folder {
+                already_existing_id = Some(*id);
+                continue;
+            }
+            if source_kind == "file" {
+                // folder 内的 single-file source 是计划 4.3 允许的受控 overlap：
+                // 不在此拒绝，由合并 / 保留逻辑在事务内逐项裁决。
+                continue;
+            }
+            // Codex review P1-7：canonical 包含关系判定（当前解析结果，
+            // 不依赖落库时的 identity 快照）。symlink alias 指向 folder 子目录
+            // 时 identity 不相等、原字符串 lexical 不重叠，但两者 canonical
+            // 路径互为组件前缀，必须拒绝。
+            if let (Ok(new_canonical), Ok(existing_canonical)) =
+                (fs::canonicalize(root), fs::canonicalize(Path::new(existing_root)))
+            {
+                if new_canonical == existing_canonical {
+                    // 同一 canonical 目录的另一种拼写（alias）：与 same_folder
+                    // 同义，走幂等「已存在」路径。
+                    already_existing_id = Some(*id);
+                    continue;
+                }
+                if new_canonical.starts_with(&existing_canonical)
+                    || existing_canonical.starts_with(&new_canonical)
+                {
+                    return Err(AppError::LibraryPathOverlap);
+                }
+            }
+            if libraries_overlap(Path::new(existing_root), root) {
+                return Err(AppError::LibraryPathOverlap);
+            }
+            if identity_match {
+                // root alias 指向非 folder 来源或不同 kind：按 overlap 拒绝。
+                return Err(AppError::LibraryPathOverlap);
+            }
+        }
+        Ok(already_existing_id)
+    }
+
+    /// 接入前的只读 overlap 预检：在快照确认闸门之前执行，保证
+    /// 父子/alias 重叠以 Err 硬失败返回，不被 needs_reconfirmation 掩盖。
+    /// 事务内仍会以同一裁决函数复核（权威）。
+    pub fn precheck_folder_overlap(&self, root_path: &str) -> Result<Option<i64>, AppError> {
+        let root = Path::new(root_path);
+        if !root.is_dir() {
+            return Err(AppError::InvalidParams);
+        }
+        let root_identity = fs::canonicalize(root)
+            .ok()
+            .map(|canonical| canonical.to_string_lossy().into_owned());
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT id, root_path, source_kind, identity FROM libraries")
+            .map_err(|_| AppError::DatabaseError)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .map_err(|_| AppError::DatabaseError)?;
+        let existing = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AppError::DatabaseError)?;
+        Self::folder_overlap_verdict(&existing, root, &root_identity)
+    }
+
+    /// PR A（计划 4.3）：文件夹接入短事务。
+    ///
+    /// 事务内职责（内容已由调用方在事务外准备好）：
+    /// 1) 按 lexical overlap + PathIdentity 重新核验父子来源与 root alias；
+    /// 2) 创建 folder library（同 normalized / 同 identity 的 folder 幂等选择）；
+    /// 3) 合并集合内的 single-file item：保留 item ID / 标签 / 收藏 / ignored，
+    ///    folder 在无既有 owner 时成为 owner；其 single-file library 在不再
+    ///    拥有任何 link 时删除；
+    /// 4) 插入未存在的候选 item（identity 去重，防止同一文件重复拥有）；
+    /// 5) 全量 FTS rebuild（完整接入属于全量扫描语义）。
+    pub fn ingest_folder_source(
+        &self,
+        root_path: &str,
+        prepared: &[PreparedIngestCandidate],
+        merge_library_ids: &[i64],
+        now: &str,
+    ) -> Result<FolderIngestDbResult, AppError> {
+        let root = Path::new(root_path);
+        if !root.is_dir() {
+            return Err(AppError::InvalidParams);
+        }
+        let root_key = canonical_root_key_for_path(root_path, false)?;
+        let root_identity = fs::canonicalize(root)
+            .ok()
+            .map(|canonical| canonical.to_string_lossy().into_owned());
+        let root_name = root
+            .file_name()
+            .map(|value| value.to_string_lossy().into_owned())
+            .filter(|value| !value.is_empty())
+            .ok_or(AppError::InvalidParams)?;
+
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+
+        // 1) overlap / root alias 复核（同一事务内，不只靠事务外 lexical 比较）。
+        let existing: Vec<(i64, String, String, Option<String>)> = {
+            let mut statement = transaction
+                .prepare("SELECT id, root_path, source_kind, identity FROM libraries")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .map_err(|_| AppError::DatabaseError)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+        let already_existing_id = Self::folder_overlap_verdict(&existing, root, &root_identity)?;
+
+        if let Some(existing_id) = already_existing_id {
+            let library = Self::load_library_in_transaction(&transaction, existing_id)?;
+            transaction
+                .commit()
+                .map_err(|_| AppError::DatabaseError)?;
+            return Ok(FolderIngestDbResult {
+                library: Some(library),
+                already_existing: true,
+                created_count: 0,
+                merged_item_count: 0,
+                merged_library_count: 0,
+                preserved_single_file_count: 0,
+            });
+        }
+
+        // 2) 创建 folder library。
+        let next_id: i64 = transaction
+            .query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM libraries", [], |row| row.get(0))
+            .map_err(|_| AppError::DatabaseError)?;
+        transaction
+            .execute(
+                "INSERT INTO libraries (
+                    id, name, root_path, canonical_root_key, source_kind, path_state,
+                    is_active, created_at, updated_at, last_scanned_at, identity, sync_state
+                 ) VALUES (?1, ?2, ?3, ?4, 'folder', 'valid', 1, ?5, ?5, ?5, ?6, 'ok')",
+                params![
+                    next_id,
+                    root_name,
+                    root_path,
+                    root_key,
+                    now,
+                    root_identity,
+                ],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let folder_id = next_id;
+
+        // 候选索引：identity / 路径双键去重。
+        let mut candidate_by_identity: HashMap<&str, usize> = HashMap::new();
+        let mut candidate_by_path: HashMap<&str, usize> = HashMap::new();
+        for (index, candidate) in prepared.iter().enumerate() {
+            candidate_by_identity.insert(candidate.identity.as_str(), index);
+            candidate_by_path.insert(candidate.file_path.as_str(), index);
+        }
+
+        // 3) 合并 single-file 来源（事务内重新核验 kind 与覆盖关系）。
+        let mut merged_item_count = 0_u64;
+        let mut merged_library_count = 0_u64;
+        for &library_id in merge_library_ids {
+            let kind: Option<String> = transaction
+                .query_row(
+                    "SELECT source_kind FROM libraries WHERE id = ?1",
+                    params![library_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?;
+            let Some(source_kind) = kind else { continue };
+            if source_kind != "file" {
+                continue;
+            }
+
+            let links: Vec<(i64, i64)> = {
+                let mut statement = transaction
+                    .prepare("SELECT item_id, is_owner FROM item_sources WHERE library_id = ?1")
+                    .map_err(|_| AppError::DatabaseError)?;
+                let rows = statement
+                    .query_map(params![library_id], |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+                    })
+                    .map_err(|_| AppError::DatabaseError)?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| AppError::DatabaseError)?
+            };
+
+            for (item_id, _is_owner) in links {
+                let (item_path, item_identity): (String, Option<String>) = transaction
+                    .query_row(
+                        "SELECT file_path, identity FROM items WHERE id = ?1",
+                        params![item_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(|_| AppError::DatabaseError)?
+                    .ok_or(AppError::DatabaseError)?;
+                let candidate_index = item_identity
+                    .as_deref()
+                    .and_then(|identity| candidate_by_identity.get(identity).copied())
+                    .or_else(|| candidate_by_path.get(item_path.as_str()).copied());
+                let Some(candidate_index) = candidate_index else {
+                    // 未被有效候选清单覆盖（隐藏 / 依赖目录、跳过项）：不转交，
+                    // 原链接保留，原 library 因此不会被删除。
+                    continue;
+                };
+                let candidate = &prepared[candidate_index];
+
+                // 元数据保留原则：只在文件确实变化（mtime / size 漂移）时刷新
+                // 元数据与正文；item ID、标签、收藏、最近打开一律不动。
+                let (stored_mtime, stored_size): (String, i64) = transaction
+                    .query_row(
+                        "SELECT modified_at, file_size FROM items WHERE id = ?1",
+                        params![item_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                let needs_refresh =
+                    stored_mtime != candidate.modified_at || stored_size != candidate.file_size;
+                transaction
+                    .execute(
+                        "UPDATE items SET
+                           file_path = ?2,
+                           relative_path = ?3,
+                           file_name = ?4,
+                           file_ext = ?5,
+                           file_type = ?6,
+                           file_size = ?7,
+                           modified_at = ?8,
+                           identity = COALESCE(identity, ?9),
+                           path_state = 'valid',
+                           updated_at = ?10
+                         WHERE id = ?1",
+                        params![
+                            item_id,
+                            candidate.file_path,
+                            candidate.relative_path,
+                            candidate.file_name,
+                            candidate.file_ext,
+                            candidate.file_type,
+                            candidate.file_size,
+                            candidate.modified_at,
+                            candidate.identity,
+                            now,
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+
+                // folder owner：已有结构化 / 其他 owner 时不抢占。
+                let existing_owner: i64 = transaction
+                    .query_row(
+                        "SELECT COUNT(*) FROM item_sources
+                         WHERE item_id = ?1 AND is_owner = 1 AND library_id <> ?2",
+                        params![item_id, library_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                let folder_is_owner = existing_owner == 0;
+                // 先删除旧 single-file link（它可能仍是 owner），再插入 folder
+                // link，避免触发 idx_item_sources_one_owner 唯一约束。
+                transaction
+                    .execute(
+                        "DELETE FROM item_sources WHERE item_id = ?1 AND library_id = ?2",
+                        params![item_id, library_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                         VALUES (?1, ?2, 'legacy', ?3, ?4)
+                         ON CONFLICT(item_id, library_id) DO NOTHING",
+                        params![item_id, folder_id, if folder_is_owner { 1 } else { 0 }, now],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                if folder_is_owner {
+                    transaction
+                        .execute(
+                            "UPDATE items SET library_id = ?2 WHERE id = ?1",
+                            params![item_id, folder_id],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                }
+                transaction
+                    .execute(
+                        "UPDATE ignored_items SET library_id = ?2 WHERE item_id = ?1",
+                        params![item_id, folder_id],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                if needs_refresh {
+                    Self::refresh_delta_item_content_in_transaction(
+                        &transaction,
+                        item_id,
+                        &candidate_record(folder_id, candidate, now),
+                        true,
+                    )?;
+                }
+                merged_item_count += 1;
+            }
+
+            // 冗余 single-file library 删除：仅当它已不再拥有任何 link 且
+            // 不是 agent-project source（防御性检查）。
+            let remaining: i64 = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM item_sources WHERE library_id = ?1",
+                    params![library_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let agent_row: i64 = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM agent_project_sources WHERE library_id = ?1",
+                    params![library_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            if remaining == 0 && agent_row == 0 {
+                transaction
+                    .execute("DELETE FROM libraries WHERE id = ?1", params![library_id])
+                    .map_err(|_| AppError::DatabaseError)?;
+                merged_library_count += 1;
+            }
+        }
+
+        // 4) 插入候选 item（identity / 路径去重）。
+        let mut created_count = 0_u64;
+        for candidate in prepared {
+            let existing_item: Option<(i64, Option<String>)> = transaction
+                .query_row(
+                    "SELECT id, identity FROM items WHERE identity = ?1",
+                    params![candidate.identity],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|_| AppError::DatabaseError)?
+                .or_else(|| {
+                    transaction
+                        .query_row(
+                            "SELECT id, identity FROM items WHERE file_path = ?1",
+                            params![candidate.file_path],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                        .optional()
+                        .map_err(|_| AppError::DatabaseError)
+                        .ok()
+                        .flatten()
+                });
+
+            let item_id = if let Some((existing_id, _)) = existing_item {
+                // 同一文件已有 item（合并项 / agent-project 项 / 软删除项）：
+                // 不建重复 item，只补 folder link；folder 拿到 owner 时按
+                // replace 路径语义恢复行并刷新漂移的内容。
+                let existing_owner: i64 = transaction
+                    .query_row(
+                        "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND is_owner = 1",
+                        params![existing_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                let folder_is_owner = existing_owner == 0;
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                         VALUES (?1, ?2, 'legacy', ?3, ?4)
+                         ON CONFLICT(item_id, library_id) DO NOTHING",
+                        params![existing_id, folder_id, if folder_is_owner { 1 } else { 0 }, now],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                if folder_is_owner {
+                    transaction
+                        .execute(
+                            "UPDATE items SET library_id = ?2, is_deleted = 0, path_state = 'valid'
+                             WHERE id = ?1",
+                            params![existing_id, folder_id],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    let (stored_mtime, stored_size): (String, i64) = transaction
+                        .query_row(
+                            "SELECT modified_at, file_size FROM items WHERE id = ?1",
+                            params![existing_id],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    if stored_mtime != candidate.modified_at || stored_size != candidate.file_size {
+                        Self::refresh_delta_item_content_in_transaction(
+                            &transaction,
+                            existing_id,
+                            &candidate_record(folder_id, candidate, now),
+                            true,
+                        )?;
+                    }
+                }
+                existing_id
+            } else {
+                let identity = Some(candidate.identity.clone());
+                transaction
+                    .execute(
+                        "INSERT INTO items (
+                            library_id, file_path, identity, relative_path, file_name, file_ext,
+                            file_type, file_size, modified_at, file_hash, title, summary,
+                            path_state, is_favorite, last_opened_at, is_deleted, created_at, updated_at
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'valid', 0, NULL, 0, ?13, ?13)",
+                        params![
+                            folder_id,
+                            candidate.file_path,
+                            identity,
+                            candidate.relative_path,
+                            candidate.file_name,
+                            candidate.file_ext,
+                            candidate.file_type,
+                            candidate.file_size,
+                            candidate.modified_at,
+                            candidate.content.as_ref().map(|content| content.file_hash.clone()),
+                            candidate.content.as_ref().and_then(|content| content.summary.clone()),
+                            candidate.content.as_ref().and_then(|content| content.summary.clone()),
+                            now,
+                        ],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                let new_item_id = transaction.last_insert_rowid();
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                         VALUES (?1, ?2, 'legacy', 1, ?3)",
+                        params![new_item_id, folder_id, now],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                if let Some(content) = &candidate.content {
+                    match candidate.file_type.as_str() {
+                        "markdown" => {
+                            transaction
+                                .execute(
+                                    "INSERT INTO item_content (
+                                        item_id, source_text, raw_text, rendered_cache, extracted_title, updated_at
+                                     ) VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+                                    params![
+                                        new_item_id,
+                                        content.source_text,
+                                        content.raw_text,
+                                        content.rendered,
+                                        candidate.modified_at,
+                                    ],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
+                            let projection = markdown_cover_projection(
+                                &content.source_text,
+                                &candidate.file_path,
+                            );
+                            Self::reconcile_markdown_thumbnail_in_transaction(
+                                &transaction,
+                                new_item_id,
+                                &projection,
+                                &content.file_hash,
+                            )?;
+                        }
+                        "html" => {
+                            transaction
+                                .execute(
+                                    "INSERT INTO item_content (
+                                        item_id, source_text, raw_text, rendered_cache, extracted_title, updated_at
+                                     ) VALUES (?1, ?2, ?3, NULL, NULL, ?4)",
+                                    params![
+                                        new_item_id,
+                                        content.source_text,
+                                        content.raw_text,
+                                        candidate.modified_at,
+                                    ],
+                                )
+                                .map_err(|_| AppError::DatabaseError)?;
+                            Self::invalidate_thumbnail_in_transaction(
+                                &transaction,
+                                new_item_id,
+                                &content.file_hash,
+                            )?;
+                        }
+                        _ => {}
+                    }
+                }
+                created_count += 1;
+                new_item_id
+            };
+            let _ = item_id;
+        }
+
+        // 5) 保留计数 + 全量 FTS rebuild + last_scanned_at。
+        let mut preserved_single_file_count = 0_u64;
+        {
+            let root_prefix_text = format!("{root_path}/");
+            let mut statement = transaction
+                .prepare("SELECT root_path FROM libraries WHERE source_kind = 'file'")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|_| AppError::DatabaseError)?;
+            for file_root in rows.collect::<Result<Vec<_>, _>>().map_err(|_| AppError::DatabaseError)? {
+                if file_root.starts_with(&root_prefix_text) {
+                    preserved_single_file_count += 1;
+                }
+            }
+        }
+
+        Self::rebuild_fts_index(&transaction)?;
+        transaction
+            .execute(
+                "UPDATE libraries SET last_scanned_at = ?2 WHERE id = ?1",
+                params![folder_id, now],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+
+        let library = {
+            let mut connection = self.connection()?;
+            Self::load_library_from_connection(&mut connection, folder_id)?
+        };
+
+        Ok(FolderIngestDbResult {
+            library: Some(library),
+            already_existing: false,
+            created_count,
+            merged_item_count,
+            merged_library_count,
+            preserved_single_file_count,
+        })
+    }
+
+    fn load_library_in_transaction(
+        transaction: &Transaction<'_>,
+        library_id: i64,
+    ) -> Result<Library, AppError> {
+        let (id, name, root_path, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at): (
+            i64,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            Option<String>,
+        ) = transaction
+            .query_row(
+                "SELECT id, name, root_path, source_kind, path_state, is_active, created_at, updated_at, last_scanned_at
+                 FROM libraries WHERE id = ?1",
+                params![library_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?
+            .ok_or(AppError::LibraryNotFound)?;
+        Ok(Library {
+            id,
+            name,
+            root_path,
+            source_kind,
+            path_state,
+            is_active: is_active != 0,
+            created_at,
+            updated_at,
+            last_scanned_at,
+            skill_binding: Self::load_skill_binding_for_library(transaction, library_id).ok().flatten(),
+        })
+    }
+
+    fn load_library_from_connection(
+        connection: &mut Connection,
+        library_id: i64,
+    ) -> Result<Library, AppError> {
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+        Self::load_library_in_transaction(&transaction, library_id)
+    }
+
+    /// 批次内单个 upsert：existing 按 file_path 精确匹配并更新；否则插入新 item。
+    /// 永不删除/降级批次之外的任何行。
+    fn apply_delta_upsert_in_transaction(
+        transaction: &Transaction<'_>,
+        library_id: i64,
+        item: &crate::models::IndexedItemRecord,
+        report: &mut crate::models::ScanDeltaReport,
+    ) -> Result<(i64, bool), AppError> {
+        let existing: Option<i64> = transaction
+            .query_row(
+                "SELECT id FROM items WHERE file_path = ?1",
+                params![item.file_path],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        if let Some(existing_id) = existing {
+            // 先读更新前的元数据再写行：刷新决策必须基于旧值，
+            // 否则 UPDATE 刚写入的新 mtime 会让刷新判断永远为 false。
+            let (stored_modified_at, stored_file_size, has_content): (
+                Option<String>,
+                i64,
+                i64,
+            ) = transaction
+                .query_row(
+                    "SELECT modified_at, file_size,
+                            EXISTS(SELECT 1 FROM item_content c WHERE c.item_id = ?1)
+                     FROM items WHERE id = ?1",
+                    params![existing_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let needs_refresh = has_content == 0
+                || stored_modified_at.as_deref() != Some(item.modified_at.as_str())
+                || stored_file_size != item.file_size;
+            transaction
+                .execute(
+                    "UPDATE items SET
+                       relative_path = ?2,
+                       file_name = ?3,
+                       file_ext = ?4,
+                       file_type = ?5,
+                       file_size = ?6,
+                       modified_at = ?7,
+                       path_state = 'valid',
+                       is_deleted = 0,
+                       updated_at = ?8
+                     WHERE id = ?1",
+                    params![
+                        existing_id,
+                        item.relative_path,
+                        item.file_name,
+                        item.file_ext,
+                        item.file_type,
+                        item.file_size,
+                        item.modified_at,
+                        item.updated_at,
+                    ],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let has_link: i64 = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND library_id = ?2",
+                    params![existing_id, library_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            if has_link == 0 {
+                let has_owner: i64 = transaction
+                    .query_row(
+                        "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND is_owner = 1",
+                        params![existing_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+                transaction
+                    .execute(
+                        "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                         VALUES (?1, ?2, 'legacy', ?3, ?4)",
+                        params![existing_id, library_id, if has_owner == 0 { 1 } else { 0 }, item.created_at],
+                    )
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+            report.updated += 1;
+            let content_touched = if needs_refresh {
+                Self::refresh_delta_item_content_in_transaction(
+                    transaction,
+                    existing_id,
+                    item,
+                    true,
+                )?
+            } else {
+                false
+            };
+            return Ok((existing_id, content_touched));
+        } else {
+            let identity = std::fs::canonicalize(&item.file_path)
+                .ok()
+                .map(|canonical| canonical.to_string_lossy().into_owned());
+            transaction
+                .execute(
+                    "INSERT INTO items (
+                        library_id, file_path, identity, relative_path, file_name, file_ext, file_type,
+                        file_size, modified_at, file_hash, title, summary, path_state, is_favorite, last_opened_at, is_deleted, created_at, updated_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL, NULL, 'valid', 0, NULL, 0, ?10, ?11)",
+                    params![
+                        library_id,
+                        item.file_path,
+                        identity,
+                        item.relative_path,
+                        item.file_name,
+                        item.file_ext,
+                        item.file_type,
+                        item.file_size,
+                        item.modified_at,
+                        item.created_at,
+                        item.updated_at,
+                    ],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let item_id = transaction.last_insert_rowid();
+            transaction
+                .execute(
+                    "INSERT INTO item_sources (item_id, library_id, link_kind, is_owner, created_at)
+                     VALUES (?1, ?2, 'legacy', 1, ?3)",
+                    params![item_id, library_id, item.created_at],
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            report.created += 1;
+            let content_touched =
+                Self::refresh_delta_item_content_in_transaction(transaction, item_id, item, true)?;
+            Ok((item_id, content_touched))
+        }
+    }
+
+    /// 批次内正文刷新：`force` 由调用方在更新行之前基于旧元数据计算；
+    /// 为 true 时读取磁盘并写 item_content（FTS 由触发器按行增量维护）。
+    /// Markdown 失败时清空旧正文并置空 hash，保持与 replace 路径相同的
+    /// 「新 metadata + 旧正文」防护语义。
+    fn refresh_delta_item_content_in_transaction(
+        transaction: &Transaction<'_>,
+        item_id: i64,
+        item: &crate::models::IndexedItemRecord,
+        force: bool,
+    ) -> Result<bool, AppError> {
+        if !force {
+            return Ok(false);
+        }
+        match item.file_type.as_str() {
+            "html" => match fs::read_to_string(&item.file_path) {
+                Ok(raw) => {
+                    let hash = content_hash(&raw);
+                    let semantic_text = extract_indexable_html_text(&raw);
+                    transaction
+                        .execute(
+                            "UPDATE items SET file_hash = ?2 WHERE id = ?1",
+                            params![item_id, hash],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    Self::invalidate_thumbnail_in_transaction(&transaction, item_id, &hash)?;
+                    // 显式 UPDATE 优先（而非 UPSERT）：UPSERT 的 DO UPDATE 分支
+                    // 不触发 item_content 的 AFTER UPDATE 触发器，FTS 会停留在
+                    // 旧正文（全量路径靠结尾 rebuild 掩盖；delta 路径无 rebuild）。
+                    let content_updated = transaction
+                        .execute(
+                            "UPDATE item_content
+                             SET source_text = ?2, raw_text = ?3, rendered_cache = NULL, updated_at = ?4
+                             WHERE item_id = ?1",
+                            params![item_id, raw, semantic_text, item.modified_at],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    if content_updated == 0 {
+                        transaction
+                            .execute(
+                                "INSERT INTO item_content (item_id, source_text, raw_text, rendered_cache, extracted_title, updated_at)
+                                 VALUES (?1, ?2, ?3, NULL, NULL, ?4)",
+                                params![item_id, raw, semantic_text, item.modified_at],
+                            )
+                            .map_err(|_| AppError::DatabaseError)?;
+                    }
+                    Ok(true)
+                }
+                Err(_) => {
+                    transaction
+                        .execute(
+                            "UPDATE items SET file_hash = NULL WHERE id = ?1",
+                            params![item_id],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    Self::invalidate_thumbnail_unknown_revision_in_transaction(
+                        &transaction,
+                        item_id,
+                    )?;
+                    transaction
+                        .execute("DELETE FROM item_content WHERE item_id = ?1", params![item_id])
+                        .map_err(|_| AppError::DatabaseError)?;
+                    Ok(true)
+                }
+            },
+            "markdown" => match fs::read_to_string(&item.file_path) {
+                Ok(raw) => {
+                    let summary = markdown_summary(&raw);
+                    let hash = content_hash(&raw);
+                    let rendered = render_markdown_as_html_for_file(&raw, &item.file_name);
+                    let projection = markdown_cover_projection(&raw, &item.file_path);
+                    transaction
+                        .execute(
+                            "UPDATE items SET summary = ?2, file_hash = ?3 WHERE id = ?1",
+                            params![item_id, summary, hash],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    Self::reconcile_markdown_thumbnail_in_transaction(
+                        &transaction,
+                        item_id,
+                        &projection,
+                        &hash,
+                    )?;
+                    // 同上：显式 UPDATE/INSERT，确保 AFTER UPDATE 触发器刷新 FTS。
+                    let content_updated = transaction
+                        .execute(
+                            "UPDATE item_content
+                             SET source_text = ?2, raw_text = ?3, rendered_cache = ?4, updated_at = ?5
+                             WHERE item_id = ?1",
+                            params![item_id, raw, raw, rendered, item.modified_at],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    if content_updated == 0 {
+                        transaction
+                            .execute(
+                                "INSERT INTO item_content (
+                                    item_id, source_text, raw_text, rendered_cache, extracted_title, updated_at
+                                 ) VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+                                params![item_id, raw, raw, rendered, item.modified_at],
+                            )
+                            .map_err(|_| AppError::DatabaseError)?;
+                    }
+                    Ok(true)
+                }
+                Err(_) => {
+                    transaction
+                        .execute(
+                            "UPDATE items SET file_hash = NULL WHERE id = ?1",
+                            params![item_id],
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    transaction
+                        .execute("DELETE FROM item_content WHERE item_id = ?1", params![item_id])
+                        .map_err(|_| AppError::DatabaseError)?;
+                    Ok(true)
+                }
+            },
+            _ => Ok(false),
+        }
     }
 }
 

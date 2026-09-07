@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    core::document::file_modified_at_string,
+    core::{document::file_modified_at_string, traversal::is_excluded_dir_name},
     errors::AppError,
     models::IndexedItemRecord,
 };
@@ -28,6 +28,11 @@ fn timestamp_string(metadata: &fs::Metadata) -> Result<String, AppError> {
     file_modified_at_string(metadata)
 }
 
+/// 完整扫描与预检共用同一排除策略（Codex review P1-3）：
+/// 隐藏目录、.git/.svn/.hg/node_modules/target 一律不进入候选；
+/// 目录符号链接不跟随（entry file_type 对 symlink 返回 false 的
+/// is_dir/is_file，因此天然跳过）。显式 file source（scan_file_source）
+/// 不经过本函数，保留例外。
 fn visit_dir(root: &Path, current: &Path, results: &mut Vec<PathBuf>) -> Result<(), AppError> {
     for entry in fs::read_dir(current).map_err(|_| AppError::IoError)? {
         let entry = entry.map_err(|_| AppError::IoError)?;
@@ -35,6 +40,13 @@ fn visit_dir(root: &Path, current: &Path, results: &mut Vec<PathBuf>) -> Result<
         let file_type = entry.file_type().map_err(|_| AppError::IoError)?;
 
         if file_type.is_dir() {
+            let dir_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if is_excluded_dir_name(&dir_name) {
+                continue;
+            }
             visit_dir(root, &path, results)?;
         } else if file_type.is_file() && is_supported_file(&path) {
             let _ = root;
@@ -45,7 +57,7 @@ fn visit_dir(root: &Path, current: &Path, results: &mut Vec<PathBuf>) -> Result<
     Ok(())
 }
 
-fn build_item_record(
+pub(crate) fn build_item_record(
     library_id: i64,
     source_root: &Path,
     path: PathBuf,

@@ -631,6 +631,28 @@
         hostFullscreenEntered: "宿主已处理 F 全屏",
         hostFullscreenExited: "宿主已退出 F 全屏",
         hostFullscreenFailed: "宿主 F 全屏失败"
+      },
+      folderIngest: {
+        precheckRunning: "正在预检文件夹…",
+        precheckProgress: "正在预检文件夹…已发现 {candidate} 个候选",
+        precheckCancelAction: "取消预检",
+        confirmTitle: "接入文件夹",
+        confirmMessage: "将添加 {candidate} 个文件（包含子文件夹）",
+        confirmSkipPart: "跳过 {skipped} 个不支持的文件",
+        confirmMergePart: "{merge} 个之前单独添加的文件会并入这个文件夹",
+        confirmPreservePart: "{preserve} 个文件会保留单独显示",
+        confirmNoteDefault: "仅添加 Markdown 和 HTML 文件，其他文件会自动跳过",
+        confirmAction: "接入",
+        cancelAction: "取消",
+        cancelled: "已取消接入，未做任何更改",
+        ingestRunning: "正在接入文件夹…",
+        ingestCancelAction: "取消接入",
+        reconfirmNeeded: "文件夹内容有变化，请重新确认",
+        doneStatus: "接入完成：新建 {created} 个，合并 {merged} 个，保留独立来源 {preserved} 个",
+        waitingSync: "文件监听启动失败，来源进入等待同步状态，重启后将自动补扫",
+        fatalRootUnreadable: "无法读取所选文件夹",
+        fatalOverLimit: "文件夹超出预检边界，请选择更小的文件夹",
+        fatalCancelled: "预检已取消"
       }
     },
     "en-US": {
@@ -1259,6 +1281,28 @@
         hostFullscreenEntered: "Host handled F fullscreen",
         hostFullscreenExited: "Host exited F fullscreen",
         hostFullscreenFailed: "Host F fullscreen failed"
+      },
+      folderIngest: {
+        precheckRunning: "Prechecking folder…",
+        precheckProgress: "Prechecking folder… {candidate} candidates found",
+        precheckCancelAction: "Cancel preflight",
+        confirmTitle: "Add Folder",
+        confirmMessage: "{candidate} files will be added (subfolders included)",
+        confirmSkipPart: "{skipped} unsupported files will be skipped",
+        confirmMergePart: "{merge} files added earlier will merge into this folder",
+        confirmPreservePart: "{preserve} files will stay listed separately",
+        confirmNoteDefault: "Only Markdown and HTML files are added; others are skipped automatically",
+        confirmAction: "Add",
+        cancelAction: "Cancel",
+        cancelled: "Folder add cancelled, nothing changed",
+        ingestRunning: "Adding folder…",
+        ingestCancelAction: "Cancel add",
+        reconfirmNeeded: "Folder content changed, please confirm again",
+        doneStatus: "Folder added: {created} created, {merged} merged, {preserved} sources kept independent",
+        waitingSync: "File watcher failed to start; source is waiting to sync and will catch up after restart",
+        fatalRootUnreadable: "Cannot read the selected folder",
+        fatalOverLimit: "Folder exceeds preflight limits; try a smaller folder",
+        fatalCancelled: "Preflight cancelled"
       }
     }
   };

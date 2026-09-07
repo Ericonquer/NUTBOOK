@@ -118,6 +118,39 @@ pub struct IndexedItemRecord {
     pub updated_at: String,
 }
 
+/// PR A（计划 4.4）：watcher / targeted upsert 的增量批次。
+///
+/// 语义合同：
+/// - `upserts` / `removals` / `renames` 只描述受影响的路径；
+///   `apply_scan_delta` 绝不触碰批次之外的 sibling item
+///   （这正是它与权威完整快照 `replace_items_for_library` 的本质区别）。
+/// - `renames` 仅用于同一有效 generation 内明确配对的实时改名：保留 item ID
+///   并更新路径/元数据。离线或无法配对的改名由调用方按
+///   「旧路径 removal + 新路径 upsert」表达，不引入 inode/file-id 身份。
+#[derive(Debug, Clone, Default)]
+pub struct ScanDelta {
+    pub upserts: Vec<IndexedItemRecord>,
+    /// 被移除文件的绝对路径（按来源扫描根下的真实路径）。
+    pub removals: Vec<String>,
+    pub renames: Vec<ScanDeltaRename>,
+}
+
+/// 一次实时改名配对：from 为旧路径，to 为新路径的新记录。
+#[derive(Debug, Clone)]
+pub struct ScanDeltaRename {
+    pub from_path: String,
+    pub to: IndexedItemRecord,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanDeltaReport {
+    pub created: u64,
+    pub updated: u64,
+    pub deleted: u64,
+    pub renamed: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemDetail {
