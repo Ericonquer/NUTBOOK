@@ -4684,6 +4684,13 @@
         line-height: 1.6;
       }
 
+      .confirm-note {
+        margin: -8px 0 16px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
       .confirm-detail {
         margin: -8px 0 16px;
         padding: 8px 10px;
@@ -8906,7 +8913,7 @@
         });
       }
 
-      function appConfirm({ title = t("actions.confirm"), message = "", detail = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
+      function appConfirm({ title = t("actions.confirm"), message = "", note = "", detail = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
         if (!els.confirmScrim) return Promise.resolve(window.confirm(message || title));
         return new Promise((resolve) => {
           const previousFocus = document.activeElement;
@@ -8945,6 +8952,7 @@
             <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle" aria-describedby="appConfirmMessage">
               <h3 id="appConfirmTitle" class="confirm-title">${escapeHtml(title)}</h3>
               <p id="appConfirmMessage" class="confirm-message">${escapeHtml(message)}</p>
+              ${note ? `<p class="confirm-note">${escapeHtml(note)}</p>` : ""}
               ${detail ? `<div class="confirm-detail"><span class="confirm-detail-label">${escapeHtml(t("settings.originalFilePath"))}</span>${escapeHtml(detail)}</div>` : ""}
               <div class="confirm-actions">
                 <button class="button button-secondary" type="button" data-confirm-cancel>${escapeHtml(cancelText)}</button>
@@ -20847,16 +20855,233 @@ if (!chipTipController) {
         }
       }
 
+      // PR A（计划 4.1）：添加文件夹 → 后台预检（零数据库写入）→ 确认对话框
+      // （接入 N 个 / 跳过 M 个 / 单文件合并与保留计数）→ 确认后原子接入。
+      // 候选集合在确认后发生变化时，后端返回 needsReconfirmation，对话框按
+      // 最新计数重置为未确认状态，用户再次确认才提交。
+      // Codex review P1-8 / R2-1：预检为后台操作 —— start_folder_preflight 立即
+      // 返回 opId；进度与结果经 folder_preflight_status 轮询显示（不依赖事件），
+      // 预检期间提供可用的取消按钮（cancel_folder_preflight）。
+      function showFolderPreflightCancelChip(onCancel) {
+        const label = t("folderIngest.precheckCancelAction");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button button-ghost button-small";
+        button.id = "folderPreflightCancelChip";
+        button.textContent = label;
+        button.setAttribute("aria-label", label);
+        Object.assign(button.style, { position: "fixed", right: "18px", bottom: "54px", zIndex: "60" });
+        button.addEventListener("click", onCancel);
+        document.body.appendChild(button);
+        return () => button.remove();
+      }
+
+      // Codex review R2-1：预检结果经 invoke 轮询获取，不依赖 Tauri 事件。
+      // 原因：运行面 window.__TAURI__ 未注入时 event.listen 不可用（invoke 走
+      // __TAURI_INTERNALS__ 不受影响），且「先启动预检、后订阅结果」存在
+      // 丢事件竞态。轮询天然规避两者；取消按钮保持可用（progress 与预检
+      // 内部共用同一实例，取消信号直达遍历检查点）。
+      async function runFolderPreflight(rootPath) {
+        let opId;
+        try {
+          ({ opId } = await invoke("start_folder_preflight", { payload: { rootPath } }));
+        } catch (error) {
+          return { summary: null, error: normalizeError(error) };
+        }
+        const removeChip = showFolderPreflightCancelChip(async () => {
+          try { await invoke("cancel_folder_preflight", { payload: { opId } }); } catch (error) {}
+        });
+        try {
+          const deadline = Date.now() + 120000;
+          for (;;) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            let status;
+            try {
+              status = await invoke("folder_preflight_status", { payload: { opId } });
+            } catch (error) {
+              return { summary: null, error: normalizeError(error) };
+            }
+            if (status.status === "running") {
+              if (Date.now() > deadline) {
+                try { await invoke("cancel_folder_preflight", { payload: { opId } }); } catch (error) {}
+                return { summary: null, error: "precheck-timeout" };
+              }
+              setStatus(formatTranslation("folderIngest.precheckProgress", {
+                candidate: status.candidateCount ?? 0
+              }), "warn");
+              continue;
+            }
+            if (status.status === "done") {
+              return { opId, summary: status.summary, error: null };
+            }
+            return { opId, summary: null, error: status.error || "precheck-failed" };
+          }
+        } finally {
+          removeChip?.();
+        }
+      }
+
+      // Codex review R3：接入期间的取消按钮（与预检 chip 同款交互）。
+      function showFolderIngestCancelChip(onCancel) {
+        const label = t("folderIngest.ingestCancelAction");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button button-ghost button-small";
+        button.id = "folderIngestCancelChip";
+        button.textContent = label;
+        button.setAttribute("aria-label", label);
+        Object.assign(button.style, { position: "fixed", right: "18px", bottom: "54px", zIndex: "60" });
+        button.addEventListener("click", onCancel);
+        document.body.appendChild(button);
+        return () => button.remove();
+      }
+
+      // Codex review R3 静态缺口：接入为后台 op——start_folder_ingest 立即
+      // 返回 opId，重活（预检重跑 + 内容准备 + 短事务）在独立线程执行，
+      // 不再阻塞 UI 命令线程；结果经 folder_ingest_status 轮询；取消经
+      // cancel_folder_ingest 在提交边界前生效（事务已开始则走完，短事务
+      // 保证原子）。返回值携带 error 字段：null = 正常响应。
+      async function runFolderIngest(rootPath, confirmedCandidateCount, preflightOpId) {
+        let opId;
+        try {
+          ({ opId } = await invoke("start_folder_ingest", {
+            payload: { rootPath, confirmedCandidateCount, preflightOpId }
+          }));
+        } catch (error) {
+          return { error: normalizeError(error) };
+        }
+        const removeChip = showFolderIngestCancelChip(async () => {
+          try { await invoke("cancel_folder_ingest", { payload: { opId } }); } catch (error) {}
+        });
+        try {
+          const deadline = Date.now() + 120000;
+          for (;;) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            let status;
+            try {
+              status = await invoke("folder_ingest_status", { payload: { opId } });
+            } catch (error) {
+              return { error: normalizeError(error) };
+            }
+            if (status.status === "running") {
+              if (Date.now() > deadline) {
+                try { await invoke("cancel_folder_ingest", { payload: { opId } }); } catch (error) {}
+                return { error: "ingest-timeout" };
+              }
+              continue;
+            }
+            if (status.status === "failed") {
+              return { error: status.error || "ingest-failed" };
+            }
+            return { ...status.response, error: null };
+          }
+        } finally {
+          removeChip();
+        }
+      }
+
+      async function ingestFolderWithConfirmation(rootPath) {
+        try {
+          setStatus(t("folderIngest.precheckRunning"), "warn");
+          const preflight = await runFolderPreflight(rootPath);
+          if (!preflight || !preflight.summary) {
+            setStatus(`预检失败：${preflight?.error || normalizeError("unknown")}`, "error");
+            return;
+          }
+          const preflightOpId = preflight.opId;
+          let summary = preflight.summary;
+          if (summary.fatal) {
+            const fatalKey = summary.overLimit
+              ? "folderIngest.fatalOverLimit"
+              : summary.cancelled
+                ? "folderIngest.fatalCancelled"
+                : "folderIngest.fatalRootUnreadable";
+            setStatus(t(fatalKey), "error");
+            return;
+          }
+
+          // Codex review R2-3：确认绑定具体预检操作（opId）。首次确认绑定
+          // 预检返回的 opId；needsReconfirmation 后绑定响应摘要携带的新
+          // opId——确认的快照不会被同路径的后续预检覆盖。
+          let confirmedCandidateCount = summary.candidateCount;
+          let confirmedOpId = summary.opId ?? preflightOpId;
+          let response = null;
+          for (;;) {
+            // 副文案只列非零项，避免「跳过 0 个、并入 0 个」干扰普通用户。
+            const noteParts = [];
+            if ((summary.skippedCount ?? 0) > 0) {
+              noteParts.push(formatTranslation("folderIngest.confirmSkipPart", { skipped: summary.skippedCount }));
+            }
+            if ((summary.mergeSingleFileCount ?? 0) > 0) {
+              noteParts.push(formatTranslation("folderIngest.confirmMergePart", { merge: summary.mergeSingleFileCount }));
+            }
+            if ((summary.preserveSingleFileCount ?? 0) > 0) {
+              noteParts.push(formatTranslation("folderIngest.confirmPreservePart", { preserve: summary.preserveSingleFileCount }));
+            }
+            const confirmNote = noteParts.length
+              ? noteParts.join("；")
+              : t("folderIngest.confirmNoteDefault");
+            const confirmed = await appConfirm({
+              title: t("folderIngest.confirmTitle"),
+              message: formatTranslation("folderIngest.confirmMessage", {
+                candidate: summary.candidateCount
+              }),
+              note: confirmNote,
+              confirmText: t("folderIngest.confirmAction"),
+              cancelText: t("folderIngest.cancelAction")
+            });
+            if (!confirmed) {
+              setStatus(t("folderIngest.cancelled"), "warn");
+              return;
+            }
+            setStatus(t("folderIngest.ingestRunning"), "warn");
+            // Codex review R3：接入为后台 op（重活离开 UI 命令线程），
+            // 结果经 folder_ingest_status 轮询；取消在提交边界前生效。
+            response = await runFolderIngest(rootPath, confirmedCandidateCount, confirmedOpId);
+            if (response.error) {
+              setStatus(`接入失败：${response.error}`, "error");
+              return;
+            }
+            if (response.cancelled) {
+              setStatus(t("folderIngest.cancelled"), "warn");
+              return;
+            }
+            if (!response.needsReconfirmation) break;
+            summary = response.summary;
+            confirmedCandidateCount = summary.candidateCount;
+            confirmedOpId = summary.opId ?? confirmedOpId;
+            setStatus(t("folderIngest.reconfirmNeeded"), "warn");
+          }
+
+          const library = response.library ? normalizeLibrary(response.library) : null;
+          if (library) {
+            appState.activeLibraryId = library.id;
+            els.libraryPath.value = library.rootPath;
+            els.libraryName.value = library.name;
+          }
+          await loadLibraries();
+          await loadItems();
+          await ensureWatcher();
+          setStatus(formatTranslation("folderIngest.doneStatus", {
+            created: response.createdCount,
+            merged: response.mergedItemCount,
+            preserved: response.preservedSingleFileCount
+          }), "ok");
+          if (response.waitingSync) {
+            setStatus(t("folderIngest.waitingSync"), "warn");
+          }
+        } catch (error) {
+          setStatus(`接入文件夹失败：${normalizeError(error)}`, "error");
+        }
+      }
+
       async function addFolderFromMenu() {
         const fallbackPath = els.libraryPath.value || "/Users/hayley/.openclaw/workspace/nutbook";
         if (appState.isTauri) {
           try {
             const selected = await invoke("open_folder_dialog");
             if (!selected) return;
-            els.libraryPath.value = selected;
-            els.libraryName.value = selected.split("/").filter(Boolean).pop() || "Nutbook Workspace";
-            await addLibrary("folder");
-            if (appState.activeLibraryId) await scanLibrary();
+            await ingestFolderWithConfirmation(selected);
             return;
           } catch (error) {
             setStatus(`打开文件夹失败：${normalizeError(error)}`, "error");

@@ -1,5 +1,6 @@
 pub mod agent_project;
 pub mod artifact_candidate;
+pub mod folder_ingest;
 pub mod html_edit;
 pub mod item;
 pub mod library;
@@ -22,6 +23,10 @@ pub use artifact_candidate::{
     ArtifactCandidate, ArtifactCandidateGroupSummary, DiscoveryEvidence, DiscoveryReasonKind,
     RelatedArtifactFile,
 };
+pub use folder_ingest::{
+    FolderIngestDbResult, FolderIngestRequest, FolderIngestResponse, FolderPreflightSummary,
+    PreparedContent, PreparedIngestCandidate,
+};
 pub use html_edit::{
     CommitHtmlEditRequest, CommitHtmlEditResponse, GeneratePresentationThumbnailRequest, GeneratePresentationThumbnailResponse, GetHtmlEditPatchRequest, HtmlEditAssetImport, HtmlEditChange, HtmlEditChangeType, HtmlEditFieldApplyReason,
     HtmlEditFieldApplyResult, HtmlEditFieldApplyStatus, HtmlEditPatch, HtmlEditPatchApplyStatus,
@@ -38,7 +43,7 @@ pub use item::{
     EvalHtmlRuntimeScriptRequest,
     FocusHtmlRuntimeHostRequest,
     GenerateThumbnailResponse, GetItemDetailRequest, GetItemPreviewRequest, HtmlPreviewPayload,
-    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemContentRevision, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery, SearchSuggestion,
+    HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, IndexedItemRecord, ItemContentRevision, ItemDetail, ItemSourceBadge, ItemSummary, ListItemsQuery, ScanDelta, ScanDeltaRename, ScanDeltaReport, SearchSuggestion,
     IgnoredItemSummary, MarkItemOpenedRequest, MarkdownInspectorSnapshot, MarkdownPreviewPayload, MoveItemToTrashRequest, OpenHtmlWindowRequest,
     OpenLibraryLocationRequest, PagedResult, PreviewPayload, RemoveItemRequest, RepairLibraryRootRequest, RuntimeHostBounds,
     ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,

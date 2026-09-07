@@ -11,6 +11,7 @@ use crate::{
     db::repositories::LibraryRepository,
     db::Database,
     errors::AppError,
+    models::{ScanDelta, ScanDeltaReport},
 };
 
 /// 单个 library 的扫描串行锁 + 启动期 catch-up 队列。
@@ -47,6 +48,16 @@ struct ScanCoordinatorInner {
     catch_up_worker_running: Mutex<bool>,
     /// catch-up 扫描计数（确定性测试用）。
     catch_up_scan_count: AtomicU64,
+    /// PR A watcher fence（计划 4.3/4.4）：每个 library 的当前 watcher generation。
+    /// 接入合并 / repair / 删除来源时 bump；旧 watcher 捕获的 generation 与当前
+    /// 不一致时，其事件批次整体丢弃，不回写已删除/已合并来源。
+    watch_generations: Mutex<HashMap<i64, u64>>,
+    /// R4/R5 P1：路径 inode 缓存（unix，目录 + 候选文件通用）。watcher 构建
+    /// 时与批次内记录「仍然存在的路径」的 inode；批次内消失路径的缓存 inode
+    /// 与出现路径的当前 inode 相等，才是明确的旧→新 rename 关联（inode 是
+    /// 内核赋予的文件身份，rename 不改变它）。无缓存 / 非 unix / 超预算一律
+    /// 不参与配对，走保守收敛。
+    path_inodes: Mutex<HashMap<String, u64>>,
 }
 
 impl ScanCoordinator {
@@ -61,6 +72,8 @@ impl ScanCoordinator {
                 catch_up_done: Mutex::new(HashMap::new()),
                 catch_up_worker_running: Mutex::new(false),
                 catch_up_scan_count: AtomicU64::new(0),
+                watch_generations: Mutex::new(HashMap::new()),
+                path_inodes: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -260,6 +273,142 @@ impl ScanCoordinator {
     /// 获取一个 library 的串行锁（delete / repair 等外层生命周期用）。
     pub fn library_lock(&self, library_id: i64) -> Arc<Mutex<()>> {
         self.lock_for(library_id)
+    }
+
+    /// PR A watcher fence：bump 某 library 的 watcher generation。
+    /// 接入合并 / repair / 删除来源时调用；此后旧 watcher 的事件批次被丢弃。
+    pub fn bump_generation(&self, library_id: i64) -> u64 {
+        let mut generations = self
+            .inner
+            .watch_generations
+            .lock()
+            .expect("watch generations mutex poisoned");
+        let next = generations.get(&library_id).copied().unwrap_or(0) + 1;
+        generations.insert(library_id, next);
+        next
+    }
+
+    /// 当前 watcher generation（未 bump 过为 0）。
+    pub fn current_generation(&self, library_id: i64) -> u64 {
+        self.inner
+            .watch_generations
+            .lock()
+            .expect("watch generations mutex poisoned")
+            .get(&library_id)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// PR A：应用一次 watcher / targeted 增量批次。持 per-library 锁 + 全局
+    /// DB 写锁，与其他 scan / delete / repair 串行；写库前后重新核验：
+    /// - library 仍存在（已删除来源的晚到批次直接跳过，不报错不写库）；
+    /// - generation 与 watcher 构建时捕获值一致（Codex review P1-4：
+    ///   拿到写 fence 后再次核验，bump 后晚到的旧 watcher 批次整体丢弃）。
+    pub fn apply_delta(
+        &self,
+        library_id: i64,
+        generation: u64,
+        delta: &ScanDelta,
+    ) -> Result<ScanDeltaReport, AppError> {
+        let lock = self.lock_for(library_id);
+        let _guard = lock.lock().expect("scan lock poisoned");
+        let _db = self
+            .inner
+            .db_write_lock
+            .lock()
+            .expect("db write lock poisoned");
+        if self.current_generation(library_id) != generation {
+            return Ok(ScanDeltaReport::default());
+        }
+        let exists = self
+            .inner
+            .database
+            .list_libraries()?
+            .iter()
+            .any(|library| library.id == library_id);
+        if !exists {
+            return Ok(ScanDeltaReport::default());
+        }
+        self.inner.database.apply_scan_delta(library_id, delta)
+    }
+
+    /// Codex review P1-4：watcher 错误触发的 catch-up 也不得旁路 generation
+    /// fence——持锁后核验 generation，不匹配则跳过（旧 watcher 不写库）。
+    pub fn run_scan_if_generation(
+        &self,
+        library_id: i64,
+        generation: u64,
+    ) -> Result<LibraryScanSnapshot, AppError> {
+        let lock = self.lock_for(library_id);
+        let _guard = lock.lock().expect("scan lock poisoned");
+        let _db = self
+            .inner
+            .db_write_lock
+            .lock()
+            .expect("db write lock poisoned");
+        if self.current_generation(library_id) != generation {
+            return Ok(LibraryScanSnapshot::default());
+        }
+        self.run_scan_without_locks(library_id)
+    }
+
+    /// Codex review P1-5：读取 DB 中某路径 item 的内容指纹（hash + size），
+    /// 供 watcher 实时 rename 配对使用——改名后旧路径已消失，无法从磁盘
+    /// 读取旧内容，只能以 DB 既有 metadata 为配对依据。
+    pub fn item_fingerprint(&self, file_path: &str) -> Option<(Option<String>, i64)> {
+        self.inner
+            .database
+            .item_fingerprint_by_path(file_path)
+            .ok()
+            .flatten()
+    }
+
+    /// Codex review R3 P1（计划 §4.4）：目录改名子树更新——列出 DB 内位于
+    /// 旧目录前缀下的未删除 item 路径，供 watcher 合成子树 rename。
+    pub fn item_paths_under_prefix(&self, prefix: &str) -> Result<Vec<String>, AppError> {
+        self.inner.database.list_item_paths_under_prefix(prefix)
+    }
+
+    /// R4/R5 P1：记录仍然存在的路径（目录 / 候选文件）inode。缓存有上限，
+    /// 超限后不再记录（对应改名退化为保守收敛）。
+    pub fn remember_path_inode(&self, path: &str, ino: u64) {
+        const DIR_INODE_CACHE_CAP: usize = 4096;
+        let mut inodes = self
+            .inner
+            .path_inodes
+            .lock()
+            .expect("dir inodes mutex poisoned");
+        if inodes.contains_key(path) || inodes.len() < DIR_INODE_CACHE_CAP {
+            inodes.insert(path.to_string(), ino);
+        }
+    }
+
+    pub fn cached_path_inode(&self, path: &str) -> Option<u64> {
+        self.inner
+            .path_inodes
+            .lock()
+            .expect("dir inodes mutex poisoned")
+            .get(path)
+            .copied()
+    }
+
+    /// 路径改名 / 移除后清理其自身与子目录的陈旧 inode 记录。
+    pub fn forget_path_inodes_under(&self, path: &str) {
+        let prefix = format!("{path}/");
+        let mut inodes = self
+            .inner
+            .path_inodes
+            .lock()
+            .expect("dir inodes mutex poisoned");
+        inodes.remove(path);
+        let stale: Vec<String> = inodes
+            .keys()
+            .filter(|key| key.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in stale {
+            inodes.remove(&key);
+        }
     }
 
     #[cfg(test)]

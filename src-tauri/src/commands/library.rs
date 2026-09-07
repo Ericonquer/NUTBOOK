@@ -1,4 +1,8 @@
 use crate::{
+    core::folder_ingest::{
+        cancel_preflight_op, preflight_folder_ingest, preflight_op_snapshot,
+        start_background_preflight,
+    },
     core::library::select_or_create_library,
     core::scanner::{scan_file_source, scan_library_files},
     core::watcher::build_library_watcher,
@@ -6,7 +10,8 @@ use crate::{
     db::Database,
     errors::AppError,
     models::{
-        DeleteLibraryRequest, Library, OpenLibraryLocationRequest, RepairLibraryRootRequest, ScanLibraryRequest,
+        DeleteLibraryRequest, FolderIngestRequest, FolderPreflightSummary,
+        Library, OpenLibraryLocationRequest, RepairLibraryRootRequest, ScanLibraryRequest,
         ScanLibraryResponse, SelectLibraryRequest, SyncLibraryWatchersResponse, WatchLibraryRequest,
         WatchLibraryResponse,
     },
@@ -14,6 +19,7 @@ use crate::{
 };
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
+use tauri::Manager;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -207,6 +213,8 @@ pub fn repair_library_root_lifecycle(
     repaired.path_state = "valid".to_string();
 
     // 3) 停止旧路径 watcher（best-effort，失败仅 warning）。
+    //    fence bump 同时让旧 watcher 的一切晚到事件批次失效。
+    state.scan_coordinator().bump_generation(library_id);
     if state.unwatch_library(library_id).is_err() {
         eprintln!("Nutbook watcher cleanup failed for repaired library {library_id}");
     }
@@ -271,6 +279,133 @@ pub fn repair_library_root(
     repair_library_root_lifecycle(&state, payload.library_id, &payload.root_path)
 }
 
+/// PR A（计划 4.1/4.2）：文件夹接入预检 —— 零数据库写入，返回确认 UI 所需计数。
+#[tauri::command]
+pub fn preflight_folder_ingest_command(
+    state: tauri::State<'_, AppState>,
+    payload: FolderIngestRequest,
+) -> Result<FolderPreflightSummary, AppError> {
+    preflight_folder_ingest(&state.database, &payload.root_path)
+}
+
+/// Codex review R2：后台预检的启动/轮询/取消载荷（不再使用 Tauri 事件——
+/// 运行面 `window.__TAURI__` 未注入时 `event.listen` 不可用，且「先启动预检、
+/// 后订阅结果」存在竞态。全部改为 invoke 返回值 + 前端轮询 status 命令）。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPreflightStartRequest {
+    pub root_path: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPreflightStartResponse {
+    pub op_id: u64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPreflightStatusRequest {
+    pub op_id: u64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPreflightCancelRequest {
+    pub op_id: u64,
+}
+
+/// Codex review P1-8 / R2-1：预检后台执行——命令立即返回 op_id；预检在
+/// 独立线程运行，取消/进度共用注册表内同一 progress 实例（R2-2），结果经
+/// `folder_preflight_status` 轮询获取，不依赖事件订阅时序。
+#[tauri::command]
+pub fn start_folder_preflight(
+    state: tauri::State<'_, AppState>,
+    payload: FolderPreflightStartRequest,
+) -> Result<FolderPreflightStartResponse, AppError> {
+    let root_path = payload.root_path.trim().to_string();
+    if root_path.is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+    let op_id = start_background_preflight(state.database.clone(), root_path);
+    Ok(FolderPreflightStartResponse { op_id })
+}
+
+/// R2-1：预检 op 状态轮询（running / done / failed + 实时候选计数）。
+#[tauri::command]
+pub fn folder_preflight_status(
+    payload: FolderPreflightStatusRequest,
+) -> Result<crate::core::folder_ingest::PreflightOpSnapshot, AppError> {
+    preflight_op_snapshot(payload.op_id).ok_or(AppError::InvalidParams)
+}
+
+/// 取消后台预检（有界遍历在下一个检查点终止；progress 与预检内部同一实例，
+/// 取消信号直达遍历）。
+#[tauri::command]
+pub fn cancel_folder_preflight(
+    payload: FolderPreflightCancelRequest,
+) -> Result<bool, AppError> {
+    Ok(cancel_preflight_op(payload.op_id))
+}
+
+/// PR A（计划 4.1/4.3）+ Codex review R3：确认后执行文件夹接入。
+///
+/// R3 静态缺口修复：`ingest_folder_command` 原为同步命令——确认后的预检
+/// 重跑、内容准备都跑在 UI 命令线程上，大目录会卡住整个命令通道，且无法
+/// 在提交边界前取消。改为 op 模型：本命令立即返回 op_id，重活移交独立
+/// 线程（AppHandle 取回 managed state），前端轮询 `folder_ingest_status`，
+/// 取消经 `cancel_folder_ingest` 直达提交边界检查点。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderIngestStartResponse {
+    pub op_id: u64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderIngestOpRequest {
+    pub op_id: u64,
+}
+
+#[tauri::command]
+pub fn start_folder_ingest(
+    app: tauri::AppHandle,
+    payload: FolderIngestRequest,
+) -> Result<FolderIngestStartResponse, AppError> {
+    let root_path = payload.root_path.trim().to_string();
+    if root_path.is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+    let request = FolderIngestRequest {
+        root_path,
+        ..payload
+    };
+    let op_id = crate::core::folder_ingest::register_ingest_op();
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let state = handle.state::<AppState>();
+        let gate = crate::core::folder_ingest::ingest_op_gate(op_id);
+        let result =
+            crate::core::folder_ingest::ingest_folder_with_cancel(&state, &request, gate);
+        crate::core::folder_ingest::finish_ingest_op(op_id, result);
+    });
+    Ok(FolderIngestStartResponse { op_id })
+}
+
+/// R3：接入 op 状态轮询（running / done / failed + 完整响应载荷）。
+#[tauri::command]
+pub fn folder_ingest_status(
+    payload: FolderIngestOpRequest,
+) -> Result<crate::core::folder_ingest::IngestOpSnapshot, AppError> {
+    crate::core::folder_ingest::ingest_op_snapshot(payload.op_id).ok_or(AppError::InvalidParams)
+}
+
+/// R3：取消后台接入（提交边界前生效；事务已开始则走完，短事务保证原子）。
+#[tauri::command]
+pub fn cancel_folder_ingest(payload: FolderIngestOpRequest) -> Result<bool, AppError> {
+    Ok(crate::core::folder_ingest::cancel_ingest_op(payload.op_id))
+}
+
 #[tauri::command]
 pub fn watch_library(
     state: tauri::State<'_, AppState>,
@@ -301,7 +436,7 @@ pub fn sync_library_watchers(
     state.sync_library_watchers()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LibraryScanSnapshot {
     pub library_id: i64,
     pub scanned_count: u64,
@@ -356,7 +491,7 @@ fn current_timestamp() -> String {
 mod tests {
     use std::{fs, thread, time::Duration};
 
-    use notify::{Config, PollWatcher};
+    use notify::RecommendedWatcher;
 
     use crate::{
         commands::library::{repair_library_root_lifecycle, scan_library_once},
@@ -482,8 +617,8 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    fn noop_watcher() -> PollWatcher {
-        PollWatcher::new(|_| {}, Config::default()).expect("watcher should initialize")
+    fn noop_watcher() -> RecommendedWatcher {
+        notify::recommended_watcher(|_| {}).expect("watcher should initialize")
     }
 
     fn sample_library(id: i64, root_path: &str, source_kind: &str) -> Library {

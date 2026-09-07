@@ -2,14 +2,18 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+    },
 };
 
-use notify::PollWatcher;
+use notify::RecommendedWatcher;
 
 use crate::{
-    core::scan_coordinator::ScanCoordinator,
-    core::watcher::build_library_watcher,
+    core::{
+        scan_coordinator::ScanCoordinator,
+        watcher::build_library_watcher,
+    },
     db::{
         repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
         Database,
@@ -30,7 +34,7 @@ pub struct AppState {
     scan_coordinator: ScanCoordinator,
     local_content_server: LocalContentServer,
     watched_libraries: Mutex<HashSet<i64>>,
-    active_watchers: Mutex<HashMap<i64, PollWatcher>>,
+    active_watchers: Mutex<HashMap<i64, RecommendedWatcher>>,
     html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
     html_edit_path_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     html_edit_session_leases: Mutex<HtmlEditSessionLeases>,
@@ -170,7 +174,7 @@ impl AppState {
     pub fn watch_library(
         &self,
         library_id: i64,
-        watcher: PollWatcher,
+        watcher: RecommendedWatcher,
     ) -> Result<bool, AppError> {
         let libraries = self.list_libraries()?;
         if libraries.iter().all(|library| library.id != library_id) {
@@ -251,7 +255,19 @@ impl AppState {
             }
         }
 
-        // 3) 合并 catch-up 请求（worker 持续 drain；正在运行时新增来源不会丢；
+        // 3) waiting_sync 恢复（Codex review 静态缺口消费者）：watcher 激活
+        //    失败进入等待同步的来源，本轮成功挂上 watcher 后清除状态。
+        if let Ok(sync_states) = self.database.list_library_sync_states() {
+            for (library_id, sync_state) in sync_states {
+                if sync_state == "waiting_sync" && self.is_library_watched(library_id) {
+                    if let Err(error) = self.database.set_library_sync_state(library_id, "ok") {
+                        eprintln!("Nutbook waiting_sync clear failed for library {library_id}: {error}");
+                    }
+                }
+            }
+        }
+
+        // 4) 合并 catch-up 请求（worker 持续 drain；正在运行时新增来源不会丢；
         //    同一 root 只做一次启动 catch-up）。
         let sources = expected
             .iter()
@@ -623,6 +639,8 @@ impl LibraryRepository for AppState {
         if deleted {
             // 删除成功后，watcher cleanup 只能是 best-effort：unwatch/cancel
             // 失败仅记录 warning，绝不把已成功的数据库删除变成失败。
+            // fence bump 让晚到的旧 watcher 批次（含 in-flight delta）失效。
+            self.scan_coordinator.bump_generation(library_id);
             if self.unwatch_library(library_id).is_err() {
                 eprintln!("Nutbook watcher cleanup failed for deleted library {library_id}");
             }

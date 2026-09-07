@@ -7,7 +7,7 @@ use rusqlite::{backup::Backup, Connection, OptionalExtension, Transaction};
 
 use crate::errors::AppError;
 
-pub const LATEST_SCHEMA_VERSION: i64 = 7;
+pub const LATEST_SCHEMA_VERSION: i64 = 8;
 const MIGRATION_0002_SQL: &str =
     include_str!("../../migrations/0002_agent_artifact_sources.sql");
 const MIGRATION_0003_SQL: &str =
@@ -20,6 +20,8 @@ const MIGRATION_0006_SQL: &str =
     include_str!("../../migrations/0006_thumbnail_revision_state.sql");
 const MIGRATION_0007_SQL: &str =
     include_str!("../../migrations/0007_cover_dependency_columns.sql");
+const MIGRATION_0008_SQL: &str =
+    include_str!("../../migrations/0008_path_identity.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -58,6 +60,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 7,
         name: "cover_dependency_columns",
         sql: MIGRATION_0007_SQL,
+    },
+    Migration {
+        version: 8,
+        name: "path_identity",
+        sql: MIGRATION_0008_SQL,
     },
 ];
 
@@ -142,6 +149,8 @@ fn apply_migrations_transaction(
             apply_thumbnail_revision_state_migration(&transaction)?;
         } else if migration.version == 7 {
             apply_cover_dependency_columns_migration(&transaction)?;
+        } else if migration.version == 8 {
+            apply_path_identity_migration(&transaction)?;
         } else if !already_has_final_agent_schema {
             transaction
                 .execute_batch(migration.sql)
@@ -269,6 +278,115 @@ fn apply_cover_dependency_columns_migration(
                     "ALTER TABLE thumbnail_cache ADD COLUMN {column} {sql_type};"
                 ))
                 .map_err(|_| AppError::DatabaseError)?;
+        }
+    }
+    Ok(())
+}
+
+/// PR A（计划 4.3 / 8.1）：PathIdentity 迁移。
+///
+/// - 逐列守卫幂等添加 libraries.identity / libraries.sync_state /
+///   items.identity 与 partial unique index（新库执行完 0008 后再跑不重复 ALTER）。
+/// - 只回填「当前可解析」的路径：identity = fs::canonicalize 成功结果；
+///   missing / 不可读 / 离线路径保持 NULL，恢复可达时由 claim 再补。
+/// - 回填遇到唯一冲突（同一 canonical 身份已存在）时保留 NULL，
+///   由后续显式合并事务处理，绝不静默删除既有记录。
+/// - 迁移失败由 apply_migrations_transaction 的整体事务回滚 + 迁移前备份兜底，
+///   原数据库 / 备份不受损。
+fn apply_path_identity_migration(transaction: &Transaction<'_>) -> Result<(), AppError> {
+    // 极早期 draft 库可能缺少 items 表（与 6/7 号迁移对 thumbnail_cache 的
+    // 缺表跳过同模式）：表不存在时跳过对应列与索引。
+    for (table, columns) in [
+        (&"libraries"[..], &["identity", "sync_state"][..]),
+        (&"items"[..], &["identity"][..]),
+    ] {
+        if !table_exists(transaction, table)? {
+            continue;
+        }
+        for column in columns {
+            if !table_has_column(transaction, table, column)? {
+                let sql_type = if *column == "sync_state" {
+                    "TEXT NOT NULL DEFAULT 'ok'"
+                } else {
+                    "TEXT"
+                };
+                transaction
+                    .execute_batch(&format!(
+                        "ALTER TABLE {table} ADD COLUMN {column} {sql_type};"
+                    ))
+                    .map_err(|_| AppError::DatabaseError)?;
+            }
+        }
+    }
+    if table_exists(transaction, "libraries")? {
+        transaction
+            .execute_batch(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_libraries_identity
+                   ON libraries(identity) WHERE identity IS NOT NULL;",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+    }
+    if table_exists(transaction, "items")? {
+        transaction
+            .execute_batch(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_identity
+                   ON items(identity) WHERE identity IS NOT NULL;",
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+    }
+
+    // 回填 libraries：仅当前可解析路径。
+    if table_exists(transaction, "libraries")? {
+        let library_rows = {
+            let mut statement = transaction
+                .prepare("SELECT id, root_path FROM libraries WHERE identity IS NULL ORDER BY id")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+                .map_err(|_| AppError::DatabaseError)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?;
+            rows
+        };
+        for (library_id, root_path) in library_rows {
+            let identity = std::fs::canonicalize(&root_path)
+                .ok()
+                .map(|canonical| canonical.to_string_lossy().into_owned());
+            let Some(identity) = identity else {
+                continue;
+            };
+            // 唯一索引冲突 → 保留 NULL（显式合并事务处理），不因回填失败中断迁移。
+            let _ = transaction.execute(
+                "UPDATE libraries SET identity = ?2 WHERE id = ?1 AND identity IS NULL",
+                (library_id, identity),
+            );
+        }
+    }
+
+    // 回填 items：仅当前可解析路径。
+    if table_exists(transaction, "items")? {
+        let item_rows = {
+            let mut statement = transaction
+                .prepare("SELECT id, file_path FROM items WHERE identity IS NULL ORDER BY id")
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+                .map_err(|_| AppError::DatabaseError)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?;
+            rows
+        };
+        for (item_id, file_path) in item_rows {
+            let identity = std::fs::canonicalize(&file_path)
+                .ok()
+                .map(|canonical| canonical.to_string_lossy().into_owned());
+            let Some(identity) = identity else {
+                continue;
+            };
+            let _ = transaction.execute(
+                "UPDATE items SET identity = ?2 WHERE id = ?1 AND identity IS NULL",
+                (item_id, identity),
+            );
         }
     }
     Ok(())
