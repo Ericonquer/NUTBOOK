@@ -38,6 +38,15 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "name": "NUTBOOK Markdown",
+        "description": "在 NUTBOOK 中阅读、轻编辑和演示 Markdown 文档",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ],
     "resources": {
       "../integrations/nbskill/": "nbskill/",
       "generated-resources/nutbook-cli/": "nutbook-cli/"

@@ -46,8 +46,11 @@ html5ever = "0.27"
 markup5ever_rcdom = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSView", "NSWindow"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSOperation", "block2"] }
+# §7.2 文件默认应用：NSWorkspace handler 查询与 setDefaultApplicationAtURL。
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSView", "NSWindow", "NSWorkspace", "NSRunningApplication", "objc2-uniform-type-identifiers"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSOperation", "block2", "NSURL", "NSBundle"] }
+# §7.2：Markdown UTI（net.daringfireball.markdown）用于 setDefaultApplicationAtURL:toOpenContentType:。
+objc2-uniform-type-identifiers = { version = "0.3.2", default-features = false, features = ["std", "UTType"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "WKWebView", "objc2-app-kit"] }
 block2 = "0.6.2"
 
@@ -59,3 +62,6 @@ tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 tempfile = "3"
+# tauri "test" feature：mock runtime，让 enqueue_native_drop 的运行面归属
+# 核验（webview 已登记 + 宿主窗口）能在单测中真实执行。
+tauri = { version = "2", features = ["test"] }

@@ -50,6 +50,12 @@ pub enum AppError {
     IoError,
     #[error("internal error")]
     InternalError,
+    /// §7.2：用户在系统确认对话框中取消或未授予默认应用变更。
+    #[error("default app setting cancelled or not granted")]
+    DefaultAppActionCancelled,
+    /// §7.2：系统设置默认应用调用失败（带系统错误描述）。
+    #[error("default app action failed: {0}")]
+    DefaultAppActionFailed(String),
 }
 
 impl Serialize for AppError {
@@ -88,6 +94,8 @@ impl AppError {
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",
             AppError::InternalError => "INTERNAL_ERROR",
+            AppError::DefaultAppActionCancelled => "DEFAULT_APP_ACTION_CANCELLED",
+            AppError::DefaultAppActionFailed(_) => "DEFAULT_APP_ACTION_FAILED",
         }
     }
 

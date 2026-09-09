@@ -109,6 +109,17 @@ pub struct ReconciliationMarker {
     pub written_at: String,
 }
 
+/// PR B（Codex review R2-1）：single-file 来源原子发布的事务结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SingleFileSourcePublish {
+    /// 库行 + item 行已在一事务内发布。
+    Published { library_id: i64, item_id: i64 },
+    /// 同 canonical / 同 root 的 file 来源已存在：复用该库（幂等）。
+    AlreadyExisting { library_id: i64 },
+    /// 提交门回调裁决失败：事务回滚，零写入。
+    Aborted,
+}
+
 #[derive(Debug, Clone)]
 pub struct Database {
     path: PathBuf,
@@ -2216,6 +2227,80 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| AppError::DatabaseError)?;
         Self::folder_overlap_verdict(&existing, root, &root_identity)
+    }
+
+    /// PR B（Codex review R2-1）：single-file 来源的**原子发布**。
+    ///
+    /// 库行与首个扫描的 item 行在同一 SQLite 事务内写入，提交门回调
+    /// `precondition` 在事务内、任何写入之前裁决：
+    /// - 等待锁期间被关闭的会话零发布（不留来源，也无需事后回滚补偿）；
+    /// - 崩溃不留「有库无 item」的未完成来源；
+    /// - 持全局 DB 写锁的并发读者在事务提交前观察不到新来源。
+    ///
+    /// 调用方必须已持有全局 DB 写锁（`scan_coordinator::db_write_lock`）；
+    /// 本方法自身不取任何 per-library 锁（新来源尚无 id，无锁序反转）。
+    pub fn create_single_file_source_atomic<F: FnOnce() -> bool>(
+        &self,
+        root_path: &str,
+        name: &str,
+        records: &[IndexedItemRecord],
+        now: &str,
+        precondition: F,
+    ) -> Result<SingleFileSourcePublish, AppError> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+        let canonical_root_key = canonical_root_key_for_path(root_path, false)?;
+        let identity = fs::canonicalize(root_path)
+            .ok()
+            .map(|canonical| canonical.to_string_lossy().into_owned());
+
+        // 幂等复核（事务内权威）：同 canonical / 同 root 拼写的 file 来源已存在
+        // 则复用（PathIdentity 语义），不重复建库。
+        let existing: Option<i64> = transaction
+            .query_row(
+                "SELECT id FROM libraries
+                 WHERE source_kind = 'file' AND (canonical_root_key = ?1 OR root_path = ?2)",
+                params![canonical_root_key, root_path],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| AppError::DatabaseError)?;
+        if let Some(library_id) = existing {
+            transaction.commit().map_err(|_| AppError::DatabaseError)?;
+            return Ok(SingleFileSourcePublish::AlreadyExisting { library_id });
+        }
+
+        // 提交门裁决：事务内、任何写入之前。false → 事务回滚、零发布。
+        if !precondition() {
+            return Ok(SingleFileSourcePublish::Aborted);
+        }
+
+        let next_id: i64 = transaction
+            .query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM libraries", [], |row| row.get(0))
+            .map_err(|_| AppError::DatabaseError)?;
+        transaction
+            .execute(
+                "INSERT INTO libraries (
+                    id, name, root_path, canonical_root_key, source_kind, path_state,
+                    is_active, created_at, updated_at, last_scanned_at, identity, sync_state
+                 ) VALUES (?1, ?2, ?3, ?4, 'file', 'valid', 1, ?5, ?5, ?5, ?6, 'ok')",
+                params![next_id, name, root_path, canonical_root_key, now, identity],
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        let library_id = next_id;
+
+        let mut report = crate::models::ScanDeltaReport::default();
+        let mut first_item_id: Option<i64> = None;
+        for record in records {
+            let (item_id, _) =
+                Self::apply_delta_upsert_in_transaction(&transaction, library_id, record, &mut report)?;
+            first_item_id.get_or_insert(item_id);
+        }
+        let item_id = first_item_id.ok_or(AppError::InvalidParams)?;
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(SingleFileSourcePublish::Published { library_id, item_id })
     }
 
     /// PR A（计划 4.3）：文件夹接入短事务。

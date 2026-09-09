@@ -1,5 +1,6 @@
 use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::{Path, PathBuf}, sync::Mutex, time::Duration};
 
+use nutbook_backend::core::external_open;
 use nutbook_backend::{
     commands,
     core::cli::deploy_bundled_cli,
@@ -61,6 +62,27 @@ fn finalize_html_edit_app_exit_command(
 }
 
 fn main() {
+    // PR B（5.1）：先收集 argv 中的外部打开路径；Windows 下若已有存活实例，
+    // 经本地 IPC 整体转交后同步退出（不创建第二个主窗口、不走退出确认链路）。
+    let cold_start_paths = collect_external_open_argv_paths();
+    #[cfg(target_os = "windows")]
+    if !cold_start_paths.is_empty() {
+        if let Some(app_data) = windows_app_data_dir() {
+            if forward_external_open_via_ipc(&app_data, &cold_start_paths)
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                std::process::exit(0);
+            }
+        }
+    }
+    // PR B（5.1）：冷启动路径在 setup 之前直接入进程级全局 inbox；一个请求
+    // 整体保留，批次边界不得拆散；前端 ExternalOpenReady 后 drain。
+    if !cold_start_paths.is_empty() {
+        external_open::global_inbox().enqueue("cold_start", cold_start_paths);
+    }
+
     tauri::Builder::default()
         .menu(|app| {
             let add_folder = MenuItemBuilder::with_id(MENU_ADD_FOLDER_ID, "添加文件夹")
@@ -355,6 +377,26 @@ fn main() {
             commands::updates::download_and_install_update,
             commands::window::start_window_drag_command,
             commands::window::open_external_url_command,
+            commands::external::external_open_ready,
+            commands::external::external_open_drain,
+            commands::external::external_open_enqueue,
+            commands::external::external_session_resolve,
+            commands::external::external_session_mark_opened_only,
+            commands::external::external_session_close,
+            commands::external::external_session_join,
+            commands::external::external_session_save,
+            commands::external::external_session_overwrite,
+            commands::external::external_session_pick_save_target,
+            commands::external::external_session_save_copy,
+            commands::external::external_session_save_as,
+            commands::external::external_session_attach_watch,
+            commands::external::external_session_copy_image,
+            commands::external::external_session_reload,
+            commands::external::open_default_apps_panel,
+            commands::external::external_default_app_guide_status,
+            commands::external::external_default_app_guide_mark_done,
+            commands::default_apps::default_app_status,
+            commands::default_apps::set_default_app,
             finalize_html_edit_app_exit_command,
         ])
         .build(tauri::generate_context!())
@@ -383,8 +425,54 @@ fn main() {
                     nutbook_backend::core::cli::remove_cli_ipc_endpoint_for_pid(&directory, std::process::id());
                 }
             }
+            // PR B（5.1）：macOS Finder 双击 / 打开方式 / 系统拖入（部分路径）。
+            // 冷启动与热启动都走这里；请求整体入 inbox 并通知前端 drain。
+            tauri::RunEvent::Opened { urls } => {
+                let paths = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                if !paths.is_empty() {
+                    // PR B（5.1）：Opened 事件可能在 setup（AppState manage）之前
+                    // 送达，必须只触碰进程级全局 inbox，不得访问 state()。
+                    external_open::global_inbox().enqueue("system_open", paths);
+                    let _ = app.emit("nutbook-external-open", ());
+                }
+            }
+            // PR B（3.6）：原生文件 Drop 统一在 Rust 侧 enqueue（main 与已登记
+            // HTML 正文 surface），emit 既有 nutbook-external-open 通知前端
+            // coordinator drain。Codex 复核（2026-09-09 P2）：唯一权威入口是
+            // WebviewEvent——真实运行面（unstable 构建 + 宿主日志 diag-r6）
+            // 只观察到 WebviewEvent 派发，无同一物理 Drop 双臂派发证据；
+            // WindowEvent 臂已在上一轮删除，之前靠路径+时间去重兜底双投递
+            // 属猜测性方案，已随时间过滤一并移除。
+            tauri::RunEvent::WebviewEvent {
+                label,
+                event: tauri::WebviewEvent::DragDrop(drag),
+                ..
+            } => {
+                if let tauri::DragDropEvent::Drop { paths, .. } = &drag {
+                    enqueue_native_drag_drop(app, &label, paths);
+                }
+            }
             _ => {}
         });
+}
+
+// PR B（3.6）：允许 surface 的原生文件 Drop 统一 enqueue 一次并 emit 既有
+// nutbook-external-open，复用 inbox/coordinator；surface 归属校验在后端
+// enqueue_native_drop 内完成（格式 allowlist + 已登记 webview 且属于主窗口）。
+fn enqueue_native_drag_drop(
+    app: &tauri::AppHandle,
+    label: &str,
+    paths: &[std::path::PathBuf],
+) {
+    let string_paths: Vec<String> = paths
+        .iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
+    nutbook_backend::commands::external::enqueue_native_drop(app, label, string_paths);
 }
 
 fn start_cli_ipc_server(app: tauri::AppHandle, app_data_dir: PathBuf) -> io::Result<()> {
@@ -406,9 +494,25 @@ fn start_cli_ipc_server(app: tauri::AppHandle, app_data_dir: PathBuf) -> io::Res
             let result = match serde_json::from_str::<nutbook_backend::core::cli::CliIpcRequest>(&line) {
                 Ok(wire) if wire.token == token => {
                     let state = app.state::<AppState>();
-                    let result = nutbook_backend::core::cli::execute_with_app_state(&state, &wire.request);
-                    if result.is_ok() { let _ = app.emit("nutbook-cli-sync", ()); }
-                    result
+                    // PR B：第二实例打开请求转交——整体入 inbox（批次边界保留）
+                    // 并通知前端 drain；不触发资料库 sync，也不进入 CLI 语义。
+                    if wire.request.action == "external-open" {
+                        external_open::global_inbox().enqueue(
+                            "single_instance",
+                            wire.request.paths.clone().unwrap_or_default(),
+                        );
+                        let _ = app.emit("nutbook-external-open", ());
+                        Ok(nutbook_backend::core::cli::CliResponse {
+                            status: "forwarded".to_string(),
+                            path: wire.request.path.clone(),
+                            library_id: None,
+                            detail: None,
+                        })
+                    } else {
+                        let result = nutbook_backend::core::cli::execute_with_app_state(&state, &wire.request);
+                        if result.is_ok() { let _ = app.emit("nutbook-cli-sync", ()); }
+                        result
+                    }
                 }
                 _ => Err(nutbook_backend::core::cli::CliFailure { code: "ipc_unauthorized".to_string(), message: "Nutbook CLI IPC authentication failed".to_string() }),
             };
@@ -418,6 +522,40 @@ fn start_cli_ipc_server(app: tauri::AppHandle, app_data_dir: PathBuf) -> io::Res
         }
     });
     Ok(())
+}
+
+/// PR B（5.1）：冷启动 argv 解析。跳过程序名、flag、URL；只保留真实存在的
+/// 文件/目录，以及带 Markdown/HTML 扩展名的参数（文件已被移走时保留请求，
+/// 由 resolve 返回可见错误）。批次边界整体保留。
+fn collect_external_open_argv_paths() -> Vec<String> {
+    std::env::args()
+        .skip(1)
+        .filter(|arg| {
+            !arg.starts_with('-')
+                && !arg.contains("://")
+        })
+        .filter(|arg| {
+            let path = PathBuf::from(arg);
+            if path.exists() {
+                return true;
+            }
+            path.extension()
+                .and_then(|value| value.to_str())
+                .map(|value| {
+                    matches!(
+                        value.to_ascii_lowercase().as_str(),
+                        "md" | "markdown" | "html" | "htm"
+                    )
+                })
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_app_data_dir() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(|base| PathBuf::from(base).join("com.hayley.nutbook"))
 }
 
 fn prepare_app_data_dir(app: &tauri::AppHandle) -> io::Result<PathBuf> {

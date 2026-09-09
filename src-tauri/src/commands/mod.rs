@@ -1,4 +1,5 @@
 pub mod agent_projects;
+pub mod default_apps;
 pub mod html_edit;
 pub mod items;
 pub mod library;
@@ -9,3 +10,4 @@ pub mod tags;
 pub mod thumbnails;
 pub mod updates;
 pub mod window;
+pub mod external;

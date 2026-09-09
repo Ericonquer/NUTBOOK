@@ -22,3 +22,4 @@ pub mod thumbnail;
 pub mod traversal;
 pub mod update;
 pub mod watcher;
+pub mod external_open;
