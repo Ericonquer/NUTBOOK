@@ -18,6 +18,10 @@ pub struct CliRequest {
     pub action: String,
     pub path: String,
     pub caller_agent: Option<String>,
+    /// PR B：Windows 单实例热启动转交的打开请求路径批次。CLI 单路径协议
+    /// 不受影响（serde default）；批次边界整体保留，不拆散。
+    #[serde(default)]
+    pub paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,6 +320,22 @@ pub fn remove_cli_ipc_endpoint_for_pid(app_data: &Path, pid: u32) {
     }
 }
 
+/// PR B（计划 5.1）：Windows 单实例热启动 —— 第二实例经本地 IPC 把整个
+/// 打开请求（保持批次边界）转交现有进程。转交成功后第二实例同步退出，
+/// 不创建主窗口、不进入 ExitRequested/退出确认链路。
+pub fn forward_external_open_via_ipc(
+    app_data: &Path,
+    paths: &[String],
+) -> Result<Option<CliResponse>, CliFailure> {
+    let request = CliRequest {
+        action: "external-open".to_string(),
+        path: paths.first().cloned().unwrap_or_default(),
+        caller_agent: None,
+        paths: Some(paths.to_vec()),
+    };
+    execute_via_ipc(app_data, &request)
+}
+
 pub fn doctor(app_data: &Path) -> CliDoctorResponse {
     let database_path = app_data.join("nutbook.sqlite3");
     let database_status = if database_path.is_file() && rusqlite::Connection::open_with_flags(&database_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).and_then(|connection| connection.query_row("SELECT 1", [], |_| Ok(1_i64))).is_ok() { "accessible" } else { "unavailable" };
@@ -543,9 +563,9 @@ mod tests {
         let document = root.path().join("acceptance.md");
         fs::write(&document, "# Acceptance").expect("document");
         let database = Database::new(root.path().join("nutbook.sqlite3")).expect("database");
-        let folder_request = CliRequest { action: "add".to_string(), path: root.path().to_string_lossy().into_owned(), caller_agent: None };
+        let folder_request = CliRequest { action: "add".to_string(), path: root.path().to_string_lossy().into_owned(), caller_agent: None, paths: None };
         assert_eq!(execute(&database, &folder_request).expect("add folder").status, "added");
-        let request = CliRequest { action: "add".to_string(), path: document.to_string_lossy().into_owned(), caller_agent: None };
+        let request = CliRequest { action: "add".to_string(), path: document.to_string_lossy().into_owned(), caller_agent: None, paths: None };
         assert_eq!(execute(&database, &request).expect("existing item").status, "already_connected");
         assert_eq!(execute(&database, &CliRequest { action: "remove".to_string(), ..request.clone() }).expect("remove").status, "removed");
         assert_eq!(execute(&database, &request).expect("restore").status, "restored");
@@ -559,7 +579,7 @@ mod tests {
         fs::write(root.path().join("candidate.html"), "<h1>Candidate</h1>").expect("candidate artifact");
         fs::write(root.path().join(".agent-outputs/manifest.json"), r#"{"schemaVersion":1,"projectRoot":".","entries":[{"id":"registered","path":"registered.md","state":"active","skill":{"name":"report-writer"},"kind":"report"}]}"#).expect("manifest");
         let database = Database::new(root.path().join("nutbook.sqlite3")).expect("database");
-        let request = CliRequest { action: "add-project".to_string(), path: root.path().to_string_lossy().into_owned(), caller_agent: None };
+        let request = CliRequest { action: "add-project".to_string(), path: root.path().to_string_lossy().into_owned(), caller_agent: None, paths: None };
         let connected = execute(&database, &request).expect("connect project");
         assert_eq!(connected.status, "project_connected");
         let items = database.list_items(&ListItemsQuery { page_size: Some(20), ..Default::default() }).expect("items");
@@ -578,7 +598,7 @@ mod tests {
         fs::create_dir_all(&source).expect("source");
         fs::write(source.join("note.md"), "# note").expect("note");
         let state = AppState::new(Database::new(root.path().join("state.sqlite3")).expect("database"), root.path().to_path_buf());
-        let add = CliRequest { action: "add".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None };
+        let add = CliRequest { action: "add".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None, paths: None };
         let response = execute_with_app_state(&state, &add).expect("add");
         let library_id = response.library_id.expect("library id");
         assert!(state.is_library_watched(library_id));
@@ -603,14 +623,14 @@ mod tests {
             Database::new(root.path().join("state.sqlite3")).expect("database"),
             root.path().to_path_buf(),
         );
-        let add_a = CliRequest { action: "add".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None };
-        let add_b = CliRequest { action: "add".to_string(), path: other.to_string_lossy().into_owned(), caller_agent: None };
+        let add_a = CliRequest { action: "add".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None, paths: None };
+        let add_b = CliRequest { action: "add".to_string(), path: other.to_string_lossy().into_owned(), caller_agent: None, paths: None };
         let id_a = execute_with_app_state(&state, &add_a).expect("add a").library_id.expect("id a");
         let id_b = execute_with_app_state(&state, &add_b).expect("add b").library_id.expect("id b");
 
         // 应用运行期间的 CLI remove 必须走与 GUI delete 相同的生命周期：
         // watcher 释放、无后台 DatabaseError（delete 与在跑 scan 串行）。
-        let remove_a = CliRequest { action: "remove".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None };
+        let remove_a = CliRequest { action: "remove".to_string(), path: source.to_string_lossy().into_owned(), caller_agent: None, paths: None };
         let response = execute_with_app_state(&state, &remove_a).expect("CLI remove during catch-up");
         assert_eq!(response.status, "removed");
         assert!(

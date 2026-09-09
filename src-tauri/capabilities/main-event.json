@@ -1,0 +1,7 @@
+{
+  "identifier": "main-event-listen",
+  "description": "仅允许 main webview 订阅/退订 Tauri 内核事件（外部打开协调器与拖放诊断）。不使用 windows 字段，避免授权扩散到同窗口的 HTML child surface；不引入 core:default 等兜底权限。",
+  "webviews": ["main"],
+  "local": true,
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

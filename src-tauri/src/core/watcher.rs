@@ -397,7 +397,8 @@ fn companion_path(path: &Path) -> Option<PathBuf> {
 
 /// folder 来源的事件路径是否为有效候选（位于 root 内、未经排除目录、扩展名受支持）。
 /// 事件路径可能以 canonical root 或被监视原路径两种前缀出现，都接受。
-fn path_is_candidate(
+/// PR B：external open 的 folder 候选判定（5.2 分支 3）复用同一策略。
+pub(crate) fn path_is_candidate(
     library: &crate::models::Library,
     resolved_root: &Path,
     path: &Path,

@@ -44,6 +44,10 @@ pub struct AppState {
     update_settings_path: PathBuf,
     update_download_in_progress: Mutex<bool>,
     system_chrome_thumbnails_enabled: Mutex<bool>,
+    // PR B：外部文件会话注册表与应用数据目录；inbox 为进程级全局单例
+    //（见 core::external_open::global_inbox），不随 AppState 生命周期。
+    pub external_sessions: crate::core::external_open::ExternalSessionRegistry,
+    pub app_data_dir: PathBuf,
 }
 
 impl AppState {
@@ -87,6 +91,8 @@ impl AppState {
             update_settings_path,
             update_download_in_progress: Mutex::new(false),
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
+            external_sessions: crate::core::external_open::ExternalSessionRegistry::default(),
+            app_data_dir,
         }
     }
 

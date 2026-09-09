@@ -1573,6 +1573,50 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   let codeLanguageFrame = null;
   let markdownChangeTimer = null;
   let lastNotifiedMarkdown = markdown;
+  // Codex review R3-1：编辑锁——真实 ProseMirror 权限边界（editable prop +
+  // dispatch 闸 + undo/redo 守卫），不是 blur / 延迟模拟。
+  let editingLocked = false;
+  // Codex review R3-2：撤销/重做可达资源集合。撤销/重做的任何落点都曾是
+  // 某个事务后的 doc 状态，因此按事务粒度累积「出现过的图片引用」
+  // （只增不减）即为可达全集的等价追踪；集合由 getEverReferencedResources()
+  // 暴露给宿主做跨目录另存的资源收敛。
+  const everReferencedResources = new Set();
+  const isTrackableResourceRef = (value) =>
+    typeof value === "string" && value && !/^(https?:|data:|file:|#|\/)/i.test(value);
+  function trackDocumentImageRefs(state) {
+    state?.doc?.descendants?.((node) => {
+      const src = node.attrs?.src ?? node.attrs?.url;
+      if (isTrackableResourceRef(src)) everReferencedResources.add(src);
+      return true;
+    });
+  }
+  // Codex review R4-1：可达资源追踪必须挂在 ProseMirror 真实事务入口。
+  // 依赖核验：milkdown listener 的 updated 由 debounce(...,200) 驱动
+  // （@milkdown/plugin-listener/lib/index.js debouncedHandler），且 prevDoc.eq(doc)
+  // 时不通知——「插图后立即撤销」的窗口内 updated 调用次数为 0，手敲/粘贴的
+  // 图片引用会漏。插件 state.apply 是每个事务（含 undo/redo、addToHistory=false
+  // 的事务）的同步入口，任何事务后的 doc 状态都会被累积进只增不减的集合。
+  const resourceTrackingPlugin = new Plugin({
+    state: {
+      init: (_, state) => {
+        trackDocumentImageRefs(state);
+        return null;
+      },
+      apply: (tr, _value, _oldState, newState) => {
+        if (tr.docChanged) trackDocumentImageRefs(newState);
+        return null;
+      }
+    }
+  });
+  // Codex review R4-2：事务门。锁定期间一律过滤事务（PM 的
+  // EditorState.applyTransaction 原生支持，事务被滤掉时状态零变化）。
+  // 不再替换/删除 view.dispatch——那是 EditorView 构造器 `this.dispatch =
+  // this.dispatch.bind(this)` 创建的 bound 方法，delete 后 keymap 命令内部
+  // 裸调用 dispatch 时 this=undefined 直接 TypeError（prosemirror-view
+  // src/index.ts:75 已核验）。
+  const lockGatePlugin = new Plugin({
+    filterTransaction: () => !editingLocked
+  });
   let findPanel = null;
   let findQueryInput = null;
   let replaceQueryInput = null;
@@ -1641,6 +1685,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   }
   const handleUndoRedoShortcut = (event) => {
     if (event.isComposing || event.key === "Process") return;
+    if (editingLocked) return;
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
     const view = getEditorView();
     if (!view) return;
@@ -1671,10 +1716,16 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         ].filter(Boolean));
       } else {
         ctx.update(prosePluginsCtx, (plugins) => [
+          // R4-1：事务级同步追踪（真实 PM 事务入口，先于一切早退）。
+          resourceTrackingPlugin,
+          // R4-2：锁定期间的事务门（不替换 bound dispatch）。
+          lockGatePlugin,
           keymap({
-            "Mod-z": undo,
-            "Shift-Mod-z": redo,
-            "Mod-y": redo,
+            // R3-1：锁定期间撤销/重做命令零效果（keydown 在 PM editHandlers
+            // 已被 editable 关断，这里兜底 keymap 直连路径）。
+            "Mod-z": (state, dispatch, view) => (editingLocked ? false : undo(state, dispatch, view)),
+            "Shift-Mod-z": (state, dispatch, view) => (editingLocked ? false : redo(state, dispatch, view)),
+            "Mod-y": (state, dispatch, view) => (editingLocked ? false : redo(state, dispatch, view)),
             "Backspace": liftListItemAtParagraphStart
           }),
           pastePlainTextWhenLeavingList(),
@@ -1686,6 +1737,9 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         ].filter(Boolean));
         ctx.update(listenerCtx, (listenerManager) => listenerManager
           .updated(() => {
+            // R4-1：doc 状态追踪已由 resourceTrackingPlugin 在事务入口同步
+            // 完成（listener 的 updated 走 200ms debounce，覆盖不了
+            // 「插图→立即撤销」窗口），这里只保留宿主变更同步。
             if (!editorReady) return;
             hasDocumentChanges = true;
             scheduleMarkdownChangeSync();
@@ -1705,6 +1759,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   const editor = await (readOnly
     ? editorBuilder.use(listener)
     : editorBuilder.use(history).use(listener)).create();
+  // R3-2：初始文档状态的引用同样计入可达集合（创建期即快照，不等首个事务）。
+  editor.action((ctx) => {
+    trackDocumentImageRefs(ctx.get(editorViewCtx)?.state);
+  });
 
   const serializeCurrentDocument = () => {
     if (destroyed) return currentMarkdown;
@@ -3579,6 +3637,80 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
 
   const api = {
     editor,
+    /**
+     * Codex review R3-1 / R4-2 / R4-3：真实编辑锁（主 Milkdown 运行面）。
+     *
+     * - 等 view.composing 结束（ProseMirror 的 composition 权威状态源），
+     *   组合文本落定后才锁——不用 document.activeElement.isComposing 猜。
+     *   R4-3：超时 ≠ 组合结束（compositionend 事件是唯一权威落定信号）。
+     *   超时一律返回 false（busy，可重试），绝不强行锁定/序列化截断
+     *   组合输入；compositionend 后让出一拍并复核，防止新组合被截断。
+     * - flush：序列化当前 doc 并同步 lastNotifiedMarkdown，清掉 pending timer。
+     * - `view.setProps({ editable: () => false })`：PM 真实权限边界——
+     *   keydown/paste/drop/IME 全部在 editHandlers 里被 view.editable 关断，
+     *   contenteditable 属性同步更新（已核对 prosemirror-view 实现）。
+     * - 事务门（lockGatePlugin 的 filterTransaction）：程序化入口（工具条/
+     *   封面操作/命令 dispatch）在锁定期间事务一律被过滤，零效果。
+     *   R4-2：绝不替换/删除 view.dispatch——构造器 bound 方法一旦被
+     *   delete，keymap 命令内部裸调用 dispatch 会丢 this 直接 TypeError。
+     * 不 blur、不碰焦点、不改全局 textarea——锁定的是本实例。
+     * 返回 true = 已锁定（含此前已锁）；false = busy/不可用，调用方应
+     * 放弃本次保存窗口并保留编辑状态（可重试）。
+     */
+    async lockEditing() {
+      if (destroyed || editingLocked) return true;
+      const view = getEditorView();
+      if (!view) return false;
+      if (view.composing) {
+        const compositionSettled = await new Promise((resolve) => {
+          const dom = view.dom;
+          let settled = false;
+          const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            dom.removeEventListener("compositionend", onEnd);
+            clearTimeout(timer);
+            resolve(value);
+          };
+          const onEnd = () => finish(true);
+          dom.addEventListener("compositionend", onEnd);
+          // R4-3：超时不能代表组合结束（组合落定的权威信号只有
+          // compositionend 事件）。超时一律视为未落定，返回 busy 交调用方
+          // 重试，绝不强行锁定/序列化截断组合输入。
+          const timer = setTimeout(() => finish(false), 2000);
+        });
+        if (!compositionSettled) return false;
+        // compositionend 已到但 PM 可能还有一拍 DOM 落定：让出一个宏任务后
+        // 复核，若又进入新组合同样视为未落定。
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (destroyed) return false;
+        if (view.composing) return false;
+      }
+      if (destroyed) return false;
+      if (markdownChangeTimer) {
+        clearTimeout(markdownChangeTimer);
+        markdownChangeTimer = null;
+      }
+      lastNotifiedMarkdown = serializeCurrentDocument();
+      editingLocked = true;
+      view.setProps({ editable: () => false });
+      return true;
+    },
+    unlockEditing() {
+      if (destroyed || !editingLocked) return;
+      editingLocked = false;
+      const view = getEditorView();
+      if (view) {
+        view.setProps({ editable: () => true });
+      }
+    },
+    isEditingLocked() {
+      return editingLocked;
+    },
+    // R3-2：撤销/重做可达资源引用集合（相对/非外链）快照。
+    getEverReferencedResources() {
+      return [...everReferencedResources];
+    },
     getMarkdown() {
       if (markdownChangeTimer) {
         clearTimeout(markdownChangeTimer);

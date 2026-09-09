@@ -17,7 +17,7 @@ fn main() {
     if args.len() != 2 || !matches!(args[0].as_str(), "add" | "remove" | "add-project" | "remove-project") {
         exit_failure(json, CliFailure { code: "invalid_command".to_string(), message: "expected one command and one path".to_string() });
     }
-    let request = CliRequest { action: args.remove(0), path: args.remove(0), caller_agent: env::var("NUTBOOK_CALLER_AGENT").ok() };
+    let request = CliRequest { action: args.remove(0), path: args.remove(0), caller_agent: env::var("NUTBOOK_CALLER_AGENT").ok(), paths: None };
     let result = cli::default_app_data_dir()
         .map_err(|error| error)
         .and_then(|app_data| {

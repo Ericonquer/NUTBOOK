@@ -332,6 +332,65 @@ impl ScanCoordinator {
         self.inner.database.apply_scan_delta(library_id, delta)
     }
 
+    /// PR B（外部打开提交门）：与 [`Self::apply_delta`] 相同的锁顺序与写库语义，
+    /// 但在**拿到写锁之后、写库之前**调用 `precondition`：返回 false 时零写入跳过。
+    ///
+    /// 存在理由：加入必须在「已持有全局 DB 写锁」的时点上重新裁决会话是否仍存活
+    /// （用户可能在等待写锁期间关闭标签）。提交门不能自己先拿 DB 写锁再取
+    /// per-library 锁——与 [`crate::state::AppState::delete_library`] 的
+    /// 「先 library 后 db」顺序相反会形成 ABBA 死锁，因此判定下沉到已持锁的
+    /// 扫描路径内部，由本函数回调裁决。
+    pub fn apply_delta_if<F: FnOnce() -> bool>(
+        &self,
+        library_id: i64,
+        generation: u64,
+        delta: &ScanDelta,
+        precondition: F,
+    ) -> Result<ScanDeltaReport, AppError> {
+        let lock = self.lock_for(library_id);
+        let _guard = lock.lock().expect("scan lock poisoned");
+        let _db = self
+            .inner
+            .db_write_lock
+            .lock()
+            .expect("db write lock poisoned");
+        if !precondition() {
+            return Ok(ScanDeltaReport::default());
+        }
+        if self.current_generation(library_id) != generation {
+            return Ok(ScanDeltaReport::default());
+        }
+        let exists = self
+            .inner
+            .database
+            .list_libraries()?
+            .iter()
+            .any(|library| library.id == library_id);
+        if !exists {
+            return Ok(ScanDeltaReport::default());
+        }
+        self.inner.database.apply_scan_delta(library_id, delta)
+    }
+
+    /// 同 [`Self::apply_delta_if`]：持锁后先裁决 `precondition`，false 时零写入跳过。
+    pub fn run_scan_if<F: FnOnce() -> bool>(
+        &self,
+        library_id: i64,
+        precondition: F,
+    ) -> Result<LibraryScanSnapshot, AppError> {
+        let lock = self.lock_for(library_id);
+        let _guard = lock.lock().expect("scan lock poisoned");
+        let _db = self
+            .inner
+            .db_write_lock
+            .lock()
+            .expect("db write lock poisoned");
+        if !precondition() {
+            return Ok(LibraryScanSnapshot::default());
+        }
+        self.run_scan_without_locks(library_id)
+    }
+
     /// Codex review P1-4：watcher 错误触发的 catch-up 也不得旁路 generation
     /// fence——持锁后核验 generation，不匹配则跳过（旧 watcher 不写库）。
     pub fn run_scan_if_generation(
