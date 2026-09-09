@@ -1,6 +1,8 @@
 use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::{Path, PathBuf}, sync::Mutex, time::Duration};
 
 use nutbook_backend::core::external_open;
+#[cfg(target_os = "windows")]
+use nutbook_backend::core::cli::forward_external_open_via_ipc;
 use nutbook_backend::{
     commands,
     core::cli::deploy_bundled_cli,
@@ -427,6 +429,7 @@ fn main() {
             }
             // PR B（5.1）：macOS Finder 双击 / 打开方式 / 系统拖入（部分路径）。
             // 冷启动与热启动都走这里；请求整体入 inbox 并通知前端 drain。
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Opened { urls } => {
                 let paths = urls
                     .iter()
