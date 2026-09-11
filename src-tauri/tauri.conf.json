@@ -24,12 +24,9 @@
     "security": {
       "csp": null,
       "assetProtocol": {
-        "enable": true,
+        "enable": false,
         "scope": {
-          "allow": [
-            "$HOME/**",
-            "$TMP/**"
-          ],
+          "allow": [],
           "deny": []
         }
       }
@@ -44,6 +41,13 @@
         "name": "NUTBOOK Markdown",
         "description": "在 NUTBOOK 中阅读、轻编辑和演示 Markdown 文档",
         "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["html", "htm"],
+        "name": "NUTBOOK HTML",
+        "description": "在 NUTBOOK 中以临时会话打开 HTML，并可加入资料库",
+        "role": "Viewer",
         "rank": "Alternate"
       }
     ],

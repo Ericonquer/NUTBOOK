@@ -605,8 +605,8 @@ assert.match(
 );
 assert.match(
   htmlRuntimeRust,
-  /runtime_type\s*\.map\(\|value\| value\.starts_with\("html_edit_"\)\)[\s\S]*?"runtime-title"[\s\S]*?"runtime-forward"/,
-  "the host boundary must log every HTML edit runtime message, including done and snapshot requests"
+  /message_type\.starts_with\("html_edit_"\)[\s\S]*?"runtime-title"[\s\S]*?authorized=[\s\S]*?"runtime-forward"/,
+  "the host boundary must log every HTML edit runtime message with its session authorization verdict (R8/R9)"
 );
 assert.match(
   htmlEditRuntime,
@@ -1227,10 +1227,17 @@ for (const transition of ["hideStaleRuntimeHostSync", "suspendRuntimeSurfaces", 
   assert.ok(transitionBody, `${transition} should exist`);
   assert.match(
     transitionBody[1],
-    /await syncHtmlEditReadonlyPatchSurfaceToken/,
+    /await (?:syncHtmlEditReadonlyPatchSurfaceToken|syncRuntimeSurfaceHideToken)\(/,
     `${transition} must await runtime-visible token invalidation before hiding a surface`
   );
 }
+// P2：包装器只对正式 item 广播 patch surface token —— 外部临时 HTML 没有
+// HTML 编辑 patch surface（§6.2 不开放编辑），其余路径保持原样等待。
+assert.match(
+  indexHtml,
+  /function syncRuntimeSurfaceHideToken\(tabId, token\) \{\s*if \(externalRuntimeTabForId\(tabId\)\) return Promise\.resolve\(false\);\s*return syncHtmlEditReadonlyPatchSurfaceToken\(tabId, token\)\.catch\(\(\) => \{\}\);/,
+  "the surface-token wrapper must skip only external temporary HTML and otherwise keep awaiting the real token sync"
+);
 assert.match(
   indexHtml,
   /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\)[\s\S]*?existingSurfaceToken[\s\S]*?incomingSurfaceToken[\s\S]*?incomingSurfaceToken >= existingSurfaceToken[\s\S]*?__NUTBOOK_HTML_PATCH_SURFACE_TOKEN__ = incomingSurfaceToken/,
@@ -3336,6 +3343,61 @@ assert.match(
 );
 assert.match(
   indexHtml,
+  /function viewerToolbarState\(\)[\s\S]*?els\.documentPrimaryButton\.disabled = !showPrimary \|\| primaryActionBusy \|\| isExternalHtmlRuntime;[\s\S]*?\} else if \(isExternalHtmlRuntime\) \{[\s\S]*?els\.documentPrimaryLabel\.style\.display = "none";[\s\S]*?MENU_ICON_SVG\.htmlEditStart[\s\S]*?t\("htmlEdit\.editDisabledTooltip"\)/,
+  "临时 HTML 的主操作必须「显示但禁用」：与正式 HTML 同图标（纯图标按钮，隐藏文字标签防竖排换行），禁用态 tooltip 指向解锁路径"
+);
+assert.match(
+  indexHtml,
+  /\.document-action-button\.primary-action:disabled \{\s*pointer-events: auto;/,
+  "禁用态的主操作必须放开命中测试，否则解释性 tooltip 永不显示"
+);
+assert.match(
+  indexHtml,
+  /<span class="document-action-wrap">\s*<button id="documentPrimaryButton"/,
+  "主操作必须由 .document-action-wrap 包裹：disabled 按钮不参与命中测试、自身 :hover 永不匹配，只有祖先 :hover 能点亮 tooltip"
+);
+assert.match(
+  indexHtml,
+  /\.document-action-wrap:hover \.tooltip-explain \.document-action-tooltip \{\s*opacity: 1;/,
+  "包裹层 hover 必须点亮主操作 tooltip（由 tooltip-explain 标记门控：禁用且确有解释文案才生效）"
+);
+assert.match(
+  indexHtml,
+  /\.document-action-button\.tooltip-forced \.document-action-tooltip \{\s*opacity: 1;/,
+  "坐标判定强制类必须能点亮 tooltip：disabled 子树在部分引擎（WKWebView）里连祖先 :hover 都不点亮，纯 CSS 不可靠"
+);
+assert.match(
+  indexHtml,
+  /document\.addEventListener\("mousemove", \(event\) => \{\s*syncDisabledPrimaryTooltip\(event\.clientX, event\.clientY\);/,
+  "必须挂 document 级 mousemove 驱动坐标判定（引擎无关的 tooltip 显示路径）"
+);
+assert.match(
+  indexHtml,
+  /\.document-action-button\.primary-action:disabled \.document-action-tooltip \{\s*top: 50%;\s*left: auto;\s*right: calc\(100% \+ 10px\);\s*transform: translateY\(-50%\);/,
+  "禁用态主操作 tooltip 必须锚在按钮左侧：运行时内容表面（独立 webview）永远盖在主 DOM 之上，默认「按钮下方」锚点会伸进内容区被压住（R42 诊断定案：元素 105x20、opacity=1 却不可见）"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /诊断用，rev\d+ 临时/,
+  "诊断态产物（染红/常驻/状态芯片）不得残留到交付代码"
+);
+assert.match(
+  indexHtml,
+  /const isExternalHtmlRuntime = tab\?\.preview\?\.fileType === "html-runtime-external";/,
+  "工具栏投影必须识别外部临时 HTML"
+);
+assert.match(
+  i18n,
+  /htmlEdit: \{[\s\S]*?editDisabledTooltip: "加入资料库后可编辑"/,
+  "zh 必须声明 htmlEdit.editDisabledTooltip"
+);
+assert.match(
+  i18n,
+  /htmlEdit: \{[\s\S]*?editDisabledTooltip: "Add to NUTBOOK to edit"/,
+  "en 必须声明 htmlEdit.editDisabledTooltip"
+);
+assert.match(
+  indexHtml,
   /id="hostSettingsMenu"[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon[\s\S]*?menu-option-icon/,
   "宿主设置菜单（HTML runtime）必须含 5 个图标"
 );
@@ -3443,6 +3505,820 @@ assert.match(
   i18n,
   /htmlEdit:\s*\{[\s\S]*?editTooltip:\s*"编辑文件"[\s\S]*?editTooltip:\s*"Edit file"/,
   "htmlEdit.editTooltip 必须同时提供中英文“编辑文件”"
+);
+
+// ---- PR C 验收工具契约（Codex C-GUI-2）----
+// 目的：把「不削弱安全门限」的口径固化，防止后续为迎合测试把 404 / 网络失败 / REACHABLE=0 当成通过。
+const prcFixtureRoot = "src-tauri/tests/fixtures/pr-c-html-open";
+const prcProbeHtml = readFileSync(`${prcFixtureRoot}/probe/probe.html`, "utf8");
+const prcReadme = readFileSync(`${prcFixtureRoot}/README.md`, "utf8");
+const prcRemoteHtml = readFileSync(`${prcFixtureRoot}/remote/remote-resources.html`, "utf8");
+const prcSeedSource = readFileSync("scripts/seed-pr-c-html-open-sample.mjs", "utf8");
+
+assert.match(
+  prcReadme,
+  /\|\s*`RETIRED`\s*\|[\s\S]*?\|\s*`ABSENT`\s*\|/,
+  "fixture README 必须定义 RETIRED / ABSENT 两种显式声明的预期 404"
+);
+assert.match(
+  prcReadme,
+  /都不得自动当成安全通过/,
+  "fixture README 必须声明 404 / 网络失败 / REACHABLE=0 不得自动当成安全通过"
+);
+assert.match(
+  prcReadme,
+  /确定通过只有三类|只有确定结论才算通过/,
+  "fixture README 必须写明只有三类确定结论可判通过"
+);
+assert.match(prcProbeHtml, /"retired-404"/, "探针必须支持 retired-404 判定通道");
+assert.match(
+  prcProbeHtml,
+  /"absent-404" && rationale/,
+  "探针的 expected-404 通道必须要求调用方给出 rationale，防止把任意 404 泛化为通过"
+);
+assert.match(prcProbeHtml, /"T06e"/, "探针必须包含编码分隔符穿越项 T06e");
+assert.match(
+  prcProbeHtml,
+  /%2e%2e%2f%2e%2e%2fpr-c-html-open-outside%2fOUTSIDE-CANARY\.txt/,
+  "T06e 必须使用浏览器不会提前消除的 %2e%2e%2f 编码分隔符形式"
+);
+assert.match(prcProbeHtml, /function finalUrl\(/, "探针必须记录最终请求 URL 供回填归因");
+
+// ---- Codex C-GUI-3a：普通导航入口必须真实存在（资源加载 ≠ 导航）----
+assert.match(
+  prcRemoteHtml,
+  /<a id="navSame" href="https:\/\/www\.baidu\.com\/">/,
+  "remote 样本必须提供可点击的普通 <a href> 导航入口（C-GUI-3a）"
+);
+assert.match(
+  prcRemoteHtml,
+  /<a id="navBlank" href="https:\/\/www\.baidu\.com\/" target="_blank" rel="noopener noreferrer">/,
+  "remote 样本必须提供 target=_blank 新标签导航入口（C-GUI-3a）"
+);
+assert.match(
+  prcRemoteHtml,
+  /window\.open\("https:\/\/www\.baidu\.com\/", "_blank"\)/,
+  "remote 样本必须提供 window.open 导航入口（C-GUI-3a）"
+);
+assert.match(
+  prcRemoteHtml,
+  /sessionStorage/,
+  "remote 样本导航记录须写入 sessionStorage，供返回后证明本页仍可用"
+);
+
+// ---- Codex revision 23：asset 面裁定必须原样保留原始失败数，且不得自动继承 ----
+assert.match(
+  prcReadme,
+  /gateFailures = 4/,
+  "fixture README 必须原样保留 asset 面原始 gateFailures = 4，不得改写为 0"
+);
+assert.match(
+  prcReadme,
+  /不同构建或路径不得自动继承/,
+  "fixture README 必须声明 asset 运行证据裁定不自动继承到其他构建或路径"
+);
+
+function prcExtractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `探针中找不到 function ${name}`);
+  let depth = 0;
+  let index = source.indexOf("{", start);
+  for (; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        index += 1;
+        break;
+      }
+    }
+  }
+  return source.slice(start, index);
+}
+
+const prcProbeScript = prcProbeHtml.match(/<script>([\s\S]*?)<\/script>/);
+assert.ok(prcProbeScript, "探针必须包含可执行 script");
+const prcGateBundle = ["groupOf", "computeGate", "gateSelfTest"]
+  .map((name) => prcExtractFunction(prcProbeScript[1], name))
+  .join("\n");
+assert.equal(
+  new Function(`${prcGateBundle}\nreturn gateSelfTest();`)(),
+  "PASS（17 例）",
+  "探针内置门限自检必须 17 例全过（覆盖预期退休 404 / 真正越界可读 / 缺配置 / 网络失败）"
+);
+
+function prcExtractSeedArray(source, marker) {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.includes(marker));
+  assert.ok(start >= 0, `生成器中找不到 ${marker}`);
+  let open = start;
+  while (lines[open].indexOf("[") < 0) open += 1;
+  let close = open + 1;
+  while (close < lines.length && !lines[close].trim().startsWith("]")) close += 1;
+  const arraySource = lines
+    .slice(open + 1, close)
+    .join("\n")
+    .replace(/[,\s]+$/, "");
+  return new Function(`return [${arraySource}]`)();
+}
+
+for (const [marker, relativePath, stripNodeIds] of [
+  ['"probe/probe.html"', `${prcFixtureRoot}/probe/probe.html`, true],
+  ['"README.md"', `${prcFixtureRoot}/README.md`, false],
+  ['"remote/remote-resources.html"', `${prcFixtureRoot}/remote/remote-resources.html`, false],
+]) {
+  const generated = prcExtractSeedArray(prcSeedSource, marker).join("\n");
+  const real = readFileSync(relativePath, "utf8");
+  const normalize = (text) => (stripNodeIds ? text.replace(/ data-page-node-id="[^"]*"/g, "") : text);
+  assert.equal(
+    normalize(generated),
+    normalize(real),
+    `seed 生成器与真实 ${relativePath} 必须一致：口径修正不得只落在一边`
+  );
+}
+
+// ---- P2（Codex revision 32「有界 A」）：外部临时 HTML 细线契约 ----
+const tauriConf = readFileSync("src-tauri/tauri.conf.json", "utf8");
+assert.match(
+  tauriConf,
+  /"ext": \["html", "htm"\][\s\S]*?"role": "Viewer"/,
+  "PR C 必须把 html/htm 加入 fileAssociations（Viewer，不抢系统默认应用）"
+);
+// 前端稳定身份是 tab.id（`external:<sessionId>`）；资源身份由后端 RuntimeKey
+// 决定。外部临时 HTML 使用独立 fileType，避免误入仅正式 item 可用的链路。
+assert.match(
+  indexHtml,
+  /function isExternalRuntimeTab\(tab\) \{\s*return Boolean\(tab\) && tab\.preview\?\.fileType === "html-runtime-external";/,
+  "外部临时 HTML 必须有独立 fileType 判别函数"
+);
+assert.match(
+  indexHtml,
+  /function isRuntimeHostTab\(tab\) \{[\s\S]*?fileType === "html-runtime" \|\| tab\.preview\?\.fileType === "html-runtime-external"/,
+  "宿主挂载判定必须同时承认正式 item 与外部临时 HTML"
+);
+// §6.2：内容 child 必须等用户选择或倒计时结束后才 attach/show。
+assert.match(
+  indexHtml,
+  /async function syncActiveExternalRuntimeHost\(runId, tab\) \{[\s\S]*?if \(!tab\.external\?\.attachReady\) return;/,
+  "外部临时 host 首次 attach 必须被 attachReady 门挡住（五秒提示裁决后才放行）"
+);
+assert.match(
+  indexHtml,
+  /async function syncActiveExternalRuntimeHost[\s\S]*?invoke\("attach_external_html_runtime_host_command", \{\s*payload: \{\s*sessionId: tab\.external\.sessionId,\s*generation: tab\.external\.generation,/,
+  "外部 host attach 必须只上报 sessionId + generation（不伪造 itemId）"
+);
+// R92a：外部 host 隐藏 = 1x1 → hide → close，surface 被真正销毁，重新激活必然
+// 重建 child。位置保留因此只能是「hide 前采集一次 + 建 child 时经 attach 载荷
+// 回放」，不能靠事后 eval（与页面导航竞态）、不能靠常驻 view-state 脚本。
+assert.match(
+  indexHtml,
+  /invoke\("attach_external_html_runtime_host_command", \{\s*payload: \{[\s\S]{0,600}?viewState: tab\.external\.viewState \|\| null/,
+  "R92a：外部 host attach 必须带上最后一次有效位置快照（回放的唯一来源）"
+);
+assert.match(
+  indexHtml,
+  /if \(externalHideTarget\) \{[\s\S]{0,900}?captureExternalHtmlViewState\(externalHideTarget\)[\s\S]{0,400}?await setRuntimeHostVisibility\(itemId, false\);/,
+  "R92a：切走必须先在销毁 surface 之前采集位置，再 hide"
+);
+assert.equal(
+  [...indexHtml.matchAll(/skipExternalViewStateCapture: true/g)].length,
+  2,
+  "R92a：关闭与 promotion 拆除两条路径都必须显式跳过采集（关闭不需要；promotion 已抓过）"
+);
+assert.match(
+  indexHtml,
+  /function clearExternalViewStateWaiters\(sessionId\) \{/,
+  "R92a：关闭会话必须能清理该会话的在途采集等待器"
+);
+assert.match(
+  indexHtml,
+  /async function closeExternalHtmlTab\(tabId, tab\) \{[\s\S]{0,700}?clearExternalViewStateWaiters\(tab\.external\.sessionId\)/,
+  "R92a：关闭标签必须真正清理在途等待器（晚到回报不得回写已关闭会话）"
+);
+assert.match(
+  previewCommandsRust,
+  /attach_external_html_runtime_host\(&app, &window, &session, payload\.bounds, payload\.view_state\)\?/,
+  "R92a：attach 命令必须把 view_state 透传给承载层"
+);
+assert.match(
+  htmlRuntimeRust,
+  /pub fn external_view_state_restore_script\(view_state: &Value\) -> String/,
+  "R92a：外部回放脚本必须存在（固定模板 + serde_json 字面量）"
+);
+assert.match(
+  htmlRuntimeRust,
+  /build_external_runtime_webview_builder\(app, &host_label, session, view_state\.as_ref\(\)\)\?/,
+  "R92a：回放必须在建 child 时经 builder 注入（事后 eval 与导航竞态）"
+);
+// ---- R92b：探针三入口语义（真实入口 = folder / single-file / external-open）----
+// 真实授权模型有三种入口，不是两种：资料库「添加文件夹」（scope root = 样本根）、
+// 资料库「添加文件」（scope root = 被打开 HTML 的直接父目录）、外部临时系统打开
+// （scope root 同 single-file）。把 external-open 错记成 folder，会让 T04b 正确出现的
+// 预期 404（ABSENT）被误报成 BROKEN —— 这正是 R92b 返修要固化的口径。
+assert.match(
+  prcProbeHtml,
+  /<select id="pageMode">\s*<option value="" selected>[\s\S]*?<option value="folder">[\s\S]*?<option value="single-file">[\s\S]*?<option value="external-open">/,
+  "R92b：接入模式下拉必须三入口可选，且默认停在「未选择」占位（不得默认 folder）"
+);
+assert.match(
+  prcProbeHtml,
+  /t04bFolderMode = currentRunMode === "folder"/,
+  "R92b：T04b 预期方向必须只由 folder 判定（single-file 与 external-open 同向）"
+);
+assert.match(
+  prcProbeHtml,
+  /t04bMode = t04bFolderMode \? "must-read" : "absent-404"/,
+  "R92b：非 folder 入口（含 external-open）的 T04b 必须按 ABSENT（预期 404）解释"
+);
+assert.match(
+  prcProbeHtml,
+  /if \(!currentRunMode\) \{[\s\S]{0,240}?未选择本次接入模式，已拒绝运行/,
+  "R92b：未选择入口时探针必须拒绝运行，不得默默按 folder 跑"
+);
+assert.match(
+  prcReadme,
+  /`external-open`/,
+  "R92b：fixture README 必须写明第三种真实入口 external-open"
+);
+assert.match(
+  prcReadme,
+  /不改变任何授权范围/,
+  "R92b：README 必须声明入口下拉只决定判定预期值、不改变授权范围"
+);
+assert.match(
+  prcReadme,
+  /\|\s*external-open 入口必须\s*\|/,
+  "R92b：Phase 1 验收表必须有 external-open 入口列"
+);
+assert.doesNotThrow(
+  () => new Function(prcProbeScript[1]),
+  "R92b：新增入口守卫与 T04b 三元不得破坏探针 script 的语法"
+);
+assert.match(
+  indexHtml,
+  /if \(isExternalRuntimeTab\(tab\)\) \{\s*return syncActiveExternalRuntimeHost\(runId, tab\);\s*\}/,
+  "外部临时 HTML 必须复用同一宿主同步入口，不另起平行承载"
+);
+// §6.3：关闭标签撤销该 session 的 scoped 内容能力（普通切标签只 hide）。
+assert.match(
+  indexHtml,
+  /async function closeExternalHtmlTab\(tabId, tab\) \{[\s\S]*?invoke\("close_external_html_runtime_command", \{\s*payload: \{ sessionId: tab\.external\.sessionId \}/,
+  "关闭外部临时 HTML 标签必须撤销其 scoped 内容能力"
+);
+assert.match(
+  indexHtml,
+  /externalRuntimeTabForId\(itemId\)[\s\S]*?"set_external_html_runtime_host_visibility_command"/,
+  "外部 host 的显示/隐藏必须走独立命令（身份 = sessionId + generation）"
+);
+// 阅读态 external 不得进入编辑 / 转换 / 可编辑副本等正式 item 通道；
+// 正文查找自 revision 71 起对临时态与正式同等可用（同一 find child 合同）。
+assert.match(
+  indexHtml,
+  /function activeDocumentSearchKind\(\) \{[\s\S]*?"html-runtime-external"\) return "html";/,
+  "正文查找对正式与外部临时 HTML 同等可用（revision 71）"
+);
+assert.match(
+  indexHtml,
+  /async function openActiveHtmlFind\(\) \{[\s\S]*?if \(!isHtmlFindTab\(tab\)\) return false;/,
+  "正文查找入口按 isHtmlFindTab 判定（正式 + 外部临时）"
+);
+assert.match(
+  indexHtml,
+  /async function enterHtmlEditMode\(itemId\) \{[\s\S]*?if \(!tab \|\| tab\.preview\?\.fileType !== "html-runtime"\) return;/,
+  "HTML 编辑模式只认正式 html-runtime"
+);
+assert.match(
+  indexHtml,
+  /async function createEditableCopyForActiveHtml\(itemId\) \{[\s\S]*?if \(!tab \|\| tab\.preview\?\.fileType !== "html-runtime"\) throw new Error/,
+  "可编辑副本转换只认正式 html-runtime"
+);
+assert.match(
+  indexHtml,
+  /if \(isExternalRuntimeTab\(tab\)\) \{[\s\S]*?options = \[\];/,
+  "临时 HTML 的更多菜单不得暴露导出 / 另存 / 移除"
+);
+
+// ---- P2：临时 HTML 主操作按钮「显示但禁用」，不得被清空成空白按钮 ----
+assert.match(
+  indexHtml,
+  /const showPrimary = Boolean\(tab\) && \(isMarkdown \|\| isHtmlRuntime \|\| isExternalHtmlRuntime\);/,
+  "临时 HTML 必须参与主操作投影（否则按钮被清空成空白）"
+);
+assert.match(
+  indexHtml,
+  /els\.documentPrimaryButton\.disabled = !showPrimary \|\| primaryActionBusy \|\| isExternalHtmlRuntime;/,
+  "临时 HTML 的主操作必须恒禁用（阅读态不进入编辑链路）"
+);
+const externalPrimaryBranch = indexHtml.match(
+  /\} else if \(isExternalHtmlRuntime\) \{([\s\S]*?)\} else if \(isMarkdown\) \{/
+);
+assert.ok(externalPrimaryBranch, "临时 HTML 主操作分支必须存在（不得落到清空分支）");
+assert.match(
+  externalPrimaryBranch[1],
+  /MENU_ICON_SVG\.htmlEditStart/,
+  "临时 HTML 主操作必须保留与正式 HTML 相同的铅笔图标"
+);
+assert.match(
+  externalPrimaryBranch[1],
+  /documentPrimaryLabel\.style\.display = "none";/,
+  "临时 HTML 主操作必须隐藏文字标签（28px 图标按钮装不下「编辑」两字，会竖排换行）；按钮本身仍以铅笔图标显示"
+);
+assert.equal(
+  (externalPrimaryBranch[1].match(/editDisabledTooltip/g) || []).length >= 2,
+  true,
+  "禁用原因必须同时写进 aria-label 与 tooltip"
+);
+assert.match(
+  indexHtml,
+  /\.document-action-button\.primary-action:disabled \{\s*pointer-events: auto;/,
+  "禁用主操作必须放开命中测试，否则 Chrome 下 hover 不触发、tooltip 永不显示"
+);
+assert.match(i18n, /editDisabledTooltip: "加入资料库后可编辑"/, "zh 必须声明 htmlEdit.editDisabledTooltip");
+assert.match(i18n, /editDisabledTooltip: "Add to NUTBOOK to edit"/, "en 必须声明 htmlEdit.editDisabledTooltip");
+
+// ---- P2 / §6.2：S4 受控重建（promotion）顺序与身份迁移 ----
+const promotionBody = indexHtml.match(
+  /async function promoteExternalHtmlTab\(tab, itemId\) \{([\s\S]*?)\n      \}/
+);
+assert.ok(promotionBody, "promoteExternalHtmlTab 必须存在");
+assert.ok(
+  promotionBody[1].indexOf("captureExternalHtmlViewState") < promotionBody[1].indexOf("close_external_html_runtime_command"),
+  "必须先抓 view state 再拆旧 child（§6.2 顺序不可调换）"
+);
+assert.ok(
+  promotionBody[1].indexOf("close_external_html_runtime_command") < promotionBody[1].indexOf("open_html_window"),
+  "必须先拆除并撤销旧 child 再登记正式 runtime 会话（旧新 child 不得并存）"
+);
+assert.match(
+  promotionBody[1],
+  /invoke\("external_session_close", \{ payload: \{ sessionId \} \}\)/,
+  "promotion 必须收口 external 会话"
+);
+assert.match(
+  promotionBody[1],
+  /delete tab\.external;[\s\S]*?appState\.runtimeSessions\.push\(tab\);/,
+  "正式就绪必须同一标签对象原位迁移：换 key 为 itemId、移入 runtimeSessions、清掉临时身份（P2-R2c，Codex 51 稳定标签身份）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /appState\.runtimeSessions\.push\(\{\s*id: itemId/,
+  "禁止新建另一身份的正式标签记录：必须同一对象迁移（Codex 51，废除「删除旧标签→新建另一身份」路线）"
+);
+assert.match(
+  promotionBody[1],
+  /if \(promotion\.viewState\) existing\.viewState = promotion\.viewState;/,
+  "并入已有正式标签时必须更新其 view state 绑定（P2-R2a）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /previousActiveTabId/,
+  "promotion 不得快照/写回 previousActiveTabId：快照可能指向已关闭标签（P2-R2）"
+);
+assert.match(
+  promotionBody[1],
+  /const selectedNow = appState\.activeTabId === tab\.id;/,
+  "呈现判定必须用「此刻用户是否选着本标签」：等待期间点回同一存活标签要按最新当前意图呈现正式内容，等待期间切走不得抢焦点（P2-R2c，Codex 51）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /intentEpoch|wasActive/,
+  "导航意图不得再用 epoch 快照 / wasActive 陈旧判定：标签身份全程存活后，当前选中判定是完备意图判据（Codex 51）"
+);
+assert.match(
+  promotionBody[1],
+  /if \(selectedNow\) \{[\s\S]*?scheduleRuntimeHostSync\(\);/,
+  "仅用户当前选择的标签可挂载 host / 接管焦点（P2-R2c）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /appState\.activeTabId !== null\)\s*\{[\s\S]*?await loadItems/,
+  "禁止用 activeTabId===null 推断「没导航」：null 不能判定没有发生用户导航（回首页同样是 null，P2-R2b）"
+);
+assert.match(
+  promotionBody[1],
+  /promotion\.phase = "failed";/,
+  "失败必须进入可重试 failed 态：保留占位标签与 promotion 绑定（itemId/viewState），禁止创建正式 host（P2-R1/R1b）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /appState\.tabs\.filter\(\(entry\) => entry\.id !== tab\.id\)/,
+  "失败路径不得移除占位标签：移除后加号重试入口对用户不可见（P2-R1b，Codex 51）"
+);
+assert.match(
+  promotionBody[1],
+  /if \(!promotion\.teardownDone\) \{[\s\S]*?captureExternalHtmlViewState/,
+  "view state 只在旧 host 仍在（拆除未完成）时抓取：失败重试不得用空结果覆盖首次抓取（P2-R1b）"
+);
+assert.match(
+  promotionBody[1],
+  /await invoke\("external_session_close", \{ payload: \{ sessionId \} \}\);/,
+  "session 收口必须等待完成（不得 fire-and-forget），防止重试重新建立旧能力（P2-R1）"
+);
+assert.ok(
+  promotionBody[1].indexOf("close_external_html_runtime_command") < promotionBody[1].indexOf("external_session_close"),
+  "必须先完成 host teardown 再收口会话（P2-R1 顺序）"
+);
+assert.match(
+  promotionBody[1],
+  /promotion\.itemId = itemId;/,
+  "资源绑定（itemId）必须挂在同标签的 promotion 记录上：生命周期与导航意图独立（Codex 51 状态模型）"
+);
+// ---- revision 71：演示页状态与临时态查找闭环 ----
+assert.match(
+  htmlRuntimeRust,
+  /pub fn external_view_state_capture_script[\s\S]*?__NUTBOOK_PRESENTATION__[\s\S]*?getActivePageId[\s\S]*?presentationPageId/,
+  "promotion 采集脚本必须读取公开演示桥的当前页 id（计划 §6.2：抓 scroll / URL hash / presentationPageId）"
+);
+assert.match(
+  htmlRuntimeRust,
+  /bounded\(bridge\.whenReady\(\), 120\)[\s\S]*?bounded\(bridge\.getActivePageId\(\), 60\)/,
+  "采集脚本的桥读取必须有界（180ms 总上界 < 前端 260ms 等待超时），桥挂起不得阻断滚动 / hash 采集"
+);
+assert.doesNotMatch(
+  htmlRuntimeRust.match(/pub fn external_view_state_capture_script[\s\S]*?\n\}\n/)?.[0] || "",
+  /addEventListener|surfaceToken|__NUTBOOK_RUNTIME_VIEW_STATE__/,
+  "采集脚本保持一次性、无副作用：不监听事件、不携带 surface token、不注册常驻全局"
+);
+assert.match(
+  htmlRuntimeRust,
+  /pub fn html_find_overlay_label_for\(key: &RuntimeKey\) -> String \{\s*format!\("html-find-\{\}", key\.label_segment\(\)\)/,
+  "find overlay label 必须由 RuntimeKey 派生：Item 分支保持 html-find-{id} 不变，External 派生 html-find-ext-{sessionId}"
+);
+assert.match(
+  htmlRuntimeRust.match(/pub fn close_external_html_runtime_host[\s\S]*?\n\}\n/)?.[0] || "",
+  /html_find_overlay_label_for[\s\S]*?webview\.close\(\)/,
+  "外部会话关闭必须随同收敛遗留 find surface（1x1 → hide → close 最终护栏）"
+);
+assert.match(
+  indexHtml,
+  /function activeDocumentSearchKind\(\) \{[\s\S]*?"html-runtime-external"\) return "html";/,
+  "临时态 HTML 必须可发起正文查找（Cmd+F / 顶栏入口）"
+);
+assert.match(
+  indexHtml,
+  /function queueActiveHtmlFindSurfaceSync[\s\S]*?attach_external_html_find_overlay_command[\s\S]*?update_external_html_find_overlay_command/,
+  "外部 find surface 必须走 sessionId+generation 命令族，正式 item 命令族保持不变"
+);
+assert.match(
+  indexHtml.match(/if \(externalHideTarget\) \{[\s\S]*?\n        \}/)?.[0] || "",
+  /appState\.htmlFind\.itemId === itemId\) await closeActiveHtmlFind\(\);/,
+  "外部 surface 收敛（切走/关闭/promotion 拆除）必须先关闭打开中的 find surface"
+);
+assert.match(
+  mainRust,
+  /attach_external_html_find_overlay_command[\s\S]*?external_html_find_action_command/,
+  "外部 find 与结构化查找动作命令必须注册进 Tauri command 表"
+);
+// ---- P2-R71a（Codex 74）：外部 find 任意脚本执行边界必须收紧 ----
+assert.doesNotMatch(
+  mainRust + htmlRuntimeRust + indexHtml,
+  /eval_external_html_runtime_script_command/,
+  "任意脚本文本 eval 命令必须彻底移除（hostile page 可截获会话标识注入任意源码，Codex 74 P0）"
+);
+assert.doesNotMatch(
+  htmlRuntimeRust,
+  /EvalExternalHtmlRuntimeScriptRequest/,
+  "任意脚本请求结构必须删除"
+);
+{
+  const itemRust = readFileSync("src-tauri/src/models/item.rs", "utf8");
+  const previewRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
+  assert.match(
+    itemRust,
+    /pub struct ExternalHtmlFindActionRequest \{[\s\S]*?\n\}/,
+    "外部查找必须是结构化动作请求"
+  );
+  const structBody = itemRust.match(/pub struct ExternalHtmlFindActionRequest \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(structBody, /script/, "结构化动作请求不得存在脚本文本字段");
+  assert.match(
+    previewRust,
+    /external_html_runtime_session\(&state, &payload\.session_id, payload\.generation\)[\s\S]{0,1400}?external_html_find_action_script\(/,
+    "外部查找动作命令必须经会话+代次裁决后由宿主构造脚本（裁决任一形态：`?` 直传或 match 记录拒绝）"
+  );
+  // deny-by-default：只放行 query/next/prev/close，replace 一族与未知动作被拒。
+  assert.match(
+    htmlRuntimeRust,
+    /if !matches!\(action, "query" \| "next" \| "prev"\) \{\s*return Err\(AppError::InvalidParams\);/,
+    "未知/替换动作必须 deny-by-default 拒绝（§6.2 外部不开放编辑）"
+  );
+  // ---- P2-R71b（Codex 77）：query 必须有后端权威字节上限 ----
+  assert.match(
+    htmlRuntimeRust,
+    /pub const EXTERNAL_HTML_FIND_MAX_QUERY_BYTES: usize = 4096;/,
+    "外部查找 query 必须有后端权威字节上限（hostile 页可提交无界字符串放大宿主资源消耗）"
+  );
+  {
+    const builderBody = htmlRuntimeRust.match(/pub fn external_html_find_action_script\([\s\S]*?\n\}/)?.[0] || "";
+    const guardAt = builderBody.indexOf("query.len() > EXTERNAL_HTML_FIND_MAX_QUERY_BYTES");
+    const formatAt = builderBody.indexOf("format!(");
+    assert.ok(guardAt !== -1 && formatAt !== -1 && guardAt < formatAt,
+      "字节上限校验必须先于任何脚本构造（超限不产出 eval 脚本）");
+    // 命令级：命令必须先经构造器裁决（Err 直接传播），成功后才对 host eval。
+    const cmdBody = previewRust.match(/pub fn external_html_find_action_command\([\s\S]*?\n\}/)?.[0] || "";
+    assert.match(cmdBody, /external_html_find_action_script\(\s*&session_id,/, "命令必须经宿主构造器产出脚本");
+    const builderAt = cmdBody.indexOf("external_html_find_action_script(");
+    const evalAt = cmdBody.indexOf("webview.eval");
+    assert.ok(builderAt !== -1 && evalAt !== -1 && builderAt < evalAt,
+      "命令的 eval 必须发生在构造器（含字节上限校验）成功之后");
+  }
+  assert.doesNotMatch(
+    indexHtml,
+    /isExternalRuntimeTab\(tab\)\) \{[\s\S]{0,400}const script =/,
+    "main 页不得再为外部会话构造脚本文本"
+  );
+  // commandVariants 双重包装缺陷回归：外部 find 命令族不得进入 payload 包装列表。
+  {
+    const variantList = indexHtml.match(/if \(command === "attach_html_find_overlay_command"[\s\S]*?return \[\{ payload: args \}\];/)?.[0] || "";
+    assert.ok(variantList.length > 0, "正式 find 命令的 payload 包装列表必须存在");
+    assert.doesNotMatch(variantList, /external/, "外部 find 命令族不得双重包装（调用方已传 payload，Codex 74 闭环缺陷）");
+  }
+}
+
+// ---- P2-R80a（Codex 82）：顶栏正文查找投影不得漏掉外部 runtime ----
+assert.match(
+  indexHtml,
+  /const localFind = activeDocumentSearchKind\(\) !== null;/,
+  "顶栏 scope 的唯一状态源必须是 activeDocumentSearchKind()（覆盖正式/临时 Markdown 与正式/临时 HTML）"
+);
+assert.doesNotMatch(
+  indexHtml,
+  /const localFind = isMarkdown \|\| isHtmlRuntime;/,
+  "漏掉 html-runtime-external 的旧 scope 判定必须消失（否则资料库输入框与正文 find surface 并存）"
+);
+assert.match(
+  indexHtml,
+  /if \(localFind && document\.activeElement === els\.searchInput\) els\.searchInput\?\.blur\(\);/,
+  "进入 document scope 必须交还资料库输入框焦点（隐藏输入框不得继续接受键入）"
+);
+assert.match(
+  indexHtml,
+  /if \(isHtmlFindTab\(tab\) && appState\.htmlFind\.itemId === tab\?\.id\) \{\s*updateActiveHtmlFindContent\(\)/,
+  "正文 find 面板刷新条件必须与 scope 投影同源（临时 HTML 与正式 HTML 一致）"
+);
+
+// ---- revision 84：顶栏 scope 必须是 fileType 的纯函数，不得并入编辑器挂载状态 ----
+// 用户实测「MD 打开后顶栏仍是资料库搜索，点一下才变正文搜索；HTML 一直正常」。
+// Markdown 分支曾额外要求 tab.id === activeMarkdownEditorTabId，而编辑器挂载是
+// 异步的，renderViewer() 里的顶栏投影发生在挂载完成之前 → 投影停在 library，
+// 直到下一个无关事件（keydown/keyup/收藏/render）才纠正。HTML 只看 fileType，
+// 所以从未复现。挂载状态属于动作入口，不属于顶栏投影。
+{
+  const kindSource = indexHtml.match(/function activeDocumentSearchKind\(\) \{[\s\S]*?\n      \}/)?.[0] || "";
+  assert.ok(kindSource.length > 0, "必须存在 activeDocumentSearchKind() 作为 scope 唯一状态源");
+  assert.doesNotMatch(
+    kindSource,
+    /activeMarkdownEditorTabId/,
+    "scope 判定不得并入编辑器挂载状态（否则 MD 打开后资料库搜索残留）"
+  );
+  assert.match(
+    kindSource,
+    /if \(tab\?\.preview\?\.fileType === "markdown"\) return "markdown";/,
+    "Markdown scope 只由 fileType 决定"
+  );
+  const findEntrySource = indexHtml.match(/function openActiveDocumentFind\(\) \{[\s\S]*?\n      \}/)?.[0] || "";
+  assert.match(
+    findEntrySource,
+    /const editor = currentDocumentFindEditor\(\);\s*if \(!editor\) return false;/,
+    "编辑器未挂载时查找入口必须拒绝认领交互，不得假装打开成功"
+  );
+}
+
+// ---- P2-R80b（Codex 82）：外部 find 身份形态与结果裁决 ----
+assert.match(
+  htmlRuntimeRust,
+  /struct HtmlFindActionPayload \{[\s\S]*?item_id: serde_json::Value,/,
+  "find 动作载荷的身份必须承载 JSON 值：外部临时 host 的身份是字符串 external:<sessionId>"
+);
+{
+  const payloadBody = htmlRuntimeRust.match(/struct HtmlFindActionPayload \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(
+    payloadBody,
+    /item_id: i64,/,
+    "身份不得定死 i64 —— 外部 overlay 的每个动作都会在标题桥反序列化处静默失败（正文查找恒 0/0）"
+  );
+}
+assert.match(
+  htmlRuntimeRust,
+  /pub\(crate\) fn find_result_identity_matches\(/,
+  "结果身份裁决必须是可单测的窄 helper"
+);
+assert.match(
+  htmlRuntimeRust,
+  /find_result_identity_matches\(\s*record\.role,\s*&record\.key,\s*payload\.get\("itemId"\),?\s*\)/,
+  "结果标题桥必须走角色 + RuntimeKey 双裁决的 helper"
+);
+{
+  const helperBody = htmlRuntimeRust.match(/pub\(crate\) fn find_result_identity_matches\([\s\S]*?\n\}/)?.[0] || "";
+  assert.match(
+    helperBody,
+    /\(ContentSurfaceRole::ExternalHost, RuntimeKey::External\(session\)\)[\s\S]*?format!\("external:\{session\}"\)/,
+    "外部宿主只接受 external:<登记 sessionId> 字符串身份"
+  );
+  assert.match(
+    helperBody,
+    /\(ContentSurfaceRole::RuntimeHost, RuntimeKey::Item\(item\)\)[\s\S]*?Value::as_i64\b/,
+    "正式宿主只接受登记 item 的数字身份"
+  );
+  assert.match(
+    helperBody,
+    /_ => false,/,
+    "角色与 key 域不配对（player / preview / popup 等）必须一律拒绝"
+  );
+}
+// ---- revision 85：P2-R80b 临时诊断设施必须拆除，不得回流到交付代码 ----
+// 断点已定位并修复（用户 GUI 复验：MD 顶栏投影 ✓、外部/正式正文查找计数 ✓），
+// 宿主层诊断不是产品能力，留在最终提交即违反 AGENTS.md「诊断器只能是临时设施」。
+{
+  const previewRust = readFileSync("src-tauri/src/commands/preview.rs", "utf8");
+  assert.doesNotMatch(
+    htmlRuntimeRust + mainRust + previewRust + indexHtml,
+    /log_external_find_debug|EXTERNAL_FIND_DEBUG_LOG_PATH|external_find_sender_probe|nutbook-external-find-debug/,
+    "外部查找临时诊断（日志函数 / 常量 / 发送方探针 / /tmp 日志路径）必须全部拆除"
+  );
+  const findActionBody =
+    previewRust.match(/pub fn external_html_find_action_command\([\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(
+    findActionBody,
+    /临时诊断|log_external_find_debug/,
+    "命令入口不得残留任何诊断写入（裁决与 eval 都是产品路径）"
+  );
+}
+// ---- P2-R3a（Codex 54→58）：正式资源所有权 = 持有者台账（非 itemOpenTokens）----
+assert.match(
+  indexHtml,
+  /runtimeResourceHolders: new Map\(\),\s*runtimeResourceLeaseSeq: 0,/,
+  "必须有独立的持有者台账与 lease 计数器：itemOpenTokens 只表达最新打开尝试，不表达资源所有权（P2-R3a，Codex 58）"
+);
+assert.match(
+  promotionBody[1],
+  /const leaseId = await acquireRuntimeResourceHolder\(itemId\);[\s\S]*?promotion\.leaseId = leaseId;/,
+  "promotion 必须在发出 open_html_window 之前 acquire（pending，in-flight 占用）：开始即登记（P2-R3a 不变式①）；acquire 异步等待在途 close（P2-R3c 串行化）"
+);
+assert.match(
+  promotionBody[1],
+  /Promise\.allSettled\(\[/,
+  "资源登记与详情读取必须 allSettled：任一拒绝不得遗失另一请求的资源归属判定（P2-R3）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /await Promise\.all\(\[/,
+  "禁止在资源登记处使用 Promise.all：首个拒绝会取消对另一请求结果的处置（P2-R3）"
+);
+assert.doesNotMatch(
+  promotionBody[1],
+  /tokenCurrent|soleHolder|releaseUnownedResource/,
+  "禁止用 itemOpenTokens 递增推断资源接管（token ≠ 接管）：所有权只能由持有者台账判定（P2-R3a，Codex 58）"
+);
+assert.ok(
+  (promotionBody[1].match(/await releaseRuntimeResourceHolder\(itemId, leaseId\);/g) || []).length >= 3,
+  "关闭意图分支、部分失败分支和关闭等待后的晚到分支都必须先放弃本次持有再返回/进入失败态（P2-R3a 不变式③）"
+);
+assert.match(
+  promotionBody[1],
+  /const selectedNow = appState\.activeTabId === tab\.id;\s*confirmRuntimeResourceHolder\(itemId, leaseId\);/,
+  "迁移成功即取得资源（confirm）：所有权随正式标签记录持有（P2-R3a 不变式②）"
+);
+assert.match(
+  promotionBody[1],
+  /confirmRuntimeResourceHolder\(itemId, leaseId\);\s*if \(existing\) \{[\s\S]{0,160}?transferLeaseToExistingTab\(itemId, leaseId, existing\);/,
+  "并入已有正式标签必须显式处理所有权：adopt 或放弃本 lease，绝不误关（P2-R3a，Codex 58）"
+);
+assert.match(
+  promotionBody[1],
+  /tab\.resourceLeaseId = leaseId;/,
+  "原位迁移必须把 lease 转正挂到正式标签记录（后续撤销由正式标签关闭路径负责）（P2-R3a）"
+);
+assert.match(
+  indexHtml,
+  /if \(!holders \|\| !holders\.delete\(leaseId\)\) return false;[\s\S]*?if \(holders\.size === 0\) \{[\s\S]*?await invoke\("close_html_window", \{ itemId \}\);[\s\S]*?资源撤销失败/,
+  "释放必须最后持有者才回收（台账空才 close），撤销失败必须 setStatus 可见、不得吞异常声称完成（P2-R3a 不变式③）"
+);
+assert.match(
+  indexHtml,
+  /async function openHtmlRuntimeSession\(detail, item, openToken, navigationEpoch, viewState = null\) \{[\s\S]*?const leaseId = await acquireRuntimeResourceHolder\(detail\.id\);[\s\S]*?let session;\s*try \{\s*session = await invoke\("open_html_window"/,
+  "资料库正式打开也必须开始即登记持有（await：在途 close 串行化）：并行放弃方据此判定台账非空、不误关 in-flight 复用基础（P2-R3a 不变式① + P2-R3c）"
+);
+assert.match(
+  indexHtml,
+  /async function openHtmlRuntimeSession\(detail, item, openToken, navigationEpoch, viewState = null\) \{[\s\S]*?try \{\s*session = await invoke\("open_html_window", \{ itemId: detail\.id \}\);\s*\} catch \(error\) \{\s*await releaseRuntimeResourceHolder\(detail\.id, leaseId\);\s*throw error;/,
+  "openHtmlRuntimeSession 登记（open）失败必须释放本次 pending lease 再传播错误：幽灵持有者会挡住他人「台账空 → 回收」判定（P2-R3b，Codex 62）"
+);
+assert.match(
+  indexHtml,
+  /if \(existing\) \{\s*transferLeaseToExistingTab\(detail\.id, leaseId, existing\);/,
+  "openHtmlRuntimeSession 并入已有正式标签同样必须显式处理所有权（P2-R3a）"
+);
+// ---- P2-R3c（Codex 62）：正式关闭与登记/接管共享同一生命周期协调 ----
+const closeOpenTabHtmlBranch = closeOpenTabSection.match(
+  /if \(tab\?\.preview\?\.fileType === "html-runtime"\) \{([\s\S]*?)\n        \} else \{/
+);
+assert.ok(closeOpenTabHtmlBranch, "closeOpenTab 必须有 html-runtime 分支");
+assert.doesNotMatch(
+  closeOpenTabHtmlBranch[1],
+  /await invoke\("close_html_window"/,
+  "closeOpenTab 禁止无条件 item 级 close_html_window：台账非空（在途登记/新持有者）时必须保留其资源（P2-R3c，Codex 62）"
+);
+assert.match(
+  closeOpenTabHtmlBranch[1],
+  /await releaseRuntimeResourceHolder\(tabId, tab\.resourceLeaseId, \{ reclaimWhenLast: true, ownedClosing: true \}\)/,
+  "closeOpenTab 只释放本次持有权（reclaimWhenLast=true；ownedClosing：closing 登记归事务持有，release 不触碰登记表）：台账空 = 最后持有者才触发回收（P2-R3c + P2-R3d）"
+);
+assert.match(
+  indexHtml,
+  /runtimeResourceClosing: new Map\(\)/,
+  "必须有在途 close 登记表：新持有者 acquire 串行等待拆除完成，不绑定垂死 URL（P2-R3c）"
+);
+assert.match(
+  closeOpenTabHtmlBranch[1],
+  /const closeTxn = \(async \(\) => \{[\s\S]*?appState\.runtimeResourceClosing\.set\(tabId, closeTxn\);/,
+  "closeOpenTab 必须把完整关闭事务（surface 拆除 + 持有权释放 + 记录移除）作为 closing 登记同步生效：新打开/promotion 在并入判定前等待整个事务（P2-R3d，Codex 66）"
+);
+assert.match(
+  closeOpenTabHtmlBranch[1],
+  /appState\.runtimeSessions\.filter\(\(session\) => session !== tab\)/,
+  "晚到清理必须按对象归属移除正式记录，禁止按 itemId 过滤（同 id 新实例结构上不可被旧关闭删除）（P2-R3d，Codex 66）"
+);
+assert.match(
+  closeOpenTabSection,
+  /if \(isClosingActiveTab && appState\.activeTabId === tabId\) \{\s*appState\.activeTabId = nextActiveTabId;\s*\}/,
+  "晚到 activeTabId 写回必须有「仍停在关闭标签」守卫：事务等待期间发生的导航不得被覆盖（P2-R3d）"
+);
+assert.match(
+  indexHtml,
+  /async function acquireRuntimeResourceHolder\(itemId\) \{[\s\S]*?return runWhenRuntimeCloseSettled\(itemId, \(\) => \{/,
+  "acquire 必须先等待在途拆除活动（关闭事务/裸回收）落定再登记：其后的 open_html_window 重建全新 server（P2-R3c/R3d 串行化）"
+);
+assert.match(
+  indexHtml,
+  /async function waitRuntimeCloseSettled\(itemId\) \{[\s\S]*?while \(true\) \{[\s\S]*?const closing = appState\.runtimeResourceClosing\.get\(itemId\);[\s\S]*?await closing;/,
+  "waitRuntimeCloseSettled 必须循环观察并等待 closing 登记落定：关闭事务与裸资源回收共用一张表，不能跳过晚到或替换的 close（P2-R3d）"
+);
+assert.match(
+  indexHtml,
+  /const committed = await runWhenRuntimeCloseSettled\(detail\.id, \(\) => \{\s*if \(!isCurrentItemOpenToken\(detail\.id, openToken, navigationEpoch\)\) return false;\s*confirmRuntimeResourceHolder\(detail\.id, leaseId\);/,
+  "openHtmlRuntimeSession 必须在并入/新建判定前等待同 item 关闭事务落定；陈旧检查与 lease 释放后，existing 查找仍在无 await 同步块（P2-R3d，Codex 67）"
+);
+assert.match(
+  indexHtml,
+  /const commit = await runWhenRuntimeCloseSettled\(itemId, \(\) => \{[\s\S]*?if \(tab\.closed\) return \{ outcome: "closed" \};/,
+  "promotion 必须在迁移判定块前等待关闭事务落定，并在等待后重查 closed、释放 lease 后再进入同步迁移块（P2-R3d，Codex 67）"
+);
+assert.match(
+  indexHtml,
+  /appState\.runtimeResourceClosing\.set\(itemId, reclaim\);[\s\S]*?await reclaim;/,
+  "回收的 close 必须同步登记 closing 后才发出 IPC：台账空判定与 closing 登记同微任务，无检查窗口（P2-R3c）"
+);
+assert.match(
+  indexHtml,
+  /if \(promotion && \(promotion\.phase !== "failed" \|\| promotion\.teardownDone\)\) return;/,
+  "旧 host 已拆（挂载等待中 / 失败可重试）时激活临时标签必须占位呈现，禁止 attach 已关闭的 external 会话（P2-R2c/R1b）"
+);
+assert.match(
+  indexHtml,
+  /tab\.external\?\.joined && tab\.external\?\.promotion\?\.phase === "failed"/,
+  "join 入口必须为失败可重试态提供重试路径，且不再触发资料库写入（P2-R1/R1b 禁止重复提交）"
+);
+assert.match(
+  i18n,
+  /promotionFailedStatus: "已加入资料库，但界面重建失败：点击标签上的 \+ 重试"/,
+  "zh 必须声明 external.promotionFailedStatus"
+);
+assert.match(
+  indexHtml,
+  /if \(isExternalRuntimeTab\(tab\)\) \{\s*await promoteExternalHtmlTab\(tab, tab\.external\.itemId\);/,
+  "加入成功后必须对临时 HTML 走受控重建（否则工具栏要重启才刷新）"
+);
+
+// ---- P2：外部 view-state 采集通道的后端边界 ----
+assert.match(
+  mainRust,
+  /commands::preview::capture_external_html_view_state_command/,
+  "capture_external_html_view_state_command 必须注册"
+);
+assert.match(
+  mainRust,
+  /commands::preview::external_html_view_state_report_command/,
+  "external_html_view_state_report_command 必须注册"
+);
+assert.match(
+  mainRust,
+  /"html_runtime_view_state_command"\s*\/\/[\s\S]{0,400}?\| "external_html_view_state_report_command"/,
+  "外部 view-state 回报必须在内容面命令白名单内（否则脚本回报被 ACL 拦掉）"
+);
+assert.match(
+  previewCommandsRust,
+  /if record\.role != ContentSurfaceRole::ExternalHost \{\s*return Err\(AppError::InvalidSession\);/,
+  "view-state 专用回报只接受 ExternalHost 角色"
+);
+assert.match(
+  previewCommandsRust,
+  /generation == 0 \|\| generation != record\.generation/,
+  "view-state 专用回报必须校验代次（旧 surface 晚到回报被拒）"
+);
+assert.match(
+  htmlRuntimeRust,
+  /pub fn external_view_state_capture_script\(/,
+  "采集脚本必须由宿主下发固定内容（前端不得传任意脚本）"
 );
 
 console.log("Nutbook regression guards passed.");

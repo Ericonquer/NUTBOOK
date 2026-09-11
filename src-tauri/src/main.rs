@@ -256,7 +256,19 @@ fn main() {
             app.manage(HtmlEditAppExitState::default());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            // PR C Phase 1（D2=A，deny-by-default 中央闸门）：Tauri 2.10.3
+            // 仅在 app 声明 ACL manifest 时才做 ACL 检查，NUTBOOK 没有 ——
+            // 约 130 个自有命令对任何 webview 不设防（P0 探针 T12–T14 实证）。
+            // 这里按真实 webview label 判定 caller 角色：
+            // - 可信宿主面（main / App:// 宿主 overlay）：全量命令；
+            // - 内容面（加载不可信 HTML 的 runtime/popup）：只允许演示翻页
+            //   回报通道，其余一律拒绝；
+            // - 未知 label：拒绝。
+            // Box<dyn Fn> 为 generate_handler! 的展开闭包显式定型（推断需要）。
+            let handler: Box<
+                dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync,
+            > = Box::new(tauri::generate_handler![
             commands::agent_projects::get_cached_agent_projects,
             commands::agent_projects::discover_agent_projects,
             commands::agent_projects::connect_agent_project,
@@ -314,7 +326,7 @@ fn main() {
             commands::preview::get_item_content_revision,
             commands::preview::attach_inspector_more_overlay_command,
             commands::preview::close_inspector_more_overlay_command,
-            commands::preview::get_local_server_origin,
+            commands::preview::get_cache_resource_info,
             commands::preview::close_html_window,
             commands::preview::close_markdown_overlay_command,
             commands::preview::copy_markdown_image_asset,
@@ -327,6 +339,19 @@ fn main() {
             commands::preview::open_image_file_dialog,
             commands::preview::open_html_edit_image_file_dialog,
             commands::preview::attach_html_runtime_host_command,
+            // P2：外部临时 HTML 的承载命令（与 item host 同一承载层）。
+            commands::preview::attach_external_html_runtime_host_command,
+            commands::preview::set_external_html_runtime_host_visibility_command,
+            commands::preview::close_external_html_runtime_command,
+            // P2 / 计划 §6.2：promotion 前的一次性 view state 采集与回报。
+            commands::preview::capture_external_html_view_state_command,
+            commands::preview::external_html_view_state_report_command,
+            // revision 71：外部临时 HTML 的正文查找承载与受限脚本下发。
+            commands::preview::attach_external_html_find_overlay_command,
+            commands::preview::update_external_html_find_overlay_command,
+            commands::preview::set_external_html_find_overlay_bounds_command,
+            commands::preview::set_external_html_find_overlay_visibility_command,
+            commands::preview::external_html_find_action_command,
             commands::preview::attach_html_presentation_preview_command,
             commands::preview::set_html_presentation_preview_visibility_command,
             commands::preview::set_html_presentation_preview_active_command,
@@ -400,7 +425,18 @@ fn main() {
             commands::default_apps::default_app_status,
             commands::default_apps::set_default_app,
             finalize_html_edit_app_exit_command,
-        ])
+            ]);
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                let label = invoke.message.webview_ref().label().to_string();
+                if !webview_may_invoke(&label, invoke.message.command()) {
+                    invoke
+                        .resolver
+                        .reject(format!("command not allowed for webview '{label}'"));
+                    return true;
+                }
+                handler(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
@@ -466,12 +502,74 @@ fn main() {
 // PR B（3.6）：允许 surface 的原生文件 Drop 统一 enqueue 一次并 emit 既有
 // nutbook-external-open，复用 inbox/coordinator；surface 归属校验在后端
 // enqueue_native_drop 内完成（格式 allowlist + 已登记 webview 且属于主窗口）。
+/// PR C Phase 1（D2=A）：webview → 命令的角色判定表（deny-by-default）。
+///
+/// 可信宿主面（加载 App 内置资源的宿主 UI）允许全量命令：
+/// - `main`：主 webview；
+/// - `detached`：外部打开第二实例宿主窗口（external.rs，加载 index.html）；
+/// - `settings-overlay`：设置浮层；
+/// - `html-controls-` / `html-find-` / `inspector-more-` /
+///   `html-edit-toolbar-` / `html-edit-leave-confirm-` 前缀：宿主 overlay。
+///
+/// 内容面（加载不可信用户 HTML 的 scoped origin webview）只允许四个命令
+/// （R9/R10 修订 + P2 promotion 采集），且每个命令内部都会做会话登记 +
+/// origin + 角色/lease 校验（`content_session_record` / `verify_bridge_message`），
+/// 这里只是第一层命令名过滤：
+/// - `html_edit_runtime_message_command`：演示翻页/转换回报通道（R9）；
+/// - `write_editable_html_copy`：绑定真实 caller/session/generation、目标
+///   服务端推导的最小写入操作（R10）；
+/// - `html_runtime_view_state_command`：滚动状态回报（R10 恢复被误伤的
+///   正常功能）。
+/// - `external_html_view_state_report_command`：P2 §6.2 外部临时 HTML 在
+///   promotion 前的一次性滚动/hash 回报（仅 External 角色可用）。
+/// - `html-player-`（detached runtime 窗口）
+/// - `html-host-`（内嵌 runtime host）
+/// - `html-presentation-preview-`（演示预览）
+/// - `html-runtime-popup-`（内容面 window.open 弹窗）
+///
+/// 其余（未知 label）一律拒绝。注意：PR C 不拦截导航/外链，本表只管
+/// invoke 命令边界；新页面/弹窗仍按内容面 caller 对待。
+fn webview_may_invoke(label: &str, command: &str) -> bool {
+    if label == "main" || label == "detached" || label == "settings-overlay" {
+        return true;
+    }
+    const TRUSTED_PREFIXES: [&str; 5] = [
+        "html-controls-",
+        "html-find-",
+        "inspector-more-",
+        "html-edit-toolbar-",
+        "html-edit-leave-confirm-",
+    ];
+    if TRUSTED_PREFIXES.iter().any(|prefix| label.starts_with(prefix)) {
+        return true;
+    }
+    const CONTENT_PREFIXES: [&str; 4] = [
+        "html-player-",
+        "html-host-",
+        "html-presentation-preview-",
+        "html-runtime-popup-",
+    ];
+    if CONTENT_PREFIXES.iter().any(|prefix| label.starts_with(prefix)) {
+        matches!(
+            command,
+            "html_edit_runtime_message_command"
+                | "write_editable_html_copy"
+                | "html_runtime_view_state_command"
+                // P2 / §6.2：外部阅读面没有常驻 view-state 脚本，promotion 前
+                // 的一次性采集靠这条专用回报命令（命令内按 External 角色 +
+                // 会话/代次校验，语义只限「回传一次滚动/hash 快照」）。
+                | "external_html_view_state_report_command"
+        )
+    } else {
+        false
+    }
+}
+
 fn enqueue_native_drag_drop(
     app: &tauri::AppHandle,
     label: &str,
     paths: &[std::path::PathBuf],
-) {
-    let string_paths: Vec<String> = paths
+) {    let string_paths: Vec<String> = paths
         .iter()
         .map(|path| path.to_string_lossy().to_string())
         .collect();

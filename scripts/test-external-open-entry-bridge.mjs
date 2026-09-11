@@ -1058,11 +1058,18 @@ assert.match(
   /externalOpenCoordinator\.promptCancel = \(\) => finish\("cancelled"\);/,
   "the active prompt must expose a cancel entry"
 );
-// 5) 裁决副作用收口：cancelled 不写已提示记录（§3.3：重新发起会重新提示）。
+// 5) 裁决副作用收口：只有「仅打开」写已提示记录（§3.3：cancelled 不写，重新
+// 发起时后端仍判定需要提示 → 重新提示）。P2：三种终态都要放行 HTML 临时
+// host 的首次 attach，否则取消后标签会停在永久占位（计划 §6.2）。
 assert.match(
   INDEX_HTML,
-  /async function settleExternalPromptAdjudication\(tab, action\) \{[\s\S]*?if \(!action \|\| action === "cancelled"\) return;[\s\S]*?external_session_mark_opened_only/,
+  /async function settleExternalPromptAdjudication\(tab, action\) \{[\s\S]*?if \(action === "join"\) \{[\s\S]*?\} else if \(action === "open-only"\) \{[\s\S]*?external_session_mark_opened_only[\s\S]*?\}[\s\S]*?releaseExternalRuntimeAttach\(tab\);/,
   "the cancelled terminal state must NOT write the opened-only hint record (§3.3: re-open re-prompts)"
+);
+assert.doesNotMatch(
+  INDEX_HTML,
+  /settleExternalPromptAdjudication\(tab, action\) \{[\s\S]*?if \(!action \|\| action === "cancelled"\) return;/,
+  "the cancelled terminal state must not early-return before releasing the first HTML attach (§6.2)"
 );
 assert.ok(
   (INDEX_HTML.match(/cancelExternalOpenPromptForNavigation\(\);/g) ?? []).length >= 5,
@@ -1268,8 +1275,8 @@ assert.match(
 // 6) 设为默认：显式点击主路径 + 取消/失败不标成功 + 失败展示 Finder 备用说明。
 assert.match(
   INDEX_HTML,
-  /async function setMarkdownDefaultAppFromPreferences\(\) \{[\s\S]*?await invoke\("set_default_app", \{ kind: "markdown" \}\)[\s\S]*?await refreshDefaultAppStatus\(\);[\s\S]*?removeAttribute\("hidden"\)/,
-  "the set-default flow must invoke set_default_app, then re-query the real status, and reveal the Finder fallback on failure"
+  /async function setDefaultAppFromPreferences\(group\) \{[\s\S]*?if \(group !== "markdown" && group !== "html"\) return;[\s\S]*?await invoke\("set_default_app", \{ kind: group \}\)[\s\S]*?await refreshDefaultAppStatus\(\);[\s\S]*?removeAttribute\("hidden"\)/,
+  "the set-default flow must invoke set_default_app for the clicked group, then re-query the real status, and reveal the Finder fallback on failure"
 );
 assert.match(
   INDEX_HTML,
@@ -1278,18 +1285,44 @@ assert.match(
 );
 assert.match(
   INDEX_HTML,
-  /defaultAppStatus\.markdown !== "default"[^&]*&& !defaultAppSetting/,
-  "the set-default button must not fake success: hidden once really default, and gated while a set is in flight"
+  /if \(status === "default"\) \{[\s\S]{0,260}?return view\("ok", true, `\$\{name\} ✓`, hintKey\);/,
+  "the already-default pill must render disabled with a check — macOS has no way to unset the default, so a clickable pill there would promise an action that cannot happen"
+);
+assert.match(
+  INDEX_HTML,
+  /if \(status === "notDefault"\) \{[\s\S]{0,200}?return view\("idle", false, `\$\{name\} ＋`, hintKey\);/,
+  "the not-default pill must be the actionable one (white pill + ink outline + plus sign)"
+);
+assert.match(
+  INDEX_HTML,
+  /if \(defaultAppSetting === group\) \{[\s\S]{0,420}?return view\(\s*"busy",\s*true,/,
+  "only the clicked group may enter the busy state (defaultAppSetting stores the group name, not a boolean)"
 );
 assert.match(
   DEFAULT_APPS_RS,
   /setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
   "the macOS main path must use NSWorkspace setDefaultApplicationAtURL:toOpenContentType: (probe-verified)"
 );
+// PR C 拆掉 PR B 的 HTML 边界：两个格式组各自映射到自己的声明 UTI。
 assert.match(
   DEFAULT_APPS_RS,
-  /match kind\.as_str\(\) \{[\s\S]{0,240}?"markdown" => \{[\s\S]{0,240}?set_markdown_default_macos\(&app\)[\s\S]{0,400}?"html" => Err\(AppError::UnsupportedFileType\),/,
-  "PR B must not register or set the HTML association (PR C boundary)"
+  /const MARKDOWN_UTI: &str = "net\.daringfireball\.markdown";[\s\S]{0,520}?const HTML_UTI: &str = "public\.html";/,
+  "the HTML group must target public.html, the UTI declared in the bundled Info.plist"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /fn default_app_uti_for_kind\(kind: &str\) -> Option<&\x27static str> \{[\s\S]*?"markdown" => Some\(MARKDOWN_UTI\)[\s\S]*?"html" => Some\(HTML_UTI\)[\s\S]*?_ => None,/,
+  "both groups must map to their own UTI; unknown kinds must resolve to None instead of silently landing on a group"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /match default_app_uti_for_kind\(kind\.as_str\(\)\) \{[\s\S]{0,200}?Some\(uti\) => set_default_app_macos\(&app, uti\)[\s\S]{0,260}?None => Err\(AppError::InvalidParams\),/,
+  "set_default_app must dispatch the clicked group to its declared UTI and reject unknown kinds"
+);
+assert.doesNotMatch(
+  DEFAULT_APPS_RS,
+  /"html" => Err\(AppError::UnsupportedFileType\)/,
+  "the old html-rejection branch must be gone, otherwise the HTML pill could never work"
 );
 // 剥离 // 注释行后再做「不得出现」断言，避免合同注释里的键名误中。
 const DEFAULT_APPS_RS_CODE = DEFAULT_APPS_RS
@@ -1304,13 +1337,13 @@ assert.doesNotMatch(
 // 7) Finder 引导降级为备用：应用内弹窗图文步骤（不只写进代表文件）+ 定位优先真实文件。
 assert.match(
   INDEX_HTML,
-  /function showDefaultAppFinderFallbackDialog\(\) \{[\s\S]*?default-app-fallback-figure[\s\S]*?defaultAppFinderStep1[\s\S]*?defaultAppFinderStep4/,
-  "the Finder fallback must be an in-app dialog with an illustrated 4-step walkthrough, not a link to a plain text file"
+  /function showDefaultAppFinderFallbackDialog\(group = defaultAppFallbackGroup\) \{[\s\S]*?default-app-fallback-figure[\s\S]*?defaultAppFinderStep1[\s\S]*?defaultAppFinderStep4/,
+  "the Finder fallback must be an in-app dialog with an illustrated 4-step walkthrough, opened for a specific group"
 );
 assert.match(
   INDEX_HTML,
-  /function defaultAppFinderFigureSvg\(\) \{[\s\S]*?<svg viewBox="0 0 560 118"/,
-  "the fallback dialog must carry an inline SVG figure (illustrated steps)"
+  /function defaultAppFinderFigureSvg\(group\) \{[\s\S]{0,160}?const \{ ext \} = defaultAppFinderGroupCopy\(group\);[\s\S]*?<svg viewBox="0 0 560 118"/,
+  "the fallback dialog must carry an inline SVG figure whose extension label comes from the group"
 );
 assert.match(
   INDEX_HTML,
@@ -1319,8 +1352,8 @@ assert.match(
 );
 assert.match(
   INDEX_HTML,
-  /figureImg\?\.addEventListener\("error", [\s\S]*?defaultAppFinderFigureSvg\(\)/,
-  "the dialog must fall back to the built-in SVG wireframe when the diagram asset is missing"
+  /figureImg\?\.addEventListener\("error", [\s\S]{0,200}?defaultAppFinderFigureSvg\(group\)/,
+  "the dialog must fall back to the built-in SVG wireframe (parameterised by group) when the diagram asset is missing"
 );
 assert.doesNotMatch(
   INDEX_HTML,
@@ -1347,37 +1380,78 @@ assert.match(
   /\.status\(\)[\s\S]*?!status\.success\(\)/,
   "system-launch operations must check the actual completion status and surface errors"
 );
-// 7b) GUI 反馈：说明与状态合并一行 + Markdown/HTML 显著状态徽章。
+// 7b) GUI 反馈 R3：状态收进右侧两枚胶囊按钮本体。原先「描述行内徽章 + 右侧
+//     独立『设为默认』按钮」把同一件事表达了两遍，且已默认态用墨水填充太黑。
 assert.match(
   INDEX_HTML,
-  /preference-desc-with-badges[\s\S]*?<span class="default-app-badges" data-default-app-status><\/span>/,
-  "the description line and the status line must be merged, with badges shown inline"
+  /class="preference-control default-app-actions" data-default-app-actions>[\s\S]{0,220}?data-default-app-action="markdown"><\/button>[\s\S]{0,120}?data-default-app-action="html"><\/button>/,
+  "the control slot must hold one pill button per format group, right-aligned as a pair"
 );
 assert.match(
   INDEX_HTML,
-  /default-app-badge default-app-badge--\$\{tone\}[\s\S]*?data-default-app-badge="\$\{group\}"/,
-  "each group must render as a tinted badge (ok/warn/idle/muted), not a plain text line"
+  /for \(const group of \["markdown", "html"\]\) \{[\s\S]{0,200}?actionsEl\.querySelector\(`\[data-default-app-action="\$\{group\}"\]`\)/,
+  "both pills must be driven from the real queried status, per group"
 );
 assert.match(
   INDEX_HTML,
-  /statusEl\.innerHTML =\s*badge\("markdown", markdownState\.key, markdownState\.tone\) \+\s*badge\("html", htmlState\.key, htmlState\.tone\);/,
-  "both Markdown and HTML badges must be rendered from the real queried status"
+  /button\.className = `default-app-button default-app-button--\$\{tone\}`;/,
+  "each pill must take its tone class from the per-group state"
 );
 assert.match(
   INDEX_HTML,
-  /data-default-app-show-fallback="true"[\s\S]*?showDefaultAppFinderFallbackDialog\(\);/,
-  "the fallback hint row must open the illustrated dialog instead of linking straight to Finder"
+  /button\.setAttribute\("aria-label", hint\);[\s\S]{0,90}?button\.setAttribute\("title", hint\);/,
+  "the pill's accessible name and its tooltip must come from the same state sentence"
 );
-// 7c) GUI 反馈 R2：徽章遵守 DESIGN.md 单色 Ink & Paper 体系；弹窗层级压过设置窗口。
+assert.match(
+  INDEX_HTML,
+  /return view\("idle", false, name, "settings\.defaultAppWindowsAction"\);/,
+  "on Windows both pills must stay actionable and open the system settings page (the backend cannot report a real handler there)"
+);
+assert.match(
+  INDEX_HTML,
+  /return view\("muted", true, name, "settings\.defaultAppStatusUnknown"\);/,
+  "an unconfirmable status must disable the pill instead of faking a check mark"
+);
+assert.match(
+  INDEX_HTML,
+  /data-default-app-show-fallback="true"[\s\S]*?showDefaultAppFinderFallbackDialog\(defaultAppFallbackGroup\);/,
+  "the fallback hint row must open the illustrated dialog for the group that actually failed"
+);
+assert.doesNotMatch(
+  INDEX_HTML,
+  /defaultAppHtmlPendingNote|data-default-app-html-note/,
+  "the stale 'HTML coming in a future version' line must be gone: HTML is settable now"
+);
+// 7c) GUI 反馈 R3：胶囊几何 + 单色 Ink & Paper 体系；弹窗层级压过设置窗口。
 assert.doesNotMatch(
   INDEX_HTML,
   /#005[cC]9[eE]/,
-  "the badges and the fallback figure must be strictly monochromatic (no blue-bottle blue anywhere)"
+  "the pills and the fallback figure must be strictly monochromatic (no blue-bottle blue anywhere)"
 );
 assert.match(
   INDEX_HTML,
-  /\.default-app-badge--ok \{[\s\S]{0,160}?background: var\(--ink, #1a1c1d\);[\s\S]{0,80}?color: var\(--paper, #ffffff\);/,
-  "the default state badge must be ink-filled (Primary Black), per the chosen Plan A chips"
+  /\.default-app-button \{[\s\S]{0,420}?border-radius: 999px;/,
+  "the pills must be capsule-shaped (radius = half the height), not rounded rectangles"
+);
+assert.match(
+  INDEX_HTML,
+  /\.default-app-button--idle \{[\s\S]{0,220}?border-color: var\(--ink, #1a1c1d\);[\s\S]{0,180}?background: var\(--paper, #ffffff\);/,
+  "the actionable pill must be white with an ink outline: state is expressed by the outline, not by a black fill"
+);
+assert.match(
+  INDEX_HTML,
+  /\.default-app-button--ok,[\s\S]{0,140}?\.default-app-button--muted,[\s\S]{0,140}?\.default-app-button--busy \{[\s\S]{0,220}?color: var\(--ink-soft, #5e5e63\);/,
+  "default / unconfirmed / in-flight must all render as the same disabled grey pill"
+);
+assert.match(
+  INDEX_HTML,
+  /\.default-app-button--warn \{[\s\S]{0,180}?border: 1px dashed var\(--ink, #1a1c1d\);/,
+  "a partial group must keep its own visually distinct (dashed) state instead of merging into 'default'"
+);
+assert.doesNotMatch(
+  INDEX_HTML,
+  /\.default-app-badge/,
+  "the replaced badge classes must not linger in the stylesheet"
 );
 assert.match(
   INDEX_HTML,
@@ -1414,7 +1488,7 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /async fn set_markdown_default_macos\([\s\S]*?tauri::async_runtime::channel[\s\S]*?app\.run_on_main_thread\(move \|\| \{[\s\S]*?setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
+  /async fn set_default_app_macos\(app: &tauri::AppHandle, uti: &'static str\)[\s\S]*?tauri::async_runtime::channel[\s\S]*?app\.run_on_main_thread\(move \|\| \{[\s\S]*?setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
   "the AppKit launch must stay on the main thread and only start the request, never wait there"
 );
 assert.match(
@@ -1425,12 +1499,12 @@ assert.match(
 // 函数体内不得有同步 recv（主线程阻塞路径必须消失）；同步 mpsc 仅允许
 // 留在快速的本地 handler 查询里（无系统对话框等待）。
 const SET_MACOS_BODY = DEFAULT_APPS_RS.slice(
-  DEFAULT_APPS_RS.indexOf("async fn set_markdown_default_macos("),
+  DEFAULT_APPS_RS.indexOf("async fn set_default_app_macos("),
   DEFAULT_APPS_RS.indexOf("/// 逐扩展名查询")
 );
 assert.ok(
   SET_MACOS_BODY.length > 200 && !SET_MACOS_BODY.includes("std::sync::mpsc") && !/recv\(\)\s*\./.test(SET_MACOS_BODY.replace("recv().await", "")),
-  "set_markdown_default_macos must not contain a blocking std-mpsc wait (Codex R4: main-thread recv froze the app during the system dialog)"
+  "set_default_app_macos must not contain a blocking std-mpsc wait (Codex R4: main-thread recv froze the app during the system dialog)"
 );
 // 10) P2 取消分支可达：按 NSError 实际 domain/code 分类（NSUserCancelledError），
 //     并带延迟回调/取消/失败的行为测试（非源码字符串断言）。
@@ -1463,7 +1537,7 @@ assert.match(
 );
 assert.match(
   INDEX_HTML,
-  /const outcome = await invoke\("set_default_app", \{ kind: "markdown" \}\);[\s\S]*?outcome === "systemSettings"[\s\S]*?defaultAppWindowsOpened/,
+  /const outcome = await invoke\("set_default_app", \{ kind: group \}\);[\s\S]*?outcome === "systemSettings"[\s\S]*?defaultAppWindowsOpened/,
   "a Windows set-default must surface the ms-settings hint based on the raw string outcome (serde enum shape)"
 );
 assert.match(
@@ -1483,117 +1557,379 @@ assert.match(
 );
 assert.match(
   I18N_JS,
-  /defaultAppWindowsOpened: "已在系统设置中打开「默认应用」页面/,
-  "the Windows opened hint must exist in zh"
+  /defaultAppWindowsOpened: "已在系统设置中打开「默认应用」页面；请在系统页面中将 NUTBOOK 设为 Markdown（\.md \/ \.markdown）与 HTML（\.html \/ \.htm）的默认应用。"/,
+  "the Windows opened hint must name both format groups, not just Markdown"
 );
 assert.match(
   I18N_JS,
   /guideBodyWindows: "点击「设为默认」将打开系统「默认应用」设置页/,
   "the Windows guide body must exist in zh"
 );
+// R3 新增：分组按钮需要的文案必须两种语言都有。
+for (const key of ["defaultAppPartialSuffix", "defaultAppWindowsAction", "defaultAppWindowsHint"]) {
+  assert.equal(
+    [...I18N_JS.matchAll(new RegExp(`${key}: "`, "g"))].length,
+    2,
+    `i18n key ${key} must exist in both locales`
+  );
+}
+// HTML 分组可设之后，任何「HTML 将在后续版本提供」的残留都必须消失。
+assert.doesNotMatch(
+  I18N_JS,
+  /defaultAppHtmlPendingNote|后续版本提供|coming in a future version/,
+  "the stale 'HTML coming in a future version' copy must be gone from both locales"
+);
+// Finder 备用说明必须按组参数化，否则 HTML 组的引导会写着 .md。
+// 用 `[^\n]*` 而不是 `[^"]*`：英文文案里的转义引号也是引号字符。
+for (const key of ["defaultAppFinderIntro", "defaultAppFinderStep1", "defaultAppFinderStep4"]) {
+  assert.equal(
+    [...I18N_JS.matchAll(new RegExp(`${key}: "[^\\n]*\\{ext\\}`, "g"))].length,
+    2,
+    `${key} must carry an {ext} placeholder in both locales so the guide names the group's own extension`
+  );
+}
+assert.equal(
+  [...I18N_JS.matchAll(/defaultAppFinderIntro: "[^\n]*\{format\}/g)].length,
+  2,
+  "the fallback guide intro must carry a {format} placeholder in both locales"
+);
+assert.match(
+  INDEX_HTML,
+  /formatTranslation\("settings\.defaultAppFinderStep1", \{ ext \}\)[\s\S]{0,400}?formatTranslation\("settings\.defaultAppFinderStep4", \{ ext \}\)/,
+  "the fallback dialog must actually interpolate the group's extension into the steps"
+);
 
-// 13) VM 行为切片：set-default 平台分流（Codex R4 要求行为测试，非仅源码锚点）——
-//   a) Windows 成功：显示 ms-settings 提示，Finder 备用说明不出现；
-//   b) Windows 失败：错误提示，Finder 备用说明仍不出现；
-//   c) macOS 失败（非取消）：Finder 备用说明出现；
-//   d) macOS 取消：中性取消提示，Finder 说明不出现；成功后总是重查真实状态。
+// 13) VM 行为切片：状态→按钮映射 + set-default 平台分流（Codex R4 要求行为
+//     测试，非仅源码锚点）。R3 把徽章换成胶囊按钮之后，这里直接断言按钮的
+//     tone / disabled / 文案 / 提示语：
+//       a) macOS 四态映射（已默认禁用、未默认可点、部分虚线、无法确认禁用）；
+//       b) Windows：两枚都可点、都不给状态符号；
+//       c) 非 Tauri：两枚都禁用；
+//       d) 设置中只让被点的那一枚 busy，另一枚保持真实状态；
+//       e) Windows 成功 / 失败：ms-settings 提示，Finder 备用说明永不出现；
+//       f) macOS 失败：Finder 备用说明出现并记住失败的是哪一组；
+//       g) macOS 取消：中性取消提示，Finder 说明不出现；成功后总是重查真实状态。
 const defaultAppHelpers = [
   "function defaultAppGroupStatusKey(status) {",
   "function isWindowsPlatform() {",
   "function renderDefaultAppStatusRow() {",
-  "async function setMarkdownDefaultAppFromPreferences() {"
+  "async function setDefaultAppFromPreferences(group) {"
 ]
   .map((marker) => extractFunctionSource(INDEX_HTML, marker))
   .join("\n");
 
-async function runSetDefaultScenario({ windows, invokeError, outcome }) {
-  const statuses = [];
+// 一行的假 DOM：两个真按钮桩 + 两处说明行；说明行的显隐由 ctx 记录成可断言
+// 的事实，不再靠读 innerHTML 串。
+function makeDefaultAppRow({ buttons, isTauri = true, windows = false, status = null, setting = null, fallbackGroup = "markdown" }) {
   const ctx = {
     console,
     navigator: { platform: windows ? "Win32" : "MacIntel" },
-    appState: { isTauri: true },
-    defaultAppStatus: { markdown: "notDefault", html: "unknown" },
-    defaultAppSetting: false,
+    appState: { isTauri },
+    defaultAppStatus: status,
+    defaultAppSetting: setting,
+    defaultAppFallbackGroup: fallbackGroup,
     defaultAppStatusSerial: 0,
-    statusElStub: { innerHTML: "" },
-    els: {
-      settingsPreferenceList: {
-        querySelector: () => ({
-          querySelector: (sel) => {
-            if (sel === "[data-default-app-status]") return ctx.statusElStub;
-            if (sel === "[data-default-app-finder-note]") {
-              return { removeAttribute: (name) => { if (name === "hidden") ctx.finderNoteRevealed = true; } };
-            }
-            if (sel === "[data-default-app-action]") return { hidden: true };
-            return null;
-          }
-        })
-      }
-    },
-    t: (key) => key,
-    setStatus: (message, kind) => statuses.push({ message, kind }),
-    normalizeError: (error) => String(error?.code || error),
-    invoke: async (command, args) => {
-      ctx.invoked.push([command, args]);
-      if (invokeError) throw invokeError;
-      return outcome;
-    },
-    refreshDefaultAppStatus: async () => { ctx.refreshed += 1; },
+    finderNoteRevealed: false,
+    windowsNoteHidden: false,
+    statuses: [],
     invoked: [],
     refreshed: 0,
-    finderNoteRevealed: false
+    t: (key) => key,
+    setStatus: (message, kind) => ctx.statuses.push({ message, kind }),
+    normalizeError: (error) => String(error?.code || error),
+    invoke: async () => null,
+    refreshDefaultAppStatus: async () => { ctx.refreshed += 1; }
+  };
+  const actionsEl = {
+    querySelector: (sel) => {
+      const match = /^\[data-default-app-action="(\w+)"\]$/.exec(sel);
+      return match ? buttons[match[1]] || null : null;
+    }
+  };
+  ctx.els = {
+    settingsPreferenceList: {
+      querySelector: (sel) => {
+        if (sel !== "[data-default-app-row]") return null;
+        return {
+          querySelector: (inner) => {
+            if (inner === "[data-default-app-actions]") return actionsEl;
+            if (inner === "[data-default-app-finder-note]") {
+              return {
+                removeAttribute: (name) => {
+                  if (name === "hidden") ctx.finderNoteRevealed = true;
+                }
+              };
+            }
+            if (inner === "[data-default-app-windows-note]") {
+              return {
+                get hidden() { return ctx.windowsNoteHidden; },
+                set hidden(value) { ctx.windowsNoteHidden = value; }
+              };
+            }
+            return null;
+          }
+        };
+      }
+    }
+  };
+  return ctx;
+}
+
+function makeDefaultAppButton(group) {
+  return {
+    group,
+    className: "",
+    textContent: "",
+    disabled: false,
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return name === "data-default-app-action" ? this.group : null; }
+  };
+}
+
+function makeDefaultAppButtons() {
+  return { markdown: makeDefaultAppButton("markdown"), html: makeDefaultAppButton("html") };
+}
+
+async function runRenderScenario(options) {
+  const buttons = makeDefaultAppButtons();
+  const ctx = makeDefaultAppRow({ ...options, buttons });
+  vm.createContext(ctx);
+  await vm.runInContext(`${defaultAppHelpers}\nrenderDefaultAppStatusRow()`, ctx);
+  return { ctx, buttons };
+}
+
+// 点击某一组 → 完整走一遍 setDefaultAppFromPreferences。
+// 结束后按钮停在「被点的那一枚 busy、另一枚保持真实状态」的快照上（产码在
+// finally 之后只重查状态，不再重绘），所以可以直接断言 busy 外观。
+async function runSetDefaultScenario({ windows = false, invokeError, outcome, group = "markdown", status = null }) {
+  const buttons = makeDefaultAppButtons();
+  const ctx = makeDefaultAppRow({
+    buttons,
+    windows,
+    status: status ?? { markdown: "notDefault", html: "unknown" }
+  });
+  const baseInvoke = ctx.invoke;
+  ctx.invoke = async (command, args) => {
+    ctx.invoked.push([command, args]);
+    if (invokeError) throw invokeError;
+    return outcome ?? baseInvoke(command, args);
   };
   vm.createContext(ctx);
-  await vm.runInContext(`${defaultAppHelpers}\nsetMarkdownDefaultAppFromPreferences()`, ctx);
-  return { statuses, ctx };
+  await vm.runInContext(`${defaultAppHelpers}\nsetDefaultAppFromPreferences(${JSON.stringify(group)})`, ctx);
+  return { ctx, buttons };
 }
 
 {
-  // a) Windows 成功：SystemSettings 提示，无 Finder 说明，重查状态。
+  // a) macOS 四态映射：状态只来自真实查询，逐态核对可点性与文案。
+  const both = await runRenderScenario({ status: { markdown: "default", html: "default" } });
+  for (const group of ["markdown", "html"]) {
+    const button = both.buttons[group];
+    const name = group === "markdown" ? "Markdown" : "HTML";
+    assert.equal(
+      button.className,
+      "default-app-button default-app-button--ok",
+      `${group}: a default group must render the disabled checked pill`
+    );
+    assert.equal(
+      button.disabled,
+      true,
+      `${group}: the already-default pill must be disabled — macOS has no "unset default" API, so a clickable pill there would be a lie`
+    );
+    assert.equal(button.textContent, `${name} ✓`, `${group}: the default pill must show the check`);
+    assert.equal(
+      button.attributes.title,
+      "settings.defaultAppStatusDefault",
+      `${group}: the tooltip must be the real status sentence`
+    );
+  }
+
+  const notDefault = await runRenderScenario({ status: { markdown: "notDefault", html: "default" } });
+  assert.equal(
+    notDefault.buttons.markdown.className,
+    "default-app-button default-app-button--idle",
+    "a not-default group must render the actionable pill (white + ink outline)"
+  );
+  assert.equal(notDefault.buttons.markdown.disabled, false, "the not-default pill must be clickable");
+  assert.equal(notDefault.buttons.markdown.textContent, "Markdown ＋", "the not-default pill must show the plus sign");
+  assert.equal(
+    notDefault.buttons.markdown.attributes["aria-label"],
+    "settings.defaultAppSetAction",
+    "the actionable pill must describe the action, not the status"
+  );
+  assert.equal(
+    notDefault.buttons.html.className,
+    "default-app-button default-app-button--ok",
+    "the other group must keep its own state"
+  );
+  assert.equal(notDefault.buttons.html.disabled, true, "the other group must stay disabled while it is already default");
+
+  const partial = await runRenderScenario({ status: { markdown: "partial", html: "notDefault" } });
+  assert.equal(
+    partial.buttons.markdown.className,
+    "default-app-button default-app-button--warn",
+    "a partial group must keep its own dashed state"
+  );
+  assert.equal(partial.buttons.markdown.disabled, false, "a partial group is still fixable, so its pill must be clickable");
+  assert.equal(
+    partial.buttons.markdown.textContent,
+    "Markdown settings.defaultAppPartialSuffix",
+    "the partial pill must spell out the partial state via an i18n key (harness expands keys verbatim), not merge into default"
+  );
+  assert.equal(
+    partial.buttons.markdown.attributes.title,
+    "settings.defaultAppStatusPartial",
+    "the partial pill must explain the group-internal inconsistency"
+  );
+
+  const unknown = await runRenderScenario({ status: { markdown: "unknown", html: "unknown" } });
+  for (const group of ["markdown", "html"]) {
+    const button = unknown.buttons[group];
+    assert.equal(button.className, "default-app-button default-app-button--muted", `${group}: an unconfirmable status must render the grey pill`);
+    assert.equal(button.disabled, true, `${group}: an unconfirmable status must never be clickable`);
+    assert.equal(
+      button.textContent,
+      group === "markdown" ? "Markdown" : "HTML",
+      `${group}: no status symbol may be invented when the status is unknown`
+    );
+  }
+
+  const loading = await runRenderScenario({ status: null });
+  assert.equal(
+    loading.buttons.markdown.attributes.title,
+    "settings.defaultAppStatusLoading",
+    "before the first query returns, the tooltip must say it is still checking"
+  );
+
+  // b) Windows：后端读不到真实 handler，两枚都可点、都不带状态符号。
+  const onWindows = await runRenderScenario({ windows: true, status: { markdown: "unknown", html: "unknown" } });
+  for (const group of ["markdown", "html"]) {
+    const button = onWindows.buttons[group];
+    assert.equal(button.className, "default-app-button default-app-button--idle", `${group}: on Windows both pills must stay actionable`);
+    assert.equal(
+      button.disabled,
+      false,
+      `${group}: on Windows both pills must be clickable (they open the system settings page)`
+    );
+    assert.equal(
+      button.textContent,
+      group === "markdown" ? "Markdown" : "HTML",
+      `${group}: Windows must not show a check mark it cannot verify`
+    );
+    assert.equal(
+      button.attributes.title,
+      "settings.defaultAppWindowsAction",
+      `${group}: the Windows pill must say it opens the system page`
+    );
+  }
+  assert.equal(onWindows.ctx.windowsNoteHidden, false, "the Windows row hint must be revealed on Windows");
+  assert.equal(onWindows.ctx.finderNoteRevealed, false, "a status query alone must never reveal the Finder fallback note");
+
+  // c) 非 Tauri（浏览器直开 dist）：两枚都禁用，说明行全部收起。
+  const dev = await runRenderScenario({ isTauri: false, status: null });
+  for (const group of ["markdown", "html"]) {
+    assert.equal(dev.buttons[group].disabled, true, `${group}: without Tauri neither pill may pretend to work`);
+  }
+  assert.equal(dev.ctx.windowsNoteHidden, true, "the Windows hint must stay hidden outside Tauri");
+
+  // d) 设置中：只让被点的那一枚 busy，另一枚保持真实状态。
+  const inFlight = await runRenderScenario({ setting: "markdown", status: { markdown: "notDefault", html: "default" } });
+  assert.equal(
+    inFlight.buttons.markdown.className,
+    "default-app-button default-app-button--busy",
+    "only the clicked group may enter the busy tone"
+  );
+  assert.equal(inFlight.buttons.markdown.disabled, true, "the busy pill must not be clickable twice");
+  assert.equal(inFlight.buttons.markdown.textContent, "Markdown", "the busy pill must not keep an action symbol");
+  assert.equal(
+    inFlight.buttons.html.className,
+    "default-app-button default-app-button--ok",
+    "the other group must keep its real queried status while a set is in flight"
+  );
+}
+
+{
+  // e) Windows 成功：SystemSettings 提示，无 Finder 说明，重查状态。
   //    fixture 用后端真实 serde 形状：无载荷 enum → 字符串 "systemSettings"
   //   （Codex R5：旧 fixture {mode:"systemSettings"} 掩盖了协议不一致）。
-  const a = await runSetDefaultScenario({ windows: true, outcome: "systemSettings" });
+  const a = await runSetDefaultScenario({
+    windows: true,
+    outcome: "systemSettings",
+    status: { markdown: "unknown", html: "unknown" }
+  });
   assert.deepEqual(
-    a.statuses.map((entry) => [entry.message, entry.kind]),
+    a.ctx.statuses.map((entry) => [entry.message, entry.kind]),
     [["settings.defaultAppWindowsOpened", "info"]],
     "Windows success must surface the ms-settings hint, not the macOS dialog wording"
   );
+  assert.deepEqual(
+    a.ctx.invoked.map(([command, args]) => [command, args.kind]),
+    [["set_default_app", "markdown"]],
+    "the clicked pill must invoke set_default_app with its own group, never a hard-coded one"
+  );
   assert.equal(a.ctx.finderNoteRevealed, false, "Windows must never reveal the Finder fallback note");
-  // 徽章行为：设置中 markdown 徽章必须进入 busy 态（显著展示），html 徽章
-  // 保持真实状态（unknown → muted）。
-  assert.match(
-    a.ctx.statusElStub.innerHTML,
-    /default-app-badge--busy[\s\S]*?data-default-app-badge="markdown"[\s\S]*?defaultAppWindowsOpening/,
-    "while a set is in flight the Markdown badge must show the busy tone with the platform hint"
+  // 进行中：被点的那一枚进 busy，另一枚保持真实状态（Windows 下即 idle 可点）。
+  assert.equal(
+    a.buttons.markdown.className,
+    "default-app-button default-app-button--busy",
+    "while the set is in flight the clicked pill must show the busy tone"
   );
-  assert.match(
-    a.ctx.statusElStub.innerHTML,
-    /default-app-badge--muted[\s\S]*?data-default-app-badge="html"[\s\S]*?defaultAppStatusUnknown/,
-    "the HTML badge must keep its real queried status while Markdown is being set"
+  assert.equal(
+    a.buttons.markdown.attributes.title,
+    "settings.defaultAppWindowsOpening",
+    "the busy pill must carry the platform's in-progress hint"
   );
+  assert.equal(a.buttons.html.disabled, false, "the untouched group must keep its own state while the other is being set");
   assert.equal(a.ctx.refreshed, 1, "status must be re-queried after the system settings page opens");
 
-  // b) Windows 失败：错误提示，仍无 Finder 说明。
-  const b = await runSetDefaultScenario({ windows: true, invokeError: { code: "DEFAULT_APP_ACTION_FAILED" } });
+  // f) Windows 失败：错误提示，仍无 Finder 说明。
+  const b = await runSetDefaultScenario({
+    windows: true,
+    invokeError: { code: "DEFAULT_APP_ACTION_FAILED" },
+    status: { markdown: "unknown", html: "unknown" }
+  });
   assert.ok(
-    b.statuses.some((entry) => entry.kind === "error"),
+    b.ctx.statuses.some((entry) => entry.kind === "error"),
     "a Windows failure must surface the error"
   );
   assert.equal(b.ctx.finderNoteRevealed, false, "a Windows failure must not reveal the Finder fallback note");
 
-  // c) macOS 失败（非取消）：Finder 备用说明出现。
-  const c = await runSetDefaultScenario({ windows: false, invokeError: { code: "DEFAULT_APP_ACTION_FAILED" } });
+  // g) macOS 失败（非取消）：Finder 备用说明出现，并记住失败的是哪一组——
+  //    否则 HTML 组失败时，引导步骤会写着 .md。
+  const c = await runSetDefaultScenario({
+    invokeError: { code: "DEFAULT_APP_ACTION_FAILED" },
+    group: "html",
+    status: { markdown: "notDefault", html: "notDefault" }
+  });
   assert.equal(c.ctx.finderNoteRevealed, true, "a macOS failure must reveal the in-app Finder fallback note");
-
-  // d) macOS 取消：中性取消提示，Finder 说明不出现；重查保留真实状态。
-  const d = await runSetDefaultScenario({ windows: false, invokeError: { code: "DEFAULT_APP_ACTION_CANCELLED" } });
+  assert.equal(
+    c.ctx.defaultAppFallbackGroup,
+    "html",
+    "the fallback guide must remember which group failed, so its steps name the right extension"
+  );
   assert.deepEqual(
-    d.statuses.map((entry) => [entry.message, entry.kind]),
+    c.ctx.invoked.map(([command, args]) => [command, args.kind]),
+    [["set_default_app", "html"]],
+    "the HTML pill must invoke set_default_app with kind=html"
+  );
+
+  // h) macOS 取消：中性取消提示，Finder 说明不出现；重查保留真实状态。
+  const d = await runSetDefaultScenario({
+    invokeError: { code: "DEFAULT_APP_ACTION_CANCELLED" },
+    status: { markdown: "notDefault", html: "unknown" }
+  });
+  assert.deepEqual(
+    d.ctx.statuses.map((entry) => [entry.message, entry.kind]),
     [["settings.defaultAppSetCancelled", "warn"]],
     "a macOS cancellation must show the neutral cancelled message only"
   );
   assert.equal(d.ctx.finderNoteRevealed, false, "a cancellation must not be treated as a system failure");
   assert.equal(d.ctx.refreshed, 1, "the real status must be re-queried even after cancellation");
+
+  // i) 未知组名必须在 invoke 之前被挡掉：拼错的 group 不得改到别的格式关联。
+  const forged = await runSetDefaultScenario({ group: "pdf" });
+  assert.deepEqual(forged.ctx.invoked, [], "an unknown group must be rejected before invoke");
+  assert.equal(forged.ctx.refreshed, 0, "a rejected group must not trigger a status re-query either");
 }
 
 // 14) Codex R5：返回协议一致性——前端两处消费点都直接比较字符串（serde 无

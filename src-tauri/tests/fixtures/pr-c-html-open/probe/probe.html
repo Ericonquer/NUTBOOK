@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>PR C 运行边界对抗探针</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 32px; line-height: 1.6; color: #1c1c1e; }
+    h1 { color: #005C9E; font-size: 22px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 13px; }
+    th, td { border: 1px solid #d9d9de; padding: 7px 9px; text-align: left; vertical-align: top; }
+    th { background: #f5f5f7; }
+    td.verdict { font-weight: 700; white-space: nowrap; }
+    .REACHABLE, .BROKEN { color: #b3261e; }
+    .BLOCKED, .OK, .RETIRED, .ABSENT { color: #1b6b3a; }
+    .AMBIGUOUS { color: #8a6100; }
+    .SKIPPED, .INFO { color: #6b6b70; }
+    code { background: #f5f5f7; padding: 1px 4px; border-radius: 4px; word-break: break-all; }
+    .bar { margin: 18px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+    button { padding: 6px 12px; border: 1px solid #005C9E; background: #fff; color: #005C9E; border-radius: 6px; cursor: pointer; }
+    .danger { border-color: #b3261e; color: #b3261e; }
+    .config { margin: 14px 0; padding: 10px 12px; border: 1px solid #d9d9de; border-radius: 8px; font-size: 13px; }
+    .config input { width: 60%; font-family: ui-monospace, monospace; font-size: 12px; padding: 4px 6px; }
+    #summary { margin-top: 14px; padding: 10px 12px; background: #f5f5f7; border-radius: 8px; font-size: 13px; }
+    #raw { width: 100%; height: 160px; margin-top: 12px; font-family: ui-monospace, monospace; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h1>PR C 运行边界对抗探针</h1>
+  <p>本页在真实 HTML 正文 child 里运行，实测越界读取与命令调用是否可达。<b class="REACHABLE">红色 REACHABLE = 越界成功</b>；<b class="AMBIGUOUS">黄色 AMBIGUOUS = 未知（不得当拦截）</b>；<b class="SKIPPED">灰色 SKIPPED = 未执行</b>。只有明确拒绝（403/400、ACL 拒绝文案）才记绿色 BLOCKED。判定口径见页脚汇总：绿色 = 确定结论（明确拒绝 / canary 校验通过 / 显式声明的预期 404），黄色 AMBIGUOUS 与灰色 SKIPPED 一律不算通过。</p>
+  <div class="config">
+    本次接入模式（<b>必须手选，默认不假设为 folder</b>；下拉只决定各判定项的预期值，<b>不改变任何授权范围</b> —— 真实权限由你实际用哪个入口打开决定）：<select id="pageMode"><option value="" selected>请选择本次真实入口…</option><option value="folder">folder（正式资料库：添加文件夹接入样本根）</option><option value="single-file">single-file（正式资料库：添加文件单独加 probe.html）</option><option value="external-open">external-open（外部临时系统打开：访达双击 / 用其他应用打开 probe.html）</option></select>　
+    样本目录绝对路径（asset 组目标；留空则从 location 自动推导，scoped origin 下请手填）：<input id="probeDirInput" placeholder="/Users/.../src-tauri/tests/fixtures/pr-c-html-open/probe">　
+    补充目标（可选，绝对路径，如 $TMP 下自建 canary）：<input id="extraTarget" placeholder="/private/var/folders/.../canary.txt">　
+    预期标记（可选，canary 文件首行内容）：<input id="extraMarker" placeholder="MY-TMP-CANARY">
+    <button id="probeExtra" type="button">经 /fs 与 asset:// 探测该路径</button>
+    <br>旧内部服务 origin（可选，Phase 1 回归用，留空跳过）：<input id="legacyOrigin" placeholder="http://127.0.0.1:53496">
+    <button id="probeLegacy" type="button">对旧 origin 跑无凭证 /fs 探测</button>
+  </div>
+  <div id="summary">运行中…</div>
+  <div class="bar">
+    <button id="rerun" type="button">重跑自动检测</button>
+    <button id="copy" type="button">复制结果 JSON</button>
+    <button id="popup" class="danger" type="button">手动：window.open 越界</button>
+    <button id="popupControl" type="button">对照：window.open 界内</button>
+    <button id="iframe" class="danger" type="button">手动：iframe 越界</button>
+    <button id="iframeControl" type="button">对照：iframe 界内</button>
+    <button id="iframeAsset" type="button">手动：iframe asset 界内 canary（渲染路径）</button>
+    <button id="navigate" class="danger" type="button">手动：导航到越界地址（会离开本页，先复制 JSON）</button>
+  </div>
+  <table id="results"><thead><tr><th style="width:52px">编号</th><th style="width:210px">检测项</th><th style="width:104px">判定</th><th>细节</th></tr></thead><tbody></tbody></table>
+  <textarea id="raw" readonly></textarea>
+  <div id="manual"></div>
+  <script>
+  (function () {
+    var ORIGIN = location.origin;
+    var FS_PREFIX = "/fs";
+    var rows = [];
+    var pageMode = document.getElementById("pageMode");
+    var probeDirInput = document.getElementById("probeDirInput");
+    var extraTargetInput = document.getElementById("extraTarget");
+    var extraMarkerInput = document.getElementById("extraMarker");
+    var legacyOriginInput = document.getElementById("legacyOrigin");
+    // Codex R5：模式在运行开始快照并冻结，结果归属该快照；切换模式必须重跑。
+    var currentRunMode = null;
+
+    function selfAbsolutePath() {
+      var pathname = location.pathname || "";
+      if (pathname.indexOf(FS_PREFIX + "/") !== 0) { return null; }
+      try { return decodeURIComponent(pathname.slice(FS_PREFIX.length)); } catch (e) { return pathname.slice(FS_PREFIX.length); }
+    }
+
+    function dirOf(absolute) {
+      if (!absolute) { return null; }
+      var cut = absolute.lastIndexOf("/");
+      return cut > 0 ? absolute.slice(0, cut) : null;
+    }
+
+    var selfPath = selfAbsolutePath();
+    var selfDir = dirOf(selfPath);
+    // Codex R7：location 仍暴露绝对路径时预填样本目录，供 scoped origin 下手填复用。
+    if (selfDir) { probeDirInput.value = selfDir; }
+    var parentDir = dirOf(selfDir);
+    var grandParentDir = dirOf(parentDir);
+    var scopeRootCanaryRelative = "../SCOPE-ROOT-CANARY.txt";
+    var outsideCanary = grandParentDir ? grandParentDir + "/pr-c-html-open-outside/OUTSIDE-CANARY.txt" : null;
+    var outsideTraversal = "../../pr-c-html-open-outside/OUTSIDE-CANARY.txt";
+    var worldFile = navigator.userAgent.indexOf("Windows") >= 0
+      ? "C:/Windows/System32/drivers/etc/hosts"
+      : "/etc/hosts";
+
+    // asset URL 与 __TAURI_INTERNALS__.convertFileSrc 同构：整条绝对路径编码为单个组件。
+    function assetUrlOf(absolute) {
+      var convert = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.convertFileSrc;
+      if (typeof convert === "function") {
+        try { var converted = convert(absolute); if (converted) { return converted; } } catch (e) {}
+      }
+      return "asset://localhost/" + encodeURIComponent(absolute);
+    }
+
+    function record(id, name, verdict, detail) {
+      rows.push({ id: id, name: name, verdict: verdict, detail: String(detail) });
+    }
+
+    function fsUrl(absolute) {
+      return ORIGIN + FS_PREFIX + absolute.split("/").map(encodeURIComponent).join("/");
+    }
+
+    // 最终请求 URL：浏览器在发出前会做归一化（字面 `..` 与 `%2e%2e` 点段会被吃掉或被 clamp）。
+    // 记录它的目的是把「归一化后的目标」与「服务端实际收到什么」分开陈述（Codex C-GUI-2）。
+    function finalUrl(url) {
+      try { return new URL(url, location.href).href; } catch (e) { return String(url); }
+    }
+
+    // 读取型检测（Codex R2 收紧；Codex C-GUI-2 扩展判定口径）。
+    // expect 取值与语义（没有一条路径能把「没测到」记成通过）：
+    //   "must-read"   正向对照：必须读到且 canary 校验通过；明确拒绝/404/其他非 2xx/无标记 → BROKEN。
+    //   "must-block"  越界尝试：明确拒绝（400/401/403）→ BLOCKED；读到 canary → REACHABLE；
+    //                 其余（404/5xx/网络失败/200 无标记）→ AMBIGUOUS。
+    //   "retired-404" 已移除的旧 /fs 路由：预期 404 → RETIRED（单独表示「旧路由不可用」）；
+    //                 明确拒绝 → BLOCKED；读到 canary → REACHABLE；其余 → AMBIGUOUS。
+    //   "absent-404"  定义清楚的「归一化后落在授权 root 内但该路径不存在」映射：预期 404 → ABSENT；
+    //                 明确拒绝 → BLOCKED；读到 canary → REACHABLE；其余 → AMBIGUOUS。
+    //                 rationale 必须由调用方给出（归一化后目标 / 授权 root / canary 名），
+    //                 缺 rationale 时 404 不进入 ABSENT 通道（防把任意 404 泛化为通过）。
+    function classifyFetch(id, name, url, expect, marker, rationale) {
+      var target = finalUrl(url);
+      function finish(verdict, detail) {
+        record(id, name, verdict, detail + " @ " + target + (rationale ? "（" + rationale + "）" : ""));
+      }
+      return fetch(url, { cache: "no-store" }).then(function (response) {
+        var code = response.status;
+        var explicitDeny = code === 400 || code === 401 || code === 403;
+        if (expect === "must-read") {
+          if (explicitDeny) { finish("BROKEN", "正向对照被明确拒绝 HTTP " + code); return; }
+          if (!response.ok) { finish("BROKEN", "HTTP " + code + "：正向对照不可读（修复过头？）"); return; }
+        } else {
+          if (explicitDeny) { finish("BLOCKED", "明确拒绝 HTTP " + code); return; }
+          if (code === 404) {
+            if (expect === "retired-404") { finish("RETIRED", "预期 404：旧 /fs 路由已移除，该路径在服务端不存在"); return; }
+            if (expect === "absent-404" && rationale) { finish("ABSENT", "预期 404：归一化后的目标落在授权 root 内且该路径不存在，未读到诱饵"); return; }
+            finish("AMBIGUOUS", "HTTP 404：预期之外的不存在响应，不能记 BLOCKED"); return;
+          }
+          if (!response.ok) {
+            finish("AMBIGUOUS", "HTTP " + code + "：非明确拒绝（服务错误/路径缺失均可能），不能记 BLOCKED");
+            return;
+          }
+        }
+        return response.text().then(function (body) {
+          var trimmed = (body || "").trim();
+          if (!trimmed.length) {
+            finish("AMBIGUOUS", "HTTP 200 但正文为空");
+            return;
+          }
+          // marker 为空时仅用于 worldFile（hosts）启发式；正式 canary 检测必须提供标记。
+          var matched = marker ? trimmed.indexOf(marker) >= 0 : /localhost|127\.0\.0\.1|::1/i.test(trimmed);
+          if (!matched) {
+            finish("AMBIGUOUS", "HTTP 200 但内容不含预期标记（可能是错误页或别的文件），首行：" + trimmed.split("\n")[0].slice(0, 80));
+            return;
+          }
+          record(id, name, expect === "must-read" ? "OK" : "REACHABLE", "读到 " + trimmed.length + " 字节，canary 校验通过，首行：" + trimmed.split("\n")[0].slice(0, 80) + " @ " + target);
+        });
+      }).catch(function (error) {
+        // 网络/CORS 失败 ≠ 被拦：asset:// 的 fetch 可能被 CORS 掐断而 iframe/img 仍可加载。
+        finish(expect === "must-read" ? "BROKEN" : "AMBIGUOUS",
+          "网络/协议失败（CORS、连接拒绝等），不代表资源不可达：" + String(error && error.message ? error.message : error));
+      });
+    }
+
+    // asset 可渲染路径 —— Codex R7：img.onload/onerror 单独无法证明权限拒绝，
+    // 采用联合判定：onload = 渲染路径泄露（REACHABLE）；onerror + 同 URL fetch 明确拒绝 = BLOCKED；
+    // 其余（fetch 非 2xx 非 4xx 明确码、fetch 网络失败、超时）= AMBIGUOUS。不要求 img.onerror 单独归因。
+    function probeAssetRender(id, name, absolute) {
+      return new Promise(function (resolve) {
+        var image = new Image();
+        var done = false;
+        var finish = function (verdict, detail) { if (done) return; done = true; record(id, name, verdict, detail); resolve(); };
+        image.onload = function () {
+          finish("REACHABLE",
+            "asset 渲染路径加载成功（" + image.naturalWidth + "x" + image.naturalHeight + "），目标 " + absolute);
+        };
+        image.onerror = function () {
+          fetch(assetUrlOf(absolute), { cache: "no-store" }).then(function (response) {
+            if (response.status === 400 || response.status === 401 || response.status === 403) {
+              finish("BLOCKED", "img 未加载且同 URL fetch 明确拒绝 HTTP " + response.status + "，目标 " + absolute);
+            } else {
+              finish("AMBIGUOUS", "img 未加载且 fetch HTTP " + response.status + "（非明确拒绝），目标 " + absolute);
+            }
+          }).catch(function (error) {
+            finish("AMBIGUOUS", "img 未加载且 fetch 失败（CORS/连接均可能），无法归因：" + String(error && error.message ? error.message : error) + "，目标 " + absolute);
+          });
+        };
+        window.setTimeout(function () { finish("AMBIGUOUS", "asset 渲染路径 10s 超时，目标 " + absolute); }, 10000);
+        image.src = assetUrlOf(absolute);
+      });
+    }
+
+    // 命令型检测：resolve 即越权成功（真实未授权调用）；reject 时按错误文案区分权限拦截与其他失败。
+    function probeInvoke(id, name, command) {
+      var invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+      if (typeof invoke !== "function") {
+        record(id, name, "SKIPPED", "本上下文没有 __TAURI_INTERNALS__.invoke，检测未执行");
+        return Promise.resolve();
+      }
+      return Promise.resolve(invoke(command, {})).then(function (value) {
+        var shape;
+        try { shape = JSON.stringify(value); } catch (e) { shape = String(value); }
+        record(id, name, "REACHABLE", command + " 返回：" + String(shape).slice(0, 220));
+      }).catch(function (error) {
+        var text = String(error && error.message ? error.message : (typeof error === "object" ? JSON.stringify(error) : error));
+        var denied = /not allowed|ACL|forbidden|denied|拒绝|无权限|not permitted/i.test(text);
+        record(id, name, denied ? "BLOCKED" : "AMBIGUOUS", command + " 报错：" + text.slice(0, 220));
+      });
+    }
+
+    function render() {
+      var body = document.querySelector("#results tbody");
+      body.innerHTML = "";
+      rows.forEach(function (row) {
+        var tr = document.createElement("tr");
+        var td1 = document.createElement("td"); td1.textContent = row.id;
+        var td2 = document.createElement("td"); td2.textContent = row.name;
+        var td3 = document.createElement("td"); td3.className = "verdict " + row.verdict; td3.textContent = row.verdict;
+        var td4 = document.createElement("td"); var codeNode = document.createElement("code"); codeNode.textContent = row.detail; td4.appendChild(codeNode);
+        tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+        body.appendChild(tr);
+      });
+      function countOf(verdict) { return rows.filter(function (r) { return r.verdict === verdict; }).length; }
+      var mode = currentRunMode || pageMode.value;
+      // Codex R7 二次复核修正：分组按受控 id 规则归类 —— 退休项 T03/T04/T05/T06 精确匹配
+      // （T04b 是必测项，不得被 T04 前缀误伤）；可选项 T16/T17 按 id 前缀匹配（实际 id 形如 T16-1a）。
+      // 退休项只豁免 SKIPPED（未执行）：实际执行的退休项按必测口径计入门限，
+      // 基线态 T03/T04 实跑 REACHABLE 代表旧 /fs 仍可读，不能被 T07 的拒绝抵消。
+      // 全局失败规则：任何分组的 REACHABLE（实际未授权读取/调用成功）一律计失败。
+      function groupOf(id) {
+        if (id === "T03" || id === "T04" || id === "T05" || id === "T06") { return "RETIRED"; }
+        if (id.indexOf("T16") === 0 || id.indexOf("T17") === 0) { return "OPTIONAL"; }
+        if (id === "T10" || id === "T11") { return "INFO"; }
+        return "REQUIRED";
+      }
+      // 门限口径（Codex R7 二次复核 + C-GUI-2 修正）：
+      // - 只有「明确拒绝」「2xx + canary 校验通过」「显式声明的预期 404（RETIRED / ABSENT）」是确定结论；
+      //   其余一律 AMBIGUOUS（计失败）—— 不得把 404、网络失败、REACHABLE=0 自动当成安全通过。
+      // - 全局失败规则：任何分组的 REACHABLE（实际未授权读取/调用成功）一律计失败。
+      // - 退休项（T03–T06）：预期 404 记 RETIRED、明确拒绝记 BLOCKED，均不计失败；
+      //   仅 SKIPPED（未执行）豁免；实际执行出的 REACHABLE / AMBIGUOUS / BROKEN 照常计失败。
+      // - 归一化锁定项（T04b single-file / T06s / T07）：定义清楚时 404 记 ABSENT（不计失败），
+      //   但真读到诱饵仍记 REACHABLE（计失败）—— 预期 404 不得掩盖泄露。
+      function computeGate(allRows) {
+        var gateRows = [];
+        var retiredSkipped = 0;
+        var globalReachable = 0;
+        allRows.forEach(function (r) {
+          if (r.verdict === "REACHABLE") { globalReachable += 1; }
+          var g = groupOf(r.id);
+          if (g === "REQUIRED") { gateRows.push(r); }
+          else if (g === "RETIRED") {
+            if (r.verdict === "SKIPPED") { retiredSkipped += 1; } else { gateRows.push(r); }
+          }
+        });
+        // gateRows 只含必测项与实跑退休项；OPTIONAL/INFO 不入门限（REACHABLE 由全局规则覆盖）。
+        var gateFailures = globalReachable + gateRows.filter(function (r) {
+          return r.verdict === "BROKEN" || r.verdict === "AMBIGUOUS" || r.verdict === "SKIPPED";
+        }).length;
+        return { gateFailures: gateFailures, globalReachable: globalReachable, retiredSkipped: retiredSkipped };
+      }
+      // 小型行为检查（Codex R7 二次复核 + C-GUI-2）：用合成行验证门限语义，覆盖
+      // 预期退休路由 404、真正越界可读、缺配置、网络失败四类情形，防止误放行。
+      function gateSelfTest() {
+        function mk(id, verdict) { return { id: id, verdict: verdict }; }
+        var cases = [
+          { rows: [mk("T03", "RETIRED")], expect: 0, why: "退休路由预期 404：单独表示旧路由不可用，不计失败" },
+          { rows: [mk("T03", "BLOCKED")], expect: 0, why: "退休项明确拒绝同样通过" },
+          { rows: [mk("T03", "REACHABLE")], expect: 1, why: "退休项实际读到诱饵必须计失败（防误放行）" },
+          { rows: [mk("T03", "AMBIGUOUS")], expect: 1, why: "退休项未知结果（含网络失败）计失败" },
+          { rows: [mk("T03", "SKIPPED")], expect: 0, why: "退休项 SKIPPED 是唯一豁免通道" },
+          { rows: [mk("T04b", "SKIPPED")], expect: 1, why: "T04b 是必测项，不受 T04 前缀误伤" },
+          { rows: [mk("T04b", "ABSENT")], expect: 0, why: "归一化锁定项：定义清楚的根内不存在映射，预期 404 通过" },
+          { rows: [mk("T04b", "REACHABLE")], expect: 1, why: "真读到 scope 根诱饵仍然失败（预期 404 不得掩盖泄露）" },
+          { rows: [mk("T07", "ABSENT")], expect: 0, why: "相对穿越归一化后落根内不存在路径：预期 404 通过" },
+          { rows: [mk("T06e", "AMBIGUOUS")], expect: 1, why: "编码分隔符项未知结果计失败" },
+          { rows: [mk("T16-1a", "SKIPPED")], expect: 0, why: "可选项（T16- 前缀）不入门限" },
+          { rows: [mk("T16-1a", "REACHABLE")], expect: 1, why: "可选项 REACHABLE 走全局失败规则" },
+          { rows: [mk("T17", "INFO")], expect: 0, why: "T17 同 origin INFO 项不入门限" },
+          { rows: [mk("T09", "SKIPPED")], expect: 1, why: "asset 组缺配置 SKIPPED 计入必测门限" },
+          { rows: [mk("T09b", "AMBIGUOUS")], expect: 1, why: "asset 组网络/未知失败计失败（缺配置与网络失败不得混同）" },
+          { rows: [mk("T03", "REACHABLE"), mk("T07", "BLOCKED"), mk("T04b", "OK"), mk("T06s", "BLOCKED")], expect: 1, why: "T07 拒绝不能抵消退休项 T03 的实际泄露" },
+          { rows: [mk("T02", "OK"), mk("T04b", "OK"), mk("T06s", "ABSENT"), mk("T07", "ABSENT"), mk("T06e", "BLOCKED"), mk("T03", "RETIRED"), mk("T09", "BLOCKED"), mk("T09b", "BLOCKED"), mk("T09c", "BLOCKED"), mk("T10b", "BLOCKED"), mk("T12", "BLOCKED"), mk("T13", "BLOCKED"), mk("T14", "BLOCKED"), mk("T15", "BLOCKED"), mk("T10", "INFO"), mk("T11", "INFO")], expect: 0, why: "全通过场景（含预期 404 与 INFO）门限必须为 0" }
+        ];
+        for (var i = 0; i < cases.length; i++) {
+          var got = computeGate(cases[i].rows).gateFailures;
+          if (got !== cases[i].expect) { return "FAIL 第 " + (i + 1) + " 例（" + cases[i].why + "）：期望 " + cases[i].expect + " 实得 " + got; }
+        }
+        return "PASS（" + cases.length + " 例）";
+      }
+      var gate = computeGate(rows);
+      var gateCheck = gateSelfTest();
+      document.getElementById("summary").innerHTML =
+        "origin：<code>" + ORIGIN + "</code>　页面：<code>" + location.href + "</code>　接入模式：<b>" + mode + "</b>（本次结果归属此快照，切换模式须重跑）<br>" +
+        "越界成功 REACHABLE=<b class=\"REACHABLE\">" + countOf("REACHABLE") + "</b>　" +
+        "明确拒绝 BLOCKED=<b class=\"BLOCKED\">" + countOf("BLOCKED") + "</b>　" +
+        "正向对照 OK=<b class=\"OK\">" + countOf("OK") + "</b>　" +
+        "对照被修坏 BROKEN=<b class=\"BROKEN\">" + countOf("BROKEN") + "</b>　" +
+        "未知 AMBIGUOUS=<b class=\"AMBIGUOUS\">" + countOf("AMBIGUOUS") + "</b>　" +
+        "未执行 SKIPPED=<b class=\"SKIPPED\">" + countOf("SKIPPED") + "</b>　" +
+        "预期 404（退休路由）RETIRED=<b class=\"RETIRED\">" + countOf("RETIRED") + "</b>　" +
+        "预期 404（根内不存在映射）ABSENT=<b class=\"ABSENT\">" + countOf("ABSENT") + "</b>　" +
+        "存在性 INFO=<b class=\"INFO\">" + countOf("INFO") + "</b><br>" +
+        "全局失败规则：任何分组的实际未授权成功 REACHABLE=<b class=\"REACHABLE\">" + gate.globalReachable + "</b> 一律计失败；" +
+        "Phase 1 修复门限（必测项 + 实际执行的退休项）合计 <b>" + gate.gateFailures + "</b>" +
+        (gate.gateFailures === 0 ? "（达标）" : "（未达标）") + "；" +
+        "退休项（T03–T06）仅豁免 SKIPPED（当前豁免 " + gate.retiredSkipped + " 项）；" +
+        "RETIRED / ABSENT 是显式声明的预期 404（旧 /fs 路由已移除 / 归一化后落根内不存在路径），不计失败，" +
+        "但真读到 canary 仍是 REACHABLE。" +
+        "可选项（T16/T17 前缀）与 INFO（T10/T11）不入门限。" +
+        "基线（d160278）下 T03/T04 REACHABLE 属特征化漏洞，门限未达标是预期，不代表回归。" +
+        "　门限逻辑自检：<b>" + gateCheck + "</b>";
+      document.getElementById("raw").value = JSON.stringify({
+        origin: ORIGIN,
+        href: location.href,
+        pageMode: mode,
+        selfPath: selfPath,
+        selfDir: selfDir,
+        parentDir: parentDir,
+        userAgent: navigator.userAgent,
+        gate: gate,
+        gateSelfTest: gateCheck,
+        rows: rows
+      }, null, 2);
+    }
+
+    function runAll() {
+      rows = [];
+      // Codex R5：运行开始快照模式并冻结选择器；本组结果归属该快照，切换模式须重跑。
+      currentRunMode = pageMode.value;
+      // Codex R92b：默认（未选择）不得伪装成 folder。三种入口的判定预期不同（尤其 T04b），
+      // 选错入口会把预期 404 误判成 BROKEN；所以未选择就拒绝运行并明确提示。
+      if (!currentRunMode) {
+        render();
+        document.getElementById("summary").innerHTML = "<b class=\"BROKEN\">未选择本次接入模式，已拒绝运行</b>：请先在下方下拉里选择你实际使用的真实入口（folder / single-file / external-open）。默认不假设为 folder —— 不同入口的授权 root 不同，判定预期也不同，选错会把预期 404（ABSENT）误报成 BROKEN。";
+        return;
+      }
+      pageMode.disabled = true;
+      document.getElementById("summary").textContent = "运行中…（模式 " + currentRunMode + "）";
+
+      // Codex R7：asset 组目标支持受控配置。scoped origin 下 location 不再暴露绝对路径，
+      // 用户手填样本目录后这些项仍可执行；留空且推导不出时记 SKIPPED（不计入必测门限）。
+
+      // T01 自身绝对路径是否对页面可见（信息泄露）。
+      if (selfPath) {
+        record("T01", "自身绝对路径泄露", "REACHABLE", "页面可从 location 读出：" + selfPath);
+      } else {
+        record("T01", "自身绝对路径泄露", "BLOCKED", "location 未暴露绝对路径：" + location.href);
+      }
+
+      var chain = [];
+      var cfgProbeDir = (probeDirInput.value || "").trim() || selfDir;
+      var cfgOutside = null;
+      if (cfgProbeDir) {
+        var probeParent = dirOf(cfgProbeDir);
+        var sampleRoot = probeParent ? dirOf(probeParent) : null;
+        cfgOutside = sampleRoot ? sampleRoot + "/pr-c-html-open-outside/OUTSIDE-CANARY.txt" : null;
+      }
+      var localCanaryAbs = cfgProbeDir ? cfgProbeDir + "/local-canary.txt" : null;
+      var localPixelAbs = cfgProbeDir ? cfgProbeDir + "/local-pixel.png" : null;
+
+      // T02 同目录资源（正向对照，相对 URL）：任何阶段都必须可读，读不到说明修复过头。
+      // 本项也是「编码分隔符穿越」的必需对照：T06e 不得替代它（Codex C-GUI-2）。
+      chain.push(classifyFetch("T02", "同目录资源（正向对照，相对 URL，必须可读）", "./local-canary.txt", "must-read", "PROBE-LOCAL-CANARY"));
+
+      // T03 /fs 读仓库外任意绝对路径（退休路由：Phase 1 已移除 /fs 面）。预期 404 单独表示「旧路由不可用」，
+      // 不能泛化为所有项的 BLOCKED。无 canary 标记，读到内容时用 hosts 启发式判定。
+      chain.push(classifyFetch("T03", "/fs 读系统任意文件（hosts 启发式；退休路由预期 404）", fsUrl(worldFile), "retired-404", null,
+        "旧 /fs 路由已移除；目标为系统文件、不携带本仓 canary，仅以状态码与 hosts 启发式判定"));
+
+      // T04 /fs 绝对路径读样本根外兄弟目录诱饵（退休路由，预期 404）。
+      if (outsideCanary) {
+        chain.push(classifyFetch("T04", "/fs 读越界诱饵（绝对路径，样本根外；退休路由预期 404）", fsUrl(outsideCanary), "retired-404", "NUTBOOK-PR-C-OUTSIDE-CANARY",
+          "旧 /fs 路由已移除；仍读到 canary 说明退休路由复活"));
+      } else {
+        record("T04", "/fs 读越界诱饵（绝对路径，样本根外；退休路由预期 404）", "SKIPPED", "无法从 location 推导绝对路径，检测未执行（退休项，后继 T07）");
+      }
+
+      // T04b scope 根诱饵（相对 URL，../ 越出直接父目录）。Codex R5：判定方向由本次运行快照的
+      // pageMode 决定。Codex C-GUI-2 修正：single-file 侧不再期待 403 —— 浏览器在发请求前已把 ../ 吃成
+      // clamp 到 origin 根，服务端收到的是 root 内一个不存在的路径，故记「预期 404（ABSENT）」。
+      // Codex R92b 修正：真实入口有三种，不是两种。外部临时系统打开（访达双击 / 用其他应用打开）的授权
+      // root 与 single-file 相同 —— 都是被打开 HTML 的直接父目录 probe/ —— 所以 ../SCOPE-ROOT-CANARY.txt
+      // 同样越出授权 root、归一化后映射到 root 内不存在的路径 → 同样 ABSENT。只有 folder（scope root =
+      // 样本根）才必须可读；把外部入口错记成 folder 会把这条预期 404 误判成 BROKEN（红）。
+      // 成对对照保留：folder 读到 scope 根 canary = OK（没修坏），其余入口读到 = REACHABLE（泄露，失败）。
+      var t04bFolderMode = currentRunMode === "folder";
+      var t04bMode = t04bFolderMode ? "must-read" : "absent-404";
+      var t04bRationale = t04bFolderMode
+        ? null
+        : "归一化后请求 " + finalUrl(scopeRootCanaryRelative) + "：../ 被浏览器 clamp 到 origin 根，映射为授权 root（single-file / external-open = 被打开 HTML 的直接父目录 probe/）内的 SCOPE-ROOT-CANARY.txt，该文件不存在；canary 标记 NUTBOOK-PR-C-SCOPE-ROOT-CANARY 不得被读到";
+      chain.push(classifyFetch("T04b", "scope 根诱饵（folder 必须可读 / single-file·external-open 归一化后预期 404）", scopeRootCanaryRelative, t04bMode, "NUTBOOK-PR-C-SCOPE-ROOT-CANARY", t04bRationale));
+
+      // T05 字面 .. 穿越（/fs URL，退休路由）。浏览器发请求前会归一化字面 ..，浏览器侧等价于 T04。
+      if (selfDir) {
+        chain.push(classifyFetch("T05", "/fs 字面 .. 穿越（浏览器归一化；退休路由预期 404）", ORIGIN + FS_PREFIX + selfDir + "/" + outsideTraversal, "retired-404", "NUTBOOK-PR-C-OUTSIDE-CANARY",
+          "旧 /fs 路由已移除；仍读到 canary 说明退休路由复活"));
+      } else {
+        record("T05", "/fs 字面 .. 穿越（浏览器归一化；退休路由预期 404）", "SKIPPED", "无法构造 /fs 绝对路径，检测未执行（退休项，后继 T07）");
+      }
+
+      // T06 编码 %2e%2e 穿越（/fs URL，退休路由）。归因（Codex R3）：浏览器同样会归一化 %2e%2e，
+      // 本项在浏览器侧只证明「归一化后的地址可读」；「服务端先解码再取文件」的顺序缺陷，
+      // 证据在 Rust 原始套接字用例（pr_c_scoped_origin_boundary.rs 的段校验用例）。
+      if (selfDir) {
+        chain.push(classifyFetch("T06", "/fs 编码 %2e%2e 穿越（浏览器同样归一化；退休路由预期 404）", ORIGIN + FS_PREFIX + selfDir + "/%2e%2e/%2e%2e/pr-c-html-open-outside/OUTSIDE-CANARY.txt", "retired-404", "NUTBOOK-PR-C-OUTSIDE-CANARY",
+          "旧 /fs 路由已移除；仍读到 canary 说明退休路由复活"));
+      } else {
+        record("T06", "/fs 编码 %2e%2e 穿越（浏览器同样归一化；退休路由预期 404）", "SKIPPED", "无法构造 /fs 绝对路径，检测未执行（退休项，后继 T06s）");
+      }
+
+      // T07 相对路径穿越到样本根之外（客户端解析，服务端收到归一化后的地址）。
+      // 本项不依赖绝对路径，是 T04/T05（退休项）在 scoped origin 下的后继用例（Codex R7）。
+      // Codex C-GUI-2：归一化后目标落在 origin 根内、映射到授权 root 内不存在的路径 → 预期 404（ABSENT）；
+      // 真读到诱饵（REACHABLE）仍计失败，预期 404 不掩盖泄露。
+      chain.push(classifyFetch("T07", "相对路径 ../../ 穿越到样本根外（T04/T05 后继；预期 404）", outsideTraversal, "absent-404", "NUTBOOK-PR-C-OUTSIDE-CANARY",
+        "归一化后请求 " + finalUrl(outsideTraversal) + "：../../ 被 clamp 到 origin 根，映射为授权 root 内不存在的 pr-c-html-open-outside/OUTSIDE-CANARY.txt"));
+
+      // T06s 编码 %2e%2e 的相对形式 —— T06（退休项）在后继口径下的对照项（Codex R7）。
+      // WHATWG URL 把 %2e%2e 也当 double-dot path segment，浏览器归一化结果与 T07 相同 → 同样预期 404。
+      chain.push(classifyFetch("T06s", "相对路径 %2e%2e 穿越（T06 后继；预期 404）", "%2e%2e/%2e%2e/pr-c-html-open-outside/OUTSIDE-CANARY.txt", "absent-404", "NUTBOOK-PR-C-OUTSIDE-CANARY",
+        "归一化后请求 " + finalUrl("%2e%2e/%2e%2e/pr-c-html-open-outside/OUTSIDE-CANARY.txt") + "：%2e%2e 段被当 double-dot 归一化并 clamp 到 origin 根，映射为授权 root 内不存在的路径"));
+
+      // T06e 编码分隔符穿越（Codex C-GUI-2 新增）：把分隔符编成 %2f 塞进单段，使整段不构成 double-dot
+      // path segment，浏览器不会在发请求前消除它。服务端若先 percent-decode 再分段校验，应得到含 ..
+      // 的段并明确拒绝（403）；若服务端不做该校验而直接拼路径，就可能读到样本根外诱饵（REACHABLE）。
+      // 判定保持严格 must-block：只有明确拒绝才是确定结论，404/网络失败仍记 AMBIGUOUS。
+      // 本项是独立判别通道，不替代 T02 的正常相对资源正向对照。
+      chain.push(classifyFetch("T06e", "编码分隔符穿越（%2e%2e%2f，浏览器不消除；须 403）", "%2e%2e%2f%2e%2e%2fpr-c-html-open-outside%2fOUTSIDE-CANARY.txt", "must-block", "NUTBOOK-PR-C-OUTSIDE-CANARY",
+        "浏览器保留该单段原样发出，服务端 decode 后含 ../ 段，应明确拒绝"));
+
+      // T08 内部服务根路径探测（服务指纹 / 目录枚举）。
+      chain.push(classifyFetch("T08", "内部服务根路径探测", ORIGIN + "/", "must-block", null));
+
+      // T09 asset fetch 界内 canary（assetProtocol scope $HOME/** 覆盖本样本，Codex R1 决定性项）。
+      if (localCanaryAbs) {
+        chain.push(classifyFetch("T09", "asset fetch 界内 canary（$HOME scope 内）", assetUrlOf(localCanaryAbs), "must-block", "PROBE-LOCAL-CANARY"));
+      } else {
+        record("T09", "asset fetch 界内 canary（$HOME scope 内）", "SKIPPED", "样本目录未配置且无法推导，检测未执行（asset 组为需配置项）");
+      }
+
+      // T09b asset fetch 样本根外兄弟 canary（同样在 $HOME scope 内，与 T09 成对）。
+      if (cfgOutside) {
+        chain.push(classifyFetch("T09b", "asset fetch 样本根外 canary（$HOME scope 内）", assetUrlOf(cfgOutside), "must-block", "NUTBOOK-PR-C-OUTSIDE-CANARY"));
+      } else {
+        record("T09b", "asset fetch 样本根外 canary（$HOME scope 内）", "SKIPPED", "样本目录未配置且无法推导，检测未执行（asset 组为需配置项）");
+      }
+
+      // T09c asset 可渲染路径（img + 同 URL fetch 联合判定，Codex R7）。
+      if (localPixelAbs) {
+        chain.push(probeAssetRender("T09c", "asset 渲染路径（img + fetch 联合判定）", localPixelAbs));
+      } else {
+        record("T09c", "asset 渲染路径（img + fetch 联合判定）", "SKIPPED", "样本目录未配置且无法推导，检测未执行（asset 组为需配置项）");
+      }
+
+      // T10 convertFileSrc 存在性（INFO：符号存在不等于越权，不计入验收统计，Codex R2）。
+      var hasConvert = !!(window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.convertFileSrc === "function");
+      record("T10", "convertFileSrc 存在性", "INFO",
+        hasConvert ? "convertFileSrc 存在（存在性观察，不参与验收统计）" : "convertFileSrc 不存在");
+
+      // T10b convertFileSrc 结果实际可读（真实读取检测，目标改为界内 canary，R1）。
+      if (localCanaryAbs) {
+        var convert = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.convertFileSrc;
+        if (typeof convert === "function") {
+          var converted = null;
+          try { converted = convert(localCanaryAbs); } catch (e) {}
+          if (converted) {
+            chain.push(classifyFetch("T10b", "convertFileSrc 结果实际可读（界内 canary）", converted, "must-block", "PROBE-LOCAL-CANARY"));
+          } else {
+            record("T10b", "convertFileSrc 结果实际可读（界内 canary）", "AMBIGUOUS", "convertFileSrc 存在但对界内 canary 转换失败");
+          }
+        } else {
+          record("T10b", "convertFileSrc 结果实际可读（界内 canary）", "SKIPPED", "内容面无 convertFileSrc，检测未执行");
+        }
+      } else {
+        record("T10b", "convertFileSrc 结果实际可读（界内 canary）", "SKIPPED", "样本目录未配置且无法推导，检测未执行（asset 组为需配置项）");
+      }
+
+      // T11 invoke 桥存在性（INFO：计划明确允许 invoke 符号存在，不参与越权统计，Codex R2）。
+      var hasInvoke = !!(window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === "function");
+      record("T11", "invoke 桥存在性", "INFO",
+        hasInvoke ? "__TAURI_INTERNALS__.invoke 可调用（存在性观察）" : "未注入 invoke");
+
+      // T12–T14 零参只读特权命令。能调通即 §6.4 越权成立（真实未授权调用）。
+      chain.push(probeInvoke("T12", "特权命令 get_local_server_origin", "get_local_server_origin"));
+      chain.push(probeInvoke("T13", "特权命令 list_libraries（整库泄露）", "list_libraries"));
+      chain.push(probeInvoke("T14", "特权命令 list_tags", "list_tags"));
+
+      // T15 插件命令（走上游 ACL，应被 capability 限制在 main）。
+      var invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+      if (typeof invoke === "function") {
+        chain.push(Promise.resolve(invoke("plugin:event|listen", { event: "pr-c-probe", handler: 0 })).then(function () {
+          record("T15", "插件命令 plugin:event|listen", "REACHABLE", "内容面可注册宿主事件监听");
+        }).catch(function (error) {
+          var text = String(error && error.message ? error.message : (typeof error === "object" ? JSON.stringify(error) : error));
+          var denied = /not allowed|ACL|forbidden|denied|capability/i.test(text);
+          record("T15", "插件命令 plugin:event|listen", denied ? "BLOCKED" : "AMBIGUOUS", text.slice(0, 220));
+        }));
+      } else {
+        record("T15", "插件命令 plugin:event|listen", "SKIPPED", "无 invoke 桥，检测未执行");
+      }
+
+      return Promise.all(chain).then(function () {
+        rows.sort(function (a, b) { return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0); });
+        pageMode.disabled = false;
+        render();
+      });
+    }
+
+    document.getElementById("rerun").addEventListener("click", function () { runAll(); });
+    document.getElementById("copy").addEventListener("click", function () {
+      var area = document.getElementById("raw");
+      area.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      if (navigator.clipboard) { navigator.clipboard.writeText(area.value).catch(function () {}); }
+    });
+
+    // 手动破坏性检测：默认不自动跑，避免污染自动结果与窗口拓扑。
+    // 每个越界项配一个「界内对照」。原因：popup / iframe 出现空白既可能是被拦，
+    // 也可能只是渲染问题（纯文本缺少 Content-Type 等）。只有对照同样空白，
+    // 才能判定为渲染问题而不是拦截 —— 否则会把「没渲染出来」误记成「已拦截」。
+    function manualLog(html) {
+      document.getElementById("manual").insertAdjacentHTML("beforeend", html);
+    }
+
+    var inScopeTarget = "./local-canary.txt";
+    var extraProbeSeq = 0;
+
+    document.getElementById("popup").addEventListener("click", function () {
+      var target = fsUrl(worldFile);
+      var opened = null;
+      try { opened = window.open(target, "_blank"); } catch (e) {}
+      manualLog(
+        "<p><b>手动 popup 越界：</b>" + (opened ? "<span class=\"REACHABLE\">window.open 返回了句柄</span>" : "<span class=\"BLOCKED\">window.open 被拦或返回 null</span>") +
+        "　目标 <code>" + target + "</code>。请人工确认新窗口是否显示了越界内容。</p>"
+      );
+    });
+
+    document.getElementById("popupControl").addEventListener("click", function () {
+      var opened = null;
+      try { opened = window.open(inScopeTarget, "_blank"); } catch (e) {}
+      manualLog(
+        "<p><b>对照 popup 界内：</b>" + (opened ? "window.open 返回了句柄" : "window.open 被拦或返回 null") +
+        "　目标 <code>" + inScopeTarget + "</code>。<b>若对照窗口同样空白，说明越界窗口的空白只是渲染问题，不代表被拦。</b></p>"
+      );
+    });
+
+    document.getElementById("iframe").addEventListener("click", function () {
+      var target = fsUrl(worldFile);
+      manualLog(
+        "<p><b>手动 iframe 越界：</b>目标 <code>" + target + "</code></p>" +
+        "<iframe src=\"" + target + "\" style=\"width:100%;height:150px;border:1px solid #b3261e\"></iframe>"
+      );
+    });
+
+    document.getElementById("iframeControl").addEventListener("click", function () {
+      manualLog(
+        "<p><b>对照 iframe 界内：</b>目标 <code>" + inScopeTarget + "</code></p>" +
+        "<iframe src=\"" + inScopeTarget + "\" style=\"width:100%;height:150px;border:1px solid #1b6b3a\"></iframe>" +
+        "<p><b>若对照框同样空白，说明越界框的空白只是渲染问题，不代表被拦。</b></p>"
+      );
+    });
+
+    document.getElementById("navigate").addEventListener("click", function () {
+      var target = fsUrl(worldFile);
+      // 不再用 window.confirm：Tauri 的 WKWebView 不保证弹出 JS 对话框，
+      // 一旦它静默返回 false，按钮就表现为「点了没反应」，无法与真拦截区分。
+      manualLog(
+        "<p><b>手动导航：</b>即将把本 child 导航到 <code>" + target + "</code>。" +
+        "页面将离开，结果不再保留。若页面没有任何变化，说明导航被宿主拦下。</p>"
+      );
+      setTimeout(function () { location.href = target; }, 400);
+    });
+
+    // asset 渲染路径手动项（Codex R1）：fetch 可能被 CORS 掐断，iframe 渲染是独立证据链。
+    document.getElementById("iframeAsset").addEventListener("click", function () {
+      if (!selfDir) { manualLog("<p><b>asset iframe：</b>无法推导绝对路径，未执行。</p>"); return; }
+      var target = assetUrlOf(selfDir + "/local-canary.txt");
+      manualLog(
+        "<p><b>手动 iframe asset（界内 canary）：</b>目标 <code>" + target + "</code>。" +
+        "框内出现 canary 文字 = asset 渲染路径可达；空白则与 fetch 结果成对判读（两者都失败才倾向「不可达」）。</p>" +
+        "<iframe src=\"" + target + "\" style=\"width:100%;height:120px;border:1px solid #8a6100\"></iframe>"
+      );
+    });
+
+    // T16：用户提供的补充目标（如 $TMP 下自建 canary）。R2：测试目标由用户输入提供，
+    // 探针自身不携带、也不向产品索取任何内部 token。
+    document.getElementById("probeExtra").addEventListener("click", function () {
+      var target = (extraTargetInput.value || "").trim();
+      if (!target) { manualLog("<p><b>补充目标：</b>请先输入绝对路径。</p>"); return; }
+      var marker = (extraMarkerInput.value || "").trim() || null;
+      var seq = ++extraProbeSeq;
+      manualLog("<p><b>补充目标 " + seq + "：</b>开始探测 <code>" + target + "</code>（/fs 与 asset://，标记 " + (marker || "无") + "）。</p>");
+      var chain = [
+        classifyFetch("T16-" + seq + "a", "补充目标 /fs 探测", fsUrl(target), "must-block", marker),
+        classifyFetch("T16-" + seq + "b", "补充目标 asset 探测", assetUrlOf(target), "must-block", marker)
+      ];
+      Promise.all(chain).then(function () {
+        rows.sort(function (a, b) { return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0); });
+        render();
+      });
+    });
+
+    // T17：旧内部服务 origin 的无凭证 /fs 探测（Phase 1 换 scoped origin 后的回归项，Codex R2）。
+    document.getElementById("probeLegacy").addEventListener("click", function () {
+      var legacy = (legacyOriginInput.value || "").trim().replace(/\/+$/, "");
+      if (!legacy) { manualLog("<p><b>旧 origin：</b>留空未填，跳过。</p>"); return; }
+      if (legacy === ORIGIN) {
+        record("T17", "旧内部服务 origin 无凭证 /fs", "INFO", "输入的 origin 与当前 origin 相同（基线态），无需另测");
+        render();
+        return;
+      }
+      var seq = ++extraProbeSeq;
+      var chain = [
+        classifyFetch("T17-" + seq + "a", "旧 origin /fs 读系统任意文件（无凭证）", legacy + FS_PREFIX + worldFile.split("/").map(encodeURIComponent).join("/"), "must-block", null)
+      ];
+      if (outsideCanary) {
+        chain.push(classifyFetch("T17-" + seq + "b", "旧 origin /fs 读越界诱饵（无凭证）", legacy + FS_PREFIX + outsideCanary.split("/").map(encodeURIComponent).join("/"), "must-block", "NUTBOOK-PR-C-OUTSIDE-CANARY"));
+      }
+      manualLog("<p><b>旧 origin " + seq + "：</b>对 <code>" + legacy + "</code> 发起无凭证 /fs 探测。</p>");
+      Promise.all(chain).then(function () {
+        rows.sort(function (a, b) { return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0); });
+        render();
+      });
+    });
+
+    runAll();
+  })();
+  </script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 use crate::{
+    core::content_session::RuntimeKey,
     errors::AppError,
     models::{
         HtmlEditToolbarFormatState, HtmlRuntimeSessionPayload, ItemDetail, ItemSourceBadge,
@@ -151,7 +152,15 @@ struct HtmlControlsActionPayload {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HtmlFindActionPayload {
-    item_id: i64,
+    /// revision 83（P2-R80b）：身份既可能是正式 item 的数字，也可能是外部临时
+    /// host 的字符串 `external:<sessionId>`（`RuntimeKey` 两域）。
+    ///
+    /// 旧实现定死 `i64`：外部 overlay 的**全部**动作（query/next/prev/close）
+    /// 都会在标题桥反序列化处失败，而该分支是 `if let Ok(..)` 且没有 else
+    /// 兜底 —— 失败即静默丢弃，main 侧永远收不到动作，正文查找恒 0/0。
+    /// 权威比较仍在 main 侧（`tab.id === payload.itemId` +
+    /// `appState.htmlFind.itemId === payload.itemId`），本结构只承载原样转发。
+    item_id: serde_json::Value,
     action: String,
     query: String,
     replacement: String,
@@ -170,10 +179,17 @@ struct InspectorMoreOverlayActionPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HtmlRuntimeSession {
-    pub item_id: i64,
+    /// P2（Codex revision 32「有界 A」）：资源身份。`Item` = 正式资料库条目；
+    /// `External` = 外部临时会话（加入前没有 itemId）。承载层（webview label、
+    /// 会话登记、桥裁决）统一以它为键；正式 item 命令的对外签名保持不变。
+    pub key: RuntimeKey,
+    /// 独立 runtime 窗口 label（`html-player-{seg}`）。
     pub label: String,
     pub title: String,
     pub runtime_url: String,
+    /// 会话代次：正式 item 会话为 0（沿用 P1 行为）；外部会话为 external
+    /// 会话的 generation，用于桥与身份校验。
+    pub generation: u64,
 }
 
 impl HtmlRuntimeSession {
@@ -183,21 +199,42 @@ impl HtmlRuntimeSession {
         }
 
         Ok(Self {
-            item_id: item.summary.id,
+            key: RuntimeKey::Item(item.summary.id),
             label: html_runtime_window_label(item.summary.id),
             title: item.summary.file_name.clone(),
             runtime_url,
+            generation: 0,
         })
     }
 
-    pub fn to_payload(&self, detached: bool) -> HtmlRuntimeSessionPayload {
-        HtmlRuntimeSessionPayload {
-            item_id: self.item_id,
+    /// P2：外部临时会话的内嵌 host 会话。`session_id` / `generation` 必须来自
+    /// 后端有效会话登记（由调用方校验），**不接受**前端或内容页面自报。
+    pub fn from_external(
+        session_id: &str,
+        generation: u64,
+        title: String,
+        runtime_url: String,
+    ) -> Self {
+        let key = RuntimeKey::External(session_id.to_string());
+        Self {
+            label: html_runtime_host_label_for(&key),
+            key,
+            title,
+            runtime_url,
+            generation,
+        }
+    }
+
+    /// 正式 item 会话的 DTO。外部会话没有 itemId —— 这里**不**伪造 `0` 哨兵，
+    /// 拿不到 item 身份即报错（外部会话走独立载荷）。
+    pub fn to_payload(&self, detached: bool) -> Result<HtmlRuntimeSessionPayload, AppError> {
+        Ok(HtmlRuntimeSessionPayload {
+            item_id: self.key.item_id().ok_or(AppError::InvalidParams)?,
             label: self.label.clone(),
             title: self.title.clone(),
             runtime_url: self.runtime_url.clone(),
             detached,
-        }
+        })
     }
 }
 
@@ -219,11 +256,63 @@ pub fn open_html_runtime_window(
     Ok(true)
 }
 
+/// R9/R11：宿主创建内容 webview 后登记会话身份（role / item / origin /
+/// session / generation）。登记失败不影响创建（fail-open 于登记、fail-closed
+/// 于校验：无登记的内容面后续 invoke/标题桥会被拒绝）。
+fn register_content_session<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    role: crate::core::content_session::ContentSurfaceRole,
+    key: RuntimeKey,
+    runtime_url: &str,
+    runtime_session_id: &str,
+    generation: u64,
+    view_state_surface_token: u64,
+) {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    let origin = crate::core::content_session::origin_of_url(runtime_url).unwrap_or_default();
+    let _ = state.content_sessions.register(
+        label,
+        crate::core::content_session::ContentSessionRecord {
+            role,
+            key,
+            origin,
+            runtime_session_id: runtime_session_id.to_string(),
+            generation,
+            view_state_surface_token,
+        },
+    );
+}
+
 pub fn close_html_runtime_window(
     app: &tauri::AppHandle,
     item_id: i64,
 ) -> Result<bool, AppError> {
     let mut closed = false;
+
+    // PR C Phase 1（D1 合同撤销时机 + R11）：关闭标签即撤销该 item 的全部
+    // scoped 内容能力（host / player / presentation / preview 资源）并注销
+    // 会话登记。普通切 tab 只隐藏/销毁 surface，不走本路径，不撤销活 tab。
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        for key in [
+            format!("html-runtime:{item_id}:host"),
+            format!("html-runtime:{item_id}:player"),
+            format!("html-runtime:{item_id}:presentation"),
+            format!("preview:{item_id}"),
+        ] {
+            state.drop_scoped_server(&key);
+        }
+        state.content_sessions.unregister(html_runtime_window_label(item_id).as_str());
+        state
+            .content_sessions
+            .unregister(html_runtime_host_label(item_id).as_str());
+        state
+            .content_sessions
+            .unregister(html_presentation_preview_label(item_id).as_str());
+        state.content_sessions.unregister_item(item_id);
+    }
 
     if let Some(main_webview) = app.get_webview("main") {
         recover_main_webview_focus(&main_webview);
@@ -301,7 +390,7 @@ pub fn attach_html_runtime_host(
     view_state_surface_token: u64,
     view_state: Option<Value>,
 ) -> Result<bool, AppError> {
-    let host_label = html_runtime_host_label(session.item_id);
+    let host_label = html_runtime_host_label_for(&session.key);
     if let Some(webview) = app.get_webview(&host_label) {
         webview
             .set_bounds(runtime_host_rect(bounds))
@@ -327,6 +416,80 @@ pub fn attach_html_runtime_host(
     webview
         .set_bounds(runtime_host_rect(bounds))
         .map_err(|_| AppError::InternalError)?;
+
+    // R9：登记内嵌 host 会话身份。
+    register_content_session(
+        app,
+        &host_label,
+        crate::core::content_session::ContentSurfaceRole::RuntimeHost,
+        session.key.clone(),
+        &session.runtime_url,
+        "",
+        0,
+        view_state_surface_token,
+    );
+
+    Ok(true)
+}
+
+/// P2（Codex revision 32「有界 A」细线）：外部阅读态内嵌 host。
+///
+/// 与正式 item host **共用同一承载层**（同 `WebviewBuilder` 形态、同
+/// compatibility 脚本、同 `on_new_window` / 标题处理器、同一登记表与桥裁决），
+/// 差异只有三处，且都由外部身份决定：
+/// - label 由 `RuntimeKey::External` 派生（`html-host-ext-<uuid>`）；
+/// - 登记角色 `ExternalHost`：桥消息类型一律拒绝，因此外部内容面拿不到任何
+///   编辑 / conversion / sidecar / editable-copy / commit 能力（加入本身不
+///   升级权限）；
+/// - 不注入常驻 view-state 脚本（surface token 恒 0）。位置保留改为**一次性
+///   回放**：切走前由 `capture_external_html_view_state_command` 抓一份快照，
+///   再次激活建 child 时经 `external_view_state_restore_script` 注入（P2-R92a，
+///   与 promotion 共用同一状态模型）。
+///
+/// `view_state` 只在**建 child 时**有意义（已存在的 surface 走 bounds-only
+/// 早退分支，忽略该参数）：surface 一旦存在，其位置由页面自身维持。
+pub fn attach_external_html_runtime_host(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    session: &HtmlRuntimeSession,
+    bounds: RuntimeHostBounds,
+    view_state: Option<Value>,
+) -> Result<bool, AppError> {
+    let host_label = html_runtime_host_label_for(&session.key);
+    if let Some(webview) = app.get_webview(&host_label) {
+        webview
+            .set_bounds(runtime_host_rect(bounds))
+            .map_err(|_| AppError::InternalError)?;
+        let _ = webview.show();
+        return Ok(true);
+    }
+
+    let builder =
+        build_external_runtime_webview_builder(app, &host_label, session, view_state.as_ref())?;
+    let webview = window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(bounds.x, bounds.y),
+            tauri::LogicalSize::new(bounds.width, bounds.height),
+        )
+        .map_err(|_| AppError::InternalError)?;
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
+
+    // P2：登记外部阅读态会话身份。generation 为 external 会话代次（宿主注入），
+    // surface token 恒 0（未注入 view-state 脚本）。
+    register_content_session(
+        app,
+        &host_label,
+        crate::core::content_session::ContentSurfaceRole::ExternalHost,
+        session.key.clone(),
+        &session.runtime_url,
+        "",
+        session.generation,
+        0,
+    );
+
     Ok(true)
 }
 
@@ -335,7 +498,29 @@ pub fn set_html_runtime_host_visibility(
     item_id: i64,
     visible: bool,
 ) -> Result<bool, AppError> {
-    let label = html_runtime_host_label(item_id);
+    set_runtime_host_visibility_for(app, &RuntimeKey::Item(item_id), visible)
+}
+
+/// P2：外部阅读态 host 的显示 / 隐藏。与 item host 完全同一生命周期语义
+/// （隐藏即 1x1 + close + 注销登记；再次激活时按新 surface 重新挂载）。
+pub fn set_external_html_runtime_host_visibility(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    visible: bool,
+) -> Result<bool, AppError> {
+    set_runtime_host_visibility_for(
+        app,
+        &RuntimeKey::External(session_id.to_string()),
+        visible,
+    )
+}
+
+fn set_runtime_host_visibility_for(
+    app: &tauri::AppHandle,
+    key: &RuntimeKey,
+    visible: bool,
+) -> Result<bool, AppError> {
+    let label = html_runtime_host_label_for(key);
     let Some(webview) = app.get_webview(&label) else {
         return Ok(false);
     };
@@ -354,9 +539,72 @@ pub fn set_html_runtime_host_visibility(
         // WebViews: opening four or more HTML tabs reproducibly poisons the
         // window compositor and spreads black backing to hosts and controls.
         webview.close().map_err(|_| AppError::InternalError)?;
+        // R9：surface 销毁即注销其会话登记（活 tab 的 scoped capability
+        // 保留至 close 标签，符合 Codex 撤销时机合同）。
+        if let Some(state) = app.try_state::<crate::state::AppState>() {
+            state.content_sessions.unregister(&label);
+        }
     }
 
     Ok(true)
+}
+
+/// P2：关闭外部临时会话的内嵌 host，并**撤销**其全部 scoped 内容能力。
+///
+/// 调用时机（计划 §6.3）：关闭标签 / 替换 session / 来源失效 / promotion
+/// 完成旧 host teardown。普通切 tab 不走本路径（只 hide/close surface，
+/// 不撤销 capability）。
+///
+/// 顺序（P2-R1，Codex revision 45）：**先完整 teardown（1x1 → hide → close），
+/// 成功后才撤销 capability**。close 失败时 capability 保持原样——旧 host 仍
+/// 可用、前端可整体重试拆除；若先撤销再 close，失败会把旧 host 留在「能力已
+/// 失、进程尚在」的半关闭态，无法恢复也不可重试。
+pub fn close_external_html_runtime_host(
+    app: &tauri::AppHandle,
+    session_id: &str,
+) -> Result<bool, AppError> {
+    let key = RuntimeKey::External(session_id.to_string());
+    let label = html_runtime_host_label_for(&key);
+    let mut closed = false;
+
+    if let Some(webview) = app.get_webview(&label) {
+        let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }));
+        let _ = webview.hide();
+        webview.close().map_err(|_| AppError::InternalError)?;
+        closed = true;
+    }
+
+    // 旧 surface 已确认销毁，现在撤销 capability：晚到的请求只会拿到墓碑响应，
+    // 晚到的桥消息因登记已注销而被拒；重试也不会重新建立旧能力。
+    // revision 71：与正式 item 关闭路径同一最终护栏——遗留 find surface 若
+    // close action 与拆除竞争，随本会话一并 1x1 → hide → close 收敛。
+    let find_overlay_label = html_find_overlay_label_for(&key);
+    if let Some(webview) = app.get_webview(&find_overlay_label) {
+        let _ = webview.set_bounds(runtime_host_rect(RuntimeHostBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }));
+        let _ = webview.hide();
+        webview.close().map_err(|_| AppError::InternalError)?;
+        closed = true;
+    }
+
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        state.revoke_external_content_capabilities(session_id);
+    }
+
+    if let Some(main_webview) = app.get_webview("main") {
+        recover_main_webview_focus(&main_webview);
+    }
+
+    Ok(closed)
 }
 
 /// The presentation rail has its own read-only child WebView.  It intentionally
@@ -406,6 +654,10 @@ pub fn close_html_presentation_preview(
     }));
     let _ = webview.hide();
     webview.close().map_err(|_| AppError::InternalError)?;
+    // R9：演示预览销毁即注销会话登记。
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        state.content_sessions.unregister(&label);
+    }
     if let Ok(mut instances) = presentation_preview_instances().lock() { instances.remove(&item_id); }
     Ok(true)
 }
@@ -439,11 +691,14 @@ pub fn attach_html_presentation_preview(
     preview_instance_id: &str,
 ) -> Result<bool, AppError> {
     if preview_instance_id.is_empty() { return Err(AppError::InvalidParams); }
-    let label = html_presentation_preview_label(session.item_id);
+    // 演示预览是正式 item 专属能力（外部阅读态细线不提供）；无 item 身份
+    // 即拒绝，而不是伪造一个 itemId。
+    let item_id = session.key.item_id().ok_or(AppError::InvalidParams)?;
+    let label = html_presentation_preview_label(item_id);
     presentation_preview_instances()
         .lock()
         .map_err(|_| AppError::InternalError)?
-        .insert(session.item_id, preview_instance_id.to_string());
+        .insert(item_id, preview_instance_id.to_string());
     if let Some(webview) = app.get_webview(&label) {
         webview
             .set_bounds(runtime_host_rect(bounds))
@@ -457,6 +712,18 @@ pub fn attach_html_presentation_preview(
             preview_instance_id,
         );
         webview.eval(&update_script).map_err(|_| AppError::InternalError)?;
+        // R9：复用 surface 换代时同步登记新会话身份。演示预览未注入
+        // view-state 脚本，surface token 恒为 0（view-state 回报一律拒绝）。
+        register_content_session(
+            app,
+            &label,
+            crate::core::content_session::ContentSurfaceRole::PresentationPreview,
+            session.key.clone(),
+            &session.runtime_url,
+            runtime_session_id,
+            generation,
+            0,
+        );
         return Ok(true);
     }
 
@@ -479,6 +746,18 @@ pub fn attach_html_presentation_preview(
     webview
         .set_bounds(runtime_host_rect(bounds))
         .map_err(|_| AppError::InternalError)?;
+    // R9：登记演示预览会话身份（绑定 runtime_session_id/generation）。
+    // 未注入 view-state 脚本，surface token 恒为 0。
+    register_content_session(
+        app,
+        &label,
+        crate::core::content_session::ContentSurfaceRole::PresentationPreview,
+        session.key.clone(),
+        &session.runtime_url,
+        runtime_session_id,
+        generation,
+        0,
+    );
     // A child must prove that it mounted usable cards before it covers the
     // structural fallback rail in the main WebView.
     webview.hide().map_err(|_| AppError::InternalError)?;
@@ -505,7 +784,7 @@ pub fn attach_html_runtime_controls_overlay(
     attach_controls_overlay(
         app,
         window,
-        session.item_id,
+        session.key.item_id().ok_or(AppError::InvalidParams)?,
         bounds,
         is_favorite,
         is_fullscreen,
@@ -611,10 +890,16 @@ pub fn set_html_runtime_controls_overlay_visibility(
 
 /// Document find has its own small child surface.  The established controls
 /// island remains dedicated to tags and document actions.
+///
+/// revision 71：身份由 `RuntimeKey` 决定（Item / External 共用同一承载）；
+/// `identity` 是回传给 main 的查找面板身份（Item = 数字 item id，External =
+/// 前端稳定标签身份字符串 `external:<sessionId>`），原样内嵌进 overlay 初始
+/// 状态与 action 回报，main 侧只做等值比对。
 pub fn attach_html_find_overlay(
     app: &tauri::AppHandle,
     window: &tauri::Window,
-    item_id: i64,
+    key: &RuntimeKey,
+    identity: serde_json::Value,
     bounds: RuntimeHostBounds,
     can_replace: bool,
     replace_expanded: bool,
@@ -624,9 +909,9 @@ pub fn attach_html_find_overlay(
     labels: std::collections::BTreeMap<String, String>,
     history: Vec<String>,
 ) -> Result<bool, AppError> {
-    let label = html_find_overlay_label(item_id);
+    let label = html_find_overlay_label_for(key);
     let update = html_find_overlay_init_script(
-        item_id,
+        identity,
         can_replace,
         replace_expanded,
         &query,
@@ -657,7 +942,8 @@ pub fn attach_html_find_overlay(
 /// and focus are owned by their separate lifecycle paths.
 pub fn update_html_find_overlay(
     app: &tauri::AppHandle,
-    item_id: i64,
+    key: &RuntimeKey,
+    identity: serde_json::Value,
     can_replace: bool,
     replace_expanded: bool,
     query: String,
@@ -666,13 +952,13 @@ pub fn update_html_find_overlay(
     labels: std::collections::BTreeMap<String, String>,
     history: Vec<String>,
 ) -> Result<bool, AppError> {
-    let label = html_find_overlay_label(item_id);
+    let label = html_find_overlay_label_for(key);
     let Some(webview) = app.get_webview(&label) else {
         return Ok(false);
     };
     webview
         .eval(&html_find_overlay_init_script(
-            item_id,
+            identity,
             can_replace,
             replace_expanded,
             &query,
@@ -690,10 +976,10 @@ pub fn update_html_find_overlay(
 /// deliberately a no-op when the surface has already been closed.
 pub fn set_html_find_overlay_bounds(
     app: &tauri::AppHandle,
-    item_id: i64,
+    key: &RuntimeKey,
     bounds: RuntimeHostBounds,
 ) -> Result<bool, AppError> {
-    let label = html_find_overlay_label(item_id);
+    let label = html_find_overlay_label_for(key);
     let Some(webview) = app.get_webview(&label) else {
         return Ok(false);
     };
@@ -703,8 +989,8 @@ pub fn set_html_find_overlay_bounds(
     Ok(true)
 }
 
-pub fn set_html_find_overlay_visibility(app: &tauri::AppHandle, item_id: i64, visible: bool) -> Result<bool, AppError> {
-    let label = html_find_overlay_label(item_id);
+pub fn set_html_find_overlay_visibility(app: &tauri::AppHandle, key: &RuntimeKey, visible: bool) -> Result<bool, AppError> {
+    let label = html_find_overlay_label_for(key);
     let Some(webview) = app.get_webview(&label) else { return Ok(false); };
     if visible {
         webview.show().map_err(|_| AppError::InternalError)?;
@@ -1261,24 +1547,52 @@ fn recover_webview_focus_native<R: tauri::Runtime>(
     });
 }
 
+/// P2：承载层 label 一律由 `RuntimeKey` 决定。
+///
+/// `Item(id)` 分支与 P1 逐字一致（`html-host-7`、`html-player-7`）；
+/// `External(sessionId)` 分支落 `html-host-ext-<uuid>`。两域互不冲突，且角色
+/// 识别（`ContentSurfaceRole::from_label`）先判 `html-host-ext-`。
+pub fn html_runtime_window_label_for(key: &RuntimeKey) -> String {
+    format!("html-player-{}", key.label_segment())
+}
+
+pub fn html_runtime_host_label_for(key: &RuntimeKey) -> String {
+    format!("html-host-{}", key.label_segment())
+}
+
+pub fn html_presentation_preview_label_for(key: &RuntimeKey) -> String {
+    format!("html-presentation-preview-{}", key.label_segment())
+}
+
+pub fn html_runtime_controls_label_for(key: &RuntimeKey) -> String {
+    format!("html-controls-{}", key.label_segment())
+}
+
 pub fn html_runtime_window_label(item_id: i64) -> String {
-    format!("html-player-{item_id}")
+    html_runtime_window_label_for(&RuntimeKey::Item(item_id))
 }
 
 pub fn html_runtime_host_label(item_id: i64) -> String {
-    format!("html-host-{item_id}")
+    html_runtime_host_label_for(&RuntimeKey::Item(item_id))
 }
 
 pub fn html_presentation_preview_label(item_id: i64) -> String {
-    format!("html-presentation-preview-{item_id}")
+    html_presentation_preview_label_for(&RuntimeKey::Item(item_id))
 }
 
 pub fn html_runtime_controls_label(item_id: i64) -> String {
-    format!("html-controls-{item_id}")
+    html_runtime_controls_label_for(&RuntimeKey::Item(item_id))
+}
+
+/// P2 / revision 71：find overlay 的 label 与其余承载层一致，由 `RuntimeKey`
+/// 决定——`Item` 分支输出与原 label 完全一致（`html-find-7`），`External`
+/// 输出 `html-find-ext-<sessionId>`（正式 item 路径零行为变化）。
+pub fn html_find_overlay_label_for(key: &RuntimeKey) -> String {
+    format!("html-find-{}", key.label_segment())
 }
 
 fn html_find_overlay_label(item_id: i64) -> String {
-    format!("html-find-{item_id}")
+    html_find_overlay_label_for(&RuntimeKey::Item(item_id))
 }
 
 fn inspector_more_overlay_label(item_id: i64) -> String {
@@ -1325,6 +1639,19 @@ fn build_detached_runtime_window(
         .build()
         .map_err(|_| AppError::InternalError)?;
 
+    // R9：登记 detached player 会话身份（origin 绑定 + 消息角色分权）。
+    // detached player 不注入 view-state 脚本，surface token 恒为 0。
+    register_content_session(
+        app,
+        &session.label,
+        crate::core::content_session::ContentSurfaceRole::DetachedPlayer,
+        session.key.clone(),
+        &session.runtime_url,
+        "",
+        0,
+        0,
+    );
+
     Ok(())
 }
 
@@ -1346,13 +1673,263 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
         WebviewBuilder::new(label, webview_url)
             .initialization_script(html_runtime_compatibility_script())
             .initialization_script(&html_runtime_view_state_script(
-                session.item_id,
+                session.key.item_id().ok_or(AppError::InvalidParams)?,
                 view_state_surface_token,
                 view_state,
             ))
             .on_new_window(detached_new_window_handler(app))
             .on_document_title_changed(detached_embedded_fullscreen_handler(app)),
     )
+}
+
+/// P2：外部会话 host surface 的 scoped 服务器 key。
+///
+/// 与 item key（`html-runtime:{itemId}:host`）同构但处于独立命名空间；
+/// `State::revoke_external_content_capabilities` 按
+/// `html-runtime-ext:{sessionId}:` 前缀撤销，因此这里的形态必须与之一致。
+pub fn external_runtime_scoped_key(session_id: &str) -> String {
+    format!("html-runtime-ext:{session_id}:host")
+}
+
+/// P2 / 计划 §6.2：promotion（受控重建）前的一次性 view state 采集脚本。
+///
+/// 外部阅读态 host 按 Codex revision 32 §5 不注入常驻 view-state 脚本
+/// （surface token 恒 0），所以不能用 `html_runtime_view_state_script` 的
+/// `flush` 通道。这里只在拆除旧 child **之前**注入一段自包含、幂等、无副作用
+/// 的脚本：读取滚动位置、URL hash 与演示桥当前页 id，经专用回报命令回传一次。
+///
+/// 演示页 id（revision 71）：页面可能提供公开 presentation bridge
+/// （`window.__NUTBOOK_PRESENTATION__` version 1）。采集按官方 runtime 同一
+/// 合同读取 `whenReady + getActivePageId`，但全程**有界**（whenReady ≤120ms、
+/// getActivePageId ≤60ms，总上界 180ms，小于前端 260ms 等待超时）：
+/// 桥缺失 / 挂起 / 抛错都按「无页 id」回报，绝不阻断滚动与 hash 采集。
+///
+/// 刻意不做的事：不注册全局对象、不监听事件、不写 history / 不改页面状态、
+/// 不携带 surface token。它只把「拆之前那一瞬的滚动、hash 与页 id」送回去，
+/// 回报命令自身按 External 角色 + 会话/代次校验（见 `commands::preview`）。
+pub fn external_view_state_capture_script(
+    session_id: &str,
+    generation: u64,
+    request_id: &str,
+) -> String {
+    let session_json = serde_json::to_string(session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let request_json = serde_json::to_string(request_id).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        r#"
+(() => {{
+  try {{
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke !== 'function') return;
+    const clamp = (value) => Math.min(100000000, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0));
+    const root = document.scrollingElement || document.documentElement || document.body;
+    const viewState = {{
+      scrollX: clamp(root?.scrollLeft ?? window.scrollX),
+      scrollY: clamp(root?.scrollTop ?? window.scrollY),
+      hash: String(location.hash || '').slice(0, 2048),
+      presentationPageId: null
+    }};
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    const bounded = (promise, ms) => Promise.race([
+      Promise.resolve(promise),
+      new Promise((resolve) => {{ window.setTimeout(() => resolve(undefined), ms); }})
+    ]);
+    const readPageId = async () => {{
+      if (!bridge || bridge.version !== 1 || typeof bridge.getActivePageId !== 'function') return null;
+      try {{
+        if (typeof bridge.whenReady === 'function') await bounded(bridge.whenReady(), 120);
+        const pageId = await bounded(bridge.getActivePageId(), 60);
+        return typeof pageId === 'string' ? pageId.slice(0, 512) : null;
+      }} catch (_) {{
+        return null;
+      }}
+    }};
+    readPageId().then((pageId) => {{
+      if (typeof pageId === 'string') viewState.presentationPageId = pageId;
+      Promise.resolve(invoke('external_html_view_state_report_command', {{ payload: {{
+        sessionId: {session_json},
+        generation: {generation},
+        requestId: {request_json},
+        viewState
+      }} }})).catch(() => {{}});
+    }});
+  }} catch (_) {{}}
+}})();
+"#
+    )
+}
+
+/// P2-R92a：外部临时 HTML 的**回放**脚本（固定模板，随建 child 一次性注入）。
+///
+/// 与 `external_view_state_capture_script` 成对称一对，读的是同一份
+/// `{scrollX, scrollY, hash, presentationPageId}` 形状。
+///
+/// 为什么必须走 `initialization_script`：外部 host 的隐藏语义是 **1x1 → hide →
+/// close → 注销登记**（`set_runtime_host_visibility_for`），surface 被真正销毁；
+/// 再次激活必然重建 child。因此回放只能发生在**建 child 的那一刻**——事后
+/// eval 会落在正在导航的旧文档上，随导航一起丢弃，位置必然丢失。
+///
+/// 边界：只改滚动、URL hash 与演示桥当前页；不注册全局对象、不监听持久事件、
+/// 不用 `pushState`（不污染历史）、不含任何页面可控插值（状态经 serde_json
+/// 转义后作为字面量注入）。等待与轮询全程有界（就绪等待 ≤600 帧、滚动收敛
+/// ≤300 帧、演示桥 whenReady/goTo 各 ≤120ms）；用户真实输入（滚轮 / 触摸 /
+/// 翻页键）会立刻放弃回放，不与用户抢滚动。失败一律静默：只少一次位置恢复。
+pub fn external_view_state_restore_script(view_state: &Value) -> String {
+    let initial_json = serde_json::to_string(view_state).unwrap_or_else(|_| "null".to_string());
+    r#"
+(() => {
+  const initial = __NUTBOOK_EXTERNAL_INITIAL_VIEW_STATE__;
+  if (!initial || typeof initial !== 'object') return;
+  const scrollRoot = () => document.scrollingElement || document.documentElement || document.body;
+  const finitePosition = (value) => Math.min(100000000, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0));
+  const targetX = finitePosition(initial.scrollX);
+  const targetY = finitePosition(initial.scrollY);
+  const targetHash = typeof initial.hash === 'string' && (initial.hash === '' || initial.hash.startsWith('#'))
+    ? initial.hash.slice(0, 2048)
+    : '';
+  const targetPageId = typeof initial.presentationPageId === 'string'
+    ? initial.presentationPageId.slice(0, 512)
+    : null;
+  try {
+    if (location.hash !== targetHash) {
+      history.replaceState(history.state, '', `${location.pathname}${location.search}${targetHash}`);
+    }
+  } catch (_) {}
+  let cancelled = false;
+  const cancel = (event) => {
+    if (event && event.isTrusted === false) return;
+    cancelled = true;
+  };
+  const bounded = (promise, ms) => Promise.race([
+    Promise.resolve(promise),
+    new Promise((resolve) => { window.setTimeout(() => resolve(undefined), ms); })
+  ]);
+  const applyPage = async () => {
+    if (!targetPageId) return;
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    if (!bridge || bridge.version !== 1 || typeof bridge.goTo !== 'function') return;
+    try {
+      if (typeof bridge.whenReady === 'function') await bounded(bridge.whenReady(), 120);
+      await bounded(bridge.goTo(targetPageId), 120);
+    } catch (_) {}
+  };
+  let frame = 0;
+  const applyScroll = () => {
+    if (cancelled) return;
+    const root = scrollRoot();
+    const maxX = Math.max(0, Number(root?.scrollWidth || 0) - Number(root?.clientWidth || 0));
+    const maxY = Math.max(0, Number(root?.scrollHeight || 0) - Number(root?.clientHeight || 0));
+    window.scrollTo(Math.min(targetX, maxX), Math.min(targetY, maxY));
+    if ((targetX <= maxX + 1 && targetY <= maxY + 1) || frame >= 300) return;
+    frame += 1;
+    requestAnimationFrame(applyScroll);
+  };
+  const start = () => {
+    applyPage().then(() => applyScroll()).catch(() => {});
+  };
+  let waitFrames = 0;
+  const waitReady = () => {
+    if (cancelled) return;
+    if (document.readyState !== 'loading' || waitFrames >= 600) {
+      start();
+      return;
+    }
+    waitFrames += 1;
+    requestAnimationFrame(waitReady);
+  };
+  window.addEventListener('wheel', cancel, { passive: true });
+  window.addEventListener('touchstart', cancel, { passive: true });
+  window.addEventListener('keydown', (event) => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) cancel(event);
+  }, true);
+  waitReady();
+})();
+"#
+    .replace("__NUTBOOK_EXTERNAL_INITIAL_VIEW_STATE__", &initial_json)
+}
+
+/// revision 74（P2-R71a）：外部会话 find 选区清理脚本（固定文本，无可注入参数）。
+pub const EXTERNAL_HTML_FIND_CLOSE_SCRIPT: &str =
+    "document.getElementById('nutbook-html-find-selection')?.remove();";
+
+/// revision 77（P2-R71b）：外部查找 `query` 的 UTF-8 字节上限（后端权威）。
+///
+/// 已知会话标识的 hostile page 可提交数 MB 级字符串：后端会把它序列化进
+/// eval 脚本，页面再对全文做 `toLocaleLowerCase` 与循环 `indexOf` 扫描，
+/// 造成 IPC / 内存 / 主线程放大。4096 字节（约 1300+ 汉字）远超正文查找
+/// 任何真实用户路径（find 输入框单行短词），超限直接拒绝且不 eval；
+/// 前端输入同步限制只是体验优化，不参与裁决。
+pub const EXTERNAL_HTML_FIND_MAX_QUERY_BYTES: usize = 4096;
+
+/// revision 74（P2-R71a）：外部临时 host 的**结构化**查找动作脚本。
+///
+/// 任意脚本文本入口（revision 72 的 eval 命令）已删除：hostile page 可在
+/// capture 时机包装 `window.__TAURI_INTERNALS__.invoke` 截获自身会话标识，
+/// 再用它把任意源码送进宿主 eval。此后页面只能驱动有限动作枚举——
+/// `query` / `next` / `prev` / `close`——脚本源码永远由本函数的固定模板
+/// 构造，页面参数仅以 serde_json 转义后的 JSON 字面量注入（字符串不可能
+/// 逃逸出字面量）。`replace` / `replace_all` 一族在外部会话恒被拒绝
+/// （§6.2 不开放编辑），未知动作 deny-by-default。
+///
+/// 查找逻辑与 main 投影的正式 item 脚本保持同一合同：跨演示页钩子
+/// `window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__` 优先，选区高亮
+/// 复用 `#nutbook-html-find-selection`，结果经 `__NUTBOOK_HTML_FIND_RESULT__:`
+/// 标题桥回传（itemId 固定为 `external:<sessionId>`，与标题桥 External
+/// 分支的校验一致——页面无法替其它会话伪造结果）。
+pub fn external_html_find_action_script(
+    session_id: &str,
+    action: &str,
+    query: &str,
+    case_sensitive: bool,
+) -> Result<String, AppError> {
+    if action == "close" {
+        return Ok(EXTERNAL_HTML_FIND_CLOSE_SCRIPT.to_string());
+    }
+    if !matches!(action, "query" | "next" | "prev") {
+        return Err(AppError::InvalidParams);
+    }
+    // revision 77（P2-R71b）：query 字节上限校验必须先于任何脚本构造——
+    // 超限时本函数返回 Err，命令层不会对 host 执行任何 eval。
+    if query.len() > EXTERNAL_HTML_FIND_MAX_QUERY_BYTES {
+        return Err(AppError::InvalidParams);
+    }
+    let query_json = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".to_string());
+    let action_json = serde_json::to_string(action).unwrap_or_else(|_| "\"query\"".to_string());
+    let item_json = serde_json::to_string(&format!("external:{session_id}"))
+        .unwrap_or_else(|_| "\"\"".to_string());
+    let backwards = action == "prev";
+    Ok(format!(
+        r#";(()=>{{const q={query_json},cs={case_sensitive},action={action_json},itemId={item_json};let style=document.getElementById('nutbook-html-find-selection');if(!style){{style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{{background:rgba(255,159,67,.68)!important;color:inherit!important}}::-moz-selection{{background:rgba(255,159,67,.68)!important;color:inherit!important}}';document.head.append(style);}}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0,at=0;while(needle&&(at=source.indexOf(needle,at))>=0){{total++;at+=Math.max(1,needle.length);}}let deferred=false;const report=(current=1)=>{{document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({{itemId,total,changed:0,current}});}};const revealSelection=()=>{{const selection=window.getSelection?.();if(!selection?.rangeCount)return;const node=selection.getRangeAt(0).commonAncestorContainer;const anchor=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;anchor?.scrollIntoView?.({{block:'nearest',inline:'nearest'}});}};const find=()=>{{const handled=window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__?.({{query:q,caseSensitive:cs,backwards:{backwards},action,done:report}});if(handled){{deferred=true;return false;}}const matched=window.find(q,cs,{backwards},true,false,false,false);if(matched)revealSelection();return matched;}};find();if(!deferred)report();}})();"#
+    ))
+}
+
+/// P2：外部阅读态内嵌 host 的 builder。与 `build_runtime_webview_builder`
+/// 共用同一承载形态与处理器，唯一差别是**不注入常驻 view-state 脚本**（外部
+/// 会话没有 item 身份，surface token 恒 0）。位置保留走一次性回放：由
+/// `external_view_state_restore_script` 在建 child 时注入一份快照（P2-R92a），
+/// 不注册常驻全局对象、不接管页面事件。
+fn build_external_runtime_webview_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    session: &HtmlRuntimeSession,
+    initial_view_state: Option<&Value>,
+) -> Result<WebviewBuilder<R>, AppError> {
+    let webview_url = tauri::WebviewUrl::External(
+        session
+            .runtime_url
+            .parse()
+            .map_err(|_| AppError::PreviewLoadFailed)?,
+    );
+
+    let mut builder = WebviewBuilder::new(label, webview_url)
+        .initialization_script(html_runtime_compatibility_script())
+        .on_new_window(detached_new_window_handler(app))
+        .on_document_title_changed(detached_embedded_fullscreen_handler(app));
+    // P2-R92a：hide 即销毁 surface，回放只能在建 child 时注入一次；无快照时
+    // 完全不注入（旧行为：新 child 从初始位置开始）。
+    if let Some(view_state) = initial_view_state {
+        builder = builder.initialization_script(external_view_state_restore_script(view_state));
+    }
+    Ok(builder)
 }
 
 fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
@@ -1887,6 +2464,28 @@ fn detached_new_window_handler<R: tauri::Runtime>(
                     let _ = popup.set_always_on_top(false);
                     let _ = popup.set_focus();
                 });
+                // R9：仅当弹窗 URL 的 origin 与某个已登记内容会话一致
+                // （同 scoped origin 弹窗）时登记为该承载对象的内容面弹窗；
+                // 远程弹窗不登记，后续 invoke/标题桥一律被拒绝。
+                // P2：归属按 `RuntimeKey` 记录（item 或外部会话），弹窗角色本身
+                // 无任何合法消息，登记只用于「这是宿主创建的内容面」事实。
+                if let Some(state) = app_handle.try_state::<crate::state::AppState>() {
+                    if let Some(origin) = crate::core::content_session::origin_of_url(url.as_str()) {
+                        if let Some(key) = state.content_sessions.find_key_by_origin(&origin) {
+                            let _ = state.content_sessions.register(
+                                window.label(),
+                                crate::core::content_session::ContentSessionRecord {
+                                    role: crate::core::content_session::ContentSurfaceRole::RuntimePopup,
+                                    key,
+                                    origin,
+                                    runtime_session_id: String::new(),
+                                    generation: 0,
+                                    view_state_surface_token: 0,
+                                },
+                            );
+                        }
+                    }
+                }
                 NewWindowResponse::Create { window }
             }
             Err(_) => NewWindowResponse::Allow,
@@ -1906,42 +2505,221 @@ fn detached_fullscreen_handler<R: tauri::Runtime>(
     }
 }
 
+/// R9：标题桥 fallback 与 invoke 通道共用的会话登记裁决。内容面 label
+/// 必须有登记记录且当前 origin 未漂移（导航失效）；可信面返回 None。
+///
+/// R9-a（Codex 返修）：本函数的 `None` 一律按「拒绝」处理 —— 标题桥只挂在
+/// 内容 webview 上，None 只可能是未登记 / 已注销 / 已导航离开 / **URL 获取
+/// 失败**。获取当前 URL 失败同样拒绝，不得跳过 origin 检查放行。
+pub(crate) fn title_bridge_record<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    webview: &tauri::Webview<R>,
+) -> Option<crate::core::content_session::ContentSessionRecord> {
+    let label = webview.label();
+    if crate::core::content_session::ContentSurfaceRole::from_label(label).is_none() {
+        return None;
+    }
+    let state = app.try_state::<crate::state::AppState>()?;
+    let record = state.content_sessions.get(label)?;
+    // R9-a：url() 失败必须拒绝（`?` 传播 None = 拒绝），不能静默跳过。
+    let url = webview.url().ok()?.to_string();
+    if url != "about:blank" {
+        let current = crate::core::content_session::origin_of_url(&url)?;
+        if current != record.origin {
+            return None;
+        }
+    }
+    Some(record)
+}
+
+/// revision 83（P2-R80b）：正文查找**结果**的身份裁决（窄、可单测）。
+///
+/// 结果标题桥（`__NUTBOOK_HTML_FIND_RESULT__:`）的发送方必须是登记的内容宿主
+/// 角色（`RuntimeHost` / `ExternalHost`）——它们是唯一的查找执行面；player /
+/// presentation preview / popup 不是，一律拒绝。身份必须与登记 key 对齐：
+/// `Item(id)` 只接受数字 `id`，`External(session)` 只接受字符串
+/// `external:<session>`（页面 JS 无法伪造 webview label 与登记记录）。
+pub(crate) fn find_result_identity_matches(
+    role: crate::core::content_session::ContentSurfaceRole,
+    key: &crate::core::content_session::RuntimeKey,
+    claimed_item_id: Option<&Value>,
+) -> bool {
+    use crate::core::content_session::{ContentSurfaceRole, RuntimeKey};
+    // 角色与 key 域必须配对：label 由 key 派生（`html-host-<id>` /
+    // `html-host-ext-<session>`），两者本不可能不一致 —— 不一致即视为不可信。
+    match (role, key) {
+        (ContentSurfaceRole::RuntimeHost, RuntimeKey::Item(item)) => claimed_item_id
+            .and_then(Value::as_i64)
+            .map(|claimed| claimed == *item)
+            .unwrap_or(false),
+        (ContentSurfaceRole::ExternalHost, RuntimeKey::External(session)) => claimed_item_id
+            .and_then(Value::as_str)
+            .map(|claimed| claimed == format!("external:{session}"))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// R9：标题桥编辑消息的会话/类型裁决（与 invoke 通道 payload_items_authorized
+/// + verify_bridge_message 同一规则）。返回 true 表示允许转发到 main。
+///
+/// R9-a：`title_bridge_record` 返回 None（未登记 / 已注销 / 已导航离开 /
+/// URL 失败）时**必须拒绝**。旧实现 `None => true` 是反向漏洞：已导航到
+/// 远程页面的 host 仍挂着标题回调，凭非空 runtimeSessionId 即可把任意 JSON
+/// 送入 main，绕过角色 / item / lease 校验。
+pub(crate) fn title_bridge_message_authorized<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    webview: &tauri::Webview<R>,
+    payload: &Value,
+) -> bool {
+    let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+    let session_id = payload.get("runtimeSessionId").and_then(Value::as_str).unwrap_or("");
+    let generation = payload.get("generation").and_then(Value::as_u64).unwrap_or(0);
+    if session_id.is_empty() {
+        return false;
+    }
+    // R8 补充：转换探针在 lease 注册**之前**发出（requestHtmlEdit 先探测
+    // 再开转换会话），只含两个布尔位、无写能力，登记 + origin + 角色校验
+    // 已足够；其余类型一律要求会话身份匹配。
+    const PRE_LEASE_TYPES: [&str; 1] = ["html_edit_conversion_probe"];
+    let Some(record) = title_bridge_record(app, webview) else {
+        // R9-a：失败即拒绝 —— 不从 None 推导可信。
+        return false;
+    };
+    if !record.role.allows_message_type(message_type) {
+        return false;
+    }
+    // R10：item 校验与 invoke 通道共用同一规则（含副本结果 item 的服务端
+    // 校验；state 获取失败同样拒绝）。
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return false;
+    };
+    if crate::commands::preview::payload_items_authorized(&state, &record, payload).is_err() {
+        return false;
+    }
+    if PRE_LEASE_TYPES.contains(&message_type) {
+        return true;
+    }
+    if !record.runtime_session_id.is_empty() {
+        session_id == record.runtime_session_id && generation == record.generation
+    } else {
+        // P2：lease 只在 Item 身份下存在（外部阅读面没有 item，就不存在编辑
+        // lease —— 该分支在当前角色表下已不可达，这里显式表达不留隐含语义）。
+        match record.key.item_id() {
+            Some(item_id) => state
+                .html_edit_session_lease_matches(item_id, session_id, generation)
+                .unwrap_or(false),
+            None => false,
+        }
+    }
+}
+
 fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> impl Fn(tauri::Webview<R>, String) + Send + 'static {
     let app_handle = app.clone();
     move |webview, title| {
         if let Some(rest) = title.strip_prefix(HTML_RUNTIME_VIEW_STATE_PREFIX) {
-            if let Ok(payload) = serde_json::from_str::<Value>(rest) {
-                let _ = forward_html_runtime_view_state(&app_handle, &payload);
+            // R8：view-state 桥走会话登记 + origin 裁决；JSON 严格解析后
+            // 再序列化转发（不把原始字符串交给 eval）。
+            // R9-c（Codex 返修）：登记存在不够 —— 标题桥必须与 invoke 通道
+            // 共用发送方 item + 当前 surface 身份裁决，否则任何已登记内容页
+            // 可伪造其他标签的 view-state（itemId/surfaceToken 均为可猜测的
+            // 顺序号，main 侧只按 surfaceToken 匹配目标），覆盖其滚动位置、
+            // hash 与演示恢复状态，并以大 sequence 压制后续真实回报。
+            if let Some(record) = title_bridge_record(&app_handle, &webview) {
+                if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                    let authorized = app_handle
+                        .try_state::<crate::state::AppState>()
+                        .map(|state| {
+                            crate::commands::preview::view_state_payload_authorized(
+                                &state, &record, &payload,
+                            )
+                            .is_ok()
+                        })
+                        .unwrap_or(false);
+                    if authorized {
+                        let _ = forward_html_runtime_view_state(&app_handle, &payload);
+                    }
+                }
             }
             let _ = webview.eval("window.__NUTBOOK_RUNTIME_VIEW_STATE__?.ackTitle?.();");
             return;
         }
         if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) {
-            if let Some(item_id) = webview.label().strip_prefix("html-host-").and_then(|value| value.parse::<i64>().ok()) {
-                if let Some(main_webview) = app_handle.get_webview("main") {
-                    let _ = main_webview.eval(&format!("window.__NUTBOOK_OPEN_HTML_FIND__?.({item_id});"));
+            // revision 71：外部临时 host（`html-host-ext-<sessionId>`）与正式
+            // item host 走同一 compatibility 脚本，Cmd+F 标题桥同样可达。
+            // 身份派生自宿主 label（页面 JS 不可伪造）；main 侧
+            // `__NUTBOOK_OPEN_HTML_FIND__` 仅在身份为当前活动 tab 时打开查找。
+            let item_id = webview
+                .label()
+                .strip_prefix("html-host-")
+                .and_then(|value| value.parse::<i64>().ok());
+            let external_session = webview.label().strip_prefix("html-host-ext-");
+            let forward_identity: Option<String> = if let Some(item_id) = item_id {
+                Some(item_id.to_string())
+            } else if let Some(session_id) = external_session {
+                serde_json::to_string(&format!("external:{session_id}")).ok()
+            } else {
+                None
+            };
+            if let Some(identity_literal) = forward_identity {
+                // R9：标题桥 fallback 与 invoke 通道同一裁决 —— 未登记或已
+                // 导航离开注册 origin 的 webview 不能再驱动宿主 UI。
+                if title_bridge_record(&app_handle, &webview).is_some() {
+                    if let Some(main_webview) = app_handle.get_webview("main") {
+                        let _ = main_webview.eval(&format!(
+                            "window.__NUTBOOK_OPEN_HTML_FIND__?.({identity_literal});"
+                        ));
+                    }
                 }
             }
             let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
             return;
         }
         if let Some(rest) = title.strip_prefix(HTML_FIND_RESULT_PREFIX) {
-            if let Some(main_webview) = app_handle.get_webview("main") {
-                let _ = main_webview.eval(&format!(
-                    "window.__NUTBOOK_HANDLE_HTML_FIND_RESULT__?.({rest});"
-                ));
+            // R8：旧实现把 `:` 后的原始字符串直接插入 main.eval —— 内容页
+            // 设置 title `__NUTBOOK_HTML_FIND_RESULT__:null);globalThis.x=true;//`
+            // 即可在 main 执行任意语句，绕过整个 invoke 闸门。修复：内容必须
+            // 先是合法 JSON 对象，再由 serde 序列化为字面量插入；发送方必须是
+            // 登记的内容会话。
+            // R9-c 分支清点：result payload 携带 itemId（查找脚本以被查页面
+            // 的 item 回报），必须等于发送方登记 item，防止伪造他人 item 的
+            // 查找计数（main 侧仅校验 itemId 与当前打开的查找面板一致）。
+            if let Ok(payload) = serde_json::from_str::<Value>(rest) {
+                if payload.is_object() {
+                    if let Some(record) = title_bridge_record(&app_handle, &webview) {
+                        // revision 83（P2-R80b）：身份裁决提取为窄 helper
+                        // （角色 + RuntimeKey 双裁决，见单测矩阵）。语义与
+                        // revision 71 一致——Item 只认自己的数字 itemId，
+                        // External 只认 `external:<登记 sessionId>`。
+                        let item_matches = find_result_identity_matches(
+                            record.role,
+                            &record.key,
+                            payload.get("itemId"),
+                        );
+                        if item_matches {
+                            if let Some(main_webview) = app_handle.get_webview("main") {
+                                if let Ok(payload_json) = serde_json::to_string(&payload) {
+                                    let _ = main_webview.eval(&format!(
+                                        "window.__NUTBOOK_HANDLE_HTML_FIND_RESULT__?.({payload_json});"
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
             }
             let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
             return;
         }
         if let Some(rest) = title.strip_prefix(HTML_EDIT_RUNTIME_ACTION_PREFIX) {
+            // R8：title fallback 与 invoke 通道同一裁决（JSON 解析 + 序列化
+            // 转发 + 会话登记 + 角色/类型/lease 校验）。
             if let Ok(payload) = serde_json::from_str::<Value>(rest) {
-                let runtime_type = payload.get("type").and_then(Value::as_str);
-                let should_log = runtime_type
-                    .map(|value| value.starts_with("html_edit_"))
-                    .unwrap_or(false);
+                let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+                let should_log = message_type.starts_with("html_edit_");
+                let authorized = title_bridge_message_authorized(&app_handle, &webview, &payload);
                 if should_log {
                     let host_item_id = webview
                         .label()
@@ -1950,28 +2728,31 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                     log_html_edit_debug(
                         "runtime-title",
                         format!(
-                            "host_item={} {}",
+                            "host_item={} authorized={} {}",
                             host_item_id,
+                            authorized,
                             html_edit_debug_payload_fields(&payload)
                         ),
                     );
                 }
-                if let Some(main_webview) = app_handle.get_webview("main") {
-                    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
-                    let forwarding_result = main_webview.eval(&format!(
-                        "window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__?.({});",
-                        payload_json
-                    ));
-                    if should_log {
-                        log_html_edit_debug(
-                            "runtime-forward",
-                            format!(
-                                "host_item={} {} result={}",
-                                webview.label().strip_prefix("html-host-").unwrap_or("-"),
-                                html_edit_debug_payload_fields(&payload),
-                                if forwarding_result.is_ok() { "ok" } else { "error" }
-                            ),
-                        );
+                if authorized {
+                    if let Some(main_webview) = app_handle.get_webview("main") {
+                        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
+                        let forwarding_result = main_webview.eval(&format!(
+                            "window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__?.({});",
+                            payload_json
+                        ));
+                        if should_log {
+                            log_html_edit_debug(
+                                "runtime-forward",
+                                format!(
+                                    "host_item={} {} result={}",
+                                    webview.label().strip_prefix("html-host-").unwrap_or("-"),
+                                    html_edit_debug_payload_fields(&payload),
+                                    if forwarding_result.is_ok() { "ok" } else { "error" }
+                                ),
+                            );
+                        }
                     }
                 }
             }
@@ -2559,7 +3340,7 @@ fn html_runtime_controls_overlay_update_script(
 }
 
 fn html_find_overlay_init_script(
-    item_id: i64,
+    identity: serde_json::Value,
     can_replace: bool,
     replace_expanded: bool,
     query: &str,
@@ -2569,12 +3350,13 @@ fn html_find_overlay_init_script(
     history: &[String],
     focus_query: bool,
 ) -> String {
+    let identity_json = serde_json::to_string(&identity).unwrap_or_else(|_| "null".to_string());
     let query = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".to_string());
     let count = serde_json::to_string(count).unwrap_or_else(|_| "\"0/0\"".to_string());
     let labels = serde_json::to_string(labels).unwrap_or_else(|_| "{}".to_string());
     let history = serde_json::to_string(history).unwrap_or_else(|_| "[]".to_string());
     format!(
-        "window.__NUTBOOK_HTML_FIND_INITIAL__={{itemId:{item_id},canReplace:{can_replace},replaceExpanded:{replace_expanded},query:{query},count:{count},caseSensitive:{case_sensitive},labels:{labels},history:{history},focusQuery:{focus_query}}};window.__NUTBOOK_HTML_FIND__?.update?.(window.__NUTBOOK_HTML_FIND_INITIAL__);"
+        "window.__NUTBOOK_HTML_FIND_INITIAL__={{itemId:{identity_json},canReplace:{can_replace},replaceExpanded:{replace_expanded},query:{query},count:{count},caseSensitive:{case_sensitive},labels:{labels},history:{history},focusQuery:{focus_query}}};window.__NUTBOOK_HTML_FIND__?.update?.(window.__NUTBOOK_HTML_FIND_INITIAL__);"
     )
 }
 
@@ -2583,10 +3365,359 @@ mod tests {
     use crate::models::{HtmlEditToolbarFormatState, ItemDetail, ItemSummary};
 
     use super::{
-        html_edit_toolbar_label, html_edit_toolbar_update_script, html_runtime_compatibility_script,
-        html_runtime_shortcut_script, html_runtime_view_state_script, html_runtime_window_label, presentation_preview_init_script,
-        presentation_preview_update_script, HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlRuntimeSession,
+        external_html_find_action_script, external_view_state_capture_script,
+        external_view_state_restore_script,
+        find_result_identity_matches, html_edit_toolbar_label, html_edit_toolbar_update_script,
+        html_find_overlay_init_script,
+        html_find_overlay_label, html_find_overlay_label_for, html_runtime_compatibility_script,
+        html_runtime_controls_label_for, html_runtime_host_label, html_runtime_host_label_for,
+        html_presentation_preview_label_for, html_runtime_shortcut_script,
+        html_runtime_view_state_script, html_runtime_window_label, html_runtime_window_label_for,
+        presentation_preview_init_script,
+        presentation_preview_update_script,
+        EXTERNAL_HTML_FIND_CLOSE_SCRIPT, EXTERNAL_HTML_FIND_MAX_QUERY_BYTES,
+        HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlFindActionPayload, HtmlRuntimeSession,
     };
+    use crate::core::content_session::RuntimeKey;
+
+    /// P2 / §6.2：promotion 采集脚本只做「读一次滚动 + hash + 演示页 id 并
+    /// 回报」，不得携带 surface token、不得注册常驻全局或监听事件。
+    /// revision 71：演示页 id 经公开 presentation bridge 有界读取（120ms/60ms）。
+    #[test]
+    fn external_view_state_capture_script_is_one_shot_and_tokenless() {
+        let script = external_view_state_capture_script("ext-1", 4, "req-9");
+        assert!(script.contains("external_html_view_state_report_command"));
+        assert!(script.contains("location.hash"));
+        assert!(script.contains("scrollY"));
+        // revision 71：演示页 id 经公开桥读取，随 viewState 一次性回传。
+        assert!(script.contains("__NUTBOOK_PRESENTATION__"));
+        assert!(script.contains("getActivePageId"));
+        assert!(script.contains("presentationPageId"));
+        assert!(script.contains("bounded(bridge.whenReady(), 120)"));
+        assert!(script.contains("bounded(bridge.getActivePageId(), 60)"));
+        assert!(!script.contains("__NUTBOOK_SURFACE_TOKEN__"));
+        assert!(!script.contains("surfaceToken"));
+        assert!(!script.contains("addEventListener"));
+        assert!(!script.contains("__NUTBOOK_RUNTIME_VIEW_STATE__"));
+        // 会话 id 与 requestId 必须走 JSON 字面量，注入引号不能逃逸。
+        let escaped = external_view_state_capture_script("a\"b\\c", 1, "r\"1");
+        assert!(escaped.contains(r#""a\"b\\c""#), "session id must be JSON-escaped");
+        assert!(escaped.contains(r#""r\"1""#), "request id must be JSON-escaped");
+    }
+
+    /// P2-R92a：外部回放脚本必须「只恢复滚动 / hash / 演示页」，且随快照
+    /// 注入的字面量不可逃逸。它不是常驻协议：不得注册全局对象、不得监听
+    /// 持久事件（只监听用于让位给用户的输入事件）、不得 pushState。
+    #[test]
+    fn external_view_state_restore_script_restores_bounded_and_escapes_state() {
+        let script = external_view_state_restore_script(&serde_json::json!({
+            "scrollX": 4,
+            "scrollY": 987,
+            "hash": "#page-7",
+            "presentationPageId": "bridge-b"
+        }));
+        assert!(script.contains("window.scrollTo"), "回放必须恢复滚动");
+        assert!(script.contains("history.replaceState"), "回放必须恢复 hash（不新增历史条目）");
+        assert!(script.contains("location.hash"));
+        assert!(script.contains("__NUTBOOK_PRESENTATION__"));
+        assert!(script.contains("bridge.goTo(targetPageId)"), "回放必须恢复演示页");
+        // 有界：就绪等待与滚动收敛都有帧上限，不靠固定延时。
+        assert!(script.contains("waitFrames >= 600"));
+        assert!(script.contains("frame >= 300"));
+        assert!(script.contains("bounded(bridge.whenReady(), 120)"));
+        // 不是常驻协议：不注册全局、不携带 surface token。
+        assert!(!script.contains("__NUTBOOK_RUNTIME_VIEW_STATE__"));
+        assert!(!script.contains("__NUTBOOK_SURFACE_TOKEN__"));
+        assert!(!script.contains("surfaceToken"));
+        assert!(!script.contains("pushState"));
+        // 快照经 JSON 字面量注入：注入引号 / 反斜杠不能逃逸出字面量。
+        let escaped = external_view_state_restore_script(&serde_json::json!({
+            "scrollY": 1,
+            "hash": "#a\"b\\c",
+            "presentationPageId": null
+        }));
+        assert!(escaped.contains(r#"#a\"b\\c"#), "hash 必须 JSON 转义");
+        // 无快照时不产生脚本调用方——由 builder 决定不注入（此处仅固定形状）。
+        let nullish = external_view_state_restore_script(&serde_json::Value::Null);
+        assert!(nullish.contains("const initial = null;"), "null 快照应原样成为字面量并由脚本早退");
+    }
+
+    /// revision 71：find overlay label 由 RuntimeKey 派生——Item 分支与原
+    /// label 完全一致，External 派生独立命名空间。
+    #[test]
+    fn html_find_overlay_label_matches_runtime_key() {
+        assert_eq!(html_find_overlay_label_for(&RuntimeKey::Item(42)), "html-find-42");
+        assert_eq!(html_find_overlay_label_for(&RuntimeKey::Item(7)), html_find_overlay_label(7));
+        assert_eq!(
+            html_find_overlay_label_for(&RuntimeKey::External("ext-abc-1".to_string())),
+            "html-find-ext-abc-1"
+        );
+    }
+
+    /// revision 71：find overlay 初始身份内嵌——Item 是数字字面量，External
+    /// 是 JSON 字符串字面量（注入引号不能逃逸）。
+    #[test]
+    fn html_find_overlay_init_script_embeds_identity_literal() {
+        let labels = std::collections::BTreeMap::new();
+        let item_script = html_find_overlay_init_script(
+            serde_json::Value::from(42), false, false, "q", "0/0", false, &labels, &[], true,
+        );
+        assert!(item_script.contains("itemId:42,"), "item 身份必须是数字字面量");
+        let external_script = html_find_overlay_init_script(
+            serde_json::Value::String("external:ext-1".to_string()),
+            false, false, "q", "0/0", false, &labels, &[], true,
+        );
+        assert!(
+            external_script.contains(r#"itemId:"external:ext-1","#),
+            "外部身份必须是 JSON 字符串字面量"
+        );
+        let escaped = html_find_overlay_init_script(
+            serde_json::Value::String("external:a\"b".to_string()),
+            false, false, "q", "0/0", false, &labels, &[], true,
+        );
+        assert!(escaped.contains(r#"itemId:"external:a\"b","#), "外部身份必须 JSON 转义");
+    }
+
+    /// revision 74（P2-R71a）：外部查找动作 deny-by-default——只放行
+    /// query / next / prev / close；replace 一族（§6.2 外部不开放编辑）与
+    /// 任意其它动作（含 hostile 页面能想到的任意文本）必须被拒。
+    #[test]
+    fn external_html_find_action_script_rejects_non_find_actions() {
+        for hostile in [
+            "replace",
+            "replace_all",
+            "eval",
+            "",
+            "query;eval(1)",
+            "window.alert(1)",
+            "QUERY",
+        ] {
+            assert!(
+                external_html_find_action_script("ext-1", hostile, "q", false).is_err(),
+                "动作 {hostile:?} 必须被拒（deny-by-default）"
+            );
+        }
+        assert!(external_html_find_action_script("ext-1", "query", "q", false).is_ok());
+        assert!(external_html_find_action_script("ext-1", "next", "q", false).is_ok());
+        assert!(external_html_find_action_script("ext-1", "prev", "q", false).is_ok());
+        assert!(external_html_find_action_script("ext-1", "close", "", false).is_ok());
+    }
+
+    /// revision 74（P2-R71a）：固定模板 + JSON 字面量注入——hostile query
+    /// 不能逃逸出字符串字面量，itemId 固定为登记会话，backwards 随动作映射，
+    /// 外部脚本不含 replace/execCommand 分支。
+    #[test]
+    fn external_html_find_action_script_is_fixed_template_with_json_literals() {
+        let hostile_query = "\"); window.__PWNED__ = 1; (\"";
+        let script =
+            external_html_find_action_script("ext-1", "query", hostile_query, true).unwrap();
+        // 固定模板开头：参数只能以 const 声明进入，不存在裸插值面。
+        assert!(script.starts_with(";(()=>{const q="));
+        // hostile 载荷必须整体以 JSON 转义形式出现（引号被转义即无法闭合字面量）。
+        let escaped = serde_json::to_string(hostile_query).unwrap();
+        assert!(script.contains(&format!("const q={escaped},")));
+        // itemId 固定为登记会话的字面量（标题桥 External 分支据此校验）。
+        assert!(script.contains(r#"itemId="external:ext-1";"#));
+        // query/next 向后查找为 false，prev 为 true（桥钩子对象属性 +
+        // window.find 位置参数两处一致）。
+        let next_script = external_html_find_action_script("ext-1", "next", "q", false).unwrap();
+        assert_eq!(next_script.matches("backwards:false").count(), 1);
+        assert!(next_script.contains("window.find(q,cs,false,true,false,false,false)"));
+        let prev_script = external_html_find_action_script("ext-1", "prev", "q", false).unwrap();
+        assert_eq!(prev_script.matches("backwards:true").count(), 1);
+        assert!(prev_script.contains("window.find(q,cs,true,true,false,false,false)"));
+        // 外部脚本不含替换能力（§6.2）：无 replacement / execCommand / insertText。
+        assert!(!script.contains("replacement"));
+        assert!(!script.contains("execCommand"));
+        assert!(!script.contains("insertText"));
+        // close 是固定文本，没有任何插值面。
+        assert_eq!(
+            external_html_find_action_script("ext-1", "close", "", false).unwrap(),
+            EXTERNAL_HTML_FIND_CLOSE_SCRIPT
+        );
+        assert_eq!(
+            external_html_find_action_script("a\"b", "close", "", false).unwrap(),
+            EXTERNAL_HTML_FIND_CLOSE_SCRIPT
+        );
+    }
+
+    /// revision 77（P2-R71b）：query 字节上限——边界内（含多字节）通过，
+    /// 边界外（含多字节中文）拒绝且不产出脚本；close 不携带 query，超限
+    /// query 不影响 close；未知 / replace 动作仍 deny-by-default。
+    #[test]
+    fn external_html_find_action_script_caps_query_bytes() {
+        // 边界内恰好 4096 UTF-8 字节：1365 × 3 + 1。
+        let at_limit = format!("{}a", "松".repeat(1365));
+        assert_eq!(at_limit.len(), EXTERNAL_HTML_FIND_MAX_QUERY_BYTES);
+        assert!(
+            external_html_find_action_script("ext-1", "query", &at_limit, false).is_ok(),
+            "边界内的多字节 query 必须通过"
+        );
+        // 纯 ASCII 超限 1 字节即拒绝。
+        let over = "a".repeat(EXTERNAL_HTML_FIND_MAX_QUERY_BYTES + 1);
+        assert!(external_html_find_action_script("ext-1", "query", &over, false).is_err());
+        // 多字节超限：1366 × 3 = 4098 字节。
+        let multibyte_over = "松".repeat(1366);
+        assert_eq!(multibyte_over.len(), EXTERNAL_HTML_FIND_MAX_QUERY_BYTES + 2);
+        assert!(external_html_find_action_script("ext-1", "next", &multibyte_over, false).is_err());
+        assert!(external_html_find_action_script("ext-1", "prev", &multibyte_over, false).is_err());
+        // close 不携带 query：超限 query 也不影响 close（close 无查找面）。
+        assert!(external_html_find_action_script("ext-1", "close", &over, false).is_ok());
+        // 未知 / replace 一族仍拒绝（不受上限校验影响）。
+        assert!(external_html_find_action_script("ext-1", "replace", "q", false).is_err());
+        assert!(external_html_find_action_script("ext-1", "replace_all", "q", false).is_err());
+        assert!(external_html_find_action_script("ext-1", "eval", &over, false).is_err());
+    }
+
+    /// revision 83（P2-R80b）根因回归：find 动作载荷必须同时接受数字身份
+    /// （正式 item）与字符串身份（外部临时 host 的 `external:<sessionId>`）。
+    ///
+    /// 旧实现 `item_id: i64` 会让外部 overlay 的每个动作在标题桥反序列化处
+    /// 失败；该分支没有 else 兜底，失败即静默丢弃 —— 用户实测表现为正文
+    /// 查找恒 `0/0`，而 promotion 后（数字身份）一切正常。
+    #[test]
+    fn html_find_action_payload_accepts_item_and_external_identity() {
+        let item: HtmlFindActionPayload = serde_json::from_str(
+            r#"{"itemId":42,"action":"query","query":"松塔","replacement":"","caseSensitive":false,"replaceExpanded":false}"#,
+        )
+        .expect("数字身份必须可反序列化");
+        assert_eq!(item.item_id, serde_json::Value::from(42));
+        assert_eq!(item.action, "query");
+        assert_eq!(item.query, "松塔");
+
+        let external: HtmlFindActionPayload = serde_json::from_str(
+            r#"{"itemId":"external:ext-1","action":"query","query":"松塔","replacement":"","caseSensitive":true,"replaceExpanded":false}"#,
+        )
+        .expect("外部字符串身份必须可反序列化");
+        assert_eq!(
+            external.item_id,
+            serde_json::Value::from("external:ext-1"),
+            "外部身份原样承载（不解析成数字、不丢失字符串）"
+        );
+        assert!(external.case_sensitive);
+        // 原样回传：main 侧读到的 itemId 必须与 tab.id 同形（字符串）。
+        let round_trip: serde_json::Value =
+            serde_json::to_value(&external).expect("载荷必须可序列化回前端");
+        assert_eq!(round_trip.get("itemId").and_then(serde_json::Value::as_str), Some("external:ext-1"));
+    }
+
+    /// revision 83（P2-R80b）：查找结果身份裁决矩阵（角色 × RuntimeKey × 声明值）。
+    #[test]
+    fn find_result_identity_matches_role_and_key() {
+        use crate::core::content_session::{ContentSurfaceRole, RuntimeKey};
+        let external = RuntimeKey::External("ext-1".to_string());
+        let item = RuntimeKey::Item(7);
+        let text = |value: &str| serde_json::Value::from(value);
+        let number = |value: i64| serde_json::Value::from(value);
+
+        // 外部宿主：只认自己的字符串身份。
+        assert!(find_result_identity_matches(
+            ContentSurfaceRole::ExternalHost,
+            &external,
+            Some(&text("external:ext-1"))
+        ));
+        assert!(
+            !find_result_identity_matches(
+                ContentSurfaceRole::ExternalHost,
+                &external,
+                Some(&text("external:ext-2"))
+            ),
+            "错误会话必须拒绝"
+        );
+        assert!(
+            !find_result_identity_matches(
+                ContentSurfaceRole::ExternalHost,
+                &external,
+                Some(&number(1))
+            ),
+            "外部身份不接受数字 itemId"
+        );
+        assert!(
+            !find_result_identity_matches(ContentSurfaceRole::ExternalHost, &external, None),
+            "缺失 itemId 必须拒绝"
+        );
+
+        // 正式宿主：只认自己的数字 itemId。
+        assert!(find_result_identity_matches(
+            ContentSurfaceRole::RuntimeHost,
+            &item,
+            Some(&number(7))
+        ));
+        assert!(
+            !find_result_identity_matches(ContentSurfaceRole::RuntimeHost, &item, Some(&text("7"))),
+            "数字域不接受字符串形式"
+        );
+        assert!(
+            !find_result_identity_matches(ContentSurfaceRole::RuntimeHost, &item, Some(&number(8))),
+            "错误 item 必须拒绝"
+        );
+        assert!(
+            !find_result_identity_matches(
+                ContentSurfaceRole::RuntimeHost,
+                &external,
+                Some(&text("external:ext-1"))
+            ),
+            "key 域与声明值形态必须一致"
+        );
+
+        // 角色门：非宿主内容面不是查找执行面。
+        for role in [
+            ContentSurfaceRole::DetachedPlayer,
+            ContentSurfaceRole::PresentationPreview,
+            ContentSurfaceRole::RuntimePopup,
+        ] {
+            assert!(
+                !find_result_identity_matches(role, &item, Some(&number(7))),
+                "非宿主角色一律拒绝：{role:?}"
+            );
+            assert!(
+                !find_result_identity_matches(role, &external, Some(&text("external:ext-1"))),
+                "非宿主角色一律拒绝（外部身份）：{role:?}"
+            );
+        }
+    }
+
+    /// R8：恶意 title 后缀不是合法 JSON —— 解析失败即不转发，注入不成立。
+    #[test]
+    fn find_result_title_rejects_injection_suffix() {
+        // Codex 复现的注入表达式：旧实现把 `:` 后原始字符串直接插入 main.eval。
+        let malicious = "null);globalThis.__reviewInjection=true;//";
+        assert!(
+            serde_json::from_str::<serde_json::Value>(malicious).is_err(),
+            "注入后缀必须解析失败"
+        );
+        // 合法 JSON 对象仍可通过（正常 find 结果）。
+        assert!(
+            serde_json::from_str::<serde_json::Value>(r#"{"matches":1,"query":"x"}"#).is_ok()
+        );
+        // 非对象 JSON（数组/标量）也不得转发。
+        assert!(!serde_json::from_str::<serde_json::Value>("null").unwrap().is_object());
+    }
+
+    // R10 注：payload item 归属校验已统一到 `preview::payload_items_authorized`
+    // （需 AppState 做服务端副本校验，无法在无 Tauri 状态的单测中直接调用）；
+    // 副本路径推导规则的可测 seam 见 commands::html_edit::editable_copy_path 测试。
+
+    /// R9：标题桥编辑消息的会话/类型裁决（借 detached_embedded_fullscreen_handler
+    /// 所用的同一裁决函数，但需 AppHandle —— 这里只测纯类型层；完整裁决见
+    /// content_session 模块测试）。
+    #[test]
+    fn edit_title_bridge_type_prefixes_are_enforced_by_role() {
+        use crate::core::content_session::{ContentSessionRecord, ContentSurfaceRole};
+        let record = ContentSessionRecord {
+            role: ContentSurfaceRole::PresentationPreview,
+            key: crate::core::content_session::RuntimeKey::Item(42),
+            origin: "http://127.0.0.1:50000".into(),
+            runtime_session_id: "s-1".into(),
+            generation: 3,
+            view_state_surface_token: 0,
+        };
+        // 角色类型分权在 verify_bridge_message 中；这里确认 record 数据形状
+        // 与标题桥裁决输入一致（防止结构漂移）。
+        assert!(record.role.allows_message_type("html_edit_presentation_preview_ready"));
+        assert!(!record.role.allows_message_type("html_edit_conversion_result"));
+        assert!(record.runtime_session_id == "s-1" && record.generation == 3);
+    }
 
     fn html_item() -> ItemDetail {
         ItemDetail {
@@ -2630,7 +3761,9 @@ mod tests {
         )
         .expect("html item should build a runtime session");
 
-        assert_eq!(session.item_id, 42);
+        assert_eq!(session.key, RuntimeKey::Item(42));
+        assert_eq!(session.key.item_id(), Some(42));
+        assert_eq!(session.generation, 0);
         assert_eq!(session.label, "html-player-42");
         assert_eq!(session.title, "index.html");
         assert_eq!(
@@ -2648,7 +3781,7 @@ mod tests {
         )
         .expect("html item should build a runtime session");
 
-        let payload = session.to_payload(true);
+        let payload = session.to_payload(true).expect("item 会话必须能导出载荷");
 
         assert_eq!(payload.item_id, 42);
         assert_eq!(payload.label, "html-player-42");
@@ -2663,6 +3796,54 @@ mod tests {
     #[test]
     fn html_runtime_window_label_is_stable() {
         assert_eq!(html_runtime_window_label(7), "html-player-7");
+    }
+
+    /// P2（Codex revision 32）：外部临时会话走同一承载层，但身份与标签落在
+    /// 独立命名空间；并且**不**伪造 itemId（导出 item 载荷必须失败）。
+    #[test]
+    fn external_html_runtime_session_has_external_identity_only() {
+        let session = HtmlRuntimeSession::from_external(
+            "ext-9f8e7d6c",
+            7,
+            "index.html".to_string(),
+            "http://127.0.0.1:4100/index.html".to_string(),
+        );
+
+        assert_eq!(session.key, RuntimeKey::External("ext-9f8e7d6c".to_string()));
+        assert_eq!(session.key.item_id(), None);
+        assert_eq!(session.generation, 7);
+        assert_eq!(html_runtime_host_label_for(&session.key), "html-host-ext-9f8e7d6c");
+        assert_eq!(session.label, "html-host-ext-9f8e7d6c");
+        // 与正式 item host 标签不冲突（item 段是纯数字）。
+        assert_ne!(
+            html_runtime_host_label_for(&session.key),
+            html_runtime_host_label(7)
+        );
+        // 不伪造 itemId：外部会话导不出 item 载荷。
+        assert!(session.to_payload(false).is_err());
+    }
+
+    /// P2：label 兼容断言 —— item 分支必须与 P1 逐字一致（回归安全网）。
+    #[test]
+    fn runtime_key_labels_keep_item_output_byte_identical() {
+        for item_id in [0_i64, 7, 42, 1_000_000] {
+            assert_eq!(
+                html_runtime_host_label_for(&RuntimeKey::Item(item_id)),
+                format!("html-host-{item_id}")
+            );
+            assert_eq!(
+                html_runtime_window_label_for(&RuntimeKey::Item(item_id)),
+                format!("html-player-{item_id}")
+            );
+            assert_eq!(
+                html_presentation_preview_label_for(&RuntimeKey::Item(item_id)),
+                format!("html-presentation-preview-{item_id}")
+            );
+            assert_eq!(
+                html_runtime_controls_label_for(&RuntimeKey::Item(item_id)),
+                format!("html-controls-{item_id}")
+            );
+        }
     }
 
     #[test]

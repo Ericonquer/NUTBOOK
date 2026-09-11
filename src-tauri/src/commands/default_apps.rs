@@ -9,7 +9,9 @@
 // - 扩展名逐一核对：Markdown 组 [.md, .markdown]、HTML 组 [.html, .htm]；
 //   同组结果不一致显示「部分已设为默认」，不能合并误报。
 // - 设为默认是用户显式点击后的动作（macOS 由系统确认对话框授权），完成后由
-//   前端重新查询真实状态；取消/失败不能标成功。PR B 不注册 HTML 关联。
+//   前端重新查询真实状态；取消/失败不能标成功。
+// - 两个格式组各自独立可设：kind = "markdown" / "html" 分别作用到对应 UTI，
+//   组间互不牵连（不因设置 HTML 而改动 Markdown 的 handler）。
 // - 不静默设置 handler；安装/升级路径绝不调用本模块的 set 命令。
 
 use serde::Serialize;
@@ -19,6 +21,24 @@ use crate::errors::AppError;
 /// Markdown 的声明 UTI（与打包 Info.plist 文件关联一致；探针已实测）。
 #[cfg(target_os = "macos")]
 const MARKDOWN_UTI: &str = "net.daringfireball.markdown";
+
+/// HTML 的声明 UTI。打包 Info.plist 的 CFBundleDocumentTypes 已声明
+/// html/htm → public.html（PR C 加入关联），与 `default_app_status` 的
+/// 扩展名组 [.html, .htm] 一致。
+#[cfg(target_os = "macos")]
+const HTML_UTI: &str = "public.html";
+
+/// kind → 作用 UTI 的纯映射。抽出来是为了让「哪个 kind 落到哪个 UTI」可被
+/// 单测覆盖：AppKit 调用本身在单测里跑不了，但分派错误（例如 html 被拒）
+/// 正是本轮要修的缺陷形态。
+#[cfg(target_os = "macos")]
+pub(crate) fn default_app_uti_for_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "markdown" => Some(MARKDOWN_UTI),
+        "html" => Some(HTML_UTI),
+        _ => None,
+    }
+}
 
 /// 扩展名检查文件目录（app-owned data 目录内，不入资料库/最近记录）。
 #[cfg(target_os = "macos")]
@@ -130,22 +150,19 @@ pub(crate) fn settle_default_app_adjudication(
     }
 }
 
-/// 用户显式点击「设为默认」后发起系统默认应用变更。PR B 仅支持 Markdown。
+/// 用户显式点击「设为默认」后发起系统默认应用变更。
+/// kind = "markdown" / "html"，两者各自独立作用到对应 UTI。
 #[tauri::command]
 pub async fn set_default_app(
     app: tauri::AppHandle,
     kind: String,
 ) -> Result<SetDefaultAppMode, AppError> {
     #[cfg(target_os = "macos")]
-    match kind.as_str() {
-        "markdown" => {
-            set_markdown_default_macos(&app)
-                .await
-                .map(|()| SetDefaultAppMode::SystemDialog)
-        }
-        // PR B 边界：不提前注册 HTML 关联（PR C 能力）。
-        "html" => Err(AppError::UnsupportedFileType),
-        _ => Err(AppError::InvalidParams),
+    match default_app_uti_for_kind(kind.as_str()) {
+        Some(uti) => set_default_app_macos(&app, uti)
+            .await
+            .map(|()| SetDefaultAppMode::SystemDialog),
+        None => Err(AppError::InvalidParams),
     }
     #[cfg(target_os = "windows")]
     {
@@ -170,8 +187,11 @@ pub async fn set_default_app(
     }
 }
 
+/// 按 UTI 发起系统默认应用变更（Markdown / HTML 共用同一条 AppKit 链路）。
+/// `uti` 必须是 `'static`，NSString 在闭包内构造——objc2 的可保留类型不满足
+/// Send，跨线程前构造会被编译器拒绝。
 #[cfg(target_os = "macos")]
-async fn set_markdown_default_macos(app: &tauri::AppHandle) -> Result<(), AppError> {
+async fn set_default_app_macos(app: &tauri::AppHandle, uti: &'static str) -> Result<(), AppError> {
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::{NSBundle, NSError, NSString};
     use objc2_uniform_type_identifiers::UTType;
@@ -184,7 +204,7 @@ async fn set_markdown_default_macos(app: &tauri::AppHandle) -> Result<(), AppErr
     let dispatch_result = app.run_on_main_thread(move || {
         let workspace = NSWorkspace::sharedWorkspace();
         let app_url = NSBundle::mainBundle().bundleURL();
-        let content_type = UTType::typeWithIdentifier(&NSString::from_str(MARKDOWN_UTI));
+        let content_type = UTType::typeWithIdentifier(&NSString::from_str(uti));
         let Some(content_type) = content_type else {
             let _ = tx.blocking_send(Err(AppError::InternalError));
             return;
@@ -340,7 +360,7 @@ mod default_app_status_tests {
 // Codex R4：延迟回调 / 取消 / 失败的行为测试（非源码字符串断言）。
 #[cfg(all(test, target_os = "macos"))]
 mod default_app_set_tests {
-    use super::{settle_default_app_adjudication, RawAdjudicationError};
+    use super::{default_app_uti_for_kind, settle_default_app_adjudication, RawAdjudicationError};
     use crate::errors::AppError;
 
     fn raw(domain: &str, code: i64) -> RawAdjudicationError {
@@ -348,6 +368,35 @@ mod default_app_set_tests {
             domain: domain.to_string(),
             code,
             description: "adjudication-error".to_string(),
+        }
+    }
+
+    #[test]
+    fn kind_maps_to_the_declared_uti_per_group() {
+        // 本轮修复的缺陷形态：`html` 曾被直接拒绝（UnsupportedFileType），
+        // 界面上 HTML 那一组因此永远没有可用入口。两个 kind 必须各自落到
+        // 打包 Info.plist 里声明的 UTI，且互不串组。
+        assert_eq!(
+            default_app_uti_for_kind("markdown"),
+            Some("net.daringfireball.markdown")
+        );
+        assert_eq!(default_app_uti_for_kind("html"), Some("public.html"));
+        assert_ne!(
+            default_app_uti_for_kind("markdown"),
+            default_app_uti_for_kind("html")
+        );
+    }
+
+    #[test]
+    fn unknown_kind_never_falls_back_to_a_group() {
+        // 未知 kind 必须为 None（命令层转 InvalidParams），不得静默落到
+        // Markdown 或 HTML，否则错误调用会改掉用户没指定的格式关联。
+        for kind in ["", "Markdown", "HTML", "md", "pdf", "../html"] {
+            assert_eq!(
+                default_app_uti_for_kind(kind),
+                None,
+                "kind {kind:?} must not resolve to a UTI"
+            );
         }
     }
 

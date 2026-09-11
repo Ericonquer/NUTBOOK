@@ -179,6 +179,18 @@ pub struct MarkdownPreviewPayload {
     /// 就绪和显示前都必须复核该 key，外部替换后旧 snapshot 不得显示为当前内容。
     #[serde(default)]
     pub revision: String,
+    /// PR C Phase 1（D1=A）：该 item 的 scoped 内容 origin（每 session 独立
+    /// loopback）。空字符串表示未启用，前端不得回退到旧 `/fs` 拼接。
+    #[serde(default)]
+    pub resource_origin: String,
+    /// 授权 root（canonical 绝对路径）：前端把文档引用解析为 root 内相对段
+    /// 后拼 `resource_origin`；前缀不匹配的引用一律不给 URL。
+    #[serde(default)]
+    pub resource_root: String,
+    /// canonical 化的文档父目录：前端用它把相对引用拼成 canonical 绝对路径
+    /// （与 resource_root 同一空间，规避 symlink 形态差异）。
+    #[serde(default)]
+    pub resource_base_dir: String,
 }
 
 /// 检查视图专用的 Markdown snapshot：raw + revision key，供主 WebView 挂载
@@ -465,6 +477,137 @@ pub struct HtmlRuntimeSessionPayload {
     pub title: String,
     pub runtime_url: String,
     pub detached: bool,
+}
+
+/// P2（Codex revision 32「有界 A」）：外部临时 HTML 的承载载荷。
+///
+/// 与 `HtmlRuntimeSessionPayload` 的关键差别是**没有 itemId** —— 加入前不存在
+/// item 身份，不用 `0` 哨兵冒充。`sessionId` 与 `generation` 都来自后端会话
+/// 登记的回显，前端只用它继续调用后续命令（每次调用后端都会重新解析会话）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalHtmlRuntimeSessionPayload {
+    pub session_id: String,
+    pub generation: u64,
+    pub label: String,
+    pub title: String,
+    pub runtime_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachExternalHtmlRuntimeHostRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub bounds: RuntimeHostBounds,
+    /// P2-R92a：切走前抓到的最后一次有效位置快照（滚动 / hash / 演示页）。
+    /// 只在**建 child 时**生效——已存在的 surface 走 bounds-only 早退分支。
+    /// 缺省为 None，保持与旧调用方兼容。
+    #[serde(default)]
+    pub view_state: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetExternalHtmlRuntimeHostVisibilityRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseExternalHtmlRuntimeRequest {
+    pub session_id: String,
+}
+
+/// P2 / 计划 §6.2：promotion 前一次性 view state 采集请求（宿主 → child）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureExternalHtmlViewStateRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub request_id: String,
+}
+
+/// revision 71：外部临时 HTML 的正文查找承载（身份 = sessionId + generation，
+/// 与 `attach_external_html_runtime_host_command` 同一裁决）。find overlay
+/// child 是按需 attach/close 的独立 surface，`can_replace` 对外部恒为 false
+///（外部会话不开放 HTML 编辑，§6.2）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachExternalHtmlFindOverlayRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub bounds: RuntimeHostBounds,
+    #[serde(default)]
+    pub replace_expanded: bool,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub count: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    /// 文案由主界面按当前界面语言投影给独立 child webview，避免 overlay 固定中文。
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    /// 与 Markdown 正文搜索共用的最近三条原始搜索词；不得经过 i18n 转换。
+    #[serde(default)]
+    pub history: Vec<String>,
+}
+
+/// 已创建的外部 find child 只更新内容状态，不改变原生 bounds、可见性或焦点。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateExternalHtmlFindOverlayRequest {
+    pub session_id: String,
+    pub generation: u64,
+    #[serde(default)]
+    pub replace_expanded: bool,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub count: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub history: Vec<String>,
+}
+
+/// resize 只更新已存在 find child 的原生几何，不重放内容、show 或 focus。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetExternalHtmlFindOverlayBoundsRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub bounds: RuntimeHostBounds,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetExternalHtmlFindOverlayVisibilityRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub visible: bool,
+}
+
+/// revision 74（P2-R71a）：外部临时 host 的**结构化**查找动作。取代
+/// revision 72 的任意脚本文本 eval（hostile page 包装 invoke 截获会话标识
+/// 后可注入任意源码）。动作只允许 query / next / prev / close（后端
+/// deny-by-default 校验）；`replace` 一族在外部会话恒被拒绝（§6.2）；
+/// 脚本源码永远由宿主固定模板构造，请求里不存在脚本文本字段。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalHtmlFindActionRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub action: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

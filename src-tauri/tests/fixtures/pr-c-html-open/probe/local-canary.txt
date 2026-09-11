@@ -1,0 +1,1 @@
+PROBE-LOCAL-CANARY 同目录资源，任何阶段都必须可读。

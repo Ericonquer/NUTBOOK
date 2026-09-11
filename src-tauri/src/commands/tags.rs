@@ -57,11 +57,14 @@ mod tests {
     };
 
     fn temp_db_path() -> std::path::PathBuf {
+        // 同 items.rs：系统时钟粒度约 1µs，并行同纳秒槽会撞名，补 pid + 序号。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be after unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("nutbook-tags-{nanos}.sqlite3"))
+        std::env::temp_dir().join(format!("nutbook-tags-{}-{nanos}-{seq}.sqlite3", std::process::id()))
     }
 
     #[test]

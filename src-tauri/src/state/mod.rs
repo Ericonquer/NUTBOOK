@@ -13,13 +13,14 @@ use crate::{
     core::{
         scan_coordinator::ScanCoordinator,
         watcher::build_library_watcher,
+        content_session::ContentSessionRegistry,
+        scoped_content_server::ScopedContentServer,
     },
     db::{
         repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
         Database,
     },
     errors::AppError,
-    core::local_server::LocalContentServer,
     models::{
         CreateTagRequest, DeleteTagResponse, GenerateThumbnailResponse, IgnoredItemSummary,
         IndexedItemRecord, ItemDetail, ItemSummary, Library, ListItemsQuery, PagedResult,
@@ -32,7 +33,17 @@ use crate::{
 pub struct AppState {
     pub database: Database,
     scan_coordinator: ScanCoordinator,
-    local_content_server: LocalContentServer,
+    /// PR C Phase 1（D1=A）：每 session 独立 scoped 内容服务器注册表。
+    /// key 约定：`preview:{item_id}` / `html-runtime:{item_id}:{surface}` /
+    /// `html-edit:{item_id}` / `external:{session_id}`。
+    scoped_servers: Mutex<HashMap<String, Arc<ScopedContentServer>>>,
+    /// PR C Phase 1（R9/R11）：内容面 webview 会话登记表 —— 宿主创建内容
+    /// webview 时登记 {role, item, origin, session, generation}；内容面命令
+    /// 与标题桥一律先查登记，导航离开注册 origin 即失效。
+    pub content_sessions: ContentSessionRegistry,
+    /// PR C Phase 1：缩略图缓存资源服务器（root = app_data_dir/.cache/thumbnails）。
+    /// main 可信面展示缩略图的唯一本地来源；root 只含缩略图缓存文件。
+    cache_resource_server: Option<Arc<ScopedContentServer>>,
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<HashMap<i64, RecommendedWatcher>>,
     html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
@@ -57,15 +68,44 @@ impl AppState {
             eprintln!("Nutbook startup reconciliation replay failed: {error}");
         }
 
-        #[cfg(test)]
-        let local_content_server = LocalContentServer::testing();
-
-        #[cfg(not(test))]
-        let local_content_server =
-            LocalContentServer::shared().expect("failed to start local content server");
+        // PR C Phase 1（D1=A）：旧共享 LocalContentServer（`/fs` 任意绝对
+        // 路径读取面）不再随 AppState 启动 —— 运行时下线，HTML 不可达。
+        // 类型保留供 pr_c_baseline_boundary_characterization.rs 做历史
+        // 行为特征化。
 
         let thumbnail_settings_path = app_data_dir.join("thumbnail-settings.json");
         let update_settings_path = app_data_dir.join("update-settings.json");
+
+        // R11-a（Codex 第二轮返修）：跨启动端口隔离。在任何 scoped 服务器
+        // 启动之前：设置登记表路径并加载历史身份 → 把登记的上一进程端口
+        // 占为墓碑应答服务（可选、单线程有界）。身份裁决由 start 的禁止
+        // 集合完成，与墓碑成败无关（R11-a 第三轮）；init 失败 fail closed
+        // —— 应用继续启动，但一切 scoped 内容会话拒绝启动。
+        let used_ports_path = app_data_dir.join(
+            crate::core::scoped_content_server::USED_PORTS_FILE_NAME,
+        );
+        if let Err(error) =
+            crate::core::scoped_content_server::init_used_port_registry(used_ports_path)
+        {
+            eprintln!("Nutbook scoped port registry init failed: {error}; HTML scoped sessions will refuse to start (fail closed)");
+        }
+        let entombed = crate::core::scoped_content_server::entomb_registered_ports();
+        if entombed > 0 {
+            eprintln!("Nutbook entombed {entombed} stale scoped port(s) from previous launches");
+        }
+
+        // PR C Phase 1：缩略图缓存资源服务器（root = app_data_dir/.cache/thumbnails）。
+        let cache_root = app_data_dir.join(".cache").join("thumbnails");
+        let cache_resource_server = match fs::create_dir_all(&cache_root)
+            .ok()
+            .and_then(|_| ScopedContentServer::start(&cache_root).ok())
+        {
+            Some(server) => Some(Arc::new(server)),
+            None => {
+                eprintln!("Nutbook cache resource server unavailable: thumbnails fall back to no local URL");
+                None
+            }
+        };
         let system_chrome_enabled = fs::read_to_string(&thumbnail_settings_path)
             .map(|value| value.trim() == "1")
             .unwrap_or(false);
@@ -79,7 +119,9 @@ impl AppState {
         Self {
             scan_coordinator: ScanCoordinator::new(database.clone()),
             database,
-            local_content_server,
+            scoped_servers: Mutex::new(HashMap::new()),
+            content_sessions: ContentSessionRegistry::default(),
+            cache_resource_server,
             watched_libraries: Mutex::new(HashSet::new()),
             active_watchers: Mutex::new(HashMap::new()),
             html_edit_manifest_locks: Mutex::new(HashMap::new()),
@@ -96,12 +138,172 @@ impl AppState {
         }
     }
 
-    pub fn local_server_origin(&self) -> String {
-        self.local_content_server.origin().to_string()
+    /// PR C Phase 1：缩略图缓存资源 URL 前缀（R11-a 后即 origin 本身）与
+    /// canonical root。未启用时返回空。
+    pub fn cache_resource_info(&self) -> (String, String) {
+        match &self.cache_resource_server {
+            Some(server) => (
+                server.resource_base(),
+                server.canonical_root().to_string_lossy().to_string(),
+            ),
+            None => (String::new(), String::new()),
+        }
     }
 
-    pub fn local_server_file_url(&self, path: &std::path::Path) -> String {
-        self.local_content_server.file_url(path)
+    /// 缩略图缓存路径 → scoped URL。不在 cache root 内或未启用时返回空。
+    pub fn cache_resource_url(&self, path: &str) -> String {
+        let Some(server) = &self.cache_resource_server else {
+            return String::new();
+        };
+        let Ok(canonical) = std::path::Path::new(path).canonicalize() else {
+            return String::new();
+        };
+        let Ok(relative) = canonical.strip_prefix(server.canonical_root()) else {
+            return String::new();
+        };
+        server.relative_url(relative).unwrap_or_default()
+    }
+
+    // ---- PR C Phase 1（D1=A）：scoped resource origin ----
+    //
+    // 安全边界落在「端口 = 授权 root」绑定上：每个内容会话独立 loopback
+    // origin，origin 根直接映射授权 root（folder 资料库 root 或单文件直接
+    // 父目录）。旧 `/fs` 绝对路径路由在 Phase 1 收口后不复存在。
+
+    /// 获取（或创建）指定 session 的 scoped 内容服务器。同 key 同 root 复用；
+    /// root 漂移（来源被移动/替换）时重建。
+    pub fn scoped_server(
+        &self,
+        session_key: &str,
+        root: &std::path::Path,
+    ) -> Result<Arc<ScopedContentServer>, AppError> {
+        let canonical_root = root.canonicalize().map_err(|_| AppError::IoError)?;
+        let mut servers = self
+            .scoped_servers
+            .lock()
+            .map_err(|_| AppError::InternalError)?;
+        if let Some(existing) = servers.get(session_key) {
+            if existing.canonical_root() == canonical_root.as_path() {
+                return Ok(Arc::clone(existing));
+            }
+            // root 漂移：Drop 旧实例（关闭旧端口），下方重建。
+            servers.remove(session_key);
+        }
+        let server = Arc::new(ScopedContentServer::start(&canonical_root)?);
+        servers.insert(session_key.to_string(), Arc::clone(&server));
+        Ok(server)
+    }
+
+    /// 关闭并移除 session 的 scoped 服务器。生命周期钩子：close 标签 /
+    /// 替换 session / promotion teardown / 来源失效。
+    pub fn drop_scoped_server(&self, session_key: &str) -> bool {
+        self.scoped_servers
+            .lock()
+            .map(|mut servers| servers.remove(session_key).is_some())
+            .unwrap_or(false)
+    }
+
+    /// R11：来源失效（item 删除 / 资料库移除）时批量撤销该 item 的全部
+    /// scoped 内容能力（服务器 + 会话登记）。已实现入口：item 删除命令。
+    /// promotion teardown / external session close 属 Phase 2 接线，随
+    /// 对应 hook 落地（handoff 已声明阶段状态）。
+    pub fn revoke_content_capabilities_for_item(&self, item_id: i64) {
+        let stale: Vec<String> = self
+            .scoped_servers
+            .lock()
+            .map(|servers| {
+                servers
+                    .keys()
+                    .filter(|key| scoped_key_belongs_to_item(key, item_id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        for key in stale {
+            self.drop_scoped_server(&key);
+        }
+        self.content_sessions.unregister_item(item_id);
+    }
+
+    /// item 的授权 root（Codex 合同：相对资源合法性按单文件直接父目录或
+    /// folder root 判定）。folder 来源 → library root；file 来源 → 直接父目录。
+    pub fn authorization_root_for_item(&self, item: &ItemDetail) -> Result<PathBuf, AppError> {
+        let library = self
+            .list_libraries()?
+            .into_iter()
+            .find(|library| library.id == item.summary.library_id)
+            .ok_or(AppError::LibraryNotFound)?;
+        let root = PathBuf::from(&library.root_path);
+        if library.source_kind == "file" {
+            return root
+                .parent()
+                .map(PathBuf::from)
+                .ok_or(AppError::InvalidParams);
+        }
+        Ok(root)
+    }
+
+    /// 为 item 的授权 root 生成 scoped 会话内 URL。session key 由调用方按
+    /// 入口约定传入；path 必须落在授权 root 内，越界引用返回错误（调用方
+    /// 不得回退到其他来源）。
+    pub fn scoped_file_url_for_item(
+        &self,
+        session_key: &str,
+        item: &ItemDetail,
+        path: &std::path::Path,
+    ) -> Result<String, AppError> {
+        let root = self.authorization_root_for_item(item)?;
+        self.scoped_file_url_in_root(session_key, &root, path)
+    }
+
+    /// P2：外部临时会话的 scoped URL。授权 root = 单文件**直接父目录**
+    /// （计划 §6.3 与单文件 item 同一规则），root 由后端从会话登记的 raw_path
+    /// 推导 —— 内容页面上报的路径不参与判定。
+    pub fn scoped_file_url_for_external(
+        &self,
+        session_key: &str,
+        path: &std::path::Path,
+    ) -> Result<String, AppError> {
+        let root = path.parent().ok_or(AppError::InvalidParams)?;
+        self.scoped_file_url_in_root(session_key, root, path)
+    }
+
+    fn scoped_file_url_in_root(
+        &self,
+        session_key: &str,
+        root: &std::path::Path,
+        path: &std::path::Path,
+    ) -> Result<String, AppError> {
+        let server = self.scoped_server(session_key, root)?;
+        let canonical_root = root.canonicalize().map_err(|_| AppError::IoError)?;
+        let canonical_path = path.canonicalize().map_err(|_| AppError::IoError)?;
+        let relative = canonical_path
+            .strip_prefix(&canonical_root)
+            .map_err(|_| AppError::InvalidParams)?;
+        server
+            .relative_url(relative)
+            .ok_or(AppError::InvalidParams)
+    }
+
+    /// P2：外部临时会话关闭 / 取消时撤销其全部 scoped 内容能力（服务器 +
+    /// 会话登记）。与 `revoke_content_capabilities_for_item` 同语义，按外部
+    /// session id 分域，不误伤同号 item。
+    pub fn revoke_external_content_capabilities(&self, session_id: &str) {
+        let stale: Vec<String> = self
+            .scoped_servers
+            .lock()
+            .map(|servers| {
+                servers
+                    .keys()
+                    .filter(|key| scoped_key_belongs_to_external(key, session_id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        for key in stale {
+            self.drop_scoped_server(&key);
+        }
+        self.content_sessions.unregister_external(session_id);
     }
 
     pub fn system_chrome_thumbnails_enabled(&self) -> bool {
@@ -776,5 +978,73 @@ impl ThumbnailRepository for AppState {
 
     fn get_thumbnail_info(&self, item_id: i64) -> Result<Option<ThumbnailInfo>, AppError> {
         self.database.get_thumbnail_info(item_id)
+    }
+}
+
+/// R11-b：scoped session key 归属判定的纯函数 seam（`revoke_content_capabilities_for_item`
+/// 使用）。key 形态：
+/// - `preview:{item_id}` / `html-edit:{item_id}`：完整 key 精确相等；
+/// - `html-runtime:{item_id}:{surface}`（host/player/presentation）：带尾分隔符
+///   的前缀匹配。
+///
+/// 旧实现把 `preview:{id}` 也当前缀 —— 撤销 item 1 会误伤 `preview:10` /
+/// `preview:100` / `html-edit:10` 的存活资源能力。此处 `1` 不得匹配 `10`/`100`。
+fn scoped_key_belongs_to_item(key: &str, item_id: i64) -> bool {
+    if key == format!("preview:{item_id}") || key == format!("html-edit:{item_id}") {
+        return true;
+    }
+    key.starts_with(&format!("html-runtime:{item_id}:"))
+}
+
+/// P2：外部临时会话的 scoped key 归属判定。key 形如
+/// `html-runtime-ext:{session_id}:host`；尾随 `:` 保证 session id 互为前缀时
+/// 不误伤（与 item 的 `html-runtime:{id}:` 同一约定）。外部域与 item 域不
+/// 相交：item key 以数字段结束标识，外部 key 带 `-ext:` 分隔。
+fn scoped_key_belongs_to_external(key: &str, session_id: &str) -> bool {
+    key.starts_with(&format!("html-runtime-ext:{session_id}:"))
+}
+
+#[cfg(test)]
+mod revoke_key_tests {
+    use super::{scoped_key_belongs_to_external, scoped_key_belongs_to_item};
+
+    /// R11-b：1/10/100 同存活时，撤销 1 只命中自己的 key（Codex 指定的行为矩阵）。
+    #[test]
+    fn revoke_matching_does_not_hit_sibling_items() {
+        // 精确矩阵：撤销 item 1。
+        assert!(scoped_key_belongs_to_item("preview:1", 1));
+        assert!(scoped_key_belongs_to_item("html-edit:1", 1));
+        assert!(scoped_key_belongs_to_item("html-runtime:1:host", 1));
+        assert!(scoped_key_belongs_to_item("html-runtime:1:extra:host", 1));
+        assert!(!scoped_key_belongs_to_item("preview:10", 1), "preview:10 不得被 item 1 误伤");
+        assert!(!scoped_key_belongs_to_item("preview:100", 1), "preview:100 不得被 item 1 误伤");
+        assert!(!scoped_key_belongs_to_item("html-edit:10", 1), "html-edit:10 不得被 item 1 误伤");
+        assert!(!scoped_key_belongs_to_item("html-edit:100", 1));
+        assert!(!scoped_key_belongs_to_item("html-runtime:10:host", 1), "html-runtime:10:host 不得被 item 1 误伤");
+        assert!(!scoped_key_belongs_to_item("html-runtime:100:player", 1));
+        // 反向：撤销 item 10 不误伤 1 / 100。
+        assert!(!scoped_key_belongs_to_item("preview:1", 10));
+        assert!(scoped_key_belongs_to_item("preview:10", 10));
+        assert!(!scoped_key_belongs_to_item("preview:100", 10));
+        assert!(!scoped_key_belongs_to_item("html-runtime:12:host", 1));
+        // 完全无关的 key 不命中。
+        assert!(!scoped_key_belongs_to_item("preview:1extra", 1));
+        assert!(!scoped_key_belongs_to_item("html-edit:1x", 1));
+    }
+
+    /// P2：外部会话 key 分域判定 —— 与 item 域不相交，且 session id 互为
+    /// 前缀时不误伤（尾随 `:` 保护）。
+    #[test]
+    fn external_scoped_key_is_a_separate_namespace() {
+        assert!(scoped_key_belongs_to_external("html-runtime-ext:ext-a:host", "ext-a"));
+        assert!(scoped_key_belongs_to_external("html-runtime-ext:ext-a:player", "ext-a"));
+        // session id 互为前缀：`ext-a` 不得命中 `ext-ab` 的 key，反之亦然。
+        assert!(!scoped_key_belongs_to_external("html-runtime-ext:ext-ab:host", "ext-a"));
+        assert!(!scoped_key_belongs_to_external("html-runtime-ext:ext-a:host", "ext-ab"));
+        // 与 item 域不相交：item 撤销不得关掉外部会话，反之亦然。
+        assert!(!scoped_key_belongs_to_item("html-runtime-ext:ext-a:host", 1));
+        assert!(!scoped_key_belongs_to_external("html-runtime:1:host", "ext-a"));
+        assert!(!scoped_key_belongs_to_external("preview:1", "ext-a"));
+        assert!(!scoped_key_belongs_to_external("html-edit:1", "ext-a"));
     }
 }

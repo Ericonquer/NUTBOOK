@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>远程资源样本</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/light.css">
+</head>
+<body>
+  <h1>远程资源样本</h1>
+  <p>本页故意引用外部 CDN 的 CSS、图片与 fetch，用于确认 PR C 未新增域名白名单。</p>
+  <p>远程图片：<img id="remoteImg" src="https://www.gstatic.com/webp/gallery/1.sm.jpg" alt="远程图片" width="200"></p>
+  <p>远程 fetch 结果：<b id="remoteFetch">进行中…</b></p>
+  <p>本地相对资源：<img src="./local-pixel.png" alt="本地像素">（1×1 透明占位图，加载成功也不可见；出现裂图图标才说明被拦）</p>
+
+  <hr>
+  <h2>普通导航入口（Codex C-GUI-3a：资源加载 ≠ 导航）</h2>
+  <p>下面三个入口用于确认本次安全收口没有新增对外部导航的拦截。点击后请记录：
+     <b>点击类型 / 目标 / 实际在哪里打开 / 是否到达</b>；再返回本页记录<b>本页是否仍可用</b>。
+     CSS、图片、fetch 成功<b>不能</b>替代导航验证 —— 它们是不同的入口。</p>
+  <ul>
+    <li>当前页导航（同一 webview 内跳转）：<a id="navSame" href="https://www.baidu.com/">https://www.baidu.com/</a></li>
+    <li>新标签打开：<a id="navBlank" href="https://www.baidu.com/" target="_blank" rel="noopener noreferrer">https://www.baidu.com/（target=_blank）</a></li>
+    <li>脚本打开：<button id="navOpen" type="button">window.open("https://www.baidu.com/")</button></li>
+  </ul>
+  <p id="navLog">导航点击记录：暂无。</p>
+  <script>
+    (function () {
+      var img = document.getElementById("remoteImg");
+      if (img) { img.addEventListener("error", function () { img.insertAdjacentHTML("afterend", "<em>远程图片加载失败（离线或被拦截，均属预期分支）</em>"); }); }
+      var out = document.getElementById("remoteFetch");
+      fetch("https://example.com/", { mode: "no-cors" }).then(function () {
+        if (out) { out.textContent = "远程 fetch 已发出且未被同源策略阻断"; }
+      }).catch(function (error) {
+        if (out) { out.textContent = "远程 fetch 失败：" + String(error); }
+      });
+
+      // 导航记录（Codex C-GUI-3a）：点击写入 sessionStorage，导航返回后仍可读，
+      // 用于证明「返回后原文仍可用」。它本身不构成导航成功的证据，结果以人工观察为准。
+      var log = document.getElementById("navLog");
+      function readLog() {
+        try { return sessionStorage.getItem("prc-nav-log"); } catch (error) { return null; }
+      }
+      function render() {
+        if (!log) { return; }
+        var saved = readLog();
+        log.textContent = saved
+          ? "导航点击记录（sessionStorage；返回后仍可见即证明本页未被销毁、仍可用）：" + saved
+          : "导航点击记录：暂无。";
+      }
+      function note(kind, target) {
+        var line = new Date().toISOString() + " " + kind + " → " + target;
+        try {
+          var prev = readLog();
+          sessionStorage.setItem("prc-nav-log", prev ? prev + "；" + line : line);
+        } catch (error) { /* 存储不可用时仅影响本记录 */ }
+        render();
+      }
+      var same = document.getElementById("navSame");
+      if (same) { same.addEventListener("click", function () { note("当前页导航 <a>", same.href); }); }
+      var blank = document.getElementById("navBlank");
+      if (blank) { blank.addEventListener("click", function () { note("新标签 <a target=_blank>", blank.href); }); }
+      var openBtn = document.getElementById("navOpen");
+      if (openBtn) {
+        openBtn.addEventListener("click", function () {
+          note("window.open 触发", "https://www.baidu.com/");
+          var opened = window.open("https://www.baidu.com/", "_blank");
+          note("window.open 返回 " + String(opened), "https://www.baidu.com/");
+        });
+      }
+      render();
+    })();
+  </script>
+</body>
+</html>

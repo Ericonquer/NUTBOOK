@@ -129,6 +129,7 @@ function functionSource(name) {
 // A destination change must converge every stale HTML child, not only the tab
 // that happened to be active when navigation began. Otherwise A/B/C opens can
 // leave native siblings above a later Markdown tab or the home DOM.
+// P2：正式 item HTML 在 runtimeSessions，外部临时 HTML 在 tabs；两类都要收敛。
 const switchEvents = [];
 const switchCoordinator = {
   appState: {
@@ -141,9 +142,25 @@ const switchCoordinator = {
       { id: 41, preview: { fileType: "html-runtime" } },
       { id: 42, preview: { fileType: "html-runtime" } },
       { id: 43, preview: { fileType: "html-runtime" } }
+    ],
+    tabs: [
+      {
+        id: "external:ext-a",
+        sourceMode: "external",
+        external: { sessionId: "ext-a" },
+        preview: { fileType: "html-runtime-external" }
+      }
     ]
   },
-  getOpenTab: (itemId) => switchCoordinator.appState.runtimeSessions.find((session) => session.id === itemId) || null,
+  isRuntimeHostTab: (tab) => Boolean(tab)
+    && (tab.preview?.fileType === "html-runtime" || tab.preview?.fileType === "html-runtime-external"),
+  isExternalRuntimeTab: (tab) => Boolean(tab) && tab.preview?.fileType === "html-runtime-external",
+  externalRuntimeTabForId: (tabId) => switchCoordinator.appState.tabs.find(
+    (tab) => tab.id === tabId && tab.preview?.fileType === "html-runtime-external"
+  ) || null,
+  getOpenTab: (itemId) => switchCoordinator.appState.runtimeSessions.find((session) => session.id === itemId)
+    || switchCoordinator.appState.tabs.find((tab) => tab.id === itemId)
+    || null,
   cancelHtmlRemoveConfirmOverlay: async () => { switchEvents.push("cancel-confirm"); },
   cleanupRuntimeHostSync: () => { switchEvents.push("invalidate-sync"); },
   cancelPendingRuntimeSurfaceHide: (itemId) => { switchEvents.push(`cancel:${itemId}`); },
@@ -160,19 +177,144 @@ const switchCoordinator = {
 };
 vm.createContext(switchCoordinator);
 vm.runInContext([
+  functionSource("syncRuntimeSurfaceHideToken"),
   functionSource("nextRuntimeNavigationEpoch"),
   functionSource("isRuntimeNavigationCurrent"),
   functionSource("convergeInactiveRuntimeSurfaces"),
   functionSource("scheduleRuntimeCleanupAfterTabSwitch")
 ].join("\n"), switchCoordinator);
 await switchCoordinator.scheduleRuntimeCleanupAfterTabSwitch(41, null);
-assert.deepEqual(switchEvents.filter((event) => event.startsWith("hide:")), ["hide:41", "hide:42", "hide:43"], "home navigation must hide all registered HTML runtime surfaces");
+assert.deepEqual(
+  switchEvents.filter((event) => event.startsWith("hide:")),
+  ["hide:41", "hide:42", "hide:43", "hide:external:ext-a"],
+  "home navigation must hide all registered HTML runtime surfaces, including external temporary HTML tabs"
+);
 assert.equal(switchCoordinator.appState.activeRuntimeHostId, null);
 assert.equal(switchCoordinator.appState.runtimeHostLastBoundsKey, null);
+
+// 外部临时 HTML 的 surface 生命周期：切走 → 切回（真实 attach 让 child 再次可见）
+// → 再切走，必须**再次** hide。「已隐藏」记账只在 hide 时写入、必须在 surface
+// 重新可见时清除，否则第二次切走会被 hideRuntimeSessionSurfaces 的「已隐藏」
+// 短路吞掉，外部 child 永久残留在最上层（切标签残留覆盖层回归）。
+const externalSurfaceEvents = [];
+const externalSurfaceApp = {
+  runtimeSurfacesSuspended: false,
+  runtimeControlsOverlayExpanded: false,
+  runtimeControlsOverlayMode: "default",
+  runtimeSessions: [],
+  tabs: [{
+    id: "external:ext-a",
+    sourceMode: "external",
+    external: { sessionId: "ext-a", generation: 1, attachReady: true },
+    preview: { fileType: "html-runtime-external" }
+  }],
+  activeTabId: "external:ext-a",
+  activeRuntimeHostId: "external:ext-a",
+  runtimeHostLastBoundsKey: "external:ext-a:10:60:800:600",
+  runtimeHostLastHeight: 600,
+  activeHtmlRuntimeUrl: null,
+  runtimeViewStateSurfaceTokens: new Map(),
+  runtimeNavigationEpoch: 0,
+  runtimeSurfaceTokens: new Map(),
+  runtimeHiddenSurfaceIds: new Set(),
+  // revision 71：外部 surface 收敛会检查/关闭打开中的 find surface；
+  // 本场景 find 未打开，桩记录调用即可。
+  htmlFind: { itemId: null, query: "", caseSensitive: false, replaceExpanded: false, count: "0/0" },
+  htmlFindOverlayEpoch: 0,
+  htmlFindOverlaySyncLane: Promise.resolve(),
+  htmlFindOverlayLastContentKey: null,
+  htmlFindOverlayLastBoundsKey: null
+};
+const externalSurfaceContext = {
+  appState: externalSurfaceApp,
+  document: {
+    getElementById: (id) => (id === "runtimeHostMount"
+      ? { getBoundingClientRect: () => ({ left: 10, top: 60, width: 800, height: 600 }) }
+      : null)
+  },
+  els: { documentToolbar: null },
+  getOpenTab: (id) => externalSurfaceApp.tabs.find((tab) => tab.id === id)
+    || externalSurfaceApp.runtimeSessions.find((session) => session.id === id)
+    || null,
+  getActiveTab: () => externalSurfaceApp.tabs.find((tab) => tab.id === externalSurfaceApp.activeTabId) || null,
+  invoke: async (command) => {
+    externalSurfaceEvents.push(command);
+    return { runtimeUrl: "http://127.0.0.1:9/ext" };
+  },
+  syncHtmlEditReadonlyPatchSurfaceToken: async () => {},
+  ensureRuntimeHostResizeObserver: () => {},
+  closeActiveHtmlFind: async () => { externalSurfaceEvents.push("close-find"); },
+  syncActiveHtmlFindLayoutBounds: async () => { externalSurfaceEvents.push("find-bounds"); },
+  // R92a：切走前的固定脚本采集（跨进程边界，桩掉；本组只关心 hide/attach 顺序）。
+  captureExternalHtmlViewState: async () => null,
+  setStatus: () => {},
+  normalizeError: (error) => String(error)
+};
+vm.createContext(externalSurfaceContext);
+vm.runInContext([
+  functionSource("nextRuntimeNavigationEpoch"),
+  functionSource("isRuntimeNavigationCurrent"),
+  functionSource("nextRuntimeSurfaceToken"),
+  functionSource("currentRuntimeSurfaceToken"),
+  functionSource("isExternalRuntimeTab"),
+  functionSource("externalRuntimeTabForId"),
+  functionSource("isRuntimeHostTab"),
+  functionSource("isRuntimeSurfaceActive"),
+  functionSource("isRuntimeSurfaceHideCurrent"),
+  // R92a：hide 前采集的序号 / 落库 / 会话清理（真实源码，跨进程采集已桩掉）。
+  functionSource("nextExternalViewStateCaptureSeq"),
+  functionSource("commitExternalViewStateSnapshot"),
+  functionSource("clearExternalViewStateWaiters"),
+  functionSource("syncRuntimeSurfaceHideToken"),
+  functionSource("setRuntimeHostVisibility"),
+  functionSource("hideRuntimeSessionSurfaces"),
+  functionSource("isRuntimeHostSyncCurrent"),
+  functionSource("hideStaleRuntimeHostSync"),
+  functionSource("runtimeHostBounds"),
+  functionSource("syncActiveExternalRuntimeHost"),
+  functionSource("convergeInactiveRuntimeSurfaces")
+].join("\n"), externalSurfaceContext);
+
+const EXT_SURFACE_HIDE = "set_external_html_runtime_host_visibility_command";
+const EXT_SURFACE_ATTACH = "attach_external_html_runtime_host_command";
+const extSurfaceHides = () => externalSurfaceEvents.filter((event) => event === EXT_SURFACE_HIDE).length;
+const extSurfaceTab = externalSurfaceApp.tabs[0];
+
+await externalSurfaceContext.convergeInactiveRuntimeSurfaces(
+  null,
+  externalSurfaceContext.nextRuntimeNavigationEpoch()
+);
+assert.equal(extSurfaceHides(), 1, "切走后外部临时 HTML surface 必须 hide");
+assert.ok(
+  externalSurfaceApp.runtimeHiddenSurfaceIds.has(extSurfaceTab.id),
+  "切走后外部 surface 必须记账为「已隐藏」"
+);
+
+externalSurfaceApp.activeTabId = extSurfaceTab.id;
+await externalSurfaceContext.syncActiveExternalRuntimeHost(null, extSurfaceTab);
+assert.equal(
+  externalSurfaceEvents.filter((event) => event === EXT_SURFACE_ATTACH).length,
+  1,
+  "切回外部标签必须重新 attach surface"
+);
+assert.ok(
+  !externalSurfaceApp.runtimeHiddenSurfaceIds.has(extSurfaceTab.id),
+  "外部 surface 重新可见后必须清除「已隐藏」记账（否则后续切走被短路）"
+);
+
+await externalSurfaceContext.convergeInactiveRuntimeSurfaces(
+  null,
+  externalSurfaceContext.nextRuntimeNavigationEpoch()
+);
+assert.equal(
+  extSurfaceHides(),
+  2,
+  "外部 surface 重新 attach 后再切走必须再次 hide，不得因陈旧记账被短路"
+);
 assert.match(functionSource("openItem"), /const navigationEpoch = nextRuntimeNavigationEpoch\(\)[\s\S]*?isCurrentItemOpenToken\(itemId, openToken, navigationEpoch\)/, "each file-open intent must own a global navigation epoch");
 assert.match(functionSource("openItem"), /previousTabId !== itemId[\s\S]*?cleanupRuntimeHostSync\(\);[\s\S]*?convergeInactiveRuntimeSurfaces\(null, navigationEpoch\)/, "a new file intent must remove the old native surface before its async preview finishes");
 assert.match(functionSource("isCurrentItemOpenToken"), /isRuntimeNavigationCurrent\(navigationEpoch\)/, "a per-item token alone must not permit an older cross-item open to land");
-assert.match(functionSource("openHtmlRuntimeSession"), /itemOpenTokens\.get\(detail\.id\) === openToken[\s\S]*?close_html_window/, "an older same-item completion must not close the newer owner's shared HTML session");
+assert.match(functionSource("openHtmlRuntimeSession"), /isCurrentItemOpenToken\(detail\.id, openToken, navigationEpoch\)\) \{[\s\S]*?await releaseRuntimeResourceHolder\(detail\.id, leaseId\);/, "a stale same-item completion must release its own holder lease (reclaim only when the holder ledger empties — a newer owner's lease blocks the close)");
 assert.match(
   indexHtml,
   /async function showAllFilesHome[\s\S]*?appState\.activeTabId = null;[\s\S]*?await scheduleRuntimeCleanupAfterTabSwitch\(previousTabId, null\);[\s\S]*?await loadItems\(\);[\s\S]*?renderTabs\(\);[\s\S]*?renderViewer\(\);/,
@@ -240,6 +382,10 @@ const findCoordinator = {
     htmlEditSession: null
   },
   getActiveTab: () => ({ id: 41, preview: { fileType: "html-runtime" } }),
+  isHtmlFindTab: (tab) => Boolean(tab)
+    && (tab.preview?.fileType === "html-runtime" || tab.preview?.fileType === "html-runtime-external"),
+  isExternalRuntimeTab: (tab) => Boolean(tab) && tab.preview?.fileType === "html-runtime-external",
+  getOpenTab: (id) => (id === 41 ? { id: 41, preview: { fileType: "html-runtime" } } : null),
   htmlFindLabels: () => ({ query: "搜索正文内容" }),
   readHtmlFindHistory: () => [],
   htmlFindOverlayBounds: () => ({ x: 880, y: 104, width: 560, height: 76 }),
@@ -303,6 +449,224 @@ assert.doesNotMatch(indexHtml, /attach_html_find_trigger_tooltip_command|set_htm
 assert.doesNotMatch(runtimeRust, /TOPBAR_TOOLTIP_OWNER|topbar_tooltip_owner|html_topbar_tooltip_label|raise_webview_view_native|html-find-trigger-tooltip/, "the native topbar tooltip owner, renderer, and raise path must be fully removed");
 assert.match(indexHtml, /class="topbar-search-tooltip"/, "the document search entry must retain its DOM tooltip fallback");
 assert.match(indexHtml, /class="topbar-button-tooltip"/, "the add-folder and add-file entries must retain their DOM tooltip fallbacks");
+
+// revision 83（P2-R80a）：顶栏正文查找投影的唯一状态源是
+// `activeDocumentSearchKind()` —— 正式/临时 Markdown 与正式/临时 HTML 四类
+// 活动标签必须一致投影为 document scope。旧实现自写 `isMarkdown ||
+// isHtmlRuntime`，漏掉 `html-runtime-external`：用户在临时 HTML 上看到资料库
+// 输入框与正文 find surface 同时出现（截图证据）。
+assert.match(
+  functionSource("viewerToolbarState"),
+  /const localFind = activeDocumentSearchKind\(\) !== null;/,
+  "顶栏 scope 必须投影 activeDocumentSearchKind()，不得各写一套 fileType 判定"
+);
+assert.doesNotMatch(
+  functionSource("viewerToolbarState"),
+  /const localFind = isMarkdown \|\| isHtmlRuntime;/,
+  "漏掉外部 runtime 的旧 scope 判定必须消失"
+);
+assert.match(
+  functionSource("viewerToolbarState"),
+  /isHtmlFindTab\(tab\) && appState\.htmlFind\.itemId === tab\?\.id/,
+  "正文 find 面板的刷新条件必须与 scope 投影同源（临时 HTML 与正式 HTML 一致）"
+);
+assert.match(
+  indexHtml,
+  /\.topbar-search-field\[data-search-scope="document"\] \.search-input \{ display: none; \}/,
+  "document scope 下原资料库输入框必须不可输入（隐藏）而不是与正文查找并存"
+);
+
+// revision 84：`activeDocumentSearchKind()` 必须是活动标签 fileType 的纯函数。
+// 用户实测「MD 打开后顶栏仍是资料库搜索，点一下才变正文搜索；HTML 一直正常」：
+// Markdown 分支额外要求 `tab.id === appState.activeMarkdownEditorTabId`，而编辑器
+// 挂载是异步的，`renderViewer()` 里的顶栏投影发生在挂载完成之前 → 投影停在
+// 资料库 scope，直到下一个无关事件（keydown/keyup/收藏/render）才纠正。
+// HTML 分支只看 fileType，所以从未复现。挂载状态属于**动作入口**（能否真的打开
+// 查找面板），不属于**顶栏投影**。
+assert.doesNotMatch(
+  functionSource("activeDocumentSearchKind"),
+  /activeMarkdownEditorTabId/,
+  "顶栏 scope 判定不得并入编辑器挂载状态（revision 84：MD 打开后资料库搜索残留）"
+);
+assert.match(
+  functionSource("activeDocumentSearchKind"),
+  /if \(tab\?\.preview\?\.fileType === "markdown"\) return "markdown";/,
+  "Markdown 的 scope 必须只由 fileType 决定，与编辑器是否已挂载无关"
+);
+assert.match(
+  functionSource("openActiveDocumentFind"),
+  /const editor = currentDocumentFindEditor\(\);\s*if \(!editor\) return false;/,
+  "编辑器未挂载时必须拒绝认领本次交互，不得假装打开成功"
+);
+
+const searchScopeScenarios = [
+  {
+    name: "临时 HTML",
+    tab: { id: "external:s1", sourceMode: "external", external: { sessionId: "s1", generation: 1 }, preview: { fileType: "html-runtime-external" } },
+    expected: "document"
+  },
+  {
+    name: "正式 HTML",
+    tab: { id: 41, preview: { fileType: "html-runtime" } },
+    expected: "document"
+  },
+  {
+    name: "临时 Markdown",
+    tab: { id: "external:s2", sourceMode: "external", external: { sessionId: "s2", generation: 1 }, preview: { fileType: "markdown" } },
+    expected: "document"
+  },
+  {
+    name: "正式 Markdown",
+    tab: { id: 7, preview: { fileType: "markdown" } },
+    expected: "document"
+  },
+  {
+    // revision 84 复现位：打开 Markdown 的瞬间编辑器还没挂载
+    // （`activeMarkdownEditorTabId` 仍是上一个标签 / null），顶栏必须已经是
+    // document scope，否则就是用户看到的「资料库搜索残留，点一下才变」。
+    name: "正式 Markdown（编辑器尚未挂载）",
+    tab: { id: 9, preview: { fileType: "markdown" } },
+    editorMounted: false,
+    expected: "document"
+  },
+  { name: "首页", tab: null, expected: "library" }
+];
+for (const scenario of searchScopeScenarios) {
+  const attributes = new Map();
+  const searchField = {
+    setAttribute: (key, value) => attributes.set(key, String(value)),
+    removeAttribute: (key) => attributes.delete(key),
+    tabIndex: null
+  };
+  const tooltip = { textContent: "" };
+  const searchInput = {
+    placeholder: "",
+    focused: true,
+    setAttribute: (key, value) => attributes.set(`input:${key}`, String(value)),
+    blur: () => { searchInput.focused = false; },
+    closest: (selector) => (selector === ".topbar-search-field" ? searchField : null),
+    parentElement: {
+      querySelector: (selector) => (selector === ".topbar-search-tooltip" ? tooltip : null)
+    }
+  };
+  const classList = { remove() {}, toggle() {} };
+  const projectionContext = {
+    appState: {
+      activeMarkdownEditorTabId: scenario.editorMounted === false
+        ? null
+        : (scenario.tab?.preview?.fileType === "markdown" ? scenario.tab.id : null),
+      htmlEditSession: null,
+      htmlFind: { itemId: null }
+    },
+    els: {
+      searchInput,
+      documentPrimaryButton: { disabled: false, dataset: {}, classList, setAttribute() {} },
+      documentPrimaryLabel: { style: {}, textContent: "" },
+      documentPrimaryIcon: { innerHTML: "" },
+      documentPrimaryTooltip: { textContent: "" },
+      documentFavoriteButton: { disabled: false, classList },
+      documentMoreButton: { disabled: false },
+      toolbarActions: { classList }
+    },
+    document: { activeElement: searchInput },
+    MENU_ICON_SVG: { save: "", htmlEditStart: "", htmlEditDone: "" },
+    primaryActionBusyItemId: null,
+    getActiveTab: () => scenario.tab,
+    updateActiveHtmlFindContent: () => Promise.resolve(true),
+    t: (key) => key
+  };
+  vm.createContext(projectionContext);
+  vm.runInContext([
+    functionSource("isRuntimeHostTab"),
+    functionSource("isHtmlFindTab"),
+    functionSource("activeDocumentSearchKind"),
+    functionSource("viewerToolbarState")
+  ].join("\n"), projectionContext);
+  projectionContext.viewerToolbarState();
+  assert.equal(
+    attributes.get("data-search-scope"),
+    scenario.expected,
+    `${scenario.name}：顶栏 scope 必须与正文查找投影一致`
+  );
+  if (scenario.expected === "document") {
+    assert.equal(searchInput.placeholder, "markdown.find", `${scenario.name}：placeholder 必须切到正文查找`);
+    assert.equal(attributes.get("input:aria-label"), "markdown.find", `${scenario.name}：可访问名称必须切到正文查找`);
+    assert.equal(attributes.get("role"), "button", `${scenario.name}：document scope 下顶栏入口必须是按钮语义`);
+    assert.equal(searchField.tabIndex, 0, `${scenario.name}：document scope 下顶栏入口必须可键盘激活`);
+    assert.equal(tooltip.textContent, "markdown.findBody", `${scenario.name}：tooltip 必须切到正文查找说明`);
+    assert.equal(
+      searchInput.focused,
+      false,
+      `${scenario.name}：进入 document scope 必须交还资料库输入框焦点，键入不得落进隐藏输入框`
+    );
+  } else {
+    assert.equal(searchInput.placeholder, "home.searchPlaceholder", `${scenario.name}：首页必须保留资料库搜索`);
+    assert.equal(attributes.get("input:aria-label"), "home.searchPlaceholder", `${scenario.name}：首页可访问名称保持资料库搜索`);
+    assert.equal(attributes.get("role"), undefined, `${scenario.name}：首页不得带按钮角色`);
+    assert.ok(tooltip.textContent.includes("（⌘K）"), `${scenario.name}：首页 tooltip 必须保留全局搜索提示`);
+  }
+}
+
+const findEntryScenarios = [
+  {
+    name: "Markdown 编辑器已挂载",
+    tab: { id: 7, preview: { fileType: "markdown" } },
+    editorMounted: true,
+    expectedReturn: true,
+    expectedEditorFindCalls: 1,
+    expectedHtmlFindCalls: 0
+  },
+  {
+    name: "Markdown 编辑器尚未挂载",
+    tab: { id: 7, preview: { fileType: "markdown" } },
+    editorMounted: false,
+    expectedReturn: false,
+    expectedEditorFindCalls: 0,
+    expectedHtmlFindCalls: 0
+  },
+  {
+    name: "临时 HTML 宿主",
+    tab: { id: "external:s1", preview: { fileType: "html-runtime-external" } },
+    editorMounted: false,
+    expectedReturn: true,
+    expectedEditorFindCalls: 0,
+    expectedHtmlFindCalls: 1
+  },
+  {
+    name: "首页无活动标签",
+    tab: null,
+    editorMounted: false,
+    expectedReturn: false,
+    expectedEditorFindCalls: 0,
+    expectedHtmlFindCalls: 0
+  }
+];
+for (const scenario of findEntryScenarios) {
+  let editorFindCalls = 0;
+  let htmlFindCalls = 0;
+  const markdownEditor = {
+    openFind: () => { editorFindCalls += 1; }
+  };
+  const entryContext = {
+    appState: {
+      activeMarkdownEditorTabId: scenario.editorMounted ? scenario.tab?.id ?? null : null,
+      activeMarkdownEditor: scenario.editorMounted ? markdownEditor : null
+    },
+    getActiveTab: () => scenario.tab,
+    openActiveHtmlFind: () => { htmlFindCalls += 1; return Promise.resolve(true); }
+  };
+  vm.createContext(entryContext);
+  vm.runInContext([
+    functionSource("currentDocumentFindEditor"),
+    functionSource("activeDocumentSearchKind"),
+    functionSource("openActiveDocumentFind")
+  ].join("\n"), entryContext);
+  const claimed = entryContext.openActiveDocumentFind();
+  assert.equal(claimed, scenario.expectedReturn, `${scenario.name}：查找入口认领结果必须与可执行性一致`);
+  assert.equal(editorFindCalls, scenario.expectedEditorFindCalls, `${scenario.name}：编辑器查找调用次数不符`);
+  assert.equal(htmlFindCalls, scenario.expectedHtmlFindCalls, `${scenario.name}：HTML find surface 调用次数不符`);
+}
+
 const hostVisibilitySource = runtimeRust.match(/pub fn set_html_runtime_host_visibility[\s\S]*?\n}\n\n\/\/\/ The presentation rail/)?.[0] || "";
 assert.match(hostVisibilitySource, /webview\.hide\(\)/, "inactive HTML hosts must be hidden");
 assert.match(hostVisibilitySource, /set_bounds[\s\S]*?width:\s*1\.0[\s\S]*?height:\s*1\.0[\s\S]*?webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "inactive HTML hosts must be collapsed, hidden, and destroyed instead of accumulating across tabs");

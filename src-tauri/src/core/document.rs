@@ -921,9 +921,20 @@ pub fn file_modified_at_string(metadata: &fs::Metadata) -> Result<String, AppErr
     Ok(format!("{}.{:09}", duration.as_secs(), duration.subsec_nanos()))
 }
 
+/// PR C Phase 1（D1=A）：Markdown 资源解析上下文。origin 为该 item 的
+/// scoped origin（每 session 独立 loopback）；root/base_dir 均为 canonical
+/// 绝对路径，前端在同一空间内做前缀匹配。origin 为空 = 未启用。
+#[derive(Debug, Clone, Default)]
+pub struct MarkdownResourceContext {
+    pub origin: String,
+    pub root: String,
+    pub base_dir: String,
+}
+
 pub fn load_document_payload(
     item: &ItemDetail,
     html_preview_url: impl FnOnce(&std::path::Path) -> String,
+    markdown_resource: MarkdownResourceContext,
 ) -> Result<PreviewPayload, AppError> {
     match item.summary.file_type.as_str() {
         "markdown" => {
@@ -944,6 +955,9 @@ pub fn load_document_payload(
                 html,
                 base_dir,
                 editable: true,
+                resource_origin: markdown_resource.origin,
+                resource_root: markdown_resource.root,
+                resource_base_dir: markdown_resource.base_dir,
             }))
         }
         "html" => {
@@ -1011,7 +1025,7 @@ pub fn load_item_content_revision(item: &ItemDetail) -> Result<ItemContentRevisi
 mod tests {
     use super::{
         content_hash, markdown_summary, render_markdown_as_html,
-        render_markdown_as_html_for_file,
+        render_markdown_as_html_for_file, MarkdownResourceContext,
     };
 
     fn markdown_detail_for_test(file_path: String, file_name: &str, title: Option<&str>) -> crate::models::ItemDetail {
@@ -1287,6 +1301,7 @@ mod tests {
         let preview = super::load_document_payload(
             &markdown_detail_for_test(path.to_string_lossy().to_string(), "nutbook-h1-preview.md", Some("nutbook-h1-preview.md")),
             |_| String::new(),
+            MarkdownResourceContext::default(),
         )
         .expect("markdown payload should build");
 
@@ -1307,6 +1322,7 @@ mod tests {
         let preview = super::load_document_payload(
             &markdown_detail_for_test(path.to_string_lossy().to_string(), "nutbook-no-h1.md", None),
             |_| String::new(),
+            MarkdownResourceContext::default(),
         )
         .expect("markdown payload should build");
 
@@ -1406,6 +1422,7 @@ mod tests {
                 updated_at: "1".to_string(),
             },
             |path| format!("http://127.0.0.1:4000/fs{}", path.to_string_lossy().replace(' ', "%20")),
+            MarkdownResourceContext::default(),
         )
         .expect("html payload should build");
 

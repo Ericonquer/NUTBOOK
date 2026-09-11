@@ -45,6 +45,11 @@ use crate::{
 
 pub const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown"];
 
+/// PR C P2（计划 6.1）：`.html` / `.htm` 复用 PR B 的单文件入口、五秒提示、
+/// 标签加号与多文件拒绝规则。HTML 只做临时会话（`file_type = "html"`），
+/// 不开放 HTML 编辑 / sidecar / editable copy 链路。
+pub const HTML_EXTENSIONS: &[&str] = &["html", "htm"];
+
 // ---------------------------------------------------------------------------
 // inbox：所有外部打开入口的唯一事实源
 // ---------------------------------------------------------------------------
@@ -225,6 +230,33 @@ pub fn supported_markdown_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 外部打开支持的类型：Markdown 或 HTML（计划 6.1）。
+pub fn supported_external_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            let normalized = value.to_ascii_lowercase();
+            MARKDOWN_EXTENSIONS.contains(&normalized.as_str())
+                || HTML_EXTENSIONS.contains(&normalized.as_str())
+        })
+        .unwrap_or(false)
+}
+
+/// 外部会话的文件类型（`"markdown"` / `"html"`）。调用方须先通过
+/// [`supported_external_path`]；未知扩展名回落到 `markdown` 以保持既有行为。
+pub fn external_file_type(path: &Path) -> &'static str {
+    let normalized = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    if HTML_EXTENSIONS.contains(&normalized.as_str()) {
+        "html"
+    } else {
+        "markdown"
+    }
+}
+
 impl ExternalSessionRegistry {
     pub fn create_session(
         &self,
@@ -237,7 +269,9 @@ impl ExternalSessionRegistry {
             session_id: format!("ext-{}", Uuid::new_v4()),
             raw_path: raw_path.to_string(),
             identity,
-            file_type: "markdown".to_string(),
+            // P2：类型由扩展名派生（md/markdown → markdown，html/htm → html），
+            // 同一注册表同时承载两种临时会话。
+            file_type: external_file_type(Path::new(raw_path)).to_string(),
             baseline,
             generation: 1,
             resolution,
@@ -720,7 +754,7 @@ pub fn plan_external_path(state: &AppState, raw_path: &str) -> Result<ExternalPa
     if !path.is_file() {
         return Err(AppError::ItemNotFound);
     }
-    if !supported_markdown_path(path) {
+    if !supported_external_path(path) {
         return Err(AppError::UnsupportedFileType);
     }
     let path_state = resolve_library_path_state(state, raw_path)?;
@@ -1667,6 +1701,70 @@ mod tests {
             .expect("time after epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("nutbook-ext-{tag}-{nanos}"))
+    }
+
+    #[test]
+    fn external_supported_path_covers_markdown_and_html_only() {
+        for name in ["doc.md", "doc.markdown", "DOC.MD", "page.html", "page.htm", "PAGE.HTM"] {
+            assert!(supported_external_path(Path::new(name)), "{name} 必须被外部打开接受");
+        }
+        for name in ["doc.txt", "doc.pdf", "doc", "page.html.zip", "note.md.bak"] {
+            assert!(!supported_external_path(Path::new(name)), "{name} 必须被拒绝");
+        }
+    }
+
+    #[test]
+    fn external_file_type_derives_from_extension() {
+        assert_eq!(external_file_type(Path::new("/tmp/a.html")), "html");
+        assert_eq!(external_file_type(Path::new("/tmp/a.htm")), "html");
+        assert_eq!(external_file_type(Path::new("/tmp/A.HTML")), "html");
+        assert_eq!(external_file_type(Path::new("/tmp/a.md")), "markdown");
+        assert_eq!(external_file_type(Path::new("/tmp/a.markdown")), "markdown");
+        assert_eq!(external_file_type(Path::new("/tmp/a")), "markdown");
+    }
+
+    #[test]
+    fn plan_external_path_accepts_html_and_rejects_other_types() {
+        let (state, root) = review_state("html-plan");
+        let html = root.join("page.html");
+        fs::write(&html, "<html><body>hi</body></html>").expect("write html");
+        let plan = plan_external_path(&state, &html.to_string_lossy()).expect("html 必须被接受");
+        assert!(
+            matches!(plan.kind, ExternalPathKind::External { .. }),
+            "html 应进入临时外部会话"
+        );
+        assert_eq!(plan.file_name, "page.html");
+
+        let txt = root.join("page.txt");
+        fs::write(&txt, "nope").expect("write txt");
+        assert!(
+            plan_external_path(&state, &txt.to_string_lossy()).is_err(),
+            "非 md/html 必须拒绝"
+        );
+    }
+
+    #[test]
+    fn create_session_derives_file_type_from_path() {
+        let registry = ExternalSessionRegistry::default();
+        let baseline = ExternalBaseline {
+            hash: "h".to_string(),
+            mtime_ns: 0,
+            size: 0,
+        };
+        let html = registry.create_session(
+            "/tmp/page.html",
+            None,
+            baseline.clone(),
+            ExternalResolution::OutsideLibrary,
+        );
+        assert_eq!(html.file_type, "html");
+        let md = registry.create_session(
+            "/tmp/page.md",
+            None,
+            baseline,
+            ExternalResolution::OutsideLibrary,
+        );
+        assert_eq!(md.file_type, "markdown");
     }
 
     #[test]

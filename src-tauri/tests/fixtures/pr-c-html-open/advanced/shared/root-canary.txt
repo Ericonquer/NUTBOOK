@@ -1,0 +1,1 @@
+ROOT-RELATIVE-CANARY 根相对资源可读。
