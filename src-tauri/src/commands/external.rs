@@ -68,6 +68,9 @@ pub struct ExternalSessionOpenResponse {
     pub disk_changed: bool,
     pub path: String,
     pub file_name: String,
+    /// P2：`markdown` / `html`。前端据此选择标签构造器与内容承载方式
+    /// （HTML 走占位 + 延迟 attach，不进入 Markdown 编辑器链路）。
+    pub file_type: String,
     pub resolution: Option<String>,
     pub raw: Option<String>,
     pub html: Option<String>,
@@ -93,6 +96,9 @@ pub fn external_session_resolve(
     let inspect_only = payload.phase.as_deref() == Some("inspect");
     let plan = external_open::plan_external_path(&state, &raw_path)?;
     let file_name = plan.file_name.clone();
+    // P2：类型由扩展名派生，folder / indexed / external / inspect 四条返回路径
+    // 都携带它，前端无需二次推断。
+    let file_type = external_open::external_file_type(std::path::Path::new(&raw_path)).to_string();
 
     let resolution = match plan.kind {
         external_open::ExternalPathKind::Folder => {
@@ -105,6 +111,7 @@ pub fn external_session_resolve(
                 disk_changed: false,
                 path: raw_path,
                 file_name,
+                file_type: file_type.clone(),
                 resolution: None,
                 raw: None,
                 html: None,
@@ -123,6 +130,7 @@ pub fn external_session_resolve(
                 disk_changed: false,
                 path: raw_path,
                 file_name,
+                file_type: file_type.clone(),
                 resolution: None,
                 raw: None,
                 html: None,
@@ -155,6 +163,7 @@ pub fn external_session_resolve(
             disk_changed: false,
             path: raw_path,
             file_name,
+            file_type: file_type.clone(),
             resolution: Some(resolution_text(resolution).to_string()),
             raw: None,
             html: None,
@@ -203,14 +212,22 @@ pub fn external_session_resolve(
         file_name.clone(),
         false,
     );
-    response.raw = std::fs::read_to_string(&path).ok();
-    if let Some(raw) = response.raw.clone() {
-        response.html = Some(crate::core::document::render_markdown_as_html_for_file(
-            &raw, &file_name,
-        ));
-        response.title = Some(
-            crate::core::document_title::DocumentTitle::parse(&raw, &file_name).display_text,
-        );
+    // Markdown：正文由前端编辑器承载，需要 raw + 渲染后 html + 解析标题。
+    // HTML（P2，计划 6.2）：正文由真实 child WebView 承载，**不进入** Markdown
+    // 编辑器 / 渲染链路 —— 不读 raw、不渲染；仅下发 base_dir 供授权 root
+    // （single-file = 文件直接父目录，计划 6.3）与标题。
+    if response.file_type == "markdown" {
+        response.raw = std::fs::read_to_string(&path).ok();
+        if let Some(raw) = response.raw.clone() {
+            response.html = Some(crate::core::document::render_markdown_as_html_for_file(
+                &raw, &file_name,
+            ));
+            response.title = Some(
+                crate::core::document_title::DocumentTitle::parse(&raw, &file_name).display_text,
+            );
+        }
+    } else {
+        response.title = Some(file_name.clone());
     }
     response.base_dir = path
         .parent()
@@ -257,6 +274,7 @@ fn external_session_open_response_from_session(
         disk_changed,
         path,
         file_name,
+        file_type: session.file_type.clone(),
         resolution: Some(resolution_text.to_string()),
         raw: None,
         html: None,

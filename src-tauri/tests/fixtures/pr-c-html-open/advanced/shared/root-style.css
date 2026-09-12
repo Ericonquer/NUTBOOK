@@ -1,0 +1,3 @@
+/* 根相对样式：scoped origin 的「根」映射到会话授权 root 后应可加载。 */
+body { border-top: 6px solid #005C9E; }
+h1 { background: #eef4fa; padding: 8px 12px; }

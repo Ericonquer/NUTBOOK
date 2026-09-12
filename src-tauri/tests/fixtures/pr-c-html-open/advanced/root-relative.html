@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>根相对样本</title>
+  <link rel="stylesheet" href="/shared/root-style.css">
+</head>
+<body>
+  <h1>根相对 / 资源样本</h1>
+  <img src="/shared/root-pixel.png" alt="根相对像素">
+  <p id="rootFetch">根相对 fetch 进行中…</p>
+  <script>
+    fetch('/shared/root-canary.txt').then(function (r) { return r.text(); }).then(function (t) {
+      var node = document.getElementById("rootFetch");
+      if (node) { node.textContent = "根相对 fetch：" + t.trim(); }
+    }).catch(function (e) {
+      var node = document.getElementById("rootFetch");
+      if (node) { node.textContent = "根相对 fetch 失败：" + String(e); }
+    });
+  </script>
+</body>
+</html>

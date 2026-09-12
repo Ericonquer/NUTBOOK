@@ -45,7 +45,13 @@ pub async fn generate_presentation_thumbnail(
     let item = state.get_item_detail(payload.item_id)?;
     if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
     let chromium_path = find_local_chromium_executable().ok_or(AppError::ThumbnailGenerationFailed)?;
-    let url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    // PR C Phase 1（D1=A）：截图目标改走 per-item scoped origin。
+    let item_id = item.summary.id;
+    let url = state.scoped_file_url_for_item(
+        &format!("html-edit:{item_id}"),
+        &item,
+        std::path::Path::new(&item.summary.file_path),
+    )?;
     let page_id = payload.page_id;
     let result = tauri::async_runtime::spawn_blocking(move || {
         capture_presentation_thumbnail_with_worker(PresentationThumbnailWorkerInput {
@@ -117,7 +123,20 @@ pub fn get_html_edit_patch(
             )?
             .ok_or(AppError::InvalidSession)?;
     }
-    populate_runtime_asset_urls(&mut response, &library_root, |path| state.local_server_file_url(path));
+    // PR C Phase 1（D1=A）：编辑 runtime 资源 URL 改走 scoped origin，
+    // root 即 html_edit_library_root（与授权边界一致）。
+    let session_key = format!("html-edit:{}", payload.item_id);
+    let scoped_server = state.scoped_server(&session_key, &library_root)?;
+    let canonical_root = library_root.canonicalize().map_err(|_| AppError::IoError)?;
+    populate_runtime_asset_urls(&mut response, &library_root, |path| {
+        let canonical = path.canonicalize().ok();
+        let relative = canonical
+            .as_deref()
+            .and_then(|canonical_path| canonical_path.strip_prefix(canonical_root.as_path()).ok());
+        relative
+            .and_then(|relative| scoped_server.relative_url(relative))
+            .unwrap_or_default()
+    });
     Ok(response)
 }
 
@@ -179,7 +198,19 @@ pub fn import_html_edit_asset(
         }),
     )?;
     let absolute_asset = resolve_imported_asset_path(&library, &result.relative_path)?;
-    let runtime_url = state.local_server_file_url(&absolute_asset);
+    // PR C Phase 1（D1=A）：导入资产回传 URL 改走 scoped origin。
+    let scoped_server = state.scoped_server(
+        &format!("html-edit:{}", payload.item_id),
+        &html_edit_library_root(&library)?,
+    )?;
+    let canonical_root = scoped_server.canonical_root().to_path_buf();
+    let canonical_asset = absolute_asset.canonicalize().map_err(|_| AppError::IoError)?;
+    let relative_asset = canonical_asset
+        .strip_prefix(canonical_root.as_path())
+        .map_err(|_| AppError::InternalError)?;
+    let runtime_url = scoped_server
+        .relative_url(relative_asset)
+        .ok_or(AppError::InternalError)?;
     if !runtime_url.starts_with("http://") && !runtime_url.starts_with("https://") {
         return Err(AppError::InternalError);
     }
@@ -215,11 +246,25 @@ pub fn invalidate_html_edit_session_lease(
     state: tauri::State<'_, AppState>,
     payload: HtmlEditSessionLeaseRequest,
 ) -> Result<bool, AppError> {
-    state.invalidate_html_edit_session_lease(
+    let invalidated = state.invalidate_html_edit_session_lease(
         payload.item_id,
         &payload.runtime_session_id,
         payload.generation,
-    )
+    )?;
+    // PR C Phase 1（D1 合同撤销时机）：编辑会话结束即撤销其 scoped 内容能力。
+    if invalidated {
+        state.drop_scoped_server(&format!("html-edit:{}", payload.item_id));
+    }
+    Ok(invalidated)
+}
+
+/// R10：可编辑副本路径推导（写入 `write_editable_html_copy` 与授权校验
+/// `item_is_editable_copy_of` 共用同一规则）：`{源文件 stem}.nutbook-editable.html`，
+/// 与源同目录。
+pub(crate) fn editable_copy_path(source: &std::path::Path) -> Option<PathBuf> {
+    let stem = source.file_stem()?.to_str()?;
+    let parent = source.parent()?;
+    Some(parent.join(format!("{stem}.nutbook-editable.html")))
 }
 
 /// Persists the detached-DOM conversion result. The renderer may choose fields,
@@ -228,8 +273,19 @@ pub fn invalidate_html_edit_session_lease(
 #[tauri::command]
 pub fn write_editable_html_copy(
     state: tauri::State<'_, AppState>,
+    webview: tauri::Webview,
     payload: WriteEditableHtmlCopyRequest,
 ) -> Result<WriteEditableHtmlCopyResponse, AppError> {
+    // R10/R9：内容面 caller 必须是登记过的内容会话且未导航离开注册 origin；
+    // 写入目标由本命令从当前源文件唯一推导，不收前端路径。
+    // P2（Codex revision 32 §4）：外部阅读面没有 item 身份，**不得**进入
+    // editable-copy 写入路径 —— 加入本身不升级权限。`item_id()` 为 None 时
+    // 必然与 payload.itemId 不等，直接拒绝。
+    if let Some(record) = crate::commands::preview::content_session_record(&state, &webview)? {
+        if record.key.item_id() != Some(payload.item_id) {
+            return Err(AppError::InvalidSession);
+        }
+    }
     require_html_edit_session_lease(state.html_edit_session_lease_matches(
         payload.item_id, &payload.runtime_session_id, payload.generation,
     )?)?;
@@ -245,8 +301,7 @@ pub fn write_editable_html_copy(
     if !source.starts_with(&root) { return Err(AppError::LibraryNotFound); }
     let current_hash = crate::core::html_edit::content_hash_bytes(&fs::read(&source).map_err(|_| AppError::IoError)?);
     if current_hash != payload.expected_source_file_hash { return Err(AppError::EditConflict); }
-    let stem = source.file_stem().and_then(|v| v.to_str()).ok_or(AppError::InvalidParams)?;
-    let target = source.parent().ok_or(AppError::InvalidParams)?.join(format!("{stem}.nutbook-editable.html"));
+    let target = editable_copy_path(&source).ok_or(AppError::InvalidParams)?;
     if target.exists() {
         return Ok(copy_response(&state, library.id, &target, "already_exists", 0, 0, 0)?);
     }
@@ -554,7 +609,9 @@ fn import_asset_for_active_session<T>(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    use super::editable_copy_path;
 
     use crate::{
         core::{agent_output_manifest::read_agent_output_manifest, html_edit::import_html_edit_asset},
@@ -678,5 +735,30 @@ mod tests {
         let root = html_edit_library_root(&library).expect("folder library uses root");
 
         assert_eq!(root, PathBuf::from("/tmp/nutbook/html-edit-acceptance"));
+    }
+
+    /// R10：副本路径推导规则唯一化 —— `write_editable_html_copy` 的写入目标
+    /// 与 `item_is_editable_copy_of` 的授权校验共用同一函数，防止两处漂移。
+    #[test]
+    fn editable_copy_path_derivation_matches_write_rule() {
+        let source = PathBuf::from("/tmp/nutbook/deck/index.html");
+        assert_eq!(
+            editable_copy_path(&source),
+            Some(PathBuf::from("/tmp/nutbook/deck/index.nutbook-editable.html"))
+        );
+        // 无扩展名 / 无父目录的病态输入不推导。
+        // 注：相对路径 "index.html" 的 parent() 是空串（非 None），与原
+        // `source.parent().join(...)` 行为一致，产出相对副本名 —— 实际调用
+        // 方（write_editable_html_copy）传入前已 canonicalize，不受影响。
+        assert_eq!(
+            editable_copy_path(Path::new("index.html")),
+            Some(PathBuf::from("index.nutbook-editable.html"))
+        );
+        // 隐藏名 ".html"：file_stem 返回整个名字（Rust Path 语义），与原
+        // `file_stem()` 推导一致。
+        assert_eq!(
+            editable_copy_path(Path::new("/tmp/nutbook/.html")),
+            Some(PathBuf::from("/tmp/nutbook/.html.nutbook-editable.html"))
+        );
     }
 }

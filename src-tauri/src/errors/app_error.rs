@@ -56,6 +56,11 @@ pub enum AppError {
     /// §7.2：系统设置默认应用调用失败（带系统错误描述）。
     #[error("default app action failed: {0}")]
     DefaultAppActionFailed(String),
+    /// PR C R11-a.2：scoped 端口登记表故障（损坏/丢失/读取失败/写入失败/
+    /// 超上限）。fail closed：一切 scoped 内容服务器拒绝启动；错误文案要求
+    /// 保留登记文件原样（绝不引导删记录），机制绝不自动清空历史身份。
+    #[error("scoped port registry failed: {0}")]
+    ScopedRegistryFailed(String),
 }
 
 impl Serialize for AppError {
@@ -90,6 +95,7 @@ impl AppError {
             AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
             AppError::AssetTooLarge => "ASSET_TOO_LARGE",
             AppError::CoverAssetRejected(_) => "COVER_ASSET_REJECTED",
+            AppError::ScopedRegistryFailed(_) => "SCOPED_REGISTRY_FAILED",
             AppError::InvalidSession => "INVALID_SESSION",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",

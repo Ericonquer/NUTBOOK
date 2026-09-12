@@ -1,0 +1,4 @@
+NUTBOOK-PR-C-OUTSIDE-CANARY
+
+本文件位于样本根之外的兄弟目录，两种 scope 模型下都属于边界之外。
+若任何 HTML 正文 child 能读到本文件内容，说明越界读取仍然可达。

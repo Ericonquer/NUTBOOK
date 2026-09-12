@@ -1,0 +1,8 @@
+:root { color-scheme: light; }
+body { font-family: -apple-system, system-ui, sans-serif; color: #1c1c1e; margin: 40px; line-height: 1.7; }
+h1, h2 { color: #005C9E; }
+.pager { display: flex; gap: 12px; align-items: center; margin: 24px 0; }
+button { padding: 6px 14px; border: 1px solid #005C9E; background: #fff; color: #005C9E; border-radius: 6px; cursor: pointer; }
+pre { background: #f5f5f7; padding: 12px; border-radius: 8px; }
+.filler { height: 1400px; }
+.hint { color: #6b6b70; }

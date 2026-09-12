@@ -61,6 +61,18 @@ pub fn delete_library(
     state: tauri::State<'_, AppState>,
     payload: DeleteLibraryRequest,
 ) -> Result<bool, AppError> {
+    // R11：资料库移除 = 其下所有 item 来源失效，先批量撤销 scoped 内容能力。
+    if let Ok(items) = state.list_items(&crate::models::ListItemsQuery {
+        library_id: Some(payload.library_id),
+        include_deleted: Some(true),
+        page: Some(1),
+        page_size: Some(100_000),
+        ..crate::models::ListItemsQuery::default()
+    }) {
+        for item in items.items {
+            state.revoke_content_capabilities_for_item(item.id);
+        }
+    }
     state.delete_library(payload.library_id)
 }
 

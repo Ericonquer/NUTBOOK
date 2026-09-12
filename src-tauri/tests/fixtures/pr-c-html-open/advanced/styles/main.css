@@ -1,0 +1,2 @@
+@import url("./imported.css");
+.texture { background-image: url("../styles/textures/dot.png"); background-size: contain; }

@@ -8,17 +8,20 @@ use crate::{
         document::{
             content_hash, file_modified_at_string, load_document_payload, load_item_content_revision,
             load_markdown_inspector_snapshot, markdown_summary, render_markdown_as_html_for_file,
+            MarkdownResourceContext,
         },
         document_title::DocumentTitle,
         html_runtime::{
-            attach_controls_overlay, attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
+            attach_controls_overlay, attach_external_html_runtime_host,
+            attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
             attach_html_presentation_preview, attach_html_runtime_controls_overlay, attach_html_find_overlay, attach_html_runtime_host, attach_settings_overlay,
             attach_inspector_more_overlay, close_inspector_more_overlay,
             close_html_edit_leave_confirm_overlay, close_html_edit_toolbar_overlay,
             close_html_presentation_preview, close_html_runtime_window,
             dispatch_html_runtime_shortcut, eval_html_runtime_script, focus_html_runtime_host,
-            log_html_edit_debug,
+            external_view_state_capture_script, log_html_edit_debug,
             focus_main_webview, open_html_runtime_window,
+            set_external_html_runtime_host_visibility,
             set_html_edit_toolbar_overlay_visibility,
             set_html_presentation_preview_visibility, set_html_presentation_preview_active,
             set_html_runtime_controls_overlay_visibility, set_html_find_overlay_bounds,
@@ -33,11 +36,17 @@ use crate::{
     models::{
         AttachHtmlEditLeaveConfirmOverlayRequest, AttachHtmlEditToolbarOverlayRequest, AttachHtmlPresentationPreviewRequest, AttachHtmlRuntimeControlsOverlayRequest, AttachHtmlFindOverlayRequest,
         AttachHtmlRuntimeHostRequest, AttachInspectorMoreOverlayRequest, AttachSettingsOverlayRequest, CloseHtmlWindowRequest,
+        AttachExternalHtmlRuntimeHostRequest, CaptureExternalHtmlViewStateRequest,
+        AttachExternalHtmlFindOverlayRequest, ExternalHtmlFindActionRequest,
+        CloseExternalHtmlRuntimeRequest,
+        ExternalHtmlRuntimeSessionPayload, SetExternalHtmlRuntimeHostVisibilityRequest,
+        SetExternalHtmlFindOverlayBoundsRequest, SetExternalHtmlFindOverlayVisibilityRequest,
+        UpdateExternalHtmlFindOverlayRequest,
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
         EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
-        GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, OpenHtmlWindowRequest, PreviewPayload,
+        GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, ItemDetail, OpenHtmlWindowRequest, PreviewPayload,
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
@@ -57,7 +66,37 @@ pub fn get_item_preview(
     payload: GetItemPreviewRequest,
 ) -> Result<PreviewPayload, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
-    load_document_payload(&item, |path| state.local_server_file_url(path))
+    // PR C Phase 1（D1=A）：资源 URL 改走 per-item scoped origin。
+    // HTML 的 preview_url 与 Markdown 图片共用 session key `preview:{item_id}`。
+    let item_id = item.summary.id;
+    let url = |path: &std::path::Path| -> String {
+        state
+            .scoped_file_url_for_item(&format!("preview:{item_id}"), &item, path)
+            .unwrap_or_default()
+    };
+    let markdown_resource = if item.summary.file_type == "markdown" {
+        let root = state.authorization_root_for_item(&item)?;
+        let canonical_base = std::path::Path::new(&item.summary.file_path)
+            .parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .map(|parent| parent.to_string_lossy().to_string())
+            .unwrap_or_default();
+        MarkdownResourceContext {
+            // R11：下发 origin + token 前缀（resource_base），前端拼相对
+            // 路径时自动携带会话 token。
+            origin: state
+                .scoped_server(&format!("preview:{item_id}"), &root)?
+                .resource_base(),
+            root: root
+                .canonicalize()
+                .map(|canonical| canonical.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            base_dir: canonical_base,
+        }
+    } else {
+        MarkdownResourceContext::default()
+    };
+    load_document_payload(&item, url, markdown_resource)
 }
 
 /// 检查视图 Markdown snapshot（raw + revision key）。只读预览的数据源；
@@ -131,11 +170,43 @@ pub fn close_html_presentation_preview_command(
     close_html_presentation_preview(&app, payload.item_id, &payload.preview_instance_id)
 }
 
+/// PR C Phase 1：缩略图缓存资源的 scoped origin 与 canonical root。
+/// 只供 main 可信面拼接缩略图 URL；root 只含缩略图缓存文件。
+/// （旧 get_local_server_origin 命令已随共享 /fs 服务器一并移除。）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheResourceInfo {
+    pub origin: String,
+    pub root: String,
+}
+
 #[tauri::command]
-pub fn get_local_server_origin(
+pub fn get_cache_resource_info(
     state: tauri::State<'_, AppState>,
+) -> Result<CacheResourceInfo, AppError> {
+    let (origin, root) = state.cache_resource_info();
+    Ok(CacheResourceInfo { origin, root })
+}
+
+/// PR C Phase 1（D1=A，R11 修订）：HTML runtime 会话的 scoped runtime URL。
+/// 每个 surface（host / player / presentation）独立 scoped origin —— 同一
+/// item 的不同内容面不再共享 origin，各 webview 的会话登记绑定各自 origin。
+fn scoped_runtime_url_for_surface(
+    state: &AppState,
+    item: &ItemDetail,
+    surface: &str,
 ) -> Result<String, AppError> {
-    Ok(state.local_server_origin())
+    let item_id = item.summary.id;
+    state.scoped_file_url_for_item(
+        &format!("html-runtime:{item_id}:{surface}"),
+        item,
+        std::path::Path::new(&item.summary.file_path),
+    )
+}
+
+/// 主 tab 与 controls overlay 使用的 host surface URL。
+fn scoped_runtime_url(state: &AppState, item: &ItemDetail) -> Result<String, AppError> {
+    scoped_runtime_url_for_surface(state, item, "host")
 }
 
 #[tauri::command]
@@ -168,9 +239,9 @@ pub fn open_html_window(
         return Err(AppError::UnsupportedFileType);
     }
 
-    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let runtime_url = scoped_runtime_url(&state, &item)?;
     let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
-    Ok(session.to_payload(false))
+    session.to_payload(false)
 }
 
 #[tauri::command]
@@ -184,10 +255,10 @@ pub fn open_html_detached_window(
         return Err(AppError::UnsupportedFileType);
     }
 
-    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let runtime_url = scoped_runtime_url_for_surface(&state, &item, "player")?;
     let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
     open_html_runtime_window(&app, &session)?;
-    Ok(session.to_payload(true))
+    session.to_payload(true)
 }
 
 #[tauri::command]
@@ -202,7 +273,7 @@ pub fn attach_html_runtime_host_command(
         return Err(AppError::UnsupportedFileType);
     }
 
-    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let runtime_url = scoped_runtime_url(&state, &item)?;
     let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
     attach_html_runtime_host(
         &app,
@@ -212,7 +283,300 @@ pub fn attach_html_runtime_host_command(
         payload.view_state_surface_token,
         payload.view_state,
     )?;
-    Ok(session.to_payload(false))
+    session.to_payload(false)
+}
+
+/// P2（Codex revision 32「有界 A」）：解析外部临时 HTML 会话。
+///
+/// 身份与授权 root **全部**由后端有效会话解析，前端自报的路径 / itemId 一概
+/// 不参与判定：
+/// - `session_id` 必须命中 external 会话登记；
+/// - 会话未关闭且 `generation` 一致（代次漂移 = 旧回调，必须拒绝）；
+/// - 文件类型必须为 `html`；
+/// - 授权 root = 登记 `raw_path` 的直接父目录（计划 §6.3，与单文件 item 同规则）。
+fn external_html_runtime_session(
+    state: &AppState,
+    session_id: &str,
+    generation: u64,
+) -> Result<HtmlRuntimeSession, AppError> {
+    let session = state
+        .external_sessions
+        .get(session_id)
+        .ok_or(AppError::InvalidSession)?;
+    if session.closed || session.generation != generation {
+        return Err(AppError::InvalidSession);
+    }
+    if session.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let path = std::path::PathBuf::from(&session.raw_path);
+    let title = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("index.html")
+        .to_string();
+    let runtime_url = state.scoped_file_url_for_external(
+        &crate::core::html_runtime::external_runtime_scoped_key(session_id),
+        &path,
+    )?;
+    Ok(HtmlRuntimeSession::from_external(
+        session_id,
+        generation,
+        title,
+        runtime_url,
+    ))
+}
+
+fn external_html_runtime_payload(
+    session: &HtmlRuntimeSession,
+) -> Result<ExternalHtmlRuntimeSessionPayload, AppError> {
+    Ok(ExternalHtmlRuntimeSessionPayload {
+        session_id: session
+            .key
+            .external_session_id()
+            .ok_or(AppError::InvalidParams)?
+            .to_string(),
+        generation: session.generation,
+        label: session.label.clone(),
+        title: session.title.clone(),
+        runtime_url: session.runtime_url.clone(),
+    })
+}
+
+/// P2：挂载 / 复用外部临时 HTML 的内嵌 host（与正式 item host 同一承载层）。
+///
+/// P2-R92a：`viewState` 仅在**新建** child 时回放（surface 隐藏即被 close，
+/// 再次激活必然重建）。已存在的 surface 走 bounds-only 早退，忽略该参数。
+#[tauri::command]
+pub fn attach_external_html_runtime_host_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachExternalHtmlRuntimeHostRequest,
+) -> Result<ExternalHtmlRuntimeSessionPayload, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    attach_external_html_runtime_host(&app, &window, &session, payload.bounds, payload.view_state)?;
+    external_html_runtime_payload(&session)
+}
+
+/// P2：外部临时 HTML host 的显示 / 隐藏（切 tab 用；隐藏即销毁 surface，
+/// 不撤销 capability）。
+#[tauri::command]
+pub fn set_external_html_runtime_host_visibility_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: SetExternalHtmlRuntimeHostVisibilityRequest,
+) -> Result<bool, AppError> {
+    // 仍要求会话有效且代次一致：旧回调不得驱动新会话的 surface。
+    external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    set_external_html_runtime_host_visibility(&app, &payload.session_id, payload.visible)
+}
+
+/// P2：关闭外部临时 HTML 会话 —— 销毁 host 并撤销其全部 scoped 内容能力
+/// （计划 §6.3：关闭标签 / 取消请求 / 来源失效时撤销）。幂等：登记已消失或
+/// surface 不存在时返回 false，不报错。
+#[tauri::command]
+pub fn close_external_html_runtime_command(
+    app: tauri::AppHandle,
+    payload: CloseExternalHtmlRuntimeRequest,
+) -> Result<bool, AppError> {
+    crate::core::html_runtime::close_external_html_runtime_host(&app, &payload.session_id)
+}
+
+/// P2 / 计划 §6.2：promotion 专用的一次性 view-state 回报裁决。
+///
+/// 与 item 阅读面的 `view_state_surface_matches` 刻意不同：外部阅读面**没有**
+/// 注入常驻 view-state 脚本（surface token 恒 0），因此不能要求非零 token，
+/// 否则拒掉一切合法回报。身份改由三件事实共同确定，缺一不可：
+/// - 发送方登记角色必须是 `ExternalHost` —— 编辑面角色（RuntimeHost /
+///   DetachedPlayer / PresentationPreview / RuntimePopup）即便 key 形状巧合也
+///   不得使用这条通道；
+/// - 登记 key 必须是 `External(..)`，且 payload 自报 sessionId 与之一致
+///   （自报 itemId 一律不参与判定）；
+/// - payload 自报 generation 必须等于登记代次且非零 —— 旧 surface 的晚到
+///   回报被拒。
+///
+/// 该通道**只**授予「回传一次滚动 / URL hash 快照」的语义，不新增任何编辑、
+/// 写入或 lease 能力；promotion 拆完旧 child 后登记即注销。
+pub(crate) fn external_view_state_payload_authorized(
+    record: &crate::core::content_session::ContentSessionRecord,
+    payload: &Value,
+) -> Result<(), AppError> {
+    use crate::core::content_session::{ContentSurfaceRole, RuntimeKey};
+    if record.role != ContentSurfaceRole::ExternalHost {
+        return Err(AppError::InvalidSession);
+    }
+    let RuntimeKey::External(registered) = &record.key else {
+        return Err(AppError::InvalidSession);
+    };
+    let claimed = payload
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let generation = payload
+        .get("generation")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if claimed.is_empty() || claimed != registered || generation == 0 || generation != record.generation
+    {
+        return Err(AppError::InvalidSession);
+    }
+    Ok(())
+}
+
+/// P2 / 计划 §6.2：在拆除临时 child **之前**采集一次 view state。宿主只下发
+/// 固定脚本（不接受前端任意脚本），采集内容仅滚动位置与 URL hash。
+#[tauri::command]
+pub fn capture_external_html_view_state_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: CaptureExternalHtmlViewStateRequest,
+) -> Result<bool, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    let label = crate::core::html_runtime::html_runtime_host_label_for(&session.key);
+    let Some(webview) = app.get_webview(&label) else {
+        // child 已被拆除（或从未挂载）：没有可采集的状态，不算错误。
+        return Ok(false);
+    };
+    webview
+        .eval(&external_view_state_capture_script(
+            &payload.session_id,
+            payload.generation,
+            &payload.request_id,
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// P2 / 计划 §6.2：外部 host 的 view-state 回报入口。必须来自已登记的内容面
+/// （不存在「可信面无记录放行」的例外），再由专用裁决核对角色 / 会话 / 代次。
+#[tauri::command]
+pub fn external_html_view_state_report_command(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: Value,
+) -> Result<bool, AppError> {
+    let record = content_session_record(&state, &webview)?.ok_or(AppError::InvalidSession)?;
+    external_view_state_payload_authorized(&record, &payload)?;
+    let main_webview = app.get_webview("main").ok_or(AppError::InternalError)?;
+    let payload_json = serde_json::to_string(&payload).map_err(|_| AppError::InternalError)?;
+    main_webview
+        .eval(&format!(
+            "window.__NUTBOOK_HANDLE_EXTERNAL_RUNTIME_VIEW_STATE__?.({payload_json});"
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// revision 71：外部 find surface 的面板身份（main 侧与 tab.id 等值比对）。
+fn external_find_identity(session_id: &str) -> String {
+    format!("external:{session_id}")
+}
+
+/// revision 71：外部临时 HTML 的正文查找 overlay。与正式 item 同一 child
+/// 承载与 1x1 → hide → close 合同（`RuntimeKey::External` 派生独立 label），
+/// 身份裁决 = sessionId + generation（与 host attach 同一函数）；外部会话
+/// 不开放 HTML 编辑，`can_replace` 恒 false。
+#[tauri::command]
+pub fn attach_external_html_find_overlay_command(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    payload: AttachExternalHtmlFindOverlayRequest,
+) -> Result<bool, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    attach_html_find_overlay(
+        &app,
+        &window,
+        &session.key,
+        serde_json::Value::String(external_find_identity(&payload.session_id)),
+        payload.bounds,
+        false,
+        payload.replace_expanded,
+        payload.query,
+        payload.count,
+        payload.case_sensitive,
+        payload.labels,
+        payload.history,
+    )
+}
+
+/// 已创建的外部 find child 只更新内容状态，不改变原生几何、可见性或焦点。
+#[tauri::command]
+pub fn update_external_html_find_overlay_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: UpdateExternalHtmlFindOverlayRequest,
+) -> Result<bool, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    update_html_find_overlay(
+        &app,
+        &session.key,
+        serde_json::Value::String(external_find_identity(&payload.session_id)),
+        false,
+        payload.replace_expanded,
+        payload.query,
+        payload.count,
+        payload.case_sensitive,
+        payload.labels,
+        payload.history,
+    )
+}
+
+/// resize 只更新已存在 find child 的原生几何（no-op 当 surface 已关闭）。
+#[tauri::command]
+pub fn set_external_html_find_overlay_bounds_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: SetExternalHtmlFindOverlayBoundsRequest,
+) -> Result<bool, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    set_html_find_overlay_bounds(&app, &session.key, payload.bounds)
+}
+
+#[tauri::command]
+pub fn set_external_html_find_overlay_visibility_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: SetExternalHtmlFindOverlayVisibilityRequest,
+) -> Result<bool, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    set_html_find_overlay_visibility(&app, &session.key, payload.visible)
+}
+
+/// revision 74（P2-R71a）：对外部临时 host 的**结构化**查找动作下发。
+/// 任意脚本文本入口已删除（hostile page 可包装 `__TAURI_INTERNALS__.invoke`
+/// 截获自身会话标识后注入任意源码）：动作只允许 query / next / prev / close，
+/// `replace` 一族在外部会话恒被拒绝；脚本源码由宿主固定模板构造
+/// （见 `external_html_find_action_script`），页面参数仅以 JSON 字面量注入。
+/// 会话 + 代次校验与其它 external 命令同一裁决，代次漂移或会话关闭一律
+/// InvalidSession。
+#[tauri::command]
+pub fn external_html_find_action_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: ExternalHtmlFindActionRequest,
+) -> Result<bool, AppError> {
+    let session = external_html_runtime_session(&state, &payload.session_id, payload.generation)?;
+    let session_id = session
+        .key
+        .external_session_id()
+        .ok_or(AppError::InvalidParams)?
+        .to_string();
+    let script = crate::core::html_runtime::external_html_find_action_script(
+        &session_id,
+        &payload.action,
+        &payload.query,
+        payload.case_sensitive,
+    )?;
+    let label = crate::core::html_runtime::html_runtime_host_label_for(&session.key);
+    let Some(webview) = app.get_webview(&label) else {
+        // host 未挂载（未 attach 或已拆除）：没有执行面，不算错误。
+        return Ok(false);
+    };
+    webview.eval(&script).map_err(|_| AppError::InternalError)?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -233,7 +597,7 @@ pub fn attach_html_presentation_preview_command(
     if item.summary.file_type != "html" {
         return Err(AppError::UnsupportedFileType);
     }
-    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let runtime_url = scoped_runtime_url_for_surface(&state, &item, "presentation")?;
     let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
     attach_html_presentation_preview(
         &app,
@@ -290,7 +654,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         return Err(AppError::UnsupportedFileType);
     }
 
-    let runtime_url = state.local_server_file_url(std::path::Path::new(&item.summary.file_path));
+    let runtime_url = scoped_runtime_url(&state, &item)?;
     let session = HtmlRuntimeSession::from_item(&item, runtime_url)?;
     attach_html_runtime_controls_overlay(
         &app,
@@ -309,7 +673,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.source_badges,
         item.summary.file_name.clone(),
     )?;
-    Ok(session.to_payload(false))
+    session.to_payload(false)
 }
 
 #[tauri::command]
@@ -329,7 +693,8 @@ pub fn attach_html_find_overlay_command(
 ) -> Result<bool, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
     if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
-    attach_html_find_overlay(&app, &window, payload.item_id, payload.bounds, payload.can_replace, payload.replace_expanded, payload.query, payload.count, payload.case_sensitive, payload.labels, payload.history)
+    let key = crate::core::content_session::RuntimeKey::Item(payload.item_id);
+    attach_html_find_overlay(&app, &window, &key, serde_json::Value::from(payload.item_id), payload.bounds, payload.can_replace, payload.replace_expanded, payload.query, payload.count, payload.case_sensitive, payload.labels, payload.history)
 }
 
 #[tauri::command]
@@ -340,9 +705,11 @@ pub fn update_html_find_overlay_command(
 ) -> Result<bool, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
     if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
+    let key = crate::core::content_session::RuntimeKey::Item(payload.item_id);
     update_html_find_overlay(
         &app,
-        payload.item_id,
+        &key,
+        serde_json::Value::from(payload.item_id),
         payload.can_replace,
         payload.replace_expanded,
         payload.query,
@@ -358,7 +725,7 @@ pub fn set_html_find_overlay_bounds_command(
     app: tauri::AppHandle,
     payload: SetHtmlFindOverlayBoundsRequest,
 ) -> Result<bool, AppError> {
-    set_html_find_overlay_bounds(&app, payload.item_id, payload.bounds)
+    set_html_find_overlay_bounds(&app, &crate::core::content_session::RuntimeKey::Item(payload.item_id), payload.bounds)
 }
 
 #[tauri::command]
@@ -366,7 +733,7 @@ pub fn set_html_find_overlay_visibility_command(
     app: tauri::AppHandle,
     payload: SetHtmlFindOverlayVisibilityRequest,
 ) -> Result<bool, AppError> {
-    set_html_find_overlay_visibility(&app, payload.item_id, payload.visible)
+    set_html_find_overlay_visibility(&app, &crate::core::content_session::RuntimeKey::Item(payload.item_id), payload.visible)
 }
 
 #[tauri::command]
@@ -477,9 +844,132 @@ pub fn eval_html_runtime_script_command(
     result
 }
 
+/// R9：内容面 caller 授权。可信面（main / detached / 宿主 overlay）返回
+/// None —— gate 已把关；内容面 label 必须有会话登记且当前 origin 未漂移
+/// （导航离开注册 origin 即失效）。返回登记记录供命令级会话校验。
+pub(crate) fn content_session_record(
+    state: &AppState,
+    webview: &tauri::Webview,
+) -> Result<Option<crate::core::content_session::ContentSessionRecord>, AppError> {
+    let label = webview.label();
+    if crate::core::content_session::ContentSurfaceRole::from_label(label).is_none() {
+        return Ok(None);
+    }
+    let record = state
+        .content_sessions
+        .get(label)
+        .ok_or(AppError::InvalidSession)?;
+    // R9-a：URL 获取失败必须拒绝 —— 与标题桥同一规则，不得跳过 origin 检查。
+    let url = webview
+        .url()
+        .map_err(|_| AppError::InvalidSession)?
+        .to_string();
+    if url != "about:blank" {
+        let current = crate::core::content_session::origin_of_url(&url)
+            .ok_or(AppError::InvalidSession)?;
+        if current != record.origin {
+            return Err(AppError::InvalidSession);
+        }
+    }
+    Ok(Some(record))
+}
+
+/// R10（Codex 返修）：payload 内 item 身份校验 —— invoke 通道与标题桥共用。
+/// - `sourceItemId`（发送方声明）：必须等于登记 item；
+/// - `itemId`：默认也必须等于登记 item；唯一例外是
+///   `html_edit_conversion_result` 的结果 item —— 前端把
+///   `write_editable_html_copy` 的响应合入回报，此时 itemId 是新副本 item
+///   而非源 item。副本归属不由前端自证：必须通过服务端校验
+///   「该 item 确为登记 item 的 `.nutbook-editable.html` 副本」才放行，
+///   不接受任意目的 item。
+pub(crate) fn payload_items_authorized(
+    state: &AppState,
+    record: &crate::core::content_session::ContentSessionRecord,
+    payload: &Value,
+) -> Result<(), AppError> {
+    use crate::core::content_session::RuntimeKey;
+    let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+    // P2（Codex revision 32 §3）：外部阅读面没有 item 身份，任何自报 item 都
+    // 按伪造处理 —— 不允许「外部会话自称某个 itemId」骗过数据库路径，也不
+    // 允许把加入前的临时内容挂到某个正式条目上。
+    let RuntimeKey::Item(registered_item_id) = &record.key else {
+        if payload.get("sourceItemId").and_then(Value::as_i64).is_some()
+            || payload.get("itemId").and_then(Value::as_i64).is_some()
+        {
+            return Err(AppError::InvalidSession);
+        }
+        return Ok(());
+    };
+    if let Some(source) = payload.get("sourceItemId").and_then(Value::as_i64) {
+        if source != *registered_item_id {
+            return Err(AppError::InvalidSession);
+        }
+    }
+    if let Some(item_id) = payload.get("itemId").and_then(Value::as_i64) {
+        if item_id != *registered_item_id {
+            let copy_ok = message_type == "html_edit_conversion_result"
+                && item_is_editable_copy_of(state, *registered_item_id, item_id).unwrap_or(false);
+            if !copy_ok {
+                return Err(AppError::InvalidSession);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// R10：服务端校验 `result_item_id` 是否为 `source_item_id` 的可编辑副本。
+/// 目标推导与 `write_editable_html_copy` 保持同一规则：
+/// `{源文件 stem}.nutbook-editable.html`，与源同目录、同 library。
+pub(crate) fn item_is_editable_copy_of(
+    state: &AppState,
+    source_item_id: i64,
+    result_item_id: i64,
+) -> Result<bool, AppError> {
+    let source = state.get_item_detail(source_item_id)?;
+    if source.summary.file_type != "html" {
+        return Ok(false);
+    }
+    let source_path = std::path::PathBuf::from(&source.summary.file_path);
+    let expected = crate::commands::html_edit::editable_copy_path(&source_path)
+        .ok_or(AppError::InvalidParams)?;
+    let Ok(expected_canonical) = expected.canonicalize() else {
+        // 预期副本路径不存在 → result 不可能是合法副本。
+        return Ok(false);
+    };
+    let result = state.get_item_detail(result_item_id)?;
+    if result.summary.file_type != "html" {
+        return Ok(false);
+    }
+    let result_canonical = std::path::PathBuf::from(&result.summary.file_path)
+        .canonicalize()
+        .map_err(|_| AppError::ItemNotFound)?;
+    Ok(result_canonical == expected_canonical)
+}
+
+/// R9-c（Codex 返修）：view-state 回报的完整入口裁决，invoke 通道与标题桥
+/// 共用。两段缺一不可：
+/// - item 归属（payload_items_authorized）：伪造他人 itemId 的回报拒绝；
+/// - surface 身份（view_state_surface_matches）：payload.surfaceToken 必须
+///   等于发送方登记的 surface token —— 旧 surface（换代后旧 token）、未注入
+///   view-state 脚本的 surface 与伪造他人 token（token 为宿主顺序分配、可
+///   被猜测，不构成凭证，必须与发送方身份绑定）全部拒绝。
+pub(crate) fn view_state_payload_authorized(
+    state: &AppState,
+    record: &crate::core::content_session::ContentSessionRecord,
+    payload: &Value,
+) -> Result<(), AppError> {
+    payload_items_authorized(state, record, payload)?;
+    if !crate::core::content_session::view_state_surface_matches(record, payload) {
+        return Err(AppError::InvalidSession);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn html_edit_runtime_message_command(
     app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
     payload: Value,
 ) -> Result<bool, AppError> {
     let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
@@ -487,8 +977,37 @@ pub fn html_edit_runtime_message_command(
         .get("runtimeSessionId")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let generation = payload
+        .get("generation")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     if !message_type.starts_with("html_edit_") || runtime_session_id.is_empty() {
         return Err(AppError::InvalidParams);
+    }
+    // R9：内容面按会话登记 + 角色类型分权裁决；可信面（record = None）放行。
+    if let Some(record) = content_session_record(&state, &webview)? {
+        use crate::core::content_session::RuntimeKey;
+        payload_items_authorized(&state, &record, &payload)?;
+        // P2（Codex revision 32 §4）：外部阅读面没有 item，也就没有 HTML 编辑
+        // lease —— 加入本身不升级阅读权限。lease 只在 Item 身份下查询。
+        let lease = match &record.key {
+            RuntimeKey::Item(item_id) => state.html_edit_session_lease_matches(
+                *item_id,
+                runtime_session_id,
+                generation,
+            )?,
+            RuntimeKey::External(_) => false,
+        };
+        crate::core::content_session::verify_bridge_message(
+            Some(&record),
+            None, // origin 已在 content_session_record 中复核
+            record.key.item_id(),
+            runtime_session_id,
+            generation,
+            message_type,
+            if lease { Some((runtime_session_id, generation)) } else { None },
+        )
+        .map_err(|_| AppError::InvalidSession)?;
     }
     let main_webview = app.get_webview("main").ok_or(AppError::InternalError)?;
     let payload_json = serde_json::to_string(&payload).map_err(|_| AppError::InternalError)?;
@@ -504,8 +1023,15 @@ pub fn html_edit_runtime_message_command(
 #[tauri::command]
 pub fn html_runtime_view_state_command(
     app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
     payload: Value,
 ) -> Result<bool, AppError> {
+    // R9：view-state 桥同样过会话登记 + origin 复核；R9-c：item 归属与
+    // surface 身份与标题桥共用同一裁决。
+    if let Some(record) = content_session_record(&state, &webview)? {
+        view_state_payload_authorized(&state, &record, &payload)?;
+    }
     forward_html_runtime_view_state(&app, &payload)
 }
 
@@ -1093,7 +1619,7 @@ mod tests {
     use std::{fs, time::{SystemTime, UNIX_EPOCH}};
 
     use crate::{
-        core::document::{content_hash, load_document_payload},
+        core::document::{content_hash, load_document_payload, MarkdownResourceContext},
         db::{repositories::{ItemRepository, LibraryRepository}, Database},
         models::{CopyMarkdownImageAssetRequest, DeleteMarkdownImageAssetRequest, IndexedItemRecord, Library, PreviewPayload, SaveMarkdownContentRequest},
         state::AppState,
@@ -1117,6 +1643,49 @@ mod tests {
             .expect("system time should be after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("nutbook-preview-{name}-{nanos}"))
+    }
+
+    fn external_session_record(
+        session_id: &str,
+        generation: u64,
+    ) -> crate::core::content_session::ContentSessionRecord {
+        crate::core::content_session::ContentSessionRecord {
+            role: crate::core::content_session::ContentSurfaceRole::ExternalHost,
+            key: crate::core::content_session::RuntimeKey::External(session_id.to_string()),
+            origin: "http://127.0.0.1:1".to_string(),
+            runtime_session_id: String::new(),
+            generation,
+            view_state_surface_token: 0,
+        }
+    }
+
+    /// P2 / §6.2：promotion 采集回报的身份裁决 —— 外部阅读面没有常驻 view-state
+    /// 脚本（token 恒 0），身份改由「角色 + External key + 自报会话/代次一致」
+    /// 三件事实共同确定；编辑面角色与 Item 身份都不得走这条通道。
+    #[test]
+    fn external_view_state_report_requires_external_identity_and_current_generation() {
+        use super::external_view_state_payload_authorized as authorize;
+        use serde_json::json;
+
+        let record = external_session_record("ext-1", 3);
+        assert!(authorize(&record, &json!({ "sessionId": "ext-1", "generation": 3 })).is_ok());
+        // 自报他人会话 / 旧代次 / 零代次 / 空会话：全部拒绝。
+        assert!(authorize(&record, &json!({ "sessionId": "ext-2", "generation": 3 })).is_err());
+        assert!(authorize(&record, &json!({ "sessionId": "ext-1", "generation": 2 })).is_err());
+        assert!(authorize(&record, &json!({ "sessionId": "ext-1", "generation": 0 })).is_err());
+        assert!(authorize(&record, &json!({ "sessionId": "", "generation": 3 })).is_err());
+        // 只报 itemId（沿用 item 阅读面的形状）不构成合法回报。
+        assert!(authorize(&record, &json!({ "itemId": 42, "generation": 3 })).is_err());
+
+        // 编辑面角色即使 key 形状是 External 也不得使用这条通道。
+        let mut forged_role = external_session_record("ext-1", 3);
+        forged_role.role = crate::core::content_session::ContentSurfaceRole::RuntimeHost;
+        assert!(authorize(&forged_role, &json!({ "sessionId": "ext-1", "generation": 3 })).is_err());
+
+        // Item 身份的 host 同样不得使用。
+        let mut item_identity = external_session_record("ext-1", 3);
+        item_identity.key = crate::core::content_session::RuntimeKey::Item(7);
+        assert!(authorize(&item_identity, &json!({ "sessionId": "ext-1", "generation": 3 })).is_err());
     }
 
     #[test]
@@ -1164,7 +1733,7 @@ mod tests {
             .expect("item should be inserted");
 
         let item = state.get_item_detail(1).expect("detail should load");
-        let payload = load_document_payload(&item, |_| "http://127.0.0.1:4000/fs/note.md".to_string())
+        let payload = load_document_payload(&item, |_| "http://127.0.0.1:4000/fs/note.md".to_string(), MarkdownResourceContext::default())
             .expect("payload should load");
 
         match payload {
@@ -1313,7 +1882,7 @@ mod tests {
         assert_eq!(detail.summary.summary.as_deref(), Some("Updated Title"));
         assert_eq!(detail.source_text.as_deref(), Some("# Updated Title\n\nbody"));
 
-        let payload = load_document_payload(&detail, |_| "http://127.0.0.1:4000/fs/note.md".to_string())
+        let payload = load_document_payload(&detail, |_| "http://127.0.0.1:4000/fs/note.md".to_string(), MarkdownResourceContext::default())
             .expect("payload should load");
         match payload {
             PreviewPayload::Markdown(markdown) => {
@@ -1527,6 +2096,7 @@ mod tests {
         let payload = load_document_payload(
             &item,
             |path| format!("http://127.0.0.1:4000/fs{}", path.to_string_lossy().replace(' ', "%20")),
+            MarkdownResourceContext::default(),
         )
         .expect("payload should load");
 

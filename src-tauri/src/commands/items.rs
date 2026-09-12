@@ -170,6 +170,8 @@ pub fn remove_item_from_nutbook(
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string());
     state.remove_item_from_nutbook(payload.item_id, &now)?;
+    // R11：来源失效即撤销该 item 的全部 scoped 内容能力与会话登记。
+    state.revoke_content_capabilities_for_item(payload.item_id);
     Ok(true)
 }
 
@@ -183,6 +185,8 @@ pub fn move_item_to_trash(
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string());
     state.move_item_to_trash(payload.item_id, &now)?;
+    // R11：来源失效即撤销该 item 的全部 scoped 内容能力与会话登记。
+    state.revoke_content_capabilities_for_item(payload.item_id);
     Ok(true)
 }
 
@@ -227,11 +231,16 @@ mod tests {
     };
 
     fn temp_db_path() -> std::path::PathBuf {
+        // macOS 系统时钟粒度实测约 1µs（同值可重复数十次）：并行测试线程
+        // 在同一纳秒槽内调用会产生同名库文件互相踩踏（upsert_library 唯一
+        // 约束 DatabaseError 的偶发根源）。补 pid + 进程内原子序号保证唯一。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be after unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("nutbook-items-{nanos}.sqlite3"))
+        std::env::temp_dir().join(format!("nutbook-items-{}-{nanos}-{seq}.sqlite3", std::process::id()))
     }
 
     #[test]

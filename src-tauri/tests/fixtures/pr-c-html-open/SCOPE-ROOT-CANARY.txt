@@ -1,0 +1,4 @@
+NUTBOOK-PR-C-SCOPE-ROOT-CANARY
+
+本文件位于样本根，即 folder source 的 scope root。
+「以 folder root 为界」的模型下，样本内任何 HTML 都应能读到本文件；读不到说明修复过头。

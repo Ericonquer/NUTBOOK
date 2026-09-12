@@ -1622,6 +1622,42 @@
         cursor: not-allowed;
       }
 
+      /* 禁用按钮在 Chrome 下不参与命中测试 → 自身 :hover 不触发、tooltip 永不显示
+         （放开 pointer-events 只改光标，救不了 :hover）。主操作因此外包一层
+         .document-action-wrap：鼠标事件重定向到祖先，由包裹层 :hover 点亮 tooltip。
+         按钮本身仍是真 disabled —— 不派发 click、不可聚焦，阅读态没有编辑入口。 */
+      .document-action-button.primary-action:disabled {
+        pointer-events: auto;
+      }
+
+      .document-action-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+      }
+
+      .document-action-wrap:hover .tooltip-explain .document-action-tooltip {
+        opacity: 1;
+      }
+
+      /* 兜底：某些引擎连祖先 :hover 都不点亮（disabled 子树完全不参与命中测试），
+         此时由 pointer 坐标判定强制显示（`.tooltip-forced`，见 disabled 主操作控制器）。 */
+      .document-action-button.tooltip-forced .document-action-tooltip {
+        opacity: 1;
+      }
+
+      /* 禁用态主操作的解释性 tooltip 锚在按钮左侧、垂直居中。根因（R42 诊断定案）：
+         运行时内容（外部 HTML / 预览）是独立 webview 表面，永远盖在主窗口 DOM 之上，
+         z-index 无法跨越原生表面边界——默认「按钮下方」锚点会伸进内容区被表面压住
+         （实测元素 105x20、opacity=1 却不可见）。左侧锚点保持在工具栏行带内可见。 */
+      .document-action-button.primary-action:disabled .document-action-tooltip {
+        top: 50%;
+        left: auto;
+        right: calc(100% + 10px);
+        transform: translateY(-50%);
+      }
+
       .document-action-tooltip,
       .card-action-tooltip,
       .chip-tooltip {
@@ -6272,66 +6308,75 @@
         word-break: break-all;
       }
 
-      /* §7.2 文件默认应用：说明与状态合并一行 + 显著状态徽章（GUI 反馈） */
-      .preference-desc-with-badges {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 4px 10px;
-      }
-
-      .default-app-badges {
-        display: inline-flex;
-        flex-wrap: wrap;
+      /* §7.2 文件默认应用：状态收进右侧两枚胶囊按钮本体（GUI 反馈 R3：
+         原先「描述行内徽章 + 右侧独立『设为默认』按钮」两处表达同一件事，
+         且已默认态用墨水填充太黑）。状态→几何映射，全部灰阶，不引入彩色：
+           已默认  = 浅灰底灰字 + ✓，禁用。macOS 没有「取消默认」接口，
+                     可点等于骗人；两枚都默认时整行没有任何可点项。
+           未默认  = 白底 + 墨色描边 + ＋，可点。靠描边而非填充表达可点。
+           部分    = 白底 + 墨色虚线描边，可点（组内扩展名结果不一致）。
+           无法确认 = 浅灰底灰字，禁用。
+           进行中  = 浅灰底灰字，禁用。
+         胶囊几何：border-radius 999px（= 高度的一半），不是圆角矩形；
+         高度 26px、横向内边距 12px，与既有状态徽章同一几何。
+         Windows 另走一路：后端读不到真实 handler，两枚都不给状态符号、
+         都可点，点击打开系统「默认应用」设置页（见 renderDefaultAppStatusRow）。 */
+      .default-app-actions {
         gap: 6px;
       }
 
-      .default-app-badge {
+      .default-app-button {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 2px 9px;
+        justify-content: center;
+        min-height: 26px;
+        padding: 0 12px;
         border-radius: 999px;
         border: 1px solid transparent;
-        font-size: 11px;
-        line-height: 1.5;
-        color: var(--ink-soft, #5e5e63);
         background: var(--surface-muted, #eeeef0);
+        color: var(--ink-soft, #5e5e63);
+        font: inherit;
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
       }
 
-      .default-app-badge-group {
-        font-weight: 600;
-        color: inherit;
+      .default-app-button:disabled {
+        cursor: default;
       }
 
-      .default-app-badge-state {
-        color: inherit;
-      }
-
-      /* 方案 A「墨水 Chips」（DESIGN.md 单色体系）：已默认=墨水填充白字
-         （Primary Black 只给最高强调态）；部分=白底墨描边；未默认=浅灰
-         pill；无法确认=虚线描边。全部灰阶，不引入彩色。 */
-      .default-app-badge--ok {
-        border-color: var(--ink, #1a1c1d);
-        background: var(--ink, #1a1c1d);
-        color: var(--paper, #ffffff);
-      }
-
-      .default-app-badge--warn {
+      /* 可点形态只有一种：白底 + 墨色描边。部分已默认的差别只在描边虚实。 */
+      .default-app-button--idle {
         border-color: var(--ink, #1a1c1d);
         background: var(--paper, #ffffff);
         color: var(--ink, #1a1c1d);
       }
 
-      .default-app-badge--busy {
+      .default-app-button--warn {
+        border: 1px dashed var(--ink, #1a1c1d);
+        background: var(--paper, #ffffff);
+        color: var(--ink, #1a1c1d);
+      }
+
+      .default-app-button--idle:hover,
+      .default-app-button--warn:hover {
+        background: var(--surface-variant, #f3f3f5);
+      }
+
+      .default-app-button--idle:focus-visible,
+      .default-app-button--warn:focus-visible {
+        outline: 2px solid var(--ink, #1a1c1d);
+        outline-offset: 2px;
+      }
+
+      /* 禁用三态（已默认 / 无法确认 / 进行中）共用浅灰底灰字。 */
+      .default-app-button--ok,
+      .default-app-button--muted,
+      .default-app-button--busy {
         border-color: var(--line, #e2e2e4);
         background: var(--surface-variant, #f3f3f5);
         color: var(--ink-soft, #5e5e63);
-      }
-
-      .default-app-badge--muted {
-        border: 1px dashed var(--line, #cfc4c5);
-        background: transparent;
       }
 
       /* 备用方法弹窗：四步图文。GUI 验收 bug 修复：此前复用
@@ -7503,11 +7548,15 @@
               </svg>
               <span class="document-action-tooltip">收藏文件</span>
             </button>
-            <button id="documentPrimaryButton" class="document-action-button primary-action" type="button" aria-label="保存文档" disabled>
-              <span id="documentPrimaryIcon" class="document-action-icon" aria-hidden="true"></span>
-              <span id="documentPrimaryLabel" class="document-action-label" style="display:none;">保存</span>
-              <span id="documentPrimaryTooltip" class="document-action-tooltip">保存文档</span>
-            </button>
+            <!-- 主操作外包一层：disabled 按钮不参与命中测试，自身 :hover 永不匹配，
+                 鼠标事件会重定向到祖先 → 由包裹层承载禁用原因 tooltip 的显示。 -->
+            <span class="document-action-wrap">
+              <button id="documentPrimaryButton" class="document-action-button primary-action" type="button" aria-label="保存文档" disabled>
+                <span id="documentPrimaryIcon" class="document-action-icon" aria-hidden="true"></span>
+                <span id="documentPrimaryLabel" class="document-action-label" style="display:none;">保存</span>
+                <span id="documentPrimaryTooltip" class="document-action-tooltip">保存文档</span>
+              </button>
+            </span>
             <button id="documentMoreButton" class="document-action-button" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" disabled>
               <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
                 <circle cx="4.7" cy="10" r="1.6" fill="currentColor"></circle>
@@ -7870,6 +7919,8 @@
         htmlEditCleanRevisionWaiters: new Map(),
         htmlEditRuntimeDocumentReadyWaiters: new Map(),
         runtimeViewStateWaiters: new Map(),
+        // P2 / §6.2：promotion 前一次性采集外部 child view state 的等待器。
+        externalViewStateWaiters: new Map(),
         runtimeViewStateSurfaceTokens: new Map(),
         runtimeViewStateSurfaceSequence: 0,
         activeLibraryId: null,
@@ -7987,11 +8038,23 @@
         runtimePatchAppliedKeys: new Map(),
         runtimePatchSurfaceLanes: new Map(),
         itemOpenTokens: new Map(),
+        // P2-R3a（Codex 58）：host surface scoped server 的持有者台账。
+        // Map<itemId, Map<leaseId, { state: "pending" | "holding" }>>——
+        // itemOpenTokens 只表达「最新打开尝试」，不表达资源所有权；真实
+        // acquire/confirm/release 责任归属见 handoff「P2-R3a 责任归属设计」。
+        runtimeResourceHolders: new Map(),
+        runtimeResourceLeaseSeq: 0,
+        // P2-R3c（Codex 62）：在途 close 登记——新持有者 acquire 必须等待
+        // 在途 close 完成后再登记、再 open（重建新 server），保证不绑定到
+        // 正在拆除的 server。Map<itemId, Promise<void>>。
+        runtimeResourceClosing: new Map(),
         runtimeNavigationEpoch: 0,
         runtimeControlsOverlayExpanded: false,
         runtimeControlsOverlayMode: "default",
         documentTagDraft: "",
         localServerOrigin: null,
+        cacheResourceOrigin: null,
+        cacheResourceRoot: null,
         isSettingsOpen: false,
         isUpdateDialogOpen: false,
         settingsReturnFocus: null,
@@ -8191,6 +8254,63 @@
         settingsRebuildLibraryThumbsButton: document.getElementById("settingsRebuildLibraryThumbsButton"),
         hostSettingsMenu: document.getElementById("hostSettingsMenu")
       };
+
+      // ---- 禁用态主操作的解释性 tooltip（不依赖 CSS :hover）----
+      // disabled 按钮不参与命中测试：某些引擎连祖先 :hover 都不点亮（实测
+      // Chromium 下祖先可以、运行面不一定），纯 CSS 方案不可靠。
+      // 但实测悬停在 disabled 按钮上时 document 级 mousemove **照常触发**
+      // （target 退化为祖先）——所以改成按坐标自己判定，与引擎 hover 语义无关。
+      // 按钮仍是真 disabled：不派发 click、不可聚焦，只把「为什么不能点」显示出来。
+      // 纯函数：便于回归测试抽取。rect 由调用方给出，容忍 2px 边缘抖动。
+      function pointerWithinPrimaryButtonRect(rect, x, y, options) {
+        if (!rect) return false;
+        const pad = (options && options.pad) != null ? options.pad : 2;
+        const bottomPad = (options && options.bottomPad) != null ? options.bottomPad : pad;
+        return x >= rect.left - pad
+          && x <= rect.right + pad
+          && y >= rect.top - pad
+          && y <= rect.bottom + bottomPad;
+      }
+
+      let lastPointerX = -1;
+      let lastPointerY = -1;
+
+      function syncDisabledPrimaryTooltip(x, y) {
+        lastPointerX = x;
+        lastPointerY = y;
+        const button = els.documentPrimaryButton;
+        const tooltip = els.documentPrimaryTooltip;
+        if (!button || !tooltip) return;
+        // 只对「禁用且带解释文案」的主操作生效；启用态照旧走 CSS :hover。
+        const explain = button.disabled && Boolean(tooltip.textContent.trim());
+        // 标记类同时门控包裹层 :hover 兜底规则——禁用但无文案时不得显示空气泡。
+        button.classList.toggle("tooltip-explain", explain);
+        if (!explain) {
+          button.classList.remove("tooltip-forced");
+          return;
+        }
+        const rect = button.getBoundingClientRect();
+        if (!rect.width || !rect.height) {
+          button.classList.remove("tooltip-forced");
+          return;
+        }
+        button.classList.toggle(
+          "tooltip-forced",
+          pointerWithinPrimaryButtonRect(rect, x, y, { bottomPad: 6 })
+        );
+      }
+
+      if (typeof document !== "undefined") {
+        document.addEventListener("mousemove", (event) => {
+          syncDisabledPrimaryTooltip(event.clientX, event.clientY);
+        }, true);
+        document.addEventListener("mouseleave", () => {
+          els.documentPrimaryButton?.classList.remove("tooltip-forced");
+        }, true);
+        window.addEventListener("blur", () => {
+          els.documentPrimaryButton?.classList.remove("tooltip-forced");
+        });
+      }
 
       const mockData = {
         libraries: [
@@ -8878,13 +8998,29 @@
         if (target.startsWith("/")) {
           return normalizeLinkedFilePath(target);
         }
-        const baseDir = tab?.preview?.baseDir || dirnamePath(tab?.item?.filePath || "");
+        const baseDir = tab?.preview?.resourceBaseDir || tab?.preview?.baseDir || dirnamePath(tab?.item?.filePath || "");
         return baseDir ? normalizeLinkedFilePath(`${baseDir}/${target}`) : "";
+      }
+
+      // PR C Phase 1（D1=A）：把 canonical 绝对路径映射为 item scoped origin
+      // 内的相对 URL。root 前缀不匹配（越界引用）一律返回空。
+      function toScopedResourceUrl(targetPath, tab) {
+        const origin = tab?.preview?.resourceOrigin;
+        const root = tab?.preview?.resourceRoot;
+        if (!origin || !root || !targetPath || !targetPath.startsWith("/")) return "";
+        const normRoot = root.endsWith("/") ? root.slice(0, -1) : root;
+        if (!targetPath.startsWith(normRoot + "/")) return "";
+        const rel = targetPath.slice(normRoot.length + 1);
+        const encoded = rel.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+        return encoded ? `${origin}/${encoded}` : "";
       }
 
       function resolveMarkdownImageUrl(src, tab) {
         const targetPath = markdownImageFilePath(src, tab);
-        return targetPath ? toLocalServerUrl(targetPath) : "";
+        if (!targetPath) return "";
+        // PR C Phase 1（D1=A）：只走 item scoped origin；越界引用（root 前缀
+        // 不匹配）返回空 —— 不回退旧 /fs 绝对路径通道，避免重新打开任意读。
+        return toScopedResourceUrl(targetPath, tab);
       }
 
       function markdownImageAlignmentFromTitle(title) {
@@ -12361,11 +12497,26 @@
         };
       }
 
+      // PR C Phase 1（D1=A）：缩略图缓存路径 → 缓存 scoped origin 内的相对
+      // URL。root 前缀不匹配或未启用时返回空（调用方回退）。
+      function toCacheResourceUrl(localPath) {
+        const origin = appState.cacheResourceOrigin;
+        const root = appState.cacheResourceRoot;
+        if (!origin || !root || !localPath || !localPath.startsWith("/")) return "";
+        const normRoot = root.endsWith("/") ? root.slice(0, -1) : root;
+        if (!localPath.startsWith(normRoot + "/")) return "";
+        const rel = localPath.slice(normRoot.length + 1);
+        const encoded = rel.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+        return encoded ? `${origin}/${encoded}` : "";
+      }
+
       function normalizeThumbnailInfo(thumbnail) {
         if (!thumbnail) return null;
         let path = thumbnail.path ?? null;
         if (path && (path.startsWith("/") || path.startsWith("file://"))) {
-          path = toLocalServerUrl(path);
+          // PR C Phase 1：只走缩略图缓存 scoped origin；失败保持原值
+          // （无效 URL 不会命中旧 /fs 通道）。
+          path = toCacheResourceUrl(path) || path;
         }
         return {
           status: thumbnail.status,
@@ -12917,6 +13068,9 @@
         if (command === "is_window_minimized_command") return [{}];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
+        // revision 74：外部 find/find-action 命令族不在 payload 包装列表——调用方
+        // 已传 { payload: {...} }，包装会双重嵌套导致反序列化必败（与
+        // attach_external_html_runtime_host_command 同走默认 [args] 分支）。
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
         if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
@@ -15088,7 +15242,11 @@
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
         // 固定顺序：Markdown=[导出文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
         let options = [];
-        if (tab?.sourceMode === "external") {
+        if (isExternalRuntimeTab(tab)) {
+          // 临时 HTML 是只读会话：不提供导出 / 另存 / 移除（§6.1 不开放编辑、
+          // sidecar、editable copy 或 commit 链路）。工具栏 more 按钮同时禁用。
+          options = [];
+        } else if (tab?.sourceMode === "external") {
           options = [
             {
               action: "external-save-copy",
@@ -16129,20 +16287,17 @@
           <div class="preference-row" data-default-app-row>
             <div class="preference-copy">
               <div class="preference-title">${t("settings.defaultOpenApps")}</div>
-              <div class="preference-desc preference-desc-with-badges">
-                <span class="preference-desc-text">${t("settings.defaultOpenAppsDescription")}</span>
-                <span class="default-app-badges" data-default-app-status></span>
-              </div>
-              <div class="settings-row-meta" data-default-app-html-note>${t("settings.defaultAppHtmlPendingNote")}</div>
+              <div class="preference-desc">${t("settings.defaultOpenAppsDescription")}</div>
+              <div class="settings-row-meta" data-default-app-windows-note hidden>${t("settings.defaultAppWindowsHint")}</div>
               <div class="settings-row-meta" data-default-app-finder-note hidden>
                 ${t("settings.defaultAppFallbackHint")}
                 <button class="settings-inline-link" type="button" data-default-app-show-fallback="true" aria-label="${t("settings.defaultAppFallbackAction")}">${t("settings.defaultAppFallbackAction")}</button>
               </div>
             </div>
-            <button class="button button-secondary preference-control" type="button" data-default-app-action hidden aria-label="${t("settings.defaultAppSetAction")}" title="${t("settings.defaultAppSetAction")}">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h6v6"/><path d="M12.5 3.5 6 10"/><path d="M11 9.5v2a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 3 11.5v-5A1.5 1.5 0 0 1 4.5 5h2"/></svg>
-              <span>${t("settings.defaultAppSetAction")}</span>
-            </button>
+            <div class="preference-control default-app-actions" data-default-app-actions>
+              <button class="default-app-button" type="button" data-default-app-action="markdown"></button>
+              <button class="default-app-button" type="button" data-default-app-action="html"></button>
+            </div>
           </div>
           <div class="preference-row">
             <div class="preference-copy">
@@ -16193,13 +16348,17 @@
         els.settingsPreferenceList.querySelector("[data-update-auto-check-toggle]")?.addEventListener("click", () => {
           setAutoCheckUpdatesEnabled(!Boolean(appState.updateSettings.autoCheckEnabled));
         });
-        els.settingsPreferenceList.querySelector("[data-default-app-action]")?.addEventListener("click", () => {
-          setMarkdownDefaultAppFromPreferences().catch((error) => {
-            setStatus(`${t("settings.defaultAppSetFailedPrefix")}${normalizeError(error)}`, "error");
+        els.settingsPreferenceList.querySelectorAll("[data-default-app-action]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const group = button.getAttribute("data-default-app-action");
+            if (!group) return;
+            setDefaultAppFromPreferences(group).catch((error) => {
+              setStatus(`${t("settings.defaultAppSetFailedPrefix")}${normalizeError(error)}`, "error");
+            });
           });
         });
         els.settingsPreferenceList.querySelector("[data-default-app-show-fallback]")?.addEventListener("click", () => {
-          showDefaultAppFinderFallbackDialog();
+          showDefaultAppFinderFallbackDialog(defaultAppFallbackGroup);
         });
         // §7.2: query the real default-app status whenever the preference row
         // is (re-)rendered; no-op when the row is not visible.
@@ -17081,17 +17240,32 @@
           : null;
       }
 
+      // 顶栏 scope 与正文查找入口的**唯一**状态源，且必须是活动标签文件类型的
+      // 纯函数：不得并入 `activeMarkdownEditorTabId` 之类的**挂载状态**。
+      // 编辑器挂载是异步的（Milkdown API → create → 挂载卡片），打开 Markdown 的
+      // 瞬间 id 仍指向上一个标签，而 `renderViewer()` 里的顶栏投影就发生在挂载
+      // 完成之前——把挂载状态并进判定，会让顶栏在整个打开周期停在资料库投影，
+      // 直到下一个无关事件（keydown / keyup / 收藏 / 再来一次 render）才纠正：
+      // 这正是 revision 84 修的「MD 打开后仍有资料库搜索残留，点一下才变正文」。
+      // 正式 HTML 一直正常，正因它的判定只依赖 fileType。
+      // 「编辑器未挂载时不能查找」由 openActiveDocumentFind 的入口守卫表达，
+      // 不由投影表达。
       function activeDocumentSearchKind() {
         const tab = getActiveTab();
-        if (tab?.preview?.fileType === "markdown" && tab.id === appState.activeMarkdownEditorTabId) return "markdown";
-        if (tab?.preview?.fileType === "html-runtime") return "html";
+        if (tab?.preview?.fileType === "markdown") return "markdown";
+        // revision 71：正文查找对正式与外部临时 HTML 同等可用（同一 child 承载）。
+        if (tab?.preview?.fileType === "html-runtime" || tab?.preview?.fileType === "html-runtime-external") return "html";
         return null;
       }
 
       function openActiveDocumentFind() {
         const kind = activeDocumentSearchKind();
         if (kind === "markdown") {
-          currentDocumentFindEditor()?.openFind?.();
+          // 编辑器尚未挂载（Markdown 内容仍在打开/挂载中）：不认领本次交互，
+          // 让点击走回默认路径，也不假装已经打开查找面板。
+          const editor = currentDocumentFindEditor();
+          if (!editor) return false;
+          editor.openFind?.();
           return true;
         }
         if (kind === "html") { openActiveHtmlFind().catch(() => {}); return true; }
@@ -17150,10 +17324,11 @@
 
       function activeHtmlFindContentPayload() {
         const tab = getActiveTab();
-        if (tab?.preview?.fileType !== "html-runtime" || appState.htmlFind.itemId !== tab.id) return null;
+        if (!isHtmlFindTab(tab) || appState.htmlFind.itemId !== tab.id) return null;
         return {
           itemId: tab.id,
-          canReplace: appState.htmlEditSession?.itemId === tab.id,
+          // 外部临时会话不开放 HTML 编辑（§6.2）：查找可用、替换不可用。
+          canReplace: !isExternalRuntimeTab(tab) && appState.htmlEditSession?.itemId === tab.id,
           replaceExpanded: appState.htmlFind.replaceExpanded,
           query: appState.htmlFind.query,
           count: appState.htmlFind.count,
@@ -17182,12 +17357,27 @@
           const contentKey = htmlFindContentKey(payload);
           if (!attach && appState.htmlFindOverlayLastContentKey === contentKey) return true;
           const bounds = attach ? htmlFindOverlayBounds() : null;
+          // revision 71：外部临时 HTML 的 find child 走外部命令族（身份 =
+          // sessionId + generation），正式 item 命令族保持不变。
+          const externalTab = isExternalRuntimeTab(getOpenTab(itemId));
+          const externalPayload = externalTab ? {
+            sessionId: getOpenTab(itemId).external.sessionId,
+            generation: getOpenTab(itemId).external.generation
+          } : null;
           const result = await invoke(
-            attach ? "attach_html_find_overlay_command" : "update_html_find_overlay_command",
-            attach ? { ...payload, bounds } : payload
+            attach
+              ? (externalTab ? "attach_external_html_find_overlay_command" : "attach_html_find_overlay_command")
+              : (externalTab ? "update_external_html_find_overlay_command" : "update_html_find_overlay_command"),
+            attach
+              ? (externalTab
+                ? { payload: { ...externalPayload, ...payload, bounds } }
+                : { ...payload, bounds })
+              : (externalTab
+                ? { payload: { ...externalPayload, ...payload } }
+                : payload)
           );
           if (appState.htmlFindOverlayEpoch !== epoch || appState.htmlFind.itemId !== itemId || getActiveTab()?.id !== itemId) {
-            if (attach) await invoke("set_html_find_overlay_visibility_command", { itemId, visible: false }).catch(() => false);
+            if (attach) await setHtmlFindOverlayVisibilityFor(itemId, false).catch(() => false);
             return false;
           }
           if (result === false) return false;
@@ -17200,9 +17390,24 @@
         return queued;
       }
 
+      // find overlay 可见性按标签形态分派（外部走 sessionId+generation 命令）。
+      function setHtmlFindOverlayVisibilityFor(itemId, visible) {
+        const tab = getOpenTab(itemId);
+        if (isExternalRuntimeTab(tab)) {
+          return invoke("set_external_html_find_overlay_visibility_command", {
+            payload: {
+              sessionId: tab.external.sessionId,
+              generation: tab.external.generation,
+              visible
+            }
+          });
+        }
+        return invoke("set_html_find_overlay_visibility_command", { itemId, visible });
+      }
+
       async function openActiveHtmlFind() {
         const tab = getActiveTab();
-        if (tab?.preview?.fileType !== "html-runtime") return false;
+        if (!isHtmlFindTab(tab)) return false;
         if (appState.htmlFind.itemId !== tab.id) {
           appState.htmlFindOverlayEpoch += 1;
           appState.htmlFindOverlayLastContentKey = null;
@@ -17222,19 +17427,34 @@
 
       async function closeActiveHtmlFind() {
         const itemId = appState.htmlFind.itemId;
+        const findTab = itemId != null ? getOpenTab(itemId) : null;
         recordHtmlFindHistory(appState.htmlFind.query);
         appState.htmlFind = { itemId: null, query: "", caseSensitive: false, replaceExpanded: false, count: "0/0" };
         appState.htmlFindOverlayEpoch += 1;
         appState.htmlFindOverlayLastContentKey = null;
         appState.htmlFindOverlayLastBoundsKey = null;
-        if (itemId) await invoke("eval_html_runtime_script_command", { itemId, script: "document.getElementById('nutbook-html-find-selection')?.remove();" }).catch(() => {});
+        if (itemId) {
+          const clearScript = "document.getElementById('nutbook-html-find-selection')?.remove();";
+          if (isExternalRuntimeTab(findTab)) {
+            // revision 74（P2-R71a）：外部只发结构化动作，清理脚本由宿主固定模板构造。
+            await invoke("external_html_find_action_command", {
+              payload: {
+                sessionId: findTab.external.sessionId,
+                generation: findTab.external.generation,
+                action: "close"
+              }
+            }).catch(() => {});
+          } else {
+            await invoke("eval_html_runtime_script_command", { itemId, script: clearScript }).catch(() => {});
+          }
+        }
         await appState.htmlFindOverlaySyncLane.catch(() => false);
-        if (itemId) await invoke("set_html_find_overlay_visibility_command", { itemId, visible: false }).catch(() => {});
+        if (itemId) await setHtmlFindOverlayVisibilityFor(itemId, false).catch(() => {});
       }
 
       window.__NUTBOOK_HANDLE_HTML_FIND_ACTION__ = async (payload) => {
         const tab = getActiveTab();
-        if (!payload || tab?.id !== payload.itemId || tab.preview?.fileType !== "html-runtime" || appState.htmlFind.itemId !== payload.itemId) return;
+        if (!payload || tab?.id !== payload.itemId || !isHtmlFindTab(tab) || appState.htmlFind.itemId !== payload.itemId) return;
         if (payload.action === "close") { await closeActiveHtmlFind(); return; }
         appState.htmlFind.itemId = payload.itemId;
         appState.htmlFind.query = String(payload.query || "");
@@ -17247,13 +17467,31 @@
           return;
         }
         const query = appState.htmlFind.query;
-        const canReplace = appState.htmlEditSession?.itemId === tab.id;
+        // 外部临时会话不开放编辑（§6.2）：canReplace 恒 false，替换分支天然不可达。
+        const canReplace = !isExternalRuntimeTab(tab) && appState.htmlEditSession?.itemId === tab.id;
         if (query && ["query", "next", "prev", "replace", "replace_all"].includes(payload.action)) {
+          if (isExternalRuntimeTab(tab)) {
+            // revision 74（P2-R71a）：外部只发结构化查找动作，脚本由宿主固定
+            // 模板构造（deny-by-default：replace 一族与未知动作宿主端拒绝）——
+            // main 页不再向外部会话传递任何脚本文本。
+            await invoke("external_html_find_action_command", {
+              payload: {
+                sessionId: tab.external.sessionId,
+                generation: tab.external.generation,
+                action: payload.action,
+                query,
+                caseSensitive: Boolean(payload.caseSensitive)
+              }
+            }).catch(() => {});
+          } else {
           const backwards = payload.action === "prev";
           const action = payload.action;
           const replacement = String(payload.replacement || "");
-          const script = `;(()=>{const q=${JSON.stringify(query)}, cs=${Boolean(payload.caseSensitive)}, action=${JSON.stringify(action)}, replacement=${JSON.stringify(replacement)}, itemId=${tab.id};let style=document.getElementById('nutbook-html-find-selection');if(!style){style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{background:rgba(255,159,67,.68)!important;color:inherit!important}::-moz-selection{background:rgba(255,159,67,.68)!important;color:inherit!important}';document.head.append(style);}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0,at=0;while(needle&&(at=source.indexOf(needle,at))>=0){total++;at+=Math.max(1,needle.length);}let changed=0,deferred=false;const report=(current=1)=>{document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({itemId,total,changed,current});};const revealSelection=()=>{const selection=window.getSelection?.();if(!selection?.rangeCount)return;const node=selection.getRangeAt(0).commonAncestorContainer;const anchor=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;anchor?.scrollIntoView?.({block:'nearest',inline:'nearest'});};const find=()=>{if(['query','next','prev'].includes(action)){const handled=window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__?.({query:q,caseSensitive:cs,backwards:${backwards},action,done:report});if(handled){deferred=true;return false;}}const matched=window.find(q,cs,${backwards},true,false,false,false);if(matched)revealSelection();return matched;};if(action==='replace'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()&&find()){changed=document.execCommand('insertText',false,replacement)?1:0;}else if(action==='replace_all'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()){for(let i=0;i<1000&&find();i++){if(!document.execCommand('insertText',false,replacement))break;changed++;}}else{find();}if(!deferred)report();})();`;
-          await invoke("eval_html_runtime_script_command", { itemId: tab.id, script });
+          // revision 71：itemId 一律 JSON 字面量内嵌——正式 item 是数字，
+          // 外部标签身份是字符串 `external:<sessionId>`，不得裸插值。
+          const script = `;(()=>{const q=${JSON.stringify(query)}, cs=${Boolean(payload.caseSensitive)}, action=${JSON.stringify(action)}, replacement=${JSON.stringify(replacement)}, itemId=${JSON.stringify(tab.id)};let style=document.getElementById('nutbook-html-find-selection');if(!style){style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{background:rgba(255,159,67,.68)!important;color:inherit!important}::-moz-selection{background:rgba(255,159,67,.68)!important;color:inherit!important}';document.head.append(style);}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0,at=0;while(needle&&(at=source.indexOf(needle,at))>=0){total++;at+=Math.max(1,needle.length);}let changed=0,deferred=false;const report=(current=1)=>{document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({itemId,total,changed,current});};const revealSelection=()=>{const selection=window.getSelection?.();if(!selection?.rangeCount)return;const node=selection.getRangeAt(0).commonAncestorContainer;const anchor=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;anchor?.scrollIntoView?.({block:'nearest',inline:'nearest'});};const find=()=>{if(['query','next','prev'].includes(action)){const handled=window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__?.({query:q,caseSensitive:cs,backwards:${backwards},action,done:report});if(handled){deferred=true;return false;}}const matched=window.find(q,cs,${backwards},true,false,false,false);if(matched)revealSelection();return matched;};if(action==='replace'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()&&find()){changed=document.execCommand('insertText',false,replacement)?1:0;}else if(action==='replace_all'&&window.__NUTBOOK_HTML_EDIT__?.isEditing?.()){for(let i=0;i<1000&&find();i++){if(!document.execCommand('insertText',false,replacement))break;changed++;}}else{find();}          if(!deferred)report();})();`;
+            await invoke("eval_html_runtime_script_command", { itemId: tab.id, script }).catch(() => {});
+          }
         }
       };
 
@@ -17284,14 +17522,17 @@
 
       async function convergeInactiveRuntimeSurfaces(nextTabId, navigationEpoch) {
         const nextTab = getOpenTab(nextTabId);
-        const keepItemId = nextTab?.preview?.fileType === "html-runtime" ? nextTab.id : null;
-        const staleItemIds = appState.runtimeSessions
-          .map((session) => session.id)
-          .filter((itemId) => itemId !== keepItemId);
+        const keepItemId = isRuntimeHostTab(nextTab) ? nextTab.id : null;
+        // 正式 item HTML 在 runtimeSessions，外部临时 HTML 在 tabs；两类 surface
+        // 都要在切走后 hide（不撤销 capability）。
+        const staleItemIds = [
+          ...appState.runtimeSessions.map((session) => session.id),
+          ...appState.tabs.filter((tab) => isExternalRuntimeTab(tab)).map((tab) => tab.id)
+        ].filter((itemId) => itemId !== keepItemId);
         for (const itemId of staleItemIds) {
           if (!isRuntimeNavigationCurrent(navigationEpoch)) return false;
           const token = nextRuntimeSurfaceToken(itemId);
-          await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
+          await syncRuntimeSurfaceHideToken(itemId, token);
           if (!isRuntimeNavigationCurrent(navigationEpoch)) return false;
           await hideRuntimeSessionSurfaces(itemId, {
             force: true,
@@ -17340,8 +17581,25 @@
         // PR B：external Markdown 标签走独立关闭链路——“源文件不存在即无提示
         // 丢弃”的快捷路径不得用于 external dirty session（计划 5.3）。
         const closingTab = getOpenTab(tabId);
+        // 关闭按钮在首个事务尚未完成时仍可能被再次点击。按标签对象复用
+        // 原事务，避免第二个 closeTxn 覆盖 item 级 closing 登记；对外部临时
+        // 标签则由 closeExternalHtmlTab 的 closed 标记直接幂等返回。
+        if (closingTab?.runtimeCloseTxn) {
+          try {
+            await closingTab.runtimeCloseTxn;
+            return true;
+          } catch (_) {
+            return false;
+          }
+        }
+        if (closingTab?.closed) return true;
         if (closingTab?.sourceMode === "external" && closingTab?.preview?.fileType === "markdown") {
           return closeExternalMarkdownTab(tabId, closingTab);
+        }
+        // P2：外部临时 HTML 标签关闭 —— 撤销该会话的 scoped 内容能力（§6.3），
+        // 再按与正式 HTML runtime 一致的 surface 1x1 → hide → close 顺序销毁。
+        if (closingTab?.sourceMode === "external" && closingTab?.preview?.fileType === "html-runtime-external") {
+          return closeExternalHtmlTab(tabId, closingTab);
         }
         captureActiveMarkdownScroll();
         if (appState.htmlRemoveConfirmItemId === tabId) {
@@ -17395,30 +17653,53 @@
           }
         }
         if (tab?.preview?.fileType === "html-runtime") {
-          if (isClosingActiveTab) {
-            appState.activeTabId = nextActiveTabId;
-          }
-          cleanupRuntimeHostSync();
-          const closingSurfaceToken = nextRuntimeSurfaceToken(tabId);
-          await syncHtmlEditReadonlyPatchSurfaceToken(tabId, closingSurfaceToken).catch(() => {});
-          await hideRuntimeSessionSurfaces(tabId, { force: true });
-          await releaseRuntimeShellState({ itemId: tabId });
-          await hideRuntimeSessionSurfaces(tabId, { force: true });
-          try {
-            await invoke("close_html_window", { itemId: tabId });
-          } catch (error) {
-            setStatus(`关闭 HTML Runtime 失败：${normalizeError(error)}`, "error");
-          }
+          // P2-R3d（Codex 66）：同 item **完整关闭事务**串行化。关闭开始即在
+          // runtimeResourceClosing 登记本事务 promise（登记与本块同步执行，
+          // 无观察窗口），新打开 / promotion 在并入判定前必须等待整个事务
+          // （surface 拆除 + 持有权释放 + 记录移除）落定——关闭中的记录不得
+          // 被当作可接管 existing 并入、随后被旧关闭抹掉。晚到清理按**对象
+          // 归属**移除记录（不能用 itemId：串行化只是当前护栏，对象判定
+          // 保证新实例结构上不可被旧关闭删除）。
+          const closeTxn = (async () => {
+            if (isClosingActiveTab) {
+              appState.activeTabId = nextActiveTabId;
+            }
+            cleanupRuntimeHostSync();
+            const closingSurfaceToken = nextRuntimeSurfaceToken(tabId);
+            await syncHtmlEditReadonlyPatchSurfaceToken(tabId, closingSurfaceToken).catch(() => {});
+            await hideRuntimeSessionSurfaces(tabId, { force: true });
+            await releaseRuntimeShellState({ itemId: tabId });
+            await hideRuntimeSessionSurfaces(tabId, { force: true });
+            // P2-R3c（Codex 62）+ P2-R3d：只释放本次持有权（ownedClosing：
+            // closing 登记归本事务持有，release 不触碰登记表）——台账变空
+            //（最后持有者）才触发 item 级回收，非空绝不 close。本标签无
+          // lease（所有权从未登记）则无资源动作。
+          await releaseRuntimeResourceHolder(tabId, tab.resourceLeaseId, { reclaimWhenLast: true, ownedClosing: true });
           appState.runtimeHiddenSurfaceIds.delete(tabId);
           appState.runtimeViewStateSurfaceTokens.delete(tabId);
-          appState.runtimeSessions = appState.runtimeSessions.filter((session) => session.id !== tabId);
+          appState.runtimeSessions = appState.runtimeSessions.filter((session) => session !== tab);
+          })();
+          tab.runtimeCloseTxn = closeTxn;
+          appState.runtimeResourceClosing.set(tabId, closeTxn);
+          try {
+            await closeTxn;
+          } finally {
+            if (tab.runtimeCloseTxn === closeTxn) {
+              delete tab.runtimeCloseTxn;
+            }
+            if (appState.runtimeResourceClosing.get(tabId) === closeTxn) {
+              appState.runtimeResourceClosing.delete(tabId);
+            }
+          }
         } else {
           appState.tabs = appState.tabs.filter((tab) => tab.id !== tabId);
         }
         appState.markdownScrollByTab.delete(tabId);
         appState.markdownOutlineCollapsedByTab.delete(tabId);
 
-        if (isClosingActiveTab) {
+        // P2-R3d：晚到写回不得覆盖事务等待期间发生的导航（用户在 await
+        // 期间点了别的标签）。仅当当前仍停在关闭中的标签时才写回。
+        if (isClosingActiveTab && appState.activeTabId === tabId) {
           appState.activeTabId = nextActiveTabId;
         }
 
@@ -17624,7 +17905,7 @@
 
         // 首次显示加号的一次性动画提醒：只对第一次渲染出的 external 加号生效。
         const joinHintPending = !externalOpenCoordinator.joinHintShown
-          && openTabs.some((tab) => tab.sourceMode === "external" && tab.preview?.fileType === "markdown" && !tab.external?.joined);
+          && openTabs.some((tab) => externalTabHasJoinEntry(tab));
         els.tabsWrap.innerHTML = [
           appState.homeTabOpen ? `
             <div class="tab-chip ${appState.activeTabId === null ? "active" : ""}" data-home-tab="true" role="button" tabindex="0">
@@ -17638,7 +17919,7 @@
               <div class="tab-chip ${tab.id === appState.activeTabId ? "active" : ""}" data-tab-id="${escapeHtml(String(tab.id))}" role="button" tabindex="0">
                 <span class="material-symbols-outlined" style="font-size:16px;">${tab.preview?.fileType?.startsWith("html") ? "terminal" : "description"}</span>
                 <span>${escapeHtml(tab.item.fileName)}</span>
-                ${tab.sourceMode === "external" && tab.preview?.fileType === "markdown" && !tab.external?.joined ? `<button type="button" class="tab-join-button${joinHintPending ? " join-hint" : ""}" data-join-external-tab="${escapeHtml(String(tab.id))}" aria-label="${escapeHtml(t("external.joinAction"))}"><span class="material-symbols-outlined">add</span><span class="tab-join-tooltip" role="tooltip">${escapeHtml(t("external.joinAction"))}</span></button>` : ""}
+                ${externalTabHasJoinEntry(tab) ? `<button type="button" class="tab-join-button${joinHintPending ? " join-hint" : ""}" data-join-external-tab="${escapeHtml(String(tab.id))}" aria-label="${escapeHtml(t("external.joinAction"))}"><span class="material-symbols-outlined">add</span><span class="tab-join-tooltip" role="tooltip">${escapeHtml(t("external.joinAction"))}</span></button>` : ""}
                 <button type="button" data-close-tab="${escapeHtml(String(tab.id))}" aria-label="关闭标签页">×</button>
               </div>
             `
@@ -18775,11 +19056,25 @@ if (!chipTipController) {
       }
 
       function viewerToolbarState() {
+        // 切标签/切文件时先撤掉按坐标强制显示的 tooltip，交给下一次指针移动重新判定，
+        // 避免还是停留在旧 tab 的禁用态提示。
+        els.documentPrimaryButton?.classList.remove("tooltip-forced");
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
+        // 外部临时 HTML 与正式 HTML 用同一套工具栏投影，但主操作保持禁用：
+        // 阅读态不进入任何编辑链路（计划 §6.1/§6.2）。
+        const isExternalHtmlRuntime = tab?.preview?.fileType === "html-runtime-external";
         const isEditingActiveHtml = isHtmlRuntime && appState.htmlEditSession?.itemId === tab?.id;
-        const localFind = isMarkdown || isHtmlRuntime;
+        // revision 83（P2-R80a）：顶栏 scope 的唯一状态源是
+        // `activeDocumentSearchKind()` —— 正式/临时 Markdown 与正式/临时 HTML
+        // 四类活动标签一并投影为正文查找。旧实现自写 `isMarkdown ||
+        // isHtmlRuntime`，漏掉 `html-runtime-external`：临时 HTML 下顶栏还是
+        // 资料库输入框，同时又能打开正文 find surface，两个输入面并存。
+        const localFind = activeDocumentSearchKind() !== null;
+        // document scope 下资料库输入框由 CSS 隐藏；若进入该投影时它仍持有
+        // 焦点，键入会落进隐藏输入框并驱动资料库搜索——主动交还焦点。
+        if (localFind && document.activeElement === els.searchInput) els.searchInput?.blur();
         if (els.searchInput) {
           els.searchInput.placeholder = localFind ? t("markdown.find") : t("home.searchPlaceholder");
           els.searchInput.setAttribute("aria-label", localFind ? t("markdown.find") : t("home.searchPlaceholder"));
@@ -18795,9 +19090,11 @@ if (!chipTipController) {
         els.documentFavoriteButton.disabled = !tab || tab.sourceMode === "external";
         els.documentMoreButton.disabled = !isMarkdown && !isHtmlRuntime;
         // 主操作按文件类型投影：Markdown=保存，HTML runtime=编辑/完成。
-        const showPrimary = Boolean(tab) && (isMarkdown || isHtmlRuntime);
+        // 临时 HTML 也要显示主操作（同图标同标签），但恒禁用——空按钮会被
+        // 误读成「功能被扣掉」，禁用态明确表达「可解锁但不能用」。
+        const showPrimary = Boolean(tab) && (isMarkdown || isHtmlRuntime || isExternalHtmlRuntime);
         const primaryActionBusy = primaryActionBusyItemId != null;
-        els.documentPrimaryButton.disabled = !showPrimary || primaryActionBusy;
+        els.documentPrimaryButton.disabled = !showPrimary || primaryActionBusy || isExternalHtmlRuntime;
         els.documentPrimaryButton.setAttribute("aria-busy", primaryActionBusy ? "true" : "false");
         if (isHtmlRuntime) {
           els.documentPrimaryButton.dataset.action = "html-edit";
@@ -18808,6 +19105,16 @@ if (!chipTipController) {
           els.documentPrimaryIcon.innerHTML = isEditingActiveHtml ? MENU_ICON_SVG.htmlEditDone : MENU_ICON_SVG.htmlEditStart;
           els.documentPrimaryTooltip.textContent = isEditingActiveHtml ? t("htmlEdit.exitTooltip") : t("htmlEdit.editTooltip");
           els.documentPrimaryButton.classList.toggle("is-completing", isEditingActiveHtml);
+        } else if (isExternalHtmlRuntime) {
+          // 临时 HTML：与正式 HTML 同图标（铅笔），但按钮已 disabled。
+          // 文字标签必须隐藏——该按钮是 28px 圆形图标按钮，工具栏里全是纯图标，
+          // 显示「编辑」两字会被挤成竖排换行；禁用原因由 tooltip 表达。
+          els.documentPrimaryButton.dataset.action = "";
+          els.documentPrimaryLabel.style.display = "none";
+          els.documentPrimaryButton.setAttribute("aria-label", t("htmlEdit.editDisabledTooltip"));
+          els.documentPrimaryIcon.innerHTML = MENU_ICON_SVG.htmlEditStart;
+          els.documentPrimaryTooltip.textContent = t("htmlEdit.editDisabledTooltip");
+          els.documentPrimaryButton.classList.remove("is-completing");
         } else if (isMarkdown) {
           els.documentPrimaryButton.dataset.action = "save-markdown";
           els.documentPrimaryLabel.style.display = "none";
@@ -18825,7 +19132,9 @@ if (!chipTipController) {
         }
         els.documentFavoriteButton.classList.toggle("active", Boolean(tab?.item?.isFavorite));
         els.toolbarActions?.classList.toggle("host-overlay-mode", Boolean(isHtmlRuntime));
-        if (isHtmlRuntime && appState.htmlFind.itemId === tab?.id) {
+        // revision 83（P2-R80a）：正文 find 面板的刷新条件与 scope 投影同源
+        // （`isHtmlFindTab`），正式 HTML 与临时 HTML 一致。
+        if (isHtmlFindTab(tab) && appState.htmlFind.itemId === tab?.id) {
           updateActiveHtmlFindContent().catch(() => {});
         }
       }
@@ -19105,7 +19414,7 @@ if (!chipTipController) {
           captureActiveMarkdownDraft();
           suspendActiveMarkdownEditor();
         }
-        if (tab?.preview?.fileType !== "html-runtime") {
+        if (!isRuntimeHostTab(tab)) {
           appState.runtimeControlsOverlayExpanded = false;
           appState.runtimeControlsOverlayMode = "default";
           cleanupRuntimeHostSync();
@@ -19113,11 +19422,11 @@ if (!chipTipController) {
         }
         syncShellMode();
         viewerToolbarState();
-        if (tab?.preview?.fileType !== "html-runtime" && appState.runtimeFullscreenItemId != null) {
+        if (!isRuntimeHostTab(tab) && appState.runtimeFullscreenItemId != null) {
           appState.runtimeFullscreenItemId = null;
         }
         applyRuntimeFullscreenState();
-        els.viewerBody.classList.toggle("runtime-mode", tab?.preview?.fileType === "html-runtime");
+        els.viewerBody.classList.toggle("runtime-mode", isRuntimeHostTab(tab));
 
         if (!tab) {
           els.breadcrumbItem.textContent = "";
@@ -19167,10 +19476,10 @@ if (!chipTipController) {
         if (els.breadcrumbTags) {
           const typeLabel = tab.preview.fileType === "markdown" || tab.preview.fileType === "markdown-loading"
             ? "Markdown"
-            : (tab.preview.fileType === "html-runtime" || tab.preview.fileType === "html")
+            : (isRuntimeHostTab(tab) || tab.preview.fileType === "html")
               ? "HTML"
               : "";
-          if (tab.preview.fileType === "html-runtime") {
+          if (isRuntimeHostTab(tab)) {
             els.breadcrumbTags.classList.add("host-overlay-mode");
             els.breadcrumbTags.innerHTML = "";
             appState.documentTagAnchorLeft = 0;
@@ -19202,7 +19511,7 @@ if (!chipTipController) {
             });
           }
         }
-        if (tab.preview.fileType === "html-runtime") {
+        if (isRuntimeHostTab(tab)) {
           appState.isDocumentTagMenuOpen = false;
         }
         renderDocumentTagMenu();
@@ -19325,7 +19634,7 @@ if (!chipTipController) {
           return;
         }
 
-        if (tab.preview.fileType === "html-runtime") {
+        if (isRuntimeHostTab(tab)) {
           appState.activeHtmlRuntimeUrl = tab.preview.runtimeUrl || null;
           els.viewerBody.innerHTML = `
             <section class="runtime-host-page">
@@ -19348,7 +19657,11 @@ if (!chipTipController) {
           return;
         }
 
-        const runtimeHtmlUrl = toLocalServerUrl(tab.preview.previewUrl || tab.preview.filePath);
+        // PR C Phase 1（D1=A）：只使用后端下发的 scoped previewUrl；
+        // 绝对路径兜底已删除，不得重新拼旧 /fs 任意路径通道。
+        const runtimeHtmlUrl = tab.preview.previewUrl
+          ? toLocalServerUrl(tab.preview.previewUrl)
+          : "";
         appState.activeHtmlRuntimeUrl = runtimeHtmlUrl;
 
         els.viewerBody.innerHTML = `
@@ -19398,8 +19711,26 @@ if (!chipTipController) {
         }
       }
 
+      // 外部临时 HTML 没有 HTML 编辑 patch surface（§6.2 不开放编辑）：
+      // 跳过只对正式 item 有效的 surface token 广播，不做无意义的命令调用。
+      function syncRuntimeSurfaceHideToken(tabId, token) {
+        if (externalRuntimeTabForId(tabId)) return Promise.resolve(false);
+        return syncHtmlEditReadonlyPatchSurfaceToken(tabId, token).catch(() => {});
+      }
+
       async function setRuntimeHostVisibility(itemId, visible) {
+        // 外部临时 HTML 走独立命令（身份 = sessionId + generation），其余不变。
+        const externalTab = externalRuntimeTabForId(itemId);
         try {
+          if (externalTab) {
+            return Boolean(await invoke("set_external_html_runtime_host_visibility_command", {
+              payload: {
+                sessionId: externalTab.external.sessionId,
+                generation: externalTab.external.generation,
+                visible
+              }
+            }));
+          }
           return Boolean(await invoke("set_html_runtime_host_visibility_command", { itemId, visible }));
         } catch (_) {
           return false;
@@ -19487,6 +19818,90 @@ if (!chipTipController) {
         resolveSnapshot?.(true);
       };
 
+      // ---- P2 / 计划 §6.2：外部临时 HTML 的 promotion（受控重建）----
+
+      function externalViewStateWaiterKey(sessionId, generation, requestId) {
+        return `ext:${sessionId}:${generation}:${requestId}`;
+      }
+
+      // 拆除临时 child **之前**的一次性 view state 采集（滚动 + URL hash）。
+      // 与正式 item 的 refreshHtmlRuntimeViewState 同一形状，但身份是
+      // sessionId + generation —— 外部阅读面没有注入常驻 view-state 脚本，
+      // 因此没有 surface token 可用（Codex revision 32 §5）。
+      // 采集失败 / 超时一律返回 null：重建照常继续，只是不恢复位置。
+      async function captureExternalHtmlViewState(tab, timeoutMs = 260) {
+        const sessionId = tab?.external?.sessionId;
+        const generation = Number(tab?.external?.generation ?? 0);
+        if (!sessionId || !generation) return null;
+        const requestId = `promote-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const key = externalViewStateWaiterKey(sessionId, generation, requestId);
+        return new Promise((resolve) => {
+          let settled = false;
+          const finish = (captured) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeoutId);
+            appState.externalViewStateWaiters.delete(key);
+            resolve(captured || null);
+          };
+          const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+          appState.externalViewStateWaiters.set(key, finish);
+          invoke("capture_external_html_view_state_command", {
+            payload: { sessionId, generation, requestId }
+          }).then((applied) => {
+            if (!applied) finish(null);
+          }).catch(() => finish(null));
+        });
+      }
+
+      // R92a：外部 host 隐藏即销毁 surface（1x1 → hide → close），位置只能在
+      // 建 child 时回放。每次 hide 前的采集递增序号；晚到回报（序号落后于最新
+      // 一轮）不得覆盖 —— 快速「切走 → 切回 → 再切走」时旧快照不能盖掉新状态。
+      function nextExternalViewStateCaptureSeq(tab) {
+        const next = (Number(tab?.external?.viewStateCaptureSeq) || 0) + 1;
+        if (tab?.external) tab.external.viewStateCaptureSeq = next;
+        return next;
+      }
+
+      // 只在快照有效且不落后于最新一轮采集时落库。null / 超时 / 旧序号一律不写：
+      // 降级为「无位置」，但不抹掉上一次有效快照。
+      function commitExternalViewStateSnapshot(tab, captureSeq, snapshot) {
+        if (!tab?.external || tab.closed || !snapshot) return false;
+        if (captureSeq < (Number(tab.external.viewStateCaptureSeq) || 0)) return false;
+        tab.external.viewState = snapshot;
+        return true;
+      }
+
+      // 关闭会话后清理该会话的全部等待器：在途采集按超时自行降级，不再回写，
+      // 也不会复活已关闭的 surface。快照随标签对象一起被回收。
+      function clearExternalViewStateWaiters(sessionId) {
+        if (!sessionId) return;
+        const prefix = `ext:${sessionId}:`;
+        for (const key of Array.from(appState.externalViewStateWaiters.keys())) {
+          if (key.startsWith(prefix)) appState.externalViewStateWaiters.delete(key);
+        }
+      }
+
+      // 外部 host 的 view-state 回报（专用命令 → main）。只解析本会话/本代次的
+      // 等待器；旧代次或伪造 requestId 找不到等待器即自然丢弃。
+      window.__NUTBOOK_HANDLE_EXTERNAL_RUNTIME_VIEW_STATE__ = function handleExternalRuntimeViewState(data) {
+        if (!data || typeof data !== "object") return;
+        const sessionId = typeof data.sessionId === "string" ? data.sessionId : "";
+        const generation = Number(data.generation ?? 0);
+        const requestId = typeof data.requestId === "string" ? data.requestId : "";
+        if (!sessionId || !generation || !requestId) return;
+        const viewState = normalizeHtmlRuntimeViewState({
+          ...(data.viewState && typeof data.viewState === "object" ? data.viewState : {}),
+          surfaceToken: 0,
+          sequence: 0
+        });
+        if (!viewState) return;
+        const resolveSnapshot = appState.externalViewStateWaiters.get(
+          externalViewStateWaiterKey(sessionId, generation, requestId)
+        );
+        resolveSnapshot?.(viewState);
+      };
+
       async function setRuntimeControlsOverlayVisibility(itemId, visible) {
         try {
           return Boolean(await invoke("set_html_runtime_controls_overlay_visibility_command", { itemId, visible }));
@@ -19523,9 +19938,125 @@ if (!chipTipController) {
         nextItemOpenToken(itemId);
       }
 
+      // ---- P2-R3a（Codex 58）/ P2-R3c（Codex 62）：host scoped server 持有者台账 ----
+      // 三不变式（责任归属表见 handoff）：① 开始即登记（pending，in-flight
+      // 占用防止最后放弃者误关 in-flight 复用基础）；② 取得即确认（holding，
+      // 绑定到正式标签时 lease 随记录持有）；③ 放弃即释放、最后持有者回收
+      // （台账空才 close_html_window；撤销失败必须对用户可见，不得吞异常）。
+      // 串行化（Codex 62）：在途 close 期间新 acquire 等待拆除完成后再登记，
+      // 随后的 open_html_window 重建全新 server——新持有者绝不绑定到垂死
+      // URL。台账空判定与 closing 登记在同一同步微任务内完成，无检查窗口。
+      // 等待同 item 的在途拆除活动落定（P2-R3d）：closing 登记既可能是
+      // 完整关闭事务（closeOpenTab），也可能是裸资源回收（release 的
+      // reclaimWhenLast 路径）。等待方在登记落定后再行动——新打开 / 加号
+      // promotion 的并入判定、acquire 的资源登记都据此与旧关闭串行。
+      async function waitRuntimeCloseSettled(itemId) {
+        if (!itemId) return null;
+        while (true) {
+          const closing = appState.runtimeResourceClosing.get(itemId);
+          if (!closing) return null;
+          try {
+            await closing;
+          } catch (_) {
+            // 失败已由关闭方报告；允许后续打开重新建立资源。
+          }
+          const current = appState.runtimeResourceClosing.get(itemId);
+          if (!current || current === closing) return { closing };
+        }
+      }
+
+      // 关闭等待与后续 lease 登记/标签迁移的提交闸门。最终 close 检查和
+      // callback 在同一段同步执行：若 helper 返回后有新 close 登记，先重试；
+      // 一旦确认当前没有未完成的新 close，callback 内不得插入 await。
+      async function runWhenRuntimeCloseSettled(itemId, callback) {
+        while (true) {
+          const settledClose = await waitRuntimeCloseSettled(itemId);
+          const currentClose = appState.runtimeResourceClosing.get(itemId);
+          if (currentClose && currentClose !== settledClose?.closing) continue;
+          return callback();
+        }
+      }
+
+      async function acquireRuntimeResourceHolder(itemId) {
+        if (!itemId) return null;
+        return runWhenRuntimeCloseSettled(itemId, () => {
+          const leaseId = ++appState.runtimeResourceLeaseSeq;
+          const holders = appState.runtimeResourceHolders.get(itemId) || new Map();
+          holders.set(leaseId, { state: "pending" });
+          appState.runtimeResourceHolders.set(itemId, holders);
+          return leaseId;
+        });
+      }
+
+      function confirmRuntimeResourceHolder(itemId, leaseId) {
+        const holders = appState.runtimeResourceHolders.get(itemId);
+        const lease = holders?.get(leaseId);
+        if (!lease) return false;
+        lease.state = "holding";
+        return true;
+      }
+
+      // 释放本意图的 lease。台账因此变空且 reclaimWhenLast（默认）→ 本次
+      // 调用者即最后实际持有者，负责 close_html_window 回收；撤销失败
+      // setStatus warn 可见并返回 false（不吞异常、不声称完成）。回收的
+      // close 以 closing 登记串行化：期间新 acquire 等待其完成。
+      // ownedClosing（P2-R3d）：closing 登记归调用方（关闭事务）持有时，
+      // 本释放只执行回收 IPC、不触碰登记表——事务 promise 已覆盖完整等待
+      // 语义（含记录移除），避免释放路径覆盖/提前删除事务登记留下空窗。
+      async function releaseRuntimeResourceHolder(itemId, leaseId, { reclaimWhenLast = true, ownedClosing = false } = {}) {
+        const holders = appState.runtimeResourceHolders.get(itemId);
+        if (!holders || !holders.delete(leaseId)) return false;
+        if (holders.size === 0) {
+          appState.runtimeResourceHolders.delete(itemId);
+          if (reclaimWhenLast) {
+            // 同步登记 closing（与台账清空同一微任务，无检查窗口），随后
+            // 才发出 IPC——期间任何 acquire 都会等待本拆除完成。
+            const reclaim = (async () => {
+              try {
+                await invoke("close_html_window", { itemId });
+              } catch (error) {
+                setStatus(`HTML 资源撤销失败：${normalizeError(error)}`, "warn");
+                throw error;
+              }
+            })();
+            if (ownedClosing) {
+              try {
+                await reclaim;
+              } catch (_) {
+                return false;
+              }
+            } else {
+              appState.runtimeResourceClosing.set(itemId, reclaim);
+              try {
+                await reclaim;
+              } catch (_) {
+                return false;
+              } finally {
+                if (appState.runtimeResourceClosing.get(itemId) === reclaim) {
+                  appState.runtimeResourceClosing.delete(itemId);
+                }
+              }
+            }
+          }
+        }
+        return true;
+      }
+
+      // 并入已有正式标签时的所有权显式处理（Codex 58：复用已有正式标签
+      // 必须显式处理）：existing 尚无 lease 则 adopt 本 lease（转交持有）；
+      // 已有持有者则放弃本 lease（台账非空，绝不回收、不误关）。
+      function transferLeaseToExistingTab(itemId, leaseId, existingTab) {
+        if (!existingTab?.resourceLeaseId) {
+          confirmRuntimeResourceHolder(itemId, leaseId);
+          existingTab.resourceLeaseId = leaseId;
+        } else {
+          releaseRuntimeResourceHolder(itemId, leaseId).catch(() => {});
+        }
+      }
+
       function isRuntimeSurfaceActive(itemId) {
         const activeTab = getActiveTab();
-        return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
+        return activeTab?.id === itemId && isRuntimeHostTab(activeTab);
       }
 
       function isRuntimePatchSurfaceCurrent(itemId, generation, surfaceToken) {
@@ -19557,11 +20088,38 @@ if (!chipTipController) {
           && options.keepItemId !== itemId
         );
         if (!cleanupIntentIsCurrent()) return;
-        if (appState.runtimeHiddenSurfaceIds.has(itemId) && !options.recoverLateAttach) return;
+        // 「已隐藏」是避免重复原生 mutation 的优化，但外部临时 HTML 的显示路径
+        // 会重新 attach 同一个 surface：记账一旦没被清掉，之后每次切走都会被这里
+        // 短路吞掉，child 永久残留在最上层。故对「外部 + force」不适用该短路
+        // （正式 item 路径行为不变）。
+        const externalHideTarget = externalRuntimeTabForId(itemId);
+        if (appState.runtimeHiddenSurfaceIds.has(itemId)
+          && !options.recoverLateAttach
+          && !(externalHideTarget && force)) return;
         if (!force && isRuntimeSurfaceActive(itemId)) {
           return;
         }
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
+        // 外部临时 HTML：只有 hide（销毁 surface，不撤销 capability）这一步；
+        // 打开中的 find surface 先按 close 合同收敛（revision 71：临时态查找
+        // 与正式同一合同——切走 / 关闭 / promotion 拆除都不得残留 find child），
+        // 演示预览 / HTML 编辑仍是正式 item 才有的面（计划 §6.2）；位置靠
+        // hide 前采集 + 建 child 时回放保留（R92a），不注入常驻脚本。
+        if (externalHideTarget) {
+          if (appState.htmlFind.itemId === itemId) await closeActiveHtmlFind();
+          // R92a：hide 会销毁 surface，位置只在建 child 时回放 —— 因此必须在
+          // hide **之前**采集最后一次有效快照。采集失败 / 超时按「无位置」处理，
+          // 绝不阻断关闭，也不产生第二个 surface。关闭与 promotion 拆除路径由
+          // 调用方显式跳过（关闭不需要快照；promotion 已抓过，不能被覆盖）。
+          if (!options.skipExternalViewStateCapture) {
+            const captureSeq = nextExternalViewStateCaptureSeq(externalHideTarget);
+            const snapshot = await captureExternalHtmlViewState(externalHideTarget).catch(() => null);
+            commitExternalViewStateSnapshot(externalHideTarget, captureSeq, snapshot);
+          }
+          await setRuntimeHostVisibility(itemId, false);
+          if (cleanupIntentIsCurrent()) appState.runtimeHiddenSurfaceIds.add(itemId);
+          return;
+        }
         if (appState.activeRuntimeHostId === itemId) {
           await refreshHtmlRuntimeViewState(itemId).catch(() => false);
         }
@@ -19589,7 +20147,7 @@ if (!chipTipController) {
       async function hideStaleRuntimeHostSync(runId, itemId) {
         if (!appState.runtimeSurfacesSuspended && isRuntimeHostSyncCurrent(runId, itemId)) return false;
         const token = nextRuntimeSurfaceToken(itemId);
-        await syncHtmlEditReadonlyPatchSurfaceToken(itemId, token).catch(() => {});
+        await syncRuntimeSurfaceHideToken(itemId, token);
         await hideRuntimeSessionSurfaces(itemId, { force: true, token, recoverLateAttach: true });
         if (appState.activeRuntimeHostId === itemId) {
           appState.activeRuntimeHostId = null;
@@ -19619,7 +20177,18 @@ if (!chipTipController) {
         const removeConfirmClose = removeConfirmItemId == null
           ? Promise.resolve()
           : cancelHtmlRemoveConfirmOverlay(removeConfirmItemId, { restore: false });
-        const suspendPromise = Promise.all([removeConfirmClose, ...appState.runtimeSessions.map(async (session) => {
+        // R92a：最小化前同样抓一次外部临时标签的位置（裁定第 2 条）。外部
+        // surface 不参与挂起本身（这里不 hide，避免改变既有生命周期与合成
+        // 行为），但快照保持最新，好让「表面若被销毁」时有源可回放；采集失败
+        // / 超时不覆盖已有快照。
+        const captureExternalViewStates = appState.tabs
+          .filter((tab) => isExternalRuntimeTab(tab))
+          .map(async (tab) => {
+            const captureSeq = nextExternalViewStateCaptureSeq(tab);
+            const snapshot = await captureExternalHtmlViewState(tab).catch(() => null);
+            commitExternalViewStateSnapshot(tab, captureSeq, snapshot);
+          });
+        const suspendPromise = Promise.all([removeConfirmClose, ...captureExternalViewStates, ...appState.runtimeSessions.map(async (session) => {
           const token = nextRuntimeSurfaceToken(session.id);
           await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
           await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
@@ -19656,14 +20225,19 @@ if (!chipTipController) {
 
       async function hideInactiveRuntimeHosts(activeItemId = null, options = {}) {
         if (options.invalidate !== false) cleanupRuntimeHostSync();
-        const sessionsToHide = appState.runtimeSessions.filter((session) => activeItemId == null || session.id !== activeItemId);
+        // 正式 item HTML 标签在 runtimeSessions，外部临时 HTML 标签在 tabs；
+        // 两者共用同一 surface 失效路径（hide，不撤销 capability）。
+        const sessionsToHide = [
+          ...appState.runtimeSessions.filter((session) => activeItemId == null || session.id !== activeItemId),
+          ...appState.tabs.filter((tab) => isExternalRuntimeTab(tab) && (activeItemId == null || tab.id !== activeItemId))
+        ];
         await Promise.all(sessionsToHide.map(async (session) => {
           const token = nextRuntimeSurfaceToken(session.id);
-          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
+          await syncRuntimeSurfaceHideToken(session.id, token);
           return hideRuntimeSessionSurfaces(session.id, { token });
         }));
         const activeTab = getActiveTab();
-        if (activeItemId == null && activeTab?.preview?.fileType !== "html-runtime") {
+        if (activeItemId == null && !isRuntimeHostTab(activeTab)) {
           appState.activeRuntimeHostId = null;
           appState.runtimeHostLastBoundsKey = null;
         }
@@ -19784,7 +20358,7 @@ if (!chipTipController) {
         if (runId != null && runId !== appState.runtimeHostSyncRunId) return false;
         if (itemId == null) return true;
         const activeTab = getActiveTab();
-        return activeTab?.id === itemId && activeTab.preview?.fileType === "html-runtime";
+        return activeTab?.id === itemId && isRuntimeHostTab(activeTab);
       }
 
       async function syncActiveHtmlFindLayoutBounds(tab, runId = null) {
@@ -19792,7 +20366,16 @@ if (!chipTipController) {
         const bounds = htmlFindOverlayBounds();
         const boundsKey = JSON.stringify(bounds);
         if (appState.htmlFindOverlayLastBoundsKey === boundsKey) return;
-        const updated = await invoke("set_html_find_overlay_bounds_command", { itemId: tab.id, bounds });
+        // revision 71：外部临时 HTML 走外部 bounds 命令（sessionId + generation）。
+        const updated = isExternalRuntimeTab(tab)
+          ? await invoke("set_external_html_find_overlay_bounds_command", {
+            payload: {
+              sessionId: tab.external.sessionId,
+              generation: tab.external.generation,
+              bounds
+            }
+          })
+          : await invoke("set_html_find_overlay_bounds_command", { itemId: tab.id, bounds });
         if (updated === false || !isRuntimeHostSyncCurrent(runId, tab.id) || appState.htmlFind.itemId !== tab.id) return;
         appState.htmlFindOverlayLastBoundsKey = boundsKey;
       }
@@ -19800,13 +20383,20 @@ if (!chipTipController) {
       async function syncActiveRuntimeHost(runId = null) {
         if (appState.runtimeSurfacesSuspended) return;
         const tab = getActiveTab();
-        if (!tab || tab.preview?.fileType !== "html-runtime") {
+        if (!tab || !isRuntimeHostTab(tab)) {
           appState.runtimeControlsOverlayExpanded = false;
           appState.runtimeControlsOverlayMode = "default";
           if (els.breadcrumbTags) els.breadcrumbTags.style.width = "";
           cleanupRuntimeHostSync();
           hideInactiveRuntimeHosts().catch(() => {});
           return;
+        }
+
+        // 外部临时 HTML：走同一承载层，只保留「占位 → 首次 attach →
+        // hide/close」最小面；find 对外部开放（revision 71，同一 child 承载）；
+        // 演示预览 / 编辑 / controls overlay 仍不对外部会话开放（计划 §6.2）。
+        if (isExternalRuntimeTab(tab)) {
+          return syncActiveExternalRuntimeHost(runId, tab);
         }
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
@@ -19922,6 +20512,76 @@ if (!chipTipController) {
         await syncActiveHtmlFindLayoutBounds(tab, runId);
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
         ensureRuntimeHostResizeObserver(mount);
+      }
+
+      // 外部临时 HTML 的宿主同步（细线）：占位 → 提示裁决放行后首次 attach →
+      // 后续只跟随 bounds。不接 find / 演示预览 / controls overlay / 视口状态
+      // （这些是正式 item 的能力，计划 §6.2 明确要求不对外部会话开放）。
+      async function syncActiveExternalRuntimeHost(runId, tab) {
+        // §6.2：内容 child 必须等用户选择或倒计时结束后才 attach/show。
+        if (!tab.external?.attachReady) return;
+        // promotion 进行中或失败（旧 host 已拆，P2-R2c/R1b）：占位呈现，
+        // 不 attach 已关闭的 external 会话；正式内容由迁移后的正式标签在
+        // 激活时挂载。拆除尚未完成的失败态（host 仍在）允许正常 attach。
+        const promotion = tab.external?.promotion;
+        if (promotion && (promotion.phase !== "failed" || promotion.teardownDone)) return;
+        if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
+        const mount = document.getElementById("runtimeHostMount");
+        if (!mount) return;
+        let bounds = runtimeHostBounds(mount);
+        if (bounds.width < 40 || bounds.height < 40) return;
+        const toolbarRect = els.documentToolbar?.getBoundingClientRect();
+        if (toolbarRect && toolbarRect.height > 0 && bounds.y < Math.round(toolbarRect.bottom) - 1) {
+          const safeTop = Math.round(toolbarRect.bottom);
+          const delta = safeTop - bounds.y;
+          bounds = {
+            ...bounds,
+            y: safeTop,
+            height: Math.max(40, bounds.height - delta)
+          };
+        }
+        const boundsKey = `${tab.id}:${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+        if (appState.activeRuntimeHostId === tab.id && appState.runtimeHostLastBoundsKey === boundsKey) {
+          ensureRuntimeHostResizeObserver(mount);
+          // revision 71：find surface 已打开时跟随既有幂等 bounds-only 同步。
+          if (appState.htmlFind.itemId === tab.id) {
+            await syncActiveHtmlFindLayoutBounds(tab, runId);
+            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+          }
+          return;
+        }
+        try {
+          const session = await invoke("attach_external_html_runtime_host_command", {
+            payload: {
+              sessionId: tab.external.sessionId,
+              generation: tab.external.generation,
+              bounds,
+              // R92a：把最后一次有效快照随 attach 送入受限回放链路。后端只在
+              // **新建** child 时使用它（surface 已存在走 bounds-only 早退）；
+              // 会话 / 代次一致性由后端 external_html_runtime_session 校验。
+              viewState: tab.external.viewState || null
+            }
+          });
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+          if (session?.runtimeUrl) tab.preview.runtimeUrl = session.runtimeUrl;
+          appState.activeHtmlRuntimeUrl = session?.runtimeUrl || appState.activeHtmlRuntimeUrl;
+          appState.runtimeHostLastHeight = Math.round(bounds.height);
+          appState.runtimeHostLastBoundsKey = boundsKey;
+          appState.activeRuntimeHostId = tab.id;
+          // 对齐正式 item 的 markRuntimeSurfaceActive：surface 重新可见即清除
+          // 「已隐藏」记账。否则切走 → 切回（child 再次 attach 显示）→ 再切走时
+          // 会被 hideRuntimeSessionSurfaces 的「已隐藏」短路吞掉，外部 child 会
+          // 永久残留在最上层（切标签残留覆盖层）。
+          appState.runtimeHiddenSurfaceIds.delete(tab.id);
+          ensureRuntimeHostResizeObserver(mount);
+          // revision 71：find surface 已打开时跟随正式 item 同一 resize 合同。
+          if (appState.htmlFind.itemId === tab.id) {
+            await syncActiveHtmlFindLayoutBounds(tab, runId);
+            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+          }
+        } catch (error) {
+          setStatus(`无法加载 HTML 内容：${normalizeError(error)}`, "error");
+        }
       }
 
       function scheduleRuntimeHostSync() {
@@ -20382,48 +21042,79 @@ if (!chipTipController) {
         return detail?.fileType === "html" ? "html-runtime" : "content-tab";
       }
 
-      async function openHtmlRuntimeSession(detail, item, openToken, navigationEpoch) {
+      async function openHtmlRuntimeSession(detail, item, openToken, navigationEpoch, viewState = null) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
-        const session = await invoke("open_html_window", { itemId: detail.id });
+        // P2-R3a：开始即登记持有（pending）——in-flight 的打开也算占用，
+        // 并行放弃方据此判定「台账非空、不回收」。若该 item 有在途 close，
+        // acquire 内部会等待拆除完成后再登记（P2-R3c 串行化）。
+        const leaseId = await acquireRuntimeResourceHolder(detail.id);
+        // P2-R3b（Codex 62）：登记失败必须释放本次 pending lease——否则
+        // 幽灵持有者会挡住其他意图的「台账空 → 回收」判定，资源无法回收。
+        // 释放后按原语义把错误传播给调用方（openItem 自有错误处理）。
+        let session;
+        try {
+          session = await invoke("open_html_window", { itemId: detail.id });
+        } catch (error) {
+          await releaseRuntimeResourceHolder(detail.id, leaseId);
+          throw error;
+        }
         if (!isCurrentItemOpenToken(detail.id, openToken, navigationEpoch)) {
-          // A newer intent for the same item owns the shared runtime session;
-          // an older completion must not close it underneath the new owner.
-          if (appState.itemOpenTokens.get(detail.id) === openToken) {
-            try {
-              await invoke("close_html_window", { itemId: detail.id });
-            } catch (_) {
-            }
-          }
+          // 陈旧完成（导航取消或被新意图推进）：放弃本次持有。是否回收由
+          // 台账决定——无其他持有者（纯 epoch 取消）→ 最后放弃者回收；
+          // 新意图已登记（pending/holding）→ 台账非空，绝不误关其会话。
+          // 撤销失败 setStatus 可见，不吞异常。
+          await releaseRuntimeResourceHolder(detail.id, leaseId);
           return;
         }
-        const tabItem = item || normalizeItemSummary(detail);
-        const existing = appState.runtimeSessions.find((tab) => tab.id === detail.id);
-        const preview = {
-          fileType: "html-runtime",
-          itemId: detail.id,
-          title: session.title || detail.fileName || item?.fileName,
-          runtimeUrl: session.runtimeUrl,
-          label: session.label,
-          detached: session.detached !== false
-        };
+        // P2-R3d（Codex 66/67）：关闭等待、token/epoch 失效检查与正式记录
+        // 绑定必须通过同一个同步提交闸门。helper 返回后若 close 在调用方
+        // 恢复前登记，闸门会重新等待；确认后 callback 内无 await，旧关闭无法
+        // 在检查和登记/迁移之间插入。
+        const committed = await runWhenRuntimeCloseSettled(detail.id, () => {
+          if (!isCurrentItemOpenToken(detail.id, openToken, navigationEpoch)) return false;
+          confirmRuntimeResourceHolder(detail.id, leaseId);
+          const tabItem = item || normalizeItemSummary(detail);
+          const existing = appState.runtimeSessions.find((tab) => tab.id === detail.id);
+          const preview = {
+            fileType: "html-runtime",
+            itemId: detail.id,
+            title: session.title || detail.fileName || item?.fileName,
+            runtimeUrl: session.runtimeUrl,
+            label: session.label,
+            detached: session.detached !== false
+          };
 
-        if (existing) {
-          existing.item = tabItem;
-          existing.detail = detail;
-          existing.preview = preview;
-        } else {
-          appState.runtimeSessions.push({
-            id: detail.id,
-            item: tabItem,
-            detail,
-            preview,
-            draft: "",
-            viewState: null
-          });
+          if (existing) {
+            transferLeaseToExistingTab(detail.id, leaseId, existing);
+            existing.item = tabItem;
+            existing.detail = detail;
+            existing.preview = preview;
+            // promotion 重建时带上拆旧 child 前抓到的位置；普通打开（null）不得
+            // 覆盖已存在的 view state（重复打开同一标签要继续沿用原位置）。
+            if (viewState) existing.viewState = viewState;
+          } else {
+            appState.runtimeSessions.push({
+              id: detail.id,
+              item: tabItem,
+              detail,
+              preview,
+              draft: "",
+              viewState: viewState || null,
+              resourceLeaseId: leaseId
+            });
+          }
+          appState.activeTabId = detail.id;
+          return true;
+        });
+        if (!committed) {
+          // 陈旧意图必须先释放自己的 lease，再退出，避免复活正式标签或
+          // 抢占新的 activeTabId；台账决定是否由本次释放回收资源。
+          await releaseRuntimeResourceHolder(detail.id, leaseId);
+          return;
         }
 
-        appState.activeTabId = detail.id;
+        if (!isCurrentItemOpenToken(detail.id, openToken, navigationEpoch)) return;
         appState.runtimePatchAppliedKeys.delete(detail.id);
         appState.activeHtmlRuntimeUrl = null;
         appState.isEditing = false;
@@ -20519,9 +21210,9 @@ if (!chipTipController) {
         setStatus(markdownOpeningStatus(item?.fileName), "warn");
       }
 
-      async function openArtifactRuntime(itemId, item, detail, openToken, navigationEpoch) {
+      async function openArtifactRuntime(itemId, item, detail, openToken, navigationEpoch, viewState = null) {
         if (artifactRuntimeType(detail) === "html-runtime") {
-          await openHtmlRuntimeSession(detail, item, openToken, navigationEpoch);
+          await openHtmlRuntimeSession(detail, item, openToken, navigationEpoch, viewState);
           return;
         }
 
@@ -21228,7 +21919,12 @@ if (!chipTipController) {
           await Promise.all(
             runtimeIds.map((itemId) => invoke("close_html_window", { itemId }).catch(() => false))
           );
-          runtimeIds.forEach((itemId) => appState.runtimeViewStateSurfaceTokens.delete(itemId));
+          runtimeIds.forEach((itemId) => {
+            appState.runtimeViewStateSurfaceTokens.delete(itemId);
+            // item 已随库删除：持有台账与在途 close 记账一并清掉，防僵尸 lease。
+            appState.runtimeResourceHolders.delete(itemId);
+            appState.runtimeResourceClosing.delete(itemId);
+          });
           appState.tabs = appState.tabs.filter((tab) => tab.item.libraryId !== libraryId);
           appState.runtimeSessions = appState.runtimeSessions.filter((tab) => tab.item.libraryId !== libraryId);
           if (appState.activeTabId && !getOpenTabs().some((tab) => tab.id === appState.activeTabId)) {
@@ -23711,6 +24407,44 @@ if (!chipTipController) {
         ) || null;
       }
 
+      // ---- P2（Codex revision 32「有界 A」）：外部临时 HTML 的前端身份 ----
+      // 前端稳定身份 = tab.id（`external:<sessionId>`，promotion 前后保持）；
+      // 资源身份由后端 RuntimeKey 决定（Item / External），前端只转发
+      // sessionId + generation，不自行拼 itemId，也不信任页面自报身份。
+      //
+      // 外部临时 HTML 使用**独立 fileType**（`html-runtime-external`）：既能复用
+      // 同一套宿主挂载/失效/撤销承载，又让 find、演示预览、HTML 编辑、controls
+      // overlay 等「仅正式 item 可用」的链路默认不落进来（计划 §6.2）。
+      function isExternalRuntimeTab(tab) {
+        return Boolean(tab) && tab.preview?.fileType === "html-runtime-external";
+      }
+
+      function isRuntimeHostTab(tab) {
+        return Boolean(tab)
+          && (tab.preview?.fileType === "html-runtime" || tab.preview?.fileType === "html-runtime-external");
+      }
+
+      // revision 71：正文查找对正式与外部临时 HTML 同等可用（同一 child 承载、
+      // 同一 1x1 → hide → close 合同；外部身份 = sessionId + generation）。
+      function isHtmlFindTab(tab) {
+        return isRuntimeHostTab(tab);
+      }
+
+      function externalRuntimeTabForId(tabId) {
+        const tab = getOpenTab(tabId);
+        return isExternalRuntimeTab(tab) ? tab : null;
+      }
+
+      // §3.4：临时标签（Markdown / HTML）都有加号；加入成功后消失。
+      // promotion 失败可重试态（P2-R1/R1b）：加号重新出现作为重试入口——
+      // 失败占位标签保留在标签列表里，加号对用户真实可见可达。
+      function externalTabHasJoinEntry(tab) {
+        return Boolean(tab)
+          && tab.sourceMode === "external"
+          && (tab.preview?.fileType === "markdown" || tab.preview?.fileType === "html-runtime-external")
+          && (!tab.external?.joined || tab.external?.promotion?.phase === "failed");
+      }
+
       function injectExternalOpenStyles() {
         if (externalOpenCoordinator.stylesInjected) return;
         externalOpenCoordinator.stylesInjected = true;
@@ -23888,10 +24622,13 @@ if (!chipTipController) {
       }
 
       async function openExternalSessionFromResponse(resolved) {
+        // S1 起后端下发的 fileType（`markdown` / `html`）决定标签构造与内容承载。
+        const fileType = resolved.fileType === "html" ? "html" : "markdown";
         const existing = resolved.sessionId ? findExternalTabBySessionId(resolved.sessionId) : null;
         if (existing) {
           // 同一路径重复请求：聚焦原标签前重新核验磁盘状态（5.3）。
-          if (resolved.diskChanged) {
+          // HTML 临时会话没有编辑草稿，磁盘变化不改变打开结果，仅聚焦。
+          if (resolved.diskChanged && fileType === "markdown") {
             if (!isMarkdownTabDirty(existing)) {
               await reloadCleanExternalSession(existing);
             } else {
@@ -23910,7 +24647,7 @@ if (!chipTipController) {
           }
           return;
         }
-        const tab = buildExternalMarkdownTab(resolved);
+        const tab = buildExternalTab(resolved, fileType);
         appState.tabs.push(tab);
         externalOpenCoordinator.openedExternalThisSession = true;
         activateExternalTab(tab);
@@ -23919,13 +24656,22 @@ if (!chipTipController) {
           // 请求不会提前解析/激活（不出现「A 提示未决、B 已激活」错配）。
           const action = await showExternalOpenPrompt(tab);
           await settleExternalPromptAdjudication(tab, action);
-        } else if (resolved.resolution === "folder_pending") {
-          setStatus(t("external.folderPendingStatus"), "ok");
+        } else {
+          // 无需提示（已提示过 / 已在提交中）：HTML 仍需放行首次 attach，
+          // 否则标签会停在永久占位（计划 §6.2）。
+          releaseExternalRuntimeAttach(tab);
+          if (resolved.resolution === "folder_pending") {
+            setStatus(t("external.folderPendingStatus"), "ok");
+          }
         }
       }
 
-      function buildExternalMarkdownTab(resolved) {
-        const raw = resolved.raw ?? "";
+      // 标签构造：Markdown 与 HTML 共用一个协调器，只有内容承载方式不同。
+      // HTML 不发 raw / 不渲染 Markdown（正文由真实 child WebView 承载，计划 §6.2），
+      // 且首次 attach 需等提示裁决（`attachReady`）。
+      function buildExternalTab(resolved, fileType) {
+        const isHtml = fileType === "html";
+        const raw = isHtml ? "" : (resolved.raw ?? "");
         return {
           id: externalTabIdForSession(resolved.sessionId),
           sourceMode: "external",
@@ -23937,24 +24683,38 @@ if (!chipTipController) {
             joined: false,
             itemId: null,
             conflict: false,
-            deleted: false
+            deleted: false,
+            // R92a：切走前抓到的最后一次有效位置快照（滚动 / hash / 演示页），
+            // 下次建 child 时经 attach 载荷回放；null = 不恢复位置。
+            viewState: null,
+            viewStateCaptureSeq: 0,
+            // HTML：内容 child 延迟 attach（计划 §6.2「必须等用户选择或
+            // 倒计时结束后才 attach/show」）；Markdown 无此约束，恒为 true。
+            attachReady: !isHtml
           },
           item: {
             id: null,
             fileName: resolved.fileName,
             filePath: resolved.path,
-            fileType: "markdown",
+            fileType: isHtml ? "html" : "markdown",
             isFavorite: false,
             tags: []
           },
           detail: { fileHash: resolved.baseline?.hash ?? "", modifiedAt: null, libraryId: null },
-          preview: {
-            fileType: "markdown",
-            raw,
-            html: resolved.html ?? "",
-            title: resolved.title ?? resolved.fileName,
-            baseDir: resolved.baseDir ?? ""
-          },
+          preview: isHtml
+            ? {
+                fileType: "html-runtime-external",
+                title: resolved.title ?? resolved.fileName,
+                baseDir: resolved.baseDir ?? "",
+                runtimeUrl: null
+              }
+            : {
+                fileType: "markdown",
+                raw,
+                html: resolved.html ?? "",
+                title: resolved.title ?? resolved.fileName,
+                baseDir: resolved.baseDir ?? ""
+              },
           draft: raw,
           markdownBaseline: raw,
           isDirty: false,
@@ -23962,13 +24722,30 @@ if (!chipTipController) {
         };
       }
 
+      // 提示裁决完成 / 无需提示时放行 HTML 临时 host 的**首次** attach。
+      // 计划 §6.2：「五秒后只 attach 一次」只约束该临时 host 的首次创建；
+      // 切换标签只是 hide，不撤销会话 capability。
+      function releaseExternalRuntimeAttach(tab) {
+        if (!isExternalRuntimeTab(tab)) return;
+        tab.external.attachReady = true;
+        scheduleRuntimeHostSync();
+      }
+
       function activateExternalTab(tab) {
         appState.activeTabId = tab.id;
+        // 对齐 indexed 打开路径：进入文档模式收拢侧栏。
+        setSidebarCollapsed(true);
+        if (isExternalRuntimeTab(tab)) {
+          // HTML：正文由 child WebView 承载，不进入 Markdown 编辑器链路。
+          appState.isEditing = false;
+          appState.markdownEditMode = "rich";
+          renderTabs();
+          renderViewer();
+          return;
+        }
         appState.isEditing = true;
         appState.markdownEditMode = "rich";
         appState.markdownEditorShouldFocus = true;
-        // 对齐 indexed 打开路径：进入文档模式收拢侧栏。
-        setSidebarCollapsed(true);
         renderTabs();
         renderViewer();
         scheduleMarkdownEditorMount(tab);
@@ -24025,11 +24802,14 @@ if (!chipTipController) {
         overlay.className = "external-open-prompt";
         overlay.setAttribute("role", "dialog");
         overlay.setAttribute("aria-label", t("external.promptTitle"));
-        const fileName = tab.item?.fileName || "Markdown";
+        const fileName = tab.item?.fileName || (isExternalRuntimeTab(tab) ? "HTML" : "Markdown");
+        // §6.1：HTML 文案仍为「正在打开 / 加入 NUTBOOK / 仅打开」，只是不承诺
+        // 编辑能力（临时 HTML 不进入编辑链路）——不复用 Markdown 的「临时查看与编辑」。
+        const promptBodyKey = isExternalRuntimeTab(tab) ? "external.promptBodyHtml" : "external.promptBody";
         overlay.innerHTML = `
           <div class="external-open-prompt-card">
             <p class="external-open-prompt-title">${escapeHtml(t("external.promptTitle"))} ${escapeHtml(fileName)}</p>
-            <p class="external-open-prompt-desc">${escapeHtml(t("external.promptBody"))}</p>
+            <p class="external-open-prompt-desc">${escapeHtml(t(promptBodyKey))}</p>
             <div class="external-open-prompt-actions">
               <span class="external-open-prompt-countdown" data-countdown aria-hidden="true"></span>
               <button type="button" class="button button-secondary" data-prompt-action="open-only">${escapeHtml(t("external.openOnlyAction"))}</button>
@@ -24127,18 +24907,29 @@ if (!chipTipController) {
       // 裁决副作用收口：join 走接入协调器；仅打开写一次已提示记录；
       // "cancelled"（§3.3 手动导航取消）不写已提示记录、不启动接入——
       // 已打开标签保留，用户重新发起打开时重新解析、重新提示。
+      // 无论哪种终态，HTML 临时标签都要放行**首次** attach：取消后不被
+      // 遗留在永久占位（Markdown 走本函数时该调用是 no-op）。
       async function settleExternalPromptAdjudication(tab, action) {
-        if (!action || action === "cancelled") return;
+        if (!action) return;
         if (action === "join") {
           await joinExternalSession(tab);
-        } else {
+        } else if (action === "open-only") {
           invoke("external_session_mark_opened_only", { payload: { sessionId: tab.external.sessionId } }).catch(() => {});
         }
+        releaseExternalRuntimeAttach(tab);
       }
 
       // ---- 加入（3.4/3.7）：加号与五秒主动作汇入同一接入协调器 ----
       async function joinExternalSession(tab) {
-        if (!tab || tab.sourceMode !== "external" || tab.external?.joined) return;
+        if (!tab || tab.sourceMode !== "external") return;
+        // promotion 失败可重试入口（P2-R1/R1b）：加入已提交（joined），重试只
+        // 重新登记/挂载正式资源（续走同一 promotion 记录，viewState 保留），
+        // 不再触发任何资料库写入、不依赖已关闭的 external 会话。
+        if (tab.external?.joined && tab.external?.promotion?.phase === "failed") {
+          await promoteExternalHtmlTab(tab, tab.external.promotion.itemId ?? tab.external.itemId);
+          return;
+        }
+        if (tab.external?.joined) return;
         const sessionId = tab.external.sessionId;
         const generation = tab.external.generation;
         try {
@@ -24151,7 +24942,14 @@ if (!chipTipController) {
             setStatus(t("external.joinDoneStatus"), "ok");
             await loadItems();
             renderTabs();
-            if (getActiveTab()?.id === tab.id) renderViewer();
+            // HTML 临时标签的正文由 child WebView 承载：加入成功后按 §6.2 走
+            // 受控重建 —— 抓 view state → 拆临时 child（撤销旧 capability）→
+            // 以正式 itemId 重建。重建后工具栏等按正式标签立即刷新，无需重启。
+            if (isExternalRuntimeTab(tab)) {
+              await promoteExternalHtmlTab(tab, tab.external.itemId);
+            } else if (getActiveTab()?.id === tab.id) {
+              renderViewer();
+            }
           } else {
             setStatus(t("external.joinFailedStatus"), "warn");
           }
@@ -24648,11 +25446,273 @@ if (!chipTipController) {
         return true;
       }
 
+      // P2：外部临时 HTML 标签关闭（细线，计划 §6.3）。关闭标签即撤销该
+      // session 的 scoped 内容能力；普通切标签只 hide/destroy surface，不撤销。
+      //
+      // 顺序与既有关闭链路一致：先撤销 capability（关 scoped 服务器 + 注销
+      // 会话登记 + 1x1 → hide → close），再关闭 external 会话（释放 watcher /
+      // 会话记账），最后清前端记账。晚到的 attach / 桥消息因登记已注销而被拒，
+      // 不会复活已关闭的 surface（§3.7）。调用方负责 renderTabs/renderViewer。
+      async function closeExternalHtmlTab(tabId, tab) {
+        const isClosingActiveTab = appState.activeTabId === tabId;
+        const remainingTabsAfterClose = getOpenTabs().filter((entry) => entry.id !== tabId);
+        const nextActiveTabId = isClosingActiveTab
+          ? (remainingTabsAfterClose[remainingTabsAfterClose.length - 1]?.id ?? null)
+          : appState.activeTabId;
+        tab.closed = true;
+        // R92a：关闭不需要位置快照（会话即将撤销），并清理该会话在途采集的
+        // 等待器 —— 晚到回报不再回写，也不会复活已关闭的 surface。
+        clearExternalViewStateWaiters(tab.external.sessionId);
+        cleanupRuntimeHostSync();
+        nextRuntimeSurfaceToken(tabId);
+        await hideRuntimeSessionSurfaces(tabId, { force: true, skipExternalViewStateCapture: true });
+        try {
+          await invoke("close_external_html_runtime_command", {
+            payload: { sessionId: tab.external.sessionId }
+          });
+        } catch (error) {
+          setStatus(`关闭 HTML 临时会话失败：${normalizeError(error)}`, "error");
+        }
+        invoke("external_session_close", { payload: { sessionId: tab.external.sessionId } }).catch(() => {});
+        appState.runtimeHiddenSurfaceIds.delete(tabId);
+        appState.runtimeViewStateSurfaceTokens.delete(tabId);
+        appState.runtimeSurfaceTokens.delete(tabId);
+        if (appState.activeRuntimeHostId === tabId) {
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+        }
+        appState.tabs = appState.tabs.filter((entry) => entry.id !== tabId);
+        if (isClosingActiveTab) {
+          appState.activeTabId = nextActiveTabId;
+        }
+        const nextActiveTab = getActiveTab();
+        if (isRuntimeHostTab(nextActiveTab)) {
+          appState.runtimeControlsOverlayExpanded = false;
+          appState.runtimeControlsOverlayMode = "default";
+        } else {
+          hideInactiveRuntimeHosts().catch(() => {});
+        }
+        return true;
+      }
+
+      // P2 / 计划 §6.2：加入成功后的受控重建（promotion）。
+      //
+      // 状态模型（Codex revision 51：同一标签贯穿全生命周期，禁止
+      // 「删除旧标签 → 新建另一身份 → 修 activeTabId」路线）：
+      //   临时         —— 无 promotion 记录；
+      //   已提交待拆除  —— promotion.phase = "teardown"（抓 view state → 拆 child）；
+      //   已提交待挂载  —— promotion.phase = "mount"（旧 child 已拆，登记正式资源）；
+      //   失败可重试    —— promotion.phase = "failed"（标签保留、加号重现、重试续走）；
+      //   正式就绪      —— **同一标签对象**原位迁移：换 key 为 itemId + 移入
+      //                    runtimeSessions（单一同步块内完成，无 await 悬空窗口）；
+      //   已关闭        —— tab.closed（关闭意图在每个 await 边界优先）。
+      // 资源绑定（itemId / viewState / teardownDone）挂在 promotion 记录上，
+      // 生命周期与导航意图独立；呈现（挂载 / 抢焦点）只看「此刻用户是否选着
+      // 本标签」，不依赖陈旧快照。
+      async function promoteExternalHtmlTab(tab, itemId) {
+        if (!isExternalRuntimeTab(tab) || !itemId || tab.external?.promoting) return false;
+        tab.external.promoting = true;
+        // 失败重试：续走同一 promotion 记录（绑定与 viewState 不丢；teardown 幂等）。
+        const promotion = tab.external.promotion?.phase === "failed"
+          ? tab.external.promotion
+          : { phase: "teardown", itemId, viewState: null, teardownDone: false };
+        promotion.itemId = itemId;
+        promotion.phase = promotion.teardownDone ? "mount" : "teardown";
+        tab.external.promotion = promotion;
+        const sessionId = tab.external.sessionId;
+        // ① 抓 view state：失败 / 超时按「无位置」处理，不阻断重建。仅当旧
+        //    host 仍在（拆除未完成）时才有源可抓；重试不得用空结果覆盖首次抓取。
+        if (!promotion.teardownDone) {
+          const capturedViewState = await captureExternalHtmlViewState(tab).catch(() => null);
+          if (capturedViewState) promotion.viewState = capturedViewState;
+          // 采集期间标签被关闭：晚到结果只完成资料库刷新，不重建（§3.7）。
+          if (tab.closed) {
+            tab.external.promoting = false;
+            return true;
+          }
+        }
+        // ② 串行拆除临时 child + 收口会话（§6.2 / revision 32：旧新 child 不得
+        //    并存）。拆除必须可判定：任何一步失败都保留临时标签与 promotion
+        //    绑定（不回滚 DB 提交、不丢身份），进入可重试态，禁止创建正式
+        //    host（P2-R1）。
+        if (!promotion.teardownDone) {
+          cleanupRuntimeHostSync();
+          // R92a：promotion 已在上一步抓过快照（promotion.viewState），这里的
+          // hide 不得再采集一次 —— 既省掉一次 260ms 等待，也保证切 tab 的采集
+          // 永远无法覆盖 promotion 已抓到的位置（裁定第 4 条）。
+          await hideRuntimeSessionSurfaces(tab.id, { force: true, skipExternalViewStateCapture: true });
+          try {
+            await invoke("close_external_html_runtime_command", { payload: { sessionId } });
+            await invoke("external_session_close", { payload: { sessionId } });
+          } catch (_) {
+            tab.external.promoting = false;
+            promotion.phase = "failed";
+            setStatus(t("external.promotionFailedStatus"), "error");
+            renderTabs();
+            renderViewer();
+            return false;
+          }
+          promotion.teardownDone = true;
+          promotion.phase = "mount";
+        }
+        if (tab.closed) {
+          tab.external.promoting = false;
+          return true;
+        }
+        // ③ 旧 child 已不存在：失效旧 generation 并清理其 surface 记账。
+        nextRuntimeSurfaceToken(tab.id);
+        appState.runtimeHiddenSurfaceIds.delete(tab.id);
+        appState.runtimeSurfaceTokens.delete(tab.id);
+        appState.runtimeViewStateSurfaceTokens.delete(tab.id);
+        if (appState.activeRuntimeHostId === tab.id) {
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+        }
+        // ④ 资源登记（P2-R2a）：open_html_window 只登记共享 runtime 会话并返回
+        //    runtimeUrl，**不创建 host**；host 延迟到用户激活该标签时由
+        //    syncActiveRuntimeHost 挂载并回放 viewState（待激活创建 host）。
+        //    P2-R3a（Codex revision 58）真实所有权：open_html_window 会建立/
+        //    复用 item 级 scoped server（真实活动 origin），itemOpenTokens 递增
+        //    只证明「有新打开尝试开始」、不证明「有人取得资源」——持有权由
+        //    持有者台账（runtimeResourceHolders）承载：发出登记**之前**
+        //    acquire（pending，in-flight 占用），resolve 且本意图继续 → confirm，
+        //    放弃（关闭/失败/并入）→ release，最后持有者放弃时才回收。
+        //    用 allSettled：任一请求拒绝不得遗失另一请求的资源归属判定。
+        const leaseId = await acquireRuntimeResourceHolder(itemId);
+        promotion.leaseId = leaseId;
+        const [sessionResult, detailResult] = await Promise.allSettled([
+          invoke("open_html_window", { itemId }),
+          invoke("get_item_detail", { itemId }).then((value) => normalizeItemDetail(value))
+        ]);
+        const openOk = sessionResult.status === "fulfilled";
+        const session = openOk ? sessionResult.value : null;
+        const detailOk = detailResult.status === "fulfilled";
+        const detail = detailOk ? detailResult.value : null;
+        // 资源等待期间用户关闭了标签：关闭意图优先（§3.7）。资料库提交保留，
+        // 放弃本次持有；台账因此变空 = 最后实际持有者 → 回收，撤销失败可见。
+        if (tab.closed) {
+          await releaseRuntimeResourceHolder(itemId, leaseId);
+          tab.external.promoting = false;
+          renderTabs();
+          renderViewer();
+          return true;
+        }
+        if (!openOk || !detailOk) {
+          // 资源登记 / 详情失败（P2-R1b + P2-R3）：失败占位标签保留在标签列表
+          //（加号重现作重试入口），放弃本次持有——登记晚成功而详情拒绝时，
+          // 若无其他持有者（并行 in-flight / 已有正式标签）则回收，否则台账
+          // 非空自动保护他人会话；登记本身失败则无资源建立，释放为幂等空操作。
+          await releaseRuntimeResourceHolder(itemId, leaseId);
+          tab.external.promoting = false;
+          tab.external.promotion.phase = "failed";
+          const failure = openOk ? detailResult.reason : sessionResult.reason;
+          setStatus(`${t("external.joinOpenFailedStatus")}${normalizeError(failure)}`, "warn");
+          await loadItems().catch(() => {});
+          renderTabs();
+          renderViewer();
+          return false;
+        }
+        const item = appState.items.find((entry) => entry.id === itemId) || normalizeItemSummary(detail);
+        const runtimePreview = {
+          fileType: "html-runtime",
+          itemId,
+          title: session?.title || detail?.fileName || item?.fileName,
+          runtimeUrl: session?.runtimeUrl,
+          label: session?.label,
+          detached: session?.detached !== false
+        };
+        // ⑤ 正式就绪（P2-R2c，Codex revision 51）：**同一标签对象**原位迁移。
+        //    换 key、移数组、activeTabId 跟随全部在同一个同步块内完成——
+        //    任何时刻当前激活身份都能解析到存活标签，不存在悬空窗口。
+        //    是否挂载/接管焦点只看「此刻用户是否选着本标签」：等待期间点回
+        //    本标签 → 按最新当前意图呈现已绑定的正式内容；期间再次切走 →
+        //    后台完成，不抢焦点。
+        //    P2-R3a：迁移成功 = 本次意图取得资源（confirm），所有权随正式
+        //    标签记录持有（resourceLeaseId）；并入已有正式标签时显式处理
+        //    （adopt 或放弃本 lease，绝不误关他人会话）。
+        //    P2-R3d（Codex 66）：并入/新建判定前等待同 item 关闭事务落定——
+        //    事务可能在 allSettled 等待期间开始，关闭中的记录不得被当作可
+        // P2-R3d（Codex 66/67）：关闭等待、closed 检查、lease 确认和同一
+        // 标签迁移通过同步提交闸门完成。helper 返回后若新 close 已登记，
+        // 闸门重新等待；最终 callback 内无 await，旧关闭不能插入迁移。
+        const commit = await runWhenRuntimeCloseSettled(itemId, () => {
+          // tab.closed 可能在上述等待期间由真实关闭入口设置；关闭意图优先，
+          // 不能让晚到的 promotion 把已移除的临时对象复活成正式标签。
+          if (tab.closed) return { outcome: "closed" };
+          // 单实例检查固定在完成时刻（与所有权判定解耦），且在关闭事务落定后。
+          const existing = appState.runtimeSessions.find((entry) => entry.id === itemId);
+          const selectedNow = appState.activeTabId === tab.id;
+          confirmRuntimeResourceHolder(itemId, leaseId);
+          if (existing) {
+            // 单实例（§3.2）：正式标签已存在，绑定并入它，本标签移除。
+            transferLeaseToExistingTab(itemId, leaseId, existing);
+            existing.item = item;
+            existing.detail = detail;
+            existing.preview = runtimePreview;
+            if (promotion.viewState) existing.viewState = promotion.viewState;
+            if (selectedNow) appState.activeTabId = itemId;
+            tab.external.promoting = false;
+            const tabIndex = appState.tabs.indexOf(tab);
+            if (tabIndex >= 0) appState.tabs.splice(tabIndex, 1);
+          } else {
+            tab.id = itemId;
+            tab.item = item;
+            tab.detail = detail;
+            tab.preview = runtimePreview;
+            tab.draft = "";
+            tab.viewState = promotion.viewState || null;
+            tab.resourceLeaseId = leaseId;
+            delete tab.external;
+            delete tab.sourceMode;
+            delete tab.markdownBaseline;
+            delete tab.isDirty;
+            delete tab.coverActivationToken;
+            const tabIndex = appState.tabs.indexOf(tab);
+            if (tabIndex >= 0) appState.tabs.splice(tabIndex, 1);
+            appState.runtimeSessions.push(tab);
+            if (selectedNow) appState.activeTabId = itemId;
+          }
+          return { outcome: "bound", selectedNow };
+        });
+        if (commit.outcome === "closed") {
+          await releaseRuntimeResourceHolder(itemId, leaseId);
+          tab.external.promoting = false;
+          renderTabs();
+          renderViewer();
+          return true;
+        }
+        const selectedNow = appState.activeTabId === itemId
+          && appState.runtimeSessions.some((entry) => entry.id === itemId);
+        if (selectedNow) {
+          // 用户当前正看着本标签：正式标签原地接管并挂载 host。
+          appState.isEditing = false;
+          renderTabs();
+          renderViewer();
+          scheduleRuntimeHostSync();
+          focusMainWebviewSoon();
+        } else {
+          // 后台 promotion（P2-R2a）：绑定已就绪，不 attach、不激活、不碰
+          // 焦点——用户点该标签才创建正式 host。
+          await loadItems().catch(() => {});
+          renderTabs();
+        }
+        return true;
+      }
+
       // ---- 父目录 watcher 事件（5.3）：clean reload / dirty 冲突 / 删除 ----
       function handleExternalSessionChangedEvent(event) {
         const payload = event?.payload ?? {};
         const tab = findExternalTabBySessionId(payload.sessionId);
         if (!tab || tab.closed) return;
+        // 临时 HTML 没有草稿 / baseline 概念（正文由 child WebView 承载）：
+        // 磁盘变化不触发 Markdown 重载链路，只提示状态。
+        if (isExternalRuntimeTab(tab)) {
+          if (payload.status === "deleted") {
+            tab.external.deleted = true;
+            setStatus(t("external.deletedCleanStatus"), "warn");
+          }
+          return;
+        }
         if (payload.status === "deleted") {
           tab.external.deleted = true;
           setStatus(
@@ -24712,7 +25772,11 @@ if (!chipTipController) {
       // 显式「设为默认」主路径，Finder 图文引导降级备用）----
       let defaultAppStatus = null; // { markdown, html } | null（null = 尚未查询/查询中）
       let defaultAppStatusSerial = 0;
-      let defaultAppSetting = false; // 「设为默认」系统确认/系统设置页进行中
+      // 「设为默认」系统确认/系统设置页进行中：null | "markdown" | "html"。
+      // 存组名而不是布尔值，是为了只让被点击的那一枚进入 busy 态。
+      let defaultAppSetting = null;
+      // 最近一次「设为默认」真实失败的组，决定 Finder 备用示意图讲哪种格式。
+      let defaultAppFallbackGroup = "markdown";
 
       // Codex R4：Windows 主路径直接打开 ms-settings:defaultapps（§7.3 分流）。
       function isWindowsPlatform() {
@@ -24752,76 +25816,95 @@ if (!chipTipController) {
       function renderDefaultAppStatusRow() {
         const row = els.settingsPreferenceList?.querySelector("[data-default-app-row]");
         if (!row) return;
-        const statusEl = row.querySelector("[data-default-app-status]");
+        const actionsEl = row.querySelector("[data-default-app-actions]");
         const finderNoteEl = row.querySelector("[data-default-app-finder-note]");
-        const actionEl = row.querySelector("[data-default-app-action]");
-        if (!statusEl) return;
-        // 显著状态徽章（GUI 反馈）：Markdown / HTML 各一枚，着色区分四态。
-        const badge = (group, statusKey, tone) => `
-          <span class="default-app-badge default-app-badge--${tone}" data-default-app-badge="${group}">
-            <span class="default-app-badge-group">${group === "markdown" ? "Markdown" : "HTML"}</span>
-            <span class="default-app-badge-state">${t(statusKey)}</span>
-          </span>`;
-        const toneOf = (status) =>
-          status === "default" ? "ok"
-            : status === "partial" ? "warn"
-              : status === "notDefault" ? "idle"
-                : "muted";
-        let markdownState;
-        let htmlState;
-        if (defaultAppSetting) {
-          // 设置中：markdown 徽章进入 busy 态并显示进行中文案；html 保持真实状态。
-          markdownState = {
-            key: isWindowsPlatform()
-              ? "settings.defaultAppWindowsOpening"
-              : "settings.defaultAppSettingInProgress",
-            tone: "busy",
-          };
-          htmlState = defaultAppStatus
-            ? { key: defaultAppGroupStatusKey(defaultAppStatus.html), tone: toneOf(defaultAppStatus.html) }
-            : { key: "settings.defaultAppStatusLoading", tone: "muted" };
-        } else if (!defaultAppStatus) {
-          markdownState = { key: "settings.defaultAppStatusLoading", tone: "muted" };
-          htmlState = { key: "settings.defaultAppStatusLoading", tone: "muted" };
-        } else {
-          markdownState = {
-            key: defaultAppGroupStatusKey(defaultAppStatus.markdown),
-            tone: toneOf(defaultAppStatus.markdown),
-          };
-          htmlState = {
-            key: defaultAppGroupStatusKey(defaultAppStatus.html),
-            tone: toneOf(defaultAppStatus.html),
-          };
-        }
+        const windowsNoteEl = row.querySelector("[data-default-app-windows-note]");
+        if (!actionsEl) return;
+        const windows = isWindowsPlatform();
         if (!appState.isTauri) {
-          statusEl.innerHTML =
-            badge("markdown", "settings.defaultAppStatusUnknown", "muted") +
-            badge("html", "settings.defaultAppStatusUnknown", "muted");
-          if (actionEl) actionEl.hidden = true;
+          // 非 Tauri（浏览器直开 dist）：两枚都禁用，不伪装可点。
           if (finderNoteEl) finderNoteEl.hidden = true;
-          return;
+          if (windowsNoteEl) windowsNoteEl.hidden = true;
+        } else if (windowsNoteEl) {
+          // Windows 读不到真实 handler：给一行说明，否则两枚没有状态符号的
+          // 按钮看起来像坏掉的开关。
+          windowsNoteEl.hidden = !windows;
         }
-        statusEl.innerHTML =
-          badge("markdown", markdownState.key, markdownState.tone) +
-          badge("html", htmlState.key, htmlState.tone);
-        // 按钮不随查询结果伪装成功：只在 Markdown 未默认/部分/无法确认时
-        // 提供显式「设为默认」；已默认则隐藏。HTML 操作属于 PR C，不提供。
-        const canSet = Boolean(defaultAppStatus) && defaultAppStatus.markdown !== "default" && !defaultAppSetting;
-        if (actionEl) actionEl.hidden = !canSet;
+        // 状态 → 按钮外观 / 文案 / 可点性。任何一态都不猜测：查询失败即禁用。
+        const describe = (group) => {
+          const name = group === "markdown" ? "Markdown" : "HTML";
+          const view = (tone, disabled, label, hintKey) => ({
+            tone,
+            disabled,
+            label,
+            hint: t(hintKey),
+          });
+          if (!appState.isTauri) {
+            return view("muted", true, name, "settings.defaultAppStatusUnknown");
+          }
+          if (defaultAppSetting === group) {
+            return view(
+              "busy",
+              true,
+              name,
+              windows
+                ? "settings.defaultAppWindowsOpening"
+                : "settings.defaultAppSettingInProgress"
+            );
+          }
+          if (windows) {
+            // 两枚都可点：点击打开系统「默认应用」页；不给任何状态符号，
+            // 因为 Windows 侧读不到真实 handler，标 ✓ 就是假状态。
+            return view("idle", false, name, "settings.defaultAppWindowsAction");
+          }
+          if (!defaultAppStatus) {
+            return view("muted", true, name, "settings.defaultAppStatusLoading");
+          }
+          const status = defaultAppStatus[group];
+          // 提示语默认复用状态词；未默认时改给动作（「设为默认」），因为这一
+          // 枚是唯一真正能点的。
+          const hintKey = status === "notDefault"
+            ? "settings.defaultAppSetAction"
+            : defaultAppGroupStatusKey(status);
+          if (status === "default") {
+            // 已默认：禁用。macOS 只提供「设为默认」，没有「取消默认」接口，
+            // 给这一态配可点按钮等于承诺一个做不到的动作。
+            return view("ok", true, `${name} ✓`, hintKey);
+          }
+          if (status === "partial") {
+            return view("warn", false, `${name} ${t("settings.defaultAppPartialSuffix")}`, hintKey);
+          }
+          if (status === "notDefault") {
+            return view("idle", false, `${name} ＋`, hintKey);
+          }
+          return view("muted", true, name, hintKey);
+        };
+        for (const group of ["markdown", "html"]) {
+          const button = actionsEl.querySelector(`[data-default-app-action="${group}"]`);
+          if (!button) continue;
+          const { tone, disabled, label, hint } = describe(group);
+          button.className = `default-app-button default-app-button--${tone}`;
+          button.textContent = label;
+          button.disabled = disabled;
+          // aria-label 与 title 同源（同一句真实状态说明），并随状态更新。
+          button.setAttribute("aria-label", hint);
+          button.setAttribute("title", hint);
+        }
       }
 
-      // 主路径（§7.3）：用户显式点击 → macOS 系统确认对话框 / Windows 打开
-      // 系统设置页 → 完成后重新查询真实状态。取消/失败不标成功；取消为中性
-      // 提示并保留真实状态。Finder 备用说明仅 macOS 显示，Windows 失败不展
-      // 开（Windows 的主路径就是系统设置页）。
-      async function setMarkdownDefaultAppFromPreferences() {
+      // 主路径（§7.3）：用户点击某一组的胶囊按钮 → macOS 系统确认对话框 /
+      // Windows 打开系统设置页 → 完成后重新查询真实状态。取消/失败不标成功；
+      // 取消为中性提示并保留真实状态。Finder 备用说明只在 macOS 真实失败后
+      // 展开，且记住失败的是哪一组，示意图讲对应格式。
+      async function setDefaultAppFromPreferences(group) {
         if (!appState.isTauri || defaultAppSetting) return;
-        defaultAppSetting = true;
+        if (group !== "markdown" && group !== "html") return;
+        defaultAppSetting = group;
         renderDefaultAppStatusRow();
         let failed = false;
         let cancelled = false;
         try {
-          const outcome = await invoke("set_default_app", { kind: "markdown" });
+          const outcome = await invoke("set_default_app", { kind: group });
           // SetDefaultAppMode 是 serde 无载荷 enum，invoke 返回字符串
           // "systemDialog" / "systemSettings"（Codex R5：不要读 .mode）。
           if (outcome === "systemSettings") {
@@ -24838,24 +25921,34 @@ if (!chipTipController) {
             setStatus(`${t("settings.defaultAppSetFailedPrefix")}${normalizeError(error)}`, "error");
           }
         } finally {
-          defaultAppSetting = false;
+          defaultAppSetting = null;
         }
         await refreshDefaultAppStatus();
         if (failed && !cancelled && !isWindowsPlatform()) {
+          defaultAppFallbackGroup = group;
           const row = els.settingsPreferenceList?.querySelector("[data-default-app-row]");
           row?.querySelector("[data-default-app-finder-note]")?.removeAttribute("hidden");
         }
       }
 
+      // Finder 备用说明要讲的格式与扩展名（Markdown 组 / HTML 组）。
+      function defaultAppFinderGroupCopy(group) {
+        return group === "html"
+          ? { name: "HTML", ext: ".html" }
+          : { name: "Markdown", ext: ".md" };
+      }
+
       // 备用方法四步示意图（线框风，currentColor 适配明暗主题，墨色高亮）。
-      function defaultAppFinderFigureSvg() {
+      // 扩展名按组传入：HTML 组的示意图不能画成 .md。
+      function defaultAppFinderFigureSvg(group) {
+        const { ext } = defaultAppFinderGroupCopy(group);
         return `<svg viewBox="0 0 560 118" role="img" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
           <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.85">
             <!-- 1. Finder 选中 Markdown 文件 -->
             <rect x="6" y="10" width="118" height="76" rx="8"/>
             <path d="M34 34h20l6 6h24a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H34a4 4 0 0 1-4-4V38a4 4 0 0 1 4-4z"/>
             <rect x="26" y="26" width="86" height="44" rx="4" stroke="currentColor" stroke-dasharray="4 3"/>
-            <text x="69" y="66" text-anchor="middle" font-size="9" fill="currentColor" stroke="none">.md</text>
+            <text x="69" y="66" text-anchor="middle" font-size="9" fill="currentColor" stroke="none">${ext}</text>
             <!-- 2. ⌘I 显示简介 -->
             <rect x="150" y="10" width="118" height="76" rx="8"/>
             <rect x="164" y="22" width="90" height="52" rx="4"/>
@@ -24895,22 +25988,26 @@ if (!chipTipController) {
       // 备用方法改为应用内弹窗示意图（GUI 反馈：纯文字 md 引导文件没有信息
       // 量，废弃该路径）。示意图由 Codex 生成的真实感单图提供
       // （assets/default-app-finder-guide.png）；图片缺失时以内置 SVG 线框兜底。
-      function showDefaultAppFinderFallbackDialog() {
+      // 两个格式组共用同一张图：四步流程完全一致，图里的文件名只是示例；
+      // 随组变化的只有文案里的扩展名。
+      function showDefaultAppFinderFallbackDialog(group = defaultAppFallbackGroup) {
+        const { name, ext } = defaultAppFinderGroupCopy(group);
+        const intro = formatTranslation("settings.defaultAppFinderIntro", { format: name, ext });
         injectExternalOpenStyles();
         const overlay = document.createElement("div");
         overlay.className = "external-open-prompt default-app-fallback-overlay";
         overlay.innerHTML = `
           <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("settings.defaultAppFallbackTitle"))}">
             <p class="external-open-prompt-title">${escapeHtml(t("settings.defaultAppFallbackTitle"))}</p>
-            <p class="external-open-prompt-desc">${escapeHtml(t("settings.defaultAppFinderIntro"))}</p>
+            <p class="external-open-prompt-desc">${escapeHtml(intro)}</p>
             <div class="default-app-fallback-figure">
-              <img src="assets/default-app-finder-guide.png" alt="${escapeHtml(t("settings.defaultAppFallbackTitle"))}" data-fallback-figure-img hidden />
+              <img src="assets/default-app-finder-guide.png" alt="${escapeHtml(intro)}" data-fallback-figure-img hidden />
             </div>
             <ol class="default-app-fallback-steps">
-              <li>${escapeHtml(t("settings.defaultAppFinderStep1"))}</li>
+              <li>${escapeHtml(formatTranslation("settings.defaultAppFinderStep1", { ext }))}</li>
               <li>${escapeHtml(t("settings.defaultAppFinderStep2"))}</li>
               <li>${escapeHtml(t("settings.defaultAppFinderStep3"))}</li>
-              <li>${escapeHtml(t("settings.defaultAppFinderStep4"))}</li>
+              <li>${escapeHtml(formatTranslation("settings.defaultAppFinderStep4", { ext }))}</li>
             </ol>
             <div class="external-open-prompt-actions">
               <button type="button" class="button button-primary" data-fallback-action="close" aria-label="${t("settings.defaultAppFallbackClose")}">${t("settings.defaultAppFallbackClose")}</button>
@@ -24919,13 +26016,13 @@ if (!chipTipController) {
         `;
         document.body.appendChild(overlay);
         const close = () => overlay.remove();
-        // 示意图存在 → 显示真图；缺失 → 内置 SVG 线框兜底（图片加载失败即换）。
+        // 图存在 → 显示真图；缺失 → 内置 SVG 线框兜底（图片加载失败即换）。
         const figureEl = overlay.querySelector(".default-app-fallback-figure");
         const figureImg = overlay.querySelector("[data-fallback-figure-img]");
         figureImg?.addEventListener("load", () => figureImg.removeAttribute("hidden"));
         figureImg?.addEventListener("error", () => {
           figureImg.remove();
-          if (figureEl) figureEl.innerHTML = defaultAppFinderFigureSvg();
+          if (figureEl) figureEl.innerHTML = defaultAppFinderFigureSvg(group);
         });
         overlay.querySelector('[data-fallback-action="close"]')?.addEventListener("click", close);
         overlay.addEventListener("click", (event) => {
@@ -25070,10 +26167,15 @@ if (!chipTipController) {
               if (appState.isSettingsOpen) renderSettingsPanel();
             }).then((unlisten) => { cliSyncUnlisten = typeof unlisten === "function" ? unlisten : (() => {}); }).catch(() => {});
           }
+          // PR C Phase 1（D1=A）：旧共享 /fs 服务器已下线，仅取缩略图缓存
+          // scoped origin；不再请求 get_local_server_origin。
           try {
-            appState.localServerOrigin = await invoke("get_local_server_origin");
-          } catch (error) {
-            setStatus(`本地 HTML 服务启动失败：${normalizeError(error)}`, "error");
+            const cacheInfo = await invoke("get_cache_resource_info");
+            appState.cacheResourceOrigin = cacheInfo?.origin || null;
+            appState.cacheResourceRoot = cacheInfo?.root || null;
+          } catch (_) {
+            appState.cacheResourceOrigin = null;
+            appState.cacheResourceRoot = null;
           }
         } else {
           appState.localServerOrigin = "http://127.0.0.1:4173";
