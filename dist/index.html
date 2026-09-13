@@ -18145,6 +18145,8 @@
         if (toggleSidebarTooltip) {
           toggleSidebarTooltip.textContent = appState.isSidebarCollapsed ? "展开界面" : "折叠界面";
         }
+        // 折叠/展开改变 shell 宽度：让检查视图的 px 轨道尽早重排（唯一入口）。
+        scheduleInspectorRelayout();
       }
 
       function applyHomeLayout() {
@@ -23812,11 +23814,24 @@ if (!chipTipController) {
         const overlay = appState.inspector.moreOverlay;
         const stage = els.inspectorPreviewStage;
         const itemId = appState.inspector.selectedItemId;
+        // 「更多」只属于已 reveal 的 Markdown 预览卡。非 markdown 项在
+        // loadInspectorPreview 里同样被赋 status="ready"（HTML 复用该状态），而旧判据
+        // 把 stage 的 classList.contains 结果拿去和 undefined 比较：该方法只返回
+        // boolean，stage 存在时该项恒为 true，等于没写条件——于是拖分栏 / 窗口缩放
+        // 任何一次重同步都会把圆钮重新挂到 HTML 上。改用界面事实做唯一门：HTML
+        // 截图卡没有 inspector-preview-text，天然被排除，未来新增的非 Markdown
+        // 类型同理。这是回归：archive 2026-08-29 第三/四轮只堵了渲染链，
+        // 没堵住 ResizeObserver 重新 attach 这条路径。
+        const markdownCardRevealed = Boolean(
+          els.inspectorPreviewBody?.querySelector(
+            "[data-inspector-preview].inspector-preview-text:not(.inspector-preview-pending)"
+          )
+        );
         const visible = Boolean(
           isInspectorActive()
           && itemId != null
           && appState.inspector.status === "ready"
-          && stage?.classList.contains("inspector-preview-expanded") !== undefined
+          && markdownCardRevealed
         );
         const previousItemId = overlay.itemId;
         const nextRunId = ++overlay.syncRunId;
@@ -23833,7 +23848,7 @@ if (!chipTipController) {
           }
           const bounds = inspectorMoreOverlayBounds();
           if (!bounds) return;
-          const expanded = stage.classList.contains("inspector-preview-expanded");
+          const expanded = Boolean(stage?.classList.contains("inspector-preview-expanded"));
           const label = t(expanded ? "inspector.showLess" : "inspector.showMore");
           const selectionToken = appState.inspector.selectionToken;
           await invoke("attach_inspector_more_overlay_command", {
@@ -23886,6 +23901,33 @@ if (!chipTipController) {
       // 安全宽（GUI 验收第二批）：左栏最窄 280px（列最小宽总和约 272 + 内边距），
       // 右栏最窄 340px（预览框 + 详情栅格可读下限）。集中在这里钳制，
       // 拖拽 / 键盘方向键 / 双击重置 / 持久化恢复四条入口统一受限。
+
+      // 检查视图外层宽度变化的唯一重排入口。分栏轨道是内联 px（刻意不用 fr，
+      // 见 applyInspectorSplitRatio），因此一旦 shell 变宽而轨道不重算，多余
+      // 宽度就全堆到右端形成空白，原生小岛也停在旧屏幕坐标。侧栏折叠/展开、
+      // 窗口缩放、进入全屏都只表现为 shell 宽度变化：由 setSidebarCollapsed
+      // 尽早安排一次，其余来源由下方 #inspectorShell 的 ResizeObserver 兜住，
+      // 不保留第二套重排实现。
+      //
+      // 隐藏态必须挡在最前：applyInspectorSplitRatio 末尾是无条件写入，若在
+      // shell hidden 时被触发，会把轨道写成 usable=1 的 1px。
+      let inspectorRelayoutFrame = 0;
+      let inspectorRelayoutWidth = -1;
+      function scheduleInspectorRelayout() {
+        if (!els.inspectorShell || els.inspectorShell?.hidden) return;
+        if (inspectorRelayoutFrame) return;
+        inspectorRelayoutFrame = requestAnimationFrame(() => {
+          inspectorRelayoutFrame = 0;
+          const shell = els.inspectorShell;
+          if (!shell || shell.hidden) return;
+          const width = shell.getBoundingClientRect().width;
+          if (width <= 0 || width === inspectorRelayoutWidth) return;
+          inspectorRelayoutWidth = width;
+          applyInspectorSplitRatio();
+          syncInspectorMoreOverlay();
+        });
+      }
+
       const INSPECTOR_LEFT_MIN_PX = 280;
       const INSPECTOR_RIGHT_MIN_PX = 340;
 
@@ -24202,6 +24244,13 @@ if (!chipTipController) {
             cancelAnimationFrame(inspectorMoreOverlayResizeFrame);
             inspectorMoreOverlayResizeFrame = requestAnimationFrame(() => syncInspectorMoreOverlay());
           }).observe(els.inspectorPreviewFrame);
+        }
+
+        // 侧栏折叠/展开、窗口缩放、进入全屏改变的都只是 #inspectorShell 的外框
+        // 宽度；px 冻结轨道必须据此重算。上方的预览框观察器只在预览框尺寸变化
+        // 时触发，覆盖不到「预览框随 shell 只平移、尺寸不变」的情形。
+        if (window.ResizeObserver && els.inspectorShell) {
+          new ResizeObserver(() => scheduleInspectorRelayout()).observe(els.inspectorShell);
         }
 
         // 分隔条：指针拖动 + 键盘方向键 + 双击重置 40/60。

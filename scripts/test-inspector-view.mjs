@@ -698,4 +698,91 @@ try {
   await browser.close();
 }
 
+// ── 12. 检查视图重排 + 「更多」可见性门（2026-09-13 回归）─────────────────
+// 症状：折叠侧栏后检查视图两栏不重排（右端留大片空白、原生小岛随之横向错位）；
+// HTML 项在改变分栏/窗口尺寸后又冒出「更多」圆钮。根因分别是「px 冻结轨道只在
+// 既有入口重算」与「可见性判据恒真 + HTML 复用 ready 状态」。以下断言锁住两处
+// 修复的合同，任一侧被回退都必须先失败。
+
+// 12.1 判据必须是显式 DOM 事实，不得再出现恒真的 expanded 子句。
+const moreOverlaySrc = extractFunctionSource(INDEX_HTML, "function syncInspectorMoreOverlay() {");
+assert.match(moreOverlaySrc, /inspector-preview-text/, "the more island must be gated on the markdown-only preview card class");
+assert.match(moreOverlaySrc, /:not\(\.inspector-preview-pending\)/, "the gate must require the markdown card to be revealed, not merely mounted");
+assert.doesNotMatch(
+  moreOverlaySrc,
+  /classList\.contains\("inspector-preview-expanded"\) !== undefined/,
+  "the always-true expanded clause must be gone"
+);
+
+// 12.2 可见性门行为：在 vm 沙箱里跑真实判据（不 stub syncInspectorMoreOverlay）。
+// HTML 截图卡查不到 inspector-preview-text → 门必须关闭；已 reveal 的 Markdown
+// 卡 → 门必须打开并挂载一次。
+const moreGateSources = [
+  "function syncInspectorMoreOverlay() {",
+  "function inspectorMoreOverlayBounds() {",
+  "function isInspectorActive() {",
+  "function isInspectorSelectionCurrent(itemId, token) {"
+].map((marker) => extractFunctionSource(INDEX_HTML, marker)).join("\n");
+
+async function runMoreGateScenario(bodyQuerySelector) {
+  const context = {
+    appState: {
+      homeLayout: "inspector",
+      inspector: {
+        selectedItemId: 7,
+        selectionToken: 3,
+        status: "ready",
+        moreOverlay: { itemId: null, selectionToken: 0, expanded: false, syncRunId: 0, syncPromise: Promise.resolve() }
+      }
+    },
+    els: {
+      inspectorShell: { hidden: false },
+      mainShell: { classList: { contains: (name) => name === "home-mode" } },
+      inspectorPreviewStage: {
+        classList: { contains: () => false },
+        getBoundingClientRect: () => ({ left: 100, top: 100, width: 400, height: 300, bottom: 400 })
+      },
+      inspectorPreviewBody: { querySelector: bodyQuerySelector }
+    },
+    t: (key) => key,
+    invoke: async (command, args) => {
+      if (command === "attach_inspector_more_overlay_command") context.__attaches.push(args.payload);
+      return true;
+    },
+    __attaches: []
+  };
+  vm.createContext(context);
+  vm.runInContext(moreGateSources, context);
+  vm.runInContext("syncInspectorMoreOverlay()", context);
+  await context.appState.inspector.moreOverlay.syncPromise;
+  return context;
+}
+
+const htmlOnlyGate = await runMoreGateScenario(() => null);
+assert.equal(
+  htmlOnlyGate.__attaches.length,
+  0,
+  "an html screenshot card must never attach the markdown-only more island, even with status ready"
+);
+const markdownGate = await runMoreGateScenario(() => ({ nodeType: 1 }));
+assert.equal(markdownGate.__attaches.length, 1, "a revealed markdown card must attach the more island exactly once");
+
+// 12.3 重排入口唯一化：hidden 守卫 + rAF 合并 + 宽度比较，且真的重排两栏与复位小岛。
+const relayoutSrc = extractFunctionSource(INDEX_HTML, "function scheduleInspectorRelayout() {");
+assert.match(relayoutSrc, /els\.inspectorShell\?\.hidden/, "the relayout scheduler must bail out while the shell is hidden");
+assert.match(relayoutSrc, /requestAnimationFrame/, "relayout must be coalesced into an animation frame");
+assert.match(relayoutSrc, /width === inspectorRelayoutWidth/, "relayout must skip frames whose shell width is unchanged");
+assert.match(relayoutSrc, /applyInspectorSplitRatio\(\)/, "the scheduler must own the pane relayout");
+assert.match(relayoutSrc, /syncInspectorMoreOverlay\(\)/, "the scheduler must resync the native island after relayout");
+assert.match(INDEX_HTML, /\.observe\(els\.inspectorShell\)/, "the shell itself must be observed so window resize and fullscreen relayout");
+assert.match(
+  INDEX_HTML,
+  /function setSidebarCollapsed\(collapsed\) \{[\s\S]*?scheduleInspectorRelayout\(\);/,
+  "collapsing the sidebar must schedule the same unified relayout"
+);
+
+// 12.4 「更多」的几何与既有行为不能被本轮改动带偏。
+assert.match(moreOverlaySrc, /inspectorMoreOverlayBounds\(\)/, "the visible island must still be measured from the live stage rect");
+assert.match(INDEX_HTML, /const expanded = Boolean\(stage\?\.classList\.contains\("inspector-preview-expanded"\)\)/, "expanded state must be read through a null-safe stage lookup");
+
 console.log("test-inspector-view: all assertions passed");
