@@ -1634,6 +1634,7 @@ fn build_detached_runtime_window(
         .inner_size(1280.0, 820.0)
         .resizable(true)
         .initialization_script(html_runtime_compatibility_script())
+        .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
         .on_new_window(detached_new_window_handler(app))
         .on_document_title_changed(detached_fullscreen_handler(session.title.clone()))
         .build()
@@ -1672,6 +1673,7 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
     Ok(
         WebviewBuilder::new(label, webview_url)
             .initialization_script(html_runtime_compatibility_script())
+        .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
             .initialization_script(&html_runtime_view_state_script(
                 session.key.item_id().ok_or(AppError::InvalidParams)?,
                 view_state_surface_token,
@@ -1922,6 +1924,7 @@ fn build_external_runtime_webview_builder<R: tauri::Runtime>(
 
     let mut builder = WebviewBuilder::new(label, webview_url)
         .initialization_script(html_runtime_compatibility_script())
+        .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
         .on_new_window(detached_new_window_handler(app))
         .on_document_title_changed(detached_embedded_fullscreen_handler(app));
     // P2-R92a：hide 即销毁 surface，回放只能在建 child 时注入一次；无快照时
@@ -1950,6 +1953,7 @@ fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
     Ok(
         WebviewBuilder::new(label, webview_url)
             .initialization_script(html_runtime_compatibility_script())
+        .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
             .initialization_script(&presentation_preview_init_script(
                 runtime_session_id,
                 generation,
@@ -2445,6 +2449,7 @@ fn detached_new_window_handler<R: tauri::Runtime>(
         .window_features(features)
         .title(url.as_str())
         .initialization_script(html_runtime_compatibility_script())
+        .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
         .on_document_title_changed(|window, title| {
             if title.starts_with(HTML_FULLSCREEN_TITLE_PREFIX) {
                 let next_fullscreen = !window.is_fullscreen().unwrap_or(false);

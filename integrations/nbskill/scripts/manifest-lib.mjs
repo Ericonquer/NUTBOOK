@@ -330,12 +330,14 @@ export function readManifestForSupersede(projectRoot) {
 export function writeManifestAtomic(projectRoot, manifest) {
   validateManifest(manifest, projectRoot);
   const destination = manifestPath(projectRoot);
+  const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
+  if (existsSync(destination) && readFileSync(destination, "utf8") === serialized) return;
   mkdirSync(dirname(destination), { recursive: true });
   const temporary = `${destination}.tmp-${process.pid}-${randomUUID()}`;
   let fd;
   try {
     fd = openSync(temporary, "wx", 0o600);
-    writeFileSync(fd, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    writeFileSync(fd, serialized, "utf8");
     fsyncSync(fd);
     closeSync(fd);
     fd = undefined;

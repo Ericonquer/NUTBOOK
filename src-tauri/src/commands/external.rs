@@ -475,12 +475,15 @@ pub fn external_session_overwrite(
 /// 另存目标选择对话框（另存副本与删除后的另存为共用入口；默认名由前端给）。
 #[tauri::command]
 pub fn external_session_pick_save_target(
+    app: tauri::AppHandle,
     payload: ExternalSessionPickTargetRequest,
+    language: Option<String>,
 ) -> Result<Option<String>, AppError> {
-    let dialog = rfd::FileDialog::new()
-        .set_title("选择另存位置")
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(if language.as_deref() == Some("en-US") { "Save As" } else { "选择另存位置" })
         .add_filter("Markdown", &["md", "markdown"])
         .set_file_name(&payload.default_file_name);
+    if let Some(window) = app.get_webview_window("main") { dialog = dialog.set_parent(&window); }
     Ok(dialog
         .save_file()
         .map(|path| path.to_string_lossy().to_string()))

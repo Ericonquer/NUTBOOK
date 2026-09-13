@@ -1247,8 +1247,18 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /query_extension_handlers\(&app, &\["html", "htm"\]\)/,
-  "the html group must check .html and .htm separately"
+  /let html = query_html_viewer_handler\(\)\?;/,
+  "the html group must query its dedicated Viewer-role handler"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /LSSetDefaultRoleHandlerForContentType[\s\S]*?public\.html[\s\S]*?LS_ROLES_VIEWER/,
+  "setting HTML must use the public.html Viewer role, rather than changing URL schemes"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /fn query_html_viewer_handler\([\s\S]*?LSCopyDefaultRoleHandlerForContentType/,
+  "HTML status must read the same Viewer-role handler that the setter changes"
 );
 assert.match(
   DEFAULT_APPS_RS,
@@ -1300,24 +1310,23 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
-  "the macOS main path must use NSWorkspace setDefaultApplicationAtURL:toOpenContentType: (probe-verified)"
-);
-// PR C 拆掉 PR B 的 HTML 边界：两个格式组各自映射到自己的声明 UTI。
-assert.match(
-  DEFAULT_APPS_RS,
-  /const MARKDOWN_UTI: &str = "net\.daringfireball\.markdown";[\s\S]{0,520}?const HTML_UTI: &str = "public\.html";/,
-  "the HTML group must target public.html, the UTI declared in the bundled Info.plist"
+  /setDefaultApplicationAtURL_toOpenContentTypeOfFileAtURL_completionHandler/,
+  "the Markdown path must use NSWorkspace's file-probe confirmation flow"
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /fn default_app_uti_for_kind\(kind: &str\) -> Option<&\x27static str> \{[\s\S]*?"markdown" => Some\(MARKDOWN_UTI\)[\s\S]*?"html" => Some\(HTML_UTI\)[\s\S]*?_ => None,/,
-  "both groups must map to their own UTI; unknown kinds must resolve to None instead of silently landing on a group"
+  /if kind == "html" \{[\s\S]{0,160}?set_default_html_viewer_handler\(\)/,
+  "the HTML group must take the dedicated Viewer-role path"
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /match default_app_uti_for_kind\(kind\.as_str\(\)\) \{[\s\S]{0,200}?Some\(uti\) => set_default_app_macos\(&app, uti\)[\s\S]{0,260}?None => Err\(AppError::InvalidParams\),/,
-  "set_default_app must dispatch the clicked group to its declared UTI and reject unknown kinds"
+  /fn set_default_html_viewer_handler\(\)[\s\S]*?LSSetDefaultRoleHandlerForContentType[\s\S]*?public\.html[\s\S]*?LS_ROLES_VIEWER/,
+  "HTML must change only public.html's Viewer role"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /match default_app_probe_extension_for_kind\(kind\.as_str\(\)\) \{[\s\S]{0,200}?Some\(extension\) => set_default_app_macos\(&app, extension\)[\s\S]{0,260}?None => Err\(AppError::InvalidParams\),/,
+  "Markdown must use its file probe and unknown kinds must be rejected"
 );
 assert.doesNotMatch(
   DEFAULT_APPS_RS,
@@ -1488,7 +1497,7 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /async fn set_default_app_macos\(app: &tauri::AppHandle, uti: &'static str\)[\s\S]*?tauri::async_runtime::channel[\s\S]*?app\.run_on_main_thread\(move \|\| \{[\s\S]*?setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
+  /async fn set_default_app_macos\(app: &tauri::AppHandle, extension: &'static str\)[\s\S]*?tauri::async_runtime::channel[\s\S]*?app\.run_on_main_thread\(move \|\| \{[\s\S]*?setDefaultApplicationAtURL_toOpenContentTypeOfFileAtURL_completionHandler/,
   "the AppKit launch must stay on the main thread and only start the request, never wait there"
 );
 assert.match(

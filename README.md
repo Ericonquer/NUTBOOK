@@ -329,6 +329,20 @@ NUTBOOK is closer to an “AI artifact desk” and local presentation library th
 
 ## Release Highlights
 
+### 1.0.0: First Stable Release
+
+NUTBOOK 1.0.0 brings together local artifact intake, Markdown / HTML reading and light editing, and presentation.
+
+* Open Markdown or HTML from the system into a temporary session, then explicitly add it to the library when needed.
+* Connect folders through a preview and synchronize external file changes.
+* Use contextual native menus for file actions, text editing, document search, and closing tabs.
+* Use Chinese or English application labels in native file, folder, and image dialogs. System-owned controls follow the operating system's application language settings.
+* nbskill registration succeeds quietly and coalesces intermediate edits before delivery. Explicit CLI intake remains separate from manifest registration.
+
+DeepSeek Harness integration is deferred to a later version.
+
+
+
 ### 0.8.0: From Finding Files Manually to Agent Project and Task Artifacts
 
 Version 0.8.0 lets NUTBOOK receive Agent-created work more directly while keeping every modification explicit and local:

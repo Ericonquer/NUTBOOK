@@ -828,6 +828,10 @@
         color: var(--ink);
       }
 
+      .thumbnail-settings-feedback[data-tone="info"] {
+        color: var(--ink-soft);
+      }
+
       .thumbnail-settings-feedback[data-tone="error"] {
         border-color: var(--danger);
         color: var(--danger);
@@ -4316,7 +4320,7 @@
         height: 16px;
         border: 0;
         border-radius: 999px;
-        background: #d97706;
+        background: #111;
         color: #fff;
         font-size: 11px;
         font-weight: 700;
@@ -5172,6 +5176,276 @@
         font-size: 12px;
         color: var(--ink);
         word-break: break-all;
+      }
+
+      .thumbnail-settings {
+        display: grid;
+        gap: 14px;
+      }
+
+      .thumbnail-settings-copy {
+        display: grid;
+        gap: 4px;
+      }
+
+      .thumbnail-settings-copy .settings-empty {
+        margin: 0;
+      }
+
+      .thumbnail-engine-summary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .thumbnail-engine-summary .settings-kv-row {
+        min-width: 0;
+        min-height: 0;
+        grid-template-columns: 116px minmax(0, 1fr);
+        align-items: start;
+        gap: 18px;
+      }
+
+      .thumbnail-engine-summary .settings-kv-label {
+        padding-top: 1px;
+      }
+
+      .thumbnail-engine-summary .settings-kv-value {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      /* 设置页按钮使用应用内 tooltip，不显示浏览器/系统原生 title 气泡。 */
+      .thumbnail-settings-actions .button {
+        position: relative;
+      }
+
+      .thumbnail-settings-actions .button[data-tooltip]::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        right: 0;
+        top: calc(100% + 8px);
+        z-index: 360;
+        width: max-content;
+        max-width: min(300px, 82vw);
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 27, .96);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.35;
+        text-align: left;
+        white-space: normal;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(-3px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .thumbnail-settings-actions .button[data-tooltip]:hover::after,
+      .thumbnail-settings-actions .button[data-tooltip]:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      .thumbnail-title-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .thumbnail-engine-help {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: #171717;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .thumbnail-engine-help[data-state="missing"] {
+        animation: thumbnail-engine-help-pulse 1.6s ease-in-out infinite;
+      }
+
+      .thumbnail-engine-help::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 50%;
+        top: calc(100% + 8px);
+        z-index: 370;
+        width: max-content;
+        max-width: min(280px, 80vw);
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 27, .96);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.35;
+        text-align: left;
+        white-space: normal;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translate(-50%, -3px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .thumbnail-engine-help:hover::after,
+      .thumbnail-engine-help:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translate(-50%, 0);
+      }
+
+      @keyframes thumbnail-engine-help-pulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(23, 23, 23, .3); }
+        50% { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(23, 23, 23, 0); }
+      }
+
+      .thumbnail-install-visuals {
+        display: grid;
+        gap: 10px;
+        margin: 2px 0 14px;
+      }
+
+      .thumbnail-install-methods {
+        display: inline-flex;
+        width: fit-content;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface-variant);
+      }
+
+      .thumbnail-install-method {
+        border: 0;
+        border-radius: 7px;
+        padding: 6px 10px;
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .thumbnail-install-method[aria-selected="true"] {
+        background: var(--paper);
+        color: var(--ink);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+      }
+
+      .thumbnail-install-visual {
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--paper);
+      }
+
+      .thumbnail-install-visual [hidden] {
+        display: none !important;
+      }
+
+      .thumbnail-install-visual svg {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        color: var(--ink);
+      }
+
+      .thumbnail-install-visual img {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #fafaf8;
+      }
+
+      .default-app-fallback-overlay.thumbnail-install-overlay .external-open-prompt-card {
+        width: min(940px, calc(100vw - 48px));
+      }
+
+      .thumbnail-install-copy-feedback {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        color: #3d6f49;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .thumbnail-install-visual figcaption {
+        padding: 8px 10px;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .thumbnail-copy-feedback {
+        min-height: 18px;
+        margin: 10px 0 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      .thumbnail-setup-card {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--paper);
+      }
+
+      .thumbnail-setup-card--secondary {
+        background: var(--surface-variant);
+      }
+
+      .thumbnail-setup-title {
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.45;
+      }
+
+      .thumbnail-command-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .thumbnail-command-row code {
+        min-width: 0;
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: rgba(20, 20, 20, 0.06);
+        color: #333;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+
+      @media (max-width: 640px) {
+        .thumbnail-engine-summary .settings-kv-row {
+          grid-template-columns: 1fr;
+          gap: 6px;
+        }
+
+        .thumbnail-engine-summary .settings-kv-value {
+          overflow: visible;
+          text-overflow: clip;
+          white-space: normal;
+        }
       }
 
       .inline-feedback {
@@ -7664,9 +7938,9 @@
     </div>
 
     <div id="hostSettingsMenu" class="host-settings-menu" aria-hidden="true">
-      <button class="popover-option menu-option" type="button" data-host-settings-tab="skills"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13 5v6l-5 2.5L3 11V5z"/><path d="M3 5l5 2.5L13 5M8 7.5V13.5"/></svg></span><span class="menu-option-label">产物接入</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="skills"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.75" y="3.25" width="10.5" height="9.5" rx="1.7"/><path d="M2.75 6.25h10.5M6.25 8.85h3.5"/></svg></span><span class="menu-option-label">产物接入</span></button>
       <button class="popover-option menu-option" type="button" data-host-settings-tab="libraries"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg></span><span class="menu-option-label">文件管理</span></button>
-      <button class="popover-option menu-option" type="button" data-host-settings-tab="tags"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 2.5H3a.5.5 0 0 0-.5.5v5.5L10 14.5l4-4z"/><circle cx="5.5" cy="5.5" r="1"/></svg></span><span class="menu-option-label">标签管理</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="tags"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.1 2.75H4.2A1.45 1.45 0 0 0 2.75 4.2v3.9c0 .38.15.75.43 1.02l5.7 5.7a1.45 1.45 0 0 0 2.05 0l3.19-3.19a1.45 1.45 0 0 0 0-2.05l-5-5a1.45 1.45 0 0 0-1.02-.43z"/><circle cx="5.55" cy="5.55" r=".9"/></svg></span><span class="menu-option-label">标签管理</span></button>
       <button class="popover-option menu-option" type="button" data-host-settings-tab="preferences"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h7M11.5 5h2M2.5 11h2M6.5 11h7"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg></span><span class="menu-option-label">偏好设定</span></button>
       <button class="popover-option menu-option" type="button" data-host-settings-tab="thumbnails"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 12l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></span><span class="menu-option-label">缩略图</span></button>
     </div>
@@ -7795,11 +8069,14 @@
           </section>
           <section id="settingsThumbnailsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabThumbnails" hidden>
             <div class="settings-header">
-              <h3 class="settings-section-title">缩略图引擎</h3>
-              <div class="button-row">
+              <div class="thumbnail-title-row">
+                <h3 class="settings-section-title">缩略图引擎</h3>
+                <button id="settingsThumbnailInstallGuideButton" class="thumbnail-engine-help" type="button" aria-label="" data-tooltip="">?</button>
+              </div>
+              <div class="button-row thumbnail-settings-actions">
                 <button id="settingsRefreshThumbnailStatusButton" class="button button-primary" type="button">检测引擎</button>
-                <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" title="只重新生成当前列表中看得见的文件缩略图" data-i18n-title="actions.rebuildVisibleThumbnailsTitle">重建可见文件</button>
-                <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" title="重新生成当前资料库内所有文档缩略图" data-i18n-title="actions.rebuildLibraryThumbnailsTitle">重建资料库</button>
+                <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" data-tooltip="只重新生成当前列表中看得见的文件缩略图">重建可见文件</button>
+                <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" data-tooltip="重新生成当前资料库内所有文档缩略图">重建资料库</button>
               </div>
             </div>
             <div id="settingsThumbnailFeedback" class="thumbnail-settings-feedback" role="status" aria-live="polite" aria-atomic="true" hidden></div>
@@ -8007,7 +8284,7 @@
         thumbnailBackendStatus: null,
         thumbnailSettingsFeedback: null,
         thumbnailSettingsOperation: null,
-        systemChromeThumbnailEnabled: window.localStorage?.getItem("nutbook.systemChromeThumbnailsEnabled") === "1",
+        systemChromeThumbnailEnabled: false,
         pendingThumbnailIds: new Set(),
         // B2：会话内 stale preview —— durable save 且索引同步后、新 generation ready 前，
         // 仅在当前页面把旧图作为非持久视觉 preview 显示（带遮罩 + aria-busy）。
@@ -8101,7 +8378,7 @@
           lastKnownReleaseUrl: null
         },
         updateStatus: {
-          currentVersion: "0.9.0",
+          currentVersion: "1.0.0",
           latestVersion: null,
           releaseUrl: null,
           hasUpdate: false,
@@ -8250,6 +8527,7 @@
         settingsThumbnailFeedback: document.getElementById("settingsThumbnailFeedback"),
         settingsThumbnailStatus: document.getElementById("settingsThumbnailStatus"),
         settingsRefreshThumbnailStatusButton: document.getElementById("settingsRefreshThumbnailStatusButton"),
+        settingsThumbnailInstallGuideButton: document.getElementById("settingsThumbnailInstallGuideButton"),
         settingsRebuildVisibleThumbsButton: document.getElementById("settingsRebuildVisibleThumbsButton"),
         settingsRebuildLibraryThumbsButton: document.getElementById("settingsRebuildLibraryThumbsButton"),
         hostSettingsMenu: document.getElementById("hostSettingsMenu")
@@ -12677,6 +12955,19 @@
         els.settingsThumbnailFeedback.dataset.tone = feedback?.tone || "info";
       }
 
+      function syncThumbnailInstallGuideButton() {
+        const button = els.settingsThumbnailInstallGuideButton;
+        if (!button) return;
+        const missing = !Boolean(appState.thumbnailBackendStatus?.screenshotAvailable);
+        button.textContent = missing ? "!" : "?";
+        button.dataset.state = missing ? "missing" : "ready";
+        const hint = missing
+          ? t("settings.thumbnailInstallHint")
+          : t("settings.thumbnailGuideAvailableHint");
+        button.dataset.tooltip = hint;
+        button.setAttribute("aria-label", hint);
+      }
+
       async function runThumbnailSettingsOperation(operation, task) {
         if (appState.thumbnailSettingsOperation) return null;
         const operationButton = {
@@ -12749,14 +13040,13 @@
         return Boolean(status && !status.screenshotAvailable);
       }
 
-      async function copyThumbnailInstallCommand() {
-        const command = "npx playwright install chromium";
+      async function copyThumbnailSetupText(value, successKey, failurePrefixKey) {
         try {
           if (navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(command);
+            await navigator.clipboard.writeText(value);
           } else {
             const input = document.createElement("textarea");
-            input.value = command;
+            input.value = value;
             input.setAttribute("readonly", "");
             input.style.position = "absolute";
             input.style.left = "-9999px";
@@ -12765,6 +13055,21 @@
             document.execCommand("copy");
             document.body.removeChild(input);
           }
+          setStatus(t(successKey), "ok");
+          return true;
+        } catch (error) {
+          setStatus(statusError(failurePrefixKey, error), "error");
+          return false;
+        }
+      }
+
+      async function copyThumbnailInstallCommand() {
+        const copied = await copyThumbnailSetupText(
+          "npx playwright install chromium",
+          "status.installCommandCopied",
+          "status.copyInstallCommandFailedPrefix"
+        );
+        if (copied) {
           appState.thumbnailInstallCommandCopied = true;
           if (appState.thumbnailInstallCommandCopiedTimer != null) {
             window.clearTimeout(appState.thumbnailInstallCommandCopiedTimer);
@@ -12779,10 +13084,113 @@
           if (appState.isSettingsOpen && appState.settingsTab === "thumbnails") {
             renderSettingsPanel();
           }
-          setStatus(t("status.installCommandCopied"), "ok");
-        } catch (error) {
-          setStatus(statusError("status.copyInstallCommandFailedPrefix", error), "error");
         }
+        return copied;
+      }
+
+      function thumbnailAgentInstallPrompt() {
+        return appState.language === "en-US"
+          ? "Install the Playwright Chromium required for NUTBOOK thumbnails on this Mac. Run `npx playwright install chromium` in Terminal, then confirm when it completes. Do not modify NUTBOOK project files, the default browser, or default file applications."
+          : "请为本机 NUTBOOK 安装缩略图所需的 Playwright Chromium。在终端执行 `npx playwright install chromium`，完成后告诉我已安装。不要修改 NUTBOOK 项目文件、默认浏览器或系统默认打开应用。";
+      }
+
+      async function copyThumbnailAgentPrompt() {
+        return copyThumbnailSetupText(
+          thumbnailAgentInstallPrompt(),
+          "status.agentPromptCopied",
+          "status.copyAgentPromptFailedPrefix"
+        );
+      }
+
+      function showThumbnailInstallStepsDialog() {
+        injectExternalOpenStyles();
+        const overlay = document.createElement("div");
+        overlay.className = "external-open-prompt default-app-fallback-overlay thumbnail-install-overlay";
+        overlay.innerHTML = `
+          <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("settings.thumbnailInstallStepsTitle"))}">
+            <p class="external-open-prompt-title">${escapeHtml(t("settings.thumbnailInstallStepsTitle"))}</p>
+            <div class="thumbnail-install-visuals">
+              <div class="thumbnail-install-methods" role="tablist" aria-label="${escapeHtml(t("settings.thumbnailInstallStepsTitle"))}">
+                <button class="thumbnail-install-method" type="button" role="tab" aria-selected="true" data-thumbnail-method="terminal">${escapeHtml(t("settings.thumbnailTerminalInstallTitle"))}</button>
+                <button class="thumbnail-install-method" type="button" role="tab" aria-selected="false" data-thumbnail-method="agent">${escapeHtml(t("settings.thumbnailAgentInstallTitle"))}</button>
+              </div>
+              <figure class="thumbnail-install-visual">
+                <img data-thumbnail-method-figure="terminal" src="assets/thumbnail-setup/terminal-steps.png" alt="${escapeHtml(t("settings.thumbnailTerminalInstallTitle"))}" />
+                <img data-thumbnail-method-figure="agent" src="assets/thumbnail-setup/agent-steps.png" alt="${escapeHtml(t("settings.thumbnailAgentInstallTitle"))}" hidden />
+              </figure>
+            </div>
+            <ol class="default-app-fallback-steps" data-thumbnail-step-list>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep1"))}</li>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep2"))}</li>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep3"))}</li>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep4"))}</li>
+            </ol>
+            <div class="external-open-prompt-actions">
+              <span class="thumbnail-install-copy-feedback" data-thumbnail-copy-feedback role="status" aria-live="polite"></span>
+              <button type="button" class="button button-secondary" data-thumbnail-step-action="terminal">${escapeHtml(t("actions.copyInstallCommand"))}</button>
+              <button type="button" class="button button-secondary" data-thumbnail-step-action="agent" hidden>${escapeHtml(t("actions.copyAgentPrompt"))}</button>
+              <button type="button" class="button button-primary" data-thumbnail-step-action="close">${escapeHtml(t("settings.defaultAppFallbackClose"))}</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        const copyFeedback = overlay.querySelector("[data-thumbnail-copy-feedback]");
+        const stepList = overlay.querySelector("[data-thumbnail-step-list]");
+        const installStepKeys = {
+          terminal: ["thumbnailTerminalStep1", "thumbnailTerminalStep2", "thumbnailTerminalStep3", "thumbnailTerminalStep4"],
+          agent: ["thumbnailAgentStep1", "thumbnailAgentStep2", "thumbnailAgentStep3", "thumbnailAgentStep4"]
+        };
+        const selectMethod = (method) => {
+          overlay.querySelectorAll("[data-thumbnail-method]").forEach((button) => {
+            button.setAttribute("aria-selected", String(button.dataset.thumbnailMethod === method));
+          });
+          overlay.querySelectorAll("[data-thumbnail-method-figure]").forEach((figure) => {
+            figure.hidden = figure.dataset.thumbnailMethodFigure !== method;
+          });
+          overlay.querySelector('[data-thumbnail-step-action="terminal"]').hidden = method !== "terminal";
+          overlay.querySelector('[data-thumbnail-step-action="agent"]').hidden = method !== "agent";
+          stepList.innerHTML = installStepKeys[method]
+            .map((key) => `<li>${escapeHtml(t(`settings.${key}`))}</li>`)
+            .join("");
+          copyFeedback.textContent = "";
+        };
+        overlay.querySelectorAll("[data-thumbnail-method]").forEach((button) => {
+          button.addEventListener("click", () => selectMethod(button.dataset.thumbnailMethod));
+        });
+        overlay.querySelector('[data-thumbnail-step-action="terminal"]')?.addEventListener("click", async () => {
+          if (await copyThumbnailInstallCommand()) copyFeedback.textContent = t("settings.copySuccess");
+        });
+        overlay.querySelector('[data-thumbnail-step-action="agent"]')?.addEventListener("click", async () => {
+          if (await copyThumbnailAgentPrompt()) copyFeedback.textContent = t("status.agentPromptCopied");
+        });
+        overlay.querySelector('[data-thumbnail-step-action="close"]')?.addEventListener("click", close);
+        overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+      }
+
+      function thumbnailTerminalInstallFigureSvg() {
+        return `<svg viewBox="0 0 320 180" role="img" aria-label="${escapeHtml(t("settings.thumbnailTerminalInstallTitle"))}" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="22" y="20" width="276" height="132" rx="12"/>
+            <path d="M22 52h276M42 36h1m13 0h1m13 0h1"/>
+            <rect x="42" y="70" width="236" height="28" rx="5" fill="currentColor" opacity=".08"/>
+            <path d="M58 82l8 7-8 7m16 0h78M58 118h124M58 132h78"/>
+          </g>
+          <text x="78" y="88" fill="currentColor" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">npx playwright install chromium</text>
+        </svg>`;
+      }
+
+      function thumbnailAgentInstallFigureSvg() {
+        return `<svg viewBox="0 0 320 180" role="img" aria-label="${escapeHtml(t("settings.thumbnailAgentInstallTitle"))}" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="22" y="20" width="276" height="132" rx="12"/>
+            <path d="M22 52h276M42 36h1m13 0h1m13 0h1"/>
+            <rect x="44" y="68" width="164" height="32" rx="8" fill="currentColor" opacity=".08"/>
+            <path d="M60 82h102M60 91h72"/>
+            <rect x="112" y="112" width="166" height="22" rx="8"/>
+            <path d="M128 123h84m14 0h22m-8-7 8 7-8 7"/>
+          </g>
+        </svg>`;
       }
 
       function normalizeLibrary(library) {
@@ -13524,7 +13932,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "0.9.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.0.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           hasUpdate: Boolean(value.hasUpdate),
@@ -13854,6 +14262,7 @@
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
         appState.language = i18n?.setLanguage?.(language) ?? language;
+        if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
         if (appState.isSettingsOverlay && propagateToMain) {
           document.title = "__NUTBOOK_SETTINGS_OVERLAY__:" + JSON.stringify({
             action: "language-change",
@@ -15050,9 +15459,6 @@
         await loadIgnoredItems();
         await loadDiscoveredArtifactSkills();
         if (tab === "skills") await loadNbskillAgentStatuses();
-        if (appState.systemChromeThumbnailEnabled) {
-          await invoke("set_system_chrome_thumbnail_enabled", { enabled: true });
-        }
         await loadThumbnailBackendStatus();
         if (tab === "skills" && appState.settingsArtifactSection === "projects") {
           await restoreCachedAgentProjectsInSettings();
@@ -15968,6 +16374,8 @@
         }
         if (els.settingsProjectSortButton) els.settingsProjectSortButton.dataset.tooltip = t("settings.projectSortLabel");
         if (els.settingsSkillSortButton) els.settingsSkillSortButton.dataset.tooltip = t("settings.skillSortLabel");
+        if (els.settingsRebuildVisibleThumbsButton) els.settingsRebuildVisibleThumbsButton.dataset.tooltip = t("actions.rebuildVisibleThumbnailsTitle");
+        if (els.settingsRebuildLibraryThumbsButton) els.settingsRebuildLibraryThumbsButton.dataset.tooltip = t("actions.rebuildLibraryThumbnailsTitle");
         renderSettingsSourceSortMenu();
         renderSettingsArtifactSortMenus();
         document.querySelectorAll("[data-settings-tab]").forEach((node) => {
@@ -16318,7 +16726,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "0.9.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.0.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -16376,47 +16784,48 @@
 
         const thumbnailStatus = appState.thumbnailBackendStatus;
         const thumbnailEngineLabel = thumbnailEngineDisplayName();
+        const thumbnailPath = thumbnailStatus?.chromiumPath || t("settings.thumbnailHeadlessMissing");
         const thumbnailAvailableText = appState.language === "en-US"
           ? `${t("settings.thumbnailAvailable")}: ${thumbnailEngineLabel}`
           : `${t("settings.thumbnailAvailable")}：${thumbnailEngineLabel}`;
         els.settingsThumbnailStatus.innerHTML = thumbnailStatus ? `
-          <div class="settings-empty">${t("settings.thumbnailIntro")}</div>
-          <div class="settings-empty">${t("settings.thumbnailRebuildHint")}</div>
-          <div class="settings-kv-row">
-            <div class="settings-kv-label">${t("settings.screenshotEngine")}</div>
-            <div class="settings-kv-value">${thumbnailStatus.screenshotAvailable ? thumbnailAvailableText : t("settings.thumbnailUnavailableDefault")}</div>
+          <div class="thumbnail-settings">
+            <div class="thumbnail-settings-copy">
+              <div class="settings-empty">${t("settings.thumbnailIntro")}</div>
+            </div>
+            <div class="thumbnail-engine-summary">
+              <div class="settings-kv-row">
+                <div class="settings-kv-label">${t("settings.screenshotEngine")}</div>
+                <div class="settings-kv-value">${thumbnailStatus.screenshotAvailable ? thumbnailAvailableText : t("settings.thumbnailUnavailableDefault")}</div>
+              </div>
+              <div class="settings-kv-row">
+                <div class="settings-kv-label">${t("settings.currentPath")}</div>
+                <div class="settings-kv-value">${escapeHtml(thumbnailPath)}</div>
+              </div>
+            </div>
+            ${!thumbnailStatus.screenshotAvailable ? `
+              <section class="thumbnail-setup-card">
+                <div class="thumbnail-setup-title">${t("settings.thumbnailTerminalInstallTitle")}</div>
+                <div class="settings-empty">${t("settings.thumbnailInstallHint")}</div>
+                <div class="thumbnail-command-row">
+                  <code>npx playwright install chromium</code>
+                  <button id="settingsCopyThumbnailInstallCommandButton" class="button button-secondary" type="button">${t("actions.copyInstallCommand")}</button>
+                  ${appState.thumbnailInstallCommandCopied ? `<span class="inline-feedback">${t("settings.copySuccess")}</span>` : ""}
+                </div>
+              </section>
+              <section class="thumbnail-setup-card thumbnail-setup-card--secondary">
+                <div class="thumbnail-setup-title">${t("settings.thumbnailAgentInstallTitle")}</div>
+                <div class="settings-empty">${t("settings.thumbnailAgentInstallHint")}</div>
+                <div class="button-row"><button id="settingsCopyThumbnailAgentPromptButton" class="button button-secondary" type="button">${t("actions.copyAgentPrompt")}</button></div>
+              </section>
+            ` : ""}
           </div>
-          <div class="settings-kv-row">
-            <div class="settings-kv-label">${t("settings.currentPath")}</div>
-            <div class="settings-kv-value">${escapeHtml(thumbnailStatus.chromiumPath || t("settings.thumbnailHeadlessMissing"))}</div>
-          </div>
-          ${!thumbnailStatus.screenshotAvailable ? `
-            <div class="settings-empty">${t("settings.thumbnailInstallHint")}</div>
-            <div class="settings-empty">${t("settings.thumbnailInstallCommand")}<code>npx playwright install chromium</code></div>
-            <div class="button-row">
-              <button id="settingsCopyThumbnailInstallCommandButton" class="button button-secondary" type="button">${t("actions.copyInstallCommand")}</button>
-              ${appState.thumbnailInstallCommandCopied ? `<span class="inline-feedback">${t("settings.copySuccess")}</span>` : ""}
-            </div>
-          ` : ""}
-          ${!thumbnailStatus.screenshotAvailable && thumbnailStatus.systemChromeAvailable ? `
-            <div class="settings-empty">${t("settings.systemChromeHint")}</div>
-            <div class="settings-empty">${t("settings.systemChromeSlowHint")}</div>
-            <div class="button-row">
-              <button id="settingsEnableSystemChromeButton" class="button button-primary" type="button">${t("actions.enableSystemChrome")}</button>
-            </div>
-          ` : ""}
-          ${thumbnailStatus.systemChromeEnabled && thumbnailEngineKind() === "system-chrome" ? `
-            <div class="settings-empty">${t("settings.systemChromeEnabledHint")}</div>
-            <div class="button-row">
-              <button id="settingsDisableSystemChromeButton" class="button button-secondary" type="button">${t("actions.disableSystemChrome")}</button>
-            </div>
-          ` : ""}
         ` : `<div class="settings-empty">${t("settings.thumbnailStatusLoading")}</div>`;
         syncThumbnailSettingsControls();
+        syncThumbnailInstallGuideButton();
 
         document.getElementById("settingsCopyThumbnailInstallCommandButton")?.addEventListener("click", copyThumbnailInstallCommand);
-        document.getElementById("settingsEnableSystemChromeButton")?.addEventListener("click", enableSystemChromeThumbnails);
-        document.getElementById("settingsDisableSystemChromeButton")?.addEventListener("click", disableSystemChromeThumbnails);
+        document.getElementById("settingsCopyThumbnailAgentPromptButton")?.addEventListener("click", copyThumbnailAgentPrompt);
         document.querySelectorAll("[data-settings-group-toggle]").forEach((node) => {
           node.addEventListener("click", () => {
             toggleSettingsGroup(node.dataset.settingsGroupToggle);
@@ -16588,7 +16997,7 @@
         let lastError;
         for (const variant of commandVariants(command, args)) {
           try {
-            return await invokeRaw(command, variant);
+            return await invokeRaw(command, { ...variant, language: appState.language });
           } catch (error) {
             lastError = error;
           }
@@ -16605,11 +17014,11 @@
         if (command === "get_cached_agent_projects") return null;
         if (command === "get_nbskill_agent_status") {
           const statuses = [
-            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.4", expectedVersion: "1.3.4", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
-            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
-            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
-            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.3", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
-            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "newer_unverified", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "9.0.0", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null }
+            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.5", expectedVersion: "1.3.5", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
+            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null },
+            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null },
+            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.3", expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null },
+            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "newer_unverified", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "9.0.0", expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null }
           ];
           if (!readmeDemoEnabled()) return statuses;
           const installed = window.__readmeDemoInstalledAgents || new Set();
@@ -16872,7 +17281,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "0.9.0",
+              currentVersion: "1.0.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -16883,8 +17292,8 @@
             };
           }
           return {
-            currentVersion: "0.9.0",
-            latestVersion: "0.9.0",
+            currentVersion: "1.0.0",
+            latestVersion: "1.0.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -19009,9 +19418,9 @@ if (!chipTipController) {
       // 设置菜单图标（16×16，currentColor，约 1.5 描边，线性）。图标 aria-hidden，
       // 菜单项可访问名称仍来自文字。
       const SETTINGS_ICON_SVG = {
-        artifactAccess: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13 5v6l-5 2.5L3 11V5z"/><path d="M3 5l5 2.5L13 5M8 7.5V13.5"/></svg>',
+        artifactAccess: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.75" y="3.25" width="10.5" height="9.5" rx="1.7"/><path d="M2.75 6.25h10.5M6.25 8.85h3.5"/></svg>',
         fileManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg>',
-        tagManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 2.5H3a.5.5 0 0 0-.5.5v5.5L10 14.5l4-4z"/><circle cx="5.5" cy="5.5" r="1"/></svg>',
+        tagManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.1 2.75H4.2A1.45 1.45 0 0 0 2.75 4.2v3.9c0 .38.15.75.43 1.02l5.7 5.7a1.45 1.45 0 0 0 2.05 0l3.19-3.19a1.45 1.45 0 0 0 0-2.05l-5-5a1.45 1.45 0 0 0-1.02-.43z"/><circle cx="5.55" cy="5.55" r=".9"/></svg>',
         preferences: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h7M11.5 5h2M2.5 11h2M6.5 11h7"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg>',
         thumbnails: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 12l3.5-3.5 2.5 2.5 2-2 3 3"/></svg>'
       };
@@ -20865,7 +21274,7 @@ if (!chipTipController) {
           try {
             await loadThumbnailBackendStatus({ throwOnError: true });
             const message = `${t("status.thumbnailDetectCompletePrefix")}${thumbnailEngineDisplayName()}`;
-            const tone = appState.thumbnailBackendStatus?.screenshotAvailable ? "ok" : "error";
+            const tone = appState.thumbnailBackendStatus?.screenshotAvailable ? "ok" : "info";
             setThumbnailSettingsFeedback(message, tone);
             setStatus(t("status.thumbnailStatusRefreshed"), tone);
             return appState.thumbnailBackendStatus;
@@ -22654,6 +23063,39 @@ if (!chipTipController) {
       }
 
       window.__NUTBOOK_NATIVE_MENU__ = handleNativeMenuAction;
+      window.__NUTBOOK_CONTEXT_FIND__ = openActiveDocumentFind;
+      window.__NUTBOOK_CONTEXT_PROVIDER__ = (target) => {
+        const card = target.closest("[data-open-item], [data-inspector-item]");
+        const chip = target.closest("[data-tab-id]");
+        const editable = target.closest('input, textarea, [contenteditable="true"]');
+        const itemId = Number(card?.dataset.openItem || card?.dataset.inspectorItem);
+        const item = appState.items.find((entry) => entry.id === itemId);
+        const tabId = chip?.dataset.tabId;
+        const activeTabId = appState.activeTabId;
+        const reader = els.viewerBody?.contains(target);
+        return {
+          kind: editable ? "edit" : item ? "file" : chip ? "tab" : reader ? "read" : "app",
+          language: appState.language,
+          favorite: Boolean(item?.isFavorite),
+          async run(action) {
+            if (action === "open" && item) return openItem(item.id);
+            if (action === "favorite" && item) return toggleFavorite(item.id);
+            if (action === "copy-path" && item) return writeClipboardText(item.filePath);
+            if (action === "reveal" && item) return invoke("reveal_context_item", { itemId: item.id });
+            if (action === "close-tab") {
+              const tab = appState.tabs.find((entry) => String(entry.id) === tabId);
+              if (tab) return closeOpenTab(tab.id);
+            }
+            if (action === "add-folder" || action === "add-file" || action === "rescan-library") {
+              return handleNativeMenuAction(action);
+            }
+            if (appState.activeTabId !== activeTabId) return;
+            if (action === "undo" || action === "redo") return handleNativeMenuAction(action);
+            if (action === "find") return openActiveDocumentFind();
+          }
+        };
+      };
+
 
       function toggleHomeLayout() {
         if (!appState.items.length && appState.homeLayout !== "inspector") {
@@ -24325,6 +24767,7 @@ if (!chipTipController) {
           }
         });
         els.settingsRefreshThumbnailStatusButton.addEventListener("click", refreshThumbnailBackendStatusFromSettings);
+        els.settingsThumbnailInstallGuideButton.addEventListener("click", showThumbnailInstallStepsDialog);
         els.settingsRebuildVisibleThumbsButton.addEventListener("click", rebuildVisibleHtmlThumbnails);
         els.settingsRebuildLibraryThumbsButton.addEventListener("click", rebuildCurrentLibraryHtmlThumbnails);
         els.openCurrentFolderButton.addEventListener("click", () => {
@@ -25811,6 +26254,7 @@ if (!chipTipController) {
         if (serial !== defaultAppStatusSerial || !isDefaultAppRowVisible()) return;
         defaultAppStatus = nextStatus;
         renderDefaultAppStatusRow();
+        return nextStatus;
       }
 
       function renderDefaultAppStatusRow() {
@@ -25923,7 +26367,11 @@ if (!chipTipController) {
         } finally {
           defaultAppSetting = null;
         }
-        await refreshDefaultAppStatus();
+        const verifiedStatus = await refreshDefaultAppStatus();
+        if (!failed && !cancelled && !isWindowsPlatform() && verifiedStatus?.[group] !== "default") {
+          failed = true;
+          setStatus(`${t("settings.defaultAppSetFailedPrefix")}${t("settings.defaultAppStatusNotDefault")}`, "error");
+        }
         if (failed && !cancelled && !isWindowsPlatform()) {
           defaultAppFallbackGroup = group;
           const row = els.settingsPreferenceList?.querySelector("[data-default-app-row]");
@@ -26220,7 +26668,9 @@ if (!chipTipController) {
 
       window.__NUTBOOK_UPDATE_INTERFACE_LANGUAGE__ = (language) => updateInterfaceLanguage(language, { propagateToMain: false });
 
+      if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
       boot();
     </script>
+    <script src="assets/context-menu.js"></script>
   </body>
 </html>

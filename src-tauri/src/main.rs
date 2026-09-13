@@ -198,6 +198,7 @@ fn main() {
                 .build()
         })
         .on_menu_event(|app, event| {
+            if commands::context_menu::dispatch(app, event.id().as_ref()) { return; }
             let native_history_key = match event.id().as_ref() {
                 MENU_UNDO_ID => Some("CmdOrCtrl+Z"),
                 MENU_REDO_ID => Some("CmdOrCtrl+Shift+Z"),
@@ -232,6 +233,7 @@ fn main() {
             }
         })
         .setup(|app| {
+            app.manage(commands::context_menu::ContextState::default());
             let app_data_dir = prepare_app_data_dir(app.handle())
                 .expect("failed to prepare app data dir");
             let database_path = app_data_dir.join("nutbook.sqlite3");
@@ -269,6 +271,10 @@ fn main() {
             let handler: Box<
                 dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync,
             > = Box::new(tauri::generate_handler![
+            commands::context_menu::show_context_menu,
+            commands::context_menu::reveal_context_item,
+            commands::context_menu::set_native_ui_language,
+            commands::context_menu::context_find_in_document,
             commands::agent_projects::get_cached_agent_projects,
             commands::agent_projects::discover_agent_projects,
             commands::agent_projects::connect_agent_project,
@@ -552,7 +558,9 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
     if CONTENT_PREFIXES.iter().any(|prefix| label.starts_with(prefix)) {
         matches!(
             command,
-            "html_edit_runtime_message_command"
+            "show_context_menu"
+                | "context_find_in_document"
+                | "html_edit_runtime_message_command"
                 | "write_editable_html_copy"
                 | "html_runtime_view_state_command"
                 // P2 / §6.2：外部阅读面没有常驻 view-state 脚本，promotion 前

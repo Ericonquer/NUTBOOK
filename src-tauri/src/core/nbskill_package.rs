@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::models::NbskillAgentStatus;
 
-pub const NBSKILL_VERSION: &str = "1.3.4";
+pub const NBSKILL_VERSION: &str = "1.3.5";
 
 #[derive(Debug, Deserialize)]
 struct PackageManifest {

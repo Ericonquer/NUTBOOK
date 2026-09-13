@@ -106,15 +106,11 @@ impl AppState {
                 None
             }
         };
-        let system_chrome_enabled = fs::read_to_string(&thumbnail_settings_path)
-            .map(|value| value.trim() == "1")
-            .unwrap_or(false);
-
-        if system_chrome_enabled {
-            std::env::set_var("NUTBOOK_ALLOW_SYSTEM_CHROME_THUMBNAILS", "1");
-        } else {
-            std::env::remove_var("NUTBOOK_ALLOW_SYSTEM_CHROME_THUMBNAILS");
-        }
+        // 1.0 只允许专用 Playwright Chromium 截图。清除旧版本持久化的系统
+        // Chrome 开关，避免升级后把用户日常浏览器以 headless 参数启动。
+        let system_chrome_enabled = false;
+        let _ = fs::write(&thumbnail_settings_path, "0");
+        std::env::remove_var("NUTBOOK_ALLOW_SYSTEM_CHROME_THUMBNAILS");
 
         Self {
             scan_coordinator: ScanCoordinator::new(database.clone()),
@@ -334,6 +330,9 @@ impl AppState {
     }
 
     pub fn set_system_chrome_thumbnails_enabled(&self, enabled: bool) -> Result<(), AppError> {
+        if enabled {
+            return Err(AppError::UnsupportedFileType);
+        }
         {
             let mut value = self
                 .system_chrome_thumbnails_enabled

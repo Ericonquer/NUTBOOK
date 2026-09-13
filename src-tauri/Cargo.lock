@@ -2628,12 +2628,13 @@ dependencies = [
 
 [[package]]
 name = "nutbook-backend"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "ammonia",
  "base64 0.22.1",
  "block2",
  "chrono",
+ "core-foundation",
  "html5ever 0.27.0",
  "image",
  "kamadak-exif",

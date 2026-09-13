@@ -15,7 +15,7 @@ try {
       const manifest = upsertActiveEntry(readManifest(root), entry);
       writeManifestAtomic(root, manifest);
     });
-    console.log(`registered ${entry.id}: ${entry.path}`);
+
   }
 } catch (error) {
   console.error(`nbskill registration failed: ${error.message}`);
