@@ -26302,9 +26302,14 @@ if (!chipTipController) {
             return view("idle", false, name, "settings.defaultAppWindowsAction");
           }
           if (!defaultAppStatus) {
+            if (group === "html") return view("idle", false, "HTML ＋", "settings.defaultAppHtmlGuideAction");
             return view("muted", true, name, "settings.defaultAppStatusLoading");
           }
           const status = defaultAppStatus[group];
+          if (group === "html") {
+            const label = status === "default" ? "HTML ✓" : status === "partial" ? `HTML ${t("settings.defaultAppPartialSuffix")}` : "HTML ＋";
+            return view(status === "default" ? "ok" : "idle", false, label, "settings.defaultAppHtmlGuideAction");
+          }
           // 提示语默认复用状态词；未默认时改给动作（「设为默认」），因为这一
           // 枚是唯一真正能点的。
           const hintKey = status === "notDefault"
@@ -26343,6 +26348,10 @@ if (!chipTipController) {
       async function setDefaultAppFromPreferences(group) {
         if (!appState.isTauri || defaultAppSetting) return;
         if (group !== "markdown" && group !== "html") return;
+        if (group === "html" && !isWindowsPlatform()) {
+          showDefaultAppFinderFallbackDialog("html");
+          return;
+        }
         defaultAppSetting = group;
         renderDefaultAppStatusRow();
         let failed = false;
@@ -26436,20 +26445,21 @@ if (!chipTipController) {
       // 备用方法改为应用内弹窗示意图（GUI 反馈：纯文字 md 引导文件没有信息
       // 量，废弃该路径）。示意图由 Codex 生成的真实感单图提供
       // （assets/default-app-finder-guide.png）；图片缺失时以内置 SVG 线框兜底。
-      // 两个格式组共用同一张图：四步流程完全一致，图里的文件名只是示例；
-      // 随组变化的只有文案里的扩展名。
+      // HTML 使用独立四步图；Markdown 保留原图。
       function showDefaultAppFinderFallbackDialog(group = defaultAppFallbackGroup) {
         const { name, ext } = defaultAppFinderGroupCopy(group);
         const intro = formatTranslation("settings.defaultAppFinderIntro", { format: name, ext });
+        const title = t(group === "html" ? "settings.defaultAppHtmlGuideTitle" : "settings.defaultAppFallbackTitle");
+        const figure = group === "html" ? "assets/default-app-finder-guide-html.png" : "assets/default-app-finder-guide.png";
         injectExternalOpenStyles();
         const overlay = document.createElement("div");
         overlay.className = "external-open-prompt default-app-fallback-overlay";
         overlay.innerHTML = `
-          <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("settings.defaultAppFallbackTitle"))}">
-            <p class="external-open-prompt-title">${escapeHtml(t("settings.defaultAppFallbackTitle"))}</p>
+          <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+            <p class="external-open-prompt-title">${escapeHtml(title)}</p>
             <p class="external-open-prompt-desc">${escapeHtml(intro)}</p>
             <div class="default-app-fallback-figure">
-              <img src="assets/default-app-finder-guide.png" alt="${escapeHtml(intro)}" data-fallback-figure-img hidden />
+              <img src="${figure}" alt="${escapeHtml(intro)}" data-fallback-figure-img hidden />
             </div>
             <ol class="default-app-fallback-steps">
               <li>${escapeHtml(formatTranslation("settings.defaultAppFinderStep1", { ext }))}</li>
@@ -26463,7 +26473,10 @@ if (!chipTipController) {
           </div>
         `;
         document.body.appendChild(overlay);
-        const close = () => overlay.remove();
+        const close = () => {
+          overlay.remove();
+          refreshDefaultAppStatus();
+        };
         // 图存在 → 显示真图；缺失 → 内置 SVG 线框兜底（图片加载失败即换）。
         const figureEl = overlay.querySelector(".default-app-fallback-figure");
         const figureImg = overlay.querySelector("[data-fallback-figure-img]");

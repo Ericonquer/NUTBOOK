@@ -48,12 +48,7 @@
         "name": "NUTBOOK HTML",
         "description": "在 NUTBOOK 中以临时会话打开 HTML，并可加入资料库",
         "role": "Viewer",
-        "rank": "Alternate",
-        "contentTypes": ["com.hayley.nutbook.local-html"],
-        "exportedType": {
-          "identifier": "com.hayley.nutbook.local-html",
-          "conformsTo": ["public.html"]
-        }
+        "rank": "Alternate"
       }
     ],
     "resources": {
