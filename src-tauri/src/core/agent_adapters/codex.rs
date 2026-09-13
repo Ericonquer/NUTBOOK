@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    env,
-    fs,
+    env, fs,
     io::{BufRead, BufReader},
     path::{Component, Path, PathBuf},
 };
@@ -14,12 +13,13 @@ use sha2::{Digest, Sha256};
 use crate::{
     core::agent_adapters::AgentWorkspaceAdapter,
     errors::AppError,
-    models::{AgentArtifactEvent, AgentInstallation, AgentScopeDiscoveryPayload, DiscoveredAgentScope},
+    models::{
+        AgentArtifactEvent, AgentInstallation, AgentScopeDiscoveryPayload, DiscoveredAgentScope,
+    },
 };
 
 const ADAPTER_ID: &str = "codex";
-const ADAPTER_PROFILE: &str = "codex-local-0.146";
-const VERIFIED_CLI_VERSION: &str = "0.146.0-alpha.3.1";
+const ADAPTER_PROFILE: &str = "codex-local-contract-v1";
 const CAPABILITY_PROJECTS: &str = "project-only";
 const CAPABILITY_EVENTS: &str = "project-and-verified-events";
 const MAX_ROLLOUT_LINE_BYTES: usize = 8 * 1024 * 1024;
@@ -56,7 +56,6 @@ struct ThreadProjectRow {
 #[derive(Debug)]
 struct ProjectAccumulator {
     root_path: String,
-    cli_version: String,
     last_activity: i64,
     thread_ids: BTreeSet<String>,
 }
@@ -85,11 +84,7 @@ impl CodexAdapter {
                     adapter_id: ADAPTER_ID.to_string(),
                     adapter_profile: Some(ADAPTER_PROFILE.to_string()),
                     status: "ready".to_string(),
-                    capability: if version.as_deref() == Some(VERIFIED_CLI_VERSION) {
-                        CAPABILITY_EVENTS.to_string()
-                    } else {
-                        CAPABILITY_PROJECTS.to_string()
-                    },
+                    capability: CAPABILITY_EVENTS.to_string(),
                     cli_version: version,
                     error_kind: None,
                     error_message: None,
@@ -149,16 +144,14 @@ impl CodexAdapter {
                  FROM threads
                  WHERE thread_source = 'user'
                    AND source IN ('cli', 'vscode')
-                   AND cli_version = ?1
                    AND rollout_path IS NOT NULL
                  ORDER BY updated_at DESC",
             )
             .map_err(|_| AppError::DatabaseError)?;
         let rollout_paths = statement
-            .query_map(
-                rusqlite::params![VERIFIED_CLI_VERSION],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|_| AppError::DatabaseError)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| AppError::DatabaseError)?;
@@ -219,13 +212,10 @@ impl CodexAdapter {
             .map_err(|_| DiscoveryFailure::Unreadable)?;
 
         let mut projects = BTreeMap::<String, ProjectAccumulator>::new();
-        let mut observed_versions = BTreeSet::new();
+        let mut latest_version = None;
         for row in rows {
             let row = row.map_err(|_| DiscoveryFailure::Unreadable)?;
-            observed_versions.insert(row.cli_version.clone());
-            if row.cli_version != VERIFIED_CLI_VERSION {
-                continue;
-            }
+            latest_version.get_or_insert_with(|| row.cli_version.clone());
             let path = PathBuf::from(&row.cwd);
             let Ok(canonical) = fs::canonicalize(&path) else {
                 continue;
@@ -238,7 +228,6 @@ impl CodexAdapter {
                 .entry(normalized.clone())
                 .or_insert_with(|| ProjectAccumulator {
                     root_path: normalized,
-                    cli_version: row.cli_version.clone(),
                     last_activity: row.updated_at,
                     thread_ids: BTreeSet::new(),
                 });
@@ -246,14 +235,6 @@ impl CodexAdapter {
             entry.thread_ids.insert(row.id);
         }
 
-        if projects.is_empty() && !observed_versions.is_empty() {
-            return Err(DiscoveryFailure::UnsupportedFormat);
-        }
-        let version = observed_versions
-            .iter()
-            .find(|version| version.as_str() == VERIFIED_CLI_VERSION)
-            .cloned()
-            .or_else(|| observed_versions.iter().next().cloned());
         let mut discovered = projects
             .into_values()
             .map(project_from_accumulator)
@@ -264,7 +245,7 @@ impl CodexAdapter {
                 .cmp(&left.last_activity_at)
                 .then_with(|| left.root_path.cmp(&right.root_path))
         });
-        Ok((discovered, version))
+        Ok((discovered, latest_version))
     }
 
     fn find_state_database(&self) -> Option<PathBuf> {
@@ -306,15 +287,11 @@ impl CodexAdapter {
             if line.len() > MAX_ROLLOUT_LINE_BYTES {
                 return Err(AppError::InvalidParams);
             }
-            let record = serde_json::from_str::<Value>(&line).map_err(|_| AppError::InvalidParams)?;
+            let record =
+                serde_json::from_str::<Value>(&line).map_err(|_| AppError::InvalidParams)?;
             match record.get("type").and_then(Value::as_str) {
                 Some("session_meta") => {
                     let payload = record.get("payload").ok_or(AppError::InvalidParams)?;
-                    if payload.get("cli_version").and_then(Value::as_str)
-                        != Some(VERIFIED_CLI_VERSION)
-                    {
-                        return Err(AppError::InvalidParams);
-                    }
                     let cwd = payload
                         .get("cwd")
                         .and_then(Value::as_str)
@@ -331,37 +308,61 @@ impl CodexAdapter {
                 }
                 Some("event_msg") => {
                     let payload = record.get("payload").ok_or(AppError::InvalidParams)?;
-                    if payload.get("type").and_then(Value::as_str) != Some("patch_apply_end")
-                        || payload.get("success").and_then(Value::as_bool) != Some(true)
-                    {
-                        continue;
-                    }
-                    let call_id = payload
-                        .get("call_id")
-                        .and_then(Value::as_str)
-                        .ok_or(AppError::InvalidParams)?;
-                    let observed_at = record_timestamp(&record)?;
-                    let changes = payload
-                        .get("changes")
-                        .and_then(Value::as_object)
-                        .ok_or(AppError::InvalidParams)?;
-                    for absolute in changes.keys() {
-                        let Some(relative) = project_relative_path(&project_root, Path::new(absolute))
-                        else {
-                            continue;
-                        };
-                        events.push(AgentArtifactEvent {
-                            event_id: format!(
-                                "codex:{call_id}:{}:write",
-                                relative.replace('\\', "/")
-                            ),
-                            project_root: project_root.to_string_lossy().into_owned(),
-                            path: relative,
-                            kind: "created_by_agent_tool".to_string(),
-                            observed_at: observed_at.clone(),
-                            run_reference: session_id.clone().unwrap_or_default(),
-                            evidence_source: "successful_patch_apply_end".to_string(),
-                        });
+                    match payload.get("type").and_then(Value::as_str) {
+                        Some("patch_apply_end")
+                            if payload.get("success").and_then(Value::as_bool) == Some(true) =>
+                        {
+                            let call_id = payload
+                                .get("call_id")
+                                .and_then(Value::as_str)
+                                .ok_or(AppError::InvalidParams)?;
+                            let changes = payload
+                                .get("changes")
+                                .and_then(Value::as_object)
+                                .ok_or(AppError::InvalidParams)?;
+                            append_file_change_events(
+                                &mut events,
+                                &project_root,
+                                changes,
+                                call_id,
+                                &record_timestamp(&record)?,
+                                session_id.as_deref().unwrap_or_default(),
+                                "successful_patch_apply_end",
+                            );
+                        }
+                        Some("item_completed") => {
+                            let item = payload.get("item").and_then(Value::as_object);
+                            if item
+                                .and_then(|item| item.get("type"))
+                                .and_then(Value::as_str)
+                                != Some("FileChange")
+                                || item
+                                    .and_then(|item| item.get("status"))
+                                    .and_then(Value::as_str)
+                                    != Some("completed")
+                            {
+                                continue;
+                            }
+                            let item = item.ok_or(AppError::InvalidParams)?;
+                            let item_id = item
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .ok_or(AppError::InvalidParams)?;
+                            let changes = item
+                                .get("changes")
+                                .and_then(Value::as_object)
+                                .ok_or(AppError::InvalidParams)?;
+                            append_file_change_events(
+                                &mut events,
+                                &project_root,
+                                changes,
+                                item_id,
+                                &record_timestamp(&record)?,
+                                session_id.as_deref().unwrap_or_default(),
+                                "completed_file_change",
+                            );
+                        }
+                        _ => {}
                     }
                 }
                 Some("response_item") => {
@@ -390,8 +391,7 @@ impl CodexAdapter {
                             } else {
                                 project_root.join(linked_path)
                             };
-                            let Some(relative) =
-                                project_relative_path(&project_root, &absolute)
+                            let Some(relative) = project_relative_path(&project_root, &absolute)
                             else {
                                 continue;
                             };
@@ -419,6 +419,37 @@ impl CodexAdapter {
         events.sort_by(|left, right| left.event_id.cmp(&right.event_id));
         events.dedup_by(|left, right| left.event_id == right.event_id);
         Ok(events)
+    }
+}
+
+fn append_file_change_events(
+    events: &mut Vec<AgentArtifactEvent>,
+    project_root: &Path,
+    changes: &serde_json::Map<String, Value>,
+    change_id: &str,
+    observed_at: &str,
+    run_reference: &str,
+    evidence_source: &str,
+) {
+    for (absolute, change) in changes {
+        if !matches!(
+            change.get("type").and_then(Value::as_str),
+            Some("add" | "update")
+        ) {
+            continue;
+        }
+        let Some(relative) = project_relative_path(project_root, Path::new(absolute)) else {
+            continue;
+        };
+        events.push(AgentArtifactEvent {
+            event_id: format!("codex:{change_id}:{}:write", relative.replace('\\', "/")),
+            project_root: project_root.to_string_lossy().into_owned(),
+            path: relative,
+            kind: "created_by_agent_tool".to_string(),
+            observed_at: observed_at.to_string(),
+            run_reference: run_reference.to_string(),
+            evidence_source: evidence_source.to_string(),
+        });
     }
 }
 
@@ -475,11 +506,7 @@ fn project_from_accumulator(project: ProjectAccumulator) -> DiscoveredAgentScope
         root_path: project.root_path,
         display_name,
         last_activity_at,
-        capability: if project.cli_version == VERIFIED_CLI_VERSION {
-            CAPABILITY_EVENTS.to_string()
-        } else {
-            CAPABILITY_PROJECTS.to_string()
-        },
+        capability: CAPABILITY_EVENTS.to_string(),
         source_record_count: project.thread_ids.len().try_into().unwrap_or(u32::MAX),
     }
 }
@@ -538,7 +565,7 @@ mod tests {
     use serde_json::Value;
     use tempfile::tempdir;
 
-    use super::{CodexAdapter, ADAPTER_PROFILE, VERIFIED_CLI_VERSION};
+    use super::{CodexAdapter, ADAPTER_PROFILE};
 
     fn create_state_database(
         path: &Path,
@@ -548,8 +575,9 @@ mod tests {
     ) {
         let connection = Connection::open(path).expect("state database");
         if include_required_columns {
-            connection.execute_batch(
-                "CREATE TABLE threads (
+            connection
+                .execute_batch(
+                    "CREATE TABLE threads (
                     id TEXT PRIMARY KEY,
                     rollout_path TEXT NOT NULL,
                     updated_at INTEGER NOT NULL,
@@ -558,8 +586,8 @@ mod tests {
                     cli_version TEXT NOT NULL,
                     thread_source TEXT NOT NULL
                 );",
-            )
-            .expect("threads schema");
+                )
+                .expect("threads schema");
             connection
                 .execute(
                     "INSERT INTO threads (
@@ -582,8 +610,7 @@ mod tests {
     }
 
     fn fixture_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/agent-artifact-discovery")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/agent-artifact-discovery")
     }
 
     #[test]
@@ -592,17 +619,24 @@ mod tests {
         let project = root.path().join("sample-agent-project");
         fs::create_dir(&project).expect("project");
         let database = root.path().join("state_5.sqlite");
-        create_state_database(&database, &project, VERIFIED_CLI_VERSION, true);
-        let adapter = CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+        create_state_database(&database, &project, "0.146.0-alpha.3.1", true);
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
 
         let payload = adapter.discovery_payload();
 
         assert_eq!(payload.installations[0].status, "ready");
-        assert_eq!(payload.installations[0].adapter_profile.as_deref(), Some(ADAPTER_PROFILE));
+        assert_eq!(
+            payload.installations[0].adapter_profile.as_deref(),
+            Some(ADAPTER_PROFILE)
+        );
         assert_eq!(payload.scopes.len(), 1);
         assert_eq!(payload.scopes[0].scope_kind, "project");
         assert_eq!(payload.scopes[0].display_name, "sample-agent-project");
-        assert_eq!(payload.scopes[0].root_path, fs::canonicalize(project).unwrap().to_string_lossy());
+        assert_eq!(
+            payload.scopes[0].root_path,
+            fs::canonicalize(project).unwrap().to_string_lossy()
+        );
         assert_eq!(payload.scopes[0].last_activity_at, "2026-07-30T06:10:00Z");
     }
 
@@ -610,36 +644,46 @@ mod tests {
     fn agent_adapter_rejects_missing_required_thread_fields() {
         let root = tempdir().expect("temp root");
         let database = root.path().join("state_5.sqlite");
-        create_state_database(&database, root.path(), VERIFIED_CLI_VERSION, false);
-        let adapter = CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+        create_state_database(&database, root.path(), "0.146.0-alpha.3.1", false);
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
 
         let payload = adapter.discovery_payload();
 
         assert_eq!(payload.installations[0].status, "unsupported");
-        assert_eq!(payload.installations[0].error_kind.as_deref(), Some("unsupported_format"));
+        assert_eq!(
+            payload.installations[0].error_kind.as_deref(),
+            Some("unsupported_format")
+        );
         assert!(payload.scopes.is_empty());
     }
 
     #[test]
-    fn agent_adapter_rejects_unknown_cli_version_instead_of_guessing() {
+    fn agent_adapter_accepts_new_cli_versions_when_the_thread_contract_matches() {
         let root = tempdir().expect("temp root");
         let project = root.path().join("sample-agent-project");
         fs::create_dir(&project).expect("project");
         let database = root.path().join("state_5.sqlite");
         create_state_database(&database, &project, "0.147.0", true);
-        let adapter = CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
 
         let payload = adapter.discovery_payload();
 
-        assert_eq!(payload.installations[0].status, "unsupported");
-        assert!(payload.scopes.is_empty());
+        assert_eq!(payload.installations[0].status, "ready");
+        assert_eq!(
+            payload.installations[0].cli_version.as_deref(),
+            Some("0.147.0")
+        );
+        assert_eq!(payload.scopes.len(), 1);
     }
 
     #[test]
     fn agent_adapter_reports_unreadable_state_database() {
         let root = tempdir().expect("temp root");
         fs::create_dir(root.path().join("state_5.sqlite")).expect("database-shaped directory");
-        let adapter = CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
 
         let payload = adapter.discovery_payload();
 
@@ -664,10 +708,14 @@ mod tests {
         let source_text = fs::read_to_string(source_rollout).expect("source rollout");
         fs::write(
             &mapped_rollout,
-            source_text.replace("/workspace/sample-agent-project", &mapped_project.to_string_lossy()),
+            source_text.replace(
+                "/workspace/sample-agent-project",
+                &mapped_project.to_string_lossy(),
+            ),
         )
         .expect("mapped rollout");
-        let adapter = CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
 
         let events = adapter
             .parse_rollout_events(&mapped_project, &mapped_rollout)
@@ -688,6 +736,78 @@ mod tests {
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_pairs, expected_pairs);
+    }
+
+    #[test]
+    fn agent_adapter_parses_current_file_change_events_without_a_version_gate() {
+        let root = tempdir().expect("mapped fixture root");
+        let project = root.path().join("project");
+        fs::create_dir_all(project.join("docs")).expect("project");
+        fs::write(project.join("docs/report.md"), "# Report").expect("report");
+        let rollout = root.path().join("rollout.jsonl");
+        fs::write(
+            &rollout,
+            format!(
+                concat!(
+                    "{{\"timestamp\":\"2026-09-13T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"current-session\",\"cwd\":\"{}\",\"cli_version\":\"0.154.0-alpha.6.2\"}}}}\n",
+                    "{{\"timestamp\":\"2026-09-13T00:01:00.000Z\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"item_completed\",\"item\":{{\"type\":\"FileChange\",\"id\":\"file-change-1\",\"status\":\"completed\",\"changes\":{{\"{}/docs/report.md\":{{\"type\":\"update\"}},\"/tmp/outside.md\":{{\"type\":\"add\"}},\"{}/docs/deleted.md\":{{\"type\":\"delete\"}}}}}}}}}}\n"
+                ),
+                project.display(),
+                project.display(),
+                project.display(),
+            ),
+        )
+        .expect("rollout");
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+
+        let events = adapter
+            .parse_rollout_events(&project, &rollout)
+            .expect("current file change events");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].path, "docs/report.md");
+        assert_eq!(events[0].kind, "created_by_agent_tool");
+        assert_eq!(events[0].evidence_source, "completed_file_change");
+    }
+
+    #[test]
+    fn artifact_event_lookup_reads_current_versions_from_the_state_database() {
+        let root = tempdir().expect("temp root");
+        let project = root.path().join("project");
+        fs::create_dir_all(project.join("docs")).expect("project");
+        fs::write(project.join("docs/report.md"), "# Report").expect("report");
+        let database = root.path().join("state_5.sqlite");
+        create_state_database(&database, &project, "0.154.0-alpha.6.2", true);
+        let rollout = root.path().join("rollout.jsonl");
+        fs::write(
+            &rollout,
+            format!(
+                concat!(
+                    "{{\"timestamp\":\"2026-09-13T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"current-session\",\"cwd\":\"{}\"}}}}\n",
+                    "{{\"timestamp\":\"2026-09-13T00:01:00.000Z\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"item_completed\",\"item\":{{\"type\":\"FileChange\",\"id\":\"file-change-1\",\"status\":\"completed\",\"changes\":{{\"{}/docs/report.md\":{{\"type\":\"update\"}}}}}}}}}}\n"
+                ),
+                project.display(),
+                project.display(),
+            ),
+        )
+        .expect("rollout");
+        Connection::open(&database)
+            .expect("database")
+            .execute(
+                "UPDATE threads SET rollout_path = ?1",
+                [rollout.to_string_lossy().as_ref()],
+            )
+            .expect("rollout path");
+        let adapter =
+            CodexAdapter::with_roots(root.path().to_path_buf(), root.path().to_path_buf());
+
+        let events = adapter
+            .artifact_events_for_project(&project)
+            .expect("current-version events");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].path, "docs/report.md");
     }
 
     fn copy_fixture_project(source: &Path, target: &Path) {
