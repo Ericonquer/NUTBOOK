@@ -11,6 +11,63 @@ use crate::{
 };
 
 pub const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Bundle identities are part of the app-data contract.  Keep these literals
+/// in one place so the GUI, bundled CLI, and Windows single-instance bridge
+/// cannot accidentally select different roots for the same build channel.
+pub const RELEASE_APP_IDENTIFIER: &str = "com.hayley.nutbook";
+pub const DEBUG_APP_IDENTIFIER: &str = "com.hayley.nutbook.dev";
+
+/// Debug builds must not share the release app-data tree.  The GUI and the
+/// bundled CLI both pass their platform-selected base through this helper so
+/// the SQLite database, scoped-port registry, thumbnail cache, and IPC files
+/// stay in one isolated debug namespace.
+pub const DEBUG_APP_DATA_SUBDIR: &str = "dev";
+
+pub fn runtime_app_data_dir(base: PathBuf) -> PathBuf {
+    runtime_app_data_dir_for_channel(
+        base,
+        cfg!(debug_assertions),
+        env::var_os("NUTBOOK_APP_DATA_DIR").map(PathBuf::from),
+    )
+}
+
+fn runtime_app_data_dir_for_channel(
+    base: PathBuf,
+    is_debug: bool,
+    explicit_override: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(path) = explicit_override {
+        return path;
+    }
+    let base = app_data_base_for_channel(base, is_debug);
+    if is_debug {
+        base.join(DEBUG_APP_DATA_SUBDIR)
+    } else {
+        base
+    }
+}
+
+/// Normalize the platform-selected app-data base to the bundle identity for
+/// this build channel.  Tauri's GUI path already includes the configured
+/// identifier, while the standalone CLI and the Windows single-instance
+/// bridge construct their platform path from a release-era literal.  Using
+/// the parent directory as the stable platform root makes all three callers
+/// converge on `com.hayley.nutbook.dev/dev` in debug and leaves release paths
+/// unchanged.
+fn app_data_base_for_channel(base: PathBuf, is_debug: bool) -> PathBuf {
+    if !is_debug {
+        return base;
+    }
+    let Some(file_name) = base.file_name().and_then(|value| value.to_str()) else {
+        return base;
+    };
+    if !matches!(file_name, RELEASE_APP_IDENTIFIER | DEBUG_APP_IDENTIFIER) {
+        return base;
+    }
+    base.parent()
+        .map(|parent| parent.join(DEBUG_APP_IDENTIFIER))
+        .unwrap_or(base)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,18 +190,21 @@ pub fn default_app_data_dir() -> Result<PathBuf, CliFailure> {
     }
     #[cfg(target_os = "macos")]
     {
-        return home_dir().map(|home| home.join("Library/Application Support/com.hayley.nutbook"));
+        return home_dir()
+            .map(|home| runtime_app_data_dir(home.join("Library/Application Support").join(RELEASE_APP_IDENTIFIER)));
     }
     #[cfg(target_os = "windows")]
     {
         return env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
-            .map(|base| base.join("com.hayley.nutbook"))
+            .map(|base| base.join(RELEASE_APP_IDENTIFIER))
+            .map(runtime_app_data_dir)
             .ok_or_else(|| failure("app_data_unavailable", "LOCALAPPDATA is unavailable"));
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
-        home_dir().map(|home| home.join(".local/share/com.hayley.nutbook"))
+        home_dir()
+            .map(|home| runtime_app_data_dir(home.join(".local/share").join(RELEASE_APP_IDENTIFIER)))
     }
 }
 
@@ -549,6 +609,37 @@ fn database_failure(_: crate::errors::AppError) -> CliFailure { failure("operati
 mod tests {
     use super::*;
     use tempfile::{Builder, TempDir};
+
+    #[test]
+    fn runtime_app_data_dir_separates_debug_state_without_overriding_explicit_path() {
+        let platform_root = PathBuf::from("/tmp/nutbook-platform-data");
+        let base = platform_root.join(RELEASE_APP_IDENTIFIER);
+        assert_eq!(
+            runtime_app_data_dir_for_channel(base.clone(), true, None),
+            platform_root
+                .join(DEBUG_APP_IDENTIFIER)
+                .join(DEBUG_APP_DATA_SUBDIR)
+        );
+        assert_eq!(
+            runtime_app_data_dir_for_channel(base.clone(), false, None),
+            base
+        );
+        assert_eq!(
+            runtime_app_data_dir_for_channel(
+                platform_root.join(DEBUG_APP_IDENTIFIER),
+                true,
+                None,
+            ),
+            platform_root
+                .join(DEBUG_APP_IDENTIFIER)
+                .join(DEBUG_APP_DATA_SUBDIR)
+        );
+        let explicit = PathBuf::from("/tmp/nutbook-test-app-data");
+        assert_eq!(
+            runtime_app_data_dir_for_channel(base, true, Some(explicit.clone())),
+            explicit
+        );
+    }
 
     fn tempdir() -> std::io::Result<TempDir> {
         let canonical_temp = fs::canonicalize(env::temp_dir())?;

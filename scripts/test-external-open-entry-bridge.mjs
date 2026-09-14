@@ -1247,8 +1247,18 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /query_extension_handlers\(&app, &\["html", "htm"\]\)/,
-  "the html group must check .html and .htm separately"
+  /let html = query_html_viewer_handler\(\)\?;/,
+  "the html group must query its dedicated Viewer-role handler"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /LSSetDefaultRoleHandlerForContentType[\s\S]*?public\.html[\s\S]*?LS_ROLES_VIEWER/,
+  "setting HTML must use the public.html Viewer role, rather than changing URL schemes"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /fn query_html_viewer_handler\([\s\S]*?LSCopyDefaultRoleHandlerForContentType/,
+  "HTML status must read the same Viewer-role handler that the setter changes"
 );
 assert.match(
   DEFAULT_APPS_RS,
@@ -1275,8 +1285,8 @@ assert.match(
 // 6) 设为默认：显式点击主路径 + 取消/失败不标成功 + 失败展示 Finder 备用说明。
 assert.match(
   INDEX_HTML,
-  /async function setDefaultAppFromPreferences\(group\) \{[\s\S]*?if \(group !== "markdown" && group !== "html"\) return;[\s\S]*?await invoke\("set_default_app", \{ kind: group \}\)[\s\S]*?await refreshDefaultAppStatus\(\);[\s\S]*?removeAttribute\("hidden"\)/,
-  "the set-default flow must invoke set_default_app for the clicked group, then re-query the real status, and reveal the Finder fallback on failure"
+  /async function setDefaultAppFromPreferences\(group\) \{[\s\S]*?if \(group !== "markdown" && group !== "html"\) return;[\s\S]*?if \(group === "html" && !isWindowsPlatform\(\)\) \{[\s\S]*?showDefaultAppFinderFallbackDialog\("html"\);[\s\S]*?return;[\s\S]*?await invoke\("set_default_app", \{ kind: group \}\)[\s\S]*?await refreshDefaultAppStatus\(\);[\s\S]*?removeAttribute\("hidden"\)/,
+  "macOS HTML must open its Finder guide directly; the Markdown and Windows paths must still invoke the system action, re-query status, and reveal fallback on failure"
 );
 assert.match(
   INDEX_HTML,
@@ -1290,6 +1300,11 @@ assert.match(
 );
 assert.match(
   INDEX_HTML,
+  /if \(group === "html"\) \{[\s\S]{0,280}?return view\(status === "default" \? "ok" : "idle", false, label, "settings\.defaultAppHtmlGuideAction"\);/,
+  "the HTML pill must remain actionable in every queried state because it opens the Finder guide, not an unavailable unset-default action"
+);
+assert.match(
+  INDEX_HTML,
   /if \(status === "notDefault"\) \{[\s\S]{0,200}?return view\("idle", false, `\$\{name\} ＋`, hintKey\);/,
   "the not-default pill must be the actionable one (white pill + ink outline + plus sign)"
 );
@@ -1300,24 +1315,23 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
-  "the macOS main path must use NSWorkspace setDefaultApplicationAtURL:toOpenContentType: (probe-verified)"
-);
-// PR C 拆掉 PR B 的 HTML 边界：两个格式组各自映射到自己的声明 UTI。
-assert.match(
-  DEFAULT_APPS_RS,
-  /const MARKDOWN_UTI: &str = "net\.daringfireball\.markdown";[\s\S]{0,520}?const HTML_UTI: &str = "public\.html";/,
-  "the HTML group must target public.html, the UTI declared in the bundled Info.plist"
+  /setDefaultApplicationAtURL_toOpenContentTypeOfFileAtURL_completionHandler/,
+  "the Markdown path must use NSWorkspace's file-probe confirmation flow"
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /fn default_app_uti_for_kind\(kind: &str\) -> Option<&\x27static str> \{[\s\S]*?"markdown" => Some\(MARKDOWN_UTI\)[\s\S]*?"html" => Some\(HTML_UTI\)[\s\S]*?_ => None,/,
-  "both groups must map to their own UTI; unknown kinds must resolve to None instead of silently landing on a group"
+  /if kind == "html" \{[\s\S]{0,160}?set_default_html_viewer_handler\(\)/,
+  "the HTML group must take the dedicated Viewer-role path"
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /match default_app_uti_for_kind\(kind\.as_str\(\)\) \{[\s\S]{0,200}?Some\(uti\) => set_default_app_macos\(&app, uti\)[\s\S]{0,260}?None => Err\(AppError::InvalidParams\),/,
-  "set_default_app must dispatch the clicked group to its declared UTI and reject unknown kinds"
+  /fn set_default_html_viewer_handler\(\)[\s\S]*?LSSetDefaultRoleHandlerForContentType[\s\S]*?public\.html[\s\S]*?LS_ROLES_VIEWER/,
+  "HTML must change only public.html's Viewer role"
+);
+assert.match(
+  DEFAULT_APPS_RS,
+  /match default_app_probe_extension_for_kind\(kind\.as_str\(\)\) \{[\s\S]{0,200}?Some\(extension\) => set_default_app_macos\(&app, extension\)[\s\S]{0,260}?None => Err\(AppError::InvalidParams\),/,
+  "Markdown must use its file probe and unknown kinds must be rejected"
 );
 assert.doesNotMatch(
   DEFAULT_APPS_RS,
@@ -1455,8 +1469,8 @@ assert.doesNotMatch(
 );
 assert.match(
   INDEX_HTML,
-  /\.external-open-prompt\.default-app-fallback-overlay \{[\s\S]{0,200}?z-index: 560;/,
-  "the fallback dialog must stack above the settings window (z-index 540); the two-class selector is required because injectExternalOpenStyles() re-injects .external-open-prompt (z-index 90) later in the DOM, which would override a same-specificity static rule"
+  /\.external-open-prompt\.default-app-fallback-overlay,\s*\.external-open-prompt\.default-app-guide-overlay\s*\{[\s\S]{0,200}?z-index: 560;/,
+  "both default-app dialogs must stack above the settings window (z-index 540); their two-class selectors are required because injectExternalOpenStyles() re-injects .external-open-prompt (z-index 90) later in the DOM, which would override a same-specificity static rule"
 );
 assert.doesNotMatch(
   INDEX_HTML,
@@ -1488,7 +1502,7 @@ assert.match(
 );
 assert.match(
   DEFAULT_APPS_RS,
-  /async fn set_default_app_macos\(app: &tauri::AppHandle, uti: &'static str\)[\s\S]*?tauri::async_runtime::channel[\s\S]*?app\.run_on_main_thread\(move \|\| \{[\s\S]*?setDefaultApplicationAtURL_toOpenContentType_completionHandler/,
+  /async fn set_default_app_macos\(app: &tauri::AppHandle, extension: &'static str\)[\s\S]*?tauri::async_runtime::channel[\s\S]*?app\.run_on_main_thread\(move \|\| \{[\s\S]*?setDefaultApplicationAtURL_toOpenContentTypeOfFileAtURL_completionHandler/,
   "the AppKit launch must stay on the main thread and only start the request, never wait there"
 );
 assert.match(
@@ -1630,6 +1644,7 @@ function makeDefaultAppRow({ buttons, isTauri = true, windows = false, status = 
     defaultAppFallbackGroup: fallbackGroup,
     defaultAppStatusSerial: 0,
     finderNoteRevealed: false,
+    finderGuideGroups: [],
     windowsNoteHidden: false,
     statuses: [],
     invoked: [],
@@ -1637,6 +1652,7 @@ function makeDefaultAppRow({ buttons, isTauri = true, windows = false, status = 
     t: (key) => key,
     setStatus: (message, kind) => ctx.statuses.push({ message, kind }),
     normalizeError: (error) => String(error?.code || error),
+    showDefaultAppFinderFallbackDialog: (group) => ctx.finderGuideGroups.push(group),
     invoke: async () => null,
     refreshDefaultAppStatus: async () => { ctx.refreshed += 1; }
   };
@@ -1721,28 +1737,18 @@ async function runSetDefaultScenario({ windows = false, invokeError, outcome, gr
 }
 
 {
-  // a) macOS 四态映射：状态只来自真实查询，逐态核对可点性与文案。
+  // a) macOS 状态映射：Markdown 只能执行真实的“设为默认”操作；HTML 一律打开
+  // Finder 指引，所以即使已默认也保持可点，不能把 Markdown 的禁用规则套过去。
   const both = await runRenderScenario({ status: { markdown: "default", html: "default" } });
-  for (const group of ["markdown", "html"]) {
-    const button = both.buttons[group];
-    const name = group === "markdown" ? "Markdown" : "HTML";
-    assert.equal(
-      button.className,
-      "default-app-button default-app-button--ok",
-      `${group}: a default group must render the disabled checked pill`
-    );
-    assert.equal(
-      button.disabled,
-      true,
-      `${group}: the already-default pill must be disabled — macOS has no "unset default" API, so a clickable pill there would be a lie`
-    );
-    assert.equal(button.textContent, `${name} ✓`, `${group}: the default pill must show the check`);
-    assert.equal(
-      button.attributes.title,
-      "settings.defaultAppStatusDefault",
-      `${group}: the tooltip must be the real status sentence`
-    );
-  }
+  assert.equal(both.buttons.markdown.className, "default-app-button default-app-button--ok", "Markdown: an already-default group must render the checked pill");
+  assert.equal(both.buttons.markdown.disabled, true, "Markdown: macOS has no unset-default API, so the already-default pill must be disabled");
+  assert.equal(both.buttons.markdown.textContent, "Markdown ✓", "Markdown: the default pill must show the check");
+  assert.equal(both.buttons.markdown.attributes.title, "settings.defaultAppStatusDefault", "Markdown: the tooltip must be the real status sentence");
+
+  assert.equal(both.buttons.html.className, "default-app-button default-app-button--ok", "HTML: an already-default group must render the checked pill");
+  assert.equal(both.buttons.html.disabled, false, "HTML: the Finder guide must stay available even after HTML is already default");
+  assert.equal(both.buttons.html.textContent, "HTML ✓", "HTML: the default pill must show the check");
+  assert.equal(both.buttons.html.attributes.title, "settings.defaultAppHtmlGuideAction", "HTML: the tooltip must describe the Finder guide action");
 
   const notDefault = await runRenderScenario({ status: { markdown: "notDefault", html: "default" } });
   assert.equal(
@@ -1762,7 +1768,7 @@ async function runSetDefaultScenario({ windows = false, invokeError, outcome, gr
     "default-app-button default-app-button--ok",
     "the other group must keep its own state"
   );
-  assert.equal(notDefault.buttons.html.disabled, true, "the other group must stay disabled while it is already default");
+  assert.equal(notDefault.buttons.html.disabled, false, "the HTML Finder guide must stay actionable while HTML is already default");
 
   const partial = await runRenderScenario({ status: { markdown: "partial", html: "notDefault" } });
   assert.equal(
@@ -1783,16 +1789,13 @@ async function runSetDefaultScenario({ windows = false, invokeError, outcome, gr
   );
 
   const unknown = await runRenderScenario({ status: { markdown: "unknown", html: "unknown" } });
-  for (const group of ["markdown", "html"]) {
-    const button = unknown.buttons[group];
-    assert.equal(button.className, "default-app-button default-app-button--muted", `${group}: an unconfirmable status must render the grey pill`);
-    assert.equal(button.disabled, true, `${group}: an unconfirmable status must never be clickable`);
-    assert.equal(
-      button.textContent,
-      group === "markdown" ? "Markdown" : "HTML",
-      `${group}: no status symbol may be invented when the status is unknown`
-    );
-  }
+  assert.equal(unknown.buttons.markdown.className, "default-app-button default-app-button--muted", "Markdown: an unconfirmable status must render the grey pill");
+  assert.equal(unknown.buttons.markdown.disabled, true, "Markdown: an unconfirmable status must never be clickable");
+  assert.equal(unknown.buttons.markdown.textContent, "Markdown", "Markdown: no status symbol may be invented when status is unknown");
+  assert.equal(unknown.buttons.html.className, "default-app-button default-app-button--idle", "HTML: the Finder guide remains available when status is unknown");
+  assert.equal(unknown.buttons.html.disabled, false, "HTML: an unknown status must not hide the Finder guide");
+  assert.equal(unknown.buttons.html.textContent, "HTML ＋", "HTML: unknown status must not invent a check mark");
+  assert.equal(unknown.buttons.html.attributes.title, "settings.defaultAppHtmlGuideAction", "HTML: unknown status must still describe the Finder guide action");
 
   const loading = await runRenderScenario({ status: null });
   assert.equal(
@@ -1894,24 +1897,16 @@ async function runSetDefaultScenario({ windows = false, invokeError, outcome, gr
   );
   assert.equal(b.ctx.finderNoteRevealed, false, "a Windows failure must not reveal the Finder fallback note");
 
-  // g) macOS 失败（非取消）：Finder 备用说明出现，并记住失败的是哪一组——
-  //    否则 HTML 组失败时，引导步骤会写着 .md。
+  // g) macOS HTML：此路线不再调用会同时改 HTTP/HTTPS 的系统默认设置 API，
+  //    而是直接打开按 .html 说明的 Finder 引导；状态为何都不影响入口可用。
   const c = await runSetDefaultScenario({
-    invokeError: { code: "DEFAULT_APP_ACTION_FAILED" },
     group: "html",
     status: { markdown: "notDefault", html: "notDefault" }
   });
-  assert.equal(c.ctx.finderNoteRevealed, true, "a macOS failure must reveal the in-app Finder fallback note");
-  assert.equal(
-    c.ctx.defaultAppFallbackGroup,
-    "html",
-    "the fallback guide must remember which group failed, so its steps name the right extension"
-  );
-  assert.deepEqual(
-    c.ctx.invoked.map(([command, args]) => [command, args.kind]),
-    [["set_default_app", "html"]],
-    "the HTML pill must invoke set_default_app with kind=html"
-  );
+  assert.deepEqual(c.ctx.finderGuideGroups, ["html"], "the macOS HTML pill must open the .html Finder guide directly");
+  assert.deepEqual(c.ctx.invoked, [], "the macOS HTML guide must not invoke the system default-app setter");
+  assert.equal(c.ctx.finderNoteRevealed, false, "opening the HTML guide is a primary action, not a failed fallback");
+  assert.equal(c.ctx.refreshed, 0, "the HTML guide does not change a system association, so it must not re-query status");
 
   // h) macOS 取消：中性取消提示，Finder 说明不出现；重查保留真实状态。
   const d = await runSetDefaultScenario({
@@ -1993,10 +1988,21 @@ async function runGuideScenario({ windows, outcome }) {
   };
   vm.createContext(ctx);
   await vm.runInContext(`${guideHelper}\nshowDefaultAppGuideOverlay()`, ctx);
+  assert.equal(
+    overlay.className,
+    "external-open-prompt default-app-guide-overlay",
+    "the first-run default-app guide must use the window-level overlay layer"
+  );
   assert.ok(clickHandler, "the guide primary button must register a click handler");
   await clickHandler();
   return { statuses, ctx };
 }
+
+assert.match(
+  INDEX_HTML,
+  /\.external-open-prompt\.default-app-fallback-overlay,\s*\.external-open-prompt\.default-app-guide-overlay\s*\{[\s\S]*?z-index:\s*560;[\s\S]*?align-items:\s*center;[\s\S]*?pointer-events:\s*auto;/,
+  "both default-app dialogs must override the injected external-prompt content layer"
+);
 
 {
   const win = await runGuideScenario({ windows: true, outcome: "systemSettings" });

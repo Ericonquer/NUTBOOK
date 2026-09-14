@@ -248,7 +248,7 @@ nutbook doctor [--json]
 
 | 依赖           | 建议版本         | 用途                          |
 | ------------ | ------------ | --------------------------- |
-| Node.js      | 18+          | 安装前端依赖、构建 Markdown 编辑器和前端资源 |
+| Node.js      | 22.x         | 安装前端依赖、构建 Markdown 编辑器和前端资源 |
 | npm          | 随 Node.js 安装 | 执行前端构建脚本                    |
 | Rust / Cargo | stable       | 编译和检查 Tauri 后端              |
 | Tauri CLI    | 2.x          | 启动或构建桌面应用                   |
@@ -262,6 +262,17 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 Markdown 编辑器构建会执行兼容补丁，请不要跳过 `npm run build:frontend`。
+
+提交 PR 或创建 release tag 前，请先切换到 Node 22（安装 `.nvmrc` 指定版本后执行
+`nvm use`），再运行：
+
+```bash
+npm run check:ci
+```
+
+该命令会重新安装依赖、安装 Chromium，并执行与 macOS CI 相同的质量门槛；Windows
+编译检查仍由远程 CI 执行。只有两个必需 CI 检查均成功，release tag 才会创建草稿
+Release。
 
 ### 缩略图引擎
 
@@ -328,6 +339,19 @@ NUTBOOK 仍然保持聚焦：
 NUTBOOK 更像一个“AI 产物整理台”和“本地展示资料库”，而不是团队内容平台或开发 IDE。
 
 ## 版本更新
+
+### 1.0.0：首个正式版
+
+NUTBOOK 1.0.0 汇集本地产物接入、Markdown / HTML 阅读与轻编辑，以及演示能力。
+
+* 从系统打开 Markdown 或 HTML，先进入临时会话，需要时再加入资料库。
+* 文件夹接入前预览范围，并同步外部文件变化。
+* 原生右键菜单提供文件操作、文本编辑、正文搜索和关闭标签页。
+* 原生文件、文件夹和图片对话框中的应用文案支持中英文；系统控件遵循操作系统的应用语言设置。
+* nbskill 默认安静登记，同一轮的中间修改合并到交付前处理。显式 CLI 接入与 manifest 登记保持独立。
+
+DeepSeek Harness 接入延后到后续版本。
+
 
 ### 0.8.0：从手动找文件，到接入 Agent 项目与任务产物
 

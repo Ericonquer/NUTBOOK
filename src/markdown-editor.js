@@ -1566,6 +1566,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   let insertMenuVisible = false;
   let insertMenuOpen = false;
   let insertMenuSelection = null;
+  let insertMenuHost = null;
   let imageAlignToolbar = null;
   let imageAlignFrame = null;
   let activeImageTarget = null;
@@ -2488,10 +2489,31 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     return menu;
   }
 
+  // The shell renders the overlay host as a sibling of the editor card. A
+  // plain `root.closest("[data-markdown-shell-overlay]")` therefore misses it
+  // and silently falls back to the document shell, putting the trigger back in
+  // the outline's stacking context. Resolve from the candidate itself first,
+  // then from its containing shell, so fresh and preserved sessions use the
+  // same portal host.
+  function resolveInsertMenuHost(candidate = null) {
+    const directHost = candidate?.matches?.("[data-markdown-shell-overlay]")
+      ? candidate
+      : candidate?.querySelector?.("[data-markdown-shell-overlay]");
+    if (directHost) return directHost;
+    const shell = candidate?.matches?.(".markdown-document-shell")
+      ? candidate
+      : candidate?.closest?.(".markdown-document-shell")
+        || root.closest(".markdown-document-shell");
+    return shell?.querySelector?.("[data-markdown-shell-overlay]")
+      || shell
+      || root;
+  }
+
   function setupInsertMenu() {
     if (insertMenu) return;
     insertMenu = createInsertMenu();
-    root.appendChild(insertMenu);
+    insertMenuHost = resolveInsertMenuHost();
+    insertMenuHost.appendChild(insertMenu);
     ["keyup", "mouseup", "focusin", "pointerup"].forEach((eventName) => {
       root.addEventListener(eventName, scheduleInsertMenuUpdate, true);
     });
@@ -2541,6 +2563,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   function updateInsertMenu() {
     insertMenuFrame = null;
     if (!insertMenu || !editorReady) return;
+    if (!insertMenuHost?.isConnected || insertMenu.parentNode !== insertMenuHost) {
+      insertMenuHost = resolveInsertMenuHost();
+      insertMenuHost.appendChild(insertMenu);
+    }
     if (isEditorComposing()) return;
     const view = getEditorView();
     const target = emptyParagraphSelection(view);
@@ -2556,7 +2582,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       hideInsertMenu();
       return;
     }
-    const rootRect = root.getBoundingClientRect();
+    const rootRect = insertMenuHost.getBoundingClientRect();
     const paragraphRect = activeEmptyParagraphElement(view)?.getBoundingClientRect();
     const anchorLeft = paragraphRect?.left ?? cursorRect.left;
     const left = anchorLeft - rootRect.left - 34;
@@ -4004,6 +4030,19 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         ctx.get(editorViewCtx).dom.blur();
       });
     },
+    // The insert controls live in the document-shell overlay rather than in
+    // Milkdown.  A preserved editor session can be moved into a freshly
+    // rendered shell, so the host rebind is explicit and does not touch PM
+    // selection/history state.
+    rebindInsertMenuHost(host = null) {
+      if (destroyed || !insertMenu) return false;
+      insertMenuHost = resolveInsertMenuHost(host);
+      if (insertMenu.parentNode !== insertMenuHost) {
+        insertMenuHost.appendChild(insertMenu);
+      }
+      scheduleInsertMenuUpdate();
+      return true;
+    },
     focusAtText(anchorText, offsetHint = 0) {
       if (destroyed) return false;
       const normalizedAnchor = normalizeText(anchorText);
@@ -4098,6 +4137,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         root.removeEventListener("focusout", scheduleInsertMenuHideAfterBlur, true);
         insertMenu.remove();
         insertMenu = null;
+        insertMenuHost = null;
       }
       if (imageAlignFrame) {
         cancelAnimationFrame(imageAlignFrame);

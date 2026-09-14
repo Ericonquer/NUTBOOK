@@ -18,24 +18,12 @@ use serde::Serialize;
 
 use crate::errors::AppError;
 
-/// Markdown 的声明 UTI（与打包 Info.plist 文件关联一致；探针已实测）。
+/// Markdown 的真实文件探针扩展名。HTML 不能走 AppKit 的 content-type
+/// 默认应用接口，否则 macOS 会一并改写网页协议。
 #[cfg(target_os = "macos")]
-const MARKDOWN_UTI: &str = "net.daringfireball.markdown";
-
-/// HTML 的声明 UTI。打包 Info.plist 的 CFBundleDocumentTypes 已声明
-/// html/htm → public.html（PR C 加入关联），与 `default_app_status` 的
-/// 扩展名组 [.html, .htm] 一致。
-#[cfg(target_os = "macos")]
-const HTML_UTI: &str = "public.html";
-
-/// kind → 作用 UTI 的纯映射。抽出来是为了让「哪个 kind 落到哪个 UTI」可被
-/// 单测覆盖：AppKit 调用本身在单测里跑不了，但分派错误（例如 html 被拒）
-/// 正是本轮要修的缺陷形态。
-#[cfg(target_os = "macos")]
-pub(crate) fn default_app_uti_for_kind(kind: &str) -> Option<&'static str> {
+pub(crate) fn default_app_probe_extension_for_kind(kind: &str) -> Option<&'static str> {
     match kind {
-        "markdown" => Some(MARKDOWN_UTI),
-        "html" => Some(HTML_UTI),
+        "markdown" => Some("md"),
         _ => None,
     }
 }
@@ -89,7 +77,7 @@ pub fn default_app_status(app: tauri::AppHandle) -> Result<DefaultAppStatusPaylo
         let _ = &app;
         let markdown =
             aggregate_group_status(&query_extension_handlers(&app, &["md", "markdown"])?);
-        let html = aggregate_group_status(&query_extension_handlers(&app, &["html", "htm"])?);
+        let html = query_html_viewer_handler()?;
         Ok(DefaultAppStatusPayload { markdown, html })
     }
     #[cfg(not(target_os = "macos"))]
@@ -116,6 +104,15 @@ pub enum SetDefaultAppMode {
     /// Windows：系统设置页（ms-settings:defaultapps）已打开，由用户在系统
     /// 页面手动设置；最终结果以之后的真实查询为准。
     SystemSettings,
+}
+
+/// A development build has a deliberately different bundle identity and no
+/// declared file associations.  It must therefore never mutate LaunchServices
+/// (or open the Windows default-app settings flow as if it were a releasable
+/// handler).  Keep this check at the command boundary so every platform
+/// setter is protected by the same contract.
+fn default_app_mutation_allowed() -> bool {
+    !cfg!(debug_assertions)
 }
 
 /// 系统回调携带的原始 NSError 信息（分类前的证据形态）。
@@ -151,24 +148,35 @@ pub(crate) fn settle_default_app_adjudication(
 }
 
 /// 用户显式点击「设为默认」后发起系统默认应用变更。
-/// kind = "markdown" / "html"，两者各自独立作用到对应 UTI。
+/// Markdown 走 AppKit；HTML 仅设置 public.html 的 Viewer role，以保留网页
+/// 浏览器对 http / https 的 handler。
 #[tauri::command]
 pub async fn set_default_app(
     app: tauri::AppHandle,
     kind: String,
 ) -> Result<SetDefaultAppMode, AppError> {
+    if !default_app_mutation_allowed() {
+        return Err(AppError::DefaultAppActionFailed(
+            "default app changes are disabled in development builds".to_string(),
+        ));
+    }
     #[cfg(target_os = "macos")]
-    match default_app_uti_for_kind(kind.as_str()) {
-        Some(uti) => set_default_app_macos(&app, uti)
-            .await
-            .map(|()| SetDefaultAppMode::SystemDialog),
-        None => Err(AppError::InvalidParams),
+    {
+        if kind == "html" {
+            return set_default_html_viewer_handler().map(|()| SetDefaultAppMode::SystemDialog);
+        }
+        match default_app_probe_extension_for_kind(kind.as_str()) {
+            Some(extension) => set_default_app_macos(&app, extension)
+                .await
+                .map(|()| SetDefaultAppMode::SystemDialog),
+            None => Err(AppError::InvalidParams),
+        }
     }
     #[cfg(target_os = "windows")]
     {
         // Codex R4：Windows 主路径直接打开系统默认应用设置页（§7.3），
         // 不走 macOS 确认对话框，也不落回 Finder 说明。
-        let _ = kind;
+        let _ = (app, kind);
         let status = std::process::Command::new("explorer.exe")
             .arg("ms-settings:defaultapps")
             .status()
@@ -187,15 +195,17 @@ pub async fn set_default_app(
     }
 }
 
-/// 按 UTI 发起系统默认应用变更（Markdown / HTML 共用同一条 AppKit 链路）。
-/// `uti` 必须是 `'static`，NSString 在闭包内构造——objc2 的可保留类型不满足
-/// Send，跨线程前构造会被编译器拒绝。
+/// 按真实 Markdown 探针文件发起系统默认应用变更。
 #[cfg(target_os = "macos")]
-async fn set_default_app_macos(app: &tauri::AppHandle, uti: &'static str) -> Result<(), AppError> {
+async fn set_default_app_macos(app: &tauri::AppHandle, extension: &'static str) -> Result<(), AppError> {
     use objc2_app_kit::NSWorkspace;
-    use objc2_foundation::{NSBundle, NSError, NSString};
-    use objc2_uniform_type_identifiers::UTType;
+    use objc2_foundation::{NSBundle, NSError, NSString, NSURL};
     use tauri::async_runtime::channel;
+
+    if !ensure_check_file(extension) {
+        return Err(AppError::IoError);
+    }
+    let probe_path = check_file_path(extension).ok_or(AppError::IoError)?;
 
     let (tx, mut rx) = channel::<Result<(), AppError>>(1);
     // Codex R4 P1：AppKit 调用必须发生在主线程，但这里只「发起」请求并立即
@@ -204,11 +214,9 @@ async fn set_default_app_macos(app: &tauri::AppHandle, uti: &'static str) -> Res
     let dispatch_result = app.run_on_main_thread(move || {
         let workspace = NSWorkspace::sharedWorkspace();
         let app_url = NSBundle::mainBundle().bundleURL();
-        let content_type = UTType::typeWithIdentifier(&NSString::from_str(uti));
-        let Some(content_type) = content_type else {
-            let _ = tx.blocking_send(Err(AppError::InternalError));
-            return;
-        };
+        let probe_url = NSURL::fileURLWithPath(&NSString::from_str(
+            probe_path.to_string_lossy().as_ref(),
+        ));
         // 系统确认对话框：error nil → 成功；取消（NSUserCancelledError）→
         // 中性取消；其余 → 失败并携带 domain/code 证据。完成后由前端重新
         // 查询真实状态兜底，取消/失败不会被标为成功。
@@ -222,9 +230,9 @@ async fn set_default_app_macos(app: &tauri::AppHandle, uti: &'static str) -> Res
             };
             let _ = tx.blocking_send(settle_default_app_adjudication(raw));
         });
-        workspace.setDefaultApplicationAtURL_toOpenContentType_completionHandler(
+        workspace.setDefaultApplicationAtURL_toOpenContentTypeOfFileAtURL_completionHandler(
             &app_url,
-            &content_type,
+            &probe_url,
             Some(&completion),
         );
     });
@@ -286,6 +294,70 @@ fn query_extension_handlers(
         return Err(AppError::InternalError);
     }
     rx.recv().map_err(|_| AppError::InternalError)
+}
+
+// AppKit 的 content-type setter 对 public.html 会污染全局网页 handler。这里
+// 使用 LaunchServices 的 Viewer role，让 Finder 的 HTML 打开方式与浏览器的
+// http / https URL scheme handler 保持分离。
+#[cfg(target_os = "macos")]
+const LS_ROLES_VIEWER: u32 = 0x0000_0002;
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreServices", kind = "framework")]
+unsafe extern "C" {
+    fn LSSetDefaultRoleHandlerForContentType(
+        in_content_type: core_foundation::string::CFStringRef,
+        in_role: u32,
+        in_handler_bundle_id: core_foundation::string::CFStringRef,
+    ) -> i32;
+    fn LSCopyDefaultRoleHandlerForContentType(
+        in_content_type: core_foundation::string::CFStringRef,
+        in_role: u32,
+    ) -> core_foundation::string::CFStringRef;
+}
+
+#[cfg(target_os = "macos")]
+fn set_default_html_viewer_handler() -> Result<(), AppError> {
+    use core_foundation::{base::TCFType, string::CFString};
+
+    let content_type = CFString::new("public.html");
+    let bundle_id = CFString::new("com.hayley.nutbook");
+    let status = unsafe {
+        LSSetDefaultRoleHandlerForContentType(
+            content_type.as_concrete_TypeRef(),
+            LS_ROLES_VIEWER,
+            bundle_id.as_concrete_TypeRef(),
+        )
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(AppError::DefaultAppActionFailed(format!(
+            "LaunchServices viewer role error {status}"
+        )))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn query_html_viewer_handler() -> Result<DefaultAppGroupStatus, AppError> {
+    use core_foundation::{base::TCFType, string::CFString};
+
+    let content_type = CFString::new("public.html");
+    let handler = unsafe {
+        LSCopyDefaultRoleHandlerForContentType(
+            content_type.as_concrete_TypeRef(),
+            LS_ROLES_VIEWER,
+        )
+    };
+    if handler.is_null() {
+        return Ok(DefaultAppGroupStatus::Unknown);
+    }
+    let handler = unsafe { CFString::wrap_under_create_rule(handler) };
+    Ok(if handler.to_string() == "com.hayley.nutbook" {
+        DefaultAppGroupStatus::Default
+    } else {
+        DefaultAppGroupStatus::NotDefault
+    })
 }
 
 /// 在 app-owned data 目录内准备零字节检查文件（不入库、不记最近）。
@@ -357,10 +429,27 @@ mod default_app_status_tests {
     }
 }
 
+#[cfg(test)]
+mod default_app_mutation_tests {
+    use super::default_app_mutation_allowed;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_builds_cannot_mutate_default_handlers() {
+        assert!(!default_app_mutation_allowed());
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_builds_can_mutate_default_handlers() {
+        assert!(default_app_mutation_allowed());
+    }
+}
+
 // Codex R4：延迟回调 / 取消 / 失败的行为测试（非源码字符串断言）。
 #[cfg(all(test, target_os = "macos"))]
 mod default_app_set_tests {
-    use super::{default_app_uti_for_kind, settle_default_app_adjudication, RawAdjudicationError};
+    use super::{default_app_probe_extension_for_kind, settle_default_app_adjudication, RawAdjudicationError};
     use crate::errors::AppError;
 
     fn raw(domain: &str, code: i64) -> RawAdjudicationError {
@@ -372,18 +461,16 @@ mod default_app_set_tests {
     }
 
     #[test]
-    fn kind_maps_to_the_declared_uti_per_group() {
-        // 本轮修复的缺陷形态：`html` 曾被直接拒绝（UnsupportedFileType），
-        // 界面上 HTML 那一组因此永远没有可用入口。两个 kind 必须各自落到
-        // 打包 Info.plist 里声明的 UTI，且互不串组。
+    fn kind_maps_to_a_real_file_probe_per_group() {
+        // HTML 走 LaunchServices Viewer role，不能走会污染网页协议的 AppKit
+        // content-type setter。
         assert_eq!(
-            default_app_uti_for_kind("markdown"),
-            Some("net.daringfireball.markdown")
+            default_app_probe_extension_for_kind("markdown"),
+            Some("md")
         );
-        assert_eq!(default_app_uti_for_kind("html"), Some("public.html"));
-        assert_ne!(
-            default_app_uti_for_kind("markdown"),
-            default_app_uti_for_kind("html")
+        assert_eq!(
+            default_app_probe_extension_for_kind("html"),
+            None
         );
     }
 
@@ -393,7 +480,7 @@ mod default_app_set_tests {
         // Markdown 或 HTML，否则错误调用会改掉用户没指定的格式关联。
         for kind in ["", "Markdown", "HTML", "md", "pdf", "../html"] {
             assert_eq!(
-                default_app_uti_for_kind(kind),
+                default_app_probe_extension_for_kind(kind),
                 None,
                 "kind {kind:?} must not resolve to a UTI"
             );

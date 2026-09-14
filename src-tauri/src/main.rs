@@ -1,15 +1,19 @@
-use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::{Path, PathBuf}, sync::Mutex, time::Duration};
+use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::PathBuf, sync::Mutex, time::Duration};
 
 use nutbook_backend::core::external_open;
 #[cfg(target_os = "windows")]
 use nutbook_backend::core::cli::forward_external_open_via_ipc;
 use nutbook_backend::{
     commands,
-    core::cli::deploy_bundled_cli,
+    core::cli::{deploy_bundled_cli, runtime_app_data_dir},
     core::html_runtime::dispatch_html_runtime_shortcut,
     db::Database,
+    errors::AppError,
+    models::AgentScopeDiscoveryPayload,
     state::AppState,
 };
+#[cfg(target_os = "windows")]
+use nutbook_backend::core::cli::RELEASE_APP_IDENTIFIER;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder},
     Emitter, Manager,
@@ -61,6 +65,58 @@ fn finalize_html_edit_app_exit_command(
         *allow_exit_once = true;
     }
     app.exit(0);
+}
+
+fn map_agent_discovery_error(
+    database_path: &std::path::Path,
+    operation: &str,
+    error: AppError,
+) -> AppError {
+    match error {
+        AppError::DatabaseError => {
+            AppError::agent_discovery_database_unavailable(database_path, operation)
+        }
+        other => other,
+    }
+}
+
+#[tauri::command]
+async fn discover_agent_projects(
+    state: tauri::State<'_, AppState>,
+) -> Result<AgentScopeDiscoveryPayload, AppError> {
+    let database_path = state.database.path().to_path_buf();
+    commands::agent_projects::discover_agent_projects(state)
+        .await
+        .map_err(|error| map_agent_discovery_error(&database_path, "discover", error))
+}
+
+#[tauri::command]
+fn get_cached_agent_projects(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<AgentScopeDiscoveryPayload>, AppError> {
+    let database_path = state.database.path().to_path_buf();
+    commands::agent_projects::get_cached_agent_projects(state)
+        .map_err(|error| map_agent_discovery_error(&database_path, "load", error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{map_agent_discovery_error, AppError};
+
+    #[test]
+    fn agent_discovery_database_mapping_keeps_actionable_cause() {
+        let path = std::env::temp_dir().join(format!(
+            "nutbook-agent-discovery-wrapper-missing-{}-{}.sqlite3",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let error = map_agent_discovery_error(&path, "discover", AppError::DatabaseError);
+
+        assert_eq!(error.code(), "AGENT_DISCOVERY_DATABASE_UNAVAILABLE");
+        assert!(error
+            .to_string()
+            .contains("database file is missing; restart Nutbook to recreate it"));
+    }
 }
 
 fn main() {
@@ -198,6 +254,7 @@ fn main() {
                 .build()
         })
         .on_menu_event(|app, event| {
+            if commands::context_menu::dispatch(app, event.id().as_ref()) { return; }
             let native_history_key = match event.id().as_ref() {
                 MENU_UNDO_ID => Some("CmdOrCtrl+Z"),
                 MENU_REDO_ID => Some("CmdOrCtrl+Shift+Z"),
@@ -232,11 +289,10 @@ fn main() {
             }
         })
         .setup(|app| {
+            app.manage(commands::context_menu::ContextState::default());
             let app_data_dir = prepare_app_data_dir(app.handle())
                 .expect("failed to prepare app data dir");
             let database_path = app_data_dir.join("nutbook.sqlite3");
-            migrate_development_database_if_needed(&database_path)
-                .expect("failed to prepare database path");
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
             app.manage(AppState::new(database, app_data_dir.clone()));
@@ -269,8 +325,12 @@ fn main() {
             let handler: Box<
                 dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync,
             > = Box::new(tauri::generate_handler![
-            commands::agent_projects::get_cached_agent_projects,
-            commands::agent_projects::discover_agent_projects,
+            commands::context_menu::show_context_menu,
+            commands::context_menu::reveal_context_item,
+            commands::context_menu::set_native_ui_language,
+            commands::context_menu::context_find_in_document,
+            get_cached_agent_projects,
+            discover_agent_projects,
             commands::agent_projects::connect_agent_project,
             commands::agent_projects::preview_agent_project_artifacts,
             commands::agent_projects::preview_agent_project_artifacts_by_root,
@@ -357,6 +417,8 @@ fn main() {
             commands::preview::set_html_presentation_preview_active_command,
             commands::preview::close_html_presentation_preview_command,
             commands::preview::attach_html_runtime_controls_overlay_command,
+            commands::preview::update_html_runtime_controls_overlay_command,
+            commands::preview::set_html_runtime_controls_overlay_bounds_command,
             commands::preview::attach_html_find_overlay_command,
             commands::preview::update_html_find_overlay_command,
             commands::preview::set_html_find_overlay_bounds_command,
@@ -552,7 +614,9 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
     if CONTENT_PREFIXES.iter().any(|prefix| label.starts_with(prefix)) {
         matches!(
             command,
-            "html_edit_runtime_message_command"
+            "show_context_menu"
+                | "context_find_in_document"
+                | "html_edit_runtime_message_command"
                 | "write_editable_html_copy"
                 | "html_runtime_view_state_command"
                 // P2 / §6.2：外部阅读面没有常驻 view-state 脚本，promotion 前
@@ -655,59 +719,22 @@ fn collect_external_open_argv_paths() -> Vec<String> {
 
 #[cfg(target_os = "windows")]
 fn windows_app_data_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("NUTBOOK_APP_DATA_DIR") {
+        return Some(PathBuf::from(path));
+    }
     std::env::var_os("APPDATA")
-        .map(|base| PathBuf::from(base).join("com.hayley.nutbook"))
+        .map(|base| runtime_app_data_dir(PathBuf::from(base).join(RELEASE_APP_IDENTIFIER)))
 }
 
 fn prepare_app_data_dir(app: &tauri::AppHandle) -> io::Result<PathBuf> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+    let base_app_data_dir = if let Some(path) = std::env::var_os("NUTBOOK_APP_DATA_DIR") {
+        PathBuf::from(path)
+    } else {
+        app.path()
+            .app_data_dir()
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?
+    };
+    let app_data_dir = runtime_app_data_dir(base_app_data_dir);
     fs::create_dir_all(&app_data_dir)?;
     Ok(app_data_dir)
-}
-
-fn migrate_development_database_if_needed(database_path: &Path) -> io::Result<()> {
-    if database_path.exists() {
-        return Ok(());
-    }
-
-    let Some(dev_database_path) = development_database_path() else {
-        return Ok(());
-    };
-    if dev_database_path == database_path || !dev_database_path.is_file() {
-        return Ok(());
-    }
-
-    fs::copy(dev_database_path, database_path)?;
-    Ok(())
-}
-
-fn development_database_path() -> Option<PathBuf> {
-    let cwd = std::env::current_dir().ok()?;
-    let candidate = if cwd.file_name().and_then(|name| name.to_str()) == Some("src-tauri") {
-        cwd.join("nutbook-dev.sqlite3")
-    } else {
-        cwd.join("src-tauri").join("nutbook-dev.sqlite3")
-    };
-    Some(candidate)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    #[test]
-    fn development_database_path_points_to_src_tauri_dev_database() {
-        let path = super::development_database_path().expect("path should resolve");
-        assert_eq!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some("nutbook-dev.sqlite3")
-        );
-        assert!(
-            path.ends_with(PathBuf::from("src-tauri").join("nutbook-dev.sqlite3"))
-                || path.ends_with("nutbook-dev.sqlite3")
-        );
-    }
 }

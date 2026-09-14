@@ -77,33 +77,36 @@ pub fn delete_library(
 }
 
 #[tauri::command]
-pub fn open_folder_dialog() -> Option<String> {
-    rfd::FileDialog::new()
-        .set_title("选择文件夹")
-        .pick_folder()
+pub fn open_folder_dialog(app: tauri::AppHandle, language: Option<String>) -> Option<String> {
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(if language.as_deref() == Some("en-US") { "Choose Folder" } else { "选择文件夹" });
+    if let Some(window) = app.get_webview_window("main") { dialog = dialog.set_parent(&window); }
+    dialog.pick_folder()
         .map(|path| path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-pub fn open_folder_dialog_at(payload: OpenFolderDialogAtRequest) -> Option<String> {
-    let mut dialog = rfd::FileDialog::new().set_title("选择文件夹");
+pub fn open_folder_dialog_at(app: tauri::AppHandle, payload: OpenFolderDialogAtRequest, language: Option<String>) -> Option<String> {
+    let mut dialog = rfd::FileDialog::new().set_title(if language.as_deref() == Some("en-US") { "Choose Folder" } else { "选择文件夹" });
     if let Some(default_path) = payload.default_path.as_deref() {
         let path = std::path::Path::new(default_path);
         if path.is_dir() {
             dialog = dialog.set_directory(path);
         }
     }
+    if let Some(window) = app.get_webview_window("main") { dialog = dialog.set_parent(&window); }
     dialog
         .pick_folder()
         .map(|path| path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-pub fn open_file_dialog() -> Option<String> {
-    rfd::FileDialog::new()
-        .set_title("选择文件")
-        .add_filter("Markdown / HTML 文件", &["md", "markdown", "html", "htm"])
-        .pick_file()
+pub fn open_file_dialog(app: tauri::AppHandle, language: Option<String>) -> Option<String> {
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(if language.as_deref() == Some("en-US") { "Choose File" } else { "选择文件" })
+        .add_filter(if language.as_deref() == Some("en-US") { "Markdown / HTML Files" } else { "Markdown / HTML 文件" }, &["md", "markdown", "html", "htm"]);
+    if let Some(window) = app.get_webview_window("main") { dialog = dialog.set_parent(&window); }
+    dialog.pick_file()
         .map(|path| path.to_string_lossy().to_string())
 }
 

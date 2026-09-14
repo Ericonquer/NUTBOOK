@@ -248,7 +248,7 @@ For developers, testers, or anyone who wants a local build.
 
 | Dependency   | Recommended version  | Purpose                                                                   |
 | ------------ | -------------------- | ------------------------------------------------------------------------- |
-| Node.js      | 18+                  | Install frontend dependencies and build Markdown editor / frontend assets |
+| Node.js      | 22.x                 | Install frontend dependencies and build Markdown editor / frontend assets |
 | npm          | Bundled with Node.js | Run frontend build scripts                                                |
 | Rust / Cargo | stable               | Compile and check the Tauri backend                                       |
 | Tauri CLI    | 2.x                  | Run or build the desktop app                                              |
@@ -262,6 +262,30 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 The Markdown editor build includes a compatibility patch. Do not skip `npm run build:frontend`.
+
+Before opening a PR or creating a release tag, switch to Node 22 (`nvm use` after
+installing the version declared in `.nvmrc`) and run:
+
+```bash
+npm run check:ci
+```
+
+This cleanly reinstalls dependencies, installs Chromium, and runs the same macOS
+quality gate as CI. The Windows compile check still runs remotely. A release tag
+cannot create a draft Release until both required CI checks report success.
+
+For a desktop development run, use the tracked entry point:
+
+```bash
+npm run dev
+```
+
+This invokes `cargo tauri dev` with `src-tauri/tauri.dev.conf.json`, which gives
+the development app the `com.hayley.nutbook.dev` identity, the `NUTBOOK Dev`
+display name, and no Markdown/HTML file associations. A bare `cargo tauri dev`
+cannot be transparently rewritten by a repository package script; it reads the
+release base config and can register the release identity with LaunchServices.
+Use `npm run dev` whenever running the debug app.
 
 ### Thumbnail Engine
 
@@ -328,6 +352,20 @@ NUTBOOK remains deliberately focused:
 NUTBOOK is closer to an “AI artifact desk” and local presentation library than a team content platform or development IDE.
 
 ## Release Highlights
+
+### 1.0.0: First Stable Release
+
+NUTBOOK 1.0.0 brings together local artifact intake, Markdown / HTML reading and light editing, and presentation.
+
+* Open Markdown or HTML from the system into a temporary session, then explicitly add it to the library when needed.
+* Connect folders through a preview and synchronize external file changes.
+* Use contextual native menus for file actions, text editing, document search, and closing tabs.
+* Use Chinese or English application labels in native file, folder, and image dialogs. System-owned controls follow the operating system's application language settings.
+* nbskill registration succeeds quietly and coalesces intermediate edits before delivery. Explicit CLI intake remains separate from manifest registration.
+
+DeepSeek Harness integration is deferred to a later version.
+
+
 
 ### 0.8.0: From Finding Files Manually to Agent Project and Task Artifacts
 

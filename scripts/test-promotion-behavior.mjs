@@ -247,6 +247,10 @@ function makeContext({ invokeImpl, captureImpl }) {
     functionSource("clearExternalViewStateWaiters"),
     functionSource("closeActiveHtmlFind", { isAsync: true }),
     functionSource("setHtmlFindOverlayVisibilityFor"),
+    // The real hide path clears the controls-child lifecycle cache before it
+    // hides surfaces. Keep this dependency in the VM so closeOpenTab executes
+    // the same cleanup contract as production rather than failing on a stub.
+    functionSource("resetRuntimeControlsOverlaySync"),
     functionSource("hideRuntimeSessionSurfaces", { isAsync: true }),
     functionSource("promoteExternalHtmlTab", { isAsync: true }),
     functionSource("joinExternalSession", { isAsync: true }),

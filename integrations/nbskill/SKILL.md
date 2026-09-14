@@ -18,7 +18,8 @@ an Agent project into a general file browser.
   deliverable. Before the final response, register every primary `.md` and
   `.html` file created or updated for the user; do not wait for a separate
   request to add it to Nutbook. If a task produces multiple primary files,
-  register each one as its own entry.
+  register each one as its own entry. Coalesce intermediate edits: register once
+  per primary file at the end of the turn, not after every patch.
 - Set `--skill` to the actual content-producing or transformation Skill used
   for that artifact, such as `humanizer-zh`. nbskill is the registration
   transport, not the producing Skill, so do not record `nbskill` merely because
@@ -123,16 +124,18 @@ legacy active HTML entry that no longer passes the current HTML validator. The
 replacement receives strict validation before the atomic structural write.
 Never repair that migration case by editing JSON.
 
-## Validate and report
+## Validate quietly
 
-After every write, run:
+After the final registration batch, run once:
 
 ```bash
 node scripts/validate.mjs --project-root /absolute/confirmed/project
 ```
 
-Report the registered ID, primary relative path, related-file count, structural
-validation result, and active-HTML compatibility result. If an older active
+Successful registration is silent: do not announce registration, IDs, paths,
+counts, or validation results in commentary or the final answer unless asked.
+Report only failures that affect delivery or need user action. Keep the final
+answer focused on the requested artifact. If an older active
 HTML entry is incompatible, the validator lists it by ID and path without
 making the rest of the manifest unreadable. Fix that source or use the scripted
 supersede path; do not replace the manifest manually or weaken validation.

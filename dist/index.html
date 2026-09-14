@@ -828,6 +828,10 @@
         color: var(--ink);
       }
 
+      .thumbnail-settings-feedback[data-tone="info"] {
+        color: var(--ink-soft);
+      }
+
       .thumbnail-settings-feedback[data-tone="error"] {
         border-color: var(--danger);
         color: var(--danger);
@@ -3378,6 +3382,18 @@
         grid-template-columns: 220px minmax(0, 1fr);
         gap: 18px;
         align-items: start;
+        position: relative;
+      }
+
+      /* Host editor affordances above both the outline and Milkdown content.
+         The host is a shell overlay, so re-rendering the editor body cannot
+         create a lower stacking context that swallows the line-start +. */
+      .markdown-document-overlay-host {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        overflow: visible;
+        pointer-events: none;
       }
 
       .markdown-document-shell.no-outline {
@@ -3391,6 +3407,10 @@
 
       .markdown-document-main {
         min-width: 0;
+        /* + 允许只越过正文左缘一点点；正文 sibling 必须整体高于
+           outline 的独立 stacking context，避免不同文档/会话出现层级漂移。 */
+        position: relative;
+        z-index: 3;
       }
 
       .markdown-outline {
@@ -4316,7 +4336,7 @@
         height: 16px;
         border: 0;
         border-radius: 999px;
-        background: #d97706;
+        background: #111;
         color: #fff;
         font-size: 11px;
         font-weight: 700;
@@ -4887,6 +4907,18 @@
         gap: 8px;
       }
 
+      /* Match the HTML leave dialog: actions stay content-sized rather than
+         stretching into three equal columns. The generic confirm card already
+         provides the same 420px width cap. */
+      .markdown-close-confirm-actions {
+        flex-wrap: wrap;
+      }
+
+      .markdown-close-confirm-actions .button {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
       .agent-integration-help-card {
         width: min(440px, calc(100vw - 48px));
       }
@@ -5172,6 +5204,245 @@
         font-size: 12px;
         color: var(--ink);
         word-break: break-all;
+      }
+
+      .thumbnail-settings {
+        display: grid;
+        gap: 14px;
+      }
+
+      .thumbnail-settings-copy {
+        display: grid;
+        gap: 4px;
+      }
+
+      .thumbnail-settings-copy .settings-empty {
+        margin: 0;
+      }
+
+      .thumbnail-engine-summary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .thumbnail-engine-summary .settings-kv-row {
+        min-width: 0;
+        min-height: 0;
+        grid-template-columns: 116px minmax(0, 1fr);
+        align-items: start;
+        gap: 18px;
+      }
+
+      .thumbnail-engine-summary .settings-kv-label {
+        padding-top: 1px;
+      }
+
+      .thumbnail-engine-summary .settings-kv-value {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      /* 设置页按钮使用应用内 tooltip，不显示浏览器/系统原生 title 气泡。 */
+      .thumbnail-settings-actions .button {
+        position: relative;
+      }
+
+      .thumbnail-settings-actions .button[data-tooltip]::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        right: 0;
+        top: calc(100% + 8px);
+        z-index: 360;
+        width: max-content;
+        max-width: min(300px, 82vw);
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 27, .96);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.35;
+        text-align: left;
+        white-space: normal;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(-3px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .thumbnail-settings-actions .button[data-tooltip]:hover::after,
+      .thumbnail-settings-actions .button[data-tooltip]:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      .thumbnail-title-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        position: relative;
+        overflow: visible;
+      }
+
+      .thumbnail-engine-help {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: #171717;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .thumbnail-engine-help[data-state="missing"] {
+        animation: thumbnail-engine-help-pulse 1.6s ease-in-out infinite;
+      }
+
+      .thumbnail-engine-help::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        /* The help button sits at the left edge of the settings surface.
+           Centering a long hint on the 20px button made its left half fall
+           behind the section's overflow-x clip. Keep the bubble's left edge
+           inside the surface and cap it to the available viewport width. */
+        left: 0;
+        top: calc(100% + 8px);
+        z-index: 370;
+        width: max-content;
+        max-width: min(280px, calc(100vw - 96px));
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 27, .96);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.35;
+        text-align: left;
+        white-space: normal;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(-3px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .thumbnail-engine-help:hover::after,
+      .thumbnail-engine-help:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      @keyframes thumbnail-engine-help-pulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(23, 23, 23, .3); }
+        50% { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(23, 23, 23, 0); }
+      }
+
+      .thumbnail-install-visuals {
+        display: grid;
+        gap: 10px;
+        margin: 2px 0 14px;
+      }
+
+      .thumbnail-install-methods {
+        display: inline-flex;
+        width: fit-content;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface-variant);
+      }
+
+      .thumbnail-install-method {
+        border: 0;
+        border-radius: 7px;
+        padding: 6px 10px;
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .thumbnail-install-method[aria-selected="true"] {
+        background: var(--paper);
+        color: var(--ink);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+      }
+
+      .thumbnail-install-visual {
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--paper);
+      }
+
+      .thumbnail-install-visual [hidden] {
+        display: none !important;
+      }
+
+      .thumbnail-install-visual svg {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        color: var(--ink);
+      }
+
+      .thumbnail-install-visual img {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #fafaf8;
+      }
+
+      .default-app-fallback-overlay.thumbnail-install-overlay .external-open-prompt-card {
+        width: min(940px, calc(100vw - 48px));
+      }
+
+      .thumbnail-install-copy-feedback {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        color: #3d6f49;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .thumbnail-install-visual figcaption {
+        padding: 8px 10px;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .thumbnail-copy-feedback {
+        min-height: 18px;
+        margin: 10px 0 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      @media (max-width: 640px) {
+        .thumbnail-engine-summary .settings-kv-row {
+          grid-template-columns: 1fr;
+          gap: 6px;
+        }
+
+        .thumbnail-engine-summary .settings-kv-value {
+          overflow: visible;
+          text-overflow: clip;
+          white-space: normal;
+        }
       }
 
       .inline-feedback {
@@ -6379,13 +6650,14 @@
         color: var(--ink-soft, #5e5e63);
       }
 
-      /* 备用方法弹窗：四步图文。GUI 验收 bug 修复：此前复用
+      /* 默认应用窗口级引导：首次引导和 Finder 备用说明都不能复用
          .external-open-prompt（z-index 90）被设置窗口（z-index 540）整体
          盖住。注意 injectExternalOpenStyles() 会在运行时向 head 追加
          .external-open-prompt { z-index: 90; align-items: flex-start;
          pointer-events: none }，同特异性下按源序覆盖静态 CSS——所以这里
          必须用双类连写（0,2,0）压过运行时注入的（0,1,0），仅改数值无效。 */
-      .external-open-prompt.default-app-fallback-overlay {
+      .external-open-prompt.default-app-fallback-overlay,
+      .external-open-prompt.default-app-guide-overlay {
         z-index: 560;
         align-items: center;
         justify-content: center;
@@ -6393,7 +6665,8 @@
         background: rgba(26, 28, 29, 0.32);
       }
 
-      .external-open-prompt.default-app-fallback-overlay .external-open-prompt-card {
+      .external-open-prompt.default-app-fallback-overlay .external-open-prompt-card,
+      .external-open-prompt.default-app-guide-overlay .external-open-prompt-card {
         position: relative;
         width: min(560px, calc(100vw - 48px));
         padding: 18px 20px;
@@ -6898,7 +7171,9 @@
 
       .markdown-insert-popover {
         position: absolute;
-        left: 32px;
+        /* trigger 左缘约在正文左侧 34px；从 36px 开始，popover
+           始终落在正文列内，向右展开，不回盖 outline。 */
+        left: 36px;
         top: 0;
         display: none;
         align-items: center;
@@ -7664,9 +7939,9 @@
     </div>
 
     <div id="hostSettingsMenu" class="host-settings-menu" aria-hidden="true">
-      <button class="popover-option menu-option" type="button" data-host-settings-tab="skills"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13 5v6l-5 2.5L3 11V5z"/><path d="M3 5l5 2.5L13 5M8 7.5V13.5"/></svg></span><span class="menu-option-label">产物接入</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="skills"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.75" y="3.25" width="10.5" height="9.5" rx="1.7"/><path d="M2.75 6.25h10.5M6.25 8.85h3.5"/></svg></span><span class="menu-option-label">产物接入</span></button>
       <button class="popover-option menu-option" type="button" data-host-settings-tab="libraries"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg></span><span class="menu-option-label">文件管理</span></button>
-      <button class="popover-option menu-option" type="button" data-host-settings-tab="tags"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 2.5H3a.5.5 0 0 0-.5.5v5.5L10 14.5l4-4z"/><circle cx="5.5" cy="5.5" r="1"/></svg></span><span class="menu-option-label">标签管理</span></button>
+      <button class="popover-option menu-option" type="button" data-host-settings-tab="tags"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.1 2.75H4.2A1.45 1.45 0 0 0 2.75 4.2v3.9c0 .38.15.75.43 1.02l5.7 5.7a1.45 1.45 0 0 0 2.05 0l3.19-3.19a1.45 1.45 0 0 0 0-2.05l-5-5a1.45 1.45 0 0 0-1.02-.43z"/><circle cx="5.55" cy="5.55" r=".9"/></svg></span><span class="menu-option-label">标签管理</span></button>
       <button class="popover-option menu-option" type="button" data-host-settings-tab="preferences"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h7M11.5 5h2M2.5 11h2M6.5 11h7"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg></span><span class="menu-option-label">偏好设定</span></button>
       <button class="popover-option menu-option" type="button" data-host-settings-tab="thumbnails"><span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 12l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></span><span class="menu-option-label">缩略图</span></button>
     </div>
@@ -7795,11 +8070,14 @@
           </section>
           <section id="settingsThumbnailsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabThumbnails" hidden>
             <div class="settings-header">
-              <h3 class="settings-section-title">缩略图引擎</h3>
-              <div class="button-row">
+              <div class="thumbnail-title-row">
+                <h3 class="settings-section-title">缩略图引擎</h3>
+                <button id="settingsThumbnailInstallGuideButton" class="thumbnail-engine-help" type="button" aria-label="" data-tooltip="">?</button>
+              </div>
+              <div class="button-row thumbnail-settings-actions">
                 <button id="settingsRefreshThumbnailStatusButton" class="button button-primary" type="button">检测引擎</button>
-                <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" title="只重新生成当前列表中看得见的文件缩略图" data-i18n-title="actions.rebuildVisibleThumbnailsTitle">重建可见文件</button>
-                <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" title="重新生成当前资料库内所有文档缩略图" data-i18n-title="actions.rebuildLibraryThumbnailsTitle">重建资料库</button>
+                <button id="settingsRebuildVisibleThumbsButton" class="button button-secondary" type="button" data-tooltip="只重新生成当前列表中看得见的文件缩略图">重建可见文件</button>
+                <button id="settingsRebuildLibraryThumbsButton" class="button button-ghost" type="button" data-tooltip="重新生成当前资料库内所有文档缩略图">重建资料库</button>
               </div>
             </div>
             <div id="settingsThumbnailFeedback" class="thumbnail-settings-feedback" role="status" aria-live="polite" aria-atomic="true" hidden></div>
@@ -8007,7 +8285,7 @@
         thumbnailBackendStatus: null,
         thumbnailSettingsFeedback: null,
         thumbnailSettingsOperation: null,
-        systemChromeThumbnailEnabled: window.localStorage?.getItem("nutbook.systemChromeThumbnailsEnabled") === "1",
+        systemChromeThumbnailEnabled: false,
         pendingThumbnailIds: new Set(),
         // B2：会话内 stale preview —— durable save 且索引同步后、新 generation ready 前，
         // 仅在当前页面把旧图作为非持久视觉 preview 显示（带遮罩 + aria-busy）。
@@ -8026,7 +8304,11 @@
         runtimeHostResizeObserver: null,
         runtimeHostResizeObserverTarget: null,
         runtimeHostLastBoundsKey: null,
-        runtimeControlsOverlayLastKey: null,
+        // Controls child 的生命周期、原生 bounds 和页面状态各自独立缓存。
+        // 不能让 tags/hover 的几何变动重走 attach/show。
+        runtimeControlsOverlayAttachedItemId: null,
+        runtimeControlsOverlayLastBoundsKey: null,
+        runtimeControlsOverlayLastStateKey: null,
         runtimeHostSyncFrame: null,
         runtimeHostSyncRunId: 0,
         runtimeHostSyncInFlight: false,
@@ -8101,7 +8383,7 @@
           lastKnownReleaseUrl: null
         },
         updateStatus: {
-          currentVersion: "0.9.0",
+          currentVersion: "1.0.0",
           latestVersion: null,
           releaseUrl: null,
           hasUpdate: false,
@@ -8250,6 +8532,7 @@
         settingsThumbnailFeedback: document.getElementById("settingsThumbnailFeedback"),
         settingsThumbnailStatus: document.getElementById("settingsThumbnailStatus"),
         settingsRefreshThumbnailStatusButton: document.getElementById("settingsRefreshThumbnailStatusButton"),
+        settingsThumbnailInstallGuideButton: document.getElementById("settingsThumbnailInstallGuideButton"),
         settingsRebuildVisibleThumbsButton: document.getElementById("settingsRebuildVisibleThumbsButton"),
         settingsRebuildLibraryThumbsButton: document.getElementById("settingsRebuildLibraryThumbsButton"),
         hostSettingsMenu: document.getElementById("hostSettingsMenu")
@@ -9348,13 +9631,13 @@
             }
           };
           els.confirmScrim.innerHTML = `
-            <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="markdownCloseTitle" aria-describedby="markdownCloseMessage">
+            <div class="confirm-card markdown-close-confirm-card" role="dialog" aria-modal="true" aria-labelledby="markdownCloseTitle" aria-describedby="markdownCloseMessage">
               <h3 id="markdownCloseTitle" class="confirm-title">${escapeHtml(t("markdown.unsavedCloseTitle"))}</h3>
               <p id="markdownCloseMessage" class="confirm-message">${escapeHtml(formatTranslation("markdown.unsavedCloseMessage", { fileName }))}</p>
-              <div class="confirm-actions">
-                <button class="button button-secondary" type="button" data-markdown-close-choice="continue">${escapeHtml(t("markdown.continueEditing"))}</button>
-                <button class="button button-secondary" type="button" data-markdown-close-choice="discard">${escapeHtml(t("markdown.discardAndClose"))}</button>
-                <button class="button button-primary" type="button" data-markdown-close-choice="save">${escapeHtml(t("markdown.saveAndClose"))}</button>
+              <div class="confirm-actions markdown-close-confirm-actions">
+                <button class="button button-secondary" type="button" data-markdown-close-choice="continue">${escapeHtml(appState.language === "en-US" ? t("htmlEdit.keepEditing") : t("markdown.continueEditing"))}</button>
+                <button class="button button-secondary" type="button" data-markdown-close-choice="discard">${escapeHtml(appState.language === "en-US" ? t("htmlEdit.discardAndExit") : t("markdown.discardAndClose"))}</button>
+                <button class="button button-primary" type="button" data-markdown-close-choice="save">${escapeHtml(appState.language === "en-US" ? t("htmlEdit.saveAndExit") : t("markdown.saveAndClose"))}</button>
               </div>
             </div>
           `;
@@ -10620,6 +10903,25 @@
         apply(2);
       }
 
+      function htmlEditRuntimeImageFrameLabels() {
+        return {
+          confirm: t("htmlEdit.confirmImageFrame"),
+          cancel: t("htmlEdit.cancelImageFrame")
+        };
+      }
+
+      async function updateHtmlEditRuntimeLocale(session = appState.htmlEditSession) {
+        if (!session || !isCurrentHtmlEditSession(session)) return false;
+        return Boolean(await invoke("eval_html_runtime_script_command", {
+          itemId: session.itemId,
+          script: `window.__NUTBOOK_HTML_EDIT__?.updateLocale?.(${JSON.stringify({
+            runtimeSessionId: session.runtimeSessionId,
+            locale: appState.language,
+            imageFrameLabels: htmlEditRuntimeImageFrameLabels()
+          })});`
+        }).catch(() => false));
+      }
+
       async function injectHtmlEditRuntime(itemId, runtimeSessionId, patchResponse, isCurrent) {
         if (!isCurrent()) return false;
         const runtimeScript = await loadHtmlEditRuntimeScript();
@@ -10651,7 +10953,8 @@
                   patchRevision: patchResponse.patchRevision || 0,
                   generation: appState.htmlEditSession?.runtimeSessionId === runtimeSessionId ? appState.htmlEditSession.generation : 0,
                   inlineToolbar: Boolean(appState.htmlEditSession?.runtimeSessionId === runtimeSessionId && usesInlineHtmlEditToolbarForSession(appState.htmlEditSession)),
-                  locale: appState.language
+                  locale: appState.language,
+                  imageFrameLabels: htmlEditRuntimeImageFrameLabels()
                 })});
                 if (window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ === ${JSON.stringify(runtimeSessionId)}) {
                   window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
@@ -12220,6 +12523,9 @@
             const placeholderCard = root.closest(".content-card");
             if (!placeholderCard) return;
             placeholderCard.replaceWith(preservedSession.card);
+            preservedSession.editor.rebindInsertMenuHost?.(
+              preservedSession.card.closest(".markdown-document-shell")
+            );
             preservedSession.card.classList.toggle("markdown-code-theme-light", appState.markdownPreferences.codeBlockTheme === "light");
             preservedSession.card.classList.toggle("markdown-code-theme-dark", appState.markdownPreferences.codeBlockTheme !== "light");
             appState.activeMarkdownEditor = preservedSession.editor;
@@ -12677,6 +12983,19 @@
         els.settingsThumbnailFeedback.dataset.tone = feedback?.tone || "info";
       }
 
+      function syncThumbnailInstallGuideButton() {
+        const button = els.settingsThumbnailInstallGuideButton;
+        if (!button) return;
+        const missing = !Boolean(appState.thumbnailBackendStatus?.screenshotAvailable);
+        button.textContent = missing ? "!" : "?";
+        button.dataset.state = missing ? "missing" : "ready";
+        const hint = missing
+          ? t("settings.thumbnailInstallHint")
+          : t("settings.thumbnailGuideAvailableHint");
+        button.dataset.tooltip = hint;
+        button.setAttribute("aria-label", hint);
+      }
+
       async function runThumbnailSettingsOperation(operation, task) {
         if (appState.thumbnailSettingsOperation) return null;
         const operationButton = {
@@ -12749,14 +13068,13 @@
         return Boolean(status && !status.screenshotAvailable);
       }
 
-      async function copyThumbnailInstallCommand() {
-        const command = "npx playwright install chromium";
+      async function copyThumbnailSetupText(value, successKey, failurePrefixKey) {
         try {
           if (navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(command);
+            await navigator.clipboard.writeText(value);
           } else {
             const input = document.createElement("textarea");
-            input.value = command;
+            input.value = value;
             input.setAttribute("readonly", "");
             input.style.position = "absolute";
             input.style.left = "-9999px";
@@ -12765,6 +13083,21 @@
             document.execCommand("copy");
             document.body.removeChild(input);
           }
+          setStatus(t(successKey), "ok");
+          return true;
+        } catch (error) {
+          setStatus(statusError(failurePrefixKey, error), "error");
+          return false;
+        }
+      }
+
+      async function copyThumbnailInstallCommand() {
+        const copied = await copyThumbnailSetupText(
+          "npx playwright install chromium",
+          "status.installCommandCopied",
+          "status.copyInstallCommandFailedPrefix"
+        );
+        if (copied) {
           appState.thumbnailInstallCommandCopied = true;
           if (appState.thumbnailInstallCommandCopiedTimer != null) {
             window.clearTimeout(appState.thumbnailInstallCommandCopiedTimer);
@@ -12779,10 +13112,113 @@
           if (appState.isSettingsOpen && appState.settingsTab === "thumbnails") {
             renderSettingsPanel();
           }
-          setStatus(t("status.installCommandCopied"), "ok");
-        } catch (error) {
-          setStatus(statusError("status.copyInstallCommandFailedPrefix", error), "error");
         }
+        return copied;
+      }
+
+      function thumbnailAgentInstallPrompt() {
+        return appState.language === "en-US"
+          ? "Install the Playwright Chromium required for NUTBOOK thumbnails on this Mac. Run `npx playwright install chromium` in Terminal, then confirm when it completes. Do not modify NUTBOOK project files, the default browser, or default file applications."
+          : "请为本机 NUTBOOK 安装缩略图所需的 Playwright Chromium。在终端执行 `npx playwright install chromium`，完成后告诉我已安装。不要修改 NUTBOOK 项目文件、默认浏览器或系统默认打开应用。";
+      }
+
+      async function copyThumbnailAgentPrompt() {
+        return copyThumbnailSetupText(
+          thumbnailAgentInstallPrompt(),
+          "status.agentPromptCopied",
+          "status.copyAgentPromptFailedPrefix"
+        );
+      }
+
+      function showThumbnailInstallStepsDialog() {
+        injectExternalOpenStyles();
+        const overlay = document.createElement("div");
+        overlay.className = "external-open-prompt default-app-fallback-overlay thumbnail-install-overlay";
+        overlay.innerHTML = `
+          <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("settings.thumbnailInstallStepsTitle"))}">
+            <p class="external-open-prompt-title">${escapeHtml(t("settings.thumbnailInstallStepsTitle"))}</p>
+            <div class="thumbnail-install-visuals">
+              <div class="thumbnail-install-methods" role="tablist" aria-label="${escapeHtml(t("settings.thumbnailInstallStepsTitle"))}">
+                <button class="thumbnail-install-method" type="button" role="tab" aria-selected="true" data-thumbnail-method="terminal">${escapeHtml(t("settings.thumbnailTerminalInstallTitle"))}</button>
+                <button class="thumbnail-install-method" type="button" role="tab" aria-selected="false" data-thumbnail-method="agent">${escapeHtml(t("settings.thumbnailAgentInstallTitle"))}</button>
+              </div>
+              <figure class="thumbnail-install-visual">
+                <img data-thumbnail-method-figure="terminal" src="assets/thumbnail-setup/terminal-steps.png" alt="${escapeHtml(t("settings.thumbnailTerminalInstallTitle"))}" />
+                <img data-thumbnail-method-figure="agent" src="assets/thumbnail-setup/agent-steps.png" alt="${escapeHtml(t("settings.thumbnailAgentInstallTitle"))}" hidden />
+              </figure>
+            </div>
+            <ol class="default-app-fallback-steps" data-thumbnail-step-list>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep1"))}</li>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep2"))}</li>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep3"))}</li>
+              <li>${escapeHtml(t("settings.thumbnailTerminalStep4"))}</li>
+            </ol>
+            <div class="external-open-prompt-actions">
+              <span class="thumbnail-install-copy-feedback" data-thumbnail-copy-feedback role="status" aria-live="polite"></span>
+              <button type="button" class="button button-secondary" data-thumbnail-step-action="terminal">${escapeHtml(t("actions.copyInstallCommand"))}</button>
+              <button type="button" class="button button-secondary" data-thumbnail-step-action="agent" hidden>${escapeHtml(t("actions.copyAgentPrompt"))}</button>
+              <button type="button" class="button button-primary" data-thumbnail-step-action="close">${escapeHtml(t("settings.defaultAppFallbackClose"))}</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        const copyFeedback = overlay.querySelector("[data-thumbnail-copy-feedback]");
+        const stepList = overlay.querySelector("[data-thumbnail-step-list]");
+        const installStepKeys = {
+          terminal: ["thumbnailTerminalStep1", "thumbnailTerminalStep2", "thumbnailTerminalStep3", "thumbnailTerminalStep4"],
+          agent: ["thumbnailAgentStep1", "thumbnailAgentStep2", "thumbnailAgentStep3", "thumbnailAgentStep4"]
+        };
+        const selectMethod = (method) => {
+          overlay.querySelectorAll("[data-thumbnail-method]").forEach((button) => {
+            button.setAttribute("aria-selected", String(button.dataset.thumbnailMethod === method));
+          });
+          overlay.querySelectorAll("[data-thumbnail-method-figure]").forEach((figure) => {
+            figure.hidden = figure.dataset.thumbnailMethodFigure !== method;
+          });
+          overlay.querySelector('[data-thumbnail-step-action="terminal"]').hidden = method !== "terminal";
+          overlay.querySelector('[data-thumbnail-step-action="agent"]').hidden = method !== "agent";
+          stepList.innerHTML = installStepKeys[method]
+            .map((key) => `<li>${escapeHtml(t(`settings.${key}`))}</li>`)
+            .join("");
+          copyFeedback.textContent = "";
+        };
+        overlay.querySelectorAll("[data-thumbnail-method]").forEach((button) => {
+          button.addEventListener("click", () => selectMethod(button.dataset.thumbnailMethod));
+        });
+        overlay.querySelector('[data-thumbnail-step-action="terminal"]')?.addEventListener("click", async () => {
+          if (await copyThumbnailInstallCommand()) copyFeedback.textContent = t("settings.copySuccess");
+        });
+        overlay.querySelector('[data-thumbnail-step-action="agent"]')?.addEventListener("click", async () => {
+          if (await copyThumbnailAgentPrompt()) copyFeedback.textContent = t("status.agentPromptCopied");
+        });
+        overlay.querySelector('[data-thumbnail-step-action="close"]')?.addEventListener("click", close);
+        overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+      }
+
+      function thumbnailTerminalInstallFigureSvg() {
+        return `<svg viewBox="0 0 320 180" role="img" aria-label="${escapeHtml(t("settings.thumbnailTerminalInstallTitle"))}" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="22" y="20" width="276" height="132" rx="12"/>
+            <path d="M22 52h276M42 36h1m13 0h1m13 0h1"/>
+            <rect x="42" y="70" width="236" height="28" rx="5" fill="currentColor" opacity=".08"/>
+            <path d="M58 82l8 7-8 7m16 0h78M58 118h124M58 132h78"/>
+          </g>
+          <text x="78" y="88" fill="currentColor" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">npx playwright install chromium</text>
+        </svg>`;
+      }
+
+      function thumbnailAgentInstallFigureSvg() {
+        return `<svg viewBox="0 0 320 180" role="img" aria-label="${escapeHtml(t("settings.thumbnailAgentInstallTitle"))}" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="22" y="20" width="276" height="132" rx="12"/>
+            <path d="M22 52h276M42 36h1m13 0h1m13 0h1"/>
+            <rect x="44" y="68" width="164" height="32" rx="8" fill="currentColor" opacity=".08"/>
+            <path d="M60 82h102M60 91h72"/>
+            <rect x="112" y="112" width="166" height="22" rx="8"/>
+            <path d="M128 123h84m14 0h22m-8-7 8 7-8 7"/>
+          </g>
+        </svg>`;
       }
 
       function normalizeLibrary(library) {
@@ -13034,6 +13470,9 @@
       function normalizePreview(preview) {
         if (!preview) return null;
         if ((preview.fileType ?? preview.file_type) === "markdown") {
+          const resourceOrigin = preview.resourceOrigin ?? preview.resource_origin ?? "";
+          const resourceRoot = preview.resourceRoot ?? preview.resource_root ?? "";
+          const resourceBaseDir = preview.resourceBaseDir ?? preview.resource_base_dir ?? "";
           return {
             fileType: "markdown",
             itemId: preview.itemId ?? preview.item_id,
@@ -13041,6 +13480,15 @@
             raw: preview.raw ?? "",
             html: preview.html ?? "",
             baseDir: preview.baseDir ?? preview.base_dir ?? "",
+            // PR C Phase 1：保留后端为该 item 下发的 scoped resource
+            // context。camelCase 是当前前端访问形态，snake_case 同时保留
+            // 以便不同 command/bridge payload 形态无损穿过归一化层。
+            resourceOrigin,
+            resourceRoot,
+            resourceBaseDir,
+            resource_origin: resourceOrigin,
+            resource_root: resourceRoot,
+            resource_base_dir: resourceBaseDir,
             editable: Boolean(preview.editable)
           };
         }
@@ -13068,11 +13516,20 @@
         if (command === "is_window_minimized_command") return [{}];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
+        // Markdown image asset callers already provide `{ payload: {...} }`.
+        // Keep that shape intact while still accepting a bare request object
+        // from older/local callers; Rust expects exactly one payload layer.
+        if (command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset") {
+          const payload = args && typeof args === "object" && args.payload && typeof args.payload === "object"
+            ? args.payload
+            : args;
+          return [{ payload }];
+        }
         // revision 74：外部 find/find-action 命令族不在 payload 包装列表——调用方
         // 已传 { payload: {...} }，包装会双重嵌套导致反序列化必败（与
         // attach_external_html_runtime_host_command 同走默认 [args] 分支）。
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -13524,7 +13981,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "0.9.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.0.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           hasUpdate: Boolean(value.hasUpdate),
@@ -13853,7 +14310,14 @@
       async function updateInterfaceLanguage(language, { propagateToMain = true } = {}) {
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
+        const activeHtmlEditSessionBeforeLanguageChange = appState.htmlEditSession;
         appState.language = i18n?.setLanguage?.(language) ?? language;
+        if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
+        if (!appState.isSettingsOverlay
+          && activeHtmlEditSessionBeforeLanguageChange
+          && activeTabBeforeLanguageChange?.id === activeHtmlEditSessionBeforeLanguageChange.itemId) {
+          await updateHtmlEditRuntimeLocale(activeHtmlEditSessionBeforeLanguageChange);
+        }
         if (appState.isSettingsOverlay && propagateToMain) {
           document.title = "__NUTBOOK_SETTINGS_OVERLAY__:" + JSON.stringify({
             action: "language-change",
@@ -15050,9 +15514,6 @@
         await loadIgnoredItems();
         await loadDiscoveredArtifactSkills();
         if (tab === "skills") await loadNbskillAgentStatuses();
-        if (appState.systemChromeThumbnailEnabled) {
-          await invoke("set_system_chrome_thumbnail_enabled", { enabled: true });
-        }
         await loadThumbnailBackendStatus();
         if (tab === "skills" && appState.settingsArtifactSection === "projects") {
           await restoreCachedAgentProjectsInSettings();
@@ -15968,6 +16429,8 @@
         }
         if (els.settingsProjectSortButton) els.settingsProjectSortButton.dataset.tooltip = t("settings.projectSortLabel");
         if (els.settingsSkillSortButton) els.settingsSkillSortButton.dataset.tooltip = t("settings.skillSortLabel");
+        if (els.settingsRebuildVisibleThumbsButton) els.settingsRebuildVisibleThumbsButton.dataset.tooltip = t("actions.rebuildVisibleThumbnailsTitle");
+        if (els.settingsRebuildLibraryThumbsButton) els.settingsRebuildLibraryThumbsButton.dataset.tooltip = t("actions.rebuildLibraryThumbnailsTitle");
         renderSettingsSourceSortMenu();
         renderSettingsArtifactSortMenus();
         document.querySelectorAll("[data-settings-tab]").forEach((node) => {
@@ -16318,7 +16781,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "0.9.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.0.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -16376,47 +16839,30 @@
 
         const thumbnailStatus = appState.thumbnailBackendStatus;
         const thumbnailEngineLabel = thumbnailEngineDisplayName();
+        const thumbnailPath = thumbnailStatus?.chromiumPath || t("settings.thumbnailHeadlessMissing");
         const thumbnailAvailableText = appState.language === "en-US"
           ? `${t("settings.thumbnailAvailable")}: ${thumbnailEngineLabel}`
           : `${t("settings.thumbnailAvailable")}：${thumbnailEngineLabel}`;
         els.settingsThumbnailStatus.innerHTML = thumbnailStatus ? `
-          <div class="settings-empty">${t("settings.thumbnailIntro")}</div>
-          <div class="settings-empty">${t("settings.thumbnailRebuildHint")}</div>
-          <div class="settings-kv-row">
-            <div class="settings-kv-label">${t("settings.screenshotEngine")}</div>
-            <div class="settings-kv-value">${thumbnailStatus.screenshotAvailable ? thumbnailAvailableText : t("settings.thumbnailUnavailableDefault")}</div>
+          <div class="thumbnail-settings">
+            <div class="thumbnail-settings-copy">
+              <div class="settings-empty">${t("settings.thumbnailIntro")}</div>
+            </div>
+            <div class="thumbnail-engine-summary">
+              <div class="settings-kv-row">
+                <div class="settings-kv-label">${t("settings.screenshotEngine")}</div>
+                <div class="settings-kv-value">${thumbnailStatus.screenshotAvailable ? thumbnailAvailableText : t("settings.thumbnailUnavailableDefault")}</div>
+              </div>
+              <div class="settings-kv-row">
+                <div class="settings-kv-label">${t("settings.currentPath")}</div>
+                <div class="settings-kv-value">${escapeHtml(thumbnailPath)}</div>
+              </div>
+            </div>
           </div>
-          <div class="settings-kv-row">
-            <div class="settings-kv-label">${t("settings.currentPath")}</div>
-            <div class="settings-kv-value">${escapeHtml(thumbnailStatus.chromiumPath || t("settings.thumbnailHeadlessMissing"))}</div>
-          </div>
-          ${!thumbnailStatus.screenshotAvailable ? `
-            <div class="settings-empty">${t("settings.thumbnailInstallHint")}</div>
-            <div class="settings-empty">${t("settings.thumbnailInstallCommand")}<code>npx playwright install chromium</code></div>
-            <div class="button-row">
-              <button id="settingsCopyThumbnailInstallCommandButton" class="button button-secondary" type="button">${t("actions.copyInstallCommand")}</button>
-              ${appState.thumbnailInstallCommandCopied ? `<span class="inline-feedback">${t("settings.copySuccess")}</span>` : ""}
-            </div>
-          ` : ""}
-          ${!thumbnailStatus.screenshotAvailable && thumbnailStatus.systemChromeAvailable ? `
-            <div class="settings-empty">${t("settings.systemChromeHint")}</div>
-            <div class="settings-empty">${t("settings.systemChromeSlowHint")}</div>
-            <div class="button-row">
-              <button id="settingsEnableSystemChromeButton" class="button button-primary" type="button">${t("actions.enableSystemChrome")}</button>
-            </div>
-          ` : ""}
-          ${thumbnailStatus.systemChromeEnabled && thumbnailEngineKind() === "system-chrome" ? `
-            <div class="settings-empty">${t("settings.systemChromeEnabledHint")}</div>
-            <div class="button-row">
-              <button id="settingsDisableSystemChromeButton" class="button button-secondary" type="button">${t("actions.disableSystemChrome")}</button>
-            </div>
-          ` : ""}
         ` : `<div class="settings-empty">${t("settings.thumbnailStatusLoading")}</div>`;
         syncThumbnailSettingsControls();
+        syncThumbnailInstallGuideButton();
 
-        document.getElementById("settingsCopyThumbnailInstallCommandButton")?.addEventListener("click", copyThumbnailInstallCommand);
-        document.getElementById("settingsEnableSystemChromeButton")?.addEventListener("click", enableSystemChromeThumbnails);
-        document.getElementById("settingsDisableSystemChromeButton")?.addEventListener("click", disableSystemChromeThumbnails);
         document.querySelectorAll("[data-settings-group-toggle]").forEach((node) => {
           node.addEventListener("click", () => {
             toggleSettingsGroup(node.dataset.settingsGroupToggle);
@@ -16588,7 +17034,7 @@
         let lastError;
         for (const variant of commandVariants(command, args)) {
           try {
-            return await invokeRaw(command, variant);
+            return await invokeRaw(command, { ...variant, language: appState.language });
           } catch (error) {
             lastError = error;
           }
@@ -16605,11 +17051,11 @@
         if (command === "get_cached_agent_projects") return null;
         if (command === "get_nbskill_agent_status") {
           const statuses = [
-            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.4", expectedVersion: "1.3.4", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
-            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
-            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
-            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.3", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null },
-            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "newer_unverified", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "9.0.0", expectedVersion: "1.3.4", lastSelfTestAt: null, detail: null }
+            { agentId: "openclaw", displayName: "OpenClaw", installPath: "/mock/.openclaw/skills/nbskill", packageStatus: "compatible", runtimeStatus: "verified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.5", expectedVersion: "1.3.5", lastSelfTestAt: "2026-08-02T12:00:00Z", detail: null },
+            { agentId: "hermes", displayName: "Hermes", installPath: "/mock/.hermes/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null },
+            { agentId: "claude-code", displayName: "Claude Code", installPath: "/mock/.claude/skills/nbskill", packageStatus: "missing", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: false, installedVersion: null, expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null },
+            { agentId: "codex", displayName: "Codex", installPath: "/mock/.codex/skills/nbskill", packageStatus: "outdated", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "1.3.3", expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null },
+            { agentId: "workbuddy", displayName: "WorkBuddy", installPath: "/mock/.workbuddy/skills/nbskill", packageStatus: "newer_unverified", runtimeStatus: "unverified", cliStatus: "compatible", agentDetected: true, installedVersion: "9.0.0", expectedVersion: "1.3.5", lastSelfTestAt: null, detail: null }
           ];
           if (!readmeDemoEnabled()) return statuses;
           const installed = window.__readmeDemoInstalledAgents || new Set();
@@ -16872,7 +17318,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "0.9.0",
+              currentVersion: "1.0.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -16883,8 +17329,8 @@
             };
           }
           return {
-            currentVersion: "0.9.0",
-            latestVersion: "0.9.0",
+            currentVersion: "1.0.0",
+            latestVersion: "1.0.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -16901,6 +17347,9 @@
             : null;
         }
         if (command === "copy_markdown_image_asset") {
+          const payload = args && typeof args === "object" && args.payload && typeof args.payload === "object"
+            ? args.payload
+            : args;
           if (readmeDemoEnabled()) {
             return {
               relativePath: `${window.location.origin}/assets/readme-demo/classroom-collaboration-photo-bw.png`,
@@ -16908,11 +17357,11 @@
               fileName: "classroom-collaboration-photo-bw.png"
             };
           }
-          const source = args.sourceImagePath || args.source_image_path || "";
+          const source = payload.sourceImagePath || payload.source_image_path || "";
           const fileName = source.split(/[\\/]/).filter(Boolean).pop() || "image.png";
           return {
             relativePath: `./assets/${fileName}`,
-            assetPath: `${args.markdownFilePath || args.markdown_file_path || ""}/../assets/${fileName}`,
+            assetPath: `${payload.markdownFilePath || payload.markdown_file_path || ""}/../assets/${fileName}`,
             fileName
           };
         }
@@ -17047,7 +17496,7 @@
         if (command === "set_html_runtime_host_visibility_command") {
           return true;
         }
-        if (command === "attach_html_runtime_controls_overlay_command" || command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") {
+        if (command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") {
           return true;
         }
         if (command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command") {
@@ -17736,6 +18185,8 @@
         if (toggleSidebarTooltip) {
           toggleSidebarTooltip.textContent = appState.isSidebarCollapsed ? "展开界面" : "折叠界面";
         }
+        // 折叠/展开改变 shell 宽度：让检查视图的 px 轨道尽早重排（唯一入口）。
+        scheduleInspectorRelayout();
       }
 
       function applyHomeLayout() {
@@ -19009,9 +19460,9 @@ if (!chipTipController) {
       // 设置菜单图标（16×16，currentColor，约 1.5 描边，线性）。图标 aria-hidden，
       // 菜单项可访问名称仍来自文字。
       const SETTINGS_ICON_SVG = {
-        artifactAccess: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13 5v6l-5 2.5L3 11V5z"/><path d="M3 5l5 2.5L13 5M8 7.5V13.5"/></svg>',
+        artifactAccess: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.75" y="3.25" width="10.5" height="9.5" rx="1.7"/><path d="M2.75 6.25h10.5M6.25 8.85h3.5"/></svg>',
         fileManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg>',
-        tagManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 2.5H3a.5.5 0 0 0-.5.5v5.5L10 14.5l4-4z"/><circle cx="5.5" cy="5.5" r="1"/></svg>',
+        tagManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.1 2.75H4.2A1.45 1.45 0 0 0 2.75 4.2v3.9c0 .38.15.75.43 1.02l5.7 5.7a1.45 1.45 0 0 0 2.05 0l3.19-3.19a1.45 1.45 0 0 0 0-2.05l-5-5a1.45 1.45 0 0 0-1.02-.43z"/><circle cx="5.55" cy="5.55" r=".9"/></svg>',
         preferences: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h7M11.5 5h2M2.5 11h2M6.5 11h7"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg>',
         thumbnails: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 12l3.5-3.5 2.5 2.5 2-2 3 3"/></svg>'
       };
@@ -19571,6 +20022,7 @@ if (!chipTipController) {
                     : ""}
                 </div>
               </div>
+              <div class="markdown-document-overlay-host" data-markdown-shell-overlay></div>
             </div>
           `;
           const markdownCard = els.viewerBody.querySelector(".content-card");
@@ -19697,7 +20149,7 @@ if (!chipTipController) {
       function cleanupRuntimeHostSync(options = {}) {
         if (options.invalidate !== false) {
           appState.runtimeHostSyncRunId += 1;
-          appState.runtimeControlsOverlayLastKey = null;
+          resetRuntimeControlsOverlaySync();
         }
         appState.runtimeHostSyncPending = false;
         if (appState.runtimeHostSyncFrame) {
@@ -20128,9 +20580,7 @@ if (!chipTipController) {
         if (appState.htmlFind.itemId === itemId) await closeActiveHtmlFind();
         if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
-        if (appState.activeRuntimeHostId === itemId) {
-          appState.runtimeControlsOverlayLastKey = null;
-        }
+        resetRuntimeControlsOverlaySync(itemId);
         await setRuntimeControlsOverlayVisibility(itemId, false);
         if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
@@ -20314,9 +20764,12 @@ if (!chipTipController) {
         // 与 MD 标签组同一占位比例 → 窗口缩小时 overlay 随工具栏收缩，chip 真正压缩
         // （而非只压路径）；大窗口取自然宽度（徽标 ~120px 一个单词）。
         const responsiveBudget = Math.max(240, Math.round(toolbarWidth * 0.46) + actionWidth);
-        const width = appState.runtimeControlsOverlayMode === "tags"
-          ? Math.min(Math.max(baseWidth, 300), Math.max(300, responsiveBudget))
-          : Math.min(baseWidth, responsiveBudget);
+        // `runtime-overlay.html` is a native child WebView.  A Custom Tag menu
+        // needs 300px, but changing the child x/width only for that menu makes
+        // macOS recompose the whole surface and visibly flash its toolbar.
+        // Reserve that menu width from the first compact frame; menu modes may
+        // resize vertically, but their horizontal backing surface is invariant.
+        const width = Math.min(Math.max(baseWidth, 300), Math.max(300, responsiveBudget));
         const right = Math.round(actionRight);
         return {
           x: Math.round(Math.max(0, right - width)),
@@ -20335,10 +20788,9 @@ if (!chipTipController) {
         };
       }
 
-      function runtimeControlsOverlaySyncKey(tab, bounds, isFullscreen) {
-        return JSON.stringify({
+      function runtimeControlsOverlayState(tab, isFullscreen) {
+        return {
           itemId: tab.id,
-          bounds,
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,
@@ -20349,9 +20801,79 @@ if (!chipTipController) {
           typeTag: "HTML",
           customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
           sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : [],
-          mode: appState.runtimeControlsOverlayMode,
-          expanded: appState.runtimeControlsOverlayExpanded
-        });
+          // A controls child has its own DOM/i18n instance.  Include locale in
+          // the eval-only state key so a Preferences language switch reaches
+          // an already-open Custom Tag menu without a later menu click.
+          language: appState.language === "en-US" ? "en-US" : "zh-CN"
+        };
+      }
+
+      function runtimeControlsOverlayPayload(tab, bounds, isFullscreen) {
+        return {
+          ...runtimeControlsOverlayState(tab, isFullscreen),
+          bounds
+        };
+      }
+
+      function resetRuntimeControlsOverlaySync(itemId = null) {
+        if (itemId != null && appState.runtimeControlsOverlayAttachedItemId !== itemId) return;
+        appState.runtimeControlsOverlayAttachedItemId = null;
+        appState.runtimeControlsOverlayLastBoundsKey = null;
+        appState.runtimeControlsOverlayLastStateKey = null;
+      }
+
+      async function syncRuntimeControlsOverlay(tab, bounds, isFullscreen, runId = null) {
+        const itemId = tab?.id;
+        if (itemId == null) return false;
+        const statePayload = runtimeControlsOverlayState(tab, isFullscreen);
+        const boundsKey = JSON.stringify(bounds);
+        const stateKey = JSON.stringify(statePayload);
+        const retryAfterMissingChild = () => {
+          resetRuntimeControlsOverlaySync(itemId);
+          if (isRuntimeHostSyncCurrent(runId, itemId)) scheduleRuntimeHostSync();
+        };
+
+        // attach/show 是 child 的首次创建或恢复路径。之后标签菜单和 resize 只能
+        // 走下面分离出的 bounds/eval 更新，不能再次触碰 native show。
+        if (appState.runtimeControlsOverlayAttachedItemId !== itemId) {
+          await invoke(
+            "attach_html_runtime_controls_overlay_command",
+            runtimeControlsOverlayPayload(tab, bounds, isFullscreen)
+          );
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          const shown = await setRuntimeControlsOverlayVisibility(itemId, true);
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          if (!shown) {
+            retryAfterMissingChild();
+            return false;
+          }
+          appState.runtimeControlsOverlayAttachedItemId = itemId;
+          appState.runtimeControlsOverlayLastBoundsKey = boundsKey;
+          appState.runtimeControlsOverlayLastStateKey = stateKey;
+          return true;
+        }
+
+        if (appState.runtimeControlsOverlayLastBoundsKey !== boundsKey) {
+          const updated = await invoke("set_html_runtime_controls_overlay_bounds_command", { itemId, bounds });
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          if (updated === false) {
+            retryAfterMissingChild();
+            return false;
+          }
+          appState.runtimeControlsOverlayLastBoundsKey = boundsKey;
+        }
+
+        if (appState.runtimeControlsOverlayLastStateKey !== stateKey) {
+          const updated = await invoke("update_html_runtime_controls_overlay_command", statePayload);
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          if (updated === false) {
+            retryAfterMissingChild();
+            return false;
+          }
+          appState.runtimeControlsOverlayLastStateKey = stateKey;
+        }
+
+        return true;
       }
 
       function isRuntimeHostSyncCurrent(runId, itemId = null) {
@@ -20456,27 +20978,8 @@ if (!chipTipController) {
 
         if (appState.runtimeFullscreenItemId === tab.id) {
           const fullscreenControlsBounds = runtimeFullscreenHintOverlayBounds(bounds);
-          const fullscreenControlsKey = runtimeControlsOverlaySyncKey(tab, fullscreenControlsBounds, true);
-          if (appState.runtimeControlsOverlayLastKey !== fullscreenControlsKey) {
-            await invoke("attach_html_runtime_controls_overlay_command", {
-              itemId: tab.id,
-              bounds: fullscreenControlsBounds,
-              isFavorite: Boolean(tab.item?.isFavorite),
-              isFullscreen: true,
-              isEditing: appState.htmlEditSession?.itemId === tab.id,
-              isPrimaryBusy: primaryActionBusyItemId != null,
-              customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
-              availableTags: appState.tags,
-              skillTag: tab.item?.skillBinding?.displayName ?? null,
-              typeTag: "HTML",
-              customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
-              sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
-            });
-            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-            await setRuntimeControlsOverlayVisibility(tab.id, true);
-            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-            appState.runtimeControlsOverlayLastKey = fullscreenControlsKey;
-          }
+          if (!await syncRuntimeControlsOverlay(tab, fullscreenControlsBounds, true, runId)) return;
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           await syncActiveHtmlFindLayoutBounds(tab, runId);
           if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
           ensureRuntimeHostResizeObserver(mount);
@@ -20484,30 +20987,11 @@ if (!chipTipController) {
         }
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
-        const controlsKey = runtimeControlsOverlaySyncKey(tab, controlsBounds, false);
-        if (appState.runtimeControlsOverlayLastKey !== controlsKey) {
-          await invoke("attach_html_runtime_controls_overlay_command", {
-            itemId: tab.id,
-            bounds: controlsBounds,
-            isFavorite: Boolean(tab.item?.isFavorite),
-            isFullscreen: false,
-            isEditing: appState.htmlEditSession?.itemId === tab.id,
-            isPrimaryBusy: primaryActionBusyItemId != null,
-            customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
-            availableTags: appState.tags,
-            skillTag: tab.item?.skillBinding?.displayName ?? null,
-            typeTag: "HTML",
-            customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
-            sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
-          });
-          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-          await setRuntimeControlsOverlayVisibility(tab.id, true);
-          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-          appState.runtimeControlsOverlayLastKey = controlsKey;
-          // Do not create the transparent find child until the user explicitly
-          // opens find. Cold-start A/B proved that staging it beneath the host
-          // can poison unrelated host/controls backing in the window compositor.
-        }
+        if (!await syncRuntimeControlsOverlay(tab, controlsBounds, false, runId)) return;
+        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+        // Do not create the transparent find child until the user explicitly
+        // opens find. Cold-start A/B proved that staging it beneath the host
+        // can poison unrelated host/controls backing in the window compositor.
 
         await syncActiveHtmlFindLayoutBounds(tab, runId);
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
@@ -20865,7 +21349,7 @@ if (!chipTipController) {
           try {
             await loadThumbnailBackendStatus({ throwOnError: true });
             const message = `${t("status.thumbnailDetectCompletePrefix")}${thumbnailEngineDisplayName()}`;
-            const tone = appState.thumbnailBackendStatus?.screenshotAvailable ? "ok" : "error";
+            const tone = appState.thumbnailBackendStatus?.screenshotAvailable ? "ok" : "info";
             setThumbnailSettingsFeedback(message, tone);
             setStatus(t("status.thumbnailStatusRefreshed"), tone);
             return appState.thumbnailBackendStatus;
@@ -22654,6 +23138,39 @@ if (!chipTipController) {
       }
 
       window.__NUTBOOK_NATIVE_MENU__ = handleNativeMenuAction;
+      window.__NUTBOOK_CONTEXT_FIND__ = openActiveDocumentFind;
+      window.__NUTBOOK_CONTEXT_PROVIDER__ = (target) => {
+        const card = target.closest("[data-open-item], [data-inspector-item]");
+        const chip = target.closest("[data-tab-id]");
+        const editable = target.closest('input, textarea, [contenteditable="true"]');
+        const itemId = Number(card?.dataset.openItem || card?.dataset.inspectorItem);
+        const item = appState.items.find((entry) => entry.id === itemId);
+        const tabId = chip?.dataset.tabId;
+        const activeTabId = appState.activeTabId;
+        const reader = els.viewerBody?.contains(target);
+        return {
+          kind: editable ? "edit" : item ? "file" : chip ? "tab" : reader ? "read" : "app",
+          language: appState.language,
+          favorite: Boolean(item?.isFavorite),
+          async run(action) {
+            if (action === "open" && item) return openItem(item.id);
+            if (action === "favorite" && item) return toggleFavorite(item.id);
+            if (action === "copy-path" && item) return writeClipboardText(item.filePath);
+            if (action === "reveal" && item) return invoke("reveal_context_item", { itemId: item.id });
+            if (action === "close-tab") {
+              const tab = appState.tabs.find((entry) => String(entry.id) === tabId);
+              if (tab) return closeOpenTab(tab.id);
+            }
+            if (action === "add-folder" || action === "add-file" || action === "rescan-library") {
+              return handleNativeMenuAction(action);
+            }
+            if (appState.activeTabId !== activeTabId) return;
+            if (action === "undo" || action === "redo") return handleNativeMenuAction(action);
+            if (action === "find") return openActiveDocumentFind();
+          }
+        };
+      };
+
 
       function toggleHomeLayout() {
         if (!appState.items.length && appState.homeLayout !== "inspector") {
@@ -23370,11 +23887,24 @@ if (!chipTipController) {
         const overlay = appState.inspector.moreOverlay;
         const stage = els.inspectorPreviewStage;
         const itemId = appState.inspector.selectedItemId;
+        // 「更多」只属于已 reveal 的 Markdown 预览卡。非 markdown 项在
+        // loadInspectorPreview 里同样被赋 status="ready"（HTML 复用该状态），而旧判据
+        // 把 stage 的 classList.contains 结果拿去和 undefined 比较：该方法只返回
+        // boolean，stage 存在时该项恒为 true，等于没写条件——于是拖分栏 / 窗口缩放
+        // 任何一次重同步都会把圆钮重新挂到 HTML 上。改用界面事实做唯一门：HTML
+        // 截图卡没有 inspector-preview-text，天然被排除，未来新增的非 Markdown
+        // 类型同理。这是回归：archive 2026-08-29 第三/四轮只堵了渲染链，
+        // 没堵住 ResizeObserver 重新 attach 这条路径。
+        const markdownCardRevealed = Boolean(
+          els.inspectorPreviewBody?.querySelector(
+            "[data-inspector-preview].inspector-preview-text:not(.inspector-preview-pending)"
+          )
+        );
         const visible = Boolean(
           isInspectorActive()
           && itemId != null
           && appState.inspector.status === "ready"
-          && stage?.classList.contains("inspector-preview-expanded") !== undefined
+          && markdownCardRevealed
         );
         const previousItemId = overlay.itemId;
         const nextRunId = ++overlay.syncRunId;
@@ -23391,7 +23921,7 @@ if (!chipTipController) {
           }
           const bounds = inspectorMoreOverlayBounds();
           if (!bounds) return;
-          const expanded = stage.classList.contains("inspector-preview-expanded");
+          const expanded = Boolean(stage?.classList.contains("inspector-preview-expanded"));
           const label = t(expanded ? "inspector.showLess" : "inspector.showMore");
           const selectionToken = appState.inspector.selectionToken;
           await invoke("attach_inspector_more_overlay_command", {
@@ -23444,6 +23974,33 @@ if (!chipTipController) {
       // 安全宽（GUI 验收第二批）：左栏最窄 280px（列最小宽总和约 272 + 内边距），
       // 右栏最窄 340px（预览框 + 详情栅格可读下限）。集中在这里钳制，
       // 拖拽 / 键盘方向键 / 双击重置 / 持久化恢复四条入口统一受限。
+
+      // 检查视图外层宽度变化的唯一重排入口。分栏轨道是内联 px（刻意不用 fr，
+      // 见 applyInspectorSplitRatio），因此一旦 shell 变宽而轨道不重算，多余
+      // 宽度就全堆到右端形成空白，原生小岛也停在旧屏幕坐标。侧栏折叠/展开、
+      // 窗口缩放、进入全屏都只表现为 shell 宽度变化：由 setSidebarCollapsed
+      // 尽早安排一次，其余来源由下方 #inspectorShell 的 ResizeObserver 兜住，
+      // 不保留第二套重排实现。
+      //
+      // 隐藏态必须挡在最前：applyInspectorSplitRatio 末尾是无条件写入，若在
+      // shell hidden 时被触发，会把轨道写成 usable=1 的 1px。
+      let inspectorRelayoutFrame = 0;
+      let inspectorRelayoutWidth = -1;
+      function scheduleInspectorRelayout() {
+        if (!els.inspectorShell || els.inspectorShell?.hidden) return;
+        if (inspectorRelayoutFrame) return;
+        inspectorRelayoutFrame = requestAnimationFrame(() => {
+          inspectorRelayoutFrame = 0;
+          const shell = els.inspectorShell;
+          if (!shell || shell.hidden) return;
+          const width = shell.getBoundingClientRect().width;
+          if (width <= 0 || width === inspectorRelayoutWidth) return;
+          inspectorRelayoutWidth = width;
+          applyInspectorSplitRatio();
+          syncInspectorMoreOverlay();
+        });
+      }
+
       const INSPECTOR_LEFT_MIN_PX = 280;
       const INSPECTOR_RIGHT_MIN_PX = 340;
 
@@ -23760,6 +24317,13 @@ if (!chipTipController) {
             cancelAnimationFrame(inspectorMoreOverlayResizeFrame);
             inspectorMoreOverlayResizeFrame = requestAnimationFrame(() => syncInspectorMoreOverlay());
           }).observe(els.inspectorPreviewFrame);
+        }
+
+        // 侧栏折叠/展开、窗口缩放、进入全屏改变的都只是 #inspectorShell 的外框
+        // 宽度；px 冻结轨道必须据此重算。上方的预览框观察器只在预览框尺寸变化
+        // 时触发，覆盖不到「预览框随 shell 只平移、尺寸不变」的情形。
+        if (window.ResizeObserver && els.inspectorShell) {
+          new ResizeObserver(() => scheduleInspectorRelayout()).observe(els.inspectorShell);
         }
 
         // 分隔条：指针拖动 + 键盘方向键 + 双击重置 40/60。
@@ -24325,6 +24889,7 @@ if (!chipTipController) {
           }
         });
         els.settingsRefreshThumbnailStatusButton.addEventListener("click", refreshThumbnailBackendStatusFromSettings);
+        els.settingsThumbnailInstallGuideButton.addEventListener("click", showThumbnailInstallStepsDialog);
         els.settingsRebuildVisibleThumbsButton.addEventListener("click", rebuildVisibleHtmlThumbnails);
         els.settingsRebuildLibraryThumbsButton.addEventListener("click", rebuildCurrentLibraryHtmlThumbnails);
         els.openCurrentFolderButton.addEventListener("click", () => {
@@ -25811,6 +26376,7 @@ if (!chipTipController) {
         if (serial !== defaultAppStatusSerial || !isDefaultAppRowVisible()) return;
         defaultAppStatus = nextStatus;
         renderDefaultAppStatusRow();
+        return nextStatus;
       }
 
       function renderDefaultAppStatusRow() {
@@ -25858,9 +26424,14 @@ if (!chipTipController) {
             return view("idle", false, name, "settings.defaultAppWindowsAction");
           }
           if (!defaultAppStatus) {
+            if (group === "html") return view("idle", false, "HTML ＋", "settings.defaultAppHtmlGuideAction");
             return view("muted", true, name, "settings.defaultAppStatusLoading");
           }
           const status = defaultAppStatus[group];
+          if (group === "html") {
+            const label = status === "default" ? "HTML ✓" : status === "partial" ? `HTML ${t("settings.defaultAppPartialSuffix")}` : "HTML ＋";
+            return view(status === "default" ? "ok" : "idle", false, label, "settings.defaultAppHtmlGuideAction");
+          }
           // 提示语默认复用状态词；未默认时改给动作（「设为默认」），因为这一
           // 枚是唯一真正能点的。
           const hintKey = status === "notDefault"
@@ -25899,6 +26470,10 @@ if (!chipTipController) {
       async function setDefaultAppFromPreferences(group) {
         if (!appState.isTauri || defaultAppSetting) return;
         if (group !== "markdown" && group !== "html") return;
+        if (group === "html" && !isWindowsPlatform()) {
+          showDefaultAppFinderFallbackDialog("html");
+          return;
+        }
         defaultAppSetting = group;
         renderDefaultAppStatusRow();
         let failed = false;
@@ -25923,7 +26498,11 @@ if (!chipTipController) {
         } finally {
           defaultAppSetting = null;
         }
-        await refreshDefaultAppStatus();
+        const verifiedStatus = await refreshDefaultAppStatus();
+        if (!failed && !cancelled && !isWindowsPlatform() && verifiedStatus?.[group] !== "default") {
+          failed = true;
+          setStatus(`${t("settings.defaultAppSetFailedPrefix")}${t("settings.defaultAppStatusNotDefault")}`, "error");
+        }
         if (failed && !cancelled && !isWindowsPlatform()) {
           defaultAppFallbackGroup = group;
           const row = els.settingsPreferenceList?.querySelector("[data-default-app-row]");
@@ -25988,20 +26567,21 @@ if (!chipTipController) {
       // 备用方法改为应用内弹窗示意图（GUI 反馈：纯文字 md 引导文件没有信息
       // 量，废弃该路径）。示意图由 Codex 生成的真实感单图提供
       // （assets/default-app-finder-guide.png）；图片缺失时以内置 SVG 线框兜底。
-      // 两个格式组共用同一张图：四步流程完全一致，图里的文件名只是示例；
-      // 随组变化的只有文案里的扩展名。
+      // HTML 使用独立四步图；Markdown 保留原图。
       function showDefaultAppFinderFallbackDialog(group = defaultAppFallbackGroup) {
         const { name, ext } = defaultAppFinderGroupCopy(group);
         const intro = formatTranslation("settings.defaultAppFinderIntro", { format: name, ext });
+        const title = t(group === "html" ? "settings.defaultAppHtmlGuideTitle" : "settings.defaultAppFallbackTitle");
+        const figure = group === "html" ? "assets/default-app-finder-guide-html.png" : "assets/default-app-finder-guide.png";
         injectExternalOpenStyles();
         const overlay = document.createElement("div");
         overlay.className = "external-open-prompt default-app-fallback-overlay";
         overlay.innerHTML = `
-          <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("settings.defaultAppFallbackTitle"))}">
-            <p class="external-open-prompt-title">${escapeHtml(t("settings.defaultAppFallbackTitle"))}</p>
+          <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+            <p class="external-open-prompt-title">${escapeHtml(title)}</p>
             <p class="external-open-prompt-desc">${escapeHtml(intro)}</p>
             <div class="default-app-fallback-figure">
-              <img src="assets/default-app-finder-guide.png" alt="${escapeHtml(intro)}" data-fallback-figure-img hidden />
+              <img src="${figure}" alt="${escapeHtml(intro)}" data-fallback-figure-img hidden />
             </div>
             <ol class="default-app-fallback-steps">
               <li>${escapeHtml(formatTranslation("settings.defaultAppFinderStep1", { ext }))}</li>
@@ -26015,7 +26595,10 @@ if (!chipTipController) {
           </div>
         `;
         document.body.appendChild(overlay);
-        const close = () => overlay.remove();
+        const close = () => {
+          overlay.remove();
+          refreshDefaultAppStatus();
+        };
         // 图存在 → 显示真图；缺失 → 内置 SVG 线框兜底（图片加载失败即换）。
         const figureEl = overlay.querySelector(".default-app-fallback-figure");
         const figureImg = overlay.querySelector("[data-fallback-figure-img]");
@@ -26054,7 +26637,9 @@ if (!chipTipController) {
         // Windows 专属说明，不提 macOS 系统确认对话框。
         const isWindows = isWindowsPlatform();
         const overlay = document.createElement("div");
-        overlay.className = "external-open-prompt";
+        // 首次引导与 Finder 备用说明同属窗口级默认应用 UI，必须高于
+        // document toolbar；不能退回通用 external prompt 的内容层 z-index。
+        overlay.className = "external-open-prompt default-app-guide-overlay";
         overlay.innerHTML = `
           <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("external.guideTitle"))}">
             <p class="external-open-prompt-title">${escapeHtml(t("external.guideTitle"))}</p>
@@ -26220,7 +26805,9 @@ if (!chipTipController) {
 
       window.__NUTBOOK_UPDATE_INTERFACE_LANGUAGE__ = (language) => updateInterfaceLanguage(language, { propagateToMain: false });
 
+      if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
       boot();
     </script>
+    <script src="assets/context-menu.js"></script>
   </body>
 </html>

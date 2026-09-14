@@ -521,12 +521,6 @@ pub fn find_local_chromium_executable() -> Option<PathBuf> {
         return Some(path);
     }
 
-    // GUI browsers can bounce in the Dock/menu bar on macOS even with --headless.
-    // Keep them opt-in so first scans never steal focus on fresh installs.
-    if system_chrome_thumbnails_enabled() {
-        return find_system_chromium_executable();
-    }
-
     None
 }
 
@@ -535,10 +529,40 @@ pub fn system_chrome_thumbnails_enabled() -> bool {
 }
 
 pub fn playwright_chromium_executable_candidates(home: &Path) -> Vec<PathBuf> {
-    vec![
-        home.join("Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-x64/chrome-headless-shell"),
-        home.join("Library/Caches/ms-playwright/chromium-1208/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+    let cache_root = home.join("Library/Caches/ms-playwright");
+    playwright_chromium_executable_candidates_in(&cache_root)
+}
+
+fn playwright_chromium_executable_candidates_in(cache_root: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![
+        cache_root.join("chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell"),
+        cache_root.join("chromium_headless_shell-1208/chrome-headless-shell-mac-x64/chrome-headless-shell"),
+        cache_root.join("chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+        cache_root.join("chromium-1208/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
     ]
+    .into_iter()
+    .collect::<Vec<_>>();
+    let Ok(entries) = fs::read_dir(cache_root) else { return candidates; };
+    let mut versions = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            (name.starts_with("chromium_headless_shell-") || name.starts_with("chromium-"))
+                .then(|| entry.path())
+        })
+        .collect::<Vec<_>>();
+    versions.sort();
+    versions.reverse();
+    for version in versions {
+        candidates.extend([
+            version.join("chrome-headless-shell-mac-arm64/chrome-headless-shell"),
+            version.join("chrome-headless-shell-mac-x64/chrome-headless-shell"),
+            version.join("chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+            version.join("chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+        ]);
+    }
+    candidates
 }
 
 fn system_chromium_executable_candidates() -> Vec<PathBuf> {
@@ -618,9 +642,7 @@ pub fn capture_html_thumbnail_with_chromium(
     let output_path = temp_screenshot_path();
     let profile_path = temp_chromium_profile_path();
     let _ = fs::create_dir_all(&profile_path);
-    if should_launch_system_browser_via_open(&input.chromium_path) {
-        launch_system_browser_screenshot_via_open(&input, &output_path, &profile_path)?;
-    } else {
+    let result = (|| {
         let args = chromium_screenshot_args(
             &output_path,
             &profile_path,
@@ -628,39 +650,41 @@ pub fn capture_html_thumbnail_with_chromium(
             input.width,
             input.height,
         );
-        let output = Command::new(&input.chromium_path)
-            .args(&args)
-            .output()
-            .map_err(|error| {
-                let _ = fs::remove_dir_all(&profile_path);
-                format!("failed to launch chromium: {error}")
-            })?;
+        let output = if should_launch_system_browser_via_open(&input.chromium_path) {
+            launch_system_browser_screenshot_via_open(&input, &args)?
+        } else {
+            Command::new(&input.chromium_path)
+                .args(&args)
+                .output()
+                .map_err(|error| format!("failed to launch chromium: {error}"))?
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let _ = fs::remove_file(&output_path);
             return Err(format!("chromium screenshot failed: {stderr}"));
         }
-    }
 
+        let bytes = fs::read(&output_path).map_err(|error| format!("failed to read screenshot: {error}"))?;
+        if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err("chromium did not produce a PNG screenshot".to_string());
+        }
+        Ok(GeneratedThumbnailAsset {
+            backend: "screenshot-chromium",
+            content_type: "image/png",
+            file_extension: "png",
+            bytes,
+            svg: String::new(),
+            width: input.width,
+            height: input.height,
+        })
+    })();
+
+    // Each capture owns a private profile. On macOS, `open -W -n` waits for the
+    // dedicated headless Chrome instance to exit before this profile is removed.
+    // Without `-W`, later URLs can be routed into a still-running headless app.
     let _ = fs::remove_dir_all(&profile_path);
-
-    let bytes = fs::read(&output_path).map_err(|error| format!("failed to read screenshot: {error}"))?;
     let _ = fs::remove_file(&output_path);
-
-    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err("chromium did not produce a PNG screenshot".to_string());
-    }
-
-    Ok(GeneratedThumbnailAsset {
-        backend: "screenshot-chromium",
-        content_type: "image/png",
-        file_extension: "png",
-        bytes,
-        svg: String::new(),
-        width: input.width,
-        height: input.height,
-    })
+    result
 }
 
 /// Capture one page of a Nutbook presentation through its public bridge.
@@ -977,46 +1001,19 @@ fn chromium_app_bundle_path(chromium_path: &Path) -> Option<PathBuf> {
 
 fn launch_system_browser_screenshot_via_open(
     input: &ChromiumScreenshotInput,
-    output_path: &Path,
-    profile_path: &Path,
-) -> Result<(), String> {
+    args: &[String],
+) -> Result<std::process::Output, String> {
     let Some(app_bundle_path) = chromium_app_bundle_path(&input.chromium_path) else {
         return Err("system browser app bundle not found".to_string());
     };
 
-    let args = chromium_screenshot_args(
-        output_path,
-        profile_path,
-        &input.url,
-        input.width,
-        input.height,
-    );
-    let output = Command::new("open")
-        .arg("-n")
-        .arg(&app_bundle_path)
+    Command::new("open")
+        .args(["-W", "-n"])
+        .arg(app_bundle_path)
         .arg("--args")
-        .args(&args)
+        .args(args)
         .output()
-        .map_err(|error| format!("failed to launch system browser with open: {error}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!(
-            "open failed to launch system browser: {}{}",
-            stdout,
-            if stderr.is_empty() { "" } else { stderr.as_ref() }
-        ));
-    }
-
-    for _ in 0..40 {
-        if output_path.is_file() {
-            return Ok(());
-        }
-        thread::sleep(std::time::Duration::from_millis(250));
-    }
-
-    Err("system browser launched, but screenshot file was not produced before timeout; macOS may have blocked the request".to_string())
+        .map_err(|error| format!("failed to launch system browser with open: {error}"))
 }
 
 pub fn chromium_screenshot_args(
@@ -1391,9 +1388,9 @@ mod tests {
         capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
         generate_html_thumbnail_with_adapter, generate_markdown_default_cover_asset,
         generate_markdown_default_cover_svg, markdown_cover_projection, markdown_default_cover_key,
-        markdown_default_cover_target, markdown_key_is_current, playwright_chromium_executable_candidates,
-        stable_background_index, system_chrome_thumbnails_enabled, MarkdownCoverMode,
-        should_launch_system_browser_via_open, svg_text_width, thumbnail_backend_status, wrap_markdown_cover_title, ChromiumScreenshotInput, DefaultThumbnailCaptureAdapter, GeneratedThumbnailAsset, MARKDOWN_COVER_BACKGROUNDS, MARKDOWN_COVER_LINE_HEIGHT_RATIO, MARKDOWN_COVER_TITLE_SAFE_BOTTOM, MARKDOWN_COVER_TITLE_TOP, PresentationScreenshotInput, PresentationThumbnailWorkerInput,
+        markdown_default_cover_target, markdown_key_is_current, playwright_chromium_executable_candidates, playwright_chromium_executable_candidates_in,
+        should_launch_system_browser_via_open, stable_background_index, system_chrome_thumbnails_enabled, MarkdownCoverMode,
+        svg_text_width, thumbnail_backend_status, wrap_markdown_cover_title, ChromiumScreenshotInput, DefaultThumbnailCaptureAdapter, GeneratedThumbnailAsset, MARKDOWN_COVER_BACKGROUNDS, MARKDOWN_COVER_LINE_HEIGHT_RATIO, MARKDOWN_COVER_TITLE_SAFE_BOTTOM, MARKDOWN_COVER_TITLE_TOP, PresentationScreenshotInput, PresentationThumbnailWorkerInput,
         HtmlThumbnailInput, ThumbnailBackend, ThumbnailCaptureAdapter, HTML_SCREENSHOT_HEIGHT, HTML_SCREENSHOT_WIDTH,
     };
     use crate::core::document::content_hash;
@@ -1822,6 +1819,18 @@ mod tests {
     }
 
     #[test]
+    fn playwright_chromium_candidates_include_installed_newer_versions() {
+        let directory = tempfile::tempdir().expect("temporary cache directory");
+        let cache = directory.path();
+        fs::create_dir_all(cache.join("chromium_headless_shell-1228/chrome-headless-shell-mac-arm64"))
+            .expect("headless shell cache directory");
+        let candidates = playwright_chromium_executable_candidates_in(cache);
+        assert!(candidates.iter().any(|path| {
+            path.ends_with("chromium_headless_shell-1228/chrome-headless-shell-mac-arm64/chrome-headless-shell")
+        }));
+    }
+
+    #[test]
     fn backend_status_always_names_placeholder_fallback() {
         let status = thumbnail_backend_status();
 
@@ -1863,21 +1872,13 @@ mod tests {
     }
 
     #[test]
-    fn system_browser_bundle_path_is_derived_from_app_executable() {
-        let bundle = chromium_app_bundle_path(Path::new(
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        ));
-        assert_eq!(bundle, Some(PathBuf::from("/Applications/Google Chrome.app")));
-    }
-
-    #[test]
-    fn system_browser_under_applications_uses_open_launcher() {
-        assert!(should_launch_system_browser_via_open(Path::new(
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        )));
-        assert!(!should_launch_system_browser_via_open(Path::new(
-            "/Users/example/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-x64/chrome-headless-shell",
-        )));
+    fn system_browser_uses_a_dedicated_app_instance() {
+        let chrome = Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+        assert_eq!(
+            chromium_app_bundle_path(chrome),
+            Some(PathBuf::from("/Applications/Google Chrome.app"))
+        );
+        assert!(should_launch_system_browser_via_open(chrome));
     }
 
     #[test]

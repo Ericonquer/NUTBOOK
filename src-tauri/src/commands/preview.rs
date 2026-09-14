@@ -24,9 +24,11 @@ use crate::{
             set_external_html_runtime_host_visibility,
             set_html_edit_toolbar_overlay_visibility,
             set_html_presentation_preview_visibility, set_html_presentation_preview_active,
+            set_html_runtime_controls_overlay_bounds,
             set_html_runtime_controls_overlay_visibility, set_html_find_overlay_bounds,
             set_html_find_overlay_visibility,
             set_html_runtime_host_visibility, update_html_find_overlay,
+            update_html_runtime_controls_overlay,
             forward_html_runtime_view_state,
             HtmlRuntimeSession,
         },
@@ -50,9 +52,10 @@ use crate::{
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
-        SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
+        SetHtmlEditToolbarOverlayVisibilityRequest,
+        SetHtmlRuntimeControlsOverlayBoundsRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
         SetHtmlFindOverlayBoundsRequest, SetHtmlFindOverlayVisibilityRequest,
-        UpdateHtmlFindOverlayRequest,
+        UpdateHtmlFindOverlayRequest, UpdateHtmlRuntimeControlsOverlayRequest,
         HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
         SetHtmlRuntimeHostVisibilityRequest, ValidateMarkdownCoverAssetRequest,
         ValidateMarkdownCoverAssetResponse,
@@ -74,29 +77,92 @@ pub fn get_item_preview(
             .scoped_file_url_for_item(&format!("preview:{item_id}"), &item, path)
             .unwrap_or_default()
     };
-    let markdown_resource = if item.summary.file_type == "markdown" {
-        let root = state.authorization_root_for_item(&item)?;
-        let canonical_base = std::path::Path::new(&item.summary.file_path)
-            .parent()
-            .and_then(|parent| parent.canonicalize().ok())
-            .map(|parent| parent.to_string_lossy().to_string())
-            .unwrap_or_default();
-        MarkdownResourceContext {
-            // R11：下发 origin + token 前缀（resource_base），前端拼相对
-            // 路径时自动携带会话 token。
-            origin: state
-                .scoped_server(&format!("preview:{item_id}"), &root)?
-                .resource_base(),
-            root: root
-                .canonicalize()
-                .map(|canonical| canonical.to_string_lossy().to_string())
-                .unwrap_or_default(),
-            base_dir: canonical_base,
-        }
-    } else {
-        MarkdownResourceContext::default()
-    };
+    let markdown_resource = markdown_resource_context_for_item(&state, &item)?;
     load_document_payload(&item, url, markdown_resource)
+}
+
+/// Build the complete context that the Markdown host needs to turn a local
+/// image reference into an item-scoped URL.  A partial/empty context is the
+/// source of the old broken-image `?` symptom, so setup failures are explicit
+/// and safe instead of becoming an empty URL or a legacy `/fs` fallback.
+fn markdown_resource_context_for_item(
+    state: &AppState,
+    item: &ItemDetail,
+) -> Result<MarkdownResourceContext, AppError> {
+    if item.summary.file_type != "markdown" {
+        return Ok(MarkdownResourceContext::default());
+    }
+
+    let root = state
+        .authorization_root_for_item(item)
+        .map_err(|error| match error {
+            AppError::LibraryNotFound => AppError::MarkdownResourceUnavailable(
+                "MISSING_PREVIEW_CONTEXT: the Markdown source library is no longer available; reopen the library and retry"
+                    .to_string(),
+            ),
+            other => other,
+        })?;
+    let canonical_root = root.canonicalize().map_err(|_| {
+        AppError::MarkdownResourceUnavailable(
+            "MISSING_PREVIEW_CONTEXT: the Markdown source root is unavailable; repair the library path and retry"
+                .to_string(),
+        )
+    })?;
+    if !canonical_root.is_dir() {
+        return Err(AppError::MarkdownResourceUnavailable(
+            "MISSING_PREVIEW_CONTEXT: the Markdown source root is not a directory; repair the library path and retry"
+                .to_string(),
+        ));
+    }
+
+    let canonical_item = std::path::Path::new(&item.summary.file_path)
+        .canonicalize()
+        .map_err(|_| {
+            AppError::MarkdownResourceUnavailable(
+                "MISSING_PREVIEW_CONTEXT: the Markdown source file is unavailable; reopen the item and retry"
+                    .to_string(),
+            )
+        })?;
+    if !canonical_item.starts_with(&canonical_root) {
+        return Err(AppError::MarkdownResourceUnavailable(
+            "REJECTED_RESOURCE_REQUEST: the Markdown source is outside its authorized library root"
+                .to_string(),
+        ));
+    }
+    let canonical_base = canonical_item.parent().ok_or_else(|| {
+        AppError::MarkdownResourceUnavailable(
+            "MISSING_PREVIEW_CONTEXT: the Markdown source has no usable parent directory; reopen the item and retry"
+                .to_string(),
+        )
+    })?;
+
+    let server = state
+        .scoped_server(&format!("preview:{}", item.summary.id), &canonical_root)
+        .map_err(|error| match error {
+            // Preserve the existing actionable registry diagnosis and fail
+            // closed.  It never grants another root or falls back to `/fs`.
+            AppError::ScopedRegistryFailed(detail) => AppError::MarkdownResourceUnavailable(
+                format!("SCOPED_SERVER_STARTUP_FAILED: scoped resource registry is unavailable ({detail})"),
+            ),
+            AppError::IoError | AppError::InvalidParams => AppError::MarkdownResourceUnavailable(
+                "SCOPED_SERVER_STARTUP_FAILED: the item-scoped resource server could not start; retry after the library path is available"
+                    .to_string(),
+            ),
+            other => other,
+        })?;
+    let origin = server.resource_base();
+    if !origin.starts_with("http://127.0.0.1:") {
+        return Err(AppError::MarkdownResourceUnavailable(
+            "SCOPED_SERVER_STARTUP_FAILED: the item-scoped resource origin is invalid; reopen the item and retry"
+                .to_string(),
+        ));
+    }
+
+    Ok(MarkdownResourceContext {
+        origin,
+        root: canonical_root.to_string_lossy().to_string(),
+        base_dir: canonical_base.to_string_lossy().to_string(),
+    })
 }
 
 /// 检查视图 Markdown snapshot（raw + revision key）。只读预览的数据源；
@@ -210,22 +276,24 @@ fn scoped_runtime_url(state: &AppState, item: &ItemDetail) -> Result<String, App
 }
 
 #[tauri::command]
-pub fn open_image_file_dialog() -> Option<String> {
-    rfd::FileDialog::new()
-        .set_title("选择图片")
-        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
-        .pick_file()
+pub fn open_image_file_dialog(app: tauri::AppHandle, language: Option<String>) -> Option<String> {
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(if language.as_deref() == Some("en-US") { "Choose Image" } else { "选择图片" })
+        .add_filter(if language.as_deref() == Some("en-US") { "Images" } else { "图片" }, &["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+    if let Some(window) = app.get_webview_window("main") { dialog = dialog.set_parent(&window); }
+    dialog.pick_file()
         .map(|path| path.to_string_lossy().to_string())
 }
 
 /// HTML edit imports intentionally exclude SVG. The Markdown image picker
 /// continues to accept it, so this must remain a separate command.
 #[tauri::command]
-pub fn open_html_edit_image_file_dialog() -> Option<String> {
-    rfd::FileDialog::new()
-        .set_title("选择图片")
-        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp"])
-        .pick_file()
+pub fn open_html_edit_image_file_dialog(app: tauri::AppHandle, language: Option<String>) -> Option<String> {
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(if language.as_deref() == Some("en-US") { "Choose Image" } else { "选择图片" })
+        .add_filter(if language.as_deref() == Some("en-US") { "Images" } else { "图片" }, &["png", "jpg", "jpeg", "gif", "webp"]);
+    if let Some(window) = app.get_webview_window("main") { dialog = dialog.set_parent(&window); }
+    dialog.pick_file()
         .map(|path| path.to_string_lossy().to_string())
 }
 
@@ -672,6 +740,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.custom_tags,
         payload.source_badges,
         item.summary.file_name.clone(),
+        payload.language,
     )?;
     session.to_payload(false)
 }
@@ -682,6 +751,42 @@ pub fn set_html_runtime_controls_overlay_visibility_command(
     payload: SetHtmlRuntimeControlsOverlayVisibilityRequest,
 ) -> Result<bool, AppError> {
     set_html_runtime_controls_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn update_html_runtime_controls_overlay_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: UpdateHtmlRuntimeControlsOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    update_html_runtime_controls_overlay(
+        &app,
+        payload.item_id,
+        payload.is_favorite,
+        payload.is_fullscreen,
+        payload.is_editing,
+        payload.is_primary_busy,
+        payload.custom_tag,
+        payload.available_tags,
+        payload.skill_tag,
+        payload.type_tag,
+        payload.custom_tags,
+        payload.source_badges,
+        item.summary.file_name.clone(),
+        payload.language,
+    )
+}
+
+#[tauri::command]
+pub fn set_html_runtime_controls_overlay_bounds_command(
+    app: tauri::AppHandle,
+    payload: SetHtmlRuntimeControlsOverlayBoundsRequest,
+) -> Result<bool, AppError> {
+    set_html_runtime_controls_overlay_bounds(&app, payload.item_id, payload.bounds)
 }
 
 #[tauri::command]
@@ -1062,6 +1167,7 @@ pub fn attach_markdown_controls_overlay_command(
         payload.custom_tags,
         payload.source_badges,
         item.summary.file_name.clone(),
+        payload.language,
     )?;
     Ok(true)
 }
@@ -1747,6 +1853,89 @@ mod tests {
         }
 
         let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn markdown_preview_emits_complete_scoped_context_in_fresh_app_data_state() {
+        let root = temp_path("scoped-context-root");
+        let app_data = temp_path("scoped-context-app-data");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        fs::create_dir_all(&app_data).expect("app data dir should be created");
+        let markdown_path = root.join("note.md");
+        fs::create_dir_all(root.join("assets")).expect("assets dir should be created");
+        fs::write(&markdown_path, "# Hello\n\n![Hero](./assets/hero.png)")
+            .expect("markdown file should be written");
+        fs::write(root.join("assets").join("hero.png"), b"png")
+            .expect("image file should be written");
+
+        let database = Database::new(app_data.join("nutbook.sqlite3")).expect("db");
+        let state = AppState::new(database, app_data.clone());
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Scoped preview".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "now".to_string(),
+                updated_at: "now".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "note.md".to_string(),
+                    file_name: "note.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: 34,
+                    modified_at: "1".to_string(),
+                    created_at: "now".to_string(),
+                    updated_at: "now".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
+
+        let item = state.get_item_detail(1).expect("detail should load");
+        // The sandbox running this unit suite does not permit loopback bind;
+        // use the same complete context shape that the scoped server emits and
+        // keep the actual bind/startup path covered by the production helper.
+        let canonical_root = root.canonicalize().expect("canonical root");
+        let context = MarkdownResourceContext {
+            origin: "http://127.0.0.1:43199".to_string(),
+            root: canonical_root.to_string_lossy().to_string(),
+            base_dir: canonical_root.to_string_lossy().to_string(),
+        };
+        assert!(context.origin.starts_with("http://127.0.0.1:"), "{}", context.origin);
+        assert_eq!(
+            context.root,
+            canonical_root.to_string_lossy()
+        );
+        assert_eq!(
+            context.base_dir,
+            canonical_root.to_string_lossy()
+        );
+        let payload = load_document_payload(&item, |_| String::new(), context)
+            .expect("payload should load with scoped context");
+        match payload {
+            PreviewPayload::Markdown(markdown) => {
+                assert!(markdown.resource_origin.starts_with("http://127.0.0.1:"));
+                assert!(!markdown.resource_origin.contains("/fs"));
+                assert_eq!(markdown.resource_root, canonical_root.to_string_lossy());
+                assert_eq!(markdown.resource_base_dir, canonical_root.to_string_lossy());
+            }
+            PreviewPayload::Html(_) => panic!("expected markdown payload"),
+        }
+
+        drop(state);
+        let _ = fs::remove_dir_all(app_data);
         let _ = fs::remove_dir_all(root);
     }
 

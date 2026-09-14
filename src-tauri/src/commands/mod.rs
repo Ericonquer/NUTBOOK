@@ -11,3 +11,5 @@ pub mod thumbnails;
 pub mod updates;
 pub mod window;
 pub mod external;
+
+pub mod context_menu;

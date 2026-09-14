@@ -458,18 +458,32 @@ fn skill_root_rank(skill_root: &Path) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        collections::HashSet,
+        fs,
+        path::PathBuf,
+        process,
+        sync::atomic::{AtomicU64, Ordering},
+        thread,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use crate::models::Library;
 
     use super::discover_artifact_skills_in_roots;
+
+    static TEMP_ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn temp_root() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be valid")
             .as_nanos();
-        std::env::temp_dir().join(format!("nutbook-skill-discovery-{nanos}"))
+        let sequence = TEMP_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "nutbook-skill-discovery-{}-{nanos}-{sequence}",
+            process::id(),
+        ))
     }
 
     fn write_file(path: &PathBuf, body: &str) {
@@ -492,6 +506,18 @@ mod tests {
             last_scanned_at: None,
             skill_binding: None,
         }
+    }
+
+    #[test]
+    fn temp_roots_are_unique_when_tests_start_concurrently() {
+        let handles = (0..32)
+            .map(|_| thread::spawn(temp_root))
+            .collect::<Vec<_>>();
+        let roots = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("temporary root thread should finish"))
+            .collect::<HashSet<_>>();
+        assert_eq!(roots.len(), 32);
     }
 
     #[test]
