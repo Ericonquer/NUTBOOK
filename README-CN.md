@@ -248,7 +248,7 @@ nutbook doctor [--json]
 
 | 依赖           | 建议版本         | 用途                          |
 | ------------ | ------------ | --------------------------- |
-| Node.js      | 18+          | 安装前端依赖、构建 Markdown 编辑器和前端资源 |
+| Node.js      | 22.x         | 安装前端依赖、构建 Markdown 编辑器和前端资源 |
 | npm          | 随 Node.js 安装 | 执行前端构建脚本                    |
 | Rust / Cargo | stable       | 编译和检查 Tauri 后端              |
 | Tauri CLI    | 2.x          | 启动或构建桌面应用                   |
@@ -262,6 +262,17 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 Markdown 编辑器构建会执行兼容补丁，请不要跳过 `npm run build:frontend`。
+
+提交 PR 或创建 release tag 前，请先切换到 Node 22（安装 `.nvmrc` 指定版本后执行
+`nvm use`），再运行：
+
+```bash
+npm run check:ci
+```
+
+该命令会重新安装依赖、安装 Chromium，并执行与 macOS CI 相同的质量门槛；Windows
+编译检查仍由远程 CI 执行。只有两个必需 CI 检查均成功，release tag 才会创建草稿
+Release。
 
 ### 缩略图引擎
 

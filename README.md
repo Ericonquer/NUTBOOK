@@ -248,7 +248,7 @@ For developers, testers, or anyone who wants a local build.
 
 | Dependency   | Recommended version  | Purpose                                                                   |
 | ------------ | -------------------- | ------------------------------------------------------------------------- |
-| Node.js      | 18+                  | Install frontend dependencies and build Markdown editor / frontend assets |
+| Node.js      | 22.x                 | Install frontend dependencies and build Markdown editor / frontend assets |
 | npm          | Bundled with Node.js | Run frontend build scripts                                                |
 | Rust / Cargo | stable               | Compile and check the Tauri backend                                       |
 | Tauri CLI    | 2.x                  | Run or build the desktop app                                              |
@@ -262,6 +262,17 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 The Markdown editor build includes a compatibility patch. Do not skip `npm run build:frontend`.
+
+Before opening a PR or creating a release tag, switch to Node 22 (`nvm use` after
+installing the version declared in `.nvmrc`) and run:
+
+```bash
+npm run check:ci
+```
+
+This cleanly reinstalls dependencies, installs Chromium, and runs the same macOS
+quality gate as CI. The Windows compile check still runs remotely. A release tag
+cannot create a draft Release until both required CI checks report success.
 
 For a desktop development run, use the tracked entry point:
 
