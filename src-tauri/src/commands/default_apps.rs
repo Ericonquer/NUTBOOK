@@ -106,6 +106,15 @@ pub enum SetDefaultAppMode {
     SystemSettings,
 }
 
+/// A development build has a deliberately different bundle identity and no
+/// declared file associations.  It must therefore never mutate LaunchServices
+/// (or open the Windows default-app settings flow as if it were a releasable
+/// handler).  Keep this check at the command boundary so every platform
+/// setter is protected by the same contract.
+fn default_app_mutation_allowed() -> bool {
+    !cfg!(debug_assertions)
+}
+
 /// 系统回调携带的原始 NSError 信息（分类前的证据形态）。
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone)]
@@ -146,6 +155,11 @@ pub async fn set_default_app(
     app: tauri::AppHandle,
     kind: String,
 ) -> Result<SetDefaultAppMode, AppError> {
+    if !default_app_mutation_allowed() {
+        return Err(AppError::DefaultAppActionFailed(
+            "default app changes are disabled in development builds".to_string(),
+        ));
+    }
     #[cfg(target_os = "macos")]
     if kind == "html" {
         return set_default_html_viewer_handler().map(|()| SetDefaultAppMode::SystemDialog);
@@ -410,6 +424,23 @@ mod default_app_status_tests {
             aggregate_group_status(&[]),
             DefaultAppGroupStatus::Unknown
         );
+    }
+}
+
+#[cfg(test)]
+mod default_app_mutation_tests {
+    use super::default_app_mutation_allowed;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_builds_cannot_mutate_default_handlers() {
+        assert!(!default_app_mutation_allowed());
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_builds_can_mutate_default_handlers() {
+        assert!(default_app_mutation_allowed());
     }
 }
 

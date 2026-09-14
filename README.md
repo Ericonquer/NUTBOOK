@@ -263,6 +263,19 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 The Markdown editor build includes a compatibility patch. Do not skip `npm run build:frontend`.
 
+For a desktop development run, use the tracked entry point:
+
+```bash
+npm run dev
+```
+
+This invokes `cargo tauri dev` with `src-tauri/tauri.dev.conf.json`, which gives
+the development app the `com.hayley.nutbook.dev` identity, the `NUTBOOK Dev`
+display name, and no Markdown/HTML file associations. A bare `cargo tauri dev`
+cannot be transparently rewritten by a repository package script; it reads the
+release base config and can register the release identity with LaunchServices.
+Use `npm run dev` whenever running the debug app.
+
 ### Thumbnail Engine
 
 When a usable thumbnail engine is available, NUTBOOK uses it to generate HTML / Markdown thumbnails. Otherwise the app displays placeholders and lets you detect available engines, explicitly enable system Chrome as a fallback, or follow the installation guidance for a screenshot engine. NUTBOOK does not invoke Chrome silently.

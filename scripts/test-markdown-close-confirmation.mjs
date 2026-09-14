@@ -47,18 +47,55 @@ async function requestClose() {
   await page.waitForTimeout(150);
 }
 
-async function assertThreeWayDialog() {
-  const dialog = page.locator('#confirmScrim .confirm-card');
+async function assertThreeWayDialog({ layout = "wide" } = {}) {
+  const dialog = page.locator('#confirmScrim .markdown-close-confirm-card');
   await dialog.waitFor({ state: "attached" });
   assert.equal(await dialog.isVisible(), true, "the three-way Markdown close dialog must be visible");
-  const choices = await dialog.locator('[data-markdown-close-choice]').evaluateAll((buttons) =>
-    buttons.map((button) => button.getAttribute("data-markdown-close-choice"))
-  );
-  assert.deepEqual(choices, ["continue", "discard", "save"], "dirty Markdown must expose all three close decisions");
+  const state = await dialog.evaluate((element) => {
+    const actions = element.querySelector(".markdown-close-confirm-actions");
+    const buttons = [...element.querySelectorAll("[data-markdown-close-choice]")];
+    const rects = buttons.map((button) => button.getBoundingClientRect());
+    const actionsRect = actions?.getBoundingClientRect();
+    const style = actions ? getComputedStyle(actions) : null;
+    return {
+      choices: buttons.map((button) => button.getAttribute("data-markdown-close-choice")),
+      labels: buttons.map((button) => button.textContent.trim()),
+      tops: rects.map((rect) => rect.top),
+      widths: rects.map((rect) => rect.width),
+      cardWidth: element.getBoundingClientRect().width,
+      actionsWidth: actionsRect?.width || 0,
+      buttonOverflow: buttons.map((button) => button.scrollWidth <= button.clientWidth),
+      dialogOverflow: element.scrollWidth <= element.clientWidth,
+      actionsOverflow: actions ? actions.scrollWidth <= actions.clientWidth : false,
+      actionsDisplay: style?.display || "",
+      actionsFlexWrap: style?.flexWrap || "",
+      buttonFlex: buttons.map((button) => getComputedStyle(button).flex),
+      buttonWhiteSpace: buttons.map((button) => getComputedStyle(button).whiteSpace)
+    };
+  });
+  assert.deepEqual(state.choices, ["continue", "discard", "save"], "dirty Markdown must expose all three close decisions");
+  assert.deepEqual(state.labels, ["Keep Editing", "Discard and Exit", "Save and Exit"], "English Markdown close labels must use the concise exit wording");
+  assert.equal(state.dialogOverflow, true, `Markdown close dialog must not overflow its card: ${JSON.stringify(state)}`);
+  assert.equal(state.actionsOverflow, true, `Markdown close action group must not overflow horizontally: ${JSON.stringify(state)}`);
+  assert.deepEqual(state.buttonOverflow, [true, true, true], `Markdown close labels must fit their buttons: ${JSON.stringify(state)}`);
+  assert.equal(state.actionsDisplay, "flex", `Markdown close actions must use the shared content-sized flex layout: ${JSON.stringify(state)}`);
+  assert.equal(state.actionsFlexWrap, "wrap", `Markdown close actions must wrap safely at narrow widths: ${JSON.stringify(state)}`);
+  assert.deepEqual(state.buttonFlex, ["0 0 auto", "0 0 auto", "0 0 auto"], `Markdown close buttons must remain content-sized: ${JSON.stringify(state)}`);
+  assert.deepEqual(state.buttonWhiteSpace, ["nowrap", "nowrap", "nowrap"], "Markdown close labels must not wrap");
+  if (layout === "wide") {
+    assert.equal(new Set(state.tops.map((top) => Math.round(top))).size, 1, `wide Markdown close buttons must share one row: ${JSON.stringify(state)}`);
+    assert.ok(state.cardWidth <= 420.5, `Markdown close card must use the HTML dialog width cap: ${JSON.stringify(state)}`);
+    assert.ok(state.widths[1] > state.widths[0] && state.widths[1] > state.widths[2], `the longer English action must remain content-sized instead of equal-width: ${JSON.stringify(state)}`);
+  } else {
+    assert.ok(state.widths.every((width) => width < state.actionsWidth), `narrow Markdown close actions must never stretch across the full action row: ${JSON.stringify(state)}`);
+  }
 }
 
 try {
   await waitForOrigin();
+  await page.addInitScript(() => {
+    window.localStorage.setItem("nutbook.language", "en-US");
+  });
   await page.goto(`${origin}/?readmeDemo=1`, { waitUntil: "domcontentloaded" });
   try {
     await page.locator('[data-open-item="101"]').waitFor({ state: "visible", timeout: 10000 });
@@ -111,11 +148,12 @@ try {
   }));
   assert.equal(firstCloseState.tabCount, 1, `dirty Markdown must not close before a decision: ${JSON.stringify(firstCloseState)}`);
   assert.equal(firstCloseState.dialogCount, 1, `dirty Markdown must show its decision dialog: ${JSON.stringify(firstCloseState)}`);
-  await assertThreeWayDialog();
+  await assertThreeWayDialog({ layout: "wide" });
   await page.locator('[data-markdown-close-choice="continue"]').click();
   assert.equal(await page.locator('[data-tab-id="101"]').count(), 1, "continue editing must keep the tab open");
   assert.match(await page.locator('#milkdownEditorRoot .ProseMirror').innerText(), /CONTINUE_SENTINEL/, "continue editing must preserve the draft");
 
+  await page.setViewportSize({ width: 420, height: 900 });
   await requestClose();
   const secondCloseState = await page.evaluate(() => ({
     tabCount: document.querySelectorAll('[data-tab-id="101"]').length,
@@ -123,15 +161,16 @@ try {
     status: document.getElementById("statusText")?.textContent || ""
   }));
   assert.equal(secondCloseState.dialogCount, 1, `the preserved dirty draft must prompt again: ${JSON.stringify(secondCloseState)}`);
-  await assertThreeWayDialog();
+  await assertThreeWayDialog({ layout: "narrow" });
   await page.locator('[data-markdown-close-choice="discard"]').click();
   await page.locator('[data-tab-id="101"]').waitFor({ state: "detached" });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await openMarkdown();
   assert.doesNotMatch(await page.locator('#milkdownEditorRoot .ProseMirror').innerText(), /CONTINUE_SENTINEL/, "discard and close must restore the persisted source on reopen");
 
   await appendText(" SAVE_SENTINEL");
   await requestClose();
-  await assertThreeWayDialog();
+  await assertThreeWayDialog({ layout: "wide" });
   await page.locator('[data-markdown-close-choice="save"]').click();
   await page.locator('[data-tab-id="101"]').waitFor({ state: "detached" });
   await openMarkdown();
@@ -152,7 +191,7 @@ try {
     window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__();
     window.__NUTBOOK_REQUEST_HTML_EDIT_APP_EXIT__();
   });
-  await assertThreeWayDialog();
+  await assertThreeWayDialog({ layout: "wide" });
   assert.equal(await page.locator('#confirmScrim .confirm-card').count(), 1, "repeated app-exit requests must share one in-flight confirmation");
   await page.locator('[data-markdown-close-choice="continue"]').click();
   await page.waitForTimeout(80);
@@ -160,14 +199,14 @@ try {
   assert.match(await page.locator('#milkdownEditorRoot .ProseMirror').innerText(), /APP_EXIT_SENTINEL/, "canceling app exit must preserve the Markdown draft");
 
   await page.evaluate(() => window.__NUTBOOK_REQUEST_APP_EXIT__());
-  await assertThreeWayDialog();
+  await assertThreeWayDialog({ layout: "wide" });
   await page.locator('[data-markdown-close-choice="save"]').click();
   await page.waitForFunction(() => window.__readmeDemoAppExitFinalizeCount === 1);
   assert.match(await page.locator('#milkdownEditorRoot .ProseMirror').innerText(), /APP_EXIT_SENTINEL/, "save-before-exit must keep the visible editor content intact until the host exits");
 
   await appendText(" APP_EXIT_DISCARD_SENTINEL");
   await page.evaluate(() => window.__NUTBOOK_REQUEST_APP_EXIT__());
-  await assertThreeWayDialog();
+  await assertThreeWayDialog({ layout: "wide" });
   await page.locator('[data-markdown-close-choice="discard"]').click();
   await page.waitForFunction(() => window.__readmeDemoAppExitFinalizeCount === 2);
   assert.match(

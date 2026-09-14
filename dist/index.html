@@ -3382,6 +3382,18 @@
         grid-template-columns: 220px minmax(0, 1fr);
         gap: 18px;
         align-items: start;
+        position: relative;
+      }
+
+      /* Host editor affordances above both the outline and Milkdown content.
+         The host is a shell overlay, so re-rendering the editor body cannot
+         create a lower stacking context that swallows the line-start +. */
+      .markdown-document-overlay-host {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        overflow: visible;
+        pointer-events: none;
       }
 
       .markdown-document-shell.no-outline {
@@ -3395,6 +3407,10 @@
 
       .markdown-document-main {
         min-width: 0;
+        /* + 允许只越过正文左缘一点点；正文 sibling 必须整体高于
+           outline 的独立 stacking context，避免不同文档/会话出现层级漂移。 */
+        position: relative;
+        z-index: 3;
       }
 
       .markdown-outline {
@@ -4891,6 +4907,18 @@
         gap: 8px;
       }
 
+      /* Match the HTML leave dialog: actions stay content-sized rather than
+         stretching into three equal columns. The generic confirm card already
+         provides the same 420px width cap. */
+      .markdown-close-confirm-actions {
+        flex-wrap: wrap;
+      }
+
+      .markdown-close-confirm-actions .button {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
       .agent-integration-help-card {
         width: min(440px, calc(100vw - 48px));
       }
@@ -5256,6 +5284,8 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        position: relative;
+        overflow: visible;
       }
 
       .thumbnail-engine-help {
@@ -5281,11 +5311,15 @@
       .thumbnail-engine-help::after {
         content: attr(data-tooltip);
         position: absolute;
-        left: 50%;
+        /* The help button sits at the left edge of the settings surface.
+           Centering a long hint on the 20px button made its left half fall
+           behind the section's overflow-x clip. Keep the bubble's left edge
+           inside the surface and cap it to the available viewport width. */
+        left: 0;
         top: calc(100% + 8px);
         z-index: 370;
         width: max-content;
-        max-width: min(280px, 80vw);
+        max-width: min(280px, calc(100vw - 96px));
         padding: 6px 8px;
         border-radius: 8px;
         background: rgba(24, 24, 27, .96);
@@ -5298,7 +5332,7 @@
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
-        transform: translate(-50%, -3px);
+        transform: translateY(-3px);
         transition: opacity 120ms ease, transform 120ms ease;
       }
 
@@ -5306,7 +5340,7 @@
       .thumbnail-engine-help:focus-visible::after {
         opacity: 1;
         visibility: visible;
-        transform: translate(-50%, 0);
+        transform: translateY(0);
       }
 
       @keyframes thumbnail-engine-help-pulse {
@@ -5396,43 +5430,6 @@
         margin: 10px 0 0;
         color: var(--ink-soft);
         font-size: 12px;
-      }
-
-      .thumbnail-setup-card {
-        display: grid;
-        gap: 10px;
-        padding: 14px;
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        background: var(--paper);
-      }
-
-      .thumbnail-setup-card--secondary {
-        background: var(--surface-variant);
-      }
-
-      .thumbnail-setup-title {
-        color: var(--ink);
-        font-size: 12px;
-        font-weight: 650;
-        line-height: 1.45;
-      }
-
-      .thumbnail-command-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      .thumbnail-command-row code {
-        min-width: 0;
-        padding: 6px 8px;
-        border-radius: 8px;
-        background: rgba(20, 20, 20, 0.06);
-        color: #333;
-        font-size: 11px;
-        overflow-wrap: anywhere;
       }
 
       @media (max-width: 640px) {
@@ -6653,13 +6650,14 @@
         color: var(--ink-soft, #5e5e63);
       }
 
-      /* 备用方法弹窗：四步图文。GUI 验收 bug 修复：此前复用
+      /* 默认应用窗口级引导：首次引导和 Finder 备用说明都不能复用
          .external-open-prompt（z-index 90）被设置窗口（z-index 540）整体
          盖住。注意 injectExternalOpenStyles() 会在运行时向 head 追加
          .external-open-prompt { z-index: 90; align-items: flex-start;
          pointer-events: none }，同特异性下按源序覆盖静态 CSS——所以这里
          必须用双类连写（0,2,0）压过运行时注入的（0,1,0），仅改数值无效。 */
-      .external-open-prompt.default-app-fallback-overlay {
+      .external-open-prompt.default-app-fallback-overlay,
+      .external-open-prompt.default-app-guide-overlay {
         z-index: 560;
         align-items: center;
         justify-content: center;
@@ -6667,7 +6665,8 @@
         background: rgba(26, 28, 29, 0.32);
       }
 
-      .external-open-prompt.default-app-fallback-overlay .external-open-prompt-card {
+      .external-open-prompt.default-app-fallback-overlay .external-open-prompt-card,
+      .external-open-prompt.default-app-guide-overlay .external-open-prompt-card {
         position: relative;
         width: min(560px, calc(100vw - 48px));
         padding: 18px 20px;
@@ -7172,7 +7171,9 @@
 
       .markdown-insert-popover {
         position: absolute;
-        left: 32px;
+        /* trigger 左缘约在正文左侧 34px；从 36px 开始，popover
+           始终落在正文列内，向右展开，不回盖 outline。 */
+        left: 36px;
         top: 0;
         display: none;
         align-items: center;
@@ -9626,13 +9627,13 @@
             }
           };
           els.confirmScrim.innerHTML = `
-            <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="markdownCloseTitle" aria-describedby="markdownCloseMessage">
+            <div class="confirm-card markdown-close-confirm-card" role="dialog" aria-modal="true" aria-labelledby="markdownCloseTitle" aria-describedby="markdownCloseMessage">
               <h3 id="markdownCloseTitle" class="confirm-title">${escapeHtml(t("markdown.unsavedCloseTitle"))}</h3>
               <p id="markdownCloseMessage" class="confirm-message">${escapeHtml(formatTranslation("markdown.unsavedCloseMessage", { fileName }))}</p>
-              <div class="confirm-actions">
-                <button class="button button-secondary" type="button" data-markdown-close-choice="continue">${escapeHtml(t("markdown.continueEditing"))}</button>
-                <button class="button button-secondary" type="button" data-markdown-close-choice="discard">${escapeHtml(t("markdown.discardAndClose"))}</button>
-                <button class="button button-primary" type="button" data-markdown-close-choice="save">${escapeHtml(t("markdown.saveAndClose"))}</button>
+              <div class="confirm-actions markdown-close-confirm-actions">
+                <button class="button button-secondary" type="button" data-markdown-close-choice="continue">${escapeHtml(appState.language === "en-US" ? t("htmlEdit.keepEditing") : t("markdown.continueEditing"))}</button>
+                <button class="button button-secondary" type="button" data-markdown-close-choice="discard">${escapeHtml(appState.language === "en-US" ? t("htmlEdit.discardAndExit") : t("markdown.discardAndClose"))}</button>
+                <button class="button button-primary" type="button" data-markdown-close-choice="save">${escapeHtml(appState.language === "en-US" ? t("htmlEdit.saveAndExit") : t("markdown.saveAndClose"))}</button>
               </div>
             </div>
           `;
@@ -10898,6 +10899,25 @@
         apply(2);
       }
 
+      function htmlEditRuntimeImageFrameLabels() {
+        return {
+          confirm: t("htmlEdit.confirmImageFrame"),
+          cancel: t("htmlEdit.cancelImageFrame")
+        };
+      }
+
+      async function updateHtmlEditRuntimeLocale(session = appState.htmlEditSession) {
+        if (!session || !isCurrentHtmlEditSession(session)) return false;
+        return Boolean(await invoke("eval_html_runtime_script_command", {
+          itemId: session.itemId,
+          script: `window.__NUTBOOK_HTML_EDIT__?.updateLocale?.(${JSON.stringify({
+            runtimeSessionId: session.runtimeSessionId,
+            locale: appState.language,
+            imageFrameLabels: htmlEditRuntimeImageFrameLabels()
+          })});`
+        }).catch(() => false));
+      }
+
       async function injectHtmlEditRuntime(itemId, runtimeSessionId, patchResponse, isCurrent) {
         if (!isCurrent()) return false;
         const runtimeScript = await loadHtmlEditRuntimeScript();
@@ -10929,7 +10949,8 @@
                   patchRevision: patchResponse.patchRevision || 0,
                   generation: appState.htmlEditSession?.runtimeSessionId === runtimeSessionId ? appState.htmlEditSession.generation : 0,
                   inlineToolbar: Boolean(appState.htmlEditSession?.runtimeSessionId === runtimeSessionId && usesInlineHtmlEditToolbarForSession(appState.htmlEditSession)),
-                  locale: appState.language
+                  locale: appState.language,
+                  imageFrameLabels: htmlEditRuntimeImageFrameLabels()
                 })});
                 if (window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ === ${JSON.stringify(runtimeSessionId)}) {
                   window.__NUTBOOK_HTML_EDIT_PENDING_SESSION__ = "";
@@ -12498,6 +12519,9 @@
             const placeholderCard = root.closest(".content-card");
             if (!placeholderCard) return;
             placeholderCard.replaceWith(preservedSession.card);
+            preservedSession.editor.rebindInsertMenuHost?.(
+              preservedSession.card.closest(".markdown-document-shell")
+            );
             preservedSession.card.classList.toggle("markdown-code-theme-light", appState.markdownPreferences.codeBlockTheme === "light");
             preservedSession.card.classList.toggle("markdown-code-theme-dark", appState.markdownPreferences.codeBlockTheme !== "light");
             appState.activeMarkdownEditor = preservedSession.editor;
@@ -13442,6 +13466,9 @@
       function normalizePreview(preview) {
         if (!preview) return null;
         if ((preview.fileType ?? preview.file_type) === "markdown") {
+          const resourceOrigin = preview.resourceOrigin ?? preview.resource_origin ?? "";
+          const resourceRoot = preview.resourceRoot ?? preview.resource_root ?? "";
+          const resourceBaseDir = preview.resourceBaseDir ?? preview.resource_base_dir ?? "";
           return {
             fileType: "markdown",
             itemId: preview.itemId ?? preview.item_id,
@@ -13449,6 +13476,15 @@
             raw: preview.raw ?? "",
             html: preview.html ?? "",
             baseDir: preview.baseDir ?? preview.base_dir ?? "",
+            // PR C Phase 1：保留后端为该 item 下发的 scoped resource
+            // context。camelCase 是当前前端访问形态，snake_case 同时保留
+            // 以便不同 command/bridge payload 形态无损穿过归一化层。
+            resourceOrigin,
+            resourceRoot,
+            resourceBaseDir,
+            resource_origin: resourceOrigin,
+            resource_root: resourceRoot,
+            resource_base_dir: resourceBaseDir,
             editable: Boolean(preview.editable)
           };
         }
@@ -13476,11 +13512,20 @@
         if (command === "is_window_minimized_command") return [{}];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
         if (command === "set_html_presentation_preview_active_command") return [{ payload: args }];
+        // Markdown image asset callers already provide `{ payload: {...} }`.
+        // Keep that shape intact while still accepting a bare request object
+        // from older/local callers; Rust expects exactly one payload layer.
+        if (command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset") {
+          const payload = args && typeof args === "object" && args.payload && typeof args.payload === "object"
+            ? args.payload
+            : args;
+          return [{ payload }];
+        }
         // revision 74：外部 find/find-action 命令族不在 payload 包装列表——调用方
         // 已传 { payload: {...} }，包装会双重嵌套导致反序列化必败（与
         // attach_external_html_runtime_host_command 同走默认 [args] 分支）。
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -14261,8 +14306,14 @@
       async function updateInterfaceLanguage(language, { propagateToMain = true } = {}) {
         captureActiveMarkdownDraft();
         const activeTabBeforeLanguageChange = getActiveTab();
+        const activeHtmlEditSessionBeforeLanguageChange = appState.htmlEditSession;
         appState.language = i18n?.setLanguage?.(language) ?? language;
         if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
+        if (!appState.isSettingsOverlay
+          && activeHtmlEditSessionBeforeLanguageChange
+          && activeTabBeforeLanguageChange?.id === activeHtmlEditSessionBeforeLanguageChange.itemId) {
+          await updateHtmlEditRuntimeLocale(activeHtmlEditSessionBeforeLanguageChange);
+        }
         if (appState.isSettingsOverlay && propagateToMain) {
           document.title = "__NUTBOOK_SETTINGS_OVERLAY__:" + JSON.stringify({
             action: "language-change",
@@ -16803,29 +16854,11 @@
                 <div class="settings-kv-value">${escapeHtml(thumbnailPath)}</div>
               </div>
             </div>
-            ${!thumbnailStatus.screenshotAvailable ? `
-              <section class="thumbnail-setup-card">
-                <div class="thumbnail-setup-title">${t("settings.thumbnailTerminalInstallTitle")}</div>
-                <div class="settings-empty">${t("settings.thumbnailInstallHint")}</div>
-                <div class="thumbnail-command-row">
-                  <code>npx playwright install chromium</code>
-                  <button id="settingsCopyThumbnailInstallCommandButton" class="button button-secondary" type="button">${t("actions.copyInstallCommand")}</button>
-                  ${appState.thumbnailInstallCommandCopied ? `<span class="inline-feedback">${t("settings.copySuccess")}</span>` : ""}
-                </div>
-              </section>
-              <section class="thumbnail-setup-card thumbnail-setup-card--secondary">
-                <div class="thumbnail-setup-title">${t("settings.thumbnailAgentInstallTitle")}</div>
-                <div class="settings-empty">${t("settings.thumbnailAgentInstallHint")}</div>
-                <div class="button-row"><button id="settingsCopyThumbnailAgentPromptButton" class="button button-secondary" type="button">${t("actions.copyAgentPrompt")}</button></div>
-              </section>
-            ` : ""}
           </div>
         ` : `<div class="settings-empty">${t("settings.thumbnailStatusLoading")}</div>`;
         syncThumbnailSettingsControls();
         syncThumbnailInstallGuideButton();
 
-        document.getElementById("settingsCopyThumbnailInstallCommandButton")?.addEventListener("click", copyThumbnailInstallCommand);
-        document.getElementById("settingsCopyThumbnailAgentPromptButton")?.addEventListener("click", copyThumbnailAgentPrompt);
         document.querySelectorAll("[data-settings-group-toggle]").forEach((node) => {
           node.addEventListener("click", () => {
             toggleSettingsGroup(node.dataset.settingsGroupToggle);
@@ -17310,6 +17343,9 @@
             : null;
         }
         if (command === "copy_markdown_image_asset") {
+          const payload = args && typeof args === "object" && args.payload && typeof args.payload === "object"
+            ? args.payload
+            : args;
           if (readmeDemoEnabled()) {
             return {
               relativePath: `${window.location.origin}/assets/readme-demo/classroom-collaboration-photo-bw.png`,
@@ -17317,11 +17353,11 @@
               fileName: "classroom-collaboration-photo-bw.png"
             };
           }
-          const source = args.sourceImagePath || args.source_image_path || "";
+          const source = payload.sourceImagePath || payload.source_image_path || "";
           const fileName = source.split(/[\\/]/).filter(Boolean).pop() || "image.png";
           return {
             relativePath: `./assets/${fileName}`,
-            assetPath: `${args.markdownFilePath || args.markdown_file_path || ""}/../assets/${fileName}`,
+            assetPath: `${payload.markdownFilePath || payload.markdown_file_path || ""}/../assets/${fileName}`,
             fileName
           };
         }
@@ -19982,6 +20018,7 @@ if (!chipTipController) {
                     : ""}
                 </div>
               </div>
+              <div class="markdown-document-overlay-host" data-markdown-shell-overlay></div>
             </div>
           `;
           const markdownCard = els.viewerBody.querySelector(".content-card");
@@ -26564,7 +26601,9 @@ if (!chipTipController) {
         // Windows 专属说明，不提 macOS 系统确认对话框。
         const isWindows = isWindowsPlatform();
         const overlay = document.createElement("div");
-        overlay.className = "external-open-prompt";
+        // 首次引导与 Finder 备用说明同属窗口级默认应用 UI，必须高于
+        // document toolbar；不能退回通用 external prompt 的内容层 z-index。
+        overlay.className = "external-open-prompt default-app-guide-overlay";
         overlay.innerHTML = `
           <div class="external-open-prompt-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("external.guideTitle"))}">
             <p class="external-open-prompt-title">${escapeHtml(t("external.guideTitle"))}</p>

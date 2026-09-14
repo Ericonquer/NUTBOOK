@@ -1,3 +1,6 @@
+use std::{fs, path::Path};
+
+use rusqlite::{Connection, OpenFlags};
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
@@ -61,6 +64,16 @@ pub enum AppError {
     /// 保留登记文件原样（绝不引导删记录），机制绝不自动清空历史身份。
     #[error("scoped port registry failed: {0}")]
     ScopedRegistryFailed(String),
+    /// Markdown local resources are served only by the per-item scoped origin.
+    /// Keep the failure kind in the message so the host can give a safe,
+    /// actionable status without exposing document contents or restoring `/fs`.
+    #[error("markdown resource unavailable: {0}")]
+    MarkdownResourceUnavailable(String),
+    /// Agent project discovery could not read/write its local cache.  The
+    /// message carries a safe cause and next action instead of collapsing to
+    /// the unhelpful generic `DATABASE_ERROR` alone.
+    #[error("agent discovery database unavailable: {0}")]
+    AgentDiscoveryDatabaseUnavailable(String),
 }
 
 impl Serialize for AppError {
@@ -78,6 +91,48 @@ impl Serialize for AppError {
 }
 
 impl AppError {
+    /// Classify an Agent-discovery cache failure without exposing the local
+    /// database path or any cached project content to the UI.  Discovery
+    /// callers use this when the lower-level database layer has intentionally
+    /// collapsed rusqlite details into `DatabaseError`.
+    pub fn agent_discovery_database_unavailable(
+        database_path: &Path,
+        operation: &str,
+    ) -> Self {
+        let reason = if !database_path.is_file() {
+            "the discovery database file is missing; restart Nutbook to recreate it"
+        } else if fs::metadata(database_path)
+            .map(|metadata| metadata.permissions().readonly())
+            .unwrap_or(true)
+        {
+            "the discovery database is read-only; check application-data permissions and retry"
+        } else {
+            match Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                Err(_) => {
+                    "the discovery database cannot be opened; close other Nutbook instances and retry"
+                }
+                Ok(connection) => {
+                    let schema_tables = connection
+                        .query_row(
+                            "SELECT count(*) FROM sqlite_master
+                             WHERE type = 'table' AND name IN ('schema_migrations', 'agent_discovery_cache')",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .ok();
+                    if schema_tables != Some(2) {
+                        "the discovery database schema is incomplete; restart Nutbook to migrate it"
+                    } else {
+                        "the discovery database is busy or temporarily unavailable; wait for the current scan and retry"
+                    }
+                }
+            }
+        };
+        Self::AgentDiscoveryDatabaseUnavailable(format!(
+            "could not {operation} the local Agent discovery cache: {reason}"
+        ))
+    }
+
     pub fn code(&self) -> &'static str {
         match self {
             AppError::InvalidParams => "INVALID_PARAMS",
@@ -96,6 +151,8 @@ impl AppError {
             AppError::AssetTooLarge => "ASSET_TOO_LARGE",
             AppError::CoverAssetRejected(_) => "COVER_ASSET_REJECTED",
             AppError::ScopedRegistryFailed(_) => "SCOPED_REGISTRY_FAILED",
+            AppError::MarkdownResourceUnavailable(_) => "MARKDOWN_RESOURCE_UNAVAILABLE",
+            AppError::AgentDiscoveryDatabaseUnavailable(_) => "AGENT_DISCOVERY_DATABASE_UNAVAILABLE",
             AppError::InvalidSession => "INVALID_SESSION",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",
@@ -111,5 +168,27 @@ impl AppError {
             message: self.to_string(),
             detail: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppError;
+
+    #[test]
+    fn agent_discovery_database_error_has_safe_missing_file_cause() {
+        let path = std::env::temp_dir().join(format!(
+            "nutbook-agent-discovery-missing-{}-{}.sqlite3",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let error = AppError::agent_discovery_database_unavailable(&path, "load");
+
+        assert_eq!(error.code(), "AGENT_DISCOVERY_DATABASE_UNAVAILABLE");
+        assert!(error
+            .to_string()
+            .contains("database file is missing; restart Nutbook to recreate it"));
+        let path_text = path.to_string_lossy();
+        assert!(!error.to_string().contains(path_text.as_ref()));
     }
 }

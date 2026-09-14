@@ -1469,8 +1469,8 @@ assert.doesNotMatch(
 );
 assert.match(
   INDEX_HTML,
-  /\.external-open-prompt\.default-app-fallback-overlay \{[\s\S]{0,200}?z-index: 560;/,
-  "the fallback dialog must stack above the settings window (z-index 540); the two-class selector is required because injectExternalOpenStyles() re-injects .external-open-prompt (z-index 90) later in the DOM, which would override a same-specificity static rule"
+  /\.external-open-prompt\.default-app-fallback-overlay,\s*\.external-open-prompt\.default-app-guide-overlay\s*\{[\s\S]{0,200}?z-index: 560;/,
+  "both default-app dialogs must stack above the settings window (z-index 540); their two-class selectors are required because injectExternalOpenStyles() re-injects .external-open-prompt (z-index 90) later in the DOM, which would override a same-specificity static rule"
 );
 assert.doesNotMatch(
   INDEX_HTML,
@@ -1988,10 +1988,21 @@ async function runGuideScenario({ windows, outcome }) {
   };
   vm.createContext(ctx);
   await vm.runInContext(`${guideHelper}\nshowDefaultAppGuideOverlay()`, ctx);
+  assert.equal(
+    overlay.className,
+    "external-open-prompt default-app-guide-overlay",
+    "the first-run default-app guide must use the window-level overlay layer"
+  );
   assert.ok(clickHandler, "the guide primary button must register a click handler");
   await clickHandler();
   return { statuses, ctx };
 }
+
+assert.match(
+  INDEX_HTML,
+  /\.external-open-prompt\.default-app-fallback-overlay,\s*\.external-open-prompt\.default-app-guide-overlay\s*\{[\s\S]*?z-index:\s*560;[\s\S]*?align-items:\s*center;[\s\S]*?pointer-events:\s*auto;/,
+  "both default-app dialogs must override the injected external-prompt content layer"
+);
 
 {
   const win = await runGuideScenario({ windows: true, outcome: "systemSettings" });
