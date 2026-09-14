@@ -23,25 +23,28 @@ const QUALITY_COMMANDS = [
 ];
 
 const WINDOWS_COMMANDS = [
+  ["cargo", ["check", "--release", "--manifest-path", "src-tauri/Cargo.toml", "--bins"]],
+];
+
+// This deliberately stays separate from every-pull-request Windows checking.
+// It exercises Tauri's beforeBuild input path on a native Windows runner before
+// a version tag is allowed to spend time packaging an NSIS installer.
+const RELEASE_WINDOWS_COMMANDS = [
   ["npm", ["ci"]],
   ["npm", ["run", "build:frontend"]],
-  ["cargo", ["check", "--manifest-path", "src-tauri/Cargo.toml"]],
-  // Exercise the exact beforeBuild standalone CLI path: it builds the
-  // release binary and copies the platform-specific bundled resource.
   ["npm", ["run", "prepare:nutbook-cli"]],
-  // Tauri packages the desktop binary after beforeBuild, so check that other
-  // release-profile binary here too without making every PR build an NSIS
-  // installer.
-  ["cargo", ["check", "--release", "--manifest-path", "src-tauri/Cargo.toml", "--bin", "NUTBOOK"]],
+  ["cargo", ["check", "--release", "--manifest-path", "src-tauri/Cargo.toml", "--bins"]],
 ];
 
 const commandsByMode = {
   quality: QUALITY_COMMANDS,
   windows: WINDOWS_COMMANDS,
+  "release-windows": RELEASE_WINDOWS_COMMANDS,
+  push: QUALITY_COMMANDS,
 };
 
 if (!(mode in commandsByMode)) {
-  console.error("Usage: node scripts/check-ci.mjs <quality|windows>");
+  console.error("Usage: node scripts/check-ci.mjs <quality|windows|release-windows|push>");
   process.exit(2);
 }
 

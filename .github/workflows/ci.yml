@@ -4,13 +4,13 @@ on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  RUST_VERSION: 1.98.0
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -18,9 +18,9 @@ concurrency:
 
 jobs:
   quality:
-    name: Quality and runtime tests
-    runs-on: macos-14
-    timeout-minutes: 45
+    name: PR quality and runtime tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
 
     steps:
       - name: Checkout
@@ -33,28 +33,83 @@ jobs:
           cache: npm
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.0
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/debug/.fingerprint
+            src-tauri/target/debug/build
+            src-tauri/target/debug/deps
+            src-tauri/target/debug/incremental
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
 
       - name: Run local-equivalent quality gate
         run: npm run check:ci
 
-  windows-check:
-    name: Windows compile check
-    runs-on: windows-latest
-    timeout-minutes: 35
+  macos-compile:
+    name: PR macOS release compile
+    runs-on: macos-14
+    timeout-minutes: 18
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.0
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
         with:
-          node-version: 22
-          cache: npm
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
+
+      - name: Compile macOS release binaries
+        run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
+
+  windows-compile:
+    name: PR Windows release compile
+    runs-on: windows-latest
+    timeout-minutes: 18
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.0
 
-      - name: Run local-equivalent Windows gate
-        run: npm run check:ci:windows
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
+
+      - name: Compile Windows release binaries
+        run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
