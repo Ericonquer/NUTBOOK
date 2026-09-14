@@ -537,7 +537,10 @@
       skillTag: null,
       typeTag: null,
       customTags: [],
-      sourceBadges: []
+      sourceBadges: [],
+      // Start unset so the first host payload, rather than this child
+      // WebView's own persisted storage, is authoritative.
+      language: null
     };
     let controlsHover = false;
     let menuAutoCloseTimer = null;
@@ -549,6 +552,9 @@
     let actionSequence = 0;
     let actionQueue = [];
     let actionQueueRunning = false;
+    let layoutEmitFrame = null;
+    let queuedLayout = null;
+    let lastLayoutSignature = "";
     let lastEditActivationAt = 0;
     let fullscreenHintFadeTimer = null;
     let fullscreenHintHideTimer = null;
@@ -616,12 +622,38 @@
       return "default";
     }
 
+    function cancelQueuedLayout() {
+      if (layoutEmitFrame != null) {
+        cancelAnimationFrame(layoutEmitFrame);
+        layoutEmitFrame = null;
+      }
+      queuedLayout = null;
+    }
+
     function emitLayout() {
+      if (state.itemId == null) return;
       var layoutMode = currentLayoutMode();
-      emit({
+      var layout = {
         action: "overlay-layout",
         expanded: layoutMode !== "default",
         layoutMode: layoutMode
+      };
+      var signature = String(layout.expanded) + ":" + layout.layoutMode;
+      // Hover → tag menu and menu close can happen in a single frame. Emit
+      // only the settled state so the native host does not resize through a
+      // transient hover/badge-tip geometry first.
+      if (!layoutEmitFrame && signature === lastLayoutSignature) return;
+      queuedLayout = layout;
+      if (layoutEmitFrame != null) return;
+      layoutEmitFrame = requestAnimationFrame(function() {
+        layoutEmitFrame = null;
+        var next = queuedLayout;
+        queuedLayout = null;
+        if (!next) return;
+        var nextSignature = String(next.expanded) + ":" + next.layoutMode;
+        if (nextSignature === lastLayoutSignature) return;
+        lastLayoutSignature = nextSignature;
+        emit(next);
       });
     }
 
@@ -705,6 +737,7 @@
     function hidePendingTip(forceToken, options) {
       if (pendingTip && forceToken !== undefined && forceToken !== pendingTip.token) return;
       const tip = pendingTip;
+      const hadPendingTip = Boolean(tip);
       pendingTip = null;
       if (badgeTipRaf) {
         cancelAnimationFrame(badgeTipRaf);
@@ -714,10 +747,11 @@
         const tipEl = tip.anchor.querySelector(".badge-tip");
         if (tipEl) tipEl.style.opacity = "0";
       }
-      if (!options || !options.skipLayout) emitLayout();
+      if (hadPendingTip && (!options || !options.skipLayout)) emitLayout();
     }
 
     function armBadgeTip(anchor) {
+      if (state.tagMenuOpen) return;
       if (!anchor || !anchor.isConnected) return;
       const src = anchor.querySelector(".badge-tip");
       if (!src) return;
@@ -736,6 +770,8 @@
 
     function resetTransientState(options) {
       const shouldEmitLayout = !options || options.emitLayout !== false;
+      cancelQueuedLayout();
+      lastLayoutSignature = "";
       clearMenuOpenTimer();
       clearMenuAutoClose();
       clearTagMenuOpenTimer();
@@ -772,7 +808,10 @@
     function scheduleTagMenuAutoClose(delay) {
       clearTagMenuAutoClose();
       if (!state.tagMenuOpen) return;
-      tagMenuAutoCloseTimer = setTimeout(function() { state.tagMenuOpen = false; refresh(); emitLayout(); }, delay || 180);
+      tagMenuAutoCloseTimer = setTimeout(function() {
+        tagMenuAutoCloseTimer = null;
+        closeTagMenu();
+      }, delay || 180);
     }
 
     function updateTagChips() {
@@ -818,6 +857,9 @@
     function openTagMenu() {
       clearTagMenuOpenTimer();
       clearTagMenuAutoClose();
+      // A label hover may have armed its full-name tooltip. It must not win the
+      // tags layout race or come back when the menu later settles.
+      hidePendingTip(undefined, { skipLayout: true });
       state.tagMenuOpen = true;
       els.tagMenuOptions.innerHTML = state.availableTags.length
         ? state.availableTags.map(function(tag) {
@@ -839,15 +881,18 @@
 
     function closeTagMenu(options) {
       var shouldEmitLayout = !options || options.emitLayout !== false;
+      var wasOpen = state.tagMenuOpen || els.tagMenu.classList.contains("open");
       clearTagMenuOpenTimer();
+      clearTagMenuAutoClose();
       state.tagMenuOpen = false;
       els.tagMenu.classList.remove("open");
-      if (shouldEmitLayout) emitLayout();
+      hidePendingTip(undefined, { skipLayout: true });
+      if (wasOpen && shouldEmitLayout) emitLayout();
+      return wasOpen;
     }
 
     function closeTagMenuAfterAction() {
-      closeTagMenu({ emitLayout: false });
-      setTimeout(emitLayout, 180);
+      closeTagMenu();
     }
 
     function toggleTagMenu() {
@@ -905,11 +950,14 @@
 
     function apply(next) {
       var wasFullscreen = state.isFullscreen;
-      // 同 item 的每次宿主 attach 都会重放 update script（如 badge-tip 扩高 set_bounds 后的 eval），
-      // 不能因此清掉 pendingTip，否则 resize 落地后 tooltip 无法显示；只有 item 或全屏切换才清理。
+      // 普通状态更新走 eval-only；tooltip 只在 item/fullscreen 切换时清理，
+      // 不能因一条标签或收藏状态更新而打断等待 bounds 落地的 tooltip。
       const itemChanged = state.itemId !== next.itemId;
       const fullscreenChanged = state.isFullscreen !== !!next.isFullscreen;
-      if (itemChanged || fullscreenChanged) hidePendingTip(undefined, { skipLayout: true });
+      if (itemChanged || fullscreenChanged) {
+        hidePendingTip(undefined, { skipLayout: true });
+        lastLayoutSignature = "";
+      }
       state.itemId = next.itemId;
       state.fileName = next.fileName || null;
       state.isFavorite = !!next.isFavorite;
@@ -922,6 +970,13 @@
       state.typeTag = next.typeTag || null;
       state.customTags = Array.isArray(next.customTags) ? next.customTags : [];
       state.sourceBadges = Array.isArray(next.sourceBadges) ? next.sourceBadges : [];
+      const nextLanguage = next.language === "en-US" ? "en-US" : "zh-CN";
+      if (state.language !== nextLanguage) {
+        state.language = nextLanguage;
+        // This child WebView owns the Custom Tag DOM.  The main window's
+        // localStorage update alone does not repaint this already-open child.
+        i18n?.setLanguage?.(nextLanguage);
+      }
       refresh();
       if (!wasFullscreen && state.isFullscreen) showFullscreenHint();
       if (wasFullscreen && !state.isFullscreen) hideFullscreenHint();
@@ -1152,7 +1207,7 @@
     }
 
     document.addEventListener("click", function(e) {
-      if (!els.menu.contains(e.target) && !els.moreButton.contains(e.target)) {
+      if (state.menuOpen && !els.menu.contains(e.target) && !els.moreButton.contains(e.target)) {
         state.menuOpen = false; refresh(); clearMenuAutoClose();
         emitLayout();
       }

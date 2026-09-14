@@ -417,6 +417,8 @@ fn main() {
             commands::preview::set_html_presentation_preview_active_command,
             commands::preview::close_html_presentation_preview_command,
             commands::preview::attach_html_runtime_controls_overlay_command,
+            commands::preview::update_html_runtime_controls_overlay_command,
+            commands::preview::set_html_runtime_controls_overlay_bounds_command,
             commands::preview::attach_html_find_overlay_command,
             commands::preview::update_html_find_overlay_command,
             commands::preview::set_html_find_overlay_bounds_command,

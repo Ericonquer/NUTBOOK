@@ -8304,7 +8304,11 @@
         runtimeHostResizeObserver: null,
         runtimeHostResizeObserverTarget: null,
         runtimeHostLastBoundsKey: null,
-        runtimeControlsOverlayLastKey: null,
+        // Controls child 的生命周期、原生 bounds 和页面状态各自独立缓存。
+        // 不能让 tags/hover 的几何变动重走 attach/show。
+        runtimeControlsOverlayAttachedItemId: null,
+        runtimeControlsOverlayLastBoundsKey: null,
+        runtimeControlsOverlayLastStateKey: null,
         runtimeHostSyncFrame: null,
         runtimeHostSyncRunId: 0,
         runtimeHostSyncInFlight: false,
@@ -13525,7 +13529,7 @@
         // 已传 { payload: {...} }，包装会双重嵌套导致反序列化必败（与
         // attach_external_html_runtime_host_command 同走默认 [args] 分支）。
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -17492,7 +17496,7 @@
         if (command === "set_html_runtime_host_visibility_command") {
           return true;
         }
-        if (command === "attach_html_runtime_controls_overlay_command" || command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") {
+        if (command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") {
           return true;
         }
         if (command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command") {
@@ -20145,7 +20149,7 @@ if (!chipTipController) {
       function cleanupRuntimeHostSync(options = {}) {
         if (options.invalidate !== false) {
           appState.runtimeHostSyncRunId += 1;
-          appState.runtimeControlsOverlayLastKey = null;
+          resetRuntimeControlsOverlaySync();
         }
         appState.runtimeHostSyncPending = false;
         if (appState.runtimeHostSyncFrame) {
@@ -20576,9 +20580,7 @@ if (!chipTipController) {
         if (appState.htmlFind.itemId === itemId) await closeActiveHtmlFind();
         if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
-        if (appState.activeRuntimeHostId === itemId) {
-          appState.runtimeControlsOverlayLastKey = null;
-        }
+        resetRuntimeControlsOverlaySync(itemId);
         await setRuntimeControlsOverlayVisibility(itemId, false);
         if (!cleanupIntentIsCurrent()) return;
         if (!isRuntimeSurfaceHideCurrent(itemId, token, force)) return;
@@ -20762,9 +20764,12 @@ if (!chipTipController) {
         // 与 MD 标签组同一占位比例 → 窗口缩小时 overlay 随工具栏收缩，chip 真正压缩
         // （而非只压路径）；大窗口取自然宽度（徽标 ~120px 一个单词）。
         const responsiveBudget = Math.max(240, Math.round(toolbarWidth * 0.46) + actionWidth);
-        const width = appState.runtimeControlsOverlayMode === "tags"
-          ? Math.min(Math.max(baseWidth, 300), Math.max(300, responsiveBudget))
-          : Math.min(baseWidth, responsiveBudget);
+        // `runtime-overlay.html` is a native child WebView.  A Custom Tag menu
+        // needs 300px, but changing the child x/width only for that menu makes
+        // macOS recompose the whole surface and visibly flash its toolbar.
+        // Reserve that menu width from the first compact frame; menu modes may
+        // resize vertically, but their horizontal backing surface is invariant.
+        const width = Math.min(Math.max(baseWidth, 300), Math.max(300, responsiveBudget));
         const right = Math.round(actionRight);
         return {
           x: Math.round(Math.max(0, right - width)),
@@ -20783,10 +20788,9 @@ if (!chipTipController) {
         };
       }
 
-      function runtimeControlsOverlaySyncKey(tab, bounds, isFullscreen) {
-        return JSON.stringify({
+      function runtimeControlsOverlayState(tab, isFullscreen) {
+        return {
           itemId: tab.id,
-          bounds,
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,
@@ -20797,9 +20801,79 @@ if (!chipTipController) {
           typeTag: "HTML",
           customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
           sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : [],
-          mode: appState.runtimeControlsOverlayMode,
-          expanded: appState.runtimeControlsOverlayExpanded
-        });
+          // A controls child has its own DOM/i18n instance.  Include locale in
+          // the eval-only state key so a Preferences language switch reaches
+          // an already-open Custom Tag menu without a later menu click.
+          language: appState.language === "en-US" ? "en-US" : "zh-CN"
+        };
+      }
+
+      function runtimeControlsOverlayPayload(tab, bounds, isFullscreen) {
+        return {
+          ...runtimeControlsOverlayState(tab, isFullscreen),
+          bounds
+        };
+      }
+
+      function resetRuntimeControlsOverlaySync(itemId = null) {
+        if (itemId != null && appState.runtimeControlsOverlayAttachedItemId !== itemId) return;
+        appState.runtimeControlsOverlayAttachedItemId = null;
+        appState.runtimeControlsOverlayLastBoundsKey = null;
+        appState.runtimeControlsOverlayLastStateKey = null;
+      }
+
+      async function syncRuntimeControlsOverlay(tab, bounds, isFullscreen, runId = null) {
+        const itemId = tab?.id;
+        if (itemId == null) return false;
+        const statePayload = runtimeControlsOverlayState(tab, isFullscreen);
+        const boundsKey = JSON.stringify(bounds);
+        const stateKey = JSON.stringify(statePayload);
+        const retryAfterMissingChild = () => {
+          resetRuntimeControlsOverlaySync(itemId);
+          if (isRuntimeHostSyncCurrent(runId, itemId)) scheduleRuntimeHostSync();
+        };
+
+        // attach/show 是 child 的首次创建或恢复路径。之后标签菜单和 resize 只能
+        // 走下面分离出的 bounds/eval 更新，不能再次触碰 native show。
+        if (appState.runtimeControlsOverlayAttachedItemId !== itemId) {
+          await invoke(
+            "attach_html_runtime_controls_overlay_command",
+            runtimeControlsOverlayPayload(tab, bounds, isFullscreen)
+          );
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          const shown = await setRuntimeControlsOverlayVisibility(itemId, true);
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          if (!shown) {
+            retryAfterMissingChild();
+            return false;
+          }
+          appState.runtimeControlsOverlayAttachedItemId = itemId;
+          appState.runtimeControlsOverlayLastBoundsKey = boundsKey;
+          appState.runtimeControlsOverlayLastStateKey = stateKey;
+          return true;
+        }
+
+        if (appState.runtimeControlsOverlayLastBoundsKey !== boundsKey) {
+          const updated = await invoke("set_html_runtime_controls_overlay_bounds_command", { itemId, bounds });
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          if (updated === false) {
+            retryAfterMissingChild();
+            return false;
+          }
+          appState.runtimeControlsOverlayLastBoundsKey = boundsKey;
+        }
+
+        if (appState.runtimeControlsOverlayLastStateKey !== stateKey) {
+          const updated = await invoke("update_html_runtime_controls_overlay_command", statePayload);
+          if (!isRuntimeHostSyncCurrent(runId, itemId)) return false;
+          if (updated === false) {
+            retryAfterMissingChild();
+            return false;
+          }
+          appState.runtimeControlsOverlayLastStateKey = stateKey;
+        }
+
+        return true;
       }
 
       function isRuntimeHostSyncCurrent(runId, itemId = null) {
@@ -20904,27 +20978,8 @@ if (!chipTipController) {
 
         if (appState.runtimeFullscreenItemId === tab.id) {
           const fullscreenControlsBounds = runtimeFullscreenHintOverlayBounds(bounds);
-          const fullscreenControlsKey = runtimeControlsOverlaySyncKey(tab, fullscreenControlsBounds, true);
-          if (appState.runtimeControlsOverlayLastKey !== fullscreenControlsKey) {
-            await invoke("attach_html_runtime_controls_overlay_command", {
-              itemId: tab.id,
-              bounds: fullscreenControlsBounds,
-              isFavorite: Boolean(tab.item?.isFavorite),
-              isFullscreen: true,
-              isEditing: appState.htmlEditSession?.itemId === tab.id,
-              isPrimaryBusy: primaryActionBusyItemId != null,
-              customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
-              availableTags: appState.tags,
-              skillTag: tab.item?.skillBinding?.displayName ?? null,
-              typeTag: "HTML",
-              customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
-              sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
-            });
-            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-            await setRuntimeControlsOverlayVisibility(tab.id, true);
-            if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-            appState.runtimeControlsOverlayLastKey = fullscreenControlsKey;
-          }
+          if (!await syncRuntimeControlsOverlay(tab, fullscreenControlsBounds, true, runId)) return;
+          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
           await syncActiveHtmlFindLayoutBounds(tab, runId);
           if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
           ensureRuntimeHostResizeObserver(mount);
@@ -20932,30 +20987,11 @@ if (!chipTipController) {
         }
 
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;
-        const controlsKey = runtimeControlsOverlaySyncKey(tab, controlsBounds, false);
-        if (appState.runtimeControlsOverlayLastKey !== controlsKey) {
-          await invoke("attach_html_runtime_controls_overlay_command", {
-            itemId: tab.id,
-            bounds: controlsBounds,
-            isFavorite: Boolean(tab.item?.isFavorite),
-            isFullscreen: false,
-            isEditing: appState.htmlEditSession?.itemId === tab.id,
-            isPrimaryBusy: primaryActionBusyItemId != null,
-            customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
-            availableTags: appState.tags,
-            skillTag: tab.item?.skillBinding?.displayName ?? null,
-            typeTag: "HTML",
-            customTags: Array.isArray(tab.item?.tags) ? tab.item.tags : [],
-            sourceBadges: Array.isArray(tab.item?.sourceBadges) ? tab.item.sourceBadges : []
-          });
-          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-          await setRuntimeControlsOverlayVisibility(tab.id, true);
-          if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
-          appState.runtimeControlsOverlayLastKey = controlsKey;
-          // Do not create the transparent find child until the user explicitly
-          // opens find. Cold-start A/B proved that staging it beneath the host
-          // can poison unrelated host/controls backing in the window compositor.
-        }
+        if (!await syncRuntimeControlsOverlay(tab, controlsBounds, false, runId)) return;
+        if (await hideStaleRuntimeHostSync(runId, tab.id)) return;
+        // Do not create the transparent find child until the user explicitly
+        // opens find. Cold-start A/B proved that staging it beneath the host
+        // can poison unrelated host/controls backing in the window compositor.
 
         await syncActiveHtmlFindLayoutBounds(tab, runId);
         if (!isRuntimeHostSyncCurrent(runId, tab.id)) return;

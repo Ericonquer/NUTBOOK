@@ -780,6 +780,7 @@ pub fn attach_html_runtime_controls_overlay(
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
+    language: String,
 ) -> Result<bool, AppError> {
     attach_controls_overlay(
         app,
@@ -797,6 +798,7 @@ pub fn attach_html_runtime_controls_overlay(
         custom_tags,
         source_badges,
         file_name,
+        language,
     )
 }
 
@@ -816,6 +818,7 @@ pub fn attach_controls_overlay(
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
+    language: String,
 ) -> Result<bool, AppError> {
     let overlay_label = html_runtime_controls_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
@@ -834,6 +837,7 @@ pub fn attach_controls_overlay(
             custom_tags.clone(),
             source_badges.clone(),
             file_name.clone(),
+            language.clone(),
         ));
         let _ = webview.show();
         return Ok(true);
@@ -854,6 +858,7 @@ pub fn attach_controls_overlay(
         custom_tags,
         source_badges,
         file_name,
+        language,
     )?;
     let webview = window
         .add_child(
@@ -864,6 +869,68 @@ pub fn attach_controls_overlay(
         .map_err(|_| AppError::InternalError)?;
     let set_bounds_result = webview.set_bounds(runtime_host_rect(bounds.clone()));
     set_bounds_result.map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// Update an existing controls child without changing its native geometry or
+/// visibility. Layout is owned by the bounds-only helper; keeping this path
+/// eval-only prevents menu open/close from re-showing the native webview and
+/// flashing the complete toolbar.
+pub fn update_html_runtime_controls_overlay(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    is_favorite: bool,
+    is_fullscreen: bool,
+    is_editing: bool,
+    is_primary_busy: bool,
+    custom_tag: Option<Tag>,
+    available_tags: Vec<Tag>,
+    skill_tag: Option<String>,
+    type_tag: Option<String>,
+    custom_tags: Vec<Tag>,
+    source_badges: Vec<ItemSourceBadge>,
+    file_name: String,
+    language: String,
+) -> Result<bool, AppError> {
+    let overlay_label = html_runtime_controls_label(item_id);
+    let Some(webview) = app.get_webview(&overlay_label) else {
+        return Ok(false);
+    };
+    webview
+        .eval(&html_runtime_controls_overlay_update_script(
+            item_id,
+            is_favorite,
+            is_fullscreen,
+            is_editing,
+            is_primary_busy,
+            custom_tag,
+            available_tags,
+            skill_tag,
+            type_tag,
+            custom_tags,
+            source_badges,
+            file_name,
+            language,
+        ))
+        .map_err(|_| AppError::InternalError)?;
+    Ok(true)
+}
+
+/// Resize an existing controls child without replaying its state or show.
+/// Returning false lets the frontend recreate a child that was closed by a
+/// concurrent navigation instead of reviving a stale surface.
+pub fn set_html_runtime_controls_overlay_bounds(
+    app: &tauri::AppHandle,
+    item_id: i64,
+    bounds: RuntimeHostBounds,
+) -> Result<bool, AppError> {
+    let overlay_label = html_runtime_controls_label(item_id);
+    let Some(webview) = app.get_webview(&overlay_label) else {
+        return Ok(false);
+    };
+    webview
+        .set_bounds(runtime_host_rect(bounds))
+        .map_err(|_| AppError::InternalError)?;
     Ok(true)
 }
 
@@ -2113,6 +2180,7 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
+    language: String,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("runtime-overlay.html"));
     let init_script = html_runtime_controls_overlay_init_script(
@@ -2128,6 +2196,7 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
         custom_tags,
         source_badges,
         file_name,
+        language,
     );
 
     Ok(
@@ -3234,6 +3303,7 @@ fn html_runtime_controls_overlay_init_script(
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
+    language: String,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
@@ -3242,8 +3312,9 @@ fn html_runtime_controls_overlay_init_script(
     let custom_tags_json = serde_json::to_string(&custom_tags).unwrap_or_else(|_| "[]".to_string());
     let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
     let file_name_json = serde_json::to_string(&file_name).unwrap_or_else(|_| "\"\"".to_string());
+    let language_json = serde_json::to_string(&language).unwrap_or_else(|_| "\"zh-CN\"".to_string());
     format!(
-        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, isPrimaryBusy: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json}, fileName: {file_name_json} }};",
+        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, isPrimaryBusy: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json}, fileName: {file_name_json}, language: {language_json} }};",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
         if is_editing { "true" } else { "false" },
@@ -3327,6 +3398,7 @@ fn html_runtime_controls_overlay_update_script(
     custom_tags: Vec<Tag>,
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
+    language: String,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
@@ -3335,8 +3407,9 @@ fn html_runtime_controls_overlay_update_script(
     let custom_tags_json = serde_json::to_string(&custom_tags).unwrap_or_else(|_| "[]".to_string());
     let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
     let file_name_json = serde_json::to_string(&file_name).unwrap_or_else(|_| "\"\"".to_string());
+    let language_json = serde_json::to_string(&language).unwrap_or_else(|_| "\"zh-CN\"".to_string());
     format!(
-        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"isPrimaryBusy\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}, \"fileName\": {file_name_json}}});",
+        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"isPrimaryBusy\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}, \"fileName\": {file_name_json}, \"language\": {language_json}}});",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
         if is_editing { "true" } else { "false" },

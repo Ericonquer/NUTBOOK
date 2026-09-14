@@ -440,8 +440,175 @@ assert.match(runtimeRust, /pub fn html_runtime_controls_label\(item_id: i64\)[\s
 const closeRuntimeSource = runtimeRust.match(/pub fn close_html_runtime_window[\s\S]*?\n}\n\npub fn attach_html_runtime_host/)?.[0] || "";
 assert.match(closeRuntimeSource, /html_runtime_controls_label\(item_id\)[\s\S]*?webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "closing an HTML tab must destroy its per-item controls child");
 assert.doesNotMatch(runtimeRust, /runtime_controls_owner|RUNTIME_CONTROLS_OWNER|html-controls-active/, "the rolled-back controls lifecycle must not retain a window-scoped owner or shared label");
-const controlsAttachSource = runtimeRust.match(/pub fn attach_controls_overlay[\s\S]*?\n}\n\npub fn set_html_runtime_controls_overlay_visibility/)?.[0] || "";
+const controlsAttachSource = runtimeRust.match(/pub fn attach_controls_overlay[\s\S]*?\n}\n\n\/\/\/ Update an existing controls child/)?.[0] || "";
 assert.doesNotMatch(controlsAttachSource, /raise_webview_view_native/, "per-item controls must rely on create-after-host ordering instead of native sibling raises");
+const controlsUpdateSource = runtimeRust.match(/pub fn update_html_runtime_controls_overlay[\s\S]*?\n}\n\n\/\/\/ Resize an existing controls child/)?.[0] || "";
+assert.match(controlsUpdateSource, /\.eval\([\s\S]*?Ok\(true\)/, "existing controls state changes must use the eval-only host path");
+assert.doesNotMatch(controlsUpdateSource, /\.set_bounds\(|webview\.show\(/, "controls state updates must not resize or show the native child");
+const controlsBoundsSource = runtimeRust.match(/pub fn set_html_runtime_controls_overlay_bounds[\s\S]*?\n}\n\npub fn set_html_runtime_controls_overlay_visibility/)?.[0] || "";
+assert.match(controlsBoundsSource, /\.set_bounds\([\s\S]*?Ok\(true\)/, "controls layout changes must use the bounds-only host path");
+assert.doesNotMatch(controlsBoundsSource, /\.eval\(|webview\.show\(/, "controls bounds updates must not replay state or show the native child");
+assert.match(functionSource("syncRuntimeControlsOverlay"), /set_html_runtime_controls_overlay_bounds_command/, "controls geometry must use its dedicated bounds command");
+assert.match(functionSource("syncRuntimeControlsOverlay"), /update_html_runtime_controls_overlay_command/, "controls state must use its dedicated update command");
+assert.match(
+  functionSource("runtimeControlsOverlayState"),
+  /language:\s*appState\.language === "en-US" \? "en-US" : "zh-CN"/,
+  "the controls state key must include the current interface language"
+);
+assert.match(
+  runtimeOverlayHtml,
+  /const nextLanguage = next\.language === "en-US" \? "en-US" : "zh-CN";[\s\S]*?i18n\?\.setLanguage\?\.\(nextLanguage\);/,
+  "an existing controls child must apply a host-pushed locale before it refreshes Custom Tag"
+);
+assert.match(
+  runtimeOverlayHtml,
+  /language:\s*null/,
+  "the first controls payload must override any stale child-WebView locale storage"
+);
+assert.doesNotMatch(
+  runtimeRust,
+  /HTML_CONTROLS_DEBUG_LOG_PATH|log_html_runtime_controls_debug|html_controls_debug_payload_fields/,
+  "the temporary native controls flash trace must be removed after manual acceptance"
+);
+
+// The controls child is a native surface.  Its menu transitions may change the
+// vertical viewport, but opening Custom Tag must never shift or resize the
+// horizontal backing surface: doing so causes a visible macOS compositor flash.
+const controlsGeometry = {
+  appState: { runtimeControlsOverlayMode: "default" },
+  els: {
+    toolbarActions: {
+      getBoundingClientRect: () => ({ right: 980, width: 112 })
+    }
+  },
+  window: { innerWidth: 960 }
+};
+vm.createContext(controlsGeometry);
+vm.runInContext([
+  functionSource("runtimeControlsOverlayHeight"),
+  functionSource("runtimeControlsTagWidth"),
+  functionSource("runtimeControlsOverlayBounds"),
+  "globalThis.runtimeControlsOverlayBounds = runtimeControlsOverlayBounds;"
+].join("\n"), controlsGeometry);
+const controlsGeometryTab = {
+  item: { tags: [], sourceBadges: [], skillBinding: null }
+};
+const controlsToolbarRect = { top: 18, right: 980, width: 960 };
+const controlsFallbackBounds = { x: 0, y: 18, width: 980, height: 640 };
+const defaultControlsBounds = controlsGeometry.runtimeControlsOverlayBounds(
+  controlsGeometryTab,
+  controlsToolbarRect,
+  controlsFallbackBounds
+);
+controlsGeometry.appState.runtimeControlsOverlayMode = "more";
+const moreControlsBounds = controlsGeometry.runtimeControlsOverlayBounds(
+  controlsGeometryTab,
+  controlsToolbarRect,
+  controlsFallbackBounds
+);
+controlsGeometry.appState.runtimeControlsOverlayMode = "tags";
+const tagControlsBounds = controlsGeometry.runtimeControlsOverlayBounds(
+  controlsGeometryTab,
+  controlsToolbarRect,
+  controlsFallbackBounds
+);
+assert.equal(tagControlsBounds.x, defaultControlsBounds.x, "Custom Tag must keep the native controls x coordinate stable");
+assert.equal(tagControlsBounds.width, defaultControlsBounds.width, "Custom Tag must keep the native controls width stable");
+assert.equal(moreControlsBounds.x, defaultControlsBounds.x, "More must share the same stable controls x coordinate");
+assert.equal(moreControlsBounds.width, defaultControlsBounds.width, "More must share the same stable controls width");
+assert.equal(defaultControlsBounds.height, 40, "closed controls keep their compact height");
+assert.equal(moreControlsBounds.height, 180, "More may change only the controls height");
+assert.equal(tagControlsBounds.height, 260, "Custom Tag may change only the controls height");
+
+const controlsInvocations = [];
+let controlsRetryCount = 0;
+const controlsTab = {
+  id: 41,
+  item: {
+    isFavorite: false,
+    tags: [],
+    sourceBadges: [],
+    skillBinding: null
+  }
+};
+const controlsCoordinator = {
+  appState: {
+    runtimeControlsOverlayAttachedItemId: null,
+    runtimeControlsOverlayLastBoundsKey: null,
+    runtimeControlsOverlayLastStateKey: null,
+    htmlEditSession: null,
+    tags: [],
+    language: "zh-CN"
+  },
+  primaryActionBusyItemId: null,
+  isRuntimeHostSyncCurrent: () => true,
+  scheduleRuntimeHostSync: () => { controlsRetryCount += 1; },
+  invoke: async (command, args) => {
+    controlsInvocations.push({ command, args });
+    return true;
+  }
+};
+vm.createContext(controlsCoordinator);
+vm.runInContext([
+  functionSource("runtimeControlsOverlayState"),
+  functionSource("runtimeControlsOverlayPayload"),
+  functionSource("resetRuntimeControlsOverlaySync"),
+  functionSource("setRuntimeControlsOverlayVisibility"),
+  functionSource("syncRuntimeControlsOverlay")
+].join("\n"), controlsCoordinator);
+
+const compactControlsBounds = { x: 700, y: 20, width: 320, height: 40 };
+assert.equal(await controlsCoordinator.syncRuntimeControlsOverlay(controlsTab, compactControlsBounds, false, 1), true);
+assert.deepEqual(
+  controlsInvocations.map((entry) => entry.command),
+  ["attach_html_runtime_controls_overlay_command", "set_html_runtime_controls_overlay_visibility_command"],
+  "controls creation must be the only path that attaches and shows the child"
+);
+
+controlsInvocations.length = 0;
+const expandedControlsBounds = { ...compactControlsBounds, height: 260 };
+assert.equal(await controlsCoordinator.syncRuntimeControlsOverlay(controlsTab, expandedControlsBounds, false, 2), true);
+assert.deepEqual(
+  controlsInvocations.map((entry) => entry.command),
+  ["set_html_runtime_controls_overlay_bounds_command"],
+  "a tag-menu layout change must only resize the existing native child"
+);
+
+controlsInvocations.length = 0;
+controlsCoordinator.appState.language = "en-US";
+assert.equal(await controlsCoordinator.syncRuntimeControlsOverlay(controlsTab, expandedControlsBounds, false, 3), true);
+assert.deepEqual(
+  controlsInvocations.map((entry) => entry.command),
+  ["update_html_runtime_controls_overlay_command"],
+  "a locale change must eval into the existing controls child without bounds or show"
+);
+assert.equal(
+  controlsInvocations[0]?.args?.language,
+  "en-US",
+  "the eval-only controls update must carry the newly selected locale"
+);
+
+controlsInvocations.length = 0;
+controlsTab.item.isFavorite = true;
+assert.equal(await controlsCoordinator.syncRuntimeControlsOverlay(controlsTab, expandedControlsBounds, false, 4), true);
+assert.deepEqual(
+  controlsInvocations.map((entry) => entry.command),
+  ["update_html_runtime_controls_overlay_command"],
+  "a controls state change must only eval into the existing native child"
+);
+
+controlsInvocations.length = 0;
+controlsCoordinator.invoke = async (command, args) => {
+  controlsInvocations.push({ command, args });
+  return command === "set_html_runtime_controls_overlay_bounds_command" ? false : true;
+};
+assert.equal(
+  await controlsCoordinator.syncRuntimeControlsOverlay(controlsTab, { ...expandedControlsBounds, height: 68 }, false, 5),
+  false,
+  "a closed controls child must reject the stale bounds update"
+);
+assert.equal(controlsCoordinator.appState.runtimeControlsOverlayAttachedItemId, null, "a missing child must clear the lifecycle cache before retry");
+assert.equal(controlsRetryCount, 1, "a missing child must schedule one fresh attach rather than reviving it inline");
 const findVisibilitySource = runtimeRust.match(/pub fn set_html_find_overlay_visibility[\s\S]*?\n}\n\npub fn attach_inspector_more_overlay/)?.[0] || "";
 assert.match(findVisibilitySource, /webview\.hide\(\)[\s\S]*?webview\.close\(\)/, "closing find must destroy the child instead of retaining prewarm-era hide-only state");
 assert.doesNotMatch(findVisibilitySource, /raise_webview_view_native/, "find must rely on explicit create-after-controls ordering instead of native sibling raises");
@@ -730,6 +897,9 @@ const browser = await chromium.launch({ headless: true });
 try {
   const runtimePage = await browser.newPage();
   await runtimePage.addInitScript(() => {
+    // A child WebView can retain an old locale even before its first host
+    // payload arrives. The initial payload must still win.
+    window.localStorage.setItem("nutbook.language", "en-US");
     window.__NUTBOOK_RUNTIME_CONTROLS__ = {
       itemId: 41,
       fileName: "menu-actions.html",
@@ -742,11 +912,48 @@ try {
       skillTag: null,
       typeTag: "HTML",
       customTags: [],
-      sourceBadges: []
+      sourceBadges: [],
+      language: "zh-CN"
     };
   });
   await runtimePage.goto(pathToFileURL(`${process.cwd()}/dist/runtime-overlay.html`).href);
   await runtimePage.waitForFunction(() => document.getElementById("moreButton")?.offsetParent !== null);
+  assert.equal(
+    await runtimePage.locator("#addTagBtn").textContent(),
+    "+ 标签",
+    "the initial host locale must override stale controls-child storage"
+  );
+
+  // Preferences updates an already-existing native child through eval. The
+  // direct Custom Tag entry must be localized before More is ever opened.
+  await runtimePage.evaluate(() => {
+    const next = { ...window.__NUTBOOK_RUNTIME_CONTROLS__, language: "en-US" };
+    window.__NUTBOOK_RUNTIME_CONTROLS__ = next;
+    window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.(next);
+  });
+  await runtimePage.waitForFunction(() => document.getElementById("addTagBtn")?.textContent === "+ Tag");
+  const initialTagButton = runtimePage.locator("#addTagBtn");
+  await initialTagButton.dispatchEvent("pointerdown");
+  await runtimePage.waitForFunction(() => document.getElementById("tagMenu")?.classList.contains("open"));
+  await runtimePage.waitForFunction(() =>
+    document.querySelector("#tagMenu .tag-menu-title")?.textContent === "Custom Tag"
+    && document.getElementById("tagNameInput")?.getAttribute("placeholder") === "New tag name"
+    && document.getElementById("createTagButton")?.textContent === "Create Tag"
+  );
+  await runtimePage.evaluate(() => {
+    const next = { ...window.__NUTBOOK_RUNTIME_CONTROLS__, language: "zh-CN" };
+    window.__NUTBOOK_RUNTIME_CONTROLS__ = next;
+    window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.(next);
+  });
+  await runtimePage.waitForFunction(() =>
+    document.getElementById("tagMenu")?.classList.contains("open")
+    && document.querySelector("#tagMenu .tag-menu-title")?.textContent === "自定义标签"
+    && document.getElementById("tagNameInput")?.getAttribute("placeholder") === "新标签名"
+    && document.getElementById("createTagButton")?.textContent === "新增标签"
+  );
+  await runtimePage.waitForTimeout(220);
+  await initialTagButton.dispatchEvent("pointerdown");
+  await runtimePage.waitForFunction(() => !document.getElementById("tagMenu")?.classList.contains("open"));
 
   const actionGeometry = await runtimePage.evaluate(() => {
     const geometry = (id) => {
@@ -790,6 +997,51 @@ try {
   });
   assert.equal(await runtimePage.locator("#editButton").isDisabled(), true);
   assert.equal(await runtimePage.locator("#editButton").getAttribute("aria-busy"), "true");
+
+  await runtimePage.evaluate(() => {
+    window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({
+      ...window.__NUTBOOK_RUNTIME_CONTROLS__,
+      isPrimaryBusy: false,
+      customTag: { id: 7, name: "风险标签" },
+      customTags: [{ id: 7, name: "风险标签" }],
+      availableTags: [{ id: 7, name: "风险标签" }, { id: 8, name: "待确认" }]
+    });
+  });
+  await runtimePage.waitForFunction(() => document.getElementById("customTagBtn")?.classList.contains("show"));
+  await runtimePage.evaluate(() => {
+    window.__overlayLayoutEvents = [];
+    const prefix = "__NUTBOOK_HTML_CONTROLS__:";
+    new MutationObserver(() => {
+      const title = document.title;
+      if (!title.startsWith(prefix)) return;
+      try {
+        const payload = JSON.parse(title.slice(prefix.length));
+        if (payload.action === "overlay-layout") window.__overlayLayoutEvents.push(payload.layoutMode);
+      } catch (_) {}
+    }).observe(document.querySelector("title"), { childList: true, subtree: true, characterData: true });
+  });
+  const customTagButton = runtimePage.locator("#customTagBtn");
+  await customTagButton.hover();
+  await runtimePage.waitForTimeout(280);
+  const openingStart = await runtimePage.evaluate(() => window.__overlayLayoutEvents.length);
+  await customTagButton.dispatchEvent("pointerdown");
+  await runtimePage.waitForFunction(() => document.getElementById("tagMenu")?.classList.contains("open"));
+  await runtimePage.waitForTimeout(280);
+  assert.deepEqual(
+    await runtimePage.evaluate((start) => window.__overlayLayoutEvents.slice(start), openingStart),
+    ["tags"],
+    "opening a custom-tag menu must emit only its settled tags layout after any prior badge tooltip"
+  );
+  const closingStart = await runtimePage.evaluate(() => window.__overlayLayoutEvents.length);
+  await runtimePage.waitForTimeout(200);
+  await customTagButton.dispatchEvent("pointerdown");
+  await runtimePage.waitForFunction(() => !document.getElementById("tagMenu")?.classList.contains("open"));
+  await runtimePage.waitForTimeout(280);
+  assert.deepEqual(
+    await runtimePage.evaluate((start) => window.__overlayLayoutEvents.slice(start), closingStart),
+    ["hover"],
+    "closing a custom-tag menu must settle once to hover instead of replaying badge-tip or default layouts"
+  );
 
   const findPage = await browser.newPage({ viewport: { width: 560, height: 112 } });
   await findPage.addInitScript(() => {

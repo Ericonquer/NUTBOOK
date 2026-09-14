@@ -713,6 +713,46 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
     /// 兼容期保留 skill_tag，但 overlay 新 UI 只渲染 source_badges。
     #[serde(default)]
     pub source_badges: Vec<ItemSourceBadge>,
+    /// Controls is an independent child WebView, so locale must travel in its
+    /// own update payload rather than waiting for a later user interaction.
+    #[serde(default = "default_runtime_controls_language")]
+    pub language: String,
+}
+
+/// 已创建的 HTML controls child 只更新内容状态；不得在此路径变更原生 bounds、
+/// 可见性或焦点，否则标签菜单的短暂布局状态会触发整条 overlay 生命周期。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateHtmlRuntimeControlsOverlayRequest {
+    pub item_id: i64,
+    pub is_favorite: bool,
+    pub is_fullscreen: bool,
+    #[serde(default)]
+    pub is_editing: bool,
+    #[serde(default)]
+    pub is_primary_busy: bool,
+    pub custom_tag: Option<Tag>,
+    pub available_tags: Vec<Tag>,
+    pub skill_tag: Option<String>,
+    pub type_tag: Option<String>,
+    #[serde(default)]
+    pub custom_tags: Vec<Tag>,
+    #[serde(default)]
+    pub source_badges: Vec<ItemSourceBadge>,
+    #[serde(default = "default_runtime_controls_language")]
+    pub language: String,
+}
+
+fn default_runtime_controls_language() -> String {
+    "zh-CN".to_string()
+}
+
+/// 已创建的 HTML controls child 的原生几何更新；不重放内容状态或 show。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetHtmlRuntimeControlsOverlayBoundsRequest {
+    pub item_id: i64,
+    pub bounds: RuntimeHostBounds,
 }
 
 /// HTML 正文查找使用独立的宿主小岛，不与右上标签 controls overlay 复用。

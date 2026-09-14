@@ -24,9 +24,11 @@ use crate::{
             set_external_html_runtime_host_visibility,
             set_html_edit_toolbar_overlay_visibility,
             set_html_presentation_preview_visibility, set_html_presentation_preview_active,
+            set_html_runtime_controls_overlay_bounds,
             set_html_runtime_controls_overlay_visibility, set_html_find_overlay_bounds,
             set_html_find_overlay_visibility,
             set_html_runtime_host_visibility, update_html_find_overlay,
+            update_html_runtime_controls_overlay,
             forward_html_runtime_view_state,
             HtmlRuntimeSession,
         },
@@ -50,9 +52,10 @@ use crate::{
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
-        SetHtmlEditToolbarOverlayVisibilityRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
+        SetHtmlEditToolbarOverlayVisibilityRequest,
+        SetHtmlRuntimeControlsOverlayBoundsRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
         SetHtmlFindOverlayBoundsRequest, SetHtmlFindOverlayVisibilityRequest,
-        UpdateHtmlFindOverlayRequest,
+        UpdateHtmlFindOverlayRequest, UpdateHtmlRuntimeControlsOverlayRequest,
         HtmlPresentationPreviewControlRequest, SetHtmlPresentationPreviewActiveRequest,
         SetHtmlRuntimeHostVisibilityRequest, ValidateMarkdownCoverAssetRequest,
         ValidateMarkdownCoverAssetResponse,
@@ -737,6 +740,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.custom_tags,
         payload.source_badges,
         item.summary.file_name.clone(),
+        payload.language,
     )?;
     session.to_payload(false)
 }
@@ -747,6 +751,42 @@ pub fn set_html_runtime_controls_overlay_visibility_command(
     payload: SetHtmlRuntimeControlsOverlayVisibilityRequest,
 ) -> Result<bool, AppError> {
     set_html_runtime_controls_overlay_visibility(&app, payload.item_id, payload.visible)
+}
+
+#[tauri::command]
+pub fn update_html_runtime_controls_overlay_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: UpdateHtmlRuntimeControlsOverlayRequest,
+) -> Result<bool, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "html" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    update_html_runtime_controls_overlay(
+        &app,
+        payload.item_id,
+        payload.is_favorite,
+        payload.is_fullscreen,
+        payload.is_editing,
+        payload.is_primary_busy,
+        payload.custom_tag,
+        payload.available_tags,
+        payload.skill_tag,
+        payload.type_tag,
+        payload.custom_tags,
+        payload.source_badges,
+        item.summary.file_name.clone(),
+        payload.language,
+    )
+}
+
+#[tauri::command]
+pub fn set_html_runtime_controls_overlay_bounds_command(
+    app: tauri::AppHandle,
+    payload: SetHtmlRuntimeControlsOverlayBoundsRequest,
+) -> Result<bool, AppError> {
+    set_html_runtime_controls_overlay_bounds(&app, payload.item_id, payload.bounds)
 }
 
 #[tauri::command]
@@ -1127,6 +1167,7 @@ pub fn attach_markdown_controls_overlay_command(
         payload.custom_tags,
         payload.source_badges,
         item.summary.file_name.clone(),
+        payload.language,
     )?;
     Ok(true)
 }
