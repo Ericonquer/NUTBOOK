@@ -25,6 +25,14 @@ assert.match(preflight, /\["npm", \["run", "check:regressions"\]\]/, "the qualit
 assert.match(preflight, /\["cargo", \["test", "--manifest-path", "src-tauri\/Cargo.toml", "--test", "html_edit", "--", "--nocapture"\]\]/, "the quality gate must include HTML edit integration tests");
 assert.match(preflight, /process\.platform === "win32"/, "the runner must select Windows-compatible npm executables");
 assert.match(preflight, /\? `\$\{command\}\.cmd`/, "Windows npm and npx commands must use their .cmd shims");
+assert.match(preflight, /shell:\s*process\.platform === "win32"/, "Windows .cmd shims must run through cmd.exe rather than direct spawn");
+assert.match(preflight, /\["cargo", \["check", "--release", "--manifest-path", "src-tauri\/Cargo.toml", "--bins"\]\]/, "the quality gate must compile release-profile binaries before a tag can discover cfg errors");
+const windowsCommands = preflight.slice(
+  preflight.indexOf("const WINDOWS_COMMANDS"),
+  preflight.indexOf("const commandsByMode"),
+);
+assert.match(windowsCommands, /\["npm", \["run", "prepare:nutbook-cli"\]\]/, "the Windows gate must execute the release beforeBuild CLI preparation path");
+assert.match(windowsCommands, /\["cargo", \["check", "--release", "--manifest-path", "src-tauri\/Cargo.toml", "--bin", "NUTBOOK"\]\]/, "the Windows gate must compile the Tauri desktop binary in release mode");
 
 const qualityJob = ciWorkflow.slice(ciWorkflow.indexOf("quality:"), ciWorkflow.indexOf("windows-check:"));
 const windowsJob = ciWorkflow.slice(ciWorkflow.indexOf("windows-check:"));

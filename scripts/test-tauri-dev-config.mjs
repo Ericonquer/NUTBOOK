@@ -71,4 +71,23 @@ assert.ok(
   "debug default-app guard must run before every platform setter",
 );
 
+const macosSetDefaultStart = setDefaultBody.indexOf('#[cfg(target_os = "macos")]');
+const windowsSetDefaultStart = setDefaultBody.indexOf('#[cfg(target_os = "windows")]');
+assert.ok(
+  macosSetDefaultStart >= 0 && windowsSetDefaultStart > macosSetDefaultStart,
+  "set_default_app must keep separate macOS and Windows implementations",
+);
+const macosSetDefaultBody = setDefaultBody.slice(macosSetDefaultStart, windowsSetDefaultStart);
+const windowsSetDefaultBody = setDefaultBody.slice(windowsSetDefaultStart);
+assert.match(
+  macosSetDefaultBody,
+  /match default_app_probe_extension_for_kind\(kind\.as_str\(\)\)[\s\S]*?set_default_app_macos/,
+  "macOS-only default-app helpers must remain inside the macOS cfg block",
+);
+assert.doesNotMatch(
+  windowsSetDefaultBody,
+  /default_app_probe_extension_for_kind|set_default_app_macos|set_default_html_viewer_handler/,
+  "Windows must not compile references to macOS-only default-app helpers",
+);
+
 console.log("Tauri debug config merge and default-app guard contract passed.");

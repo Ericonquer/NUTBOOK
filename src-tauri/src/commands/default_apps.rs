@@ -161,20 +161,22 @@ pub async fn set_default_app(
         ));
     }
     #[cfg(target_os = "macos")]
-    if kind == "html" {
-        return set_default_html_viewer_handler().map(|()| SetDefaultAppMode::SystemDialog);
-    }
-    match default_app_probe_extension_for_kind(kind.as_str()) {
-        Some(extension) => set_default_app_macos(&app, extension)
-            .await
-            .map(|()| SetDefaultAppMode::SystemDialog),
-        None => Err(AppError::InvalidParams),
+    {
+        if kind == "html" {
+            return set_default_html_viewer_handler().map(|()| SetDefaultAppMode::SystemDialog);
+        }
+        match default_app_probe_extension_for_kind(kind.as_str()) {
+            Some(extension) => set_default_app_macos(&app, extension)
+                .await
+                .map(|()| SetDefaultAppMode::SystemDialog),
+            None => Err(AppError::InvalidParams),
+        }
     }
     #[cfg(target_os = "windows")]
     {
         // Codex R4：Windows 主路径直接打开系统默认应用设置页（§7.3），
         // 不走 macOS 确认对话框，也不落回 Finder 说明。
-        let _ = kind;
+        let _ = (app, kind);
         let status = std::process::Command::new("explorer.exe")
             .arg("ms-settings:defaultapps")
             .status()
