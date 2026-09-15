@@ -41,7 +41,12 @@ assert.doesNotMatch(ciWorkflow, /push:\s*\n\s*branches:/, "merged main must not 
 for (const expected of ["PR quality and runtime tests", "PR macOS release compile", "PR Windows release compile"]) {
   assert.match(ciWorkflow, new RegExp(`name: ${expected}`), `CI must retain ${expected}`);
 }
-assert.match(ciWorkflow, /runs-on: ubuntu-latest/, "the complete frontend/runtime suite belongs on the cheaper Linux runner");
+const qualityJob = ciWorkflow.slice(ciWorkflow.indexOf("quality:"), ciWorkflow.indexOf("macos-compile:"));
+assert.match(qualityJob, /runs-on: ubuntu-24\.04/, "the complete frontend/runtime suite must use a stable Ubuntu image");
+assert.match(qualityJob, /Install Linux Tauri prerequisites/, "the Linux quality job must install Tauri system dependencies before Rust builds");
+for (const packageName of ["libwebkit2gtk-4.1-dev", "libgtk-3-dev", "libxdo-dev", "libssl-dev", "libayatana-appindicator3-dev", "librsvg2-dev", "pkg-config"]) {
+  assert.match(qualityJob, new RegExp(packageName), `the Linux Tauri prerequisite ${packageName} must remain installed`);
+}
 assert.match(ciWorkflow, /uses: actions\/cache@v4/, "CI must cache Rust dependencies and intermediates");
 assert.match(ciWorkflow, /RUST_VERSION: 1\.98\.0/, "CI must pin the Rust compiler used by its cache");
 assert.match(ciWorkflow, /dtolnay\/rust-toolchain@1\.98\.0/, "CI must not use a moving Rust toolchain");
