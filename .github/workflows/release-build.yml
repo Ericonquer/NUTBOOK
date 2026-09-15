@@ -236,7 +236,7 @@ jobs:
           asset="release/$asset_name"
           cp "${sources[0]}" "$asset"
           test -s "$asset"
-          shasum -a 256 "$asset" | awk '{print tolower($1)}' > "$asset.sha256"
+          node scripts/write-sha256.mjs "$asset" "$asset.sha256"
           grep -Eq '^[0-9a-f]{64}$' "$asset.sha256"
 
       - name: Upload verified package for the single release uploader
