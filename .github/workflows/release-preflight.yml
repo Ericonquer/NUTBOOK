@@ -29,6 +29,20 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Verify portable installer checksum script
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_dir="$(mktemp -d)"
+          trap 'rm -rf "$fixture_dir"' EXIT
+          fixture="$fixture_dir/installer-fixture.bin"
+          checksum="$fixture.sha256"
+          printf 'NUTBOOK release checksum fixture\n' > "$fixture"
+          node scripts/write-sha256.mjs "$fixture" "$checksum"
+          expected="$(node --input-type=module -e 'import { createHash } from "node:crypto"; import { readFileSync } from "node:fs"; process.stdout.write(createHash("sha256").update(readFileSync(process.argv[1])).digest("hex"));' "$fixture")"
+          actual="$(tr -d '[:space:]' < "$checksum")"
+          test "$actual" = "$expected"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.0
 

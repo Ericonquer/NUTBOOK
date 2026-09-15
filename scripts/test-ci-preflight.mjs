@@ -56,6 +56,7 @@ assert.doesNotMatch(ciWorkflow, /src-tauri\/target\s*\n/, "CI must not cache the
 
 assert.match(releasePreflight, /workflow_dispatch:/, "release preflight must be an explicit release-candidate action");
 assert.match(releasePreflight, /Release preflight \/ Windows package inputs/, "release preflight needs the native Windows package-input job");
+assert.match(releasePreflight, /Verify portable installer checksum script[\s\S]*node scripts\/write-sha256\.mjs/, "Windows preflight must exercise the package checksum script before expensive package inputs");
 assert.match(releasePreflight, /npm run check:release-preflight:windows/, "the native Windows preflight must run the real beforeBuild input path");
 assert.match(releasePreflight, /nutbook\.exe/, "the native Windows preflight must assert the copied .exe resource");
 assert.match(releasePreflight, /Release preflight \/ macOS release compile/, "release preflight must retain a native macOS release compile");
@@ -89,6 +90,7 @@ assert.match(releaseWorkflow, /Remove release outputs before cache save/, "relea
 assert.match(releaseWorkflow, /permissions:\s*\n\s*contents: read/, "build matrix jobs must not receive release-write permission");
 assert.match(releaseWorkflow, /Upload verified package for the single release uploader/, "builders must hand off packages through short-lived artifacts");
 assert.match(releaseWorkflow, /retention-days: 1/, "build artifacts must be short lived");
+assert.match(releaseWorkflow, /node scripts\/write-sha256\.mjs/, "package staging must compute checksums without relying on a platform-specific shell utility");
 assert.match(releaseWorkflow, /Re-download published draft assets and verify bytes/, "draft upload must be verified by hashing downloaded release bytes");
 assert.match(releaseWorkflow, /shasum -a 256/, "release verification must calculate installer checksums");
 
