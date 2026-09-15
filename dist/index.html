@@ -4916,6 +4916,10 @@
 
       .markdown-close-confirm-actions .button {
         flex: 0 0 auto;
+        /* The 420px dialog leaves 382px for actions. Keep the English
+           three-button decision on one row with Linux font metrics while
+           preserving the shared gap and narrow-screen wrapping behavior. */
+        padding-inline: 10px;
         white-space: nowrap;
       }
 
