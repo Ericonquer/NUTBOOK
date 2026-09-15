@@ -10,6 +10,14 @@ needs_check=false
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero_sha" ] && continue
+
+  # Version tags are immutable release pointers, not a worktree revision to
+  # validate.  The release workflow separately requires a successful
+  # preflight for the exact tag commit.
+  case "$local_ref" in
+    refs/tags/*) continue ;;
+  esac
+
   needs_check=true
 
   if [ "$local_sha" != "$head_sha" ]; then

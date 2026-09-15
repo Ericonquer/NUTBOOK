@@ -13,6 +13,7 @@ const releasePreflight = read(".github/workflows/release-preflight.yml");
 const releaseWorkflow = read(".github/workflows/release-build.yml");
 const publishWorkflow = read(".github/workflows/publish-release.yml");
 const prePushHook = read(".githooks/pre-push");
+const prepareNutbookCli = read("scripts/prepare-nutbook-cli.mjs");
 
 assert.equal(read(".nvmrc").trim(), "22", ".nvmrc must pin the CI Node major");
 assert.equal(packageJson.engines?.node, ">=22 <23", "package metadata must reject Node majors other than CI's Node 22");
@@ -58,8 +59,15 @@ assert.match(releasePreflight, /Release preflight \/ Windows package inputs/, "r
 assert.match(releasePreflight, /npm run check:release-preflight:windows/, "the native Windows preflight must run the real beforeBuild input path");
 assert.match(releasePreflight, /nutbook\.exe/, "the native Windows preflight must assert the copied .exe resource");
 assert.match(releasePreflight, /Release preflight \/ macOS release compile/, "release preflight must retain a native macOS release compile");
+assert.match(releasePreflight, /Reproduce clean package CLI-resource state[\s\S]*rm -rf src-tauri\/generated-resources\/nutbook-cli/, "Windows preflight must remove the generated CLI resource before exercising the package input path");
+assert.match(releasePreflight, /Rebuild the bundled CLI from a clean resource state[\s\S]*npm run prepare:nutbook-cli/, "macOS preflight must rebuild the CLI after removing its generated resource directory");
 assert.match(releasePreflight, /key: release-rust-/, "release preflight must populate the Rust cache reused by packaging");
 assert.match(releasePreflight, /RUST_VERSION: 1\.98\.0/, "release preflight must pin the Rust compiler");
+assert.ok(
+  prepareNutbookCli.indexOf("mkdirSync(dirname(destination), { recursive: true });") <
+    prepareNutbookCli.indexOf('execFileSync("cargo"'),
+  "the generated CLI resource directory must exist before Tauri compiles the CLI"
+);
 
 assert.match(releaseWorkflow, /workflow_dispatch:/, "packaging must only run when explicitly requested");
 assert.doesNotMatch(releaseWorkflow, /push:\s*\n\s*tags:/, "pushing a tag must not spend packaging minutes automatically");
@@ -90,6 +98,7 @@ assert.match(publishWorkflow, /test "\$expected_checksum" = "\$actual_checksum"/
 
 assert.match(prePushHook, /git diff-tree --check/, "pre-push must reject whitespace errors for a new remote ref");
 assert.match(prePushHook, /git diff --check/, "pre-push must inspect the exact pushed range");
+assert.match(prePushHook, /refs\/tags\/\*/, "pre-push must allow release tag pushes without pretending the tag is the checked-out worktree revision");
 assert.match(prePushHook, /local_sha.*head_sha/, "pre-push must reject a ref other than the checked-out HEAD");
 assert.match(prePushHook, /git diff --quiet/, "pre-push must reject a dirty worktree that cannot be the pushed revision");
 assert.match(prePushHook, /npm run check:push/, "pre-push must run the complete local quality gate");
