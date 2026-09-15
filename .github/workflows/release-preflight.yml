@@ -46,6 +46,13 @@ jobs:
           restore-keys: |
             release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
 
+      - name: Reproduce clean package CLI-resource state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/generated-resources/nutbook-cli
+          test ! -e src-tauri/generated-resources/nutbook-cli
+
       - name: Exercise the Windows beforeBuild package inputs
         run: npm run check:release-preflight:windows
 
@@ -78,6 +85,14 @@ jobs:
           key: release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
+
+      - name: Rebuild the bundled CLI from a clean resource state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/generated-resources/nutbook-cli
+          npm run prepare:nutbook-cli
+          test -s src-tauri/generated-resources/nutbook-cli/nutbook
 
       - name: Compile macOS release binaries
         run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
