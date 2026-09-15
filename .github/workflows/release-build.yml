@@ -93,14 +93,14 @@ jobs:
           cargo_version="$(awk -F'\"' '/^version = / { print $2; exit }' src-tauri/Cargo.toml)"
           test "${tag#v}" = "$tauri_version"
           test "$tauri_version" = "$cargo_version"
-          if gh release view "$tag" --json isDraft,assets >/tmp/release.json; then
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,assets >/tmp/release.json; then
             test "$(jq -r .isDraft /tmp/release.json)" = "true"
             test "$(jq '.assets | length' /tmp/release.json)" -eq 0 || {
               printf '%s\n' "Refusing to mix a new build with assets already attached to this draft Release." >&2
               exit 1
             }
           else
-            gh release create "$tag" --draft --title "$tag" --generate-notes
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --title "$tag" --generate-notes
           fi
           printf 'tag=%s\ncommit=%s\n' "$tag" "$COMMIT" >> "$GITHUB_OUTPUT"
 
@@ -290,7 +290,7 @@ jobs:
             test "$expected_checksum" = "$actual_checksum"
           done
           test "$(find release -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq 6
-          gh release upload "$TAG" release/* --clobber
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" release/* --clobber
 
       - name: Re-download published draft assets and verify bytes
         shell: bash
@@ -300,7 +300,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir downloaded
-          gh release download "$TAG" --dir downloaded --clobber
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir downloaded --clobber
           for checksum_file in release/*.sha256; do
             asset_name="$(basename "${checksum_file%.sha256}")"
             expected_checksum="$(tr -d '[:space:]' < "$checksum_file")"

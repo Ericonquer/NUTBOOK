@@ -11,15 +11,15 @@ const runtimeCore = readFileSync(new URL("../src-tauri/src/core/html_runtime.rs"
 const indexHtml = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
 
 assert.match(workflow, /permissions:\s*\n\s*contents: write/, "release workflow needs permission to publish only after verification");
-assert.match(workflow, /prepare-release:[\s\S]*?gh release create "\$tag" --draft/, "release creation must start as a draft");
+assert.match(workflow, /prepare-release:[\s\S]*?gh release create "\$tag" --repo "\$GITHUB_REPOSITORY" --draft/, "release creation must start as a draft without relying on checkout context");
 assert.match(
   workflow,
-  /finalize-release:[\s\S]*?needs: \[prepare-release, build\][\s\S]*?test "\$\(find release -maxdepth 1 -type f \| wc -l \| tr -d '\[:space:\]'\)" -eq 6[\s\S]*?gh release upload "\$TAG" release\/\* --clobber[\s\S]*?Re-download published draft assets and verify bytes/,
+  /finalize-release:[\s\S]*?needs: \[prepare-release, build\][\s\S]*?test "\$\(find release -maxdepth 1 -type f \| wc -l \| tr -d '\[:space:\]'\)" -eq 6[\s\S]*?gh release upload "\$TAG" --repo "\$GITHUB_REPOSITORY" release\/\* --clobber[\s\S]*?Re-download published draft assets and verify bytes/,
   "the build workflow must verify six staged assets, upload them once, then verify the draft release bytes",
 );
 assert.doesNotMatch(workflow, /gh release edit/, "building a tag must not publish without a person confirming it");
 assert.match(publishWorkflow, /workflow_dispatch:[\s\S]*?tag:/, "publishing requires an explicit tag selection");
-assert.match(publishWorkflow, /test "\$\(jq -r \.isDraft <<<"\$release"\)" = "true"[\s\S]*?gh release edit "\$TAG" --draft=false --prerelease=false/, "only the manual publish workflow may publish a complete draft");
+assert.match(publishWorkflow, /test "\$\(jq -r \.isDraft <<<"\$release"\)" = "true"[\s\S]*?gh release edit "\$TAG" --repo "\$GITHUB_REPOSITORY" --draft=false --prerelease=false/, "only the manual publish workflow may publish a complete draft");
 assert.match(workflow, /NUTBOOK_\$\{version\}_x64\.dmg[\s\S]*?NUTBOOK_\$\{version\}_aarch64\.dmg[\s\S]*?NUTBOOK_\$\{version\}_x64-setup\.exe/, "finalize must require all platform installers");
 assert.match(workflow, /grep -Eq '\^\[0-9a-f\]\{64\}\$'/, "checksums must be lowercase SHA-256 sidecars");
 

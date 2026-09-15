@@ -93,8 +93,13 @@ assert.match(releaseWorkflow, /retention-days: 1/, "build artifacts must be shor
 assert.match(releaseWorkflow, /node scripts\/write-sha256\.mjs/, "package staging must compute checksums without relying on a platform-specific shell utility");
 assert.match(releaseWorkflow, /Re-download published draft assets and verify bytes/, "draft upload must be verified by hashing downloaded release bytes");
 assert.match(releaseWorkflow, /shasum -a 256/, "release verification must calculate installer checksums");
+assert.match(releaseWorkflow, /gh release upload "\$TAG" --repo "\$GITHUB_REPOSITORY" release\/\* --clobber/, "the finalizer must name its repository because its artifact-only job has no checkout");
+assert.match(releaseWorkflow, /gh release download "\$TAG" --repo "\$GITHUB_REPOSITORY" --dir downloaded --clobber/, "the post-upload byte verifier must name its repository because its job has no checkout");
 
-assert.match(publishWorkflow, /gh release download "\$TAG" --pattern "\$asset"/, "publishing must download each installer again");
+assert.match(publishWorkflow, /gh release view "\$TAG" --repo "\$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets/, "publish must name its repository because its job has no checkout");
+assert.match(publishWorkflow, /gh release download "\$TAG" --repo "\$GITHUB_REPOSITORY" --pattern "\$asset"/, "publishing must download each installer again without relying on a checkout");
+assert.match(publishWorkflow, /gh release download "\$TAG" --repo "\$GITHUB_REPOSITORY" --pattern "\$checksum"/, "publishing must download each checksum without relying on a checkout");
+assert.match(publishWorkflow, /gh release edit "\$TAG" --repo "\$GITHUB_REPOSITORY" --draft=false --prerelease=false/, "publish must name its repository when changing the draft state");
 assert.match(publishWorkflow, /actual_checksum=.*shasum -a 256/, "publishing must rehash downloaded installer bytes");
 assert.match(publishWorkflow, /test "\$expected_checksum" = "\$actual_checksum"/, "publishing must compare the checksum to the installer bytes");
 
