@@ -34,7 +34,7 @@ jobs:
             "NUTBOOK_${version}_aarch64.dmg"
             "NUTBOOK_${version}_x64-setup.exe"
           )
-          release="$(gh release view "$TAG" --json isDraft,isPrerelease,assets)"
+          release="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets)"
           test "$(jq -r .isDraft <<<"$release")" = "true"
           test "$(jq -r .isPrerelease <<<"$release")" = "false"
           for asset in "${expected[@]}"; do
@@ -44,8 +44,8 @@ jobs:
             checksum_entry="$(jq -cer --arg name "$checksum" '[.assets[] | select(.name == $name)] | if length == 1 then .[0] else error("missing or duplicate checksum") end' <<<"$release")"
             test "$(jq -r .size <<<"$checksum_entry")" -gt 0
             mkdir -p downloaded
-            gh release download "$TAG" --pattern "$asset" --dir downloaded --clobber
-            gh release download "$TAG" --pattern "$checksum" --dir downloaded --clobber
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir downloaded --clobber
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$checksum" --dir downloaded --clobber
             expected_checksum="$(tr -d '[:space:]' < "downloaded/$checksum")"
             actual_checksum="$(shasum -a 256 "downloaded/$asset" | awk '{print tolower($1)}')"
             grep -Eq '^[0-9a-f]{64}$' <<<"$expected_checksum"
@@ -58,4 +58,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
-        run: gh release edit "$TAG" --draft=false --prerelease=false
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false
