@@ -110,8 +110,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
-    env:
-      TAURI_CLI_ROOT: ${{ runner.temp }}/nutbook-tauri-cli
     strategy:
       fail-fast: false
       matrix:
@@ -173,7 +171,7 @@ jobs:
       - name: Restore pinned Tauri CLI cache
         uses: actions/cache@v4
         with:
-          path: ${{ env.TAURI_CLI_ROOT }}
+          path: ${{ runner.temp }}/nutbook-tauri-cli
           key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.TAURI_CLI_VERSION }}
 
       - name: Remove cached release outputs before packaging
@@ -189,6 +187,8 @@ jobs:
 
       - name: Install exact Tauri CLI when absent
         shell: bash
+        env:
+          TAURI_CLI_ROOT: ${{ runner.temp }}/nutbook-tauri-cli
         run: |
           set -euo pipefail
           cli="$TAURI_CLI_ROOT/bin/cargo-tauri"
