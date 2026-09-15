@@ -37,32 +37,32 @@ mod tests {
 
     #[test]
     fn overlap_is_true_for_parent_and_child_directories() {
-        let existing = Path::new("/Users/hayley/Documents/Notes");
-        let candidate = Path::new("/Users/hayley/Documents/Notes/Sub");
+        let existing = Path::new("/Users/example/Documents/Notes");
+        let candidate = Path::new("/Users/example/Documents/Notes/Sub");
 
         assert!(libraries_overlap(existing, candidate));
     }
 
     #[test]
     fn overlap_is_false_for_sibling_directories() {
-        let existing = Path::new("/Users/hayley/Documents/Notes");
-        let candidate = Path::new("/Users/hayley/Documents/Clips");
+        let existing = Path::new("/Users/example/Documents/Notes");
+        let candidate = Path::new("/Users/example/Documents/Clips");
 
         assert!(!libraries_overlap(existing, candidate));
     }
 
     #[test]
     fn overlap_is_true_for_same_directory() {
-        let existing = Path::new("/Users/hayley/Documents/Notes");
-        let candidate = Path::new("/Users/hayley/Documents/Notes");
+        let existing = Path::new("/Users/example/Documents/Notes");
+        let candidate = Path::new("/Users/example/Documents/Notes");
 
         assert!(libraries_overlap(existing, candidate));
     }
 
     #[test]
     fn overlap_ignores_current_directory_segments() {
-        let existing = Path::new("/Users/hayley/Documents/Notes");
-        let candidate = Path::new("/Users/hayley/Documents/./Notes/Sub");
+        let existing = Path::new("/Users/example/Documents/Notes");
+        let candidate = Path::new("/Users/example/Documents/./Notes/Sub");
 
         assert!(libraries_overlap(existing, candidate));
     }

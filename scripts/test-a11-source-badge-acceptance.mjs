@@ -32,7 +32,7 @@ page.on("console", (msg) => { if (msg.type() === "error") console.log("[console.
 const multiBadgeItem = {
   id: MAIN_ID + 1000,
   libraryId: fixture.library_id,
-  filePath: "/Users/hayley/.claude/skills/a11-multi-source-item/output/multi-source-card.md",
+  filePath: "/Users/example/.claude/skills/a11-multi-source-item/output/multi-source-card.md",
   relativePath: "multi-source-card.md",
   fileName: "multi-source-card.md",
   fileExt: "md",

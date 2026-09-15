@@ -22,7 +22,7 @@ downgraded automatically.
 
 ## Local status icons
 
-The user supplied the five PNG assets from `/Users/hayley/Desktop/icon` on
+The user supplied the five PNG assets from `/Users/example/Desktop/icon` on
 2026-08-02 and explicitly selected them for the Phase C UI. Nutbook copies them
 without transformation into `dist/assets/agent-icons`; they are local app
 assets and never fetched at runtime. Their SHA-256 values are:
