@@ -73,6 +73,9 @@ assert.match(releaseWorkflow, /RUST_VERSION: 1\.98\.0/, "release must pin the Ru
 assert.match(releaseWorkflow, /cargo install tauri-cli --version/, "release must install the pinned Tauri CLI, not a floating latest version");
 assert.match(releaseWorkflow, /Restore Rust build cache shared with release preflight/, "package builds must reuse preflight Rust intermediates");
 assert.match(releaseWorkflow, /key: tauri-cli-/, "the pinned Tauri CLI must have its own cache key");
+assert.doesNotMatch(releaseWorkflow, /^ {4}env:\n {6}TAURI_CLI_ROOT: \$\{\{ runner\.temp \}\}/m, "runner context must not be used in job-level env");
+assert.match(releaseWorkflow, /Restore pinned Tauri CLI cache[\s\S]*path: \$\{\{ runner\.temp \}\}\/nutbook-tauri-cli/, "the Tauri CLI cache path must use runner context at step scope");
+assert.match(releaseWorkflow, /Install exact Tauri CLI when absent\n\s+shell: bash\n\s+env:\n\s+TAURI_CLI_ROOT: \$\{\{ runner\.temp \}\}\/nutbook-tauri-cli/, "the Tauri CLI installer must receive its runner path at step scope");
 assert.match(releaseWorkflow, /Remove cached release outputs before packaging/, "release must remove stale cached installers before build");
 assert.match(releaseWorkflow, /Remove release outputs before cache save/, "release must never cache installers or generated CLI resources");
 assert.match(releaseWorkflow, /permissions:\s*\n\s*contents: read/, "build matrix jobs must not receive release-write permission");
