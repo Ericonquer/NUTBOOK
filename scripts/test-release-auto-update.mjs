@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const workflow = readFileSync(new URL("../.github/workflows/build-app.yml", import.meta.url), "utf8");
+const workflow = readFileSync(new URL("../.github/workflows/release-build.yml", import.meta.url), "utf8");
 const publishWorkflow = readFileSync(new URL("../.github/workflows/publish-release.yml", import.meta.url), "utf8");
 const updateCore = readFileSync(new URL("../src-tauri/src/core/update.rs", import.meta.url), "utf8");
 const updateModels = readFileSync(new URL("../src-tauri/src/models/update.rs", import.meta.url), "utf8");
