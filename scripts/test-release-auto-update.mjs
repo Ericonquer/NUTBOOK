@@ -12,7 +12,11 @@ const indexHtml = readFileSync(new URL("../dist/index.html", import.meta.url), "
 
 assert.match(workflow, /permissions:\s*\n\s*contents: write/, "release workflow needs permission to publish only after verification");
 assert.match(workflow, /prepare-release:[\s\S]*?gh release create "\$tag" --draft/, "release creation must start as a draft");
-assert.match(workflow, /needs: \[prepare-release, build\][\s\S]*?test "\$\(jq '\.assets \| length' <<<"\$release"\)" -eq 6/, "the build workflow must retain a complete verified draft");
+assert.match(
+  workflow,
+  /finalize-release:[\s\S]*?needs: \[prepare-release, build\][\s\S]*?test "\$\(find release -maxdepth 1 -type f \| wc -l \| tr -d '\[:space:\]'\)" -eq 6[\s\S]*?gh release upload "\$TAG" release\/\* --clobber[\s\S]*?Re-download published draft assets and verify bytes/,
+  "the build workflow must verify six staged assets, upload them once, then verify the draft release bytes",
+);
 assert.doesNotMatch(workflow, /gh release edit/, "building a tag must not publish without a person confirming it");
 assert.match(publishWorkflow, /workflow_dispatch:[\s\S]*?tag:/, "publishing requires an explicit tag selection");
 assert.match(publishWorkflow, /test "\$\(jq -r \.isDraft <<<"\$release"\)" = "true"[\s\S]*?gh release edit "\$TAG" --draft=false --prerelease=false/, "only the manual publish workflow may publish a complete draft");
