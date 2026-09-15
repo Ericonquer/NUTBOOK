@@ -34,7 +34,7 @@ await page.addInitScript((data) => {
   items.unshift({ id: data.id, libraryId: data.library_id, filePath: data.file_path, relativePath: data.relative_path, fileName: data.file_name, fileExt: data.file_ext, fileType: data.file_type, fileSize: data.file_size, modifiedAt: data.modified_at, title: data.title, summary: data.summary, pathState: data.path_state, isFavorite: data.is_favorite === 1, lastOpenedAt: data.last_opened_at, skillBinding: null, sourceBadges: data.sourceBadges, tags: data.tags, thumbnail: null });
   // 主卡带本地文件路径缩略图（绝对路径 → 前端应转 /fs/...）
   const main = items[0];
-  main.thumbnail = { path: "/Users/hayley/.cache/thumbnails/item-" + data.id + ".png", status: "ready", width: 800, height: 450 };
+  main.thumbnail = { path: "/Users/example/.cache/thumbnails/item-" + data.id + ".png", status: "ready", width: 800, height: 450 };
   window.__PERF_MOCK__ = {
     resolveFirst: () => { if (window.__PERF_MOCK__._firstPending) { const r = window.__PERF_MOCK__._firstPending; window.__PERF_MOCK__._firstPending = null; r(); } },
     _firstPending: null,
@@ -108,7 +108,7 @@ const itemsPayload = ids.map((id, i) => ({
   skillBinding: null,
   sourceBadges: i === 0 ? fixture.sourceBadges : [],
   tags: i === 0 ? fixture.tags : [],
-  thumbnail: i === 0 ? { path: `/Users/hayley/.cache/thumbnails/item-${id}.png`, status: "ready", width: 800, height: 450 } : null
+  thumbnail: i === 0 ? { path: `/Users/example/.cache/thumbnails/item-${id}.png`, status: "ready", width: 800, height: 450 } : null
 }));
 
 // ---- 5. 无变化不整表重建 ----
@@ -161,7 +161,7 @@ await page.evaluate((id) => {
   const target = items.find((i) => i.id === id);
   target.sourceBadges = [{ kind: "skill", sourceId: "skill:changed", label: "Changed Skill Source", isOwner: true, available: true }];
   target.tags = [{ id: 999, name: "新增标签", color: null }];
-  target.thumbnail = { path: `/Users/hayley/.cache/thumbnails/item-${id}.png`, status: "ready", width: 800, height: 450 };
+  target.thumbnail = { path: `/Users/example/.cache/thumbnails/item-${id}.png`, status: "ready", width: 800, height: 450 };
 }, MAIN_ID);
 await page.evaluate(() => { window.__nutbookAutoRefresh.trigger(); });
 await page.waitForTimeout(400);

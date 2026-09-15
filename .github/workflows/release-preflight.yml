@@ -1,0 +1,83 @@
+name: Release preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: 1.98.0
+
+concurrency:
+  group: release-preflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-package-inputs:
+    name: Release preflight / Windows package inputs
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.0
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
+
+      - name: Exercise the Windows beforeBuild package inputs
+        run: npm run check:release-preflight:windows
+
+      - name: Assert generated Windows CLI resource
+        shell: bash
+        run: test -s src-tauri/generated-resources/nutbook-cli/nutbook.exe
+
+  macos-release-compile:
+    name: Release preflight / macOS release compile
+    runs-on: macos-14
+    timeout-minutes: 18
+
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.0
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
+
+      - name: Compile macOS release binaries
+        run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins

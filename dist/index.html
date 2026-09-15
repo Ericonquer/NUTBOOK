@@ -4916,6 +4916,10 @@
 
       .markdown-close-confirm-actions .button {
         flex: 0 0 auto;
+        /* The 420px dialog leaves 382px for actions. Keep the English
+           three-button decision on one row with Linux font metrics while
+           preserving the shared gap and narrow-screen wrapping behavior. */
+        padding-inline: 10px;
         white-space: nowrap;
       }
 
@@ -7906,7 +7910,7 @@
 
         <div class="hidden-controls" aria-hidden="true">
           <section class="field-stack">
-            <input id="libraryPath" class="input" value="/Users/hayley/.openclaw/workspace/nutbook" />
+            <input id="libraryPath" class="input" value="/Users/example/Documents/NUTBOOK" />
             <input id="libraryName" class="input" placeholder="显示名称，可留空" />
             <div class="button-row">
               <button id="addLibraryButton" class="button button-primary">接入目录</button>
@@ -8600,7 +8604,7 @@
           {
             id: 1,
             name: "Nutbook Workspace",
-            rootPath: "/Users/hayley/.openclaw/workspace/nutbook",
+            rootPath: "/Users/example/Documents/NUTBOOK",
             isActive: true,
             createdAt: "2026-04-22T00:00:00Z",
             updatedAt: "2026-04-22T00:00:00Z",
@@ -8612,7 +8616,7 @@
           {
             id: 101,
             libraryId: 1,
-            filePath: "/Users/hayley/.openclaw/workspace/nutbook/BACKEND_PLAN.md",
+            filePath: "/Users/example/Documents/NUTBOOK/BACKEND_PLAN.md",
             relativePath: "BACKEND_PLAN.md",
             fileName: "BACKEND_PLAN.md",
             fileExt: "md",
@@ -8627,7 +8631,7 @@
           {
             id: 102,
             libraryId: 1,
-            filePath: "/Users/hayley/.openclaw/workspace/nutbook/code1.html",
+            filePath: "/Users/example/Documents/NUTBOOK/code1.html",
             relativePath: "code1.html",
             fileName: "code1.html",
             fileExt: "html",
@@ -8642,7 +8646,7 @@
           {
             // 无 libraryId 的样例：详情区「所属库」行应整体省略（GUI 验收第二批）。
             id: 103,
-            filePath: "/Users/hayley/Documents/field-notes.md",
+            filePath: "/Users/example/Documents/field-notes.md",
             relativePath: "Documents/field-notes.md",
             fileName: "field-notes.md",
             fileExt: "md",
@@ -8678,9 +8682,9 @@
             fileType: "html",
             itemId: 102,
             title: "Sample HTML",
-            filePath: "/Users/hayley/.openclaw/workspace/nutbook/code1.html",
+            filePath: "/Users/example/Documents/NUTBOOK/code1.html",
             previewUrl: "about:blank",
-            baseDir: "/Users/hayley/.openclaw/workspace/nutbook",
+            baseDir: "/Users/example/Documents/NUTBOOK",
             sandbox: true,
             allowScripts: false,
             allowExternalResources: false,
@@ -22652,7 +22656,7 @@ if (!chipTipController) {
       }
 
       async function addFolderFromMenu() {
-        const fallbackPath = els.libraryPath.value || "/Users/hayley/.openclaw/workspace/nutbook";
+        const fallbackPath = els.libraryPath.value || "/Users/example/Documents/NUTBOOK";
         if (appState.isTauri) {
           try {
             const selected = await invoke("open_folder_dialog");
@@ -22723,7 +22727,7 @@ if (!chipTipController) {
       }
 
       async function addSingleFileFromMenu() {
-        const fallbackPath = els.libraryPath.value || "/Users/hayley/.openclaw/workspace/nutbook";
+        const fallbackPath = els.libraryPath.value || "/Users/example/Documents/NUTBOOK";
         let selected = null;
 
         if (appState.isTauri) {
@@ -22753,7 +22757,7 @@ if (!chipTipController) {
       }
 
       async function addSingleFileFromSettings() {
-        const fallbackPath = els.libraryPath.value || "/Users/hayley/.openclaw/workspace/nutbook";
+        const fallbackPath = els.libraryPath.value || "/Users/example/Documents/NUTBOOK";
         let selected = null;
 
         if (appState.isTauri) {
@@ -22785,7 +22789,7 @@ if (!chipTipController) {
       }
 
       async function addFolderFromSettings() {
-        const fallbackPath = els.libraryPath.value || "/Users/hayley/.openclaw/workspace/nutbook";
+        const fallbackPath = els.libraryPath.value || "/Users/example/Documents/NUTBOOK";
         let selected = null;
 
         if (appState.isTauri) {
@@ -22859,7 +22863,7 @@ if (!chipTipController) {
       }
 
       async function attachSkillSourceManually(skillName, normalizedName, skillRootPath = "") {
-        const fallbackPath = skillRootPath || els.libraryPath.value || "/Users/hayley/.openclaw/workspace/nutbook";
+        const fallbackPath = skillRootPath || els.libraryPath.value || "/Users/example/Documents/NUTBOOK";
         let selected = null;
 
         if (appState.isTauri) {
@@ -24893,7 +24897,7 @@ if (!chipTipController) {
         els.settingsRebuildVisibleThumbsButton.addEventListener("click", rebuildVisibleHtmlThumbnails);
         els.settingsRebuildLibraryThumbsButton.addEventListener("click", rebuildCurrentLibraryHtmlThumbnails);
         els.openCurrentFolderButton.addEventListener("click", () => {
-          els.libraryPath.value = "/Users/hayley/.openclaw/workspace/nutbook";
+          els.libraryPath.value = "/Users/example/Documents/NUTBOOK";
           els.libraryName.value = "Nutbook Workspace";
         });
         document.addEventListener("click", (event) => {

@@ -136,10 +136,14 @@ try {
   assert.equal(compositionEvidence.during, compositionEvidence.before, "plain-text IME composition must not mutate selection/history mid-composition");
   assert.equal(compositionEvidence.after, compositionEvidence.before + 1, "plain-text IME composition must commit once at compositionend");
 
-  const changesBeforeExit = await page.evaluate(() => window.__phase2bMessages.filter((message) => message.type === "html_edit_section_navigation_changed").length);
-  await page.evaluate(() => {
+  // Capture the baseline and detach the adapter in one task. A smooth scroll
+  // can otherwise emit between separate Playwright evaluations, which tests
+  // scheduling rather than exit cleanup on Linux.
+  const changesBeforeExit = await page.evaluate(() => {
+    const changes = window.__phase2bMessages.filter((message) => message.type === "html_edit_section_navigation_changed").length;
     window.__NUTBOOK_HTML_EDIT__.exit({ runtimeSessionId: "phase2b-session", discard: true });
     window.scrollTo({ top: 0, behavior: "auto" });
+    return changes;
   });
   await page.waitForTimeout(80);
   assert.equal(await page.evaluate(() => window.__NUTBOOK_HTML_EDIT__.sectionNavigationSnapshot()), null);

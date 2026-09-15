@@ -43,9 +43,13 @@ jobs:
             checksum="${asset}.sha256"
             checksum_entry="$(jq -cer --arg name "$checksum" '[.assets[] | select(.name == $name)] | if length == 1 then .[0] else error("missing or duplicate checksum") end' <<<"$release")"
             test "$(jq -r .size <<<"$checksum_entry")" -gt 0
-            mkdir -p checksums
-            gh release download "$TAG" --pattern "$checksum" --dir checksums --clobber
-            grep -Eq '^[0-9a-f]{64}$' "checksums/$checksum"
+            mkdir -p downloaded
+            gh release download "$TAG" --pattern "$asset" --dir downloaded --clobber
+            gh release download "$TAG" --pattern "$checksum" --dir downloaded --clobber
+            expected_checksum="$(tr -d '[:space:]' < "downloaded/$checksum")"
+            actual_checksum="$(shasum -a 256 "downloaded/$asset" | awk '{print tolower($1)}')"
+            grep -Eq '^[0-9a-f]{64}$' <<<"$expected_checksum"
+            test "$expected_checksum" = "$actual_checksum"
           done
           test "$(jq '.assets | length' <<<"$release")" -eq 6
 

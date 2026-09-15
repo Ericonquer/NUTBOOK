@@ -108,11 +108,11 @@ mod tests {
 
     #[test]
     fn select_library_returns_existing_record_for_same_path() {
-        let existing = vec![sample_library(1, "/Users/hayley/Documents/Notes")];
+        let existing = vec![sample_library(1, "/Users/example/Documents/Notes")];
 
         let result = select_or_create_library(
             &existing,
-            "/Users/hayley/Documents/./Notes",
+            "/Users/example/Documents/./Notes",
             Some("Ignored"),
             "folder",
             2,
@@ -121,16 +121,16 @@ mod tests {
         .expect("same path should reuse the existing library");
 
         assert_eq!(result.id, 1);
-        assert_eq!(result.root_path, "/Users/hayley/Documents/Notes");
+        assert_eq!(result.root_path, "/Users/example/Documents/Notes");
     }
 
     #[test]
     fn select_library_rejects_parent_child_overlap() {
-        let existing = vec![sample_library(1, "/Users/hayley/Documents/Notes")];
+        let existing = vec![sample_library(1, "/Users/example/Documents/Notes")];
 
         let result = select_or_create_library(
             &existing,
-            "/Users/hayley/Documents/Notes/Sub",
+            "/Users/example/Documents/Notes/Sub",
             None,
             "folder",
             2,
@@ -142,11 +142,11 @@ mod tests {
 
     #[test]
     fn select_library_creates_new_record_for_distinct_path() {
-        let existing = vec![sample_library(1, "/Users/hayley/Documents/Notes")];
+        let existing = vec![sample_library(1, "/Users/example/Documents/Notes")];
 
         let result = select_or_create_library(
             &existing,
-            "/Users/hayley/Documents/Clips",
+            "/Users/example/Documents/Clips",
             None,
             "folder",
             2,
@@ -156,18 +156,18 @@ mod tests {
 
         assert_eq!(result.id, 2);
         assert_eq!(result.name, "Clips");
-        assert_eq!(result.root_path, "/Users/hayley/Documents/Clips");
+        assert_eq!(result.root_path, "/Users/example/Documents/Clips");
         assert_eq!(result.source_kind, "folder");
         assert_eq!(result.created_at, "2026-04-22T09:00:00Z");
     }
 
     #[test]
     fn select_library_creates_file_source() {
-        let existing = vec![sample_library(1, "/Users/hayley/Documents/Notes")];
+        let existing = vec![sample_library(1, "/Users/example/Documents/Notes")];
 
         let result = select_or_create_library(
             &existing,
-            "/Users/hayley/Documents/pitch.html",
+            "/Users/example/Documents/pitch.html",
             None,
             "file",
             2,
@@ -177,16 +177,16 @@ mod tests {
 
         assert_eq!(result.name, "pitch.html");
         assert_eq!(result.source_kind, "file");
-        assert_eq!(result.root_path, "/Users/hayley/Documents/pitch.html");
+        assert_eq!(result.root_path, "/Users/example/Documents/pitch.html");
     }
 
     #[test]
     fn select_library_allows_agent_project_to_overlap_folder_source() {
-        let existing = vec![sample_library(1, "/Users/hayley/Documents/Notes")];
+        let existing = vec![sample_library(1, "/Users/example/Documents/Notes")];
 
         let result = select_or_create_library(
             &existing,
-            "/Users/hayley/Documents/Notes",
+            "/Users/example/Documents/Notes",
             Some("Notes Agent Project"),
             "agent_project",
             2,
@@ -200,12 +200,12 @@ mod tests {
 
     #[test]
     fn select_library_keeps_folder_overlap_protection_when_agent_source_exists() {
-        let mut agent = sample_library(1, "/Users/hayley/Documents/Notes");
+        let mut agent = sample_library(1, "/Users/example/Documents/Notes");
         agent.source_kind = "agent_project".to_string();
 
         let result = select_or_create_library(
             &[agent],
-            "/Users/hayley/Documents/Notes/Sub",
+            "/Users/example/Documents/Notes/Sub",
             None,
             "folder",
             2,
@@ -218,15 +218,15 @@ mod tests {
 
     #[test]
     fn validate_library_root_reports_overlap() {
-        let existing = vec!["/Users/hayley/Documents/Notes".to_string()];
+        let existing = vec!["/Users/example/Documents/Notes".to_string()];
 
         assert!(validate_library_root(
             &existing,
-            "/Users/hayley/Documents/Notes/Sub"
+            "/Users/example/Documents/Notes/Sub"
         ));
         assert!(!validate_library_root(
             &existing,
-            "/Users/hayley/Documents/Clips"
+            "/Users/example/Documents/Clips"
         ));
     }
 }

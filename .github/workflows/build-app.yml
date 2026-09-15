@@ -4,122 +4,148 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to build into a verified draft Release (for example v0.9.1)
+        description: Existing, immutable version tag to build into a draft Release (for example v1.0.1)
         required: true
         type: string
-  push:
-    tags:
-      - "v*"
 
 permissions:
-  contents: write
-  checks: read
+  contents: read
+  actions: read
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASE_TAG: ${{ inputs.tag }}
+  TAURI_CLI_VERSION: 2.11.2
+  RUST_VERSION: 1.98.0
 
 jobs:
   prepare-release:
-    name: Prepare draft Release
+    name: Verify immutable release candidate
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
 
-      - name: Require successful CI checks for tagged commit
+      - name: Require the exact successful release preflight
+        id: gate
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
-          test "${tag#v}" != "$tag"
+          grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' <<<"$tag"
           git rev-parse -q --verify "refs/tags/$tag" >/dev/null
           commit="$(git rev-list -n 1 "$tag")"
-          checks="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-runs?per_page=100")"
-          for required_check in "Quality and runtime tests" "Windows compile check"; do
-            check="$(jq -cer --arg name "$required_check" '
-              [.[].check_runs[]? | select(.name == $name)]
-              | if length == 0 then error("missing required CI check: \($name)")
-                else max_by(.completed_at // .started_at // .created_at // "")
-                end
-            ' <<<"$checks")"
-            status="$(jq -r .status <<<"$check")"
-            conclusion="$(jq -r .conclusion <<<"$check")"
-            if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
-              printf 'Required CI check "%s" for %s is %s/%s; draft Release will not be created.\n' \
-                "$required_check" "$commit" "$status" "$conclusion" >&2
+          test "$(git rev-parse HEAD)" = "$commit"
+
+          runs="$(gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release-preflight.yml/runs?event=workflow_dispatch&status=completed&per_page=100")"
+          run="$(jq -cer --arg commit "$commit" '
+            [.[].workflow_runs[]?
+             | select(.event == "workflow_dispatch" and .head_sha == $commit and .conclusion == "success")]
+            | if length == 0 then error("no successful Release preflight exists for the tagged commit")
+              else max_by(.created_at)
+              end
+          ' <<<"$runs")"
+          run_id="$(jq -r .id <<<"$run")"
+          jobs="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          for required_job in \
+            "Release preflight / Windows package inputs" \
+            "Release preflight / macOS release compile"; do
+            jq -e --arg name "$required_job" '
+              [.[].jobs[]? | select(.name == $name and .status == "completed" and .conclusion == "success")]
+              | length == 1
+            ' <<<"$jobs" >/dev/null || {
+              printf 'Release preflight run %s did not successfully complete required job: %s\n' "$run_id" "$required_job" >&2
               exit 1
-            fi
+            }
           done
+          printf 'commit=%s\npreflight_run=%s\n' "$commit" "$run_id" >> "$GITHUB_OUTPUT"
 
       - name: Confirm tag and package versions agree
         id: release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.gate.outputs.commit }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
-          test "${tag#v}" != "$tag"
-          git rev-parse -q --verify "refs/tags/$tag" >/dev/null
           tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          cargo_version="$(awk -F'"' '/^version = / { print $2; exit }' src-tauri/Cargo.toml)"
+          cargo_version="$(awk -F'\"' '/^version = / { print $2; exit }' src-tauri/Cargo.toml)"
           test "${tag#v}" = "$tauri_version"
           test "$tauri_version" = "$cargo_version"
-          if gh release view "$tag" --json isDraft --jq .isDraft >/tmp/is-draft; then
-            test "$(cat /tmp/is-draft)" = "true"
+          if gh release view "$tag" --json isDraft,assets >/tmp/release.json; then
+            test "$(jq -r .isDraft /tmp/release.json)" = "true"
+            test "$(jq '.assets | length' /tmp/release.json)" -eq 0 || {
+              printf '%s\n' "Refusing to mix a new build with assets already attached to this draft Release." >&2
+              exit 1
+            }
           else
             gh release create "$tag" --draft --title "$tag" --generate-notes
           fi
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\ncommit=%s\n' "$tag" "$COMMIT" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.label }}
     needs: prepare-release
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      TAURI_CLI_ROOT: ${{ runner.temp }}/nutbook-tauri-cli
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: macOS Intel
+            artifact-name: verified-macos-intel
             asset-suffix: _x64.dmg
             source-glob: src-tauri/target/release/bundle/dmg/*.dmg
             expected-architecture: x86_64
             runner: macos-15-intel
             args: --bundles dmg
           - label: macOS Apple Silicon
+            artifact-name: verified-macos-arm
             asset-suffix: _aarch64.dmg
             source-glob: src-tauri/target/release/bundle/dmg/*.dmg
             expected-architecture: arm64
             runner: macos-14
             args: --bundles dmg
           - label: Windows
+            artifact-name: verified-windows
             asset-suffix: _x64-setup.exe
             source-glob: src-tauri/target/release/bundle/nsis/*.exe
             runner: windows-latest
             args: --bundles nsis
 
     steps:
-      - name: Checkout release tag
+      - name: Checkout immutable release tag
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
+
+      - name: Assert checked-out commit is preflighted commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ needs.prepare-release.outputs.commit }}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -128,13 +154,49 @@ jobs:
           cache: npm
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.0
+
+      - name: Restore Rust build cache shared with release preflight
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            release-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
+
+      - name: Restore pinned Tauri CLI cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TAURI_CLI_ROOT }}
+          key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.TAURI_CLI_VERSION }}
+
+      - name: Remove cached release outputs before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/target/release/bundle src-tauri/generated-resources/nutbook-cli release
+          test ! -e src-tauri/target/release/bundle
+          test ! -e src-tauri/generated-resources/nutbook-cli
 
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --locked
+      - name: Install exact Tauri CLI when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$TAURI_CLI_ROOT/bin/cargo-tauri"
+          if [ ! -x "$cli" ]; then
+            cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked --root "$TAURI_CLI_ROOT"
+          fi
+          "$cli" --version | grep -F "tauri-cli $TAURI_CLI_VERSION"
+          printf '%s/bin\n' "$TAURI_CLI_ROOT" >> "$GITHUB_PATH"
 
       - name: Build package without publishing it
         run: cargo tauri build ${{ matrix.args }}
@@ -162,6 +224,7 @@ jobs:
           file "$binary_path" | grep -q '${{ matrix.expected-architecture }}'
 
       - name: Stage installer and checksum
+        id: stage
         shell: bash
         run: |
           set -euo pipefail
@@ -175,31 +238,38 @@ jobs:
           test -s "$asset"
           shasum -a 256 "$asset" | awk '{print tolower($1)}' > "$asset.sha256"
           grep -Eq '^[0-9a-f]{64}$' "$asset.sha256"
-          printf 'asset_name=%s\n' "$asset_name" >> "$GITHUB_OUTPUT"
-        id: stage
 
-      - name: Upload verified assets to draft Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release upload "${{ needs.prepare-release.outputs.tag }}" "release/${{ steps.stage.outputs.asset_name }}" "release/${{ steps.stage.outputs.asset_name }}.sha256" --clobber
-
-      - name: Keep CI copy
+      - name: Upload verified package for the single release uploader
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.label }}-verified-package
+          name: ${{ matrix.artifact-name }}
           path: release/
           if-no-files-found: error
           compression-level: 0
+          retention-days: 1
+
+      # actions/cache saves at job teardown.  Never allow it to save installers
+      # or a generated platform CLI that could belong to a different tag.
+      - name: Remove release outputs before cache save
+        if: always()
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle src-tauri/generated-resources/nutbook-cli release
 
   finalize-release:
-    name: Verify draft Release inventory
+    name: Verify and upload draft Release
     needs: [prepare-release, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Assert complete draft inventory
+      - name: Download all verified packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: verified-*
+          merge-multiple: true
+          path: release
+
+      - name: Verify exact package bytes and upload once
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -212,17 +282,28 @@ jobs:
             "NUTBOOK_${version}_aarch64.dmg"
             "NUTBOOK_${version}_x64-setup.exe"
           )
-          release="$(gh release view "$TAG" --json isDraft,isPrerelease,assets)"
-          test "$(jq -r .isDraft <<<"$release")" = "true"
-          test "$(jq -r .isPrerelease <<<"$release")" = "false"
           for asset in "${expected[@]}"; do
-            entry="$(jq -cer --arg name "$asset" '[.assets[] | select(.name == $name)] | if length == 1 then .[0] else error("missing or duplicate asset") end' <<<"$release")"
-            test "$(jq -r .size <<<"$entry")" -gt 0
-            checksum="${asset}.sha256"
-            checksum_entry="$(jq -cer --arg name "$checksum" '[.assets[] | select(.name == $name)] | if length == 1 then .[0] else error("missing or duplicate checksum") end' <<<"$release")"
-            test "$(jq -r .size <<<"$checksum_entry")" -gt 0
-            mkdir -p checksums
-            gh release download "$TAG" --pattern "$checksum" --dir checksums --clobber
-            grep -Eq '^[0-9a-f]{64}$' "checksums/$checksum"
+            test -s "release/$asset"
+            test -s "release/$asset.sha256"
+            expected_checksum="$(tr -d '[:space:]' < "release/$asset.sha256")"
+            actual_checksum="$(shasum -a 256 "release/$asset" | awk '{print tolower($1)}')"
+            test "$expected_checksum" = "$actual_checksum"
           done
-          test "$(jq '.assets | length' <<<"$release")" -eq 6
+          test "$(find release -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq 6
+          gh release upload "$TAG" release/* --clobber
+
+      - name: Re-download published draft assets and verify bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir downloaded
+          gh release download "$TAG" --dir downloaded --clobber
+          for checksum_file in release/*.sha256; do
+            asset_name="$(basename "${checksum_file%.sha256}")"
+            expected_checksum="$(tr -d '[:space:]' < "$checksum_file")"
+            actual_checksum="$(shasum -a 256 "downloaded/$asset_name" | awk '{print tolower($1)}')"
+            test "$expected_checksum" = "$actual_checksum"
+          done
