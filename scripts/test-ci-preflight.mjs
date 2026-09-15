@@ -10,7 +10,7 @@ const packageLock = JSON.parse(read("package-lock.json"));
 const preflight = read("scripts/check-ci.mjs");
 const ciWorkflow = read(".github/workflows/ci.yml");
 const releasePreflight = read(".github/workflows/release-preflight.yml");
-const releaseWorkflow = read(".github/workflows/build-app.yml");
+const releaseWorkflow = read(".github/workflows/release-build.yml");
 const publishWorkflow = read(".github/workflows/publish-release.yml");
 const prePushHook = read(".githooks/pre-push");
 
