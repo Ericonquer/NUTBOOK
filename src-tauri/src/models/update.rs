@@ -11,6 +11,8 @@ pub struct UpdateSettings {
     pub last_known_latest_version: Option<String>,
     #[serde(default)]
     pub last_known_release_url: Option<String>,
+    #[serde(default)]
+    pub last_known_release_notes: Option<String>,
 }
 
 impl Default for UpdateSettings {
@@ -20,6 +22,7 @@ impl Default for UpdateSettings {
             last_checked_at: None,
             last_known_latest_version: None,
             last_known_release_url: None,
+            last_known_release_notes: None,
         }
     }
 }
@@ -49,6 +52,7 @@ pub struct UpdateCheckResponse {
     pub current_version: String,
     pub latest_version: Option<String>,
     pub release_url: Option<String>,
+    pub release_notes: Option<String>,
     pub has_update: bool,
     pub checked_at: Option<String>,
     pub status: String,
@@ -86,6 +90,8 @@ pub struct UpdateDownloadProgress {
 pub struct GitHubRelease {
     pub tag_name: String,
     pub html_url: String,
+    #[serde(default)]
+    pub body: String,
     #[serde(default)]
     pub draft: bool,
     #[serde(default)]

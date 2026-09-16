@@ -99,6 +99,14 @@ function assignmentSource(globalName) {
   throw new Error(`未闭合的全局赋值: ${globalName}`);
 }
 
+// 文件夹接入是另一条入口：确认提交后必须刷新来源与当前文件管理列表。
+const folderIngestSource = functionSource("ingestFolderWithConfirmation", { isAsync: true });
+assert.match(
+  folderIngestSource,
+  /await loadLibraries\(\);\s*await loadItems\(\);\s*await ensureWatcher\(\);/,
+  "a confirmed folder ingest must refresh sources and the file-management list before installing its watcher"
+);
+
 const DETAIL = { id: 7, fileName: "a.html", fileType: "html" };const SESSION_PAYLOAD = { title: "a.html", runtimeUrl: "http://127.0.0.1:9/x", label: "html-runtime-7", detached: false };
 const happyInvoke = (cmd) => {
   if (cmd === "get_item_detail") return DETAIL;
@@ -199,6 +207,7 @@ function makeContext({ invokeImpl, captureImpl }) {
     t: (key) => key,
     normalizeError: (error) => String(error),
     loadItems: async () => { records.loads += 1; },
+    loadLibraries: async () => { records.libraryLoads = (records.libraryLoads || 0) + 1; },
     renderTabs: () => {},
     renderViewer: () => {},
     scheduleRuntimeHostSync: () => { records.hostSyncs += 1; },
@@ -693,6 +702,24 @@ function findVisibleRetryEntry(appState, context) {
   const markdown = makeExternalTab("external:m1");
   markdown.preview = { fileType: "markdown" };
   assert.equal(context.externalTabHasJoinEntry(markdown), true, "临时 Markdown 标签：有加号");
+}
+
+// ---------------------------------------------------------------- 加入后的资料库刷新
+// 新建 single-file source 成功后，当前临时标签不能阻止文件管理与来源列表同步。
+{
+  const { context, appState, records } = makeContext({
+    invokeImpl: (command) => {
+      if (command === "external_session_join") return { status: "bound", itemId: 7 };
+      return happyInvoke(command);
+    },
+    captureImpl: async () => VIEW_STATE
+  });
+  const tab = makeExternalTab("external:s1");
+  appState.tabs.push(tab);
+  appState.activeTabId = tab.id;
+  await context.joinExternalSession(tab);
+  assert.equal(records.libraryLoads, 1, "joining one external file must refresh library sources immediately");
+  assert.equal(records.loads, 1, "joining one external file must refresh the current file-management result immediately");
 }
 
 // ---------------------------------------------------------------- P2-R3a
