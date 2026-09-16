@@ -120,14 +120,14 @@ jobs:
             source-glob: src-tauri/target/release/bundle/dmg/*.dmg
             expected-architecture: x86_64
             runner: macos-15-intel
-            args: --bundles dmg
+            args: --bundles app
           - label: macOS Apple Silicon
             artifact-name: verified-macos-arm
             asset-suffix: _aarch64.dmg
             source-glob: src-tauri/target/release/bundle/dmg/*.dmg
             expected-architecture: arm64
             runner: macos-14
-            args: --bundles dmg
+            args: --bundles app
           - label: Windows
             artifact-name: verified-windows
             asset-suffix: _x64-setup.exe
@@ -200,6 +200,21 @@ jobs:
 
       - name: Build package without publishing it
         run: cargo tauri build ${{ matrix.args }}
+
+      - name: Build macOS DMG with deterministic large-icon layout
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user --disable-pip-version-check 'dmgbuild==1.6.5'
+          export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          app="$PWD/src-tauri/target/release/bundle/macos/NUTBOOK.app"
+          output="src-tauri/target/release/bundle/dmg/NUTBOOK_${RELEASE_TAG#v}${{ matrix.asset-suffix }}"
+          test -d "$app"
+          rm -rf src-tauri/target/release/bundle/dmg
+          mkdir -p src-tauri/target/release/bundle/dmg
+          dmgbuild -s scripts/dmgbuild-settings.py -D app="$app" NUTBOOK "$output"
+          test -s "$output"
 
       - name: Verify macOS package
         if: runner.os == 'macOS'

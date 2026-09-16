@@ -66,7 +66,8 @@ assert.match(INDEX_HTML, /splitRatio: loadInspectorSplitRatioPreference\(\)/, "t
 assert.match(INDEX_HTML, /homeLayout = previousLayout === "grid" \? "inspector" : "grid"/, "the view toggle must cycle grid ↔ inspector");
 assert.match(I18N, /inspectorView:\s*"已切换为检查视图"/, "zh status must name the inspector view");
 assert.match(I18N, /inspectorView:\s*"Switched to inspector view"/, "en status must name the inspector view");
-assert.match(INDEX_HTML, /icon\.textContent = inspectorActive \? "grid_view" : "view_agenda"/, "the toggle icon must reflect grid ↔ inspector");
+assert.match(INDEX_HTML, /class="view-mode-icon material-symbols-outlined"[^>]*>grid_view/, "the grid toggle must use the app's local Material Symbols font");
+assert.match(INDEX_HTML, /icon\.textContent = inspectorActive \? "grid_view" : "view_column_2"/, "the inspector toggle must switch between the matching Material Symbols icons");
 
 // ── 2. Task 0a：只读挂载 + 三时点 revision 复核链 ─────────────────────────
 const loadSrc = extractFunctionSource(INDEX_HTML, "async function loadInspectorPreview(item) {");

@@ -48,6 +48,7 @@ pub async fn check_for_updates(
             current_version,
             latest_version: settings.last_known_latest_version,
             release_url: settings.last_known_release_url,
+            release_notes: settings.last_known_release_notes,
             has_update: false,
             checked_at: settings.last_checked_at,
             status: "disabled".to_string(),
@@ -67,6 +68,7 @@ pub async fn check_for_updates(
         Ok(release) => {
             next_settings.last_known_latest_version = Some(release.tag_name.clone());
             next_settings.last_known_release_url = Some(release.html_url.clone());
+            next_settings.last_known_release_notes = Some(release.body.clone());
             state.save_update_settings(&next_settings)?;
             Ok(build_update_response(
                 &current_version,
@@ -81,6 +83,7 @@ pub async fn check_for_updates(
                 current_version,
                 latest_version: next_settings.last_known_latest_version,
                 release_url: next_settings.last_known_release_url,
+                release_notes: next_settings.last_known_release_notes,
                 has_update: false,
                 checked_at,
                 status: "error".to_string(),

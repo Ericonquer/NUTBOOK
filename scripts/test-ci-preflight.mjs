@@ -86,6 +86,10 @@ assert.doesNotMatch(releaseWorkflow, /^ {4}env:\n {6}TAURI_CLI_ROOT: \$\{\{ runn
 assert.match(releaseWorkflow, /Restore pinned Tauri CLI cache[\s\S]*path: \$\{\{ runner\.temp \}\}\/nutbook-tauri-cli/, "the Tauri CLI cache path must use runner context at step scope");
 assert.match(releaseWorkflow, /Install exact Tauri CLI when absent\n\s+shell: bash\n\s+env:\n\s+TAURI_CLI_ROOT: \$\{\{ runner\.temp \}\}\/nutbook-tauri-cli/, "the Tauri CLI installer must receive its runner path at step scope");
 assert.match(releaseWorkflow, /Remove cached release outputs before packaging/, "release must remove stale cached installers before build");
+assert.match(releaseWorkflow, /args: --bundles app/, "macOS builders must produce the app before creating the deterministic DMG layout");
+assert.match(releaseWorkflow, /Build macOS DMG with deterministic large-icon layout/, "macOS builders must have a headless DMG-layout step");
+assert.match(releaseWorkflow, /dmgbuild==1\.6\.5/, "the headless DMG builder must be version-pinned");
+assert.match(releaseWorkflow, /dmgbuild -s scripts\/dmgbuild-settings\.py/, "the release workflow must use the committed large-icon layout settings");
 assert.match(releaseWorkflow, /Remove release outputs before cache save/, "release must never cache installers or generated CLI resources");
 assert.match(releaseWorkflow, /permissions:\s*\n\s*contents: read/, "build matrix jobs must not receive release-write permission");
 assert.match(releaseWorkflow, /Upload verified package for the single release uploader/, "builders must hand off packages through short-lived artifacts");
