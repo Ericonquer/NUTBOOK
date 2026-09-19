@@ -13592,10 +13592,8 @@
         switch (appState.sortMode) {
           case "fileNameAsc":
             return { sortBy: "fileName", sortOrder: "asc", clientKey: null, label: "按文件名" };
-          case "lastOpenedDesc":
-            return { sortBy: "lastOpenedAt", sortOrder: "desc", clientKey: null, label: "按打开时间" };
-          case "tagsAsc":
-            return { sortBy: "modifiedAt", sortOrder: "desc", clientKey: "tags", label: "按标签" };
+          case "sourceAsc":
+            return { sortBy: "modifiedAt", sortOrder: "desc", clientKey: "source", label: "按来源" };
           case "modifiedAtDesc":
           default:
             return { sortBy: "modifiedAt", sortOrder: "desc", clientKey: null, label: "按修改时间" };
@@ -13966,14 +13964,12 @@
 
       function sortItemsInPlace(items) {
         const config = currentSortConfig();
-        if (config.clientKey !== "tags") return items;
+        if (config.clientKey !== "source") return items;
         return [...items].sort((left, right) => {
-          const leftKey = (left.tags?.[0]?.name || "").toLowerCase();
-          const rightKey = (right.tags?.[0]?.name || "").toLowerCase();
-          if (!leftKey && !rightKey) return 0;
-          if (!leftKey) return 1;
-          if (!rightKey) return -1;
-          return leftKey.localeCompare(rightKey, "zh-CN");
+          const leftKey = inspectorSourceLabel(left).toLowerCase();
+          const rightKey = inspectorSourceLabel(right).toLowerCase();
+          const compared = leftKey.localeCompare(rightKey, appState.language === "en-US" ? "en" : "zh-CN");
+          return compared || left.id - right.id;
         });
       }
 
@@ -15579,8 +15575,7 @@
         const options = [
           { value: "modifiedAtDesc", label: "按修改时间" },
           { value: "fileNameAsc", label: "按文件名" },
-          { value: "lastOpenedDesc", label: "按打开时间" },
-          { value: "tagsAsc", label: "按标签" }
+          { value: "sourceAsc", label: "按来源" }
         ];
         els.sortMenu.innerHTML = options.map((option) => `
           <button class="popover-option ${appState.sortMode === option.value ? "active" : ""}" type="button" data-sort-mode="${option.value}">${option.label}</button>
@@ -15589,6 +15584,7 @@
         els.sortMenu.querySelectorAll("[data-sort-mode]").forEach((node) => {
           node.addEventListener("click", async () => {
             appState.sortMode = node.dataset.sortMode;
+            syncInspectorSortFromGlobalMode();
             appState.isSortMenuOpen = false;
             renderSortMenu();
             await loadItems();
@@ -23203,6 +23199,7 @@ if (!chipTipController) {
         saveHomeLayoutPreference();
         applyHomeLayout();
         if (appState.homeLayout === "inspector") {
+          syncInspectorSortFromGlobalMode();
           setStatus(t("status.inspectorView"), "ok");
           // 渲染列表头/行；revalidateInspectorSelection 会自动选中第一条可见结果
           // （无选择或选择因筛选消失时同规则）。
@@ -23281,6 +23278,26 @@ if (!chipTipController) {
       function inspectorModifiedTimeValue(item) {
         const [secs, nanos = "0"] = String(item?.modifiedAt || "0").split(".");
         return Number(`${Number(secs) || 0}.${nanos}`);
+      }
+
+      // 右上排序是首页列表的权威选择；检视视图只将它投影到可见的对应列，
+      // 避免 `appState.items` 已重排后又被旧的 inspector 状态覆盖。
+      function syncInspectorSortFromGlobalMode() {
+        switch (appState.sortMode) {
+          case "fileNameAsc":
+            appState.inspector.sortKey = "fileName";
+            appState.inspector.sortDir = "asc";
+            break;
+          case "sourceAsc":
+            appState.inspector.sortKey = "source";
+            appState.inspector.sortDir = "asc";
+            break;
+          case "modifiedAtDesc":
+          default:
+            appState.inspector.sortKey = "modifiedAt";
+            appState.inspector.sortDir = "desc";
+            break;
+        }
       }
 
       function inspectorSortedItems() {
@@ -23762,6 +23779,9 @@ if (!chipTipController) {
             baseDir: String(snapshot.baseDir ?? ""),
             filePath: String(snapshot.filePath ?? snapshot.file_path ?? item.filePath ?? ""),
             fileName: String(snapshot.fileName ?? snapshot.file_name ?? item.fileName ?? ""),
+            resourceOrigin: String(snapshot.resourceOrigin ?? snapshot.resource_origin ?? ""),
+            resourceRoot: String(snapshot.resourceRoot ?? snapshot.resource_root ?? ""),
+            resourceBaseDir: String(snapshot.resourceBaseDir ?? snapshot.resource_base_dir ?? ""),
             title: snapshot.title ?? null,
             sourceModifiedAt: item.modifiedAt || "",
             sourcePathState: item.pathState || "valid"
@@ -23819,7 +23839,12 @@ if (!chipTipController) {
         if (!isInspectorSelectionCurrent(item.id, token) || !root?.isConnected) return null;
         const tabLike = {
           item: { filePath: snapshot.filePath, fileName: snapshot.fileName },
-          preview: { baseDir: snapshot.baseDir }
+          preview: {
+            baseDir: snapshot.baseDir,
+            resourceOrigin: snapshot.resourceOrigin,
+            resourceRoot: snapshot.resourceRoot,
+            resourceBaseDir: snapshot.resourceBaseDir
+          }
         };
         const editor = await api.create({
           root,

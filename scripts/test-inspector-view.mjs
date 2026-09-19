@@ -112,7 +112,22 @@ assert.match(MAIN_RUST, /commands::preview::get_item_content_revision,/, "the re
 assert.match(DOCUMENT_RUST, /pub fn load_markdown_inspector_snapshot/, "the core snapshot loader must exist");
 assert.match(DOCUMENT_RUST, /revision: content_hash\(&raw\)/, "snapshot revision must be the content hash");
 assert.match(MODELS_RUST, /pub struct MarkdownInspectorSnapshot/, "the snapshot model must exist");
+assert.match(MODELS_RUST, /pub resource_origin: String,[\s\S]*?pub resource_root: String,[\s\S]*?pub resource_base_dir: String/, "inspector snapshots must carry the complete scoped Markdown resource context");
 assert.match(PREVIEW_RUST, /if item\.summary\.file_type != "markdown" \{\s*return Err\(AppError::UnsupportedFileType\);/, "html files must be rejected by the markdown snapshot loader");
+assert.match(PREVIEW_RUST, /let markdown_resource = markdown_resource_context_for_item\(&state, &item\)\?;\s*load_markdown_inspector_snapshot\(&item, markdown_resource\)/, "the inspector endpoint must construct the same scoped resource context as the full preview");
+assert.match(mountSrc, /resourceOrigin: snapshot\.resourceOrigin,[\s\S]*?resourceRoot: snapshot\.resourceRoot,[\s\S]*?resourceBaseDir: snapshot\.resourceBaseDir/, "the read-only inspector must pass scoped resource context into its image resolver");
+
+// 右上排序只能使用检视左栏实际可表达的三项；全局排序变更必须同步到
+// 检视列排序，避免重新读取 items 后被旧的 inspector 顺序二次覆盖。
+const globalSortSrc = extractFunctionSource(INDEX_HTML, "function currentSortConfig() {");
+assert.match(globalSortSrc, /case "sourceAsc":\s*return \{ sortBy: "modifiedAt", sortOrder: "desc", clientKey: "source", label: "按来源" \}/, "source must replace last-opened as a global sort option");
+assert.doesNotMatch(globalSortSrc, /lastOpenedDesc|tagsAsc/, "last-opened and tag sorting must not remain as hidden global sort modes");
+const globalSortMenuSrc = extractFunctionSource(INDEX_HTML, "function renderSortMenu() {");
+assert.match(globalSortMenuSrc, /value: "sourceAsc", label: "按来源"/, "the menu must expose source sorting");
+assert.doesNotMatch(globalSortMenuSrc, /按打开时间|按标签/, "the menu must reserve tags for filtering rather than sorting");
+assert.match(globalSortMenuSrc, /syncInspectorSortFromGlobalMode\(\);[\s\S]*?await loadItems\(\)/, "selecting a global sort must synchronize the inspector before reload");
+const inspectorGlobalSortSrc = extractFunctionSource(INDEX_HTML, "function syncInspectorSortFromGlobalMode() {");
+assert.match(inspectorGlobalSortSrc, /case "fileNameAsc":[\s\S]*?sortKey = "fileName"[\s\S]*?case "sourceAsc":[\s\S]*?sortKey = "source"[\s\S]*?sortKey = "modifiedAt"/, "global filename, source and modified-time sorts must map to inspector columns");
 
 // ── 3. Task 0b/2：生命周期清理与选择竞态 ─────────────────────────────────
 const applyLayoutSrc = extractFunctionSource(INDEX_HTML, "function applyHomeLayout() {");
