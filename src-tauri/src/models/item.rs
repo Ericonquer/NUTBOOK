@@ -206,6 +206,14 @@ pub struct MarkdownInspectorSnapshot {
     pub base_dir: String,
     pub file_path: String,
     pub file_name: String,
+    /// 与正式 Markdown 预览相同的 item-scoped 资源上下文。检查视图的只读
+    /// Milkdown 也必须使用它解析相对图片，不能回退到全局文件 URL。
+    #[serde(default)]
+    pub resource_origin: String,
+    #[serde(default)]
+    pub resource_root: String,
+    #[serde(default)]
+    pub resource_base_dir: String,
 }
 
 /// 文件当前内容 revision（sha256）。检查视图在 ready / 显示前各复核一次，

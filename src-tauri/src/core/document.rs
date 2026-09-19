@@ -988,7 +988,10 @@ pub fn load_document_payload(
 /// 检查视图 Markdown snapshot：读取当前 raw 并计算 revision key（sha256）。
 /// 与 `load_document_payload` 同一文件读取边界，但不生成第二份 HTML 投影；
 /// HTML 等其他类型明确不支持——检查视图只消费已收敛的卡片截图状态。
-pub fn load_markdown_inspector_snapshot(item: &ItemDetail) -> Result<MarkdownInspectorSnapshot, AppError> {
+pub fn load_markdown_inspector_snapshot(
+    item: &ItemDetail,
+    markdown_resource: MarkdownResourceContext,
+) -> Result<MarkdownInspectorSnapshot, AppError> {
     if item.summary.file_type != "markdown" {
         return Err(AppError::UnsupportedFileType);
     }
@@ -1008,6 +1011,9 @@ pub fn load_markdown_inspector_snapshot(item: &ItemDetail) -> Result<MarkdownIns
         base_dir,
         file_path: item.summary.file_path.clone(),
         file_name: item.summary.file_name.clone(),
+        resource_origin: markdown_resource.origin,
+        resource_root: markdown_resource.root,
+        resource_base_dir: markdown_resource.base_dir,
     })
 }
 
@@ -1354,8 +1360,16 @@ mod tests {
             None,
         );
 
-        let snapshot =
-            super::load_markdown_inspector_snapshot(&detail).expect("inspector snapshot");
+        let resource = MarkdownResourceContext {
+            origin: "http://127.0.0.1:43199".to_string(),
+            root: "/canonical/library".to_string(),
+            base_dir: path
+                .parent()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        };
+        let snapshot = super::load_markdown_inspector_snapshot(&detail, resource.clone())
+            .expect("inspector snapshot");
         assert_eq!(snapshot.file_type, "markdown");
         assert_eq!(snapshot.raw, "# Inspector\n\nbody");
         assert_eq!(snapshot.revision, content_hash("# Inspector\n\nbody"));
@@ -1364,6 +1378,9 @@ mod tests {
             snapshot.base_dir,
             path.parent().map(|value| value.to_string_lossy().to_string()).unwrap_or_default()
         );
+        assert_eq!(snapshot.resource_origin, resource.origin);
+        assert_eq!(snapshot.resource_root, resource.root);
+        assert_eq!(snapshot.resource_base_dir, resource.base_dir);
 
         // revision 复核入口必须与 snapshot 同源：同一内容得到同一 hash。
         let revision = super::load_item_content_revision(&detail).expect("revision");
@@ -1385,7 +1402,11 @@ mod tests {
             },
             ..html_detail
         };
-        assert!(super::load_markdown_inspector_snapshot(&html_detail).is_err());
+        assert!(super::load_markdown_inspector_snapshot(
+            &html_detail,
+            MarkdownResourceContext::default()
+        )
+        .is_err());
     }
 
     #[test]

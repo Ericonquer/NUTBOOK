@@ -173,7 +173,8 @@ pub fn get_item_inspector_snapshot(
     payload: GetItemPreviewRequest,
 ) -> Result<MarkdownInspectorSnapshot, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
-    load_markdown_inspector_snapshot(&item)
+    let markdown_resource = markdown_resource_context_for_item(&state, &item)?;
+    load_markdown_inspector_snapshot(&item, markdown_resource)
 }
 
 /// 廉价 revision 复核：只返回当前内容 hash，供检查视图丢弃晚到/过期实例。
