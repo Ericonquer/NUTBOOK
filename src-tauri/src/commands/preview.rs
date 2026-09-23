@@ -1813,7 +1813,7 @@ fn decorate_pdf_html(
       html, body {{ background: #fff !important; }}
       body.pdf-export {{ color: #17191a; }}
       .page {{ margin: 0 !important; width: 100% !important; border: 0 !important; box-shadow: none !important; }}
-      main.page > header, main.page > footer, .deck-footer {{ display: none !important; }}
+      body.pdf-cover-toc main.page > header, main.page > footer, .deck-footer {{ display: none !important; }}
       .export-layout {{ display: block !important; }}
       .export-outline {{ display: none !important; }}
       table, pre, figure, img, blockquote, .table-frame, .code-frame, .figure-layout, .figure-media {{
@@ -1897,7 +1897,7 @@ fn decorate_pdf_html(
     {page_number_style}
   </style>"#
     );
-    let mut html = strip_pdf_template_chrome(html);
+    let mut html = strip_pdf_template_chrome(html, !payload.preferences.cover_and_toc);
     if is_report && payload.preferences.cover_and_toc {
         html = remove_html_elements_by_class(&html, "slide cover");
     }
@@ -2088,8 +2088,12 @@ fn add_body_class(html: &str, class_name: &str) -> String {
     format!("{}{}{}", &html[..body_start], updated_tag, &html[body_tag_end + 1..])
 }
 
-fn strip_pdf_template_chrome(html: &str) -> String {
-    let mut cleaned = remove_html_element_once(html, "header");
+fn strip_pdf_template_chrome(html: &str, keep_header: bool) -> String {
+    let mut cleaned = if keep_header {
+        html.to_string()
+    } else {
+        remove_html_element_once(html, "header")
+    };
     cleaned = remove_html_element_once(&cleaned, "footer");
     cleaned = remove_html_elements_by_class(&cleaned, "deck-footer");
     remove_html_elements_by_class(&cleaned, "presentation-controls")
@@ -2624,7 +2628,8 @@ fn format_export_modified_at(modified_at: &str) -> String {
     if trimmed.is_empty() {
         return "修改时间未知".to_string();
     }
-    trimmed.parse::<i64>().ok().and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
+    trimmed.split_once('.').map(|(seconds, _)| seconds).unwrap_or(trimmed)
+        .parse::<i64>().ok().and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
         .map(|time| format!("修改时间：{}", time.format("%Y-%m-%d %H:%M")))
         .unwrap_or_else(|| format!("修改时间：{trimmed}"))
 }
@@ -3148,8 +3153,9 @@ mod tests {
     };
 
     use super::{
-        copy_markdown_cover_asset_impl, copy_markdown_image_asset_impl,
-        delete_markdown_image_asset_impl, markdown_export_default_file_name,
+        copy_markdown_cover_asset_impl, copy_markdown_image_asset_impl, decorate_pdf_html,
+        delete_markdown_image_asset_impl, export_markdown_html_to_path,
+        export_markdown_long_image_to_path, export_markdown_pdf_to_path, markdown_export_default_file_name,
         release_markdown_cover_lease_impl, save_markdown_content_impl,
         validate_markdown_cover_asset_impl,
     };
@@ -3157,9 +3163,6 @@ mod tests {
     use crate::models::{
         CopyMarkdownCoverAssetRequest, ReleaseMarkdownCoverLeaseRequest,
         ValidateMarkdownCoverAssetRequest,
-        copy_markdown_image_asset_impl, decorate_pdf_html, delete_markdown_image_asset_impl,
-        export_markdown_html_to_path, export_markdown_long_image_to_path, export_markdown_pdf_to_path,
-        save_markdown_content_impl,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -3939,6 +3942,8 @@ mod tests {
         assert!(decorated.contains(r#"class="pdf-toc-page-number">3</span>"#));
         assert!(decorated.contains("main.page > header"));
         assert!(decorated.contains("main.page > footer"));
+        assert!(!decorated.contains("<footer"));
+        assert!(decorated.contains("@page { size: A4 portrait; margin: 16mm; }"));
         assert!(decorated.contains(".export-layout"));
         assert!(decorated.contains(".export-outline"));
         assert!(decorated.contains("table, pre, figure, img, blockquote, .table-frame, .code-frame, .figure-layout, .figure-media"));
@@ -3968,11 +3973,14 @@ mod tests {
             expected_file_hash: "hash".to_string(),
             expected_modified_at: None,
         };
-        let html = r#"<!doctype html><html><head></head><body><main class="page"><article><h1 id="title">Title</h1></article></main></body></html>"#;
+        // Reading export moves the first Markdown H1 into the template header.
+        let html = r#"<!doctype html><html><head></head><body><main class="page"><header><h1>Title</h1><div>修改时间：2026-09-23</div></header><article><p>Body</p></article><footer>by NUTBOOK</footer></main></body></html>"#;
 
         let decorated = decorate_pdf_html(html, &request, false, "Title", "# Title");
 
         assert!(decorated.contains(r#"class="pdf-export pdf-no-cover-toc""#));
+        assert!(decorated.contains("<header><h1>Title</h1><div>修改时间：2026-09-23</div></header>"));
+        assert!(!decorated.contains("<footer>"));
         assert!(!decorated.contains(r#"<section class="pdf-cover-page""#));
         assert!(!decorated.contains(r#"<section class="pdf-toc-page""#));
         assert!(!decorated.contains("pdf-fixed-page-number"));
@@ -4086,6 +4094,7 @@ mod tests {
     fn export_modified_at_is_formatted_for_humans() {
         assert!(super::format_export_modified_at("1781149127").starts_with("修改时间："));
         assert!(!super::format_export_modified_at("1781149127").contains("1781149127"));
+        assert!(!super::format_export_modified_at("1781149127.984249811").contains("1781149127"));
         assert_eq!(super::format_export_modified_at(""), "修改时间未知");
     }
 

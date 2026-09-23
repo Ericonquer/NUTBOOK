@@ -4850,6 +4850,8 @@
         background: #f3f3f5;
         color: #6f6f75;
         font-size: 11px;
+      }
+
       .export-modal {
         width: min(820px, calc(100vw - 48px));
         padding: 20px;
@@ -4888,6 +4890,8 @@
 
       .confirm-detail-label {
         color: var(--ink-soft);
+      }
+
       .export-close {
         width: 32px;
         height: 32px;
@@ -5055,7 +5059,7 @@
         padding: 0;
         display: block;
         overflow: hidden;
-        border: 1px solid transparent;
+        border: 1px solid var(--line-strong);
         border-radius: 8px;
         background: var(--surface-variant);
         color: var(--ink);
@@ -5067,6 +5071,65 @@
         border-color: #000;
         background: #fff;
         box-shadow: inset 0 0 0 1px #000;
+      }
+
+      .export-template-preview-card:not(.active):hover,
+      .export-template-preview-card:focus-visible {
+        border-color: var(--outline, #7e7576);
+      }
+
+      .export-template-placeholder {
+        position: relative;
+        min-height: 139px;
+        display: grid;
+        grid-template-rows: 104px auto;
+        border: 1px dashed var(--line-strong);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink-soft);
+        text-align: left;
+      }
+
+      .export-template-placeholder:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
+
+      .export-template-placeholder-plus {
+        display: grid;
+        place-items: center;
+        background: var(--surface-variant);
+        font-size: 34px;
+        font-weight: 300;
+        line-height: 1;
+      }
+
+      .export-template-placeholder .export-template-card-body strong {
+        color: var(--ink-soft);
+      }
+
+      .export-template-placeholder-tooltip {
+        position: absolute;
+        left: 50%;
+        top: 72px;
+        z-index: 2;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .export-template-placeholder:hover .export-template-placeholder-tooltip,
+      .export-template-placeholder:focus-visible .export-template-placeholder-tooltip {
+        opacity: 1;
+        transform: translate(-50%, 0);
       }
 
       .export-template-preview {
@@ -5088,7 +5151,7 @@
         align-items: flex-start;
         justify-content: center;
         overflow: hidden;
-        background: #eef1f0;
+        background: #f3f3f5;
       }
 
       .export-template-preview.pdf-document > div:not(.export-template-outline) {
@@ -5096,7 +5159,7 @@
         min-height: 128px;
         margin-top: 8px;
         padding: 12px 10px;
-        border: 1px solid #d6d9d7;
+        border: 1px solid #e2e2e4;
         background: #fff;
         box-shadow: 0 6px 16px rgba(26,28,29,0.12);
       }
@@ -5122,14 +5185,14 @@
       .export-template-preview.pdf-report {
         display: flex;
         align-items: center;
-        background: #f6f2ec;
+        background: #f3f3f5;
       }
 
       .export-template-preview.pdf-report > div:not(.export-template-outline) {
         width: 100%;
         min-height: 58px;
         padding: 10px;
-        border: 1px solid #ded5c9;
+        border: 1px solid #e2e2e4;
         background: #fff;
         box-shadow: inset 0 10px 0 #1f2224;
       }
@@ -5474,6 +5537,8 @@
         max-height: min(280px, 42vh);
         margin: -4px 0 16px;
         overflow: auto;
+      }
+
       .export-engine-status {
         margin-top: 12px;
         padding: 10px 12px;
@@ -5548,6 +5613,30 @@
         justify-content: flex-end;
         gap: 10px;
         margin-top: 16px;
+      }
+
+      .export-action-button {
+        min-height: 34px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .export-action-button.primary {
+        border-color: #111;
+        background: #111;
+        color: #fff;
+      }
+
+      .export-action-button:disabled {
+        opacity: 0.48;
+        cursor: default;
       }
 
       .confirm-selection-option {
@@ -8715,7 +8804,7 @@
             <span id="statusDot" class="status-dot"></span>
             <span id="statusText">准备就绪</span>
           </div>
-          <div id="statusHint">最小可见 demo：资料库 -> 扫描 -> 列表 -> 标签页 -> 查看 / 保存</div>
+          <div id="statusHint"></div>
         </div>
         <div id="toast" class="toast" aria-live="polite"></div>
         <div id="exportProgress" class="export-progress-overlay" role="status" aria-live="polite" aria-hidden="true"></div>
@@ -8940,6 +9029,7 @@
       </div>
     </div>
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
+    <div id="exportScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <script src="./i18n.js?v=20260525-update-check"></script>
     <script src="./assets/markdown-document-title.js?v=20260821-b3"></script>
@@ -9331,6 +9421,7 @@
         viewerBody: document.getElementById("viewerBody"),
         documentMoreButton: document.getElementById("documentMoreButton"),
         documentMoreMenu: document.getElementById("documentMoreMenu"),
+        exportScrim: document.getElementById("exportScrim"),
         clearTabsButton: document.getElementById("clearTabsButton"),
         statusDot: document.getElementById("statusDot"),
         statusText: document.getElementById("statusText"),
@@ -9692,6 +9783,8 @@
           return window.NutbookDocumentTitle.inlineDisplayText(String(text || ""));
         }
         return String(text || "").trim();
+      }
+
       function showExportProgress(title, body) {
         if (!els.exportProgress) return;
         appState.exportProgressOpen = true;
@@ -9711,16 +9804,6 @@
         appState.exportProgressOpen = false;
         els.exportProgress.classList.remove("open");
         els.exportProgress.setAttribute("aria-hidden", "true");
-      }
-
-      function cleanMarkdownHeadingText(text) {
-        return String(text || "")
-          .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-          .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-          .replace(/<[^>]+>/g, "")
-          .replace(/[`*_~]/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
       }
 
       function buildMarkdownOutline(markdown) {
@@ -16581,7 +16664,7 @@
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
-        // 固定顺序：Markdown=[导出文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
+        // 固定顺序：Markdown=[导出中心, 另存文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
         let options = [];
         if (isExternalRuntimeTab(tab)) {
           // 临时 HTML 是只读会话：不提供导出 / 另存 / 移除（§6.1 不开放编辑、
@@ -16621,8 +16704,14 @@
         } else {
           options = [
             {
+              action: "export-markdown-center",
+              label: t("actions.exportCenter"),
+              icon: MENU_ICON_SVG.exportCenter,
+              disabled: !isMarkdown
+            },
+            {
               action: "export-markdown",
-              label: t("actions.exportFile"),
+              label: t("actions.saveAsFile"),
               icon: MENU_ICON_SVG.exportFile,
               disabled: !isMarkdown
             },
@@ -16650,6 +16739,10 @@
             closeDocumentMoreMenu({ restoreFocus: true });
             if (action === "save-markdown") {
               await saveActiveMarkdown();
+              return;
+            }
+            if (action === "export-markdown-center") {
+              await openMarkdownExportDialog();
               return;
             }
             if (action === "export-markdown") {
@@ -16934,6 +17027,8 @@
             </div>
           </div>
         `;
+      }
+
       function normalizePresentationAspectRatio(value) {
         return value === "4-3" ? "4-3" : "16-9";
       }
@@ -16957,7 +17052,7 @@
           ? '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M8 12h8"></path>'
           : '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
         const templateCardsFor = (templates, selectedTemplate) => templates.map(([id, name, desc, tone]) => `
-          <button class="export-template-preview-card ${selectedTemplate === id ? "active" : ""}" type="button" data-export-template-choice="${escapeAttribute(id)}" ${id.startsWith("future") ? "disabled" : ""}>
+          <button class="export-template-preview-card ${selectedTemplate === id ? "active" : ""}" type="button" data-export-template-choice="${escapeAttribute(id)}">
             <div class="export-template-preview ${tone}">
               <div class="export-template-outline"></div>
               <div><span class="export-preview-title">NUTBOOK</span><span class="export-preview-line"></span><span class="export-preview-line" style="width:78%"></span><span class="export-preview-quote"></span></div>
@@ -16965,6 +17060,12 @@
             <div class="export-template-card-body"><strong>${escapeHtml(name)}</strong><p>${escapeHtml(desc)}</p></div>
           </button>
         `).join("");
+        const moreTemplatePlaceholder = expanded ? `
+          <div class="export-template-placeholder" tabindex="0" role="note" aria-label="${escapeAttribute(t("markdown.moreTemplatesComingSoon"))}">
+            <div class="export-template-placeholder-plus" aria-hidden="true">+</div>
+            <div class="export-template-card-body"><strong>${escapeHtml(t("markdown.moreTemplates"))}</strong></div>
+            <span class="export-template-placeholder-tooltip" aria-hidden="true">${escapeHtml(t("markdown.moreTemplatesComingSoon"))}</span>
+          </div>` : "";
         const templateHeading = (title) => `
           <div class="export-template-heading">
             <div><div class="export-panel-title">${escapeHtml(title)}</div></div>
@@ -17002,9 +17103,6 @@
         const htmlTemplates = isReading
           ? [["reading-light", t("markdown.readingLight"), t("markdown.readingLightDescription"), "light"], ["reading-dark", t("markdown.readingDark"), t("markdown.readingDarkDescription"), "dark"]]
           : [["presentation-light", t("markdown.presentationLight"), t("markdown.presentationLightDescription"), "light"], ["presentation-dark", t("markdown.presentationDark"), t("markdown.presentationDarkDescription"), "dark"]];
-        if (expanded) {
-          htmlTemplates.push(["future-minimal", t("markdown.futureMinimal"), t("markdown.comingSoon"), "light"], ["future-print", t("markdown.futurePrint"), t("markdown.comingSoon"), "light"]);
-        }
         const htmlTemplateCards = templateCardsFor(htmlTemplates, isReading ? appState.exportSelections.readingTemplate : appState.exportSelections.presentationTemplate);
         const presentationPanel = `
           <aside class="export-preference-panel compact"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
@@ -17025,7 +17123,7 @@
           <section class="export-section export-panel-grid">
             <div>
               ${templateHeading(isReading ? t("markdown.readingHtmlTemplates") : t("markdown.presentationHtmlTemplates"))}
-              <div class="export-template-scroll"><div class="export-template-grid-v2">${htmlTemplateCards}</div></div>
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${htmlTemplateCards}${moreTemplatePlaceholder}</div></div>
             </div>
             ${isReading ? readingPanel : presentationPanel}
           </section>`;
@@ -17039,14 +17137,11 @@
           ["document", t("markdown.pdfDocument"), t("markdown.pdfDocumentDescription"), "pdf-document"],
           ["report", t("markdown.pdfReport"), t("markdown.pdfReportDescription"), "pdf-report"]
         ];
-        if (expanded) {
-          pdfTemplates.push(["future-pdf-editorial", t("markdown.futureMinimal"), t("markdown.comingSoon"), "pdf-document"], ["future-pdf-print", t("markdown.futurePrint"), t("markdown.comingSoon"), "pdf-report"]);
-        }
         const pdfPanel = `
           <section class="export-section export-panel-grid">
             <div>
               ${templateHeading(t("markdown.pdfTemplates"))}
-              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(pdfTemplates, appState.exportSelections.pdfTemplate)}</div></div>
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(pdfTemplates, appState.exportSelections.pdfTemplate)}${moreTemplatePlaceholder}</div></div>
             </div>
             <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
               <div class="export-preferences">
@@ -17071,14 +17166,11 @@
           ["light", t("markdown.imageLight"), t("markdown.imageLightDescription"), "light"],
           ["dark", t("markdown.imageDark"), t("markdown.imageDarkDescription"), "dark"]
         ];
-        if (expanded) {
-          imageTemplates.push(["future-image-feed", t("markdown.futureMinimal"), t("markdown.comingSoon"), "light"], ["future-image-poster", t("markdown.futurePrint"), t("markdown.comingSoon"), "dark"]);
-        }
         const imagePanel = `
           <section class="export-section export-panel-grid">
             <div>
               ${templateHeading(t("markdown.imageTemplates"))}
-              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(imageTemplates, appState.exportSelections.imageTemplate)}</div></div>
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(imageTemplates, appState.exportSelections.imageTemplate)}${moreTemplatePlaceholder}</div></div>
             </div>
             <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
               <div class="export-preferences">
@@ -17506,6 +17598,8 @@
             appState.settingsKeyboardTablist = "";
           }
         });
+      }
+
       function closeMarkdownExportDialog() {
         if (appState.exportInProgress) return;
         appState.exportDialogOpen = false;
@@ -20600,7 +20694,8 @@ if (!chipTipController) {
         save: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3h8.5l3.5 3.5V16a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 16V4.5A1.5 1.5 0 0 1 4 3Z"/><path d="M6.5 3v4h5"/><path d="M6.5 13h7v3.5h-7z"/></svg>',
         htmlEditStart: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5-7.5 7.5-3.2.7.7-3.2z"/><path d="M9.8 3.7l2.5 2.5"/></svg>',
         htmlEditDone: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
-        exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v6"/><path d="M5.5 6l2.5 2.5 2.5-2.5"/><path d="M3 10.5v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2"/></svg>',
+        exportCenter: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2.5M5.5 5 8 2.5 10.5 5"/><path d="M2.75 9.5v2.75c0 .69.56 1.25 1.25 1.25h8c.69 0 1.25-.56 1.25-1.25V9.5"/></svg>',
+        exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5h6.5A1.5 1.5 0 0 1 13 4v7.5"/><rect x="2.5" y="4.5" width="8.5" height="9" rx="1.5"/></svg>',
         removeFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5h9"/><path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5"/><path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8"/></svg>',
         presentation: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="7" rx="1"/><path d="M6.5 12.5h3"/><path d="M8 10.5v2"/></svg>'
       };
@@ -23397,6 +23492,7 @@ if (!chipTipController) {
           return;
         }
 
+        if (!await ensureMarkdownSavedBeforeContinue(tab)) return;
         try {
           await invoke("export_markdown_file", { itemId: tab.id });
           setStatus(markdownExportedStatus(tab.item.fileName), "ok");
@@ -23404,6 +23500,21 @@ if (!chipTipController) {
         } catch (error) {
           setStatus(`导出失败：${normalizeError(error)}`, "error");
         }
+      }
+
+      async function ensureMarkdownSavedBeforeContinue(tab) {
+        if (getActiveTab() !== tab || tab.sourceMode === "external") return false;
+        if (!convergePendingMarkdownTitle(tab)) return false;
+        captureActiveMarkdownDraft();
+        if (!isMarkdownTabDirty(tab)) return true;
+        const confirmed = await appConfirm({
+          title: t("markdown.unsavedExportTitle"),
+          message: t("markdown.unsavedExportMessage"),
+          confirmText: t("actions.save")
+        });
+        if (!confirmed || getActiveTab() !== tab) return false;
+        const saved = await saveActiveMarkdown();
+        return Boolean(saved) && getActiveTab() === tab && !isMarkdownTabDirty(tab);
       }
 
       async function openMarkdownExportDialog() {
@@ -23660,10 +23771,6 @@ if (!chipTipController) {
           setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
           showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
         }
-      }
-
-      async function exportActiveMarkdown() {
-        await saveAsActiveMarkdown();
       }
 
       async function createTag() {

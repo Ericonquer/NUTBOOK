@@ -1576,7 +1576,7 @@ fn wrap_markdown_cover_title(
 mod tests {
     use super::{
         adaptive_markdown_cover_font, build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
-        capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
+        capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_long_image_args, chromium_pdf_args, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
         generate_html_thumbnail_with_adapter, generate_markdown_default_cover_asset,
         generate_markdown_default_cover_svg, markdown_cover_projection, markdown_default_cover_key,
         markdown_default_cover_target, markdown_key_is_current, playwright_chromium_executable_candidates, playwright_chromium_executable_candidates_in,
@@ -1590,12 +1590,6 @@ mod tests {
         path::{Path, PathBuf},
         sync::{mpsc, Arc, Mutex},
         time::Duration,
-        build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
-        chromium_app_bundle_path, chromium_long_image_args, chromium_pdf_args, chromium_screenshot_args,
-        find_local_chromium_executable, generate_html_thumbnail,
-        playwright_chromium_executable_candidates, system_chrome_thumbnails_enabled,
-        should_launch_system_browser_via_open, thumbnail_backend_status, ChromiumScreenshotInput,
-        HtmlThumbnailInput, ThumbnailBackend, HTML_SCREENSHOT_HEIGHT, HTML_SCREENSHOT_WIDTH,
     };
 
     #[test]

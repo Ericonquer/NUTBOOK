@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{core::markdown_render::render_markdown_html, errors::AppError};
+use crate::{core::{document::{portable_image_html_candidate, sanitize_portable_image_html}, markdown_cover::{parse_cover_metadata, COVER_MARKER}, markdown_render::render_markdown_html, scoped_content_server::percent_decode}, errors::AppError};
 
 pub const READING_TEMPLATE: &str = "reading";
 pub const READING_LIGHT_TEMPLATE: &str = "reading-light";
@@ -147,13 +147,29 @@ pub fn fallback_presentation_dark_template() -> &'static str {
     FALLBACK_PRESENTATION_DARK_TEMPLATE
 }
 
+/// The cover marker identifies an image in the source document; exported pages
+/// should render the image without displaying that source-only metadata.
+fn strip_export_cover_marker(markdown: &str) -> String {
+    let Some(cover) = parse_cover_metadata(markdown, None).cover else {
+        return markdown.to_string();
+    };
+    markdown
+        .split_inclusive('\n')
+        .enumerate()
+        .filter_map(|(index, line)| {
+            (index + 1 != cover.line || line.trim() != COVER_MARKER).then_some(line)
+        })
+        .collect()
+}
+
 pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtmlExportOutput, AppError> {
     if input.template_html.trim().is_empty() {
         return Err(AppError::InvalidParams);
     }
 
-    let title = first_markdown_h1(&input.markdown).unwrap_or_else(|| input.title.clone());
-    let body_markdown = remove_first_markdown_h1(&input.markdown);
+    let export_markdown = strip_export_cover_marker(&input.markdown);
+    let title = first_markdown_h1(&export_markdown).unwrap_or_else(|| input.title.clone());
+    let body_markdown = remove_first_markdown_h1(&export_markdown);
     let rendered = if body_markdown.trim().is_empty() {
         String::new()
     } else {
@@ -338,12 +354,14 @@ fn presentation_page_id(index: usize) -> String {
 }
 
 pub fn render_presentation_html(
-    input: MarkdownHtmlExportInput,
+    mut input: MarkdownHtmlExportInput,
     preferences: PresentationHtmlExportPreferences,
 ) -> Result<MarkdownHtmlExportOutput, AppError> {
     if input.template_html.trim().is_empty() {
         return Err(AppError::InvalidParams);
     }
+
+    input.markdown = strip_export_cover_marker(&input.markdown);
 
     let source_dir = input
         .source_path
@@ -715,10 +733,11 @@ impl ImageEmbedder {
             return tag.to_string();
         }
 
-        let image_path = if Path::new(&src).is_absolute() {
-            PathBuf::from(&src)
+        let decoded_src = decode_image_source(&src);
+        let image_path = if Path::new(&decoded_src).is_absolute() {
+            PathBuf::from(&decoded_src)
         } else {
-            self.source_dir.join(&src)
+            self.source_dir.join(&decoded_src)
         };
 
         match self.image_data_uri(&image_path) {
@@ -749,6 +768,11 @@ impl ImageEmbedder {
     }
 }
 
+fn decode_image_source(src: &str) -> String {
+    let unescaped = src.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'");
+    percent_decode(&unescaped).unwrap_or(unescaped)
+}
+
 fn image_mime(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "png" => Some("image/png"),
@@ -767,6 +791,7 @@ fn figure_layout_for_markdown(markdown: &str, source_dir: &Path) -> FigureLayout
     if src.starts_with("data:") || src.starts_with("http://") || src.starts_with("https://") {
         return FigureLayout::Full;
     }
+    let src = decode_image_source(&src);
     let image_path = if Path::new(&src).is_absolute() {
         PathBuf::from(src)
     } else {
@@ -792,6 +817,7 @@ fn markdown_image_src(markdown: &str) -> Option<String> {
     let rest = trimmed.get(start..)?;
     let end = rest.find(')')?;
     let src = rest.get(..end)?.trim();
+    let src = src.strip_prefix('<').and_then(|value| value.strip_suffix('>')).unwrap_or(src);
     (!src.is_empty()).then(|| src.to_string())
 }
 
@@ -1429,6 +1455,15 @@ fn parse_presentation_blocks(markdown: &str) -> Vec<PresentationBlock> {
             index += 1;
             continue;
         }
+        if !line.starts_with("    ") && !line.starts_with('\t') {
+            if let Some((candidate, consumed)) = portable_image_html_candidate(&lines, index) {
+                if sanitize_portable_image_html(&candidate).is_some() {
+                    blocks.push(PresentationBlock::Image(candidate));
+                    index += consumed;
+                    continue;
+                }
+            }
+        }
         if is_markdown_list_item(line) {
             let mut items = Vec::new();
             while index < lines.len() && is_markdown_list_item(lines[index]) {
@@ -1560,6 +1595,8 @@ fn collect_paragraph(lines: &[&str], start: usize) -> (String, usize) {
         && !is_markdown_thematic_break(lines[index])
         && parse_code_fence_start(lines[index]).is_none()
         && !is_markdown_image_line(lines[index])
+        && !(!lines[index].starts_with("    ") && !lines[index].starts_with('\t')
+            && portable_image_html_candidate(lines, index).is_some_and(|(candidate, _)| sanitize_portable_image_html(&candidate).is_some()))
         && !lines[index].trim_start().starts_with('>')
         && markdown_heading(lines[index]).is_none()
     {
@@ -4619,6 +4656,24 @@ mod tests {
     }
 
     #[test]
+    fn reading_templates_show_modified_time_without_source_file_below_title() {
+        for template_html in [fallback_reading_light_template(), fallback_reading_dark_template()] {
+            let output = render_reading_html(MarkdownHtmlExportInput {
+                title: "Document".to_string(),
+                source_file: "ai-generated-name.md".to_string(),
+                source_path: temp_path("metadata").with_extension("md"),
+                markdown: "# Document\n\nBody".to_string(),
+                generated_at: "修改时间：2026-09-23 10:00".to_string(),
+                template_html: template_html.to_string(),
+                preferences: MarkdownHtmlExportPreferences::default(),
+            })
+            .expect("reading html should render");
+            assert!(output.html.contains("<div>修改时间：2026-09-23 10:00</div>"));
+            assert!(!output.html.contains("ai-generated-name.md"));
+        }
+    }
+
+    #[test]
     fn reading_html_emits_editable_protocol_without_marking_protected_blocks() {
         let input = || MarkdownHtmlExportInput {
             title: "Protocol reading".to_string(),
@@ -4737,6 +4792,73 @@ mod tests {
         assert!(output.html.contains("src=\"data:image/png;base64,YWJj\""));
         assert!(output.warnings.is_empty());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn encoded_chinese_and_portable_images_embed_in_reading_and_presentation() {
+        let root = temp_path("encoded-portable-images");
+        let assets = root.join("assets");
+        fs::create_dir_all(&assets).expect("assets should be created");
+        fs::write(assets.join("Codex 图像.png"), png_header(900, 500)).expect("image should be written");
+        fs::write(assets.join("other.png"), png_header(900, 500)).expect("image should be written");
+        let markdown = "# 很长的中文演示标题需要在封面换行\n\n![封面](<./assets/Codex 图像.png>)\n\n## 图片\n\n<p align=\"center\"><img src=\"./assets/other.png\" alt=\"Other\" width=\"480\"></p>";
+        let input = MarkdownHtmlExportInput {
+            title: "Fallback".to_string(),
+            source_file: "note.md".to_string(),
+            source_path: root.join("note.md"),
+            markdown: markdown.to_string(),
+            generated_at: "修改时间：2026-09-23 10:00".to_string(),
+            template_html: fallback_reading_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        };
+        let reading = render_reading_html(input.clone()).expect("reading should render");
+        assert_eq!(reading.html.matches("src=\"data:image/png;base64,").count(), 3); // logo and two document images
+        assert!(reading.warnings.is_empty(), "{:?}", reading.warnings);
+        let presentation = render_presentation_html(
+            MarkdownHtmlExportInput { template_html: fallback_presentation_light_template().to_string(), ..input },
+            PresentationHtmlExportPreferences { aspect_ratio: "16-9".to_string(), density: PresentationDensity::Balanced, output_kind: "static".to_string() },
+        ).expect("presentation should render");
+        assert!(presentation.html.matches("src=\"data:image/png;base64,").count() >= 2);
+        assert!(presentation.warnings.is_empty(), "{:?}", presentation.warnings);
+        assert!(presentation.html.contains("data-figure-layout="));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn valid_cover_marker_is_hidden_in_reading_and_presentation_exports() {
+        let markdown = "# Cover\n\n<!-- nutbook-cover -->\n\n![Cover](./assets/cover.png)\n\n## Body\n\nText";
+        let root = temp_path("cover-marker");
+        fs::create_dir_all(root.join("assets")).expect("assets should be created");
+        fs::write(root.join("assets/cover.png"), png_header(900, 500)).expect("cover should be written");
+        let input = MarkdownHtmlExportInput {
+            title: "Cover".to_string(),
+            source_file: "cover.md".to_string(),
+            source_path: root.join("cover.md"),
+            markdown: markdown.to_string(),
+            generated_at: "修改时间：2026-09-23 10:00".to_string(),
+            template_html: fallback_reading_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        };
+        let reading = render_reading_html(input.clone()).expect("reading should render");
+        assert!(!reading.html.contains("nutbook-cover"));
+        assert!(reading.html.contains("src=\"data:image/png;base64,"));
+        let presentation = render_presentation_html(
+            MarkdownHtmlExportInput { template_html: fallback_presentation_light_template().to_string(), ..input },
+            PresentationHtmlExportPreferences { aspect_ratio: "16-9".to_string(), density: PresentationDensity::Balanced, output_kind: "static".to_string() },
+        ).expect("presentation should render");
+        assert!(!presentation.html.contains("nutbook-cover"));
+        assert!(presentation.html.matches("src=\"data:image/png;base64,").count() >= 2);
+        assert!(presentation.html.contains("data-figure-layout="));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cover_marker_stripping_preserves_non_metadata_text() {
+        let markdown = "# Cover\n\n```html\n<!-- nutbook-cover -->\n```\n\n<!-- nutbook-cover -->\n\nOrdinary text\n\n![Later](later.png)";
+        let stripped = super::strip_export_cover_marker(markdown);
+        assert_eq!(stripped, markdown, "code and orphan markers are source text, not cover metadata");
+        let valid = "# Cover\n\n<!-- nutbook-cover -->\n\n<p align=\"center\"><img src=\"cover.png\" alt=\"Cover\"></p>\n";
+        assert_eq!(super::strip_export_cover_marker(valid), "# Cover\n\n\n<p align=\"center\"><img src=\"cover.png\" alt=\"Cover\"></p>\n");
     }
 
     #[test]

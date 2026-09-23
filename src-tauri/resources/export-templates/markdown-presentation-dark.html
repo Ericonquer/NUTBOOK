@@ -15,10 +15,10 @@
     .slide { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 58px 76px 62px; opacity: 0; pointer-events: none; transform: translateX(20px); transition: opacity 180ms ease, transform 180ms ease; background: linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px) 0 0 / 40px 40px, linear-gradient(180deg, rgba(255,255,255,0.04) 1px, transparent 1px) 0 0 / 40px 40px, #2f3132; }
     .slide.is-active { opacity: 1; pointer-events: auto; transform: translateX(0); z-index: 2; }
     .kicker { margin: 0 0 13px; color: #c7c6cb; font-size: 12px; font-weight: 800; text-transform: uppercase; }
-    .cover-title { margin: 0; max-width: 1080px; font-size: 58px; line-height: 1.06; font-weight: 840; letter-spacing: 0; word-break: keep-all; overflow-wrap: normal; }
+    .cover-title { margin: 0; max-width: 1080px; font-size: 58px; line-height: 1.06; font-weight: 840; letter-spacing: 0; word-break: normal; overflow-wrap: anywhere; }
     .chapter-copy { display: grid; gap: 18px; }
     .chapter-index { color: #c7c6cb; font-size: 13px; line-height: 1; font-weight: 840; text-transform: uppercase; letter-spacing: 0; }
-    .chapter-title { margin: 0; max-width: 1040px; font-size: 58px; line-height: 1.08; font-weight: 840; letter-spacing: 0; word-break: keep-all; overflow-wrap: normal; }
+    .chapter-title { margin: 0; max-width: 1040px; font-size: 58px; line-height: 1.08; font-weight: 840; letter-spacing: 0; word-break: normal; overflow-wrap: anywhere; }
     .slide-title { margin: 0; max-width: 940px; font-size: 40px; line-height: 1.12; font-weight: 800; letter-spacing: 0; }
     .statement-title { margin: 0; max-width: 960px; font-size: 64px; line-height: 1.05; font-weight: 860; letter-spacing: 0; }
     .statement-rule { width: 64px; height: 6px; margin: 0 0 24px; border-radius: 999px; background: #f0f0f2; }
@@ -81,6 +81,11 @@
     .figure-media { min-width: 0; display: grid; place-items: center; }
     .figure-layout img { max-width: 100%; max-height: 470px; border-radius: 8px; object-fit: contain; }
     .figure-layout.side-by-side img { max-height: 440px; }
+    .slide.figure { justify-content: flex-start; }
+    .slide.figure .figure-layout { flex: 1 1 auto; min-height: 0; }
+    .slide.figure .figure-layout.full .figure-media,
+    .slide.figure .figure-layout.full .figure-media p { width: 100%; height: 100%; min-height: 0; margin: 0; display: flex; align-items: center; justify-content: center; }
+    .slide.figure .figure-layout.full img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; }
     .table-frame { margin-top: 22px; max-height: 500px; border: 1px solid #828488; border-radius: 14px; background: rgba(26,28,29,0.76); overflow: hidden; }
     .table-frame table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 15px; }
     .table-frame.table-scroll-y { overflow-y: auto; overflow-x: hidden; }

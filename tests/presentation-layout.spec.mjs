@@ -15,6 +15,46 @@ function exportFixture(...modes) {
   );
 }
 
+test("long Chinese cover title wraps inside the slide", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 675 });
+  await page.setContent(exportFixture());
+  const cover = page.locator(".slide .cover-title").first();
+  await cover.evaluate((node) => {
+    node.textContent = "做了十几年营销策划人后，我被AI逼着做了一个管理Markdown和HTML的软件";
+  });
+  const metrics = await cover.evaluate((node) => {
+    const title = node.getBoundingClientRect();
+    const slide = node.closest(".slide").getBoundingClientRect();
+    return { titleRight: title.right, slideRight: slide.right, lines: title.height / Number.parseFloat(getComputedStyle(node).lineHeight), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth };
+  });
+  expect(metrics.lines).toBeGreaterThan(1.5);
+  expect(metrics.titleRight).toBeLessThanOrEqual(metrics.slideRight);
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+});
+
+test("full figure image stays above the footer as the slide narrows", async ({ page }) => {
+  await page.setContent(exportFixture());
+  await page.evaluate(() => {
+    const slide = document.createElement("section");
+    slide.className = "slide figure density-balanced is-active";
+    slide.innerHTML = `<h2 class="slide-title">概览</h2><div class="figure-layout full"><div class="figure-media"><p><img alt="Cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='900'%3E%3C/svg%3E"></p></div></div><div class="deck-footer"><span>sample.md</span><span>3/3</span></div>`;
+    document.querySelector(".deck").append(slide);
+  });
+  for (const [width, height] of [[1519, 960], [1200, 675], [900, 650], [720, 500]]) {
+    await page.setViewportSize({ width, height });
+    const metrics = await page.locator(".slide.figure.is-active").evaluate((slide) => {
+      const image = slide.querySelector("img").getBoundingClientRect();
+      const footer = slide.querySelector(".deck-footer").getBoundingClientRect();
+      const frame = slide.getBoundingClientRect();
+      return { imageTop: image.top, imageBottom: image.bottom, imageLeft: image.left, imageRight: image.right, footerTop: footer.top, frameTop: frame.top, frameLeft: frame.left, frameRight: frame.right };
+    });
+    expect(metrics.imageTop).toBeGreaterThanOrEqual(metrics.frameTop);
+    expect(metrics.imageBottom).toBeLessThanOrEqual(metrics.footerTop);
+    expect(metrics.imageLeft).toBeGreaterThanOrEqual(metrics.frameLeft);
+    expect(metrics.imageRight).toBeLessThanOrEqual(metrics.frameRight);
+  }
+});
+
 test("physical list layouts keep cards readable and balanced", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 675 });
   await page.setContent(exportFixture());

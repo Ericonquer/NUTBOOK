@@ -3,8 +3,15 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
+import postcss from "postcss";
 
 const indexHtml = readFileSync("dist/index.html", "utf8");
+const indexStyle = indexHtml.slice(indexHtml.indexOf("<style>") + 7, indexHtml.indexOf("</style>"));
+const parsedIndexStyle = postcss.parse(indexStyle, { from: "dist/index.html" });
+const topLevelRules = new Set(parsedIndexStyle.nodes.filter((node) => node.type === "rule").map((node) => node.selector));
+for (const selector of [".settings-modal", ".settings-tab", ".export-modal", ".export-action-button", "#statusHint"]) {
+  assert.ok(topLevelRules.has(selector), `${selector} must remain a top-level CSS rule`);
+}
 const runtimeOverlayHtml = readFileSync("dist/runtime-overlay.html", "utf8");
 const htmlFindOverlayHtml = readFileSync("dist/html-find-overlay.html", "utf8");
 const runtimeRust = readFileSync("src-tauri/src/core/html_runtime.rs", "utf8");
@@ -895,6 +902,69 @@ assert.ok(
 
 const browser = await chromium.launch({ headless: true });
 try {
+  const mainPage = await browser.newPage({ viewport: { width: 1158, height: 862 } });
+  const mainPageErrors = [];
+  mainPage.on("pageerror", (error) => mainPageErrors.push(error.message));
+  await mainPage.goto(pathToFileURL(`${process.cwd()}/dist/index.html`).href);
+  await mainPage.waitForFunction(() => document.readyState === "complete");
+  assert.equal(await mainPage.locator("#statusHint").evaluate((node) => getComputedStyle(node).display), "none");
+  assert.equal(await mainPage.locator("#statusHint").textContent(), "");
+  const mainUi = await mainPage.evaluate(async () => {
+    appState.isSettingsOpen = true;
+    renderSettingsPanel();
+    const settings = ["skills", "libraries", "tags", "preferences", "thumbnails"].map((tab) => {
+      appState.settingsTab = tab;
+      renderSettingsPanel();
+      return [...document.querySelectorAll(".settings-section")]
+        .filter((section) => getComputedStyle(section).display !== "none")
+        .map((section) => section.id);
+    });
+    const settingsWidth = document.querySelector(".settings-modal").getBoundingClientRect().width;
+    appState.isSettingsOpen = false;
+    renderSettingsPanel();
+    const tab = { id: 987, sourceMode: "library", preview: { fileType: "markdown", raw: "# Test" }, detail: { fileHash: "test-hash" }, item: { fileName: "test.md" }, isDirty: false };
+    appState.tabs = [tab];
+    appState.activeTabId = tab.id;
+    renderDocumentMoreMenu();
+    const menu = [...document.querySelectorAll("#documentMoreMenu [data-document-action]")].map((node) => ({
+      action: node.dataset.documentAction,
+      label: node.querySelector(".menu-option-label")?.textContent,
+      icon: node.querySelector("svg")?.outerHTML
+    }));
+    document.querySelector('[data-document-action="export-markdown-center"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const exportDialog = {
+      open: document.querySelector("#exportScrim")?.classList.contains("open"),
+      formats: [...document.querySelectorAll("#exportScrim [data-export-format]")].map((node) => node.dataset.exportFormat),
+      actionStyle: getComputedStyle(document.querySelector("#exportScrim [data-export-submit]")).borderRadius
+    };
+    document.querySelector("#exportScrim [data-export-format=pdf]").click();
+    exportDialog.pdfSelected = document.querySelector("#exportScrim [data-export-format=pdf]")?.classList.contains("active");
+    document.querySelector("#exportScrim [data-export-format=html]").click();
+    document.querySelector("#exportScrim [data-export-submit]").click();
+    for (let attempt = 0; attempt < 50 && appState.exportDialogOpen; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    exportDialog.completed = !appState.exportDialogOpen && els.statusText.textContent.includes("test.md");
+    return { settings, settingsWidth, menu, exportDialog };
+  });
+  assert.deepEqual(mainUi.settings, [
+    ["settingsSkillsSection"], ["settingsLibrariesSection"], ["settingsTagsSection"],
+    ["settingsPreferencesSection"], ["settingsThumbnailsSection"]
+  ], "each settings page must be the only visible section");
+  assert.ok(mainUi.settingsWidth >= 700, "settings modal must retain its intended layout");
+  assert.deepEqual(mainUi.menu.map((entry) => [entry.action, entry.label]), [
+    ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"],
+    ["remove-from-nutbook", "移除文件"]
+  ]);
+  assert.notEqual(mainUi.menu[0].icon, mainUi.menu[1].icon, "export center and save-as need distinct icons");
+  assert.equal(mainUi.exportDialog.open, true, "export center must open from the Markdown menu");
+  assert.deepEqual(mainUi.exportDialog.formats, ["html", "pdf", "image"]);
+  assert.equal(mainUi.exportDialog.actionStyle, "8px", "export actions must receive their styles");
+  assert.equal(mainUi.exportDialog.pdfSelected, true, "format tabs must switch inside the export center");
+  assert.equal(mainUi.exportDialog.completed, true, "HTML export must finish through the mock command");
+  assert.deepEqual(mainPageErrors, [], "main page must not throw during settings and export actions");
+
   const runtimePage = await browser.newPage();
   await runtimePage.addInitScript(() => {
     // A child WebView can retain an old locale even before its first host
