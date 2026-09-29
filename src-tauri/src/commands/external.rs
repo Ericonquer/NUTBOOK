@@ -76,6 +76,9 @@ pub struct ExternalSessionOpenResponse {
     pub html: Option<String>,
     pub title: Option<String>,
     pub base_dir: Option<String>,
+    pub resource_origin: Option<String>,
+    pub resource_root: Option<String>,
+    pub resource_base_dir: Option<String>,
     pub baseline: Option<ExternalSessionBaselineDto>,
 }
 
@@ -117,6 +120,9 @@ pub fn external_session_resolve(
                 html: None,
                 title: None,
                 base_dir: None,
+                resource_origin: None,
+                resource_root: None,
+                resource_base_dir: None,
                 baseline: None,
             });
         }
@@ -136,6 +142,9 @@ pub fn external_session_resolve(
                 html: None,
                 title: None,
                 base_dir: None,
+                resource_origin: None,
+                resource_root: None,
+                resource_base_dir: None,
                 baseline: None,
             });
         }
@@ -147,9 +156,13 @@ pub fn external_session_resolve(
     // 同一路径重复请求：复用存活会话并重新核验磁盘状态（不能因去重跳过外部变化）。
     if let Some(existing) = state.external_sessions.find_live_by_path(&raw_path) {
         let disk_changed = external_open::read_file_baseline(&path).map(|current| current.baseline != existing.baseline).unwrap_or(true);
-        return Ok(external_session_open_response_from_session(
+        let mut response = external_session_open_response_from_session(
             &state, &existing, raw_path, file_name, disk_changed,
-        ));
+        );
+        if !inspect_only {
+            attach_external_markdown_resource_context(&state, &existing, &mut response)?;
+        }
+        return Ok(response);
     }
 
     // inspect 阶段到此为止：零副作用（无 session、无 watcher、无入库）。
@@ -169,6 +182,9 @@ pub fn external_session_resolve(
             html: None,
             title: None,
             base_dir: None,
+            resource_origin: None,
+            resource_root: None,
+            resource_base_dir: None,
             baseline: None,
         });
     }
@@ -232,7 +248,40 @@ pub fn external_session_resolve(
     response.base_dir = path
         .parent()
         .map(|value| value.to_string_lossy().to_string());
+    if let Err(error) = attach_external_markdown_resource_context(&state, &session, &mut response) {
+        state.external_sessions.close_session(&session.session_id);
+        state.revoke_external_content_capabilities(&session.session_id);
+        return Err(error);
+    }
     Ok(response)
+}
+
+// A single external Markdown file may load relative assets only from its direct
+// parent directory. Keep the origin bound to the session so close revokes it.
+fn attach_external_markdown_resource_context(
+    state: &AppState,
+    session: &crate::core::external_open::ExternalSession,
+    response: &mut ExternalSessionOpenResponse,
+) -> Result<(), AppError> {
+    if session.file_type != "markdown" {
+        return Ok(());
+    }
+    let path = PathBuf::from(&session.raw_path);
+    let root = path
+        .parent()
+        .ok_or(AppError::InvalidParams)?
+        .canonicalize()
+        .map_err(|_| AppError::IoError)?;
+    let canonical_file = path.canonicalize().map_err(|_| AppError::IoError)?;
+    if !canonical_file.starts_with(&root) {
+        return Err(AppError::InvalidParams);
+    }
+    let key = format!("html-runtime-ext:{}:markdown", session.session_id);
+    let server = state.scoped_server(&key, &root)?;
+    response.resource_origin = Some(server.resource_base());
+    response.resource_root = Some(root.to_string_lossy().to_string());
+    response.resource_base_dir = response.resource_root.clone();
+    Ok(())
 }
 
 fn resolution_text(resolution: ExternalResolution) -> &'static str {
@@ -280,6 +329,9 @@ fn external_session_open_response_from_session(
         html: None,
         title: None,
         base_dir: None,
+        resource_origin: None,
+        resource_root: None,
+        resource_base_dir: None,
         baseline: Some(ExternalSessionBaselineDto {
             hash: session.baseline.hash.clone(),
             mtime_ns: session.baseline.mtime_ns,
@@ -322,7 +374,11 @@ pub fn external_session_close(
     state: tauri::State<'_, AppState>,
     payload: ExternalSessionIdRequest,
 ) -> Result<bool, AppError> {
-    Ok(state.external_sessions.close_session(&payload.session_id))
+    let closed = state.external_sessions.close_session(&payload.session_id);
+    if closed {
+        state.revoke_external_content_capabilities(&payload.session_id);
+    }
+    Ok(closed)
 }
 
 // ---------------------------------------------------------------------------

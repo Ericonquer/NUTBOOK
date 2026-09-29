@@ -26819,7 +26819,10 @@ if (!chipTipController) {
                 raw,
                 html: resolved.html ?? "",
                 title: resolved.title ?? resolved.fileName,
-                baseDir: resolved.baseDir ?? ""
+                baseDir: resolved.baseDir ?? "",
+                resourceOrigin: resolved.resourceOrigin ?? "",
+                resourceRoot: resolved.resourceRoot ?? "",
+                resourceBaseDir: resolved.resourceBaseDir ?? ""
               },
           draft: raw,
           markdownBaseline: raw,
