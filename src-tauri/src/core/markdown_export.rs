@@ -19,7 +19,7 @@ const FALLBACK_READING_LIGHT_TEMPLATE: &str = include_str!("../../resources/expo
 const FALLBACK_READING_DARK_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-dark.html");
 const FALLBACK_PRESENTATION_LIGHT_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-presentation-light.html");
 const FALLBACK_PRESENTATION_DARK_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-presentation-dark.html");
-const NUTBOOK_LOGO_BYTES: &[u8] = include_bytes!("../../../nutbook-logo.png");
+const NUTBOOK_LOGO_BYTES: &[u8] = include_bytes!("../../../assets/nutbook-logo.png");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadingWidth {
