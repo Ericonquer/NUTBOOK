@@ -267,7 +267,7 @@ pub(crate) fn validate_portable_image_html_structure(input: &str) -> bool {
     cursor == input.len()
 }
 
-fn sanitize_portable_image_html(input: &str) -> Option<String> {
+pub(crate) fn sanitize_portable_image_html(input: &str) -> Option<String> {
     if !validate_portable_image_html_structure(input) {
         return None;
     }
@@ -285,7 +285,7 @@ fn sanitize_portable_image_html(input: &str) -> Option<String> {
     Some(sanitized)
 }
 
-fn portable_image_html_candidate(lines: &[&str], start: usize) -> Option<(String, usize)> {
+pub(crate) fn portable_image_html_candidate(lines: &[&str], start: usize) -> Option<(String, usize)> {
     let first = lines.get(start)?.trim_start().to_ascii_lowercase();
     let closing = if first.starts_with("<p") {
         Some("</p>")

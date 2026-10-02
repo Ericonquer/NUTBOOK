@@ -4850,6 +4850,39 @@
         background: #f3f3f5;
         color: #6f6f75;
         font-size: 11px;
+      }
+
+      .export-modal {
+        width: min(820px, calc(100vw - 48px));
+        padding: 20px;
+        border-radius: 20px;
+        background: var(--surface-variant);
+        border: 1px solid var(--line);
+        box-shadow: 0 24px 60px rgba(20, 20, 20, 0.14);
+      }
+
+      .export-modal.expanded {
+        width: min(980px, calc(100vw - 48px));
+      }
+
+      .export-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .export-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 760;
+      }
+
+      .export-subtitle {
+        margin: 4px 0 0;
+        color: var(--ink-soft);
+        font-size: 13px;
         line-height: 1.45;
         overflow-wrap: anywhere;
         user-select: text;
@@ -4857,6 +4890,644 @@
 
       .confirm-detail-label {
         color: var(--ink-soft);
+      }
+
+      .export-close {
+        width: 32px;
+        height: 32px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .export-close:hover {
+        background: var(--surface-variant);
+        color: var(--ink);
+      }
+
+      .export-section + .export-section {
+        margin-top: 16px;
+      }
+
+      .export-format-tabbar {
+        margin: 16px 0 0;
+      }
+
+      .export-format-tabbar .settings-tab {
+        color: var(--ink-soft);
+        background: transparent;
+      }
+
+      .export-format-tabbar .settings-tab.active {
+        background: var(--surface-variant);
+        color: #000;
+        border-color: var(--line);
+        border-bottom-color: var(--surface-variant);
+      }
+
+      .export-subtabs {
+        display: inline-flex;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface-variant);
+      }
+
+      .export-subtab {
+        min-height: 26px;
+        padding: 0 11px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .export-subtab.active {
+        background: #fff;
+        color: var(--ink);
+        box-shadow: 0 1px 3px rgba(26, 28, 29, 0.08);
+      }
+
+      .export-panel-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 306px;
+        gap: 20px;
+        align-items: start;
+        min-height: 233px;
+      }
+
+      .export-modal.expanded .export-panel-grid {
+        min-height: 287px;
+      }
+
+      .export-html-mode-section {
+        margin-top: 20px;
+      }
+
+      .export-template-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 28px;
+      }
+
+      .export-template-heading .export-panel-title {
+        margin-bottom: 0;
+      }
+
+      .export-icon-button {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+        position: relative;
+      }
+
+      .export-icon-button:hover {
+        background: #f1f1f3;
+      }
+
+      .export-icon-button svg {
+        width: 16px;
+        height: 16px;
+        pointer-events: none;
+      }
+
+      .export-tooltip {
+        position: absolute;
+        left: 50%;
+        top: 36px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 4;
+      }
+
+      .export-icon-button:hover .export-tooltip,
+      .export-segment:hover .export-tooltip,
+      .export-density-option:hover .export-tooltip {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .export-template-scroll {
+        height: 205px;
+        overflow: auto;
+        padding: 2px 8px 2px 2px;
+        border-right: 1px solid var(--line);
+      }
+
+      .export-modal.expanded .export-template-scroll {
+        height: 259px;
+      }
+
+      .export-template-grid-v2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .export-modal.expanded .export-template-grid-v2 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .export-template-preview-card {
+        padding: 0;
+        display: block;
+        overflow: hidden;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .export-template-preview-card.active {
+        border-color: #000;
+        background: #fff;
+        box-shadow: inset 0 0 0 1px #000;
+      }
+
+      .export-template-preview-card:not(.active):hover,
+      .export-template-preview-card:focus-visible {
+        border-color: var(--outline, #7e7576);
+      }
+
+      .export-template-placeholder {
+        position: relative;
+        min-height: 139px;
+        display: grid;
+        grid-template-rows: 104px auto;
+        border: 1px dashed var(--line-strong);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink-soft);
+        text-align: left;
+      }
+
+      .export-template-placeholder:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
+
+      .export-template-placeholder-plus {
+        display: grid;
+        place-items: center;
+        background: var(--surface-variant);
+        font-size: 34px;
+        font-weight: 300;
+        line-height: 1;
+      }
+
+      .export-template-placeholder .export-template-card-body strong {
+        color: var(--ink-soft);
+      }
+
+      .export-template-placeholder-tooltip {
+        position: absolute;
+        left: 50%;
+        top: 72px;
+        z-index: 2;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: rgba(24, 24, 28, 0.94);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -2px);
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .export-template-placeholder:hover .export-template-placeholder-tooltip,
+      .export-template-placeholder:focus-visible .export-template-placeholder-tooltip {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .export-template-preview {
+        height: 104px;
+        padding: 12px;
+        display: block;
+      }
+
+      .export-template-preview.light {
+        background: #f9f9fb;
+      }
+
+      .export-template-preview.dark {
+        background: #2f3132;
+      }
+
+      .export-template-preview.pdf-document {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        overflow: hidden;
+        background: #f3f3f5;
+      }
+
+      .export-template-preview.pdf-document > div:not(.export-template-outline) {
+        width: 142px;
+        min-height: 128px;
+        margin-top: 8px;
+        padding: 12px 10px;
+        border: 1px solid #e2e2e4;
+        background: #fff;
+        box-shadow: 0 6px 16px rgba(26,28,29,0.12);
+      }
+
+      .export-template-preview.pdf-document .export-preview-title {
+        max-width: 100%;
+        font-size: 8px;
+        overflow: hidden;
+        text-overflow: clip;
+        white-space: nowrap;
+      }
+
+      .export-template-preview.pdf-document .export-preview-line {
+        height: 4px;
+        margin-bottom: 4px;
+      }
+
+      .export-template-preview.pdf-document .export-preview-quote {
+        height: 18px;
+        margin-top: 7px;
+      }
+
+      .export-template-preview.pdf-report {
+        display: flex;
+        align-items: center;
+        background: #f3f3f5;
+      }
+
+      .export-template-preview.pdf-report > div:not(.export-template-outline) {
+        width: 100%;
+        min-height: 58px;
+        padding: 10px;
+        border: 1px solid #e2e2e4;
+        background: #fff;
+        box-shadow: inset 0 10px 0 #1f2224;
+      }
+
+      .export-template-preview.pdf-report .export-preview-title {
+        margin-top: 10px;
+      }
+
+      .export-template-outline {
+        display: none;
+      }
+
+      .export-template-preview.dark .export-template-outline {
+        border-color: #45474b;
+      }
+
+      .export-preview-title,
+      .export-preview-line,
+      .export-preview-quote {
+        display: block;
+        border-radius: 2px;
+      }
+
+      .export-preview-title {
+        width: auto;
+        height: auto;
+        margin-bottom: 9px;
+        background: transparent;
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .export-template-preview.dark .export-preview-title {
+        color: #f0f0f2;
+      }
+
+      .export-preview-line {
+        height: 6px;
+        margin-bottom: 5px;
+        background: #cfcfd3;
+      }
+
+      .export-template-preview.dark .export-preview-line {
+        background: #828488;
+      }
+
+      .export-preview-quote {
+        height: 24px;
+        margin-top: 10px;
+        border-left: 4px solid #cfc4c5;
+        background: var(--surface-variant);
+      }
+
+      .export-template-preview.dark .export-preview-quote {
+        border-left-color: #828488;
+        background: #1a1c1d;
+      }
+
+      .export-template-card-body {
+        padding: 9px;
+      }
+
+      .export-template-card-body strong {
+        display: block;
+        font-size: 12px;
+        line-height: 1.25;
+      }
+
+      .export-template-card-body p {
+        display: none;
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .export-preferences {
+        display: grid;
+        gap: 10px;
+      }
+
+      .export-preference-panel {
+        height: 205px;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        align-self: start;
+      }
+
+      .export-preference-panel.compact {
+        height: 205px;
+      }
+
+      .export-preference-panel.compact .export-preferences {
+        gap: 8px;
+      }
+
+      .export-preference-panel.compact .export-preference-group {
+        gap: 5px;
+      }
+
+      .export-preference-panel.compact .export-label {
+        margin-bottom: 5px;
+      }
+
+      .export-preference-panel.compact .export-segment,
+      .export-preference-panel.compact .export-density-picker {
+        min-height: 27px;
+      }
+
+      .export-preference-panel.compact .export-density-option {
+        min-height: 19px;
+      }
+
+      .export-preference-row {
+        min-height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .export-preference-group {
+        display: grid;
+        gap: 6px;
+      }
+
+      .export-segment-grid {
+        display: grid;
+        gap: 6px;
+      }
+
+      .export-segment-grid.three {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .export-segment-grid.two {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .export-segment {
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 650;
+        position: relative;
+      }
+
+      .export-segment.active {
+        background: #000;
+        border-color: #000;
+        color: #fff;
+      }
+
+      .export-preference-row .preference-toggle {
+        flex: 0 0 auto;
+      }
+
+      .export-preference-row .preference-toggle {
+        width: 34px;
+        height: 20px;
+        padding: 2px;
+      }
+
+      .export-preference-row .preference-toggle::before {
+        width: 14px;
+        height: 14px;
+      }
+
+      .export-preference-row .preference-toggle.active::before {
+        transform: translateX(14px);
+      }
+
+      .export-density-picker {
+        min-height: 30px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+      }
+
+      .export-density-option {
+        position: relative;
+        min-width: 0;
+        min-height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .export-density-option::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: #c7c7cc;
+      }
+
+      .export-density-option.active {
+        background: #000;
+        color: #fff;
+      }
+
+      .export-density-option.active::before {
+        background: #fff;
+      }
+
+      .export-coming-soon {
+        min-height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed var(--line-strong);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .export-label {
+        margin: 0 0 8px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 760;
+        line-height: 1.2;
+      }
+
+      .export-panel-title {
+        margin: 0 0 9px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 780;
+        line-height: 1.2;
+      }
+
+      .export-options {
+        display: grid;
+        gap: 8px;
+      }
+
+      .export-format-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .export-template-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .export-option {
+        width: 100%;
+        min-height: 42px;
+        padding: 0 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 650;
+        text-align: left;
+      }
+
+      .export-option.active {
+        border-color: #000;
+        background: #000;
+        color: #fff;
+      }
+
+      .export-option:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+      }
+
+      .export-template-card {
+        min-height: 82px;
+        padding: 12px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        text-align: left;
+      }
+
+      .export-template-card.active {
+        border-color: #000;
+        background: var(--paper);
+        box-shadow: inset 3px 0 0 #000;
+      }
+
+      .export-template-card:disabled {
+        cursor: not-allowed;
+      }
+
+      .export-template-card strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
+      .export-template-card p {
+        margin: 6px 0 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .export-soon {
+        color: var(--muted);
+        font-size: 12px;
         font-weight: 600;
       }
 
@@ -4866,6 +5537,106 @@
         max-height: min(280px, 42vh);
         margin: -4px 0 16px;
         overflow: auto;
+      }
+
+      .export-engine-status {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 680;
+        line-height: 1.45;
+      }
+
+      .export-engine-status.ready {
+        color: var(--ink);
+      }
+
+      .export-engine-status.warn {
+        border-color: var(--line-strong);
+      }
+
+      .export-error-banner {
+        margin-top: 14px;
+        padding: 12px 14px;
+        border: 1px solid rgba(176, 42, 42, 0.34);
+        border-radius: 8px;
+        background: #fff1f1;
+        color: #8f1f1f;
+        font-size: 13px;
+        font-weight: 740;
+        line-height: 1.45;
+      }
+
+      .export-split-prompt {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 14px;
+        padding: 6px 14px 6px 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface-container-high) 82%, #000 4%);
+        color: var(--ink);
+        box-shadow: 0 8px 20px rgba(26, 28, 29, 0.08);
+        font-size: 12px;
+        font-weight: 760;
+        line-height: 1.35;
+      }
+
+      .export-split-prompt-icon {
+        display: inline-flex;
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: #000;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 900;
+        box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
+        animation: exportAttentionPulse 1s ease-in-out infinite;
+      }
+
+      @keyframes exportAttentionPulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22); }
+        50% { transform: scale(1.18); box-shadow: 0 0 0 7px rgba(0, 0, 0, 0); }
+      }
+
+      .export-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .export-action-button {
+        min-height: 34px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .export-action-button.primary {
+        border-color: #111;
+        background: #111;
+        color: #fff;
+      }
+
+      .export-action-button:disabled {
+        opacity: 0.48;
+        cursor: default;
       }
 
       .confirm-selection-option {
@@ -4924,6 +5695,30 @@
         color: var(--muted);
         font-size: 11px;
         line-height: 1.4;
+      }
+
+      @media (max-width: 760px) {
+        .export-panel-grid {
+          grid-template-columns: 1fr;
+          min-height: 0;
+        }
+
+        .export-template-scroll {
+          height: auto;
+          max-height: 260px;
+          border-right: 0;
+          padding-right: 0;
+        }
+
+        .export-modal.expanded .export-template-scroll {
+          height: auto;
+          max-height: 320px;
+        }
+
+        .export-preference-panel,
+        .export-preference-panel.compact {
+          height: auto;
+        }
       }
 
       .confirm-actions {
@@ -7536,6 +8331,89 @@
         opacity: 1;
       }
 
+      .export-progress-overlay {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        z-index: 490;
+        width: min(360px, calc(100vw - 48px));
+        padding: 16px 18px 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(249, 249, 251, 0.96);
+        box-shadow: 0 22px 54px rgba(26, 28, 29, 0.18);
+        color: var(--ink);
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -48%);
+        transition: opacity 160ms ease, transform 160ms ease;
+      }
+
+      .export-progress-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translate(-50%, -50%);
+      }
+
+      .export-progress-title {
+        font-size: 13px;
+        font-weight: 780;
+        line-height: 1.35;
+      }
+
+      .export-progress-body {
+        margin-top: 6px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .export-progress-track {
+        position: relative;
+        height: 6px;
+        margin-top: 14px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--surface-container-high);
+      }
+
+      .export-progress-bar {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 42%;
+        border-radius: inherit;
+        background: var(--ink);
+        animation: exportProgressSlide 1.2s ease-in-out infinite;
+      }
+
+      .export-progress-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 14px;
+      }
+
+      .export-progress-background {
+        height: 30px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 720;
+        cursor: pointer;
+      }
+
+      .export-progress-background:hover {
+        border-color: var(--line-strong);
+      }
+
+      @keyframes exportProgressSlide {
+        0% { transform: translateX(-115%); }
+        52% { transform: translateX(95%); }
+        100% { transform: translateX(245%); }
+      }
+
       .markdown-link-tooltip {
         position: fixed;
         z-index: 520;
@@ -7926,9 +8804,10 @@
             <span id="statusDot" class="status-dot"></span>
             <span id="statusText">准备就绪</span>
           </div>
-          <div id="statusHint">最小可见 demo：资料库 -> 扫描 -> 列表 -> 标签页 -> 查看 / 保存</div>
+          <div id="statusHint"></div>
         </div>
         <div id="toast" class="toast" aria-live="polite"></div>
+        <div id="exportProgress" class="export-progress-overlay" role="status" aria-live="polite" aria-hidden="true"></div>
         <div id="markdownLinkTooltip" class="markdown-link-tooltip" role="tooltip" aria-hidden="true" data-i18n-skip></div>
         <div id="recentSearchPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
         <div id="settingsSearchSuggestionPopup" class="recent-search-popup" role="listbox" aria-label="" data-i18n-skip></div>
@@ -8150,6 +9029,7 @@
       </div>
     </div>
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
+    <div id="exportScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <script src="./i18n.js?v=20260525-update-check"></script>
     <script src="./assets/markdown-document-title.js?v=20260821-b3"></script>
@@ -8387,6 +9267,42 @@
         isSettingsSourceSortMenuOpen: false,
         isDocumentMoreMenuOpen: false,
         isDocumentTagMenuOpen: false,
+        exportDialogOpen: false,
+        exportActiveFormat: "html",
+        exportHtmlMode: "reading",
+        exportExpandedTemplates: false,
+        exportSelections: {
+          readingTemplate: "reading-light",
+          presentationTemplate: "presentation-light",
+          pdfTemplate: "document",
+          imageTemplate: "light"
+        },
+        exportPreferences: {
+          reading: {
+            embedImages: true,
+            codeCopy: true,
+            outline: true,
+            width: "wide"
+          },
+          presentation: {
+            aspectRatio: "16-9",
+            density: "balanced",
+            outputKind: "static"
+          },
+          pdf: {
+            margin: "standard",
+            coverAndToc: true,
+            pageNumbers: true
+          },
+          image: {
+            width: 1080,
+            quality: "standard"
+          }
+        },
+        exportInProgress: false,
+        exportProgressOpen: false,
+        exportErrorMessage: "",
+        exportPendingLongImageSplitPayload: null,
         altKeyPressed: false,
         markdownEditMode: "rich",
         markdownEditorLoadPromise: null,
@@ -8413,7 +9329,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.0.0",
+          currentVersion: "1.1.0",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -8505,11 +9421,13 @@
         viewerBody: document.getElementById("viewerBody"),
         documentMoreButton: document.getElementById("documentMoreButton"),
         documentMoreMenu: document.getElementById("documentMoreMenu"),
+        exportScrim: document.getElementById("exportScrim"),
         clearTabsButton: document.getElementById("clearTabsButton"),
         statusDot: document.getElementById("statusDot"),
         statusText: document.getElementById("statusText"),
         statusHint: document.getElementById("statusHint"),
         toast: document.getElementById("toast"),
+        exportProgress: document.getElementById("exportProgress"),
         markdownLinkTooltip: document.getElementById("markdownLinkTooltip"),
         confirmScrim: document.getElementById("confirmScrim"),
         newTagName: document.getElementById("newTagName"),
@@ -8865,6 +9783,27 @@
           return window.NutbookDocumentTitle.inlineDisplayText(String(text || ""));
         }
         return String(text || "").trim();
+      }
+
+      function showExportProgress(title, body) {
+        if (!els.exportProgress) return;
+        appState.exportProgressOpen = true;
+        els.exportProgress.innerHTML = `
+          <div class="export-progress-title">${escapeHtml(title)}</div>
+          <div class="export-progress-body">${escapeHtml(body)}</div>
+          <div class="export-progress-track" aria-hidden="true"><div class="export-progress-bar"></div></div>
+          <div class="export-progress-actions"><button class="export-progress-background" type="button" data-export-progress-background>${escapeHtml(t("markdown.exportLongImageProgressBackground"))}</button></div>
+        `;
+        els.exportProgress.querySelector("[data-export-progress-background]")?.addEventListener("click", hideExportProgress);
+        els.exportProgress.classList.add("open");
+        els.exportProgress.setAttribute("aria-hidden", "false");
+      }
+
+      function hideExportProgress() {
+        if (!els.exportProgress) return;
+        appState.exportProgressOpen = false;
+        els.exportProgress.classList.remove("open");
+        els.exportProgress.setAttribute("aria-hidden", "true");
       }
 
       function buildMarkdownOutline(markdown) {
@@ -13560,7 +14499,7 @@
         // 已传 { payload: {...} }，包装会双重嵌套导致反序列化必败（与
         // attach_external_html_runtime_host_command 同走默认 [args] 分支）。
         if (command === "attach_html_find_overlay_command" || command === "update_html_find_overlay_command" || command === "set_html_find_overlay_bounds_command" || command === "set_html_find_overlay_visibility_command") return [{ payload: args }];
-        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
+        if (command === "select_library" || command === "scan_library" || command === "repair_library_root" || command === "connect_agent_project" || command === "preview_agent_project_artifacts" || command === "preview_agent_project_artifacts_by_root" || command === "accept_agent_artifact_groups" || command === "accept_agent_artifact" || command === "accept_agent_artifacts" || command === "ignore_agent_artifact" || command === "ignore_agent_artifacts" || command === "exclude_agent_project_candidates" || command === "restore_excluded_agent_project_candidates" || command === "set_agent_project_discovery_rule" || command === "refresh_agent_project" || command === "save_markdown_content" || command === "create_tag" || command === "update_tag" || command === "delete_tag" || command === "set_item_tags" || command === "open_html_window" || command === "open_html_detached_window" || command === "close_html_window" || command === "attach_html_runtime_host_command" || command === "attach_html_presentation_preview_command" || command === "close_html_presentation_preview_command" || command === "attach_html_runtime_controls_overlay_command" || command === "update_html_runtime_controls_overlay_command" || command === "set_html_runtime_controls_overlay_bounds_command" || command === "attach_settings_overlay_command" || command === "attach_markdown_controls_overlay_command" || command === "close_markdown_overlay_command" || command === "set_html_runtime_host_visibility_command" || command === "set_html_presentation_preview_visibility_command" || command === "set_html_runtime_controls_overlay_visibility_command" || command === "attach_html_edit_toolbar_overlay_command" || command === "set_html_edit_toolbar_overlay_visibility_command" || command === "close_html_edit_toolbar_overlay_command" || command === "eval_html_runtime_script_command" || command === "html_runtime_view_state_command" || command === "get_html_edit_patch" || command === "save_html_edit_patch" || command === "commit_html_edit" || command === "save_html_edit_conflict_copy" || command === "import_html_edit_asset" || command === "write_editable_html_copy" || command === "register_html_edit_session_lease" || command === "invalidate_html_edit_session_lease" || command === "generate_presentation_thumbnail" || command === "set_window_fullscreen_command" || command === "dispatch_html_runtime_shortcut_command" || command === "focus_html_runtime_host_command" || command === "remove_item_from_nutbook" || command === "move_item_to_trash" || command === "export_markdown_html" || command === "export_markdown_pdf" || command === "preflight_markdown_long_image_export" || command === "select_markdown_long_image_export_path" || command === "export_markdown_long_image_to_path_command" || command === "export_markdown_long_image" || command === "export_markdown_file" || command === "open_library_location" || command === "exclude_skill_from_nutbook" || command === "restore_excluded_skill" || command === "set_auto_check_updates_enabled" || command === "check_for_updates") {
           return [{ payload: args }];
         }
         if (command === "delete_library") {
@@ -14009,7 +14948,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.0.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.1.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -15725,7 +16664,7 @@
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
-        // 固定顺序：Markdown=[导出文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
+        // 固定顺序：Markdown=[导出中心, 另存文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
         let options = [];
         if (isExternalRuntimeTab(tab)) {
           // 临时 HTML 是只读会话：不提供导出 / 另存 / 移除（§6.1 不开放编辑、
@@ -15765,8 +16704,14 @@
         } else {
           options = [
             {
+              action: "export-markdown-center",
+              label: t("actions.exportCenter"),
+              icon: MENU_ICON_SVG.exportCenter,
+              disabled: !isMarkdown
+            },
+            {
               action: "export-markdown",
-              label: t("actions.exportFile"),
+              label: t("actions.saveAsFile"),
               icon: MENU_ICON_SVG.exportFile,
               disabled: !isMarkdown
             },
@@ -15794,6 +16739,10 @@
             closeDocumentMoreMenu({ restoreFocus: true });
             if (action === "save-markdown") {
               await saveActiveMarkdown();
+              return;
+            }
+            if (action === "export-markdown-center") {
+              await openMarkdownExportDialog();
               return;
             }
             if (action === "export-markdown") {
@@ -16078,6 +17027,237 @@
             </div>
           </div>
         `;
+      }
+
+      function normalizePresentationAspectRatio(value) {
+        return value === "4-3" ? "4-3" : "16-9";
+      }
+
+      function renderMarkdownExportDialogV2() {
+        const isHtml = appState.exportActiveFormat === "html";
+        const isPdf = appState.exportActiveFormat === "pdf";
+        const isImage = appState.exportActiveFormat === "image";
+        const isReading = appState.exportHtmlMode === "reading";
+        const expanded = Boolean(appState.exportExpandedTemplates);
+        const readingPreferences = appState.exportPreferences.reading;
+        const presentationPreferences = appState.exportPreferences.presentation;
+        const pdfPreferences = appState.exportPreferences.pdf;
+        const imagePreferences = appState.exportPreferences.image;
+        presentationPreferences.aspectRatio = normalizePresentationAspectRatio(presentationPreferences.aspectRatio);
+        const engineReady = canGenerateDocumentThumbnails();
+        const tab = (format, label) => `<button class="settings-tab export-tab ${appState.exportActiveFormat === format ? "active" : ""}" type="button" data-export-format="${format}">${escapeHtml(label)}</button>`;
+        const subtab = (mode, label) => `<button class="export-subtab ${appState.exportHtmlMode === mode ? "active" : ""}" type="button" data-export-html-mode="${mode}">${escapeHtml(label)}</button>`;
+        const toggleTitle = expanded ? t("markdown.collapseTemplates") : t("markdown.moreTemplates");
+        const toggleIcon = expanded
+          ? '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M8 12h8"></path>'
+          : '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
+        const templateCardsFor = (templates, selectedTemplate) => templates.map(([id, name, desc, tone]) => `
+          <button class="export-template-preview-card ${selectedTemplate === id ? "active" : ""}" type="button" data-export-template-choice="${escapeAttribute(id)}">
+            <div class="export-template-preview ${tone}">
+              <div class="export-template-outline"></div>
+              <div><span class="export-preview-title">NUTBOOK</span><span class="export-preview-line"></span><span class="export-preview-line" style="width:78%"></span><span class="export-preview-quote"></span></div>
+            </div>
+            <div class="export-template-card-body"><strong>${escapeHtml(name)}</strong><p>${escapeHtml(desc)}</p></div>
+          </button>
+        `).join("");
+        const moreTemplatePlaceholder = expanded ? `
+          <div class="export-template-placeholder" tabindex="0" role="note" aria-label="${escapeAttribute(t("markdown.moreTemplatesComingSoon"))}">
+            <div class="export-template-placeholder-plus" aria-hidden="true">+</div>
+            <div class="export-template-card-body"><strong>${escapeHtml(t("markdown.moreTemplates"))}</strong></div>
+            <span class="export-template-placeholder-tooltip" aria-hidden="true">${escapeHtml(t("markdown.moreTemplatesComingSoon"))}</span>
+          </div>` : "";
+        const templateHeading = (title) => `
+          <div class="export-template-heading">
+            <div><div class="export-panel-title">${escapeHtml(title)}</div></div>
+            <button class="export-icon-button" type="button" data-export-toggle-templates aria-label="${escapeAttribute(toggleTitle)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${toggleIcon}</svg><span class="export-tooltip">${escapeHtml(toggleTitle)}</span></button>
+          </div>`;
+        const preferenceToggle = (key, labelKey) => `
+          <div class="export-preference-row">
+            <span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
+            <button class="preference-toggle ${readingPreferences[key] ? "active" : ""}" type="button" data-reading-pref-toggle="${key}" aria-label="${escapeAttribute(t(`markdown.${labelKey}`))}" aria-pressed="${readingPreferences[key] ? "true" : "false"}"></button>
+          </div>`;
+        const widthButton = (value, labelKey, tipKey) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-segment ${readingPreferences.width === value ? "active" : ""}" type="button" data-reading-width="${value}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const segmentButton = (value, labelKey, tipKey, activeValue, dataAttribute) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-segment ${activeValue === value ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(value)}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const normalizedPresentationDensity = presentationPreferences.density === "concise" ? "master" : presentationPreferences.density === "detailed" ? "report" : (presentationPreferences.density || "balanced");
+        const densityButton = (value, labelKey, tipKey) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-density-option ${normalizedPresentationDensity === value ? "active" : ""}" type="button" data-presentation-density="${escapeAttribute(value)}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const readingPanel = `
+          <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+            <div class="export-preferences">
+              ${preferenceToggle("embedImages", "embedLocalImages")}
+              ${preferenceToggle("codeCopy", "codeCopyButton")}
+              ${preferenceToggle("outline", "embedOutline")}
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.pageWidth"))}</div><div class="export-segment-grid three">
+                ${widthButton("compact", "compact", "compactWidthTip")}${widthButton("standard", "standard", "standardWidthTip")}${widthButton("wide", "wide", "wideWidthTip")}
+              </div></div>
+            </div>
+          </aside>`;
+        const htmlTemplates = isReading
+          ? [["reading-light", t("markdown.readingLight"), t("markdown.readingLightDescription"), "light"], ["reading-dark", t("markdown.readingDark"), t("markdown.readingDarkDescription"), "dark"]]
+          : [["presentation-light", t("markdown.presentationLight"), t("markdown.presentationLightDescription"), "light"], ["presentation-dark", t("markdown.presentationDark"), t("markdown.presentationDarkDescription"), "dark"]];
+        const htmlTemplateCards = templateCardsFor(htmlTemplates, isReading ? appState.exportSelections.readingTemplate : appState.exportSelections.presentationTemplate);
+        const presentationPanel = `
+          <aside class="export-preference-panel compact"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+            <div class="export-preferences">
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.aspectRatio"))}</div><div class="export-segment-grid two">
+                ${[["16-9","aspectWide","aspectWideTip"],["4-3","aspectClassic","aspectClassicTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.aspectRatio, "data-presentation-aspect")).join("")}
+              </div></div>
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.contentDensity"))}</div><div class="export-density-picker">
+                ${densityButton("master", "densityMaster", "densityMasterTip")}${densityButton("balanced", "densityBalanced", "densityBalancedTip")}${densityButton("report", "densityReport", "densityReportTip")}
+              </div></div>
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid two">
+                ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
+              </div></div>
+            </div>
+          </aside>`;
+        const htmlPanel = `
+          <section class="export-section export-html-mode-section"><div class="export-subtabs">${subtab("reading", t("markdown.readingHtml"))}${subtab("presentation", t("markdown.presentationHtml"))}</div></section>
+          <section class="export-section export-panel-grid">
+            <div>
+              ${templateHeading(isReading ? t("markdown.readingHtmlTemplates") : t("markdown.presentationHtmlTemplates"))}
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${htmlTemplateCards}${moreTemplatePlaceholder}</div></div>
+            </div>
+            ${isReading ? readingPanel : presentationPanel}
+          </section>`;
+        const prefToggle = (active, key, labelKey, dataAttribute) => `
+          <div class="export-preference-row">
+            <span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
+            <button class="preference-toggle ${active ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(key)}" aria-label="${escapeAttribute(t(`markdown.${labelKey}`))}" aria-pressed="${active ? "true" : "false"}"></button>
+          </div>`;
+        const engineStatus = `<div class="export-engine-status ${engineReady ? "ready" : "warn"}">${escapeHtml(engineReady ? t("markdown.exportEngineReady") : t("markdown.exportEngineUnavailable"))}</div>`;
+        const pdfTemplates = [
+          ["document", t("markdown.pdfDocument"), t("markdown.pdfDocumentDescription"), "pdf-document"],
+          ["report", t("markdown.pdfReport"), t("markdown.pdfReportDescription"), "pdf-report"]
+        ];
+        const pdfPanel = `
+          <section class="export-section export-panel-grid">
+            <div>
+              ${templateHeading(t("markdown.pdfTemplates"))}
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(pdfTemplates, appState.exportSelections.pdfTemplate)}${moreTemplatePlaceholder}</div></div>
+            </div>
+            <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+              <div class="export-preferences">
+                <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.pageMargin"))}</div><div class="export-segment-grid three">
+                  ${[["compact","narrowMargin","compactMarginTip"],["standard","standard","standardMarginTip"],["wide","wideMargin","wideMarginTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, pdfPreferences.margin, "data-pdf-margin")).join("")}
+                </div></div>
+                ${prefToggle(pdfPreferences.coverAndToc, "coverAndToc", "coverAndToc", "data-pdf-toggle")}
+                ${prefToggle(pdfPreferences.pageNumbers, "pageNumbers", "pageNumbers", "data-pdf-toggle")}
+              </div>
+              ${engineStatus}
+            </aside>
+          </section>`;
+        const imageWidthButton = (value) => {
+          const tip = t(`markdown.imageWidth${value}Tip`);
+          return `<button class="export-segment ${imagePreferences.width === value ? "active" : ""}" type="button" data-image-width="${value}" aria-label="${escapeAttribute(`${value}：${tip}`)}">${value}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const imageQualityButton = (value, labelKey, tipKey) => {
+          const tip = t(`markdown.${tipKey}`);
+          return `<button class="export-segment ${imagePreferences.quality === value ? "active" : ""}" type="button" data-image-quality="${value}" aria-label="${escapeAttribute(`${t(`markdown.${labelKey}`)}：${tip}`)}">${escapeHtml(t(`markdown.${labelKey}`))}<span class="export-tooltip">${escapeHtml(tip)}</span></button>`;
+        };
+        const imageTemplates = [
+          ["light", t("markdown.imageLight"), t("markdown.imageLightDescription"), "light"],
+          ["dark", t("markdown.imageDark"), t("markdown.imageDarkDescription"), "dark"]
+        ];
+        const imagePanel = `
+          <section class="export-section export-panel-grid">
+            <div>
+              ${templateHeading(t("markdown.imageTemplates"))}
+              <div class="export-template-scroll"><div class="export-template-grid-v2">${templateCardsFor(imageTemplates, appState.exportSelections.imageTemplate)}${moreTemplatePlaceholder}</div></div>
+            </div>
+            <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>
+              <div class="export-preferences">
+                <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.imageWidth"))}</div><div class="export-segment-grid three">
+                  ${[800,1080,1440].map(imageWidthButton).join("")}
+                </div></div>
+                <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.imageQuality"))}</div><div class="export-segment-grid two">
+                  ${imageQualityButton("standard", "imageStandardQuality", "imageStandardQualityTip")}${imageQualityButton("high", "imageHighQuality", "imageHighQualityTip")}
+                </div></div>
+              </div>
+              ${engineStatus}
+            </aside>
+          </section>`;
+        const canExportPresentation = isHtml && !isReading && ["static", "dynamic"].includes(presentationPreferences.outputKind);
+        const canExport = (isHtml ? (isReading || canExportPresentation) : (isPdf || isImage)) && !appState.exportInProgress;
+        const activePanel = isHtml ? htmlPanel : isPdf ? pdfPanel : imagePanel;
+        const exportLabel = appState.exportInProgress
+          ? (isPdf ? t("markdown.exportingPdf") : isImage ? t("markdown.exportingLongImage") : t("markdown.exportingHtml"))
+          : (isPdf ? t("markdown.exportPdf") : isImage ? t("markdown.exportLongImageButton") : canExport ? t("markdown.exportHtml") : t("markdown.comingSoon"));
+        const exportErrorBanner = appState.exportErrorMessage
+          ? `<div class="export-error-banner" role="alert">${escapeHtml(appState.exportErrorMessage)}</div>`
+          : "";
+        const splitPrompt = appState.exportPendingLongImageSplitPayload
+          ? `<div class="export-split-prompt" role="alert"><span class="export-split-prompt-icon">!</span><span>${escapeHtml(t("markdown.exportLongImageSplitPrompt"))}</span></div>`
+          : "";
+        const actionButtons = appState.exportPendingLongImageSplitPayload
+          ? `<button class="export-action-button" type="button" data-export-split-cancel>${escapeHtml(t("actions.cancel"))}</button><button class="export-action-button primary" type="button" data-export-split-confirm>${escapeHtml(t("markdown.exportLongImageSplitConfirm"))}</button>`
+          : `<button class="export-action-button" type="button" data-export-cancel ${appState.exportInProgress ? "disabled" : ""}>${escapeHtml(t("actions.cancel"))}</button><button class="export-action-button primary" type="button" data-export-submit ${canExport ? "" : "disabled"}>${escapeHtml(exportLabel)}</button>`;
+        els.exportScrim.innerHTML = `
+          <div class="export-modal ${expanded ? "expanded" : ""}" role="dialog" aria-modal="true" aria-labelledby="markdownExportTitle">
+            <div class="export-header"><div><h3 id="markdownExportTitle" class="export-title">${escapeHtml(t("markdown.exportDialogTitle"))}</h3></div><button class="export-close" type="button" data-export-cancel aria-label="${escapeAttribute(t("markdown.closeExportDialog"))}">×</button></div>
+            <div class="settings-tabbar export-format-tabbar">${tab("html", "HTML")}${tab("pdf", "PDF")}${tab("image", t("markdown.exportLongImage"))}</div>
+            ${activePanel}
+            ${exportErrorBanner}
+            ${splitPrompt}
+            <div class="export-actions">${actionButtons}</div>
+          </div>`;
+        els.exportScrim.querySelectorAll("[data-export-cancel]").forEach((node) => node.addEventListener("click", closeMarkdownExportDialog));
+        els.exportScrim.querySelector("[data-export-submit]")?.addEventListener("click", exportActiveMarkdownSelectedFormat);
+        els.exportScrim.querySelector("[data-export-split-cancel]")?.addEventListener("click", () => { appState.exportPendingLongImageSplitPayload = null; renderMarkdownExportDialog(); });
+        els.exportScrim.querySelector("[data-export-split-confirm]")?.addEventListener("click", exportPendingMarkdownLongImageSplit);
+        els.exportScrim.querySelectorAll("[data-export-format]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportActiveFormat = node.dataset.exportFormat || "html"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-export-html-mode]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportHtmlMode = node.dataset.exportHtmlMode || "reading"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelector("[data-export-toggle-templates]")?.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportExpandedTemplates = !appState.exportExpandedTemplates; renderMarkdownExportDialog(); });
+        els.exportScrim.querySelectorAll("[data-export-template-choice]").forEach((node) => node.addEventListener("click", () => {
+          const value = node.dataset.exportTemplateChoice;
+          if (!value) return;
+          if (appState.exportActiveFormat === "pdf") appState.exportSelections.pdfTemplate = value;
+          else if (appState.exportActiveFormat === "image") appState.exportSelections.imageTemplate = value;
+          else if (appState.exportHtmlMode === "reading") appState.exportSelections.readingTemplate = value;
+          else appState.exportSelections.presentationTemplate = value;
+          appState.exportErrorMessage = "";
+          appState.exportPendingLongImageSplitPayload = null;
+          renderMarkdownExportDialog();
+        }));
+        els.exportScrim.querySelectorAll("[data-reading-pref-toggle]").forEach((node) => node.addEventListener("click", () => {
+          const key = node.dataset.readingPrefToggle;
+          if (!key) return;
+          const next = !Boolean(appState.exportPreferences.reading[key]);
+          appState.exportPreferences.reading[key] = next;
+          if (key === "outline" && next) appState.exportPreferences.reading.width = "wide";
+          appState.exportErrorMessage = "";
+          appState.exportPendingLongImageSplitPayload = null;
+          renderMarkdownExportDialog();
+        }));
+        els.exportScrim.querySelectorAll("[data-reading-width]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.reading.width = node.dataset.readingWidth || "standard"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-aspect]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.presentation.aspectRatio = normalizePresentationAspectRatio(node.dataset.presentationAspect); renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-density]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.presentation.density = node.dataset.presentationDensity || "balanced"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-presentation-output]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.presentation.outputKind = node.dataset.presentationOutput || "static"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-pdf-margin]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.pdf.margin = node.dataset.pdfMargin || "standard"; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-pdf-toggle]").forEach((node) => node.addEventListener("click", () => { const key = node.dataset.pdfToggle; if (!key) return; appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.pdf[key] = !Boolean(appState.exportPreferences.pdf[key]); renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-image-width]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.image.width = Number(node.dataset.imageWidth) || 1080; renderMarkdownExportDialog(); }));
+        els.exportScrim.querySelectorAll("[data-image-quality]").forEach((node) => node.addEventListener("click", () => { appState.exportErrorMessage = ""; appState.exportPendingLongImageSplitPayload = null; appState.exportPreferences.image.quality = node.dataset.imageQuality || "standard"; renderMarkdownExportDialog(); }));
+        els.exportScrim.addEventListener("click", (event) => {
+          if (event.target === els.exportScrim && !appState.exportInProgress) closeMarkdownExportDialog();
+        }, { once: true });
+      }
+
+      function renderMarkdownExportDialog() {
+        if (!els.exportScrim) return;
+        els.exportScrim.classList.toggle("open", Boolean(appState.exportDialogOpen));
+        els.exportScrim.setAttribute("aria-hidden", appState.exportDialogOpen ? "false" : "true");
+        if (!appState.exportDialogOpen) {
+          els.exportScrim.innerHTML = "";
+          return;
+        }
+        renderMarkdownExportDialogV2();
       }
 
       function renderSettingsAgentProjectContent() {
@@ -16418,6 +17598,13 @@
             appState.settingsKeyboardTablist = "";
           }
         });
+      }
+
+      function closeMarkdownExportDialog() {
+        if (appState.exportInProgress) return;
+        appState.exportDialogOpen = false;
+        appState.exportPendingLongImageSplitPayload = null;
+        renderMarkdownExportDialog();
       }
 
       function renderSettingsPanel() {
@@ -16804,7 +17991,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.0.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.1.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -17335,7 +18522,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.0.0",
+              currentVersion: "1.1.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -17346,8 +18533,8 @@
             };
           }
           return {
-            currentVersion: "1.0.0",
-            latestVersion: "1.0.0",
+            currentVersion: "1.1.0",
+            latestVersion: "1.1.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -17612,6 +18799,44 @@
         }
         if (command === "export_markdown_file") {
           return true;
+        }
+        if (command === "export_markdown_html") {
+          return {
+            itemId: args.itemId,
+            targetPath: "/tmp/mock-export.html",
+            warnings: [],
+            exported: true
+          };
+        }
+        if (command === "preflight_markdown_long_image_export") {
+          return {
+            itemId: args.itemId,
+            estimatedHeight: 720,
+            maxHeight: 15000,
+            ok: true,
+            requiresSplit: false
+          };
+        }
+        if (command === "export_markdown_pdf") {
+          return {
+            itemId: args.itemId,
+            targetPath: "/tmp/mock-export.pdf",
+            warnings: [],
+            exported: true
+          };
+        }
+        if (command === "select_markdown_long_image_export_path") {
+          return {
+            targetPath: "/tmp/mock-export.png"
+          };
+        }
+        if (command === "export_markdown_long_image" || command === "export_markdown_long_image_to_path_command") {
+          return {
+            itemId: args.itemId,
+            targetPath: args.targetPath || "/tmp/mock-export.png",
+            warnings: [],
+            exported: true
+          };
         }
         if (command === "create_tag") {
           const tag = {
@@ -19469,7 +20694,8 @@ if (!chipTipController) {
         save: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3h8.5l3.5 3.5V16a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 16V4.5A1.5 1.5 0 0 1 4 3Z"/><path d="M6.5 3v4h5"/><path d="M6.5 13h7v3.5h-7z"/></svg>',
         htmlEditStart: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5-7.5 7.5-3.2.7.7-3.2z"/><path d="M9.8 3.7l2.5 2.5"/></svg>',
         htmlEditDone: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
-        exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v6"/><path d="M5.5 6l2.5 2.5 2.5-2.5"/><path d="M3 10.5v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2"/></svg>',
+        exportCenter: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2.5M5.5 5 8 2.5 10.5 5"/><path d="M2.75 9.5v2.75c0 .69.56 1.25 1.25 1.25h8c.69 0 1.25-.56 1.25-1.25V9.5"/></svg>',
+        exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5h6.5A1.5 1.5 0 0 1 13 4v7.5"/><rect x="2.5" y="4.5" width="8.5" height="9" rx="1.5"/></svg>',
         removeFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5h9"/><path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5"/><path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8"/></svg>',
         presentation: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="7" rx="1"/><path d="M6.5 12.5h3"/><path d="M8 10.5v2"/></svg>'
       };
@@ -22266,12 +23492,284 @@ if (!chipTipController) {
           return;
         }
 
+        if (!await ensureMarkdownSavedBeforeContinue(tab)) return;
         try {
           await invoke("export_markdown_file", { itemId: tab.id });
           setStatus(markdownExportedStatus(tab.item.fileName), "ok");
           showToast("导出成功");
         } catch (error) {
           setStatus(`导出失败：${normalizeError(error)}`, "error");
+        }
+      }
+
+      async function ensureMarkdownSavedBeforeContinue(tab) {
+        if (getActiveTab() !== tab || tab.sourceMode === "external") return false;
+        if (!convergePendingMarkdownTitle(tab)) return false;
+        captureActiveMarkdownDraft();
+        if (!isMarkdownTabDirty(tab)) return true;
+        const confirmed = await appConfirm({
+          title: t("markdown.unsavedExportTitle"),
+          message: t("markdown.unsavedExportMessage"),
+          confirmText: t("actions.save")
+        });
+        if (!confirmed || getActiveTab() !== tab) return false;
+        const saved = await saveActiveMarkdown();
+        return Boolean(saved) && getActiveTab() === tab && !isMarkdownTabDirty(tab);
+      }
+
+      async function openMarkdownExportDialog() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return;
+        if (appState.exportInProgress) {
+          setStatus(t("markdown.exportingLongImage"), "warn");
+          return;
+        }
+        const ready = await ensureMarkdownSavedBeforeContinue(tab);
+        if (!ready) return;
+        appState.exportActiveFormat = "html";
+        appState.exportHtmlMode = "reading";
+        appState.exportExpandedTemplates = false;
+        appState.exportDialogOpen = true;
+        appState.exportInProgress = false;
+        appState.exportErrorMessage = "";
+        appState.exportPendingLongImageSplitPayload = null;
+        renderMarkdownExportDialog();
+      }
+
+      async function exportActiveMarkdownHtml() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.exportInProgress) return;
+        appState.exportInProgress = true;
+        renderMarkdownExportDialog();
+        try {
+          const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const isPresentationExport = appState.exportHtmlMode === "presentation";
+          const exportTemplate = isPresentationExport
+            ? appState.exportSelections.presentationTemplate
+            : appState.exportSelections.readingTemplate;
+          const normalizedPresentationDensity = appState.exportPreferences.presentation.density === "concise"
+            ? "master"
+            : appState.exportPreferences.presentation.density === "detailed"
+              ? "report"
+              : (appState.exportPreferences.presentation.density || "balanced");
+          const normalizedPresentationAspect = normalizePresentationAspectRatio(appState.exportPreferences.presentation.aspectRatio);
+          appState.exportPreferences.presentation.aspectRatio = normalizedPresentationAspect;
+          const exportPreferences = isPresentationExport
+            ? {
+                embedImages: true,
+                codeCopy: false,
+                outline: false,
+                width: "standard",
+                aspectRatio: normalizedPresentationAspect,
+                density: normalizedPresentationDensity,
+                outputKind: appState.exportPreferences.presentation.outputKind
+              }
+            : appState.exportPreferences.reading;
+          const response = await invoke("export_markdown_html", {
+            itemId: tab.id,
+            template: exportTemplate,
+            preferences: exportPreferences,
+            expectedFileHash,
+            expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
+          });
+          appState.exportDialogOpen = false;
+          appState.exportInProgress = false;
+          renderMarkdownExportDialog();
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          setStatus(
+            warningCount > 0
+              ? formatTranslation("markdown.exportImagesWarning", { count: warningCount })
+              : `${t("markdown.exportHtmlSuccessPrefix")}${tab.item.fileName}`,
+            warningCount > 0 ? "warn" : "ok"
+          );
+          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+        } catch (error) {
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          if (code === "EXPORT_CANCELLED") {
+            appState.exportErrorMessage = "";
+            renderMarkdownExportDialog();
+            return;
+          }
+          const message = normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportHtmlFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportHtmlFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportHtmlFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportActiveMarkdownSelectedFormat() {
+        if (appState.exportActiveFormat === "pdf") {
+          await exportActiveMarkdownPdf();
+          return;
+        }
+        if (appState.exportActiveFormat === "image") {
+          await exportActiveMarkdownLongImage();
+          return;
+        }
+        await exportActiveMarkdownHtml();
+      }
+
+      async function exportActiveMarkdownPdf() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.exportInProgress) return;
+        appState.exportInProgress = true;
+        renderMarkdownExportDialog();
+        try {
+          const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const response = await invoke("export_markdown_pdf", {
+            itemId: tab.id,
+            template: appState.exportSelections.pdfTemplate,
+            preferences: appState.exportPreferences.pdf,
+            expectedFileHash,
+            expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
+          });
+          appState.exportDialogOpen = false;
+          appState.exportInProgress = false;
+          renderMarkdownExportDialog();
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          setStatus(`${t("markdown.exportPdfSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
+          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+        } catch (error) {
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          const message = code === "EXPORT_ENGINE_UNAVAILABLE" ? t("markdown.exportEngineUnavailable") : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportPdfFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportPdfFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportPdfFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportActiveMarkdownLongImage() {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.exportInProgress) return;
+        appState.exportErrorMessage = "";
+        try {
+          const expectedFileHash = tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "");
+          const payload = {
+            itemId: tab.id,
+            template: appState.exportSelections.imageTemplate,
+            preferences: appState.exportPreferences.image,
+            expectedFileHash,
+            expectedModifiedAt: tab.detail?.modifiedAt || tab.item?.modifiedAt || null
+          };
+          const preflight = await invoke("preflight_markdown_long_image_export", payload);
+          const split = Boolean(preflight?.requiresSplit);
+          if (split) {
+            appState.exportPendingLongImageSplitPayload = payload;
+            renderMarkdownExportDialog();
+            return;
+          }
+          await exportMarkdownLongImageQuick(payload);
+        } catch (error) {
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          const message = code === "EXPORT_LONG_IMAGE_TOO_TALL"
+            ? t("markdown.exportLongImageTooTall")
+            : code === "EXPORT_ENGINE_UNAVAILABLE"
+              ? t("markdown.exportEngineUnavailable")
+              : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportLongImageFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportPendingMarkdownLongImageSplit() {
+        const payload = appState.exportPendingLongImageSplitPayload;
+        if (!payload || appState.exportInProgress) return;
+        appState.exportPendingLongImageSplitPayload = null;
+        await exportMarkdownLongImageWithPayload(payload, true);
+      }
+
+      async function exportMarkdownLongImageQuick(payload) {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return;
+        appState.exportErrorMessage = "";
+        try {
+          const pathResponse = await invoke("select_markdown_long_image_export_path", { itemId: payload.itemId });
+          const targetPath = pathResponse?.targetPath;
+          if (!targetPath) {
+            renderMarkdownExportDialog();
+            return;
+          }
+          appState.exportDialogOpen = false;
+          renderMarkdownExportDialog();
+          showExportProgress(t("markdown.exportLongImageProgressTitle"), t("markdown.exportLongImageProgressBody"));
+          setStatus(t("markdown.exportingLongImage"), "warn");
+          const response = await invoke("export_markdown_long_image_to_path_command", {
+            ...payload,
+            targetPath,
+            split: false
+          });
+          hideExportProgress();
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          setStatus(`${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
+          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+        } catch (error) {
+          hideExportProgress();
+          const code = error?.code || error?.error?.code || "";
+          if (code === "INVALID_PARAMS") {
+            renderMarkdownExportDialog();
+            return;
+          }
+          const message = code === "EXPORT_LONG_IMAGE_TOO_TALL"
+            ? t("markdown.exportLongImageTooTall")
+            : code === "EXPORT_ENGINE_UNAVAILABLE"
+              ? t("markdown.exportEngineUnavailable")
+              : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportLongImageFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
+        }
+      }
+
+      async function exportMarkdownLongImageWithPayload(payload, split) {
+        const tab = getActiveTab();
+        if (!tab || tab.preview?.fileType !== "markdown") return;
+        try {
+          const pathResponse = await invoke("select_markdown_long_image_export_path", { itemId: payload.itemId });
+          const targetPath = pathResponse?.targetPath;
+          if (!targetPath) {
+            renderMarkdownExportDialog();
+            return;
+          }
+          appState.exportDialogOpen = false;
+          appState.exportInProgress = Boolean(split);
+          appState.exportErrorMessage = "";
+          renderMarkdownExportDialog();
+          if (split) {
+            showExportProgress(t("markdown.exportLongImageProgressTitle"), t("markdown.exportLongImageProgressBody"));
+          }
+          setStatus(t("markdown.exportingLongImage"), "warn");
+          const response = await invoke("export_markdown_long_image_to_path_command", {
+            ...payload,
+            targetPath,
+            split
+          });
+          if (split) hideExportProgress();
+          appState.exportInProgress = false;
+          const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
+          const splitSuccessMessage = response?.partCount > 1 ? formatTranslation("markdown.exportLongImageSplitSuccess", { count: response.partCount }) : "";
+          setStatus(splitSuccessMessage || `${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
+          showToast(splitSuccessMessage || (warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess")));
+        } catch (error) {
+          if (split) hideExportProgress();
+          appState.exportInProgress = false;
+          const code = error?.code || error?.error?.code || "";
+          const message = code === "EXPORT_LONG_IMAGE_TOO_TALL"
+            ? t("markdown.exportLongImageTooTall")
+            : code === "EXPORT_ENGINE_UNAVAILABLE"
+              ? t("markdown.exportEngineUnavailable")
+              : normalizeError(error);
+          appState.exportErrorMessage = `${t("markdown.exportLongImageFailedPrefix")}${message}`;
+          renderMarkdownExportDialog();
+          setStatus(`${t("markdown.exportLongImageFailedPrefix")}${message}`, "error");
+          showToast(`${t("markdown.exportLongImageFailedPrefix")}${message}`);
         }
       }
 
@@ -25321,7 +26819,10 @@ if (!chipTipController) {
                 raw,
                 html: resolved.html ?? "",
                 title: resolved.title ?? resolved.fileName,
-                baseDir: resolved.baseDir ?? ""
+                baseDir: resolved.baseDir ?? "",
+                resourceOrigin: resolved.resourceOrigin ?? "",
+                resourceRoot: resolved.resourceRoot ?? "",
+                resourceBaseDir: resolved.resourceBaseDir ?? ""
               },
           draft: raw,
           markdownBaseline: raw,

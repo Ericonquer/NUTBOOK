@@ -2019,4 +2019,56 @@ assert.match(
   );
 }
 
+// External Markdown uses the same scoped image resolver as an indexed item.
+// The open response must carry the origin/root through tab construction; a
+// missing field reproduces the broken-image placeholder in a real README.
+assert.match(COMMANDS_RS, /attach_external_markdown_resource_context\(&state, &session, &mut response\)/);
+assert.match(COMMANDS_RS, /if !inspect_only \{[\s\S]*?attach_external_markdown_resource_context\(&state, &existing, &mut response\)/);
+assert.match(COMMANDS_RS, /html-runtime-ext:\{\}:markdown/);
+const buildExternalTabSource = extractFunctionSource(INDEX_HTML, "function buildExternalTab(resolved, fileType) {");
+const buildExternalTabContext = { externalTabIdForSession: (id) => `external:${id}` };
+vm.createContext(buildExternalTabContext);
+vm.runInContext(buildExternalTabSource, buildExternalTabContext);
+const imageTab = buildExternalTabContext.buildExternalTab({
+  sessionId: "image-session",
+  path: "/project/README.md",
+  fileName: "README.md",
+  raw: "![hero](assets/hero.png)",
+  resourceOrigin: "http://127.0.0.1:41234",
+  resourceRoot: "/project",
+  resourceBaseDir: "/project"
+}, "markdown");
+assert.equal(imageTab.preview.resourceOrigin, "http://127.0.0.1:41234");
+assert.equal(imageTab.preview.resourceRoot, "/project");
+assert.equal(imageTab.preview.resourceBaseDir, "/project");
+const imageResolverContext = {};
+vm.createContext(imageResolverContext);
+for (const signature of [
+  "function isExternalHttpUrl(value) {",
+  "function safeDecodeUri(value) {",
+  "function normalizeLinkedFilePath(value) {",
+  "function dirnamePath(value) {",
+  "function stripLinkFragmentAndQuery(value) {",
+  "function markdownImageFilePath(src, tab) {",
+  "function toScopedResourceUrl(targetPath, tab) {",
+  "function resolveMarkdownImageUrl(src, tab) {"
+]) {
+  vm.runInContext(extractFunctionSource(INDEX_HTML, signature), imageResolverContext);
+}
+assert.equal(
+  imageResolverContext.resolveMarkdownImageUrl("assets/hero.png", imageTab),
+  "http://127.0.0.1:41234/assets/hero.png",
+  "a relative image in an external README must resolve inside its scoped origin"
+);
+assert.equal(
+  imageResolverContext.resolveMarkdownImageUrl("../outside.png", imageTab),
+  "",
+  "a temporary single-file session must not resolve parent-directory resources"
+);
+assert.match(
+  COMMANDS_RS,
+  /external_session_close[\s\S]*?revoke_external_content_capabilities\(&payload\.session_id\)/,
+  "closing external Markdown must revoke its scoped image server"
+);
+
 console.log("external open entry bridge and R1/R2/R3/R5/GUI regression checks passed");

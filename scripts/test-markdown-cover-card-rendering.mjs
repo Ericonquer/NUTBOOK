@@ -23,7 +23,7 @@ page.on("pageerror", (error) => pageErrors.push(error.message));
 try {
   // 直接加载真实宿主页面（file:// 保证 localStorage 可用；脚本顶层注册
   // NutbookCoverCard；Tauri IPC 缺失只会让异步 boot 失败，不影响控制器）。
-  await page.goto(`file://${process.cwd()}/dist/index.html`, { waitUntil: "load" });
+  await page.goto(`file://${process.cwd()}/dist/index.html`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => Boolean(window.NutbookCoverCard?.remoteLoaded), null, { timeout: 10000 });
 
   // 确认控制器注册成功（证明在线封面路径在宿主真实脚本中可达）。

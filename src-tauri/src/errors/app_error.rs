@@ -47,6 +47,12 @@ pub enum AppError {
     CoverAssetRejected(String),
     #[error("HTML edit session is no longer active")]
     InvalidSession,
+    #[error("export engine unavailable")]
+    ExportEngineUnavailable,
+    #[error("export cancelled")]
+    ExportCancelled,
+    #[error("long image is too tall")]
+    ExportLongImageTooTall,
     #[error("database error")]
     DatabaseError,
     #[error("io error")]
@@ -154,6 +160,9 @@ impl AppError {
             AppError::MarkdownResourceUnavailable(_) => "MARKDOWN_RESOURCE_UNAVAILABLE",
             AppError::AgentDiscoveryDatabaseUnavailable(_) => "AGENT_DISCOVERY_DATABASE_UNAVAILABLE",
             AppError::InvalidSession => "INVALID_SESSION",
+            AppError::ExportEngineUnavailable => "EXPORT_ENGINE_UNAVAILABLE",
+            AppError::ExportCancelled => "EXPORT_CANCELLED",
+            AppError::ExportLongImageTooTall => "EXPORT_LONG_IMAGE_TOO_TALL",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",
             AppError::InternalError => "INTERNAL_ERROR",
@@ -190,5 +199,10 @@ mod tests {
             .contains("database file is missing; restart Nutbook to recreate it"));
         let path_text = path.to_string_lossy();
         assert!(!error.to_string().contains(path_text.as_ref()));
+    }
+
+    #[test]
+    fn export_cancelled_has_a_distinct_error_code() {
+        assert_eq!(AppError::ExportCancelled.code(), "EXPORT_CANCELLED");
     }
 }

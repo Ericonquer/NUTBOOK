@@ -668,7 +668,7 @@ try {
   await inspectorPage.addInitScript(() => {
     localStorage.setItem("nutbook.inspector.colWidths", JSON.stringify({ fileName: 360, fileType: 160, source: 260, modifiedAt: 220 }));
   });
-  await inspectorPage.goto(new URL("../dist/index.html", import.meta.url).href);
+  await inspectorPage.goto(new URL("../dist/index.html", import.meta.url).href, { waitUntil: "domcontentloaded" });
   await inspectorPage.waitForSelector(".item-card");
   await inspectorPage.click("#viewModeButtonHome");
   await inspectorPage.waitForSelector("#inspectorShell:not([hidden])");

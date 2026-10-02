@@ -1,6 +1,12 @@
-use std::path::Component;
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
+use chrono::{Local, TimeZone};
 use serde_json::Value;
+use tauri::path::BaseDirectory;
 use tauri::Manager;
 
 use crate::{
@@ -11,6 +17,14 @@ use crate::{
             MarkdownResourceContext,
         },
         document_title::DocumentTitle,
+        markdown_export::{
+            default_markdown_html_file_name, fallback_presentation_dark_template, fallback_presentation_light_template,
+            fallback_reading_dark_template, fallback_reading_light_template,
+            render_presentation_html, render_reading_html, MarkdownHtmlExportInput, MarkdownHtmlExportOutput,
+            MarkdownHtmlExportPreferences, PresentationDensity, PresentationHtmlExportPreferences, ReadingWidth,
+            PRESENTATION_DARK_TEMPLATE, PRESENTATION_LIGHT_TEMPLATE, PRESENTATION_OUTPUT_DYNAMIC,
+            PRESENTATION_OUTPUT_STATIC, READING_DARK_TEMPLATE, READING_LIGHT_TEMPLATE, READING_TEMPLATE,
+        },
         html_runtime::{
             attach_controls_overlay, attach_external_html_runtime_host,
             attach_html_edit_leave_confirm_overlay, attach_html_edit_toolbar_overlay,
@@ -32,6 +46,10 @@ use crate::{
             forward_html_runtime_view_state,
             HtmlRuntimeSession,
         },
+        thumbnail::{
+            export_long_image_with_chromium, export_pdf_with_chromium, find_local_chromium_executable,
+            ChromiumLongImageInput, ChromiumPdfInput,
+        },
     },
     db::repositories::ItemRepository,
     errors::AppError,
@@ -47,10 +65,13 @@ use crate::{
         CopyMarkdownCoverAssetRequest, CopyMarkdownCoverAssetResponse,
         CopyMarkdownImageAssetRequest, CopyMarkdownImageAssetResponse,
         DeleteMarkdownImageAssetRequest, DispatchHtmlRuntimeShortcutRequest,
-        EvalHtmlRuntimeScriptRequest, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
+        EvalHtmlRuntimeScriptRequest, ExportMarkdownHtmlPreferences, ExportMarkdownHtmlRequest, ExportMarkdownHtmlResponse, ExportMarkdownRequest, FocusHtmlRuntimeHostRequest,
         GetItemPreviewRequest, HtmlRuntimeSessionPayload, ItemContentRevision, ItemDetail, OpenHtmlWindowRequest, PreviewPayload,
         MarkdownInspectorSnapshot,
         ReleaseMarkdownCoverLeaseRequest, ReleaseMarkdownCoverLeaseResponse,
+        ExportMarkdownLongImagePreflightResponse,
+        ExportMarkdownLongImageRequest, ExportMarkdownLongImageResponse, ExportMarkdownPdfRequest, ExportMarkdownPdfResponse,
+        ExportMarkdownLongImageToPathRequest, SelectMarkdownLongImageExportPathRequest, SelectMarkdownLongImageExportPathResponse,
         SaveMarkdownContentRequest, SaveMarkdownContentResponse,
         SetHtmlEditToolbarOverlayVisibilityRequest,
         SetHtmlRuntimeControlsOverlayBoundsRequest, SetHtmlRuntimeControlsOverlayVisibilityRequest,
@@ -62,6 +83,16 @@ use crate::{
     },
     state::AppState,
 };
+
+const PDF_DOCUMENT_TEMPLATE: &str = "document";
+const PDF_REPORT_TEMPLATE: &str = "report";
+const LONG_IMAGE_LIGHT_TEMPLATE: &str = "light";
+const LONG_IMAGE_DARK_TEMPLATE: &str = "dark";
+const LONG_IMAGE_MAX_HEIGHT: i32 = 15000;
+const LONG_IMAGE_STABLE_MAX_HEIGHT: i32 = 15000;
+#[cfg(test)]
+const LONG_IMAGE_SPLIT_MAX_PARTS: i32 = 8;
+const LONG_IMAGE_SPLIT_CAPTURE_MAX_HEIGHT: i32 = 60000;
 
 #[tauri::command]
 pub fn get_item_preview(
@@ -1344,6 +1375,1395 @@ fn markdown_export_default_file_name(title: &str, fallback_file_name: &str) -> S
     format!("{stem}.{extension}")
 }
 
+fn export_markdown_html_to_path(
+    state: &AppState,
+    payload: ExportMarkdownHtmlRequest,
+    target: &Path,
+    template_html: String,
+) -> Result<ExportMarkdownHtmlResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    if !matches!(
+        payload.template.as_str(),
+        READING_TEMPLATE | READING_LIGHT_TEMPLATE | READING_DARK_TEMPLATE | PRESENTATION_LIGHT_TEMPLATE | PRESENTATION_DARK_TEMPLATE
+    ) {
+        return Err(AppError::InvalidParams);
+    }
+    let raw = std::fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    if content_hash(&raw) != payload.expected_file_hash {
+        return Err(AppError::EditConflict);
+    }
+    if let Some(expected_modified_at) = payload.expected_modified_at.as_deref() {
+        if expected_modified_at != item.summary.modified_at {
+            return Err(AppError::EditConflict);
+        }
+    }
+    let input = MarkdownHtmlExportInput {
+        title: item
+            .summary
+            .title
+            .clone()
+            .unwrap_or_else(|| item.summary.file_name.clone()),
+        source_file: item.summary.file_name.clone(),
+        source_path: std::path::PathBuf::from(&item.summary.file_path),
+        markdown: raw,
+        generated_at: format_export_modified_at(&item.summary.modified_at),
+        template_html,
+        preferences: export_preferences(payload.preferences.as_ref()),
+    };
+    let rendered = if matches!(payload.template.as_str(), PRESENTATION_LIGHT_TEMPLATE | PRESENTATION_DARK_TEMPLATE) {
+        render_presentation_html(input, presentation_preferences(payload.preferences.as_ref())?)?
+    } else {
+        render_reading_html(input)?
+    };
+    let MarkdownHtmlExportOutput { html, warnings } = rendered;
+    std::fs::write(target, html).map_err(|_| AppError::IoError)?;
+    Ok(ExportMarkdownHtmlResponse {
+        item_id: payload.item_id,
+        target_path: target.to_string_lossy().to_string(),
+        warnings,
+        exported: true,
+    })
+}
+
+fn export_markdown_pdf_to_path(
+    state: &AppState,
+    payload: ExportMarkdownPdfRequest,
+    target: &Path,
+    template_html: String,
+    chromium_path: Option<PathBuf>,
+) -> Result<ExportMarkdownPdfResponse, AppError> {
+    let Some(chromium_path) = chromium_path else {
+        return Err(AppError::ExportEngineUnavailable);
+    };
+    if !matches!(payload.template.as_str(), PDF_DOCUMENT_TEMPLATE | PDF_REPORT_TEMPLATE) {
+        return Err(AppError::InvalidParams);
+    }
+
+    let input = markdown_export_input(
+        state,
+        payload.item_id,
+        &payload.expected_file_hash,
+        payload.expected_modified_at.as_deref(),
+        template_html,
+        pdf_markdown_preferences(&payload),
+    )?;
+    let pdf_markdown = input.markdown.clone();
+    let pdf_title = pdf_cover_title(&pdf_markdown, &input.title);
+    let is_report = payload.template == PDF_REPORT_TEMPLATE;
+    let rendered = render_reading_html(input)?;
+
+    let html = decorate_pdf_html(&rendered.html, &payload, is_report, &pdf_title, &pdf_markdown);
+    let temp_html = write_temp_export_html(&html)?;
+    let result = export_pdf_with_chromium(ChromiumPdfInput {
+        chromium_path,
+        url: file_url(&temp_html)?,
+        output_path: target.to_path_buf(),
+        landscape: is_report,
+    });
+    let _ = fs::remove_file(temp_html);
+    result.map_err(|_| AppError::ThumbnailGenerationFailed)?;
+
+    Ok(ExportMarkdownPdfResponse {
+        item_id: payload.item_id,
+        target_path: target.to_string_lossy().to_string(),
+        warnings: rendered.warnings,
+        exported: true,
+    })
+}
+
+fn export_markdown_long_image_to_path(
+    repository: &impl ItemRepository,
+    payload: ExportMarkdownLongImageRequest,
+    target: &Path,
+    template_html: String,
+    chromium_path: Option<PathBuf>,
+) -> Result<ExportMarkdownLongImageResponse, AppError> {
+    if !matches!(payload.template.as_str(), LONG_IMAGE_LIGHT_TEMPLATE | LONG_IMAGE_DARK_TEMPLATE) {
+        return Err(AppError::InvalidParams);
+    }
+    let width = normalize_long_image_width(payload.preferences.width);
+    let input = markdown_export_input(
+        repository,
+        payload.item_id,
+        &payload.expected_file_hash,
+        payload.expected_modified_at.as_deref(),
+        template_html,
+        MarkdownHtmlExportPreferences {
+            embed_images: true,
+            code_copy: false,
+            outline: false,
+            width: ReadingWidth::Wide,
+        },
+    )?;
+    let estimated_height = estimate_long_image_height(&input.markdown, width);
+    if estimated_height > LONG_IMAGE_STABLE_MAX_HEIGHT {
+        return Err(AppError::ExportLongImageTooTall);
+    }
+    let Some(chromium_path) = chromium_path else {
+        return Err(AppError::ExportEngineUnavailable);
+    };
+
+    let mut input = input;
+    let long_image_title = pdf_cover_title(&input.markdown, &input.title);
+    input.title = long_image_title;
+    input.markdown = remove_first_markdown_h1(&input.markdown);
+    let rendered = render_reading_html(input)?;
+    let html = decorate_long_image_html(&rendered.html, width);
+    let temp_html = write_temp_export_html(&html)?;
+    let temp_png = temp_export_path("png");
+    let result = export_long_image_with_chromium(ChromiumLongImageInput {
+        chromium_path,
+        url: file_url(&temp_html)?,
+        output_path: temp_png.clone(),
+        width,
+        height: estimated_height,
+        high_quality: payload.preferences.quality == "high",
+    });
+    let _ = fs::remove_file(temp_html);
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_png);
+        return Err(AppError::ThumbnailGenerationFailed);
+    }
+    if let Err(error) = reject_unstable_long_image_output(&temp_png) {
+        let _ = fs::remove_file(&temp_png);
+        return Err(error);
+    }
+    if trim_long_image_bottom_whitespace(&temp_png).is_err() {
+        let _ = fs::remove_file(&temp_png);
+        return Err(AppError::ThumbnailGenerationFailed);
+    }
+    if fs::copy(&temp_png, target).is_err() {
+        let _ = fs::remove_file(&temp_png);
+        return Err(AppError::IoError);
+    }
+    let _ = fs::remove_file(temp_png);
+
+    Ok(ExportMarkdownLongImageResponse {
+        item_id: payload.item_id,
+        target_path: target.to_string_lossy().to_string(),
+        warnings: rendered.warnings,
+        exported: true,
+        part_count: None,
+    })
+}
+
+fn export_markdown_long_image_split_to_path(
+    repository: &impl ItemRepository,
+    payload: ExportMarkdownLongImageRequest,
+    target: &Path,
+    template_html: String,
+    chromium_path: Option<PathBuf>,
+) -> Result<ExportMarkdownLongImageResponse, AppError> {
+    if !matches!(payload.template.as_str(), LONG_IMAGE_LIGHT_TEMPLATE | LONG_IMAGE_DARK_TEMPLATE) {
+        return Err(AppError::InvalidParams);
+    }
+    let width = normalize_long_image_width(payload.preferences.width);
+    let input = markdown_export_input(
+        repository,
+        payload.item_id,
+        &payload.expected_file_hash,
+        payload.expected_modified_at.as_deref(),
+        template_html,
+        MarkdownHtmlExportPreferences {
+            embed_images: true,
+            code_copy: false,
+            outline: false,
+            width: ReadingWidth::Wide,
+        },
+    )?;
+    let Some(chromium_path) = chromium_path else {
+        return Err(AppError::ExportEngineUnavailable);
+    };
+
+    let mut input = input;
+    let long_image_title = pdf_cover_title(&input.markdown, &input.title);
+    input.title = long_image_title;
+    input.markdown = remove_first_markdown_h1(&input.markdown);
+    let rendered = render_reading_html(input)?;
+    let high_quality = payload.preferences.quality == "high";
+    let segment_height = long_image_split_segment_height(high_quality);
+    let html = decorate_long_image_html(&rendered.html, width);
+    let temp_html = write_temp_export_html(&html)?;
+    let capture_height = long_image_split_capture_height(high_quality);
+    let temp_png = temp_export_path("png");
+    let result = export_long_image_with_chromium(ChromiumLongImageInput {
+        chromium_path,
+        url: file_url(&temp_html)?,
+        output_path: temp_png.clone(),
+        width,
+        height: capture_height,
+        high_quality,
+    });
+    let _ = fs::remove_file(temp_html);
+    result.map_err(|_| AppError::ThumbnailGenerationFailed)?;
+
+    let exported_paths = crop_long_image_split_parts(&temp_png, target, (segment_height * if high_quality { 2 } else { 1 }) as u32)
+        .map_err(|_| AppError::ThumbnailGenerationFailed)?;
+    let _ = fs::remove_file(temp_png);
+    let exported_paths = finalize_long_image_split_parts(target, exported_paths)
+        .map_err(|_| AppError::ThumbnailGenerationFailed)?;
+    let part_count = exported_paths.len().max(1) as u32;
+
+    Ok(ExportMarkdownLongImageResponse {
+        item_id: payload.item_id,
+        target_path: exported_paths
+            .first()
+            .unwrap_or(&target.to_path_buf())
+            .to_string_lossy()
+            .to_string(),
+        warnings: rendered.warnings,
+        exported: true,
+        part_count: Some(part_count),
+    })
+}
+
+fn preflight_markdown_long_image(
+    repository: &impl ItemRepository,
+    payload: &ExportMarkdownLongImageRequest,
+) -> Result<ExportMarkdownLongImagePreflightResponse, AppError> {
+    if !matches!(payload.template.as_str(), LONG_IMAGE_LIGHT_TEMPLATE | LONG_IMAGE_DARK_TEMPLATE) {
+        return Err(AppError::InvalidParams);
+    }
+    let item = repository.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let raw = fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    if content_hash(&raw) != payload.expected_file_hash {
+        return Err(AppError::EditConflict);
+    }
+    if let Some(expected_modified_at) = payload.expected_modified_at.as_deref() {
+        if expected_modified_at != item.summary.modified_at {
+            return Err(AppError::EditConflict);
+        }
+    }
+    let width = normalize_long_image_width(payload.preferences.width);
+    let estimated_height = estimate_long_image_height(&raw, width);
+    let requires_split = estimated_height > LONG_IMAGE_STABLE_MAX_HEIGHT;
+    Ok(ExportMarkdownLongImagePreflightResponse {
+        item_id: payload.item_id,
+        estimated_height,
+        max_height: LONG_IMAGE_STABLE_MAX_HEIGHT,
+        ok: !requires_split,
+        requires_split,
+    })
+}
+
+fn long_image_request_from_target(payload: &ExportMarkdownLongImageToPathRequest) -> Result<ExportMarkdownLongImageRequest, AppError> {
+    if payload.target_path.trim().is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+    Ok(ExportMarkdownLongImageRequest {
+        item_id: payload.item_id,
+        template: payload.template.clone(),
+        preferences: payload.preferences.clone(),
+        expected_file_hash: payload.expected_file_hash.clone(),
+        expected_modified_at: payload.expected_modified_at.clone(),
+    })
+}
+
+fn export_markdown_long_image_to_selected_path(
+    repository: &impl ItemRepository,
+    payload: ExportMarkdownLongImageToPathRequest,
+    template_html: String,
+    chromium_path: Option<PathBuf>,
+) -> Result<ExportMarkdownLongImageResponse, AppError> {
+    let request = long_image_request_from_target(&payload)?;
+    let target = PathBuf::from(payload.target_path);
+    if payload.split.unwrap_or(false) {
+        return export_markdown_long_image_split_to_path(repository, request, &target, template_html, chromium_path);
+    }
+    export_markdown_long_image_to_path(repository, request, &target, template_html, chromium_path)
+}
+
+fn markdown_export_input(
+    repository: &impl ItemRepository,
+    item_id: i64,
+    expected_file_hash: &str,
+    expected_modified_at: Option<&str>,
+    template_html: String,
+    preferences: MarkdownHtmlExportPreferences,
+) -> Result<MarkdownHtmlExportInput, AppError> {
+    let item = repository.get_item_detail(item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    let raw = fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    if content_hash(&raw) != expected_file_hash {
+        return Err(AppError::EditConflict);
+    }
+    if let Some(expected_modified_at) = expected_modified_at {
+        if expected_modified_at != item.summary.modified_at {
+            return Err(AppError::EditConflict);
+        }
+    }
+
+    Ok(MarkdownHtmlExportInput {
+        title: item
+            .summary
+            .title
+            .clone()
+            .unwrap_or_else(|| item.summary.file_name.clone()),
+        source_file: item.summary.file_name.clone(),
+        source_path: PathBuf::from(&item.summary.file_path),
+        markdown: raw,
+        generated_at: format_export_modified_at(&item.summary.modified_at),
+        template_html,
+        preferences,
+    })
+}
+
+fn pdf_markdown_preferences(payload: &ExportMarkdownPdfRequest) -> MarkdownHtmlExportPreferences {
+    let width = match payload.preferences.margin.as_str() {
+        "compact" => ReadingWidth::Compact,
+        "wide" => ReadingWidth::Wide,
+        _ => ReadingWidth::Standard,
+    };
+    MarkdownHtmlExportPreferences {
+        embed_images: true,
+        code_copy: false,
+        outline: false,
+        width,
+    }
+}
+
+fn decorate_pdf_html(
+    html: &str,
+    payload: &ExportMarkdownPdfRequest,
+    is_report: bool,
+    title: &str,
+    markdown: &str,
+) -> String {
+    let orientation = if is_report { "landscape" } else { "portrait" };
+    let margin = match payload.preferences.margin.as_str() {
+        "compact" => "10mm",
+        "wide" => "24mm",
+        _ => "16mm",
+    };
+    let page_number_style = if payload.preferences.page_numbers {
+        r#"
+    @page {
+      @bottom-left {
+        content: "by NUTBOOK";
+        color: rgba(26,28,29,0.38);
+        font: 10px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      @bottom-right {
+        content: counter(page);
+        color: rgba(26,28,29,0.54);
+        font: 10px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+    }
+    @page pdf-cover {
+      @bottom-left {
+        content: "by NUTBOOK";
+        color: rgba(26,28,29,0.38);
+        font: 10px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      @bottom-right { content: ""; }
+    }"#
+    } else {
+        r#"
+    @page {
+      @bottom-left {
+        content: "by NUTBOOK";
+        color: rgba(26,28,29,0.38);
+        font: 10px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+    }"#
+    };
+    let cover_class = if payload.preferences.cover_and_toc { " pdf-cover-toc" } else { " pdf-no-cover-toc" };
+    let pdf_front_matter = if payload.preferences.cover_and_toc {
+        format!("{}{}", render_pdf_cover(title), render_pdf_toc(markdown, is_report))
+    } else {
+        String::new()
+    };
+    let report_print_style = if is_report {
+        r#"
+      body.pdf-export { overflow: visible !important; }
+      .deck-shell { width: 100% !important; height: auto !important; display: block !important; background: #fff !important; }
+      .deck { width: 100% !important; height: auto !important; min-height: 0 !important; aspect-ratio: auto !important; overflow: visible !important; border: 0 !important; box-shadow: none !important; background: transparent !important; }
+      .slide {
+        position: relative !important;
+        inset: auto !important;
+        width: 100% !important;
+        min-height: calc(100vh - 1px) !important;
+        background: #fff !important;
+        box-shadow: none !important;
+        border: 0 !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        transform: none !important;
+        transition: none !important;
+      }
+      .slide.is-active { z-index: auto !important; }
+      .presentation-controls { display: none !important; }
+"#
+    } else {
+        ""
+    };
+    let css = format!(
+        r#"<style>
+    @page {{ size: A4 {orientation}; margin: {margin}; }}
+    @media print {{
+      html, body {{ background: #fff !important; }}
+      body.pdf-export {{ color: #17191a; }}
+      .page {{ margin: 0 !important; width: 100% !important; border: 0 !important; box-shadow: none !important; }}
+      body.pdf-cover-toc main.page > header, main.page > footer, .deck-footer {{ display: none !important; }}
+      .export-layout {{ display: block !important; }}
+      .export-outline {{ display: none !important; }}
+      table, pre, figure, img, blockquote, .table-frame, .code-frame, .figure-layout, .figure-media {{
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+      pre, pre code, .code-block, .code-block pre, .code-block code, .code-frame {{
+        max-width: 100% !important;
+        overflow: visible !important;
+        white-space: pre-wrap !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+      }}
+      tr, thead, tbody {{
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+      .deck {{ width: 100vw !important; height: 100vh !important; box-shadow: none !important; }}
+      .slide {{ break-after: page; page-break-after: always; }}
+      .slide:last-child {{ break-after: auto; page-break-after: auto; }}
+      {report_print_style}
+      .pdf-cover-page, .pdf-toc-page {{
+        min-height: calc(100vh - 1px);
+        break-after: page;
+        page-break-after: always;
+      }}
+      .pdf-cover-page {{
+        page: pdf-cover;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+      }}
+      .pdf-cover-page h1 {{
+        max-width: 76%;
+        margin: 0;
+        color: #161819;
+        font-size: 38px;
+        line-height: 1.18;
+        font-weight: 800;
+      }}
+      .pdf-toc-page {{
+        padding-top: 18mm;
+      }}
+      .pdf-toc-page h2 {{
+        margin: 0 0 14mm;
+        color: #161819;
+        font-size: 24px;
+        line-height: 1.2;
+      }}
+      .pdf-toc-list {{
+        display: grid;
+        gap: 7px;
+      }}
+      .pdf-toc-entry {{
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 42px;
+        gap: 12px;
+        align-items: baseline;
+        color: #1f2224;
+        text-decoration: none;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+      .pdf-toc-title {{
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }}
+      .pdf-toc-page-number {{
+        color: rgba(26,28,29,0.52);
+        font-size: 10px;
+        text-align: right;
+      }}
+      .pdf-toc-level-2 {{ padding-left: 10mm; }}
+      .pdf-toc-level-3 {{ padding-left: 18mm; }}
+      .pdf-toc-level-4, .pdf-toc-level-5, .pdf-toc-level-6 {{ padding-left: 26mm; }}
+    }}
+    body.pdf-export{cover_class} {{}}
+    {page_number_style}
+  </style>"#
+    );
+    let mut html = strip_pdf_template_chrome(html, !payload.preferences.cover_and_toc);
+    if is_report && payload.preferences.cover_and_toc {
+        html = remove_html_elements_by_class(&html, "slide cover");
+    }
+    let html = inject_before_head_end(&html, &css);
+    let html = add_body_class(&html, &format!("pdf-export{}", cover_class));
+    inject_after_body_start(&html, &pdf_front_matter)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PdfHeading {
+    level: u8,
+    title: String,
+    id: String,
+}
+
+fn pdf_cover_title(markdown: &str, fallback: &str) -> String {
+    pdf_headings(markdown)
+        .into_iter()
+        .find(|heading| heading.level == 1)
+        .map(|heading| heading.title)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| fallback.trim().to_string())
+}
+
+fn render_pdf_cover(title: &str) -> String {
+    format!(
+        r#"<section class="pdf-cover-page" aria-label="封面"><h1>{}</h1></section>"#,
+        escape_pdf_html_text(title)
+    )
+}
+
+fn render_pdf_toc(markdown: &str, is_report: bool) -> String {
+    let headings = pdf_headings(markdown);
+    let items = headings
+        .into_iter()
+        .enumerate()
+        .map(|heading| {
+            let (index, heading) = heading;
+            let page_number = estimate_pdf_heading_page(markdown, &heading.title, index, is_report);
+            format!(
+                r##"<a class="pdf-toc-entry pdf-toc-level-{}" href="#{}"><span class="pdf-toc-title">{}</span><span class="pdf-toc-page-number">{}</span></a>"##,
+                heading.level,
+                escape_pdf_html_attr(&heading.id),
+                escape_pdf_html_text(&heading.title),
+                page_number
+            )
+        })
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return String::new();
+    }
+    format!(
+        r#"<section class="pdf-toc-page" aria-label="目录"><h2>目录</h2><nav class="pdf-toc-list">{}</nav></section>"#,
+        items.join("")
+    )
+}
+
+fn estimate_pdf_heading_page(markdown: &str, heading_title: &str, heading_index: usize, is_report: bool) -> usize {
+    let content_start_page = 3usize;
+    let chars_per_page = if is_report { 900 } else { 1800 };
+    let marker = format!("# {}", heading_title);
+    let chars_before = markdown
+        .find(&marker)
+        .unwrap_or_else(|| {
+            let line_count = markdown.lines().count().max(1);
+            let rough_line = heading_index.saturating_mul(line_count / (heading_index + 2));
+            markdown.lines().take(rough_line).map(|line| line.chars().count() + 1).sum()
+        });
+    content_start_page + (chars_before / chars_per_page)
+}
+
+fn pdf_headings(markdown: &str) -> Vec<PdfHeading> {
+    let mut in_fence = false;
+    markdown
+        .lines()
+        .filter_map(|line| {
+            let trimmed_start = line.trim_start();
+            if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
+                in_fence = !in_fence;
+                return None;
+            }
+            if in_fence {
+                return None;
+            }
+            markdown_heading_for_pdf(trimmed_start)
+        })
+        .map(|(level, title)| PdfHeading {
+            level,
+            id: pdf_heading_id(&title),
+            title,
+        })
+        .collect()
+}
+
+fn markdown_heading_for_pdf(line: &str) -> Option<(u8, String)> {
+    let hashes = line.chars().take_while(|ch| *ch == '#').count();
+    if hashes == 0 || hashes > 6 {
+        return None;
+    }
+    let rest = line.get(hashes..)?.trim_start();
+    if rest.is_empty() || !line.chars().nth(hashes).is_some_and(char::is_whitespace) {
+        return None;
+    }
+    let title = rest.trim_end_matches('#').trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some((hashes as u8, strip_pdf_inline_markdown(title)))
+}
+
+fn strip_pdf_inline_markdown(value: &str) -> String {
+    value
+        .trim_matches(['*', '_', '`', '~'])
+        .replace(['*', '_', '`', '~'], "")
+        .trim()
+        .to_string()
+}
+
+fn pdf_heading_id(title: &str) -> String {
+    let mut id = String::new();
+    let mut previous_dash = false;
+    for ch in title.chars() {
+        if ch.is_alphanumeric() {
+            for lower in ch.to_lowercase() {
+                id.push(lower);
+            }
+            previous_dash = false;
+        } else if !previous_dash {
+            id.push('-');
+            previous_dash = true;
+        }
+    }
+    let id = id.trim_matches('-');
+    if id.is_empty() {
+        "section".to_string()
+    } else {
+        id.to_string()
+    }
+}
+
+fn remove_first_markdown_h1(markdown: &str) -> String {
+    let mut removed = false;
+    let mut in_fence = false;
+    let mut lines = Vec::new();
+    for line in markdown.lines() {
+        let trimmed_start = line.trim_start();
+        if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
+            in_fence = !in_fence;
+            lines.push(line);
+            continue;
+        }
+        if !removed && !in_fence && matches!(markdown_heading_for_pdf(trimmed_start), Some((1, _))) {
+            removed = true;
+            continue;
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
+fn add_body_class(html: &str, class_name: &str) -> String {
+    let Some(body_start) = html.find("<body") else {
+        return html.to_string();
+    };
+    let Some(body_tag_end_offset) = html[body_start..].find('>') else {
+        return html.to_string();
+    };
+    let body_tag_end = body_start + body_tag_end_offset;
+    let body_tag = &html[body_start..=body_tag_end];
+    let updated_tag = if let Some(class_start_offset) = body_tag.find("class=\"") {
+        let class_value_start = class_start_offset + "class=\"".len();
+        if let Some(class_end_offset) = body_tag[class_value_start..].find('"') {
+            let class_end = class_value_start + class_end_offset;
+            let existing = &body_tag[class_value_start..class_end];
+            format!(
+                "{}{} {}{}",
+                &body_tag[..class_value_start],
+                existing,
+                class_name.trim(),
+                &body_tag[class_end..]
+            )
+        } else {
+            body_tag.to_string()
+        }
+    } else {
+        format!("{} class=\"{}\"{}", &body_tag[..body_tag.len() - 1], class_name.trim(), ">")
+    };
+    format!("{}{}{}", &html[..body_start], updated_tag, &html[body_tag_end + 1..])
+}
+
+fn strip_pdf_template_chrome(html: &str, keep_header: bool) -> String {
+    let mut cleaned = if keep_header {
+        html.to_string()
+    } else {
+        remove_html_element_once(html, "header")
+    };
+    cleaned = remove_html_element_once(&cleaned, "footer");
+    cleaned = remove_html_elements_by_class(&cleaned, "deck-footer");
+    remove_html_elements_by_class(&cleaned, "presentation-controls")
+}
+
+fn remove_html_element_once(html: &str, tag: &str) -> String {
+    let start_marker = format!("<{tag}");
+    let end_marker = format!("</{tag}>");
+    let Some(start) = html.find(&start_marker) else {
+        return html.to_string();
+    };
+    let Some(open_end_offset) = html[start..].find('>') else {
+        return html.to_string();
+    };
+    let content_start = start + open_end_offset + 1;
+    let Some(end_offset) = html[content_start..].find(&end_marker) else {
+        return html.to_string();
+    };
+    let end = content_start + end_offset + end_marker.len();
+    format!("{}{}", &html[..start], &html[end..])
+}
+
+fn remove_html_elements_by_class(html: &str, class_name: &str) -> String {
+    let mut output = html.to_string();
+    let class_marker = format!("class=\"{class_name}");
+    loop {
+        let Some(class_pos) = output.find(&class_marker) else {
+            break;
+        };
+        let Some(tag_start_offset) = output[..class_pos].rfind('<') else {
+            break;
+        };
+        let tag_name_start = tag_start_offset + 1;
+        let tag_name_end = output[tag_name_start..]
+            .find(|ch: char| ch.is_whitespace() || ch == '>')
+            .map(|offset| tag_name_start + offset)
+            .unwrap_or(tag_name_start);
+        if tag_name_end <= tag_name_start {
+            break;
+        }
+        let tag_name = output[tag_name_start..tag_name_end].to_string();
+        let removed_tail = remove_html_element_once(&output[tag_start_offset..], &tag_name);
+        output = format!("{}{}", &output[..tag_start_offset], removed_tail);
+    }
+    output
+}
+
+fn inject_after_body_start(html: &str, injection: &str) -> String {
+    let Some(body_start) = html.find("<body") else {
+        return format!("{injection}{html}");
+    };
+    let Some(body_tag_end_offset) = html[body_start..].find('>') else {
+        return format!("{injection}{html}");
+    };
+    let body_tag_end = body_start + body_tag_end_offset + 1;
+    format!("{}{}{}", &html[..body_tag_end], injection, &html[body_tag_end..])
+}
+
+fn escape_pdf_html_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_pdf_html_attr(value: &str) -> String {
+    escape_pdf_html_text(value).replace('"', "&quot;")
+}
+
+fn decorate_long_image_html(html: &str, width: i32) -> String {
+    let css = format!(
+        r#"<style>
+    html, body {{ width: {width}px; min-width: {width}px; overflow-x: hidden; }}
+    body {{ background: #f9f9fb; }}
+    .page {{ width: calc({width}px - 80px) !important; margin: 40px auto !important; }}
+  </style>"#
+    );
+    inject_before_head_end(html, &css)
+}
+
+#[cfg(test)]
+fn decorate_long_image_segment_html(html: &str, width: i32, offset: i32) -> String {
+    let css = format!(
+        r#"<style>
+    html, body {{
+      width: {width}px;
+      min-width: {width}px;
+      overflow: hidden;
+    }}
+    body {{ background: #f9f9fb; }}
+    .page {{
+      width: calc({width}px - 80px) !important;
+      margin: 40px auto !important;
+      transform: translateY(-{offset}px);
+      transform-origin: top center;
+    }}
+  </style>"#
+    );
+    inject_before_head_end(html, &css)
+}
+
+fn long_image_part_path(target: &Path, part_index: u32, part_count: u32) -> PathBuf {
+    let stem = target
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("long-image");
+    let extension = target.extension().and_then(|value| value.to_str()).unwrap_or("png");
+    let file_name = format!("{stem}-{part_index:02}-of-{part_count:02}.{extension}");
+    target.with_file_name(file_name)
+}
+
+fn inject_before_head_end(html: &str, injection: &str) -> String {
+    html.replacen("</head>", &format!("{injection}\n</head>"), 1)
+}
+
+fn normalize_long_image_width(value: i32) -> i32 {
+    match value {
+        800 | 1080 | 1440 => value,
+        _ => 1080,
+    }
+}
+
+fn estimate_long_image_height(markdown: &str, width: i32) -> i32 {
+    let line_chars = (width / 17).clamp(56, 96);
+    let mut text_chars = 0i32;
+    let mut headings = 0i32;
+    let mut code_lines = 0i32;
+    let mut table_rows = 0i32;
+    let mut images = 0i32;
+    let mut paragraphs = 0i32;
+    let mut in_fence = false;
+    for line in markdown.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            code_lines += 1;
+            continue;
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("![") {
+            images += 1;
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            headings += 1;
+            continue;
+        }
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            table_rows += 1;
+            continue;
+        }
+        paragraphs += 1;
+        text_chars += trimmed.chars().count() as i32;
+    }
+    let text_lines = (text_chars / line_chars).max(1) + paragraphs / 2;
+    let content_height = 360
+        + headings * 52
+        + text_lines * 31
+        + paragraphs * 12
+        + code_lines * 21
+        + table_rows * 34
+        + images * 460;
+    ((content_height as f32 * 1.18) as i32 + 180).clamp(720, LONG_IMAGE_MAX_HEIGHT + 1)
+}
+
+fn long_image_split_segment_height(high_quality: bool) -> i32 {
+    let scale = if high_quality { 2 } else { 1 };
+    ((LONG_IMAGE_STABLE_MAX_HEIGHT - 200) / scale).max(720)
+}
+
+fn long_image_split_capture_height(high_quality: bool) -> i32 {
+    let scale = if high_quality { 2 } else { 1 };
+    (LONG_IMAGE_SPLIT_CAPTURE_MAX_HEIGHT / scale).max(720)
+}
+
+#[cfg(test)]
+fn long_image_split_probe_plan(segment_height: i32) -> Vec<(i32, i32)> {
+    (0..LONG_IMAGE_SPLIT_MAX_PARTS)
+        .map(|index| (index * segment_height, segment_height))
+        .collect()
+}
+
+fn reject_unstable_long_image_output(path: &Path) -> Result<(), AppError> {
+    let (_, height) = png_dimensions(path).map_err(|_| AppError::ThumbnailGenerationFailed)?;
+    if long_image_output_height_is_unstable(height) {
+        let _ = fs::remove_file(path);
+        return Err(AppError::ExportLongImageTooTall);
+    }
+    Ok(())
+}
+
+fn long_image_output_height_is_unstable(height: u32) -> bool {
+    height >= LONG_IMAGE_STABLE_MAX_HEIGHT as u32
+}
+
+fn png_dimensions(path: &Path) -> Result<(u32, u32), String> {
+    let bytes = fs::read(path).map_err(|error| format!("failed to read png: {error}"))?;
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let reader = decoder.read_info().map_err(|error| format!("failed to decode png: {error}"))?;
+    let info = reader.info();
+    Ok((info.width, info.height))
+}
+
+fn trim_long_image_bottom_whitespace(path: &Path) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|error| format!("failed to read png: {error}"))?;
+    let decoder = png::Decoder::new(std::io::Cursor::new(&bytes));
+    let mut reader = decoder.read_info().map_err(|error| format!("failed to decode png: {error}"))?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).map_err(|error| format!("failed to read png frame: {error}"))?;
+    let data = &buffer[..info.buffer_size()];
+    let channels = png_channels(info.color_type).ok_or_else(|| "unsupported png color type".to_string())?;
+    let width = info.width as usize;
+    let height = info.height as usize;
+    if width == 0 || height == 0 {
+        return Ok(());
+    }
+    let row_len = width * channels;
+    let keep_height = meaningful_png_height(data, row_len, channels, width, height);
+    if height.saturating_sub(keep_height) < 120 {
+        return Ok(());
+    }
+
+    let mut output = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut output, info.width, keep_height as u32);
+        encoder.set_color(info.color_type);
+        encoder.set_depth(info.bit_depth);
+        let mut writer = encoder.write_header().map_err(|error| format!("failed to write png header: {error}"))?;
+        writer
+            .write_image_data(&data[..keep_height * row_len])
+            .map_err(|error| format!("failed to write png data: {error}"))?;
+    }
+    fs::write(path, output).map_err(|error| format!("failed to write trimmed png: {error}"))?;
+    Ok(())
+}
+
+fn crop_long_image_split_parts(source: &Path, target: &Path, max_part_height: u32) -> Result<Vec<PathBuf>, String> {
+    if max_part_height == 0 {
+        return Err("invalid long image split height".to_string());
+    }
+    let bytes = fs::read(source).map_err(|error| format!("failed to read png: {error}"))?;
+    let decoder = png::Decoder::new(std::io::Cursor::new(&bytes));
+    let mut reader = decoder.read_info().map_err(|error| format!("failed to decode png: {error}"))?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).map_err(|error| format!("failed to read png frame: {error}"))?;
+    let data = &buffer[..info.buffer_size()];
+    let channels = png_channels(info.color_type).ok_or_else(|| "unsupported png color type".to_string())?;
+    let width = info.width as usize;
+    let height = info.height as usize;
+    if width == 0 || height == 0 {
+        return Err("empty long image screenshot".to_string());
+    }
+    let row_len = width * channels;
+    let crop_height = meaningful_png_height(data, row_len, channels, width, height).max(1);
+    let mut paths = Vec::new();
+    let mut ranges = Vec::new();
+    let mut y_start = 0usize;
+    while y_start < crop_height {
+        let remaining = crop_height - y_start;
+        let part_height = if remaining <= max_part_height as usize {
+            remaining
+        } else {
+            smart_long_image_split_end(data, row_len, channels, width, y_start, max_part_height as usize)
+                .saturating_sub(y_start)
+                .clamp(1, max_part_height as usize)
+        };
+        ranges.push((y_start, part_height));
+        y_start += part_height;
+    }
+    let part_count = ranges.len().max(1) as u32;
+    for (index, (y_start, part_height)) in ranges.into_iter().enumerate() {
+        let path = if part_count == 1 {
+            target.to_path_buf()
+        } else {
+            long_image_part_path(target, index as u32 + 1, part_count)
+        };
+        let mut part_data = Vec::with_capacity(part_height * row_len);
+        let start = y_start * row_len;
+        let end = start + part_height * row_len;
+        part_data.extend_from_slice(&data[start..end]);
+        let mut output = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut output, info.width, part_height as u32);
+            encoder.set_color(info.color_type);
+            encoder.set_depth(info.bit_depth);
+            let mut writer = encoder.write_header().map_err(|error| format!("failed to write png header: {error}"))?;
+            writer
+                .write_image_data(&part_data)
+                .map_err(|error| format!("failed to write png data: {error}"))?;
+        }
+        let _ = fs::remove_file(&path);
+        fs::write(&path, output).map_err(|error| format!("failed to write split long image: {error}"))?;
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
+fn meaningful_png_height(data: &[u8], row_len: usize, channels: usize, width: usize, height: usize) -> usize {
+    for y in (0..height).rev() {
+        if row_has_visual_detail(data, row_len, channels, width, y) {
+            return (y + 96).min(height);
+        }
+    }
+    height
+}
+
+fn smart_long_image_split_end(
+    data: &[u8],
+    row_len: usize,
+    channels: usize,
+    width: usize,
+    y_start: usize,
+    max_part_height: usize,
+) -> usize {
+    let hard_end = y_start + max_part_height;
+    let search_offset = if max_part_height > 3600 {
+        max_part_height - 2400
+    } else {
+        max_part_height * 2 / 3
+    };
+    let search_floor = y_start + search_offset.clamp(1, max_part_height.saturating_sub(1));
+    let min_band = 32usize;
+    let mut blank_run = 0usize;
+    for y in (search_floor..hard_end).rev() {
+        if row_is_soft_split_space(data, row_len, channels, width, y) {
+            blank_run += 1;
+            if blank_run >= min_band {
+                let min_end = y_start + 720.min(max_part_height / 2).max(1);
+                return (y + min_band / 2).clamp(min_end, hard_end);
+            }
+        } else {
+            blank_run = 0;
+        }
+    }
+    hard_end
+}
+
+fn row_is_soft_split_space(data: &[u8], row_len: usize, channels: usize, width: usize, y: usize) -> bool {
+    !row_has_visual_detail(data, row_len, channels, width, y)
+}
+
+fn row_has_visual_detail(data: &[u8], row_len: usize, channels: usize, width: usize, y: usize) -> bool {
+    let step = (width / 160).max(1);
+    let mut dark_or_colored = 0usize;
+    let mut samples = 0usize;
+    for x in (0..width).step_by(step) {
+        let pixel = pixel_at(data, row_len, channels, y, x);
+        let max_channel = pixel[0].max(pixel[1]).max(pixel[2]);
+        let min_channel = pixel[0].min(pixel[1]).min(pixel[2]);
+        let luma = (pixel[0] as u16 * 30 + pixel[1] as u16 * 59 + pixel[2] as u16 * 11) / 100;
+        if luma < 210 || max_channel.abs_diff(min_channel) > 28 {
+            dark_or_colored += 1;
+        }
+        samples += 1;
+    }
+    dark_or_colored > samples / 28
+}
+
+fn finalize_long_image_split_parts(target: &Path, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    let mut kept_paths = paths;
+    while kept_paths
+        .last()
+        .map(|path| !png_has_meaningful_content(path).unwrap_or(true))
+        .unwrap_or(false)
+    {
+        if let Some(path) = kept_paths.pop() {
+            let _ = fs::remove_file(path);
+        }
+    }
+    if kept_paths.is_empty() {
+        return Err("long image split produced no visible content".to_string());
+    }
+
+    if let Some(last_path) = kept_paths.last() {
+        trim_long_image_bottom_whitespace(last_path)?;
+    }
+
+    let final_count = kept_paths.len() as u32;
+    let mut final_paths = Vec::with_capacity(kept_paths.len());
+    for (index, current_path) in kept_paths.into_iter().enumerate() {
+        let destination = if final_count == 1 {
+            target.to_path_buf()
+        } else {
+            long_image_part_path(target, (index + 1) as u32, final_count)
+        };
+        if current_path != destination {
+            let _ = fs::remove_file(&destination);
+            fs::rename(&current_path, &destination)
+                .map_err(|error| format!("failed to rename split long image part: {error}"))?;
+        }
+        final_paths.push(destination);
+    }
+    Ok(final_paths)
+}
+
+fn png_has_meaningful_content(path: &Path) -> Result<bool, String> {
+    let bytes = fs::read(path).map_err(|error| format!("failed to read png: {error}"))?;
+    let decoder = png::Decoder::new(std::io::Cursor::new(&bytes));
+    let mut reader = decoder.read_info().map_err(|error| format!("failed to decode png: {error}"))?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).map_err(|error| format!("failed to read png frame: {error}"))?;
+    let data = &buffer[..info.buffer_size()];
+    let channels = png_channels(info.color_type).ok_or_else(|| "unsupported png color type".to_string())?;
+    let width = info.width as usize;
+    let height = info.height as usize;
+    if width == 0 || height == 0 {
+        return Ok(false);
+    }
+    let row_len = width * channels;
+    let row_step = (height / 240).max(1);
+    Ok((0..height)
+        .step_by(row_step)
+        .any(|y| row_has_visual_detail(data, row_len, channels, width, y)))
+}
+
+fn png_channels(color_type: png::ColorType) -> Option<usize> {
+    match color_type {
+        png::ColorType::Rgb => Some(3),
+        png::ColorType::Rgba => Some(4),
+        png::ColorType::Grayscale => Some(1),
+        png::ColorType::GrayscaleAlpha => Some(2),
+        png::ColorType::Indexed => None,
+    }
+}
+
+fn pixel_at(data: &[u8], row_len: usize, channels: usize, y: usize, x: usize) -> [u8; 4] {
+    let offset = y * row_len + x * channels;
+    let mut pixel = [0, 0, 0, 255];
+    for index in 0..channels.min(4) {
+        pixel[index] = data.get(offset + index).copied().unwrap_or(0);
+    }
+    pixel
+}
+
+fn write_temp_export_html(html: &str) -> Result<PathBuf, AppError> {
+    let path = temp_export_path("html");
+    fs::write(&path, html).map_err(|_| AppError::IoError)?;
+    Ok(path)
+}
+
+fn temp_export_path(extension: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("nutbook-markdown-export-{nanos}.{extension}"))
+}
+
+fn file_url(path: &Path) -> Result<String, AppError> {
+    url::Url::from_file_path(path)
+        .map(|url| url.to_string())
+        .map_err(|_| AppError::InvalidParams)
+}
+
+fn markdown_export_template(app: &tauri::AppHandle, template: &str) -> String {
+    let file_name = match template {
+        PRESENTATION_DARK_TEMPLATE => "markdown-presentation-dark.html",
+        PRESENTATION_LIGHT_TEMPLATE => "markdown-presentation-light.html",
+        READING_DARK_TEMPLATE => "markdown-reading-dark.html",
+        READING_LIGHT_TEMPLATE | READING_TEMPLATE => "markdown-reading-light.html",
+        _ => "markdown-reading-light.html",
+    };
+    let resource_path = format!("resources/export-templates/{file_name}");
+    let dev_path = format!("src-tauri/resources/export-templates/{file_name}");
+    app.path()
+        .resolve(&resource_path, BaseDirectory::Resource)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .or_else(|| std::fs::read_to_string(dev_path).ok())
+        .unwrap_or_else(|| match template {
+            PRESENTATION_DARK_TEMPLATE => fallback_presentation_dark_template().to_string(),
+            PRESENTATION_LIGHT_TEMPLATE => fallback_presentation_light_template().to_string(),
+            READING_DARK_TEMPLATE => fallback_reading_dark_template().to_string(),
+            READING_LIGHT_TEMPLATE | READING_TEMPLATE => fallback_reading_light_template().to_string(),
+            _ => fallback_reading_light_template().to_string(),
+        })
+}
+
+fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> Result<PresentationHtmlExportPreferences, AppError> {
+    let aspect_ratio = preferences
+        .and_then(|value| value.aspect_ratio.clone())
+        .unwrap_or_else(|| "16-9".to_string());
+    let aspect_ratio = if aspect_ratio == "4-3" {
+        "4-3".to_string()
+    } else {
+        "16-9".to_string()
+    };
+    let output_kind = match preferences.and_then(|value| value.output_kind.as_deref()) {
+        Some(PRESENTATION_OUTPUT_STATIC) | None => PRESENTATION_OUTPUT_STATIC.to_string(),
+        Some(PRESENTATION_OUTPUT_DYNAMIC) => PRESENTATION_OUTPUT_DYNAMIC.to_string(),
+        Some(_) => return Err(AppError::InvalidParams),
+    };
+    let density = match preferences
+        .and_then(|value| value.density.as_deref())
+        .unwrap_or("balanced")
+    {
+        "master" | "concise" => PresentationDensity::Master,
+        "report" | "detailed" => PresentationDensity::Report,
+        _ => PresentationDensity::Balanced,
+    };
+    Ok(PresentationHtmlExportPreferences {
+        aspect_ratio,
+        density,
+        output_kind,
+    })
+}
+
+fn export_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>) -> MarkdownHtmlExportPreferences {
+    let Some(preferences) = preferences else {
+        return MarkdownHtmlExportPreferences::default();
+    };
+    MarkdownHtmlExportPreferences {
+        embed_images: preferences.embed_images,
+        code_copy: preferences.code_copy,
+        outline: preferences.outline,
+        width: match preferences.width.as_str() {
+            "compact" => ReadingWidth::Compact,
+            "wide" => ReadingWidth::Wide,
+            _ => ReadingWidth::Standard,
+        },
+    }
+}
+
+fn format_export_modified_at(modified_at: &str) -> String {
+    let trimmed = modified_at.trim();
+    if trimmed.is_empty() {
+        return "修改时间未知".to_string();
+    }
+    trimmed.split_once('.').map(|(seconds, _)| seconds).unwrap_or(trimmed)
+        .parse::<i64>().ok().and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
+        .map(|time| format!("修改时间：{}", time.format("%Y-%m-%d %H:%M")))
+        .unwrap_or_else(|| format!("修改时间：{trimmed}"))
+}
+
+#[tauri::command]
+pub fn export_markdown_html(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: ExportMarkdownHtmlRequest,
+) -> Result<ExportMarkdownHtmlResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+    let target = rfd::FileDialog::new()
+        .set_file_name(&default_markdown_html_file_name(&item.summary.file_name))
+        .add_filter("HTML", &["html", "htm"])
+        .save_file()
+        .ok_or(AppError::ExportCancelled)?;
+    let template_html = markdown_export_template(&app, &payload.template);
+    export_markdown_html_to_path(&state, payload, &target, template_html)
+}
+
+#[tauri::command]
+pub fn export_markdown_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: ExportMarkdownPdfRequest,
+) -> Result<ExportMarkdownPdfResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    let default_name = default_markdown_export_file_name(&item.summary.file_name, "pdf");
+    let target = rfd::FileDialog::new()
+        .set_file_name(&default_name)
+        .add_filter("PDF", &["pdf"])
+        .save_file()
+        .ok_or(AppError::InvalidParams)?;
+
+    let template = markdown_export_template(&app, READING_LIGHT_TEMPLATE);
+    export_markdown_pdf_to_path(&state, payload, &target, template, find_local_chromium_executable())
+}
+
+#[tauri::command]
+pub fn preflight_markdown_long_image_export(
+    state: tauri::State<'_, AppState>,
+    payload: ExportMarkdownLongImageRequest,
+) -> Result<ExportMarkdownLongImagePreflightResponse, AppError> {
+    preflight_markdown_long_image(state.inner(), &payload)
+}
+
+#[tauri::command]
+pub fn select_markdown_long_image_export_path(
+    state: tauri::State<'_, AppState>,
+    payload: SelectMarkdownLongImageExportPathRequest,
+) -> Result<SelectMarkdownLongImageExportPathResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    let default_name = default_markdown_export_file_name(&item.summary.file_name, "png");
+    let target_path = rfd::FileDialog::new()
+        .set_file_name(&default_name)
+        .add_filter("PNG", &["png"])
+        .save_file()
+        .map(|path| path.to_string_lossy().to_string());
+
+    Ok(SelectMarkdownLongImageExportPathResponse { target_path })
+}
+
+#[tauri::command]
+pub async fn export_markdown_long_image_to_path_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: ExportMarkdownLongImageToPathRequest,
+) -> Result<ExportMarkdownLongImageResponse, AppError> {
+    let template = if payload.template == LONG_IMAGE_DARK_TEMPLATE {
+        markdown_export_template(&app, READING_DARK_TEMPLATE)
+    } else {
+        markdown_export_template(&app, READING_LIGHT_TEMPLATE)
+    };
+    let database = state.database.clone();
+    let chromium_path = find_local_chromium_executable();
+    tauri::async_runtime::spawn_blocking(move || {
+        export_markdown_long_image_to_selected_path(&database, payload, template, chromium_path)
+    })
+    .await
+    .map_err(|_| AppError::InternalError)?
+}
+
+#[tauri::command]
+pub async fn export_markdown_long_image(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: ExportMarkdownLongImageRequest,
+) -> Result<ExportMarkdownLongImageResponse, AppError> {
+    let item = state.get_item_detail(payload.item_id)?;
+    if item.summary.file_type != "markdown" {
+        return Err(AppError::UnsupportedFileType);
+    }
+
+    let default_name = default_markdown_export_file_name(&item.summary.file_name, "png");
+    let target = rfd::FileDialog::new()
+        .set_file_name(&default_name)
+        .add_filter("PNG", &["png"])
+        .save_file()
+        .ok_or(AppError::InvalidParams)?;
+
+    let template = if payload.template == LONG_IMAGE_DARK_TEMPLATE {
+        markdown_export_template(&app, READING_DARK_TEMPLATE)
+    } else {
+        markdown_export_template(&app, READING_LIGHT_TEMPLATE)
+    };
+    let database = state.database.clone();
+    let chromium_path = find_local_chromium_executable();
+    tauri::async_runtime::spawn_blocking(move || {
+        export_markdown_long_image_to_path(&database, payload, &target, template, chromium_path)
+    })
+    .await
+    .map_err(|_| AppError::InternalError)?
+}
+
+fn default_markdown_export_file_name(file_name: &str, extension: &str) -> String {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(file_name);
+    format!("{stem}.{extension}")
+}
+
 const MARKDOWN_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
 
 fn is_supported_markdown_image(path: &std::path::Path) -> bool {
@@ -1733,8 +3153,9 @@ mod tests {
     };
 
     use super::{
-        copy_markdown_cover_asset_impl, copy_markdown_image_asset_impl,
-        delete_markdown_image_asset_impl, markdown_export_default_file_name,
+        copy_markdown_cover_asset_impl, copy_markdown_image_asset_impl, decorate_pdf_html,
+        delete_markdown_image_asset_impl, export_markdown_html_to_path,
+        export_markdown_long_image_to_path, export_markdown_pdf_to_path, markdown_export_default_file_name,
         release_markdown_cover_lease_impl, save_markdown_content_impl,
         validate_markdown_cover_asset_impl,
     };
@@ -1793,6 +3214,107 @@ mod tests {
         let mut item_identity = external_session_record("ext-1", 3);
         item_identity.key = crate::core::content_session::RuntimeKey::Item(7);
         assert!(authorize(&item_identity, &json!({ "sessionId": "ext-1", "generation": 3 })).is_err());
+    }
+
+    fn write_test_png(path: &std::path::Path, width: u32, height: u32, content_height: u32) -> Result<(), String> {
+        let mut data = vec![249u8; (width * height * 3) as usize];
+        for y in 0..content_height.min(height) {
+            for x in 0..width {
+                let offset = ((y * width + x) * 3) as usize;
+                data[offset] = 40;
+                data[offset + 1] = 42;
+                data[offset + 2] = 44;
+            }
+        }
+        let mut output = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut output, width, height);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
+            writer.write_image_data(&data).map_err(|error| error.to_string())?;
+        }
+        fs::write(path, output).map_err(|error| error.to_string())
+    }
+
+    fn write_test_png_with_blank_band(path: &std::path::Path, width: u32, height: u32, blank_start: u32, blank_end: u32) -> Result<(), String> {
+        let mut data = vec![249u8; (width * height * 3) as usize];
+        for y in 0..height {
+            if y >= blank_start && y < blank_end {
+                continue;
+            }
+            for x in 6..width.saturating_sub(6) {
+                let offset = ((y * width + x) * 3) as usize;
+                data[offset] = 40;
+                data[offset + 1] = 42;
+                data[offset + 2] = 44;
+            }
+        }
+        let mut output = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut output, width, height);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
+            writer.write_image_data(&data).map_err(|error| error.to_string())?;
+        }
+        fs::write(path, output).map_err(|error| error.to_string())
+    }
+
+    fn png_dimensions_for_test(path: &std::path::Path) -> Result<(u32, u32), String> {
+        let bytes = fs::read(path).map_err(|error| error.to_string())?;
+        let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        let reader = decoder.read_info().map_err(|error| error.to_string())?;
+        let info = reader.info();
+        Ok((info.width, info.height))
+    }
+
+    fn insert_markdown_item(
+        state: &AppState,
+        root: &std::path::Path,
+        markdown_path: &std::path::Path,
+        markdown: &str,
+    ) {
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Export".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: markdown_path
+                        .strip_prefix(root)
+                        .unwrap_or(markdown_path)
+                        .to_string_lossy()
+                        .to_string(),
+                    file_name: markdown_path
+                        .file_name()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("note.md")
+                        .to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: markdown.len() as i64,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
     }
 
     #[test]
@@ -2094,6 +3616,641 @@ mod tests {
             markdown_export_default_file_name("AI/Report: Draft?", "old-name.md"),
             "AI_Report_ Draft_.md"
         );
+    }
+
+    #[test]
+    fn export_markdown_html_writes_reading_html_and_rejects_stale_hash() {
+        let root = temp_path("export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("note.md");
+        fs::write(&markdown_path, "# Export\n\n![Hero](hero.png)").expect("markdown file should be written");
+        fs::write(root.join("hero.png"), b"abc").expect("image should be written");
+
+        let db_path = temp_path("export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Export".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "note.md".to_string(),
+                    file_name: "note.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: 29,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
+
+        let target = root.join("note.html");
+        let response = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "reading".to_string(),
+                preferences: None,
+                expected_file_hash: content_hash("# Export\n\n![Hero](hero.png)"),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_reading_light_template().to_string(),
+        )
+        .expect("html export should succeed");
+
+        let html = fs::read_to_string(&target).expect("target html should read");
+        assert!(response.exported);
+        assert!(response.warnings.is_empty());
+        assert!(!html.contains(r#"<h1 id="export">Export</h1>"#));
+        assert!(html.contains("<title>Export</title>"));
+        assert!(html.contains("data:image/png;base64,YWJj"));
+
+        let error = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "reading".to_string(),
+                preferences: None,
+                expected_file_hash: "stale".to_string(),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_reading_light_template().to_string(),
+        )
+        .expect_err("stale hash should be rejected");
+        assert_eq!(error.code(), "EDIT_CONFLICT");
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_markdown_html_accepts_presentation_template() {
+        let root = temp_path("presentation-export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("deck.md");
+        let markdown = "# Deck\n\nIntro.\n\n## First\n\nContent.\n\n## Second\n\nMore.";
+        fs::write(&markdown_path, markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("presentation-export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+
+        state
+            .upsert_library(Library {
+                id: 1,
+                name: "Deck".to_string(),
+                root_path: root.to_string_lossy().to_string(),
+                source_kind: "folder".to_string(),
+                path_state: "valid".to_string(),
+                is_active: true,
+                created_at: "1".to_string(),
+                updated_at: "1".to_string(),
+                last_scanned_at: None,
+                skill_binding: None,
+            })
+            .expect("library should be created");
+
+        state
+            .replace_items_for_library(
+                1,
+                &[IndexedItemRecord {
+                    library_id: 1,
+                    file_path: markdown_path.to_string_lossy().to_string(),
+                    relative_path: "deck.md".to_string(),
+                    file_name: "deck.md".to_string(),
+                    file_ext: "md".to_string(),
+                    file_type: "markdown".to_string(),
+                    file_size: markdown.len() as i64,
+                    modified_at: "1".to_string(),
+                    created_at: "1".to_string(),
+                    updated_at: "1".to_string(),
+                }],
+            )
+            .expect("item should be inserted");
+
+        let target = root.join("deck.html");
+        let response = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "presentation-light".to_string(),
+                preferences: Some(crate::models::ExportMarkdownHtmlPreferences {
+                    embed_images: true,
+                    code_copy: true,
+                    outline: true,
+                    width: "standard".to_string(),
+                    aspect_ratio: Some("16-9".to_string()),
+                    density: Some("balanced".to_string()),
+                    output_kind: Some("static".to_string()),
+                }),
+                expected_file_hash: content_hash(markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_presentation_light_template().to_string(),
+        )
+        .expect("presentation html export should succeed");
+
+        let html = fs::read_to_string(&target).expect("target html should read");
+        assert!(response.exported);
+        assert!(html.contains(r#"<main class="deck aspect-16-9""#));
+        assert!(html.contains("data-presentation-controls"));
+        assert!(html.contains("Deck"));
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_markdown_html_rejects_invalid_presentation_output_kind() {
+        let root = temp_path("presentation-invalid-output-kind-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("deck.md");
+        let markdown = "# Deck\n\n## First\n\nContent.";
+        fs::write(&markdown_path, markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("presentation-invalid-output-kind-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &markdown_path, markdown);
+
+        let target = root.join("deck.html");
+        let error = export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "presentation-light".to_string(),
+                preferences: Some(crate::models::ExportMarkdownHtmlPreferences {
+                    embed_images: true,
+                    code_copy: true,
+                    outline: true,
+                    width: "standard".to_string(),
+                    aspect_ratio: Some("16-9".to_string()),
+                    density: Some("balanced".to_string()),
+                    output_kind: Some("surprise".to_string()),
+                }),
+                expected_file_hash: content_hash(markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_presentation_light_template().to_string(),
+        )
+        .expect_err("invalid presentation output kind should be rejected");
+
+        assert_eq!(error.code(), "INVALID_PARAMS");
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_markdown_html_normalizes_removed_portrait_presentation_to_landscape() {
+        let root = temp_path("portrait-export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("deck.md");
+        let markdown = "# Deck\n\n## First\n\nContent.";
+        fs::write(&markdown_path, markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("portrait-export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &markdown_path, markdown);
+
+        let target = root.join("deck.html");
+        export_markdown_html_to_path(
+            &state,
+            crate::models::ExportMarkdownHtmlRequest {
+                item_id: 1,
+                template: "presentation-light".to_string(),
+                preferences: Some(crate::models::ExportMarkdownHtmlPreferences {
+                    embed_images: true,
+                    code_copy: true,
+                    outline: true,
+                    width: "standard".to_string(),
+                    aspect_ratio: Some("portrait".to_string()),
+                    density: Some("balanced".to_string()),
+                    output_kind: Some("static".to_string()),
+                }),
+                expected_file_hash: content_hash(markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_presentation_light_template().to_string(),
+        )
+        .expect("presentation html export should succeed");
+
+        let html = fs::read_to_string(&target).expect("target html should read");
+        assert!(html.contains(r#"<main class="deck aspect-16-9""#));
+        assert!(!html.contains("aspect-portrait"));
+        assert!(!html.contains("mobile-landscape-hint"));
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_markdown_pdf_requires_export_engine() {
+        let root = temp_path("pdf-export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("note.md");
+        let markdown = "# PDF\n\nContent.";
+        fs::write(&markdown_path, markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("pdf-export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &markdown_path, markdown);
+
+        let target = root.join("note.pdf");
+        let error = export_markdown_pdf_to_path(
+            &state,
+            crate::models::ExportMarkdownPdfRequest {
+                item_id: 1,
+                template: "document".to_string(),
+                preferences: crate::models::ExportMarkdownPdfPreferences {
+                    margin: "standard".to_string(),
+                    cover_and_toc: true,
+                    page_numbers: true,
+                },
+                expected_file_hash: content_hash(markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_reading_light_template().to_string(),
+            None,
+        )
+        .expect_err("missing export engine should be rejected");
+
+        assert_eq!(error.code(), "EXPORT_ENGINE_UNAVAILABLE");
+        assert!(!target.exists());
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn decorate_pdf_html_adds_cover_toc_and_print_footer() {
+        let request = crate::models::ExportMarkdownPdfRequest {
+            item_id: 1,
+            template: "document".to_string(),
+            preferences: crate::models::ExportMarkdownPdfPreferences {
+                margin: "standard".to_string(),
+                cover_and_toc: true,
+                page_numbers: true,
+            },
+            expected_file_hash: "hash".to_string(),
+            expected_modified_at: None,
+        };
+        let html = r#"<!doctype html><html><head></head><body class="outline-collapsed"><main class="page"><header><h1>Old</h1><div>note.md · 修改时间</div></header><article><h1 id="main-title">Main Title</h1><h2 id="section">Section</h2><h3 id="detail">Detail</h3></article><footer>by NUTBOOK · /tmp/note.md</footer></main></body></html>"#;
+
+        let decorated = decorate_pdf_html(
+            html,
+            &request,
+            false,
+            "Main Title",
+            "# Main Title\n\n## Section\n\n### Detail",
+        );
+
+        assert!(decorated.contains(r#"class="outline-collapsed pdf-export pdf-cover-toc""#));
+        assert!(decorated.contains(r#"<section class="pdf-cover-page" aria-label="封面">"#));
+        assert!(decorated.contains(r#"<h1>Main Title</h1>"#));
+        assert!(!decorated.contains("pdf-cover-mark"));
+        assert!(decorated.contains(r#"<section class="pdf-toc-page" aria-label="目录">"#));
+        assert!(decorated.contains(r#"class="pdf-toc-entry pdf-toc-level-2""#));
+        assert!(decorated.contains(r#"class="pdf-toc-entry pdf-toc-level-3""#));
+        assert!(decorated.contains(r#"class="pdf-toc-page-number">3</span>"#));
+        assert!(decorated.contains("main.page > header"));
+        assert!(decorated.contains("main.page > footer"));
+        assert!(!decorated.contains("<footer"));
+        assert!(decorated.contains("@page { size: A4 portrait; margin: 16mm; }"));
+        assert!(decorated.contains(".export-layout"));
+        assert!(decorated.contains(".export-outline"));
+        assert!(decorated.contains("table, pre, figure, img, blockquote, .table-frame, .code-frame, .figure-layout, .figure-media"));
+        assert!(decorated.contains("break-inside: avoid"));
+        assert!(decorated.contains("white-space: pre-wrap"));
+        assert!(decorated.contains("overflow-wrap: anywhere"));
+        assert!(!decorated.contains("note.md · 修改时间"));
+        assert!(!decorated.contains("/tmp/note.md"));
+        assert!(!decorated.contains("pdf-fixed-footer"));
+        assert!(!decorated.contains("pdf-fixed-page-number"));
+        assert!(decorated.contains("@bottom-left"));
+        assert!(decorated.contains("by NUTBOOK"));
+        assert!(decorated.contains("@bottom-right"));
+        assert!(decorated.contains("@page pdf-cover"));
+    }
+
+    #[test]
+    fn decorate_pdf_html_omits_cover_toc_when_disabled() {
+        let request = crate::models::ExportMarkdownPdfRequest {
+            item_id: 1,
+            template: "document".to_string(),
+            preferences: crate::models::ExportMarkdownPdfPreferences {
+                margin: "compact".to_string(),
+                cover_and_toc: false,
+                page_numbers: false,
+            },
+            expected_file_hash: "hash".to_string(),
+            expected_modified_at: None,
+        };
+        // Reading export moves the first Markdown H1 into the template header.
+        let html = r#"<!doctype html><html><head></head><body><main class="page"><header><h1>Title</h1><div>修改时间：2026-09-23</div></header><article><p>Body</p></article><footer>by NUTBOOK</footer></main></body></html>"#;
+
+        let decorated = decorate_pdf_html(html, &request, false, "Title", "# Title");
+
+        assert!(decorated.contains(r#"class="pdf-export pdf-no-cover-toc""#));
+        assert!(decorated.contains("<header><h1>Title</h1><div>修改时间：2026-09-23</div></header>"));
+        assert!(!decorated.contains("<footer>"));
+        assert!(!decorated.contains(r#"<section class="pdf-cover-page""#));
+        assert!(!decorated.contains(r#"<section class="pdf-toc-page""#));
+        assert!(!decorated.contains("pdf-fixed-page-number"));
+        assert!(!decorated.contains("pdf-fixed-footer"));
+        assert!(decorated.contains("@bottom-left"));
+    }
+
+    #[test]
+    fn decorate_pdf_html_expands_report_slides_and_removes_controls() {
+        let request = crate::models::ExportMarkdownPdfRequest {
+            item_id: 1,
+            template: "report".to_string(),
+            preferences: crate::models::ExportMarkdownPdfPreferences {
+                margin: "standard".to_string(),
+                cover_and_toc: true,
+                page_numbers: true,
+            },
+            expected_file_hash: "hash".to_string(),
+            expected_modified_at: None,
+        };
+        let html = r#"<!doctype html><html><head></head><body><div class="deck-shell"><main class="deck aspect-16-9"><section class="slide is-active">One</section><section class="slide">Two</section><section class="slide">Three</section></main></div><div class="presentation-controls" data-presentation-controls><button>‹</button></div></body></html>"#;
+
+        let decorated = decorate_pdf_html(html, &request, true, "Report", "# Report\n\n## One");
+
+        assert!(decorated.contains("@page { size: A4 landscape; margin: 16mm; }"));
+        assert!(!decorated.contains(r#"data-slide-kind="cover""#));
+        assert!(!decorated.contains("data-presentation-controls"));
+        assert!(decorated.contains("position: relative !important"));
+        assert!(decorated.contains("opacity: 1 !important"));
+        assert!(decorated.contains("background: #fff !important"));
+        assert!(decorated.contains("aspect-ratio: auto !important"));
+        assert!(decorated.contains(".presentation-controls { display: none !important; }"));
+    }
+
+    #[test]
+    fn export_markdown_long_image_rejects_unstable_height_before_launching_engine() {
+        let root = temp_path("long-image-export-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("long.md");
+        let markdown = "# Long\n\n".to_string() + &"Paragraph.\n\n".repeat(2600);
+        fs::write(&markdown_path, &markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("long-image-export-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &markdown_path, &markdown);
+
+        let target = root.join("long.png");
+        let error = export_markdown_long_image_to_path(
+            &state,
+            crate::models::ExportMarkdownLongImageRequest {
+                item_id: 1,
+                template: "light".to_string(),
+                preferences: crate::models::ExportMarkdownLongImagePreferences {
+                    width: 1440,
+                    quality: "standard".to_string(),
+                },
+                expected_file_hash: content_hash(&markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+            &target,
+            crate::core::markdown_export::fallback_reading_light_template().to_string(),
+            Some(std::path::PathBuf::from("/tmp/fake-chromium")),
+        )
+        .expect_err("overlong image should be rejected");
+
+        assert_eq!(error.code(), "EXPORT_LONG_IMAGE_TOO_TALL");
+        assert!(!target.exists());
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn preflight_markdown_long_image_marks_unstable_height_for_split_before_save_dialog() {
+        let root = temp_path("long-image-preflight-root");
+        fs::create_dir_all(&root).expect("root dir should be created");
+        let markdown_path = root.join("long.md");
+        let markdown = "# Long\n\n".to_string() + &"Paragraph.\n\n".repeat(1500);
+        fs::write(&markdown_path, &markdown).expect("markdown file should be written");
+
+        let db_path = temp_path("long-image-preflight-db").with_extension("sqlite3");
+        let database = Database::new(&db_path).expect("db should initialize");
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &markdown_path, &markdown);
+
+        let response = super::preflight_markdown_long_image(
+            &state,
+            &crate::models::ExportMarkdownLongImageRequest {
+                item_id: 1,
+                template: "light".to_string(),
+                preferences: crate::models::ExportMarkdownLongImagePreferences {
+                    width: 1080,
+                    quality: "standard".to_string(),
+                },
+                expected_file_hash: content_hash(&markdown),
+                expected_modified_at: Some("1".to_string()),
+            },
+        )
+        .expect("overlong image should be marked for split before save dialog");
+
+        assert!(!response.ok);
+        assert!(response.requires_split);
+        assert!(response.estimated_height > response.max_height);
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_modified_at_is_formatted_for_humans() {
+        assert!(super::format_export_modified_at("1781149127").starts_with("修改时间："));
+        assert!(!super::format_export_modified_at("1781149127").contains("1781149127"));
+        assert!(!super::format_export_modified_at("1781149127.984249811").contains("1781149127"));
+        assert_eq!(super::format_export_modified_at(""), "修改时间未知");
+    }
+
+    #[test]
+    fn long_image_height_estimate_keeps_short_documents_tight() {
+        let height = super::estimate_long_image_height("# Short\n\nOne paragraph.", 1080);
+
+        assert_eq!(height, 720);
+    }
+
+    #[test]
+    fn long_image_width_defaults_to_social_share_width() {
+        assert_eq!(super::normalize_long_image_width(1080), 1080);
+        assert_eq!(super::normalize_long_image_width(800), 800);
+        assert_eq!(super::normalize_long_image_width(1440), 1440);
+        assert_eq!(super::normalize_long_image_width(1920), 1080);
+        assert_eq!(super::normalize_long_image_width(0), 1080);
+    }
+
+    #[test]
+    fn long_image_to_path_request_requires_target_path() {
+        let error = super::long_image_request_from_target(&crate::models::ExportMarkdownLongImageToPathRequest {
+            item_id: 1,
+            template: "light".to_string(),
+            preferences: crate::models::ExportMarkdownLongImagePreferences {
+                width: 1080,
+                quality: "standard".to_string(),
+            },
+            expected_file_hash: "hash".to_string(),
+            expected_modified_at: None,
+            target_path: " ".to_string(),
+            split: None,
+        })
+        .expect_err("empty target path should be rejected");
+
+        assert_eq!(error.code(), "INVALID_PARAMS");
+    }
+
+    #[test]
+    fn long_image_body_skips_first_h1() {
+        let markdown = "# Title\n\nIntro\n\n## Section\n\nContent";
+
+        let body = super::remove_first_markdown_h1(markdown);
+
+        assert!(!body.contains("# Title"));
+        assert!(body.contains("Intro"));
+        assert!(body.contains("## Section"));
+    }
+
+    #[test]
+    fn long_image_trims_large_bottom_whitespace() {
+        let path = temp_path("long-image-trim").with_extension("png");
+        write_test_png(&path, 40, 360, 80).expect("png should be written");
+
+        super::trim_long_image_bottom_whitespace(&path).expect("png should trim");
+
+        let (_, height) = png_dimensions_for_test(&path).expect("trimmed png should decode");
+        assert!(height < 220);
+        assert!(height >= 170);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn long_image_rejects_png_near_stable_capture_limit() {
+        assert!(super::long_image_output_height_is_unstable(
+            super::LONG_IMAGE_STABLE_MAX_HEIGHT as u32
+        ));
+        assert!(super::long_image_output_height_is_unstable(
+            (super::LONG_IMAGE_STABLE_MAX_HEIGHT + 1) as u32
+        ));
+        assert!(!super::long_image_output_height_is_unstable(
+            (super::LONG_IMAGE_STABLE_MAX_HEIGHT - 1) as u32
+        ));
+    }
+
+    #[test]
+    fn long_image_rejects_and_removes_truncated_output_file() {
+        let path = temp_path("long-image-unstable-output").with_extension("png");
+        write_test_png(&path, 40, super::LONG_IMAGE_STABLE_MAX_HEIGHT as u32, 40).expect("png should be written");
+
+        let error = super::reject_unstable_long_image_output(&path).expect_err("unstable png should be rejected");
+
+        assert_eq!(error.code(), "EXPORT_LONG_IMAGE_TOO_TALL");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn long_image_split_finalization_removes_blank_tail_and_renames_single_part() {
+        let target = temp_path("long-image-split").with_extension("png");
+        let first = super::long_image_part_path(&target, 1, 2);
+        let second = super::long_image_part_path(&target, 2, 2);
+        write_test_png(&first, 40, 240, 180).expect("first png should be written");
+        write_test_png(&second, 40, 720, 0).expect("blank tail png should be written");
+
+        let finalized = super::finalize_long_image_split_parts(&target, vec![first.clone(), second.clone()])
+            .expect("blank tail should be removed");
+
+        assert_eq!(finalized, vec![target.clone()]);
+        assert!(target.exists());
+        assert!(!first.exists());
+        assert!(!second.exists());
+
+        let _ = fs::remove_file(target);
+    }
+
+    #[test]
+    fn long_image_segment_html_uses_static_offset_instead_of_scroll() {
+        let html = r#"<!doctype html><html><head></head><body><main class="page">Content</main></body></html>"#;
+
+        let decorated = super::decorate_long_image_segment_html(html, 1080, 14800);
+
+        assert!(decorated.contains("overflow: hidden"));
+        assert!(decorated.contains("transform: translateY(-14800px)"));
+        assert!(!decorated.contains("scrollTo"));
+    }
+
+    #[test]
+    fn long_image_split_probe_keeps_full_segment_height_after_estimate_limit() {
+        let segment_height = super::long_image_split_segment_height(false);
+        let probes = super::long_image_split_probe_plan(segment_height);
+
+        assert!(probes.len() >= 3);
+        assert_eq!(probes[0], (0, segment_height));
+        assert_eq!(probes[1], (segment_height, segment_height));
+        assert_eq!(probes[2], (segment_height * 2, segment_height));
+    }
+
+    #[test]
+    fn long_image_split_capture_uses_fixed_max_height_without_probe() {
+        let height = super::long_image_split_capture_height(false);
+
+        assert_eq!(height, super::LONG_IMAGE_SPLIT_CAPTURE_MAX_HEIGHT);
+        assert_eq!(
+            super::long_image_split_capture_height(true),
+            super::LONG_IMAGE_SPLIT_CAPTURE_MAX_HEIGHT / 2
+        );
+    }
+
+    #[test]
+    fn long_image_split_crops_at_nearby_blank_band_before_hard_limit() {
+        let source = temp_path("long-image-smart-source").with_extension("png");
+        let target = temp_path("long-image-smart-target").with_extension("png");
+        write_test_png_with_blank_band(&source, 80, 620, 360, 410).expect("source png should be written");
+
+        let paths = super::crop_long_image_split_parts(&source, &target, 500).expect("source should crop");
+
+        assert_eq!(paths.len(), 2);
+        let (_, first_height) = png_dimensions_for_test(&paths[0]).expect("first crop should decode");
+        assert!(first_height < 500);
+        assert!(first_height >= 360);
+
+        let _ = fs::remove_file(source);
+        for path in paths {
+            let _ = fs::remove_file(path);
+        }
     }
 
     #[test]

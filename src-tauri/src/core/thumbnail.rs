@@ -476,6 +476,24 @@ pub struct PresentationThumbnailWorkerInput {
 }
 
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromiumPdfInput {
+    pub chromium_path: PathBuf,
+    pub url: String,
+    pub output_path: PathBuf,
+    pub landscape: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromiumLongImageInput {
+    pub chromium_path: PathBuf,
+    pub url: String,
+    pub output_path: PathBuf,
+    pub width: i32,
+    pub height: i32,
+    pub high_quality: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbnailBackend {
     Auto,
@@ -988,6 +1006,84 @@ fn set_nonblocking(fd: RawFd) -> Result<(), String> {
     Ok(())
 }
 
+pub fn export_pdf_with_chromium(input: ChromiumPdfInput) -> Result<(), String> {
+    if !input.chromium_path.is_file() {
+        return Err("chromium executable not found".to_string());
+    }
+
+    let profile_path = temp_chromium_profile_path();
+    let _ = fs::create_dir_all(&profile_path);
+    let args = chromium_pdf_args(
+        &input.output_path,
+        &profile_path,
+        &input.url,
+        input.landscape,
+    );
+    run_chromium_export(&input.chromium_path, &args, &input.output_path, &profile_path)?;
+    let bytes = fs::read(&input.output_path).map_err(|error| format!("failed to read pdf: {error}"))?;
+    if !bytes.starts_with(b"%PDF") {
+        let _ = fs::remove_file(&input.output_path);
+        return Err("chromium did not produce a PDF file".to_string());
+    }
+    Ok(())
+}
+
+pub fn export_long_image_with_chromium(input: ChromiumLongImageInput) -> Result<(), String> {
+    if !input.chromium_path.is_file() {
+        return Err("chromium executable not found".to_string());
+    }
+
+    let profile_path = temp_chromium_profile_path();
+    let _ = fs::create_dir_all(&profile_path);
+    let args = chromium_long_image_args(
+        &input.output_path,
+        &profile_path,
+        &input.url,
+        input.width,
+        input.height,
+        input.high_quality,
+    );
+    run_chromium_export(&input.chromium_path, &args, &input.output_path, &profile_path)?;
+    let bytes = fs::read(&input.output_path).map_err(|error| format!("failed to read long image: {error}"))?;
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let _ = fs::remove_file(&input.output_path);
+        return Err("chromium did not produce a PNG screenshot".to_string());
+    }
+    Ok(())
+}
+
+fn run_chromium_export(
+    chromium_path: &Path,
+    args: &[String],
+    output_path: &Path,
+    profile_path: &Path,
+) -> Result<(), String> {
+    if should_launch_system_browser_via_open(chromium_path) {
+        launch_system_browser_export_via_open(chromium_path, args, output_path)?;
+    } else {
+        let output = Command::new(chromium_path)
+            .args(args)
+            .output()
+            .map_err(|error| {
+                let _ = fs::remove_dir_all(profile_path);
+                format!("failed to launch chromium: {error}")
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let _ = fs::remove_file(output_path);
+            let _ = fs::remove_dir_all(profile_path);
+            return Err(format!("chromium export failed: {stderr}"));
+        }
+    }
+
+    let _ = fs::remove_dir_all(profile_path);
+    if !output_path.is_file() {
+        return Err("chromium did not produce an output file".to_string());
+    }
+    Ok(())
+}
+
 fn should_launch_system_browser_via_open(chromium_path: &Path) -> bool {
     chromium_path.starts_with("/Applications/") && chromium_app_bundle_path(chromium_path).is_some()
 }
@@ -1014,6 +1110,43 @@ fn launch_system_browser_screenshot_via_open(
         .args(args)
         .output()
         .map_err(|error| format!("failed to launch system browser with open: {error}"))
+}
+
+fn launch_system_browser_export_via_open(
+    chromium_path: &Path,
+    args: &[String],
+    output_path: &Path,
+) -> Result<(), String> {
+    let Some(app_bundle_path) = chromium_app_bundle_path(chromium_path) else {
+        return Err("system browser app bundle not found".to_string());
+    };
+
+    let output = Command::new("open")
+        .arg("-n")
+        .arg(&app_bundle_path)
+        .arg("--args")
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to launch system browser with open: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!(
+            "open failed to launch system browser: {}{}",
+            stdout,
+            if stderr.is_empty() { "" } else { stderr.as_ref() }
+        ));
+    }
+
+    for _ in 0..40 {
+        if output_path.is_file() {
+            return Ok(());
+        }
+        thread::sleep(std::time::Duration::from_millis(250));
+    }
+
+    Err("system browser launched, but export file was not produced before timeout; macOS may have blocked the request".to_string())
 }
 
 pub fn chromium_screenshot_args(
@@ -1043,6 +1176,64 @@ pub fn chromium_screenshot_args(
         format!("--screenshot={}", output_path.to_string_lossy()),
         format!("--window-size={width},{height}"),
         url.to_string(),
+    ]
+}
+
+pub fn chromium_pdf_args(
+    output_path: &Path,
+    profile_path: &Path,
+    url: &str,
+    landscape: bool,
+) -> Vec<String> {
+    let mut args = chromium_base_args(profile_path);
+    args.push("--run-all-compositor-stages-before-draw".to_string());
+    args.push("--virtual-time-budget=3000".to_string());
+    args.push(format!("--print-to-pdf={}", output_path.to_string_lossy()));
+    args.push("--print-to-pdf-no-header".to_string());
+    args.push("--no-pdf-header-footer".to_string());
+    if landscape {
+        args.push("--landscape".to_string());
+    }
+    args.push(url.to_string());
+    args
+}
+
+pub fn chromium_long_image_args(
+    output_path: &Path,
+    profile_path: &Path,
+    url: &str,
+    width: i32,
+    height: i32,
+    high_quality: bool,
+) -> Vec<String> {
+    let mut args = chromium_base_args(profile_path);
+    args.push("--hide-scrollbars".to_string());
+    args.push("--run-all-compositor-stages-before-draw".to_string());
+    args.push("--virtual-time-budget=3000".to_string());
+    args.push(format!("--screenshot={}", output_path.to_string_lossy()));
+    args.push(format!("--window-size={width},{height}"));
+    if high_quality {
+        args.push("--force-device-scale-factor=2".to_string());
+    }
+    args.push(url.to_string());
+    args
+}
+
+fn chromium_base_args(profile_path: &Path) -> Vec<String> {
+    vec![
+        "--headless=new".to_string(),
+        "--no-first-run".to_string(),
+        "--no-default-browser-check".to_string(),
+        "--disable-background-networking".to_string(),
+        "--disable-component-update".to_string(),
+        "--disable-extensions".to_string(),
+        "--disable-sync".to_string(),
+        "--disable-features=Translate,MediaRouter".to_string(),
+        "--disable-gpu".to_string(),
+        "--disable-dev-shm-usage".to_string(),
+        "--disable-breakpad".to_string(),
+        "--mute-audio".to_string(),
+        format!("--user-data-dir={}", profile_path.to_string_lossy()),
     ]
 }
 
@@ -1385,7 +1576,7 @@ fn wrap_markdown_cover_title(
 mod tests {
     use super::{
         adaptive_markdown_cover_font, build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
-        capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
+        capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_long_image_args, chromium_pdf_args, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
         generate_html_thumbnail_with_adapter, generate_markdown_default_cover_asset,
         generate_markdown_default_cover_svg, markdown_cover_projection, markdown_default_cover_key,
         markdown_default_cover_target, markdown_key_is_current, playwright_chromium_executable_candidates, playwright_chromium_executable_candidates_in,
@@ -1879,6 +2070,70 @@ mod tests {
             Some(PathBuf::from("/Applications/Google Chrome.app"))
         );
         assert!(should_launch_system_browser_via_open(chrome));
+    }
+
+    #[test]
+    fn chromium_pdf_args_print_to_pdf_with_a4_paper() {
+        let args = chromium_pdf_args(
+            Path::new("/tmp/nutbook-doc.pdf"),
+            Path::new("/tmp/nutbook-profile"),
+            "file:///tmp/nutbook-export.html",
+            false,
+        );
+
+        assert!(args.contains(&"--headless=new".to_string()));
+        assert!(args.contains(&"--run-all-compositor-stages-before-draw".to_string()));
+        assert!(args.contains(&"--virtual-time-budget=3000".to_string()));
+        assert!(args.contains(&"--print-to-pdf=/tmp/nutbook-doc.pdf".to_string()));
+        assert!(args.contains(&"--no-pdf-header-footer".to_string()));
+        assert!(args.contains(&"--user-data-dir=/tmp/nutbook-profile".to_string()));
+        assert!(!args.contains(&"--landscape".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("file:///tmp/nutbook-export.html"));
+
+        let landscape_args = chromium_pdf_args(
+            Path::new("/tmp/nutbook-report.pdf"),
+            Path::new("/tmp/nutbook-profile"),
+            "file:///tmp/nutbook-report.html",
+            true,
+        );
+        assert!(landscape_args.contains(&"--landscape".to_string()));
+    }
+
+    #[test]
+    fn chromium_long_image_args_use_controlled_viewport_and_quality() {
+        let args = chromium_long_image_args(
+            Path::new("/tmp/nutbook-long.png"),
+            Path::new("/tmp/nutbook-profile"),
+            "file:///tmp/nutbook-long.html",
+            1440,
+            4096,
+            true,
+        );
+
+        assert!(args.contains(&"--headless=new".to_string()));
+        assert!(args.contains(&"--hide-scrollbars".to_string()));
+        assert!(args.contains(&"--screenshot=/tmp/nutbook-long.png".to_string()));
+        assert!(args.contains(&"--window-size=1440,4096".to_string()));
+        assert!(args.contains(&"--force-device-scale-factor=2".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("file:///tmp/nutbook-long.html"));
+    }
+
+    #[test]
+    fn system_browser_bundle_path_is_derived_from_app_executable() {
+        let bundle = chromium_app_bundle_path(Path::new(
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ));
+        assert_eq!(bundle, Some(PathBuf::from("/Applications/Google Chrome.app")));
+    }
+
+    #[test]
+    fn system_browser_under_applications_uses_open_launcher() {
+        assert!(should_launch_system_browser_via_open(Path::new(
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        )));
+        assert!(!should_launch_system_browser_via_open(Path::new(
+            "/Users/example/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-x64/chrome-headless-shell",
+        )));
     }
 
     #[test]

@@ -376,6 +376,125 @@ pub struct ExportMarkdownRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownHtmlRequest {
+    pub item_id: i64,
+    pub template: String,
+    pub preferences: Option<ExportMarkdownHtmlPreferences>,
+    pub expected_file_hash: String,
+    pub expected_modified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownHtmlPreferences {
+    pub embed_images: bool,
+    pub code_copy: bool,
+    pub outline: bool,
+    pub width: String,
+    pub aspect_ratio: Option<String>,
+    pub density: Option<String>,
+    pub output_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownHtmlResponse {
+    pub item_id: i64,
+    pub target_path: String,
+    pub warnings: Vec<String>,
+    pub exported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownPdfRequest {
+    pub item_id: i64,
+    pub template: String,
+    pub preferences: ExportMarkdownPdfPreferences,
+    pub expected_file_hash: String,
+    pub expected_modified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownPdfPreferences {
+    pub margin: String,
+    pub cover_and_toc: bool,
+    pub page_numbers: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownPdfResponse {
+    pub item_id: i64,
+    pub target_path: String,
+    pub warnings: Vec<String>,
+    pub exported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownLongImageRequest {
+    pub item_id: i64,
+    pub template: String,
+    pub preferences: ExportMarkdownLongImagePreferences,
+    pub expected_file_hash: String,
+    pub expected_modified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownLongImagePreferences {
+    pub width: i32,
+    pub quality: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownLongImageResponse {
+    pub item_id: i64,
+    pub target_path: String,
+    pub warnings: Vec<String>,
+    pub exported: bool,
+    pub part_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectMarkdownLongImageExportPathRequest {
+    pub item_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectMarkdownLongImageExportPathResponse {
+    pub target_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownLongImagePreflightResponse {
+    pub item_id: i64,
+    pub estimated_height: i32,
+    pub max_height: i32,
+    pub ok: bool,
+    pub requires_split: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMarkdownLongImageToPathRequest {
+    pub item_id: i64,
+    pub template: String,
+    pub preferences: ExportMarkdownLongImagePreferences,
+    pub expected_file_hash: String,
+    pub expected_modified_at: Option<String>,
+    pub target_path: String,
+    pub split: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CopyMarkdownImageAssetRequest {
     pub markdown_file_path: String,
     pub source_image_path: String,

@@ -108,6 +108,8 @@ NUTBOOK is not a heavy authoring suite. It focuses on the edits that matter whil
 
 * Markdown reading, outline, formatting tools, table operations, undo/redo, save, and recovery.
 
+* A Markdown export center for standalone reading or presentation HTML, PDF, and PNG long images.
+
 * A dedicated HTML runtime that preserves JavaScript interaction instead of treating runnable HTML as a static document.
 
 * Text and rich-text editing plus image replacement, cropping, movement, and insertion in supported HTML.
@@ -155,7 +157,8 @@ This walkthrough shows native text editing, heading formatting, image-frame inse
 | Artifact sources | Individual files, folders, Skill outputs, Agent projects and tasks, nbskill manifests, Nutbook CLI        | Connects readable and presentable artifacts, not every project file                      |
 | Agent scope      | Bounded project adapters for Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy                          | Project discovery, Agent detection, and integration health are evaluated separately      |
 | File formats     | `.md`, `.markdown`, `.html`, `.htm`                                                                       | NUTBOOK is not a general-purpose file manager                                            |
-| Markdown         | Reading, outline, light editing, formatting, tables, history, save, and recovery                          | Milkdown is the primary experience with source-editing fallback retained                 |
+| Markdown         | Reading, outline, light editing, formatting, tables, history, save, recovery, and export                  | Milkdown is the primary experience with source-editing fallback retained                 |
+| Markdown export  | Reading and presentation HTML, PDF, and PNG long images                                                   | PDF and long-image export require a locally available Chromium engine                    |
 | HTML             | Interactive runtime, fullscreen, text/rich-text/image editing, supported page navigation                  | Native editing depends on artifact capabilities; ordinary HTML uses an editable copy     |
 | Library          | Thumbnails, favorites, tags, recent items, type filters, source management, external file synchronization | The filesystem is the source of truth; the database is an index and cache                |
 | Presentation     | HTML interaction, window-level fullscreen, and page-owned presentation shortcuts                          | NUTBOOK preserves page behavior where possible instead of rewriting arbitrary page logic |
@@ -366,6 +369,17 @@ NUTBOOK is closer to an “AI artifact desk” and local presentation library th
 
 ## Release Highlights
 
+### 1.1.0: Markdown Export Center
+
+Open a Markdown file, choose **Export Center** from its **More** menu, then select the output format and template. If the document has unsaved changes, NUTBOOK asks you to save before exporting.
+
+* Export a standalone reading HTML page with Light or Dark styling, optional embedded local images, an outline, and a code-copy button.
+* Export presentation HTML with Light or Dark styling, 16:9 or 4:3 layout, content density options, and static or dynamic output.
+* Export a PDF with document or report styling, page margins, and optional cover/table of contents and page numbers.
+* Export a PNG long image with Light or Dark styling and width/quality choices; exceptionally tall documents can be split into multiple images after confirmation.
+
+PDF and long-image export use a locally available Chromium engine. The export center shows when that engine is unavailable.
+
 ### 1.0.0: First Stable Release
 
 NUTBOOK 1.0.0 brings together local artifact intake, Markdown / HTML reading and light editing, and presentation.
@@ -419,7 +433,7 @@ Version 0.6.0 added light editing for supported AI-generated HTML while preservi
 | Shipped   | **Agent project and task artifact access** | Expand from files, folders, and Skill outputs to discovery, confirmation, and source management for Agent work.                     |
 | Shipped   | **Agent integrations**                     | Register artifact identity, lifecycle, and HTML editing protocols through nbskill while managing only verified Agent installations. |
 | Shipped   | **Nutbook CLI**                            | Add or remove files, folders, and Agent projects while the desktop app is running or closed, with a read-only health check.         |
-| Next      | **Markdown export center**                 | Export Markdown as reading-oriented or presentation-oriented HTML, then extend toward PDF, long images, and watermarking.           |
+| Shipped   | **Markdown export center**                 | Export Markdown as reading or presentation HTML, PDF, and PNG long images.                                                           |
 | Next      | **Native HTML presentation mode**          | Provide a NUTBOOK-controlled presentation surface with deterministic navigation and stable behavior.                                |
 | Next      | **Presentation drawing tools**             | Add temporary on-screen annotation for classes, meetings, proposals, and reviews.                                                   |
 | Exploring | **AI-assisted capabilities**               | Help users discover, understand, and refine content after local file safety and deterministic editing boundaries are clear.         |
