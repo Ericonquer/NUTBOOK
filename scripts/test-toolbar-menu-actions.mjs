@@ -905,8 +905,8 @@ try {
   const mainPage = await browser.newPage({ viewport: { width: 1158, height: 862 } });
   const mainPageErrors = [];
   mainPage.on("pageerror", (error) => mainPageErrors.push(error.message));
-  await mainPage.goto(pathToFileURL(`${process.cwd()}/dist/index.html`).href);
-  await mainPage.waitForFunction(() => document.readyState === "complete");
+  await mainPage.goto(pathToFileURL(`${process.cwd()}/dist/index.html`).href, { waitUntil: "domcontentloaded" });
+  await mainPage.waitForFunction(() => typeof renderSettingsPanel === "function");
   assert.equal(await mainPage.locator("#statusHint").evaluate((node) => getComputedStyle(node).display), "none");
   assert.equal(await mainPage.locator("#statusHint").textContent(), "");
   const mainUi = await mainPage.evaluate(async () => {

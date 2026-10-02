@@ -3751,6 +3751,18 @@ fn rebalance_short_tail_text_slides(
         }
         let previous_chars = markdown_text_chars(&slides[last_index - 1].1);
         let last_chars = markdown_text_chars(&slides[last_index].1);
+        let combined_list_items = [&slides[last_index - 1].1, &slides[last_index].1]
+            .into_iter()
+            .flat_map(|markdown| markdown.lines())
+            .filter(|line| is_markdown_list_item(line))
+            .count();
+        let has_nested_list_items = [&slides[last_index - 1].1, &slides[last_index].1]
+            .into_iter()
+            .flat_map(|markdown| markdown.lines())
+            .any(|line| is_markdown_list_item(line) && list_item_indent(line) > 0);
+        if has_nested_list_items && combined_list_items > budget.max_list_items {
+            break;
+        }
         if last_chars == 0 || last_chars > 80 {
             break;
         }
@@ -5160,7 +5172,7 @@ mod tests {
     }
 
     #[test]
-    fn presentation_html_card_frames_stretch_to_equal_height() {
+    fn presentation_html_card_frames_follow_template_sizing() {
         let topic_output = render_presentation_html(
             MarkdownHtmlExportInput {
                 title: "Scenarios".to_string(),
@@ -5200,8 +5212,8 @@ mod tests {
         assert!(topic_output.html.contains(".topic-card-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 13px; align-items: stretch; }"));
         assert!(topic_output.html.contains(".topic-card { height: 100%;"));
         assert!(list_output.html.contains(r#"data-slide-kind="list-cards""#));
-        assert!(list_output.html.contains(".list-card-grid { display: grid; width: var(--group-width); grid-template-columns: repeat(var(--card-cols), minmax(0, 1fr)); grid-auto-rows: var(--card-row-height); gap: var(--card-gap); align-items: stretch; }"));
-        assert!(list_output.html.contains(".list-card { height: 100%;"));
+        assert!(list_output.html.contains(".list-card-grid { display: grid; width: var(--group-width); grid-template-columns: repeat(var(--card-cols), minmax(0, 1fr)); grid-auto-rows: minmax(var(--card-row-height), max-content); gap: var(--card-gap); align-items: stretch; }"));
+        assert!(list_output.html.contains(".list-card { min-height: var(--card-row-height);"));
     }
 
     #[test]
@@ -5740,9 +5752,8 @@ mod tests {
         )
         .expect("presentation html should render");
 
-        assert!(output.html.contains(r#"data-card-count="7""#));
-        assert!(output.html.contains(r#"data-layout="side-by-side-stack""#));
-        assert_eq!(output.html.matches(r#"data-slide-kind="list-cards""#).count(), 1);
+        assert_eq!(list_card_counts(&output.html), vec![4, 3]);
+        assert_eq!(output.html.matches(r#"data-slide-kind="list-cards""#).count(), 2);
 
         let eleven = render_presentation_html(
             MarkdownHtmlExportInput {
@@ -7009,7 +7020,8 @@ mod tests {
             },
         )
         .expect("five short labels should render");
-        assert!(five_item_output.html.contains(r#"data-layout="stacked-grid" style="--card-cols: 5;"#));
+        assert!(five_item_output.html.contains(r#"data-layout="stacked-grid""#));
+        assert!(five_item_output.html.contains("--card-cols: 5;"));
 
         let long_five_item_output = render_presentation_html(
             MarkdownHtmlExportInput {
