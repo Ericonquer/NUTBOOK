@@ -206,8 +206,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --user --disable-pip-version-check 'dmgbuild==1.6.5'
-          export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          python3 -m venv "$RUNNER_TEMP/nutbook-dmgbuild"
+          "$RUNNER_TEMP/nutbook-dmgbuild/bin/python" -m pip install --disable-pip-version-check 'dmgbuild==1.6.5'
+          export PATH="$RUNNER_TEMP/nutbook-dmgbuild/bin:$PATH"
           app="$PWD/src-tauri/target/release/bundle/macos/NUTBOOK.app"
           output="src-tauri/target/release/bundle/dmg/NUTBOOK_${RELEASE_TAG#v}${{ matrix.asset-suffix }}"
           test -d "$app"
