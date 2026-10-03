@@ -372,6 +372,9 @@ pub fn commit_html_edit(
     state: tauri::State<'_, AppState>,
     payload: CommitHtmlEditRequest,
 ) -> Result<CommitHtmlEditResponse, AppError> {
+    if !payload.presentation_notes.is_empty() {
+        crate::commands::native_presentation::validate_notes(&payload.presentation_pages, &payload.presentation_notes)?;
+    }
     let item = state.get_item_detail(payload.item_id)?;
     if item.summary.file_type != "html" { return Err(AppError::UnsupportedFileType); }
     require_html_edit_session_lease(state.html_edit_session_lease_matches(
@@ -394,6 +397,7 @@ pub fn commit_html_edit(
         expected_file_hash: payload.expected_file_hash,
         expected_modified_at: payload.expected_modified_at,
         changes: payload.changes,
+        presentation_notes: if payload.presentation_notes.is_empty() { None } else { Some(serde_json::to_value(payload.presentation_notes).map_err(|_| AppError::InternalError)?) },
     };
     let committed = match commit_html_edit_for_file(&commit) {
         Ok(committed) => committed,
@@ -470,12 +474,16 @@ pub fn commit_html_edit(
 
 #[tauri::command]
 pub fn save_html_edit_conflict_copy(state: tauri::State<'_, AppState>, payload: SaveHtmlEditConflictCopyRequest) -> Result<SaveHtmlEditConflictCopyResponse, AppError> {
+    if !payload.presentation_notes.is_empty() {
+        crate::commands::native_presentation::validate_notes(&payload.presentation_pages, &payload.presentation_notes)?;
+    }
     let item = state.get_item_detail(payload.item_id)?;
     require_html_edit_session_lease(state.html_edit_session_lease_matches(item.summary.id, &payload.runtime_session_id, payload.generation)?)?;
     let library = library_for_item(&state, item.summary.library_id)?;
     let path = PathBuf::from(&item.summary.file_path);
     let path_lock = state.html_edit_path_lock(&path)?; let _path_guard = path_lock.lock().map_err(|_| AppError::InternalError)?;
-    let target = save_html_edit_conflict_copy_for_file(&HtmlEditCommit { library_root: html_edit_library_root(&library)?, file_path: path, artifact_edit_id: payload.artifact_edit_id, expected_file_hash: String::new(), expected_modified_at: 0, changes: payload.changes })?;
+    let note_patch = if payload.presentation_notes.is_empty() { None } else { Some(serde_json::to_value(payload.presentation_notes).map_err(|_| AppError::InternalError)?) };
+    let target = save_html_edit_conflict_copy_for_file(&HtmlEditCommit { library_root: html_edit_library_root(&library)?, file_path: path, artifact_edit_id: payload.artifact_edit_id, expected_file_hash: String::new(), expected_modified_at: 0, changes: payload.changes, presentation_notes: note_patch })?;
     // The conflict copy is already durable. Keep refresh failure from
     // misleading the user into retrying and creating a second copy.
     let _ = crate::commands::library::scan_library_once(&state.database, library.id);

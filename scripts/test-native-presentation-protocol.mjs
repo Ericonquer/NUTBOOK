@@ -43,6 +43,37 @@ try {
   assert.equal(result.localImageLoaded, true);
   assert.match(result.notes, /演讲者备注/);
 
+  await page.evaluate(() => {
+    window.__editMessages = [];
+    window.__TAURI_INTERNALS__ = { invoke: async (_command, args) => { window.__editMessages.push(args?.payload); return true; } };
+    window.__NUTBOOK_PRESENTATION__.setManagedMode(false);
+    const attachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (options) { return attachShadow.call(this, { ...options, mode: "open" }); };
+  });
+  await page.addScriptTag({ path: resolve("dist/assets/html-edit-runtime.js") });
+  await page.evaluate(() => window.__NUTBOOK_HTML_EDIT__.enter({ itemId: 1, runtimeSessionId: "edit-test", generation: 1, inlineToolbar: true, locale: "zh-CN", patch: { changes: {} } }));
+  const toolbar = page.locator("#nutbook-html-edit-inline-toolbar");
+  assert.equal(await toolbar.evaluate(host => host.shadowRoot.querySelector('[data-intent="add-notes"]').hidden), false);
+  await toolbar.evaluate(host => host.shadowRoot.querySelector('[data-intent="add-notes"]').click());
+  await page.waitForFunction(() => window.__editMessages.some(message => message?.type === "html_edit_toggle_notes_requested_from_runtime"));
+  await page.evaluate(() => window.__NUTBOOK_HTML_EDIT__.setNotesState({ visible: true, dirty: true }));
+  assert.match(await toolbar.evaluate(host => host.shadowRoot.querySelector('[data-intent="add-notes"]').getAttribute("aria-label")), /隐藏备注/);
+  assert.equal(await page.evaluate(() => window.__editMessages.find(message => message?.type === "html_edit_ready")?.presentation?.pages?.length), 3);
+  await page.keyboard.press("Meta+Shift+N");
+  await page.waitForFunction(() => window.__editMessages.filter(message => message?.type === "html_edit_toggle_notes_requested_from_runtime").length === 2);
+  await page.evaluate(() => window.__NUTBOOK_HTML_EDIT__.exit({ runtimeSessionId: "edit-test", discard: true }));
+  await page.evaluate(async () => {
+    document.querySelectorAll("[data-editable]").forEach(element => element.removeAttribute("data-editable"));
+    window.__editMessages = [];
+    await window.__NUTBOOK_HTML_EDIT__.enter({ itemId: 1, runtimeSessionId: "notes-only-test", generation: 2, inlineToolbar: true, locale: "zh-CN", patch: { changes: {} } });
+  });
+  assert.deepEqual(await page.evaluate(() => {
+    const ready = window.__editMessages.find(message => message?.type === "html_edit_ready");
+    return [ready?.count, ready?.presentation?.pages?.length];
+  }), [0, 3]);
+  assert.equal(await toolbar.evaluate(host => host.shadowRoot.querySelector('[data-intent="add-notes"]').hidden), false);
+  await page.evaluate(() => window.__NUTBOOK_HTML_EDIT__.exit({ runtimeSessionId: "notes-only-test", discard: true }));
+
   const presenter = await browser.newPage({ viewport: { width: 1200, height: 820 } });
   await presenter.addInitScript(() => {
     const pages = [{ id: "opening", title: "Opening" }, { id: "workflow", title: "Workflow" }, { id: "finish", title: "Finish" }];

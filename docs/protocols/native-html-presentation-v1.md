@@ -22,7 +22,7 @@ window.__NUTBOOK_PRESENTATION__ = {
 
 ## 逐页备注
 
-备注以文档内的 `<script type="application/json" id="nutbook-presentation-notes">` 保存。JSON 结构为 `{"version":1,"pages":{"page-id":[{"type":"paragraph","runs":[{"text":"说明"},{"text":"重点","bold":true}]}]}}`。页 ID 是唯一绑定键，顺序变化不改变备注归属。文本只能作为文本渲染；只允许段落和加粗，不执行 HTML。准备界面保存时校验文件版本并保留未编辑的页及无关文档内容；冲突不得静默覆盖。
+备注以文档内的 `<script type="application/json" id="nutbook-presentation-notes">` 保存。JSON 结构为 `{"version":1,"pages":{"page-id":[{"type":"paragraph","runs":[{"text":"说明"},{"text":"重点","bold":true}]}]}}`。页 ID 是唯一绑定键，顺序变化不改变备注归属。文本只能作为文本渲染；只允许段落和加粗，不执行 HTML。NUTBOOK 的 HTML 编辑模式提供当前页下方的备注面板，工具栏“添加备注”和 `⌘⇧N` 可切换；切页时面板跟随当前页。保存时备注与正文在同一次 HTML 提交中校验文件版本并落盘，保留未编辑的页及无关文档内容；冲突不得静默覆盖。阅读态与观众画面不显示备注，演讲者窗口自动显示当前页备注。
 
 可从 NUTBOOK 正式“添加文件夹”入口加入 [`native-presentation-sample/index.html`](../presentations/native-presentation-sample/index.html) 验收三页、中文备注、本地 SVG 资源和 CSS 动画。
 
@@ -30,4 +30,4 @@ window.__NUTBOOK_PRESENTATION__ = {
 
 首版仅识别仓库产品介绍演示使用的 `assets/runtime.js` 精确版本。用户在原件的“演示准备”入口明确选择升级后，NUTBOOK 在同目录创建 `<原名>.nutbook-presentation.html` 和 `assets/runtime.nutbook.js`；原 HTML 与原 runtime 不变。升级副本为真实 `.slide` 添加稳定 ID，并在复制的 runtime 内把桥接到原有 `go()` 导航函数。未知版本、目标已存在、源文件或 runtime 版本变化时拒绝升级。
 
-未改过的旧备注继续保存在原页的 `<aside class="notes">` 中，准备界面从该节点读取并显示；编辑后的页才在 JSON 数据块写入覆盖值。受管理演示模式隐藏旧备注抽屉和弹窗，演讲者窗口显示安全的文本与加粗结构。
+未改过的旧备注继续保存在原页的 `<aside class="notes">` 中，编辑面板从该节点读取并显示；编辑后的页才在 JSON 数据块写入覆盖值。提供演示协议和备注数据块、但没有正文 `data-editable` 字段的文档仍可进入仅备注编辑模式。受管理演示模式隐藏旧备注抽屉和弹窗，演讲者窗口显示安全的文本与加粗结构。

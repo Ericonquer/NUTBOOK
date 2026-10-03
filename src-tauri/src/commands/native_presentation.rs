@@ -461,7 +461,7 @@ fn validate_pages(pages: &[PresentationPage], active: &str) -> Result<(), AppErr
     Ok(())
 }
 
-fn validate_notes(pages: &[PresentationPage], notes: &PresentationNotes) -> Result<(), AppError> {
+pub(crate) fn validate_notes(pages: &[PresentationPage], notes: &PresentationNotes) -> Result<(), AppError> {
     let ids: HashSet<&str> = pages.iter().map(|page| page.id.as_str()).collect();
     let mut total_bytes = 0usize;
     if notes.len() > pages.len() {
@@ -566,6 +566,10 @@ pub struct SaveNotesResult {
 }
 
 fn replace_notes_json_block(html: &str, patch: &PresentationNotes) -> Result<String, AppError> {
+    replace_notes_json_block_value(html, &serde_json::to_value(patch).map_err(|_| AppError::InternalError)?)
+}
+
+pub(crate) fn replace_notes_json_block_value(html: &str, patch: &serde_json::Value) -> Result<String, AppError> {
     let marker = "id=\"nutbook-presentation-notes\"";
     let occurrences: Vec<_> = html.match_indices(marker).collect();
     if occurrences.len() != 1 {
@@ -597,10 +601,10 @@ fn replace_notes_json_block(html: &str, patch: &PresentationNotes) -> Result<Str
         .get_mut("pages")
         .and_then(serde_json::Value::as_object_mut)
         .ok_or(AppError::InvalidParams)?;
-    for (id, paragraphs) in patch {
+    for (id, paragraphs) in patch.as_object().ok_or(AppError::InvalidParams)? {
         notes.insert(
             id.clone(),
-            serde_json::to_value(paragraphs).map_err(|_| AppError::InternalError)?,
+            paragraphs.clone(),
         );
     }
     let json = serde_json::to_string(&data)
@@ -612,6 +616,19 @@ fn replace_notes_json_block(html: &str, patch: &PresentationNotes) -> Result<Str
     updated.push_str(&json);
     updated.push_str(&html[close_at..]);
     Ok(updated)
+}
+
+fn saved_notes_json_block(html: &str) -> Result<PresentationNotes, AppError> {
+    let marker = "id=\"nutbook-presentation-notes\"";
+    if html.matches(marker).count() != 1 { return Err(AppError::InvalidParams); }
+    let marker_at = html.find(marker).ok_or(AppError::InvalidParams)?;
+    let open_at = html[..marker_at].rfind("<script").ok_or(AppError::InvalidParams)?;
+    let open_end = html[marker_at..].find('>').map(|at| marker_at + at + 1).ok_or(AppError::InvalidParams)?;
+    if html[open_at..open_end].contains("</") || !html[open_at..open_end].contains("application/json") { return Err(AppError::InvalidParams); }
+    let close_at = html[open_end..].find("</script>").map(|at| open_end + at).ok_or(AppError::InvalidParams)?;
+    let data: serde_json::Value = serde_json::from_str(&html[open_end..close_at]).map_err(|_| AppError::InvalidParams)?;
+    if data.get("version").and_then(serde_json::Value::as_u64) != Some(1) { return Err(AppError::InvalidParams); }
+    serde_json::from_value(data.get("pages").cloned().ok_or(AppError::InvalidParams)?).map_err(|_| AppError::InvalidParams)
 }
 
 /// Replace only the explicit JSON data block. The HTML outside that block is
@@ -1027,13 +1044,19 @@ pub fn start_native_presentation(
     if source_hash != payload.expected_source_hash {
         return Err(AppError::EditConflict);
     }
+    // The runtime probe can race a reload after an edit commit. The file is
+    // authoritative for notes already written to the explicit JSON block.
+    let mut notes = payload.notes;
+    let html = std::str::from_utf8(&source).map_err(|_| AppError::InvalidParams)?;
+    for (id, paragraphs) in saved_notes_json_block(html)? { notes.insert(id, paragraphs); }
+    validate_notes(&payload.pages, &notes)?;
     let session_id = uuid::Uuid::new_v4().to_string();
     let session = NativePresentationSession {
         id: session_id.clone(),
         item_id: payload.item_id,
         source_hash,
         pages: payload.pages,
-        notes: payload.notes,
+        notes,
         active_page_id: payload.start_page_id.clone(),
         ready: false,
         pending_page_id: None,
@@ -1698,5 +1721,8 @@ mod tests {
         assert!(updated.contains("<img src=\"local.png\">"));
         assert!(updated.contains("untouched"));
         assert!(updated.contains("\\u003c/script\\u003e"));
+        let saved = super::saved_notes_json_block(&updated).unwrap();
+        assert_eq!(saved["new"][0].runs[0].text, "</script><img src=evil>");
+        assert_eq!(saved["old"][0].runs[0].text, "untouched");
     }
 }

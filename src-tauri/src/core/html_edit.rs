@@ -59,6 +59,7 @@ pub struct HtmlEditCommit {
     pub expected_file_hash: String,
     pub expected_modified_at: i64,
     pub changes: BTreeMap<String, HtmlEditChange>,
+    pub presentation_notes: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -777,6 +778,9 @@ pub fn commit_html_edit_for_file(
         &commit.artifact_edit_id,
         &normalized_changes,
     )?;
+    let rewritten = if let Some(notes) = &commit.presentation_notes {
+        crate::commands::native_presentation::replace_notes_json_block_value(&rewritten, notes)?
+    } else { rewritten };
     if rewritten.len() > HTML_EDIT_COMMIT_MAX_BYTES { return Err(AppError::AssetTooLarge); }
     let new_hash = content_hash_bytes(rewritten.as_bytes());
     let journal = HtmlEditCommitJournal {
@@ -806,6 +810,9 @@ pub fn save_html_edit_conflict_copy_for_file(commit: &HtmlEditCommit) -> Result<
     let source = String::from_utf8(fs::read(&commit.file_path).map_err(|_| AppError::IoError)?).map_err(|_| AppError::InvalidParams)?;
     let normalized = commit.changes.iter().map(|(id, change)| normalize_html_edit_change(&commit.library_root, &commit.artifact_edit_id, id, change).map(|value| (id.clone(), value))).collect::<Result<BTreeMap<_, _>, _>>()?;
     let rewritten = apply_html_edit_changes_to_source(&source, &commit.library_root, &commit.artifact_edit_id, &normalized)?;
+    let rewritten = if let Some(notes) = &commit.presentation_notes {
+        crate::commands::native_presentation::replace_notes_json_block_value(&rewritten, notes)?
+    } else { rewritten };
     if rewritten.len() > HTML_EDIT_COMMIT_MAX_BYTES { return Err(AppError::AssetTooLarge); }
     let parent = commit.file_path.parent().ok_or(AppError::IoError)?;
     let stem = commit.file_path.file_stem().and_then(|value| value.to_str()).ok_or(AppError::InvalidParams)?;
