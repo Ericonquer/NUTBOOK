@@ -257,7 +257,7 @@ assert.match(indexHtml, /set_html_presentation_preview_visibility_command[\s\S]*
 assert.match(indexHtml, /previewBoundsKey === key[\s\S]*?set_html_presentation_preview_visibility_command[\s\S]*?visible: true/, "restoring unchanged runtime bounds must re-show a suspended presentation preview child");
 assert.match(indexHtml, /suspendRuntimeSurfaces[\s\S]*?preservePresentationPreview: true/, "minimising must preserve the read-only presentation preview child instead of hiding it");
 assert.match(indexHtml, /resumeRuntimeSurfaces[\s\S]*?delete editSession\.presentation\.previewBoundsKey/, "restoring must force a preview child bounds update and ready handshake");
-assert.match(indexHtml, /toggleActiveHtmlRuntimePresentationMode[\s\S]*?编辑模式下不可进入演示全屏/, "presentation fullscreen must be blocked while an HTML edit session is active");
+assert.match(indexHtml, /toggleActiveHtmlRuntimePresentationMode[\s\S]*?编辑模式下不可进入全屏查看/, "fullscreen view must be blocked while an HTML edit session is active");
 assert.match(indexHtml, /html_edit_presentation_page_changed[\s\S]*?pendingPageId[\s\S]*?data\.pageId !== pendingPageId/, "late presentation page events must not overwrite a newer navigation intent");
 assert.match(indexHtml, /html_edit_presentation_preview_ready[\s\S]*?follow: false, focus: true/, "entering or restoring an edit session must focus the ready presentation rail without forcing it to scroll");
 assert.match(indexHtml, /action === "edit"[\s\S]*?confirmHtmlEditLeaveIfNeeded/, "the runtime overlay edit action must become a safe exit path while editing");
@@ -269,7 +269,7 @@ assert.match(htmlRuntimeRust, /\.nb-preview-stage\{[^}]*display:block[^}]*height
 assert.match(htmlRuntimeRust, /nb-preview-meta[\s\S]*?pageMeta\.title/, "visual preview cards must retain page number, title, and kind metadata");
 assert.match(htmlRuntimeRust, /nb-preview-canvas\.deck[\s\S]*?data-nutbook-page-id/, "preview clones must restore deck positioning without overriding source slide alignment");
 assert.match(htmlRuntimeRust, /\.nb-preview-card\{[^}]*text-align:initial/, "preview-card button defaults must not center inherited deck text");
-assert.match(htmlRuntimeRust, /padding:58px 76px 62px!important/, "a narrow preview child must restore desktop slide padding");
+assert.match(htmlRuntimeRust, /frame\.setAttribute\("sandbox", ""\)[\s\S]*?frame\.srcdoc[\s\S]*?stage\.clientWidth \/ 1024/, "a narrow preview child must render an inert 1024px slide canvas scaled to the card");
 assert.match(htmlRuntimeRust, /keepCardVisible[\s\S]*?root\.scrollTop/, "a preview child must keep keyboard-navigated cards visible without browser focus scrolling");
 assert.match(htmlRuntimeRust, /manualScrollUntil[\s\S]*?wheel/, "manual rail scrolling must temporarily suppress automatic active-card following");
 assert.match(htmlRuntimeRust, /select = \(id, follow = false\)[\s\S]*?if \(follow\) keepCardVisible/, "only an explicit navigation intent may auto-follow the active preview card");
@@ -3339,7 +3339,7 @@ assert.match(
 assert.match(
   indexHtml,
   /function renderDocumentMoreMenu\(\)[\s\S]*?if \(isHtmlRuntime\) \{[\s\S]*?action: "toggle-runtime-presentation"[\s\S]*?action: "remove-from-nutbook"[\s\S]*?\} else \{[\s\S]*?action: "export-markdown"[\s\S]*?action: "remove-from-nutbook"/,
-  "更多菜单顺序：HTML=[演示模式, 移除文件]，Markdown=[导出文件, 移除文件]"
+  "更多菜单顺序：HTML=[演示模式, 全屏查看, 移除文件]，Markdown=[导出文件, 移除文件]"
 );
 assert.match(
   indexHtml,
@@ -3464,7 +3464,7 @@ assert.match(
 assert.match(
   runtimeOverlay,
   /id="editButton" class="action"[\s\S]*?id="presentationOption"[\s\S]*?id="removeOption"/,
-  "overlay 必须提升编辑为 actions-row 主按钮（图标），更多菜单含演示模式+移除文件"
+  "overlay 必须提升编辑为 actions-row 主按钮（图标），更多菜单含演示模式、全屏查看及移除文件"
 );
 assert.doesNotMatch(
   runtimeOverlay,

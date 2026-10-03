@@ -498,13 +498,13 @@
       </div>
     </div>
     <div id="menu" class="menu" role="menu" aria-hidden="true">
-      <button id="nativePresentationOption" class="menu-option" type="button" role="menuitem" aria-label="演示准备" title="演示准备">
+      <button id="nativePresentationOption" class="menu-option" type="button" role="menuitem" aria-label="演示模式" title="演示模式">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 16.5h4M10 13v3.5"/></svg></span>
-        <span id="nativePresentationLabel" class="menu-option-label">演示准备</span>
+        <span id="nativePresentationLabel" class="menu-option-label">演示模式</span>
       </button>
-      <button id="presentationOption" class="menu-option" type="button" role="menuitem" aria-label="演示模式">
+      <button id="presentationOption" class="menu-option" type="button" role="menuitem" aria-label="全屏查看" title="全屏查看">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 16.5h4"/><path d="M10 13v3.5"/></svg></span>
-        <span id="presentationLabel" class="menu-option-label">演示模式</span>
+        <span id="presentationLabel" class="menu-option-label">全屏查看</span>
       </button>
       <button id="removeOption" class="menu-option danger-option" type="button" role="menuitem" aria-label="移除文件">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 5.5h11"/><path d="M7.5 5.5V4a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 12.5 4v1.5"/><path d="M6 5.5l.8 10a1.5 1.5 0 0 0 1.5 1.4h3.4a1.5 1.5 0 0 0 1.5-1.4l.8-10"/></svg></span>
@@ -927,13 +927,14 @@
       els.editButton.disabled = state.isPrimaryBusy;
       els.editButton.setAttribute("aria-busy", state.isPrimaryBusy ? "true" : "false");
       const presentationLabel = state.isFullscreen ? t("actions.exitPresentationShortcut") : t("actions.presentationShortcut");
-      const nativePresentationLabel = state.language === "en-US" ? "Prepare native presentation" : "演示准备";
+      const nativePresentationLabel = state.language === "en-US" ? "Presentation mode" : "演示模式";
       els.nativePresentationLabel.textContent = nativePresentationLabel;
       els.nativePresentationOption.setAttribute("aria-label", nativePresentationLabel);
       els.nativePresentationOption.title = nativePresentationLabel;
       els.nativePresentationOption.disabled = state.isEditing;
       if (els.presentationLabel) els.presentationLabel.textContent = presentationLabel;
       els.presentationOption.setAttribute("aria-label", presentationLabel);
+      els.presentationOption.title = presentationLabel;
       els.presentationOption.disabled = state.isEditing;
       updateTagChips();
       if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");

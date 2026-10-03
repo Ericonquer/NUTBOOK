@@ -18,17 +18,17 @@
     #timer.overdue { color:#ba1a1a; }
     #target { width:74px; padding:7px; border-radius:8px; border:1px solid #7e7576; background:#fff; color:#1a1c1d; }
     #target:focus { border-color:#000; outline:none; }
-    .layout { height: calc(100vh - 142px); min-height: 510px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 18px; padding: 18px; }
-    .previews { display: grid; grid-template-rows: minmax(0, 1fr) 180px; gap: 18px; }
+    .layout { height: calc(100vh - 122px); min-height: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); gap: 18px; padding: 18px; }
+    .previews { display: grid; grid-template-rows: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; min-height: 0; }
     .card { background: #fff; border: 1px solid #cfc4c5; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-    .caption { padding: 12px 16px; color: #4c4546; font-size: 13px; font-weight: 600; letter-spacing: .02em; border-bottom: 1px solid #cfc4c5; }
-    .preview-body { flex: 1; display: grid; place-items: center; text-align: center; padding: 24px; background: #f3f3f5; }
+    .caption { min-height: 30px; padding: 6px 12px; color: #4c4546; font-size: 12px; font-weight: 600; letter-spacing: .02em; border-bottom: 1px solid #cfc4c5; }
+    .preview-body { flex: 1; min-height: 0; min-width: 0; display: grid; place-items: center; text-align: center; padding: 8px; background: #f3f3f5; overflow: hidden; }
     .preview-body strong { display: block; font-size: clamp(28px, 4vw, 58px); line-height: 1.12; }
     .preview-body span { color: #5e5e63; font-size: 13px; margin-top: 10px; display: block; }
-    .preview-body img { display:block; max-width:100%; max-height:100%; object-fit:contain; border-radius:6px; }
+    .preview-body img { display:block; width:100%; height:100%; min-height:0; object-fit:contain; border-radius:6px; }
     .preview-body button { margin-top:12px; border:0; color:#1a1c1d; border-radius:8px; padding:7px 11px; background:#e2e2e4; }
     .next .preview-body strong { font-size: 26px; }
-    .side { display: grid; grid-template-rows: 65% 35%; gap: 18px; min-height: 0; }
+    .side { display: grid; grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; min-height: 0; }
     .notes { min-height: 0; }
     #notes { overflow-y: auto; padding: 18px 20px; line-height: 1.55; font-size: 21px; }
     #notes p { margin: 0 0 1em; }
@@ -37,18 +37,19 @@
     .caption.tools { display:flex;align-items:center;gap:8px; }
     .caption.tools span { margin-right:auto; }
     .caption.tools input { width:90px; }
-    .caption.tools button { background:#eeeef0;border:0;border-radius:8px;color:#1a1c1d;padding:4px 8px; }
+    .caption.tools button { background:#eeeef0;border:0;border-radius:7px;color:#1a1c1d;padding:2px 7px; }
     #pages { overflow-y: auto; padding: 10px; display: grid; gap: 6px; }
     #pages button { border: 0; background: transparent; color: #4c4546; text-align: left; padding: 8px 11px; border-radius: 8px; }
     #pages button:hover { background: #eeeef0; }
     #pages button[aria-current="page"] { background: #eeeef0; color: #000; box-shadow: inset 2px 0 #000; font-weight: 700; }
-    footer { height: 72px; border-top: 1px solid #cfc4c5; display: flex; align-items: center; gap: 10px; padding: 0 18px; }
+    footer { height: 52px; border-top: 1px solid #cfc4c5; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
     footer button, header button { background: #eeeef0; border: 0; color: #1a1c1d; border-radius: 8px; padding: 9px 15px; }
+    footer button { padding: 6px 10px; }
     footer button:hover:not(:disabled), header button:hover { background: #e2e2e4; }
     button:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
     #pageCount { margin-right: auto; color: #5e5e63; font-variant-numeric: tabular-nums; }
     #end { background: #000; color: #fff; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; height: auto; } .side { min-height: 380px; } }
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1.4fr) minmax(260px, .8fr); gap: 12px; padding: 12px; } .previews, .side { gap: 12px; } }
   </style>
 </head>
 <body>
@@ -56,10 +57,10 @@
   <main class="layout">
     <div class="previews">
       <section class="card"><div class="caption">当前页 · 静态信息预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
-      <section class="card next"><div class="caption">下一页 · 静态信息预览</div><div class="preview-body" id="nextPreview"><div><strong>—</strong></div></div></section>
+      <section class="card notes"><div class="caption tools"><span>逐页备注 · 只读</span><label for="notesHeight">区域</label><input id="notesHeight" type="range" min="25" max="50" value="34" aria-label="备注区域高度" title="备注区域高度"><button id="smallerNotes" type="button" aria-label="缩小备注字号" title="缩小备注字号">A−</button><button id="largerNotes" type="button" aria-label="放大备注字号" title="放大备注字号">A+</button></div><div id="notes"></div></section>
     </div>
     <div class="side">
-      <section class="card notes"><div class="caption tools"><span>逐页备注 · 只读</span><label for="notesHeight">区域</label><input id="notesHeight" type="range" min="30" max="80" value="65" aria-label="备注区域高度" title="备注区域高度"><button id="smallerNotes" type="button" aria-label="缩小备注字号" title="缩小备注字号">A−</button><button id="largerNotes" type="button" aria-label="放大备注字号" title="放大备注字号">A+</button></div><div id="notes"></div></section>
+      <section class="card next"><div class="caption">下一页 · 静态信息预览</div><div class="preview-body" id="nextPreview"><div><strong>—</strong></div></div></section>
       <section class="card pages"><div class="caption">页面</div><div id="pages"></div></section>
     </div>
   </main>
@@ -78,22 +79,22 @@
       let state = null, startedAt = 0, elapsed = 0, paused = false, busy = false;
       const previews = new Map();
       const preferences = (() => { try { return JSON.parse(localStorage.getItem("nutbook-native-presenter-layout") || "{}"); } catch (_) { return {}; } })();
-      let notesHeight = Math.max(30, Math.min(80, Number(preferences.notesHeight) || 65));
+      let notesHeight = Math.max(25, Math.min(50, Number(preferences.notesBottomPercent) || 34));
       let notesFontSize = Math.max(16, Math.min(32, Number(preferences.notesFontSize) || 21));
       function applyLayout() {
-        document.querySelector(".side").style.gridTemplateRows = `minmax(0, ${notesHeight}fr) minmax(0, ${100 - notesHeight}fr)`;
+        document.querySelector(".previews").style.gridTemplateRows = `minmax(0, ${100 - notesHeight}fr) minmax(0, ${notesHeight}fr)`;
         byId("notes").style.fontSize = `${notesFontSize}px`;
         byId("notesHeight").value = String(notesHeight);
-        try { localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesHeight, notesFontSize })); } catch (_) {}
+        try { localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesBottomPercent: notesHeight, notesFontSize })); } catch (_) {}
       }
       function applyLanguage() {
         document.documentElement.lang = language;
         document.querySelector(".brand").textContent = t("brand");
         document.querySelector('label[for="target"]').textContent = t("target");
         const captions = document.querySelectorAll(".caption");
-        captions[0].textContent = t("current"); captions[1].textContent = t("nextPreview");
-        captions[2].querySelector("span").textContent = t("notes");
-        captions[2].querySelector('label[for="notesHeight"]').textContent = t("area");
+        captions[0].textContent = t("current"); captions[2].textContent = t("nextPreview");
+        captions[1].querySelector("span").textContent = t("notes");
+        captions[1].querySelector('label[for="notesHeight"]').textContent = t("area");
         captions[3].textContent = t("pages");
         byId("previous").textContent = t("previous"); byId("next").textContent = t("next");
         byId("end").textContent = t("end"); byId("reset").textContent = t("reset");

@@ -856,6 +856,13 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       if(!root) throw new Error("presentation page root missing");
       const targetDisplay=getComputedStyle(root).display === "none" ? "block" : getComputedStyle(root).display;
       document.documentElement.dataset.nutbookThumbnailMode="1";
+      let stillFrameStyle=document.getElementById("nutbook-presentation-thumbnail-still-frame");
+      if(!stillFrameStyle){{
+        stillFrameStyle=document.createElement("style");
+        stillFrameStyle.id="nutbook-presentation-thumbnail-still-frame";
+        stillFrameStyle.textContent='html[data-nutbook-thumbnail-mode="1"] [data-nutbook-page-id], html[data-nutbook-thumbnail-mode="1"] [data-nutbook-page-id] * {{ animation:none!important; transition:none!important; }}';
+        document.head.append(stillFrameStyle);
+      }}
       // `hidden` alone loses to a deck's author rule such as `.slide {{display:flex}}`.
       // Force every non-target root out of the paint tree so transition frames
       // from the previous cover page cannot bleed into chapter thumbnails.
@@ -1574,6 +1581,7 @@ fn wrap_markdown_cover_title(
 
 #[cfg(test)]
 mod tests {
+    use image::GenericImageView;
     use super::{
         adaptive_markdown_cover_font, build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
         capture_presentation_thumbnail_with_chromium, capture_presentation_thumbnail_with_worker, chromium_app_bundle_path, chromium_long_image_args, chromium_pdf_args, chromium_screenshot_args, find_local_chromium_executable, generate_html_thumbnail,
@@ -1959,9 +1967,11 @@ mod tests {
         let Some(chromium_path) = find_local_chromium_executable() else { return; };
         let directory = tempfile::tempdir().expect("temporary directory");
         let source = directory.path().join("deck.html");
-        fs::write(&source, r#"<!doctype html><html><body>
+        fs::write(&source, r#"<!doctype html><html><head><style>
+          body{margin:0}.rise{animation:rise .7s both}@keyframes rise{from{opacity:0;transform:translateY(70px)}to{opacity:1;transform:none}}
+        </style></head><body>
           <section data-nutbook-page-id="page-one" class="is-active" style="width:480px;height:270px;background:#f00">one</section>
-          <section data-nutbook-page-id="page-two" style="display:none;width:480px;height:270px;background:#00f">two</section>
+          <section data-nutbook-page-id="page-two" style="display:none;width:480px;height:270px;background:#00f"><div class="rise" style="position:absolute;left:20px;top:20px;width:100px;height:100px;background:#fff"></div></section>
           <script>
             const pages=[...document.querySelectorAll('[data-nutbook-page-id]')];
             window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{for(const page of pages){page.hidden=page.dataset.nutbookPageId!==id;page.style.display=page.hidden?'none':'block';}return true;}};
@@ -1974,8 +1984,10 @@ mod tests {
             width: 480,
             height: 270,
         }).expect("presentation screenshot should succeed");
-        assert_eq!(asset.backend, "presentation-cdp");
+        assert_eq!(asset.backend, "presentation-cdp-worker");
         assert!(asset.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let captured = image::load_from_memory(&asset.bytes).expect("capture should decode as PNG");
+        assert_eq!(captured.get_pixel(30, 30).0[..3], [255, 255, 255], "the animated content must be captured at its final opaque position");
     }
 
     #[test]

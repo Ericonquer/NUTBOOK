@@ -1060,7 +1060,8 @@ try {
   await runtimePage.keyboard.press("Escape");
   assert.equal(await runtimePage.locator("#moreButton").getAttribute("aria-expanded"), "false");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "moreButton");
-  assert.equal(await runtimePage.locator("#nativePresentationOption").textContent().then(value => value.trim()), "演示准备");
+  assert.equal(await runtimePage.locator("#nativePresentationOption").textContent().then(value => value.trim()), "演示模式");
+  assert.equal(await runtimePage.locator("#presentationOption").textContent().then(value => value.trim()), "全屏查看");
   await runtimePage.evaluate(() => {
     window.__nativePresentationActions = [];
     new MutationObserver(() => {

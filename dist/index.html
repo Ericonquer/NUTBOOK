@@ -16892,7 +16892,7 @@
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
-        // 固定顺序：Markdown=[导出中心, 另存文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
+        // 固定顺序：Markdown=[导出中心, 另存文件, 移除文件]；HTML runtime=[演示模式, 全屏查看, 移除文件]。
         let options = [];
         if (isExternalRuntimeTab(tab)) {
           // 临时 HTML 是只读会话：不提供导出 / 另存 / 移除（§6.1 不开放编辑、
@@ -16917,7 +16917,7 @@
           options = [
             {
               action: "prepare-native-presentation",
-              label: appState.language === "en-US" ? "Prepare native presentation" : "演示准备",
+              label: appState.language === "en-US" ? "Presentation mode" : "演示模式",
               icon: MENU_ICON_SVG.presentation,
               disabled: Boolean(appState.htmlEditSession?.itemId === tab?.id)
             },
@@ -21087,7 +21087,7 @@ if (!chipTipController) {
       function nativePresentationErrorText(error) {
         const code = error?.code || "";
         if (code === "EDIT_CONFLICT") return nativePresentationText("源文件已被外部修改，请重新打开后再试", "The source file changed. Reopen it and try again.");
-        if (code === "INVALID_SESSION") return nativePresentationText("演示会话已失效，请重新进入演示准备", "The presentation session expired. Prepare it again.");
+        if (code === "INVALID_SESSION") return nativePresentationText("演示会话已失效，请重新进入演示模式", "The presentation session expired. Open presentation mode again.");
         if (code === "THUMBNAIL_GENERATION_FAILED") return nativePresentationText("静态预览生成失败", "Could not create static preview");
         return error?.message || String(error);
       }
@@ -21101,7 +21101,14 @@ if (!chipTipController) {
         removeNativePresentationDialog();
         nativePresentationSessionId = null;
         if (appState.nativePresentationItemId === itemId) appState.nativePresentationItemId = null;
-        if (getActiveTab()?.id === itemId) scheduleRuntimeHostSync();
+        if (getActiveTab()?.id === itemId) {
+          // The content child was hidden for preparation. Its previous bounds
+          // still match the current mount, so force a fresh attach on return.
+          cleanupRuntimeHostSync();
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+          scheduleRuntimeHostSync();
+        }
       }
 
       window.__NUTBOOK_NATIVE_PRESENTATION_ENDED__ = (itemId) => restoreAfterNativePresentation(Number(itemId));
@@ -21191,7 +21198,7 @@ if (!chipTipController) {
               removeNativePresentationDialog();
               await loadItems();
               await openItem(result.itemId);
-              setStatus(nativePresentationText("演示副本已创建，可从新标签进入演示准备", "Presentation copy created. Prepare it from the new tab."), "ok");
+              setStatus(nativePresentationText("演示副本已创建，可从新标签进入演示模式", "Presentation copy created. Open presentation mode from the new tab."), "ok");
             } catch (error) {
               panel.querySelectorAll("button").forEach(button => button.disabled = false);
               const detail = error?.code === "EDIT_CONFLICT"
@@ -21215,11 +21222,11 @@ if (!chipTipController) {
         const panel = nativePresentationModalShell();
         const options = monitors.map(monitor => `<option value="${escapeAttribute(monitor.id)}">${escapeHtml(monitor.name)} · ${monitor.width}×${monitor.height}${monitor.primary ? nativePresentationText(" · 主屏", " · Primary") : ""}</option>`).join("");
         panel.innerHTML = `
-          <h2 id="nativePresentationTitle">${nativePresentationText("演示准备", "Prepare presentation")}</h2>
+          <h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2>
           <p>${nativePresentationText(`共 ${probe.pages.length} 页。备注请在 HTML 编辑模式下逐页添加并保存。`, `${probe.pages.length} pages. Add and save notes per page in HTML edit mode.`)}</p>
           <label for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label><br>
           <select id="nativePresentationMonitor" aria-label="${nativePresentationText("观众屏幕", "Audience display")}">${options}</select>
-          <p>${monitors.length === 1 ? nativePresentationText("仅检测到一块屏幕，将以窗口化排练模式启动。", "One display found. Presentation will open in windowed rehearsal mode.") : nativePresentationText("请使用扩展屏幕；系统镜像显示不能提供独立演讲者视图。", "Use an extended display. Mirroring cannot show a separate presenter view.")}</p>
+          <p>${monitors.length === 1 ? nativePresentationText("单屏也可演示：在会议软件中只共享独立的观众窗口，备注和控制留在演讲者窗口。共享整个屏幕会暴露两个窗口。", "You can present on one display: share only the separate audience window in your meeting app. Notes and controls stay in the presenter window. Sharing the entire display exposes both.") : nativePresentationText("请使用扩展屏幕；系统镜像显示不能提供独立演讲者视图。", "Use an extended display. Mirroring cannot show a separate presenter view.")}</p>
           <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" class="primary" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first page")}</button><button type="button" class="primary" data-native-action="start-current">${nativePresentationText("从当前页开始", "Start from current page")}</button></div>
         `;
         panel.querySelector('[data-native-action="cancel"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
@@ -21251,7 +21258,7 @@ if (!chipTipController) {
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") return;
         if (appState.htmlEditSession?.itemId === tab.id) {
-          setStatus("编辑模式下不可进入演示全屏", "warn");
+          setStatus("编辑模式下不可进入全屏查看", "warn");
           return;
         }
         const nextEnabled = appState.runtimeFullscreenItemId !== tab.id;
