@@ -9091,6 +9091,7 @@
         tabs: [],
         runtimeSessions: [],
         htmlEditSession: null,
+        nativePresentationItemId: null,
         htmlEditSessionGeneration: 0,
         htmlEditToolbarVisible: false,
         htmlEditToolbarSyncInFlight: false,
@@ -16688,6 +16689,12 @@
         } else if (isHtmlRuntime) {
           options = [
             {
+              action: "prepare-native-presentation",
+              label: appState.language === "en-US" ? "Prepare native presentation" : "演示准备",
+              icon: MENU_ICON_SVG.presentation,
+              disabled: Boolean(appState.htmlEditSession?.itemId === tab?.id)
+            },
+            {
               action: "toggle-runtime-presentation",
               label: appState.runtimeFullscreenItemId === tab?.id ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut"),
               icon: MENU_ICON_SVG.presentation,
@@ -16759,6 +16766,10 @@
             }
             if (action === "toggle-runtime-presentation") {
               await toggleActiveHtmlRuntimePresentationMode();
+              return;
+            }
+            if (action === "prepare-native-presentation") {
+              await openNativePresentationPreparation();
               return;
             }
             if (action === "remove-from-nutbook") {
@@ -20833,6 +20844,290 @@ if (!chipTipController) {
         }
       }
 
+      const nativePresentationProbeWaiters = new Map();
+      let nativePresentationDialog = null;
+      let nativePresentationSessionId = null;
+
+      window.__NUTBOOK_NATIVE_PRESENTATION_PROBE__ = (payload) => {
+        const waiter = nativePresentationProbeWaiters.get(payload?.requestId);
+        if (!waiter) return;
+        nativePresentationProbeWaiters.delete(payload.requestId);
+        clearTimeout(waiter.timer);
+        waiter.resolve(payload);
+      };
+
+      function nativePresentationText(zh, en) { return appState.language === "en-US" ? en : zh; }
+      function nativePresentationErrorText(error) {
+        const code = error?.code || "";
+        if (code === "EDIT_CONFLICT") return nativePresentationText("源文件已被外部修改，请重新打开后再试", "The source file changed. Reopen it and try again.");
+        if (code === "INVALID_SESSION") return nativePresentationText("演示会话已失效，请重新进入演示准备", "The presentation session expired. Prepare it again.");
+        if (code === "THUMBNAIL_GENERATION_FAILED") return nativePresentationText("静态预览生成失败", "Could not create static preview");
+        return error?.message || String(error);
+      }
+
+      function removeNativePresentationDialog() {
+        nativePresentationDialog?.remove();
+        nativePresentationDialog = null;
+      }
+
+      function restoreAfterNativePresentation(itemId) {
+        removeNativePresentationDialog();
+        nativePresentationSessionId = null;
+        if (appState.nativePresentationItemId === itemId) appState.nativePresentationItemId = null;
+        if (getActiveTab()?.id === itemId) scheduleRuntimeHostSync();
+      }
+
+      window.__NUTBOOK_NATIVE_PRESENTATION_ENDED__ = (itemId) => restoreAfterNativePresentation(Number(itemId));
+
+      function nativePresentationProbeScript(itemId, requestId) {
+        return `;(async()=>{try{
+          const bridge=window.__NUTBOOK_PRESENTATION__;
+          if(!bridge || Number(bridge.version)!==1 || bridge.capabilities?.managedPresenter!==true || typeof bridge.goTo!=='function' || typeof bridge.subscribe!=='function' || typeof bridge.setManagedMode!=='function') return;
+          await bridge.whenReady?.();
+          const pages=(Array.isArray(bridge.pages)?bridge.pages:[]).map(p=>({id:String(p?.id||''),title:String(p?.title||'')}));
+          if(!pages.length || new Set(pages.map(p=>p.id)).size!==pages.length || !pages.every(p=>p.id&&document.querySelector('[data-nutbook-page-id="'+CSS.escape(p.id)+'"]'))) return;
+          let notes={};
+          try { const node=document.getElementById('nutbook-presentation-notes'); if(!node)return; const data=JSON.parse(node.textContent||'{}'); if(data.version!==1||!data.pages||typeof data.pages!=='object')return; for(const [id,paragraphs] of Object.entries(data.pages)){ if(!Array.isArray(paragraphs))continue; notes[id]=paragraphs.filter(p=>p?.type==='paragraph'&&Array.isArray(p.runs)).map(p=>({runs:p.runs.map(r=>({text:String(r?.text||''),bold:r?.bold===true}))})); }
+            for(const page of pages){ if(notes[page.id])continue; const root=document.querySelector('[data-nutbook-page-id="'+CSS.escape(page.id)+'"]'); const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes'); if(!legacy)continue; const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean); notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]})); }
+          } catch(_){return;}
+          const payload={itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},pages,notes,activePageId:String(bridge.activePageId||'')};
+          await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload});
+        }catch(error){}})();`;
+      }
+
+      async function probeNativePresentation(itemId) {
+        const requestId = `native-presentation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const result = new Promise((resolve) => {
+          const timer = setTimeout(() => { nativePresentationProbeWaiters.delete(requestId); resolve(null); }, 4000);
+          nativePresentationProbeWaiters.set(requestId, { timer, resolve });
+        });
+        try {
+          const applied = await invoke("eval_html_runtime_script_command", { itemId, script: nativePresentationProbeScript(itemId, requestId) });
+          if (!applied) { const waiter = nativePresentationProbeWaiters.get(requestId); if (waiter) { nativePresentationProbeWaiters.delete(requestId); clearTimeout(waiter.timer); waiter.resolve(null); } }
+        } catch (_) {
+          const waiter = nativePresentationProbeWaiters.get(requestId);
+          if (waiter) { nativePresentationProbeWaiters.delete(requestId); clearTimeout(waiter.timer); waiter.resolve(null); }
+        }
+        const payload = await result;
+        return payload?.itemId === itemId ? payload : null;
+      }
+
+      function nativePresentationModalShell() {
+        let style = document.getElementById("nativePresentationDialogStyle");
+        if (!style) {
+          style = document.createElement("style"); style.id = "nativePresentationDialogStyle";
+          style.textContent = `
+            .native-presentation-scrim { position:fixed; inset:0; z-index:100000; background:rgba(12,22,36,.79); display:grid; place-items:center; padding:24px; }
+            .native-presentation-panel { width:min(760px,100%); max-height:90vh; overflow:auto; background:#f8fbff; color:#1b2b3d; border-radius:18px; box-shadow:0 24px 80px #0007; padding:28px; }
+            .native-presentation-panel h2 { margin:0 0 6px; font-size:24px; }
+            .native-presentation-panel p { line-height:1.5; }
+            .native-presentation-panel .native-pages { display:grid; gap:7px; margin:20px 0; }
+            .native-presentation-panel .native-page { padding:12px; border:1px solid #c9d5e0; border-radius:10px; background:white; }
+            .native-presentation-panel .native-note-editor { min-height:64px; margin-top:8px; padding:9px; border:1px solid #c9d5e0; border-radius:8px; white-space:pre-wrap; line-height:1.5; background:#fff; }
+            .native-presentation-panel .native-note-editor:focus { outline:2px solid #40a9a0; }
+            .native-presentation-panel .native-note-editor p { margin:0 0 .4em; }
+            .native-presentation-panel .native-note-tools { display:flex; justify-content:flex-end; margin-top:6px; }
+            .native-presentation-panel .native-note-tools button { padding:4px 10px; font-weight:700; }
+            .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:9px; justify-content:flex-end; margin-top:22px; }
+            .native-presentation-panel button { border:1px solid #728da6; border-radius:8px; background:white; padding:9px 14px; color:#1b2b3d; cursor:pointer; }
+            .native-presentation-panel button.primary { background:#256d69; border-color:#256d69; color:white; }
+            .native-presentation-panel button:focus-visible { outline:3px solid #40a9a0; outline-offset:2px; }
+            .native-presentation-panel select { min-width:290px; max-width:100%; padding:9px; border-radius:8px; }
+          `;
+          document.head.append(style);
+        }
+        removeNativePresentationDialog();
+        const scrim = document.createElement("div"); scrim.className = "native-presentation-scrim";
+        scrim.innerHTML = '<div class="native-presentation-panel" role="dialog" aria-modal="true" aria-labelledby="nativePresentationTitle"></div>';
+        document.body.append(scrim); nativePresentationDialog = scrim;
+        return scrim.querySelector(".native-presentation-panel");
+      }
+
+      async function openNativePresentationPreparation() {
+        const tab = getActiveTab();
+        if (!appState.isTauri || !tab || tab.preview?.fileType !== "html-runtime" || appState.htmlEditSession?.itemId === tab.id) return;
+        if (nativePresentationSessionId || appState.nativePresentationItemId) return;
+        const itemId = tab.id;
+        if (appState.runtimeFullscreenItemId === itemId) await toggleActiveHtmlRuntimePresentationMode();
+        setStatus(nativePresentationText("正在检查演示协议…", "Checking presentation protocol…"), "info");
+        const probe = await probeNativePresentation(itemId);
+        if (getActiveTab()?.id !== itemId) return;
+        if (!probe) {
+          let legacy = null;
+          try { legacy = await invoke("native_presentation_legacy_info", { itemId }); } catch (_) {}
+          if (!legacy?.eligible) {
+            setStatus(nativePresentationText("此 HTML 未提供可验证的原生演示协议", "This HTML has no verified native presentation protocol"), "warn");
+            return;
+          }
+          const panel = nativePresentationModalShell();
+          panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("升级旧演示副本", "Upgrade a copy of this presentation")}</h2><p>${nativePresentationText(`识别到 ${legacy.pageCount} 页旧 HTML-PPT。将创建同目录演示副本和专用 runtime 文件；原 HTML 与原 runtime 保持不变。`, `Found ${legacy.pageCount} legacy HTML-PPT pages. A presentation copy and dedicated runtime file will be created beside the original.`)}</p><div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" class="primary" data-native-action="upgrade">${nativePresentationText("创建副本", "Create copy")}</button></div>`;
+          panel.querySelector('[data-native-action="cancel"]').addEventListener("click", removeNativePresentationDialog);
+          panel.querySelector('[data-native-action="upgrade"]').addEventListener("click", async () => {
+            panel.querySelectorAll("button").forEach(button => button.disabled = true);
+            try {
+              const sourceRevision = await invoke("get_item_content_revision", { itemId });
+              const result = await invoke("upgrade_native_presentation_legacy", { payload: { itemId, expectedSourceHash: sourceRevision.revision } });
+              removeNativePresentationDialog();
+              await loadItems();
+              await openItem(result.itemId);
+              setStatus(nativePresentationText("演示副本已创建，可从新标签进入演示准备", "Presentation copy created. Prepare it from the new tab."), "ok");
+            } catch (error) {
+              panel.querySelectorAll("button").forEach(button => button.disabled = false);
+              const detail = error?.code === "EDIT_CONFLICT"
+                ? nativePresentationText("源文件已变化或同名副本已存在", "The source changed or the copy already exists")
+                : nativePresentationErrorText(error);
+              setStatus(nativePresentationText("创建演示副本失败：", "Could not create presentation copy: ") + detail, "error");
+            }
+          });
+          return;
+        }
+        let monitors;
+        try { monitors = await invoke("native_presentation_monitors"); }
+        catch (error) { setStatus(nativePresentationErrorText(error), "error"); return; }
+        if (!Array.isArray(monitors) || !monitors.length) { setStatus(nativePresentationText("找不到可用显示器", "No displays available"), "error"); return; }
+        let sourceRevision;
+        try { sourceRevision = await invoke("get_item_content_revision", { itemId }); }
+        catch (error) { setStatus(nativePresentationErrorText(error), "error"); return; }
+        appState.nativePresentationItemId = itemId;
+        try { await hideRuntimeSessionSurfaces(itemId, { force: true }); }
+        catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
+        const panel = nativePresentationModalShell();
+        const changedNotePages = new Set();
+        let noteComposing = false;
+        let noteSavePromise = null;
+        const options = monitors.map(monitor => `<option value="${escapeAttribute(monitor.id)}">${escapeHtml(monitor.name)} · ${monitor.width}×${monitor.height}${monitor.primary ? nativePresentationText(" · 主屏", " · Primary") : ""}</option>`).join("");
+        panel.innerHTML = `
+          <h2 id="nativePresentationTitle">${nativePresentationText("演示准备", "Prepare presentation")}</h2>
+          <p>${nativePresentationText("检查页面与备注，选择观众屏幕。演示从已保存的 HTML 文件启动。", "Check pages and notes, then choose the audience display. The saved HTML file will be shown.")}</p>
+          <div class="native-pages">${probe.pages.map((page, i) => `<div class="native-page" data-native-page="${escapeAttribute(page.id)}"><strong>${i + 1}. ${escapeHtml(page.title || page.id)}</strong><div class="native-note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${escapeAttribute(nativePresentationText(`${page.title || page.id} 备注`, `Notes for ${page.title || page.id}`))}"></div><div class="native-note-tools"><button type="button" data-native-bold="${escapeAttribute(page.id)}" aria-label="${nativePresentationText("加粗所选备注", "Bold selected note text")}" title="${nativePresentationText("加粗所选备注", "Bold selected note text")}">B</button></div></div>`).join("")}</div>
+          <label for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label><br>
+          <select id="nativePresentationMonitor" aria-label="${nativePresentationText("观众屏幕", "Audience display")}">${options}</select>
+          <p>${monitors.length === 1 ? nativePresentationText("仅检测到一块屏幕，将以窗口化排练模式启动。", "One display found. Presentation will open in windowed rehearsal mode.") : nativePresentationText("请使用扩展屏幕；系统镜像显示不能提供独立演讲者视图。", "Use an extended display. Mirroring cannot show a separate presenter view.")}</p>
+          <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" data-native-action="save-notes">${nativePresentationText("保存备注", "Save notes")}</button><button type="button" class="primary" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first page")}</button><button type="button" class="primary" data-native-action="start-current">${nativePresentationText("从当前页开始", "Start from current page")}</button></div>
+        `;
+        const noteEditors = new Map();
+        for (const page of probe.pages) {
+          const card = [...panel.querySelectorAll("[data-native-page]")].find(node => node.dataset.nativePage === page.id);
+          const editor = card.querySelector(".native-note-editor");
+          noteEditors.set(page.id, editor);
+          for (const paragraph of probe.notes?.[page.id] || []) {
+            const p = document.createElement("p");
+            for (const run of paragraph.runs || []) {
+              const span = document.createElement(run.bold ? "strong" : "span");
+              span.textContent = run.text || ""; p.append(span);
+            }
+            editor.append(p);
+          }
+          if (!editor.childNodes.length) editor.innerHTML = "<p><br></p>";
+          editor.addEventListener("input", () => changedNotePages.add(page.id));
+          editor.addEventListener("compositionstart", () => { noteComposing = true; });
+          editor.addEventListener("compositionend", () => { noteComposing = false; changedNotePages.add(page.id); });
+          editor.addEventListener("paste", event => {
+            event.preventDefault();
+            const plain = event.clipboardData?.getData("text/plain") || "";
+            if (!document.execCommand("insertText", false, plain)) {
+              const selection = window.getSelection();
+              const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+              if (range && editor.contains(range.commonAncestorContainer)) {
+                range.deleteContents(); const text = document.createTextNode(plain); range.insertNode(text);
+                range.setStartAfter(text); range.collapse(true); selection.removeAllRanges(); selection.addRange(range);
+                changedNotePages.add(page.id);
+              }
+            }
+          });
+          card.querySelector("[data-native-bold]").addEventListener("mousedown", event => event.preventDefault());
+          card.querySelector("[data-native-bold]").addEventListener("click", () => { editor.focus(); document.execCommand("bold"); changedNotePages.add(page.id); });
+        }
+        function readNoteParagraphs(editor) {
+          const paragraphs = []; let runs = [];
+          const append = (text, bold) => {
+            if (!text) return;
+            const last = runs[runs.length - 1];
+            if (last && last.bold === bold) last.text += text;
+            else runs.push({ text, bold });
+          };
+          const flush = () => { if (runs.length) { paragraphs.push({ runs }); runs = []; } };
+          const walk = (node, bold = false) => {
+            if (node.nodeType === Node.TEXT_NODE) { append(node.nodeValue || "", bold); return; }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            const tag = node.tagName;
+            if (tag === "BR") { flush(); return; }
+            const block = ["P", "DIV"].includes(tag);
+            if (block) flush();
+            for (const child of node.childNodes) walk(child, bold || tag === "B" || tag === "STRONG");
+            if (block) flush();
+          };
+          for (const child of editor.childNodes) walk(child);
+          flush();
+          return paragraphs;
+        }
+        async function performSaveNativeNotes() {
+          if (noteComposing) { setStatus(nativePresentationText("请先完成中文输入", "Finish composing text first"), "warn"); return false; }
+          if (!changedNotePages.size) return true;
+          const notes = {};
+          const editorHtml = {};
+          for (const id of changedNotePages) {
+            const editor = noteEditors.get(id);
+            notes[id] = readNoteParagraphs(editor);
+            editorHtml[id] = editor.innerHTML;
+          }
+          try {
+            const saved = await invoke("save_native_presentation_notes", { payload: { itemId, expectedSourceHash: sourceRevision.revision, pages: probe.pages, notes } });
+            sourceRevision.revision = saved.sourceHash;
+            for (const [id, paragraphs] of Object.entries(notes)) {
+              probe.notes[id] = paragraphs;
+              if (noteEditors.get(id).innerHTML === editorHtml[id]) changedNotePages.delete(id);
+            }
+            setStatus(nativePresentationText("备注已保存", "Notes saved"), "ok");
+            return true;
+          } catch (error) { setStatus(nativePresentationText("备注保存失败：", "Could not save notes: ") + nativePresentationErrorText(error), "error"); return false; }
+        }
+        function saveNativeNotes() {
+          if (!noteSavePromise) noteSavePromise = performSaveNativeNotes().finally(() => { noteSavePromise = null; });
+          return noteSavePromise;
+        }
+        panel.querySelector('[data-native-action="save-notes"]').addEventListener("click", () => saveNativeNotes());
+        panel.querySelector('[data-native-action="cancel"]').addEventListener("click", async () => {
+          if (noteSavePromise) await noteSavePromise;
+          if (!nativePresentationDialog?.contains(panel)) return;
+          if (!changedNotePages.size) { restoreAfterNativePresentation(itemId); return; }
+          const actions = panel.querySelector(".native-actions");
+          if (actions.querySelector(".native-leave-confirm")) return;
+          const oldButtons = [...actions.children];
+          oldButtons.forEach(button => { button.hidden = true; });
+          const confirm = document.createElement("div");
+          confirm.className = "native-leave-confirm";
+          confirm.innerHTML = `<span>${nativePresentationText("备注尚未保存", "Notes have not been saved")}</span><button type="button" data-native-leave="continue">${nativePresentationText("继续编辑", "Keep editing")}</button><button type="button" data-native-leave="discard">${nativePresentationText("放弃并关闭", "Discard and close")}</button><button type="button" data-native-leave="save">${nativePresentationText("保存并关闭", "Save and close")}</button>`;
+          actions.append(confirm);
+          confirm.querySelector('[data-native-leave="continue"]').addEventListener("click", () => { confirm.remove(); oldButtons.forEach(button => { button.hidden = false; }); });
+          confirm.querySelector('[data-native-leave="discard"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+          confirm.querySelector('[data-native-leave="save"]').addEventListener("click", async () => { if (await saveNativeNotes() && !changedNotePages.size) restoreAfterNativePresentation(itemId); });
+        });
+        for (const action of ["start-first", "start-current"]) {
+          panel.querySelector(`[data-native-action="${action}"]`).addEventListener("click", async () => {
+            if (nativePresentationSessionId) return;
+            const monitorId = panel.querySelector("#nativePresentationMonitor").value;
+            panel.querySelectorAll("button").forEach(button => button.disabled = true);
+            try {
+              if (!await saveNativeNotes() || changedNotePages.size) { panel.querySelectorAll("button").forEach(button => button.disabled = false); return; }
+              const session = await invoke("start_native_presentation", { payload: {
+                itemId, monitorId, pages: probe.pages, notes: probe.notes || {}, expectedSourceHash: sourceRevision.revision,
+                startPageId: action === "start-first" ? probe.pages[0].id : probe.activePageId,
+                rehearsal: monitors.length === 1,
+                language: appState.language
+              } });
+              nativePresentationSessionId = session.sessionId;
+              panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("演示进行中", "Presentation in progress")}</h2><p>${nativePresentationText("请在演讲者窗口控制演示。", "Use the presenter window to control the presentation.")}</p><div class="native-actions"><button type="button" data-native-action="end">${nativePresentationText("结束演示", "End presentation")}</button></div>`;
+              panel.querySelector('[data-native-action="end"]').addEventListener("click", () => invoke("stop_native_presentation", { sessionId: nativePresentationSessionId }).catch(error => setStatus(nativePresentationErrorText(error), "error")));
+            } catch (error) {
+              setStatus(nativePresentationErrorText(error), "error");
+              panel.querySelectorAll("button").forEach(button => button.disabled = false);
+            }
+          });
+        }
+        panel.querySelector("#nativePresentationMonitor").focus();
+      }
+
       async function toggleActiveHtmlRuntimePresentationMode() {
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") return;
@@ -22148,6 +22443,7 @@ if (!chipTipController) {
       async function syncActiveRuntimeHost(runId = null) {
         if (appState.runtimeSurfacesSuspended) return;
         const tab = getActiveTab();
+        if (tab?.id === appState.nativePresentationItemId) return;
         if (!tab || !isRuntimeHostTab(tab)) {
           appState.runtimeControlsOverlayExpanded = false;
           appState.runtimeControlsOverlayMode = "default";

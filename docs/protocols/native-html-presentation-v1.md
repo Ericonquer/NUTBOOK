@@ -1,0 +1,33 @@
+# NUTBOOK 原生 HTML 演示协议 v1
+
+标准 HTML 演示文档在页面加载时发布 `window.__NUTBOOK_PRESENTATION__`。NUTBOOK 只对通过能力与页面校验的文档显示“演示准备”；普通 HTML 保留原阅读与全屏行为。
+
+## 页面桥
+
+```js
+window.__NUTBOOK_PRESENTATION__ = {
+  version: 1,
+  capabilities: { managedPresenter: true },
+  pages: [{ id: "opening", title: "开场", index: 1 }],
+  get activePageId() { return currentId; },
+  async whenReady() { return true; },
+  async goTo(id) { /* 调用文档自己的真实导航逻辑 */ return true; },
+  subscribe(listener) { /* 实际页变化后调用 listener(id) */ return () => {}; },
+  async setManagedMode(enabled) { /* 关闭或恢复文档自己的备注/弹窗/重复导航 */ return true; },
+  async setEditMode(enabled) { /* 现有 HTML 编辑协议，若支持则保留 */ return true; }
+};
+```
+
+`pages` 至少一页，ID 非空且唯一，并与真实页根的 `data-nutbook-page-id` 一致。`goTo` 的返回值只表示请求被接收；NUTBOOK 根据订阅事件或随后读取的 `activePageId` 确认实际页。文档自身的点击、动画和媒体继续在观众窗口运行；受管理模式应隐藏自己的演讲者弹窗、备注抽屉及重复键盘导航。
+
+## 逐页备注
+
+备注以文档内的 `<script type="application/json" id="nutbook-presentation-notes">` 保存。JSON 结构为 `{"version":1,"pages":{"page-id":[{"type":"paragraph","runs":[{"text":"说明"},{"text":"重点","bold":true}]}]}}`。页 ID 是唯一绑定键，顺序变化不改变备注归属。文本只能作为文本渲染；只允许段落和加粗，不执行 HTML。准备界面保存时校验文件版本并保留未编辑的页及无关文档内容；冲突不得静默覆盖。
+
+可从 NUTBOOK 正式“添加文件夹”入口加入 [`native-presentation-sample/index.html`](../presentations/native-presentation-sample/index.html) 验收三页、中文备注、本地 SVG 资源和 CSS 动画。
+
+## 旧 HTML-PPT 升级
+
+首版仅识别仓库产品介绍演示使用的 `assets/runtime.js` 精确版本。用户在原件的“演示准备”入口明确选择升级后，NUTBOOK 在同目录创建 `<原名>.nutbook-presentation.html` 和 `assets/runtime.nutbook.js`；原 HTML 与原 runtime 不变。升级副本为真实 `.slide` 添加稳定 ID，并在复制的 runtime 内把桥接到原有 `go()` 导航函数。未知版本、目标已存在、源文件或 runtime 版本变化时拒绝升级。
+
+未改过的旧备注继续保存在原页的 `<aside class="notes">` 中，准备界面从该节点读取并显示；编辑后的页才在 JSON 数据块写入覆盖值。受管理演示模式隐藏旧备注抽屉和弹窗，演讲者窗口显示安全的文本与加粗结构。

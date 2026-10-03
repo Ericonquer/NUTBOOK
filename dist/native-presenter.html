@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NUTBOOK 演讲者</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #101827; color: #edf4fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 720px; }
+    button { font: inherit; cursor: pointer; }
+    button:disabled { cursor: default; opacity: .45; }
+    header { height: 70px; padding: 0 24px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #2b3b52; }
+    .brand { font-size: 18px; font-weight: 700; letter-spacing: .04em; margin-right: auto; }
+    #status { color: #b4c8dd; font-size: 14px; }
+    #status.error { color: #ffbcaa; }
+    #timer { font-variant-numeric: tabular-nums; font-size: 24px; font-weight: 700; }
+    #timer.overdue { color:#ffb78d; }
+    #target { width:74px; padding:7px; border-radius:7px; border:1px solid #436181; background:#1a2840; color:#edf4fb; }
+    .layout { height: calc(100vh - 142px); min-height: 510px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 18px; padding: 18px; }
+    .previews { display: grid; grid-template-rows: minmax(0, 1fr) 180px; gap: 18px; }
+    .card { background: #1a2840; border: 1px solid #34506f; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+    .caption { padding: 12px 16px; color: #b4c8dd; font-size: 13px; font-weight: 650; letter-spacing: .04em; border-bottom: 1px solid #34506f; }
+    .preview-body { flex: 1; display: grid; place-items: center; text-align: center; padding: 24px; background: radial-gradient(circle at 80% 10%, #264e60, #15233a 70%); }
+    .preview-body strong { display: block; font-size: clamp(28px, 4vw, 58px); line-height: 1.12; }
+    .preview-body span { color: #b4c8dd; font-size: 13px; margin-top: 10px; display: block; }
+    .preview-body img { display:block; max-width:100%; max-height:100%; object-fit:contain; border-radius:6px; }
+    .preview-body button { margin-top:12px; border:1px solid #68909e; color:#edf4fb; border-radius:8px; padding:7px 11px; background:#28505d; }
+    .next .preview-body strong { font-size: 26px; }
+    .side { display: grid; grid-template-rows: 65% 35%; gap: 18px; min-height: 0; }
+    .notes { min-height: 0; }
+    #notes { overflow-y: auto; padding: 18px 20px; line-height: 1.55; font-size: 21px; }
+    #notes p { margin: 0 0 1em; }
+    #notes .empty { color: #9dafc5; }
+    .pages { min-height: 0; }
+    .caption.tools { display:flex;align-items:center;gap:8px; }
+    .caption.tools span { margin-right:auto; }
+    .caption.tools input { width:90px; }
+    .caption.tools button { background:transparent;border:1px solid #56718c;border-radius:6px;color:#edf4fb;padding:2px 7px; }
+    #pages { overflow-y: auto; padding: 10px; display: grid; gap: 6px; }
+    #pages button { border: 0; background: transparent; color: #c7d5e6; text-align: left; padding: 8px 11px; border-radius: 8px; }
+    #pages button[aria-current="page"] { background: #276b69; color: white; }
+    footer { height: 72px; border-top: 1px solid #2b3b52; display: flex; align-items: center; gap: 10px; padding: 0 18px; }
+    footer button, header button { background: #263b54; border: 1px solid #436181; color: #f1f7fd; border-radius: 9px; padding: 9px 15px; }
+    footer button:hover:not(:disabled), header button:hover { background: #345474; }
+    #pageCount { margin-right: auto; color: #b4c8dd; font-variant-numeric: tabular-nums; }
+    #end { border-color: #8c5c58; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; height: auto; } .side { min-height: 380px; } }
+  </style>
+</head>
+<body>
+  <header><div class="brand">NUTBOOK · 演讲者</div><div id="status" role="status">等待观众窗口就绪…</div><button id="recover" type="button" aria-label="选择屏幕并恢复" title="选择屏幕并恢复" hidden>选择屏幕并恢复</button><label for="target">目标分钟</label><input id="target" type="number" min="1" max="600" aria-label="目标时长，分钟" title="目标时长，分钟"><div id="timer" aria-label="演示计时">00:00</div><button id="pause" type="button" aria-label="暂停计时" title="暂停计时">暂停</button><button id="reset" type="button" aria-label="重置计时" title="重置计时">重置</button></header>
+  <main class="layout">
+    <div class="previews">
+      <section class="card"><div class="caption">当前页 · 静态信息预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
+      <section class="card next"><div class="caption">下一页 · 静态信息预览</div><div class="preview-body" id="nextPreview"><div><strong>—</strong></div></div></section>
+    </div>
+    <div class="side">
+      <section class="card notes"><div class="caption tools"><span>逐页备注 · 只读</span><label for="notesHeight">区域</label><input id="notesHeight" type="range" min="30" max="80" value="65" aria-label="备注区域高度" title="备注区域高度"><button id="smallerNotes" type="button" aria-label="缩小备注字号" title="缩小备注字号">A−</button><button id="largerNotes" type="button" aria-label="放大备注字号" title="放大备注字号">A+</button></div><div id="notes"></div></section>
+      <section class="card pages"><div class="caption">页面</div><div id="pages"></div></section>
+    </div>
+  </main>
+  <footer><div id="pageCount">— / —</div><button id="previous" type="button" aria-label="上一页" title="上一页">← 上一页</button><button id="next" type="button" aria-label="下一页" title="下一页">下一页 →</button><button id="black" type="button" aria-label="临时黑屏" title="临时黑屏">临时黑屏</button><button id="end" type="button" aria-label="结束演示" title="结束演示">结束演示</button></footer>
+  <dialog id="recoverDialog" style="border:1px solid #436181;border-radius:12px;background:#1a2840;color:#edf4fb;padding:24px;max-width:430px"><h2>恢复观众窗口</h2><p>选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。</p><select id="recoverMonitor" aria-label="观众屏幕" style="min-width:280px;padding:9px"></select><p id="recoverError" role="alert"></p><div style="display:flex;gap:10px;justify-content:flex-end"><button id="recoverCancel" type="button">取消</button><button id="recoverConfirm" type="button">恢复</button></div></dialog>
+  <script>
+    (() => {
+      const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args);
+      const byId = id => document.getElementById(id);
+      const COPY = {
+        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众窗口就绪…", ready: "观众窗口已就绪", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", reset: "重置", current: "当前页 · 静态预览", nextPreview: "下一页 · 静态预览", notes: "逐页备注 · 只读", area: "区域", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在生成静态预览 · 动画及媒体仅在观众屏播放", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众窗口", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏" },
+        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience window…", ready: "Audience window ready", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", reset: "Reset", current: "Current · static preview", nextPreview: "Next · static preview", notes: "Slide notes · read only", area: "Area", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Creating static preview · media plays on audience screen", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience window", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary" }
+      };
+      let language = "zh-CN";
+      const t = key => COPY[language][key] || COPY["zh-CN"][key];
+      let state = null, startedAt = 0, elapsed = 0, paused = false, busy = false;
+      const previews = new Map();
+      const preferences = (() => { try { return JSON.parse(localStorage.getItem("nutbook-native-presenter-layout") || "{}"); } catch (_) { return {}; } })();
+      let notesHeight = Math.max(30, Math.min(80, Number(preferences.notesHeight) || 65));
+      let notesFontSize = Math.max(16, Math.min(32, Number(preferences.notesFontSize) || 21));
+      function applyLayout() {
+        document.querySelector(".side").style.gridTemplateRows = `minmax(0, ${notesHeight}fr) minmax(0, ${100 - notesHeight}fr)`;
+        byId("notes").style.fontSize = `${notesFontSize}px`;
+        byId("notesHeight").value = String(notesHeight);
+        try { localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesHeight, notesFontSize })); } catch (_) {}
+      }
+      function applyLanguage() {
+        document.documentElement.lang = language;
+        document.querySelector(".brand").textContent = t("brand");
+        document.querySelector('label[for="target"]').textContent = t("target");
+        const captions = document.querySelectorAll(".caption");
+        captions[0].textContent = t("current"); captions[1].textContent = t("nextPreview");
+        captions[2].querySelector("span").textContent = t("notes");
+        captions[2].querySelector('label[for="notesHeight"]').textContent = t("area");
+        captions[3].textContent = t("pages");
+        byId("previous").textContent = t("previous"); byId("next").textContent = t("next");
+        byId("end").textContent = t("end"); byId("reset").textContent = t("reset");
+        byId("recover").textContent = t("recover");
+        byId("recoverDialog").querySelector("h2").textContent = t("recoverTitle");
+        byId("recoverDialog").querySelector("p").textContent = t("recoverDescription");
+        byId("recoverCancel").textContent = t("cancel"); byId("recoverConfirm").textContent = t("resume");
+        for (const [id, key] of [["previous", "previous"], ["next", "next"], ["end", "end"], ["reset", "reset"], ["recover", "recover"]]) {
+          byId(id).title = t(key); byId(id).setAttribute("aria-label", t(key));
+        }
+        byId("target").title = t("target"); byId("target").setAttribute("aria-label", t("target"));
+      }
+      function renderTimer() {
+        const ms = elapsed + (startedAt && !paused ? Date.now() - startedAt : 0);
+        const seconds = Math.floor(ms / 1000);
+        byId("timer").textContent = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+        byId("timer").classList.toggle("overdue", Boolean(state?.targetMinutes && ms > state.targetMinutes * 60_000));
+        byId("pause").textContent = paused ? t("resume") : t("pause");
+        byId("pause").title = byId("pause").textContent;
+        byId("pause").setAttribute("aria-label", byId("pause").title);
+      }
+      function requestPreview(page) {
+        if (!page || !state || previews.has(page.id)) return;
+        previews.set(page.id, { pending: true });
+        const sessionId = state.sessionId;
+        invoke("native_presentation_thumbnail", { payload: { sessionId, pageId: page.id } })
+          .then(result => { if (state?.sessionId === sessionId) { previews.set(page.id, { dataUrl: result.dataUrl }); render(); } })
+          .catch(() => { if (state?.sessionId === sessionId) { previews.set(page.id, { failed: true }); render(); } });
+      }
+      function addPreview(container, page) {
+        container.replaceChildren();
+        const preview = page && previews.get(page.id);
+        if (preview?.dataUrl) {
+          const image = document.createElement("img"); image.src = preview.dataUrl;
+          image.alt = `${page.title || page.id} 静态预览`;
+          container.append(image); return;
+        }
+        const box = document.createElement("div");
+        const heading = document.createElement("strong");
+        heading.textContent = page ? page.title || page.id : "—";
+        const hint = document.createElement("span");
+        hint.textContent = page ? preview?.failed ? t("previewFailed") : t("previewLoading") : t("lastPage");
+        box.append(heading, hint); container.append(box);
+        if (page && preview?.failed) {
+          const retry = document.createElement("button"); retry.type = "button"; retry.textContent = t("previewRetry");
+          retry.addEventListener("click", () => { previews.delete(page.id); requestPreview(page); render(); });
+          box.append(retry);
+        }
+        requestPreview(page);
+      }
+      function renderNotes(pageId) {
+        const root = byId("notes"); root.replaceChildren();
+        const paragraphs = state.notes?.[pageId] || [];
+        if (!paragraphs.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = t("noNotes"); root.append(empty); return; }
+        for (const paragraph of paragraphs) {
+          const p = document.createElement("p");
+          for (const run of paragraph.runs || []) {
+            const node = document.createElement(run.bold ? "strong" : "span");
+            node.textContent = run.text || ""; p.append(node);
+          }
+          root.append(p);
+        }
+      }
+      async function navigate(pageId) {
+        if (!state?.ready || busy || state.pendingPageId) return;
+        busy = true; render();
+        try { state = await invoke("native_presentation_navigate", { payload: { sessionId: state.sessionId, pageId } }); }
+        catch (error) { byId("status").textContent = String(error); byId("status").classList.add("error"); }
+        finally { busy = false; render(); }
+      }
+      function render() {
+        if (!state) return;
+        const index = Math.max(0, state.pages.findIndex(page => page.id === state.activePageId));
+        byId("status").textContent = state.error || (state.ready ? state.pendingPageId ? t("navigating") : t("ready") : t("waiting"));
+        byId("status").classList.toggle("error", Boolean(state.error));
+        byId("recover").hidden = !state.suspended;
+        byId("pageCount").textContent = `${index + 1} / ${state.pages.length}`;
+        addPreview(byId("currentPreview"), state.pages[index]);
+        addPreview(byId("nextPreview"), state.pages[index + 1]);
+        renderNotes(state.activePageId);
+        byId("previous").disabled = !state.ready || busy || Boolean(state.pendingPageId) || index === 0;
+        byId("next").disabled = !state.ready || busy || Boolean(state.pendingPageId) || index >= state.pages.length - 1;
+        byId("black").disabled = !state.ready;
+        byId("black").textContent = state.black ? t("restore") : t("black");
+        byId("black").title = byId("black").textContent;
+        byId("black").setAttribute("aria-label", byId("black").textContent);
+        const pages = byId("pages"); pages.replaceChildren();
+        state.pages.forEach((page, i) => {
+          const button = document.createElement("button");
+          button.type = "button"; button.textContent = `${i + 1}. ${page.title || page.id}`;
+          button.disabled = !state.ready || busy || Boolean(state.pendingPageId);
+          button.setAttribute("aria-current", page.id === state.activePageId ? "page" : "false");
+          button.addEventListener("click", () => navigate(page.id)); pages.append(button);
+        });
+      }
+      window.__NUTBOOK_NATIVE_PRESENTATION_STATE__ = next => {
+        if (state && state.sessionId !== next.sessionId) return;
+        state = next; language = next.language === "en-US" ? "en-US" : "zh-CN"; applyLanguage(); elapsed = next.timerElapsedMs || 0;
+        startedAt = next.timerRunning ? Date.now() : 0; paused = !next.timerRunning;
+        if (document.activeElement !== byId("target")) byId("target").value = next.targetMinutes || "";
+        render(); renderTimer();
+      };
+      byId("previous").addEventListener("click", () => { const i = state.pages.findIndex(page => page.id === state.activePageId); if (i > 0) navigate(state.pages[i - 1].id); });
+      byId("next").addEventListener("click", () => { const i = state.pages.findIndex(page => page.id === state.activePageId); if (i >= 0 && i + 1 < state.pages.length) navigate(state.pages[i + 1].id); });
+      byId("end").addEventListener("click", async () => { if (state) await invoke("stop_native_presentation", { sessionId: state.sessionId }); });
+      byId("black").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_blackout", { payload: { sessionId: state.sessionId, black: !state.black } })); } catch (error) { byId("status").textContent = String(error); byId("status").classList.add("error"); } });
+      byId("recover").addEventListener("click", async () => {
+        if (!state?.suspended) return;
+        const monitors = await invoke("native_presentation_monitors").catch(() => []);
+        const select = byId("recoverMonitor"); select.replaceChildren();
+        for (const monitor of monitors) {
+          const option = document.createElement("option"); option.value = monitor.id;
+          option.textContent = `${monitor.name} · ${monitor.width}×${monitor.height}${monitor.primary ? ` · ${t("primary")}` : ""}`;
+          select.append(option);
+        }
+        byId("recoverError").textContent = monitors.length ? "" : t("noDisplay");
+        byId("recoverConfirm").disabled = !monitors.length;
+        byId("recoverDialog").showModal();
+      });
+      byId("recoverCancel").addEventListener("click", () => byId("recoverDialog").close());
+      byId("recoverConfirm").addEventListener("click", async () => {
+        const monitors = await invoke("native_presentation_monitors").catch(() => []);
+        const monitorId = byId("recoverMonitor").value;
+        if (!monitors.some(monitor => monitor.id === monitorId)) { byId("recoverError").textContent = t("changedDisplay"); return; }
+        try {
+          const next = await invoke("recover_native_presentation", { payload: { sessionId: state.sessionId, monitorId, rehearsal: monitors.length === 1 } });
+          byId("recoverDialog").close(); window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(next);
+        } catch (error) { byId("recoverError").textContent = String(error); }
+      });
+      byId("pause").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: paused ? "resume" : "pause" } })); } catch (_) {} });
+      byId("reset").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: "reset" } })); } catch (_) {} });
+      byId("target").addEventListener("change", async () => {
+        if (!state) return;
+        const value = Number(byId("target").value);
+        const targetMinutes = value >= 1 && value <= 600 ? Math.round(value) : null;
+        try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: "target", targetMinutes } })); } catch (_) {}
+      });
+      byId("notesHeight").addEventListener("input", () => { notesHeight = Number(byId("notesHeight").value); applyLayout(); });
+      byId("smallerNotes").addEventListener("click", () => { notesFontSize = Math.max(16, notesFontSize - 1); applyLayout(); });
+      byId("largerNotes").addEventListener("click", () => { notesFontSize = Math.min(32, notesFontSize + 1); applyLayout(); });
+      document.addEventListener("keydown", event => {
+        if (event.isComposing || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName || "")) return;
+        const i = state?.pages.findIndex(page => page.id === state.activePageId) ?? -1;
+        if (["ArrowRight", "PageDown"].includes(event.key) && i + 1 < (state?.pages.length || 0)) { event.preventDefault(); navigate(state.pages[i + 1].id); }
+        if (["ArrowLeft", "PageUp"].includes(event.key) && i > 0) { event.preventDefault(); navigate(state.pages[i - 1].id); }
+        if (event.key === "Escape" && state) { event.preventDefault(); invoke("stop_native_presentation", { sessionId: state.sessionId }); }
+      });
+      invoke("native_presentation_state").then(current => { if (current) window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(current); });
+      applyLayout();
+      setInterval(renderTimer, 250);
+    })();
+  </script>
+</body>
+</html>

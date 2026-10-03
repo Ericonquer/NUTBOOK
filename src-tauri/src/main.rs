@@ -450,6 +450,20 @@ fn main() {
             commands::html_edit::register_html_edit_session_lease,
             commands::html_edit::invalidate_html_edit_session_lease,
             commands::html_edit::write_editable_html_copy,
+            commands::native_presentation::native_presentation_monitors,
+            commands::native_presentation::native_presentation_legacy_info,
+            commands::native_presentation::upgrade_native_presentation_legacy,
+            commands::native_presentation::native_presentation_probe_command,
+            commands::native_presentation::start_native_presentation,
+            commands::native_presentation::save_native_presentation_notes,
+            commands::native_presentation::native_presentation_state,
+            commands::native_presentation::native_presentation_timer,
+            commands::native_presentation::native_presentation_blackout,
+            commands::native_presentation::recover_native_presentation,
+            commands::native_presentation::native_presentation_navigate,
+            commands::native_presentation::native_presentation_thumbnail,
+            commands::native_presentation::native_presentation_report,
+            commands::native_presentation::stop_native_presentation,
             commands::preview::save_markdown_content,
             commands::preview::export_markdown_file,
             commands::preview::export_markdown_html,
@@ -598,7 +612,11 @@ fn main() {
 /// 其余（未知 label）一律拒绝。注意：PR C 不拦截导航/外链，本表只管
 /// invoke 命令边界；新页面/弹窗仍按内容面 caller 对待。
 fn webview_may_invoke(label: &str, command: &str) -> bool {
-    if label == "main" || label == "detached" || label == "settings-overlay" {
+    if label == "main"
+        || label == "detached"
+        || label == "settings-overlay"
+        || label == "native-presentation-presenter"
+    {
         return true;
     }
     const TRUSTED_PREFIXES: [&str; 5] = [
@@ -617,6 +635,12 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
         "html-presentation-preview-",
         "html-runtime-popup-",
     ];
+    if label == "native-presentation-audience" {
+        return command == "native_presentation_report";
+    }
+    if label == "native-presentation-blackout" {
+        return command == "stop_native_presentation";
+    }
     if CONTENT_PREFIXES.iter().any(|prefix| label.starts_with(prefix)) {
         matches!(
             command,
@@ -629,6 +653,7 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
                 // 的一次性采集靠这条专用回报命令（命令内按 External 角色 +
                 // 会话/代次校验，语义只限「回传一次滚动/hash 快照」）。
                 | "external_html_view_state_report_command"
+                | "native_presentation_probe_command"
         )
     } else {
         false
