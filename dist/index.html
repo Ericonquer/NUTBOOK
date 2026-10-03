@@ -21182,6 +21182,11 @@ if (!chipTipController) {
           await toggleActiveHtmlRuntimePresentationMode();
           return;
         }
+        if (action === "prepare-native-presentation") {
+          if (getActiveTab()?.id !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+          await openNativePresentationPreparation();
+          return;
+        }
         if (action === "overlay-layout") {
           const expanded = Boolean(payload.expanded);
           const layoutMode = ["hover", "more", "tags", "badge-tip"].includes(payload.layoutMode)

@@ -1051,13 +1051,32 @@ try {
   assert.equal(await runtimePage.locator("#moreButton").getAttribute("aria-expanded"), "true");
   // 焦点通过 requestAnimationFrame 从触发按钮移到首个 menuitem；CI 的帧调度
   // 可以晚于 keyboard.press 返回，必须等待真实焦点而非读取前一帧的按钮状态。
-  await runtimePage.waitForFunction(() => document.activeElement?.id === "presentationOption");
+  await runtimePage.waitForFunction(() => document.activeElement?.id === "nativePresentationOption");
+  assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "nativePresentationOption");
+  await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "presentationOption");
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "removeOption");
   await runtimePage.keyboard.press("Escape");
   assert.equal(await runtimePage.locator("#moreButton").getAttribute("aria-expanded"), "false");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "moreButton");
+  assert.equal(await runtimePage.locator("#nativePresentationOption").textContent().then(value => value.trim()), "演示准备");
+  await runtimePage.evaluate(() => {
+    window.__nativePresentationActions = [];
+    new MutationObserver(() => {
+      const title = document.title;
+      if (!title.startsWith("__NUTBOOK_HTML_CONTROLS__:")) return;
+      const payload = JSON.parse(title.slice("__NUTBOOK_HTML_CONTROLS__:".length));
+      if (payload.action === "prepare-native-presentation") window.__nativePresentationActions.push(payload);
+    }).observe(document.querySelector("title"), { childList: true, subtree: true, characterData: true });
+  });
+  await runtimePage.locator("#moreButton").click();
+  await runtimePage.waitForFunction(() => document.getElementById("menu")?.classList.contains("open"));
+  const nativeMenuBottom = await runtimePage.locator("#menu").evaluate(node => node.getBoundingClientRect().bottom);
+  assert.ok(nativeMenuBottom <= 180, `three-option HTML menu must fit its ${180}px host overlay, got ${nativeMenuBottom}`);
+  await runtimePage.locator("#nativePresentationOption").dispatchEvent("pointerdown");
+  await runtimePage.waitForFunction(() => window.__nativePresentationActions.length === 1);
+  assert.equal(await runtimePage.evaluate(() => window.__nativePresentationActions[0].itemId), 41);
 
   await runtimePage.evaluate(() => {
     window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({
