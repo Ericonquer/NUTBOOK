@@ -2022,6 +2022,7 @@ fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
             .initialization_script(html_runtime_compatibility_script())
         .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
             .initialization_script(&presentation_preview_init_script(
+                session.key.item_id().ok_or(AppError::InvalidParams)?,
                 runtime_session_id,
                 generation,
                 active_page_id,
@@ -2044,6 +2045,7 @@ fn presentation_preview_update_script(
 }
 
 fn presentation_preview_init_script(
+    item_id: i64,
     runtime_session_id: &str,
     generation: u64,
     active_page_id: &str,
@@ -2055,7 +2057,7 @@ fn presentation_preview_init_script(
   const titlePrefix = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
   const report = async (type, pageId) => {{
     const state = window.__NUTBOOK_PRESENTATION_PREVIEW__?.state || initialSession;
-    const payload = {{ type, pageId, runtimeSessionId: state.runtimeSessionId, generation: state.generation, previewInstanceId: state.previewInstanceId }};
+    const payload = {{ type, itemId: {item_id}, pageId, runtimeSessionId: state.runtimeSessionId, generation: state.generation, previewInstanceId: state.previewInstanceId }};
     const invoke = window.__TAURI_INTERNALS__?.invoke;
     if (typeof invoke === "function") {{
       try {{ await invoke("html_edit_runtime_message_command", {{ payload }}); return; }} catch (_) {{}}
@@ -3931,12 +3933,13 @@ mod tests {
 
     #[test]
     fn presentation_preview_scripts_keep_the_editor_lease_and_scaled_canvas() {
-        let init = presentation_preview_init_script("html-edit-42-1", 7, "nutbook-page-003", "preview-1");
+        let init = presentation_preview_init_script(42, "html-edit-42-1", 7, "nutbook-page-003", "preview-1");
         let update = presentation_preview_update_script("html-edit-42-2", 8, "nutbook-page-004", "preview-2");
 
         assert!(init.contains("html-edit-42-1"));
         assert!(init.contains("nutbook-page-003"));
         assert!(init.contains("preview-1"));
+        assert!(init.contains("itemId: 42"));
         assert!(init.contains("html_edit_presentation_preview_clicked"));
         assert!(init.contains("html_edit_presentation_preview_navigate"));
         assert!(init.contains("nb-preview-canvas"));

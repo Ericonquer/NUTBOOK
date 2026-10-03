@@ -77,7 +77,7 @@ impl ContentSurfaceRole {
     /// 仍须通过会话登记 + origin + item + lease/generation 全部校验。
     pub fn allows_message_type(&self, message_type: &str) -> bool {
         /// host / player（读写入口）精确允许的消息类型。
-        const RUNTIME_TYPES: [&str; 20] = [
+        const RUNTIME_TYPES: [&str; 21] = [
             // document ready / 转换探针与结果（转换脚本，R10 结果 item 见
             // payload_item 层的服务端副本校验）
             "html_edit_runtime_document_ready",
@@ -91,6 +91,7 @@ impl ContentSurfaceRole {
             // 用户在 runtime 内发起的保存 / 完成请求（main 侧再校验 lease）
             "html_edit_save_requested_from_runtime",
             "html_edit_done_requested_from_runtime",
+            "html_edit_toggle_notes_requested_from_runtime",
             // 章节导航回报
             "html_edit_section_navigation_ready",
             "html_edit_section_navigation_changed",
@@ -666,13 +667,14 @@ mod tests {
     #[test]
     fn runtime_role_allows_real_protocol_messages_only() {
         let host = record(ContentSurfaceRole::RuntimeHost, "s-1", 3);
-        const REAL_MESSAGES: [&str; 15] = [
+        const REAL_MESSAGES: [&str; 16] = [
             "html_edit_ready",
             "html_edit_state_snapshot",
             "html_edit_document_changed",
             "html_edit_mark_saved_result",
             "html_edit_save_requested_from_runtime",
             "html_edit_done_requested_from_runtime",
+            "html_edit_toggle_notes_requested_from_runtime",
             "html_edit_section_navigation_ready",
             "html_edit_section_navigation_changed",
             "html_edit_section_navigation_result",
