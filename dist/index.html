@@ -649,6 +649,10 @@
         height: 100vh;
       }
 
+      .main-shell.presentation-notes-layout { grid-template-rows: auto auto minmax(0, 1fr); }
+      .main-shell.presentation-notes-layout .footer-bar { display: none; }
+      .main-shell.presentation-notes-layout .runtime-host-page { min-height: 0; }
+
       .app-shell.document-mode {
         grid-template-columns: var(--sidebar-collapsed-width) 1fr;
       }
@@ -4272,11 +4276,14 @@
       .presentation-notes-pane { display: none; position: absolute; left: 224px; right: 0; bottom: 0; height: 184px; box-sizing: border-box; border-top: 1px solid #cfc4c5; background: #f9f9fb; padding: 12px 24px; z-index: 1; }
       .runtime-host-page.presentation-notes-open .presentation-notes-pane { display: flex; flex-direction: column; gap: 8px; }
       .presentation-notes-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 600; color: #4c4546; }
+      .presentation-notes-feedback { margin-left: auto; color: #ba1a1a; font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .presentation-notes-feedback[data-tone="warn"] { color: #5e5e63; }
+      .presentation-notes-head > div { display: flex; align-items: center; gap: 8px; }
       .presentation-notes-head button { border: 0; border-radius: 8px; background: #eeeef0; color: #1a1c1d; cursor: pointer; font: inherit; padding: 4px 8px; }
       .presentation-notes-head button:hover { background: #e2e2e4; }
       .presentation-notes-head button:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
-      .presentation-notes-editor { flex: 1; min-height: 0; overflow: auto; border: 1px solid #7e7576; border-radius: 8px; padding: 8px 12px; background: #fff; color: #1a1c1d; font: 15px/1.5 Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; white-space: pre-wrap; }
-      .presentation-notes-editor:focus { border-color: #000; outline: none; }
+      .presentation-notes-editor { flex: 1; min-height: 0; overflow: auto; border: 1px solid #d9dadc; border-radius: 8px; padding: 8px 12px; background: #fff; color: #1a1c1d; font: 15px/1.5 Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; white-space: pre-wrap; }
+      .presentation-notes-editor:focus { border-color: #7e7576; outline: none; }
       .presentation-notes-editor p { margin: 0 0 .4em; }
 
       .runtime-card-inner {
@@ -9687,6 +9694,12 @@
       function setStatus(message, tone = "ok") {
         els.statusText.textContent = tr(message);
         els.statusDot.className = `status-dot${tone === "warn" ? " warn" : tone === "error" ? " error" : ""}`;
+        const notesFeedback = document.getElementById("presentationNotesFeedback");
+        if (notesFeedback) {
+          notesFeedback.hidden = tone !== "warn" && tone !== "error";
+          notesFeedback.textContent = notesFeedback.hidden ? "" : tr(message);
+          notesFeedback.dataset.tone = tone;
+        }
       }
 
       function fileCountText(count) {
@@ -11715,7 +11728,7 @@
       function renderHtmlEditPresentationRail(session = appState.htmlEditSession) {
         const page = document.querySelector(".runtime-host-page");
         const rail = document.getElementById("presentationEditRail");
-        if (!page || !rail) return;
+        if (!page || !rail) { els.mainShell.classList.remove("presentation-notes-layout"); return; }
         if (!isCurrentHtmlEditSession(session) || !session.presentation?.pages?.length) {
           page.classList.remove("presentation-editing");
           rail.replaceChildren();
@@ -11830,12 +11843,13 @@
         const page = document.querySelector(".runtime-host-page");
         const pane = document.getElementById("presentationNotesPane");
         const editor = document.getElementById("presentationNotesEditor");
-        if (!page || !pane || !editor) return;
+        if (!page || !pane || !editor) { els.mainShell.classList.remove("presentation-notes-layout"); return; }
         const notes = session?.presentationNotes;
         const open = Boolean(isCurrentHtmlEditSession(session) && session.presentation?.pageIds?.length && notes?.loaded && notes.open);
         if (!open) {
           flushHtmlPresentationNotesEditor(session);
           page.classList.remove("presentation-notes-open");
+          els.mainShell.classList.remove("presentation-notes-layout");
           pane.hidden = true;
           scheduleRuntimeHostSync();
           return;
@@ -11848,6 +11862,7 @@
           button?.setAttribute("title", label);
         }
         page.classList.add("presentation-notes-open");
+        els.mainShell.classList.add("presentation-notes-layout");
         const pageId = session.presentation.activePageId;
         if (notes.editor !== editor) {
           notes.editor = editor;
@@ -21738,7 +21753,7 @@ if (!chipTipController) {
                 <div id="runtimeHostMount" class="runtime-host-mount"></div>
               </section>
               <section id="presentationNotesPane" class="presentation-notes-pane" aria-label="演示备注" hidden>
-                <div class="presentation-notes-head"><span id="presentationNotesTitle"></span><div><button id="presentationNotesBold" type="button" aria-label="加粗所选备注" title="加粗所选备注">B</button><button id="presentationNotesClose" type="button" aria-label="隐藏备注" title="隐藏备注">×</button></div></div>
+                <div class="presentation-notes-head"><span id="presentationNotesTitle"></span><span id="presentationNotesFeedback" class="presentation-notes-feedback" role="status" hidden></span><div><button id="presentationNotesBold" type="button" aria-label="加粗所选备注" title="加粗所选备注">B</button><button id="presentationNotesClose" type="button" aria-label="隐藏备注" title="隐藏备注">×</button></div></div>
                 <div id="presentationNotesEditor" class="presentation-notes-editor" contenteditable="true" role="textbox" aria-multiline="true"></div>
               </section>
             </section>

@@ -2071,7 +2071,10 @@ fn presentation_preview_init_script(
     const pages = Array.from(document.querySelectorAll("[data-nutbook-page-id]")).filter((node) => node instanceof HTMLElement);
     const pageIds = pages.map((page) => page.dataset.nutbookPageId || "");
     if (!pages.length || pageIds.some((id) => !id) || new Set(pageIds).size !== pageIds.length) return;
-    const deckRoot = pages[0].closest(".deck-shell") || pages[0].parentElement || document.body;
+    const sourceStyles = Array.from(document.head.querySelectorAll('style,link[rel~="stylesheet"]')).map((node) => node.outerHTML).join("");
+    const base = document.createElement("base"); base.href = document.baseURI;
+    const visiblePage = pages.find((page) => getComputedStyle(page).display !== "none") || pages[0];
+    const activeDisplay = ["block", "flex", "grid"].includes(getComputedStyle(visiblePage).display) ? getComputedStyle(visiblePage).display : "block";
     const root = document.createElement("main");
     root.id = "nutbook-presentation-preview-root";
     root.setAttribute("aria-label", "演示页面缩略图");
@@ -2086,13 +2089,7 @@ fn presentation_preview_init_script(
       .nb-preview-stage *{{pointer-events:none!important;}}
       .nb-preview-canvas{{position:absolute;inset:0 auto auto 0;width:1024px;height:576px;transform-origin:top left;overflow:hidden;}}
       .nb-preview-canvas.deck{{position:absolute!important;width:1024px!important;height:576px!important;aspect-ratio:16 / 9!important;}}
-      .nb-preview-canvas > [data-nutbook-page-id]{{position:absolute!important;inset:0!important;width:1024px!important;height:576px!important;display:flex!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;pointer-events:none!important;}}
-      /* The child preview is physically narrow, so source @media rules would
-         otherwise turn every cloned desktop slide into its mobile layout. */
-      .nb-preview-canvas > .slide{{padding:58px 76px 62px!important;}}
-      .nb-preview-canvas .cover-title,.nb-preview-canvas .chapter-title{{font-size:58px!important;}}
-      .nb-preview-canvas .slide-title{{font-size:40px!important;}}
-      .nb-preview-canvas .slide-content{{font-size:19px!important;}}
+      .nb-preview-canvas iframe{{display:block;width:1024px;height:576px;border:0;pointer-events:none;}}
       .nb-preview-placeholder{{display:grid;place-items:center;width:100%;height:100%;color:#777;font:600 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}}
       .nb-preview-meta{{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:5px;align-items:baseline;padding:4px 2px 0;color:#25252a;font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:left;}}
       .nb-preview-meta-index{{color:#777780;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}} .nb-preview-meta-title{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}} .nb-preview-meta-kind{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#85858c;font-size:9px;font-weight:550;}}
@@ -2113,9 +2110,20 @@ fn presentation_preview_init_script(
       const stage = card.querySelector(".nb-preview-stage");
       const canvas = document.createElement("span"); canvas.className = "nb-preview-canvas deck aspect-16-9";
       const clone = source.cloneNode(true);
-      clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-      clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
-      canvas.append(clone); stage.replaceChildren(canvas);
+      clone.style.removeProperty("display");
+      clone.querySelectorAll("script,iframe").forEach((node) => node.remove());
+      let content = clone;
+      for (let parent = source.parentElement; parent && parent !== document.body; parent = parent.parentElement) {{
+        const wrapper = parent.cloneNode(false); wrapper.style.removeProperty("display"); wrapper.replaceChildren(content); content = wrapper;
+      }}
+      const snapshot = document.documentElement.cloneNode(false);
+      const head = document.createElement("head");
+      head.innerHTML = `<meta charset="utf-8">${{base.outerHTML}}${{sourceStyles}}<style>html,body{{margin:0!important;width:1024px!important;height:576px!important;overflow:hidden!important}}[data-nutbook-page-id]{{display:${{activeDisplay}}!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;width:1024px!important;height:576px!important}}</style>`;
+      const body = document.body.cloneNode(false); body.style.removeProperty("display"); body.replaceChildren(content);
+      snapshot.replaceChildren(head, body);
+      const frame = document.createElement("iframe"); frame.setAttribute("sandbox", ""); frame.setAttribute("aria-hidden", "true"); frame.tabIndex = -1;
+      frame.srcdoc = `<!doctype html>${{snapshot.outerHTML}}`;
+      canvas.append(frame); stage.replaceChildren(canvas);
       const fit = () => {{ canvas.style.transform = `scale(${{stage.clientWidth / 1024}})`; }};
       fit(); new ResizeObserver(fit).observe(stage);
       card.dataset.mounted = "true";
