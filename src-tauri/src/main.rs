@@ -29,6 +29,7 @@ const MENU_SHOW_ALL_ID: &str = "nutbook_show_all";
 const MENU_SHOW_RECENT_ID: &str = "nutbook_show_recent";
 const MENU_SHOW_STARRED_ID: &str = "nutbook_show_starred";
 const MENU_TOGGLE_OUTLINE_ID: &str = "nutbook_toggle_outline";
+const MENU_TOGGLE_PRESENTATION_NOTES_ID: &str = "nutbook_toggle_presentation_notes";
 const MENU_UNDO_ID: &str = "nutbook_undo";
 const MENU_REDO_ID: &str = "nutbook_redo";
 const MAX_CLI_IPC_REQUEST_BYTES: u64 = 64 * 1024;
@@ -175,6 +176,9 @@ fn main() {
             let toggle_outline = MenuItemBuilder::with_id(MENU_TOGGLE_OUTLINE_ID, "Markdown 大纲")
                 .accelerator("CmdOrCtrl+Shift+B")
                 .build(app)?;
+            let toggle_presentation_notes = MenuItemBuilder::with_id(MENU_TOGGLE_PRESENTATION_NOTES_ID, "切换演示备注（HTML 编辑）")
+                .accelerator("CmdOrCtrl+Shift+N")
+                .build(app)?;
             let undo = MenuItemBuilder::with_id(MENU_UNDO_ID, "撤销")
                 .accelerator("CmdOrCtrl+Z")
                 .build(app)?;
@@ -232,6 +236,7 @@ fn main() {
                     &show_starred,
                     &PredefinedMenuItem::separator(app)?,
                     &toggle_outline,
+                    &toggle_presentation_notes,
                     &PredefinedMenuItem::separator(app)?,
                     &exit_presentation,
                 ],
@@ -267,7 +272,7 @@ fn main() {
                     return;
                 }
             }
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(webview) = app.get_webview("main") {
                 let script = match event.id().as_ref() {
                     EXIT_PRESENTATION_MENU_ID => {
                         "window.__NUTBOOK_EXIT_RUNTIME_FULLSCREEN__?.('native-escape');"
@@ -281,11 +286,12 @@ fn main() {
                     MENU_SHOW_RECENT_ID => "window.__NUTBOOK_NATIVE_MENU__?.('show-recent');",
                     MENU_SHOW_STARRED_ID => "window.__NUTBOOK_NATIVE_MENU__?.('show-starred');",
                     MENU_TOGGLE_OUTLINE_ID => "window.__NUTBOOK_NATIVE_MENU__?.('toggle-outline');",
+                    MENU_TOGGLE_PRESENTATION_NOTES_ID => "window.__NUTBOOK_NATIVE_MENU__?.('toggle-presentation-notes');",
                     MENU_UNDO_ID => "window.__NUTBOOK_NATIVE_MENU__?.('undo');",
                     MENU_REDO_ID => "window.__NUTBOOK_NATIVE_MENU__?.('redo');",
                     _ => return,
                 };
-                let _ = window.eval(script);
+                let _ = webview.eval(script);
             }
         })
         .setup(|app| {

@@ -11904,6 +11904,11 @@
 
       function toggleHtmlPresentationNotes(session = appState.htmlEditSession, force) {
         if (!isCurrentHtmlEditSession(session) || !session.presentation?.pageIds?.length) return;
+        if (force === undefined) {
+          const now = performance.now();
+          if (now - (session.presentationNotesLastToggleAt || -Infinity) < 150) return;
+          session.presentationNotesLastToggleAt = now;
+        }
         const notes = session.presentationNotes;
         if (!notes?.loaded) {
           session.presentationNotesRequestedOpen = force !== false;
@@ -25064,6 +25069,10 @@ if (!chipTipController) {
           }
           if (action === "toggle-outline") {
             updateMarkdownPreference("outlineEnabled", !Boolean(appState.markdownPreferences.outlineEnabled));
+            return;
+          }
+          if (action === "toggle-presentation-notes") {
+            toggleHtmlPresentationNotes(appState.htmlEditSession);
             return;
           }
         } catch (error) {
