@@ -21152,15 +21152,24 @@ if (!chipTipController) {
           style = document.createElement("style"); style.id = "nativePresentationDialogStyle";
           style.textContent = `
             .native-presentation-scrim { position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,.48); display:grid; place-items:center; padding:24px; }
-            .native-presentation-panel { width:min(760px,100%); max-height:90vh; overflow:auto; background:#fff; color:#1a1c1d; border-radius:16px; box-shadow:0 24px 80px #0002; padding:24px; }
-            .native-presentation-panel h2 { margin:0 0 6px; font-size:24px; }
+            .native-presentation-panel { box-sizing:border-box; width:min(560px,100%); max-height:90vh; overflow:auto; background:#fff; color:#1a1c1d; border-radius:16px; box-shadow:0 24px 80px #0002; padding:28px; font-size:15px; }
+            .native-presentation-panel h2 { margin:0; font-size:24px; line-height:32px; }
             .native-presentation-panel p { line-height:1.5; }
-            .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:9px; justify-content:flex-end; margin-top:22px; }
+            .native-presentation-panel .native-heading { display:flex; align-items:center; gap:12px; margin-bottom:24px; }
+            .native-presentation-panel .native-page-count { margin-left:auto; border-radius:999px; padding:5px 10px; background:#eeeef0; color:#4c4546; font-size:12px; font-weight:600; white-space:nowrap; }
+            .native-presentation-panel .native-field-label { display:block; margin-bottom:8px; color:#4c4546; font-size:13px; font-weight:600; }
+            .native-presentation-panel .native-display-choice { display:flex; align-items:center; min-height:46px; width:100%; padding:10px 12px; border:1px solid #cfc4c5; border-radius:8px; background:#f9f9fb; }
+            .native-presentation-panel .native-guidance { margin:12px 0 0; color:#4c4546; font-size:13px; line-height:1.55; }
+            .native-presentation-panel .native-notes-hint { margin:20px 0 0; padding-top:16px; border-top:1px solid #eeeef0; color:#5e5e63; font-size:13px; line-height:1.5; }
+            .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:9px; justify-content:flex-end; margin-top:24px; }
             .native-presentation-panel button { border:0; border-radius:8px; background:#eeeef0; padding:9px 14px; color:#1a1c1d; cursor:pointer; }
             .native-presentation-panel button.primary { background:#000; color:#fff; }
+            .native-presentation-panel button:disabled { opacity:.5; cursor:default; }
             .native-presentation-panel button:focus-visible { outline:2px solid #000; outline-offset:2px; }
-            .native-presentation-panel select { min-width:290px; max-width:100%; padding:9px; border:1px solid #7e7576; border-radius:8px; background:#fff; color:#1a1c1d; }
+            .native-presentation-panel:focus { outline:none; }
+            .native-presentation-panel select { width:100%; min-height:46px; padding:9px 12px; border:1px solid #7e7576; border-radius:8px; background:#fff; color:#1a1c1d; font:inherit; }
             .native-presentation-panel select:focus { border-color:#000; outline:none; }
+            @media (max-width:560px) { .native-presentation-panel { padding:20px; } .native-presentation-panel .native-actions { justify-content:stretch; } .native-presentation-panel .native-actions button { flex:1 1 auto; } }
           `;
           document.head.append(style);
         }
@@ -21221,24 +21230,27 @@ if (!chipTipController) {
         catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
         const panel = nativePresentationModalShell();
         const options = monitors.map(monitor => `<option value="${escapeAttribute(monitor.id)}">${escapeHtml(monitor.name)} · ${monitor.width}×${monitor.height}${monitor.primary ? nativePresentationText(" · 主屏", " · Primary") : ""}</option>`).join("");
+        const atFirstPage = !probe.activePageId || probe.activePageId === probe.pages[0].id;
+        const audienceDisplay = monitors.length === 1
+          ? `<div class="native-display-choice">${escapeHtml(monitors[0].name)} · ${monitors[0].width}×${monitors[0].height}</div><input id="nativePresentationMonitor" type="hidden" value="${escapeAttribute(monitors[0].id)}">`
+          : `<select id="nativePresentationMonitor" aria-label="${nativePresentationText("观众画面", "Audience display")}">${options}</select>`;
         panel.innerHTML = `
-          <h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2>
-          <p>${nativePresentationText(`共 ${probe.pages.length} 页。备注请在 HTML 编辑模式下逐页添加并保存。`, `${probe.pages.length} pages. Add and save notes per page in HTML edit mode.`)}</p>
-          <label for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label><br>
-          <select id="nativePresentationMonitor" aria-label="${nativePresentationText("观众屏幕", "Audience display")}">${options}</select>
-          <p>${monitors.length === 1 ? nativePresentationText("单屏也可演示：在会议软件中只共享独立的观众窗口，备注和控制留在演讲者窗口。共享整个屏幕会暴露两个窗口。", "You can present on one display: share only the separate audience window in your meeting app. Notes and controls stay in the presenter window. Sharing the entire display exposes both.") : nativePresentationText("请使用扩展屏幕；系统镜像显示不能提供独立演讲者视图。", "Use an extended display. Mirroring cannot show a separate presenter view.")}</p>
-          <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" class="primary" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first page")}</button><button type="button" class="primary" data-native-action="start-current">${nativePresentationText("从当前页开始", "Start from current page")}</button></div>
+          <div class="native-heading"><h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2><span class="native-page-count">${nativePresentationText(`${probe.pages.length} 页`, `${probe.pages.length} slides`)}</span></div>
+          <div class="native-field">${monitors.length === 1 ? `<div class="native-field-label">${nativePresentationText("观众画面", "Audience display")}</div>` : `<label class="native-field-label" for="nativePresentationMonitor">${nativePresentationText("观众画面", "Audience display")}</label>`}${audienceDisplay}</div>
+          <p class="native-guidance">${monitors.length === 1 ? nativePresentationText("单屏演示时，在会议软件中共享“观众窗口”；备注和控制只显示在“演讲者窗口”。", "On one display, share the Audience window in your meeting app. Notes and controls stay in the Presenter window.") : nativePresentationText("选择观众使用的扩展屏幕；演讲者窗口留在当前屏幕。", "Choose the extended display for the audience. The Presenter window stays on this display.")}</p>
+          <p class="native-notes-hint">${nativePresentationText("备注可在 HTML 编辑模式中逐页添加并保存。", "Add and save slide notes in HTML edit mode.")}</p>
+          <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button>${atFirstPage ? "" : `<button type="button" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first slide")}</button>`}<button type="button" class="primary" data-native-action="start-current">${atFirstPage ? nativePresentationText("开始演示", "Start presentation") : nativePresentationText("从当前页开始", "Start from current slide")}</button></div>
         `;
         panel.querySelector('[data-native-action="cancel"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
         for (const action of ["start-first", "start-current"]) {
-          panel.querySelector(`[data-native-action="${action}"]`).addEventListener("click", async () => {
+          panel.querySelector(`[data-native-action="${action}"]`)?.addEventListener("click", async () => {
             if (nativePresentationSessionId) return;
             const monitorId = panel.querySelector("#nativePresentationMonitor").value;
             panel.querySelectorAll("button").forEach(button => button.disabled = true);
             try {
               const session = await invoke("start_native_presentation", { payload: {
                 itemId, monitorId, pages: probe.pages, notes: probe.notes || {}, expectedSourceHash: sourceRevision.revision,
-                startPageId: action === "start-first" ? probe.pages[0].id : probe.activePageId,
+                startPageId: action === "start-first" ? probe.pages[0].id : (probe.activePageId || probe.pages[0].id),
                 rehearsal: monitors.length === 1,
                 language: appState.language
               } });
@@ -21251,7 +21263,8 @@ if (!chipTipController) {
             }
           });
         }
-        panel.querySelector("#nativePresentationMonitor").focus();
+        if (monitors.length > 1) panel.querySelector("#nativePresentationMonitor").focus();
+        else { panel.tabIndex = -1; panel.focus(); }
       }
 
       async function toggleActiveHtmlRuntimePresentationMode() {

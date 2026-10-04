@@ -5,55 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NUTBOOK 演讲者</title>
   <style>
-    :root { color-scheme: light; font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; background: #f9f9fb; color: #1a1c1d; }
+    :root { color-scheme: light; font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; background: var(--surface); color: var(--ink); --surface:#f9f9fb; --card:#fff; --well:#f3f3f5; --ink:#1a1c1d; --muted:#5e5e63; --caption:#4c4546; --line:#cfc4c5; --control:#eeeef0; --control-hover:#e2e2e4; --active:#eeeef0; --strong:#000; --on-strong:#fff; --input:#fff; }
+    :root[data-theme="dark"] { color-scheme: dark; --surface:#141618; --card:#202326; --well:#17191b; --ink:#f4f4f5; --muted:#b2b5b9; --caption:#d1d3d5; --line:#414549; --control:#303438; --control-hover:#41464b; --active:#363b40; --strong:#f4f4f5; --on-strong:#17191b; --input:#292d30; }
     * { box-sizing: border-box; }
     body { margin: 0; min-width: 720px; }
     button { font: inherit; cursor: pointer; }
     button:disabled { cursor: default; opacity: .45; }
-    header { height: 70px; padding: 0 24px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #cfc4c5; }
-    .brand { font-size: 18px; font-weight: 700; letter-spacing: .04em; margin-right: auto; }
-    #status { color: #5e5e63; font-size: 14px; }
+    header { height: 70px; padding: 0 24px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); }
+    .brand { font-size: 18px; font-weight: 700; letter-spacing: .04em; }
+    #status { color: var(--muted); font-size: 14px; margin-left:auto; }
     #status.error { color: #ba1a1a; }
     #timer { font-variant-numeric: tabular-nums; font-size: 24px; font-weight: 700; }
     #timer.overdue { color:#ba1a1a; }
-    #target { width:74px; padding:7px; border-radius:8px; border:1px solid #7e7576; background:#fff; color:#1a1c1d; }
-    #target:focus { border-color:#000; outline:none; }
+    #target { width:74px; padding:7px; border-radius:8px; border:1px solid var(--line); background:var(--input); color:var(--ink); }
+    #target:focus { border-color:var(--ink); outline:none; }
+    .theme-toggle { display:inline-flex; align-items:center; gap:8px; white-space:nowrap; }
+    .theme-swatch { width:15px; height:15px; border:1px solid var(--line); border-radius:50%; background:linear-gradient(90deg,#fff 50%,#1a1c1d 50%); }
     .layout { height: calc(100vh - 122px); min-height: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); gap: 18px; padding: 18px; }
     .previews { display: grid; grid-template-rows: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; min-height: 0; }
-    .card { background: #fff; border: 1px solid #cfc4c5; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-    .caption { min-height: 30px; padding: 6px 12px; color: #4c4546; font-size: 12px; font-weight: 600; letter-spacing: .02em; border-bottom: 1px solid #cfc4c5; }
-    .preview-body { flex: 1; min-height: 0; min-width: 0; display: grid; place-items: center; text-align: center; padding: 8px; background: #f3f3f5; overflow: hidden; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .caption { min-height: 30px; padding: 6px 12px; color: var(--caption); font-size: 12px; font-weight: 600; letter-spacing: .02em; border-bottom: 1px solid var(--line); }
+    .preview-body { flex: 1; min-height: 0; min-width: 0; display: grid; place-items: center; text-align: center; padding: 8px; background: var(--well); overflow: hidden; }
     .preview-body strong { display: block; font-size: clamp(28px, 4vw, 58px); line-height: 1.12; }
-    .preview-body span { color: #5e5e63; font-size: 13px; margin-top: 10px; display: block; }
+    .preview-body span { color: var(--muted); font-size: 13px; margin-top: 10px; display: block; }
     .preview-body img { display:block; width:100%; height:100%; min-height:0; object-fit:contain; border-radius:6px; }
-    .preview-body button { margin-top:12px; border:0; color:#1a1c1d; border-radius:8px; padding:7px 11px; background:#e2e2e4; }
+    .preview-body button { margin-top:12px; border:0; color:var(--ink); border-radius:8px; padding:7px 11px; background:var(--control-hover); }
     .next .preview-body strong { font-size: 26px; }
     .side { display: grid; grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; min-height: 0; }
     .notes { min-height: 0; }
     #notes { overflow-y: auto; padding: 18px 20px; line-height: 1.55; font-size: 21px; }
     #notes p { margin: 0 0 1em; }
-    #notes .empty { color: #5e5e63; }
+    #notes .empty { color: var(--muted); }
     .pages { min-height: 0; }
     .caption.tools { display:flex;align-items:center;gap:8px; }
     .caption.tools span { margin-right:auto; }
     .caption.tools input { width:90px; }
-    .caption.tools button { background:#eeeef0;border:0;border-radius:7px;color:#1a1c1d;padding:2px 7px; }
+    #notesHeight { accent-color:var(--ink); }
+    .caption.tools button { background:var(--control);border:0;border-radius:7px;color:var(--ink);padding:2px 7px; }
     #pages { overflow-y: auto; padding: 10px; display: grid; gap: 6px; }
-    #pages button { border: 0; background: transparent; color: #4c4546; text-align: left; padding: 8px 11px; border-radius: 8px; }
-    #pages button:hover { background: #eeeef0; }
-    #pages button[aria-current="page"] { background: #eeeef0; color: #000; box-shadow: inset 2px 0 #000; font-weight: 700; }
-    footer { height: 52px; border-top: 1px solid #cfc4c5; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
-    footer button, header button { background: #eeeef0; border: 0; color: #1a1c1d; border-radius: 8px; padding: 9px 15px; }
+    #pages button { border: 0; background: transparent; color: var(--caption); text-align: left; padding: 8px 11px; border-radius: 8px; }
+    #pages button:hover { background: var(--control); }
+    #pages button[aria-current="page"] { background: var(--active); color: var(--ink); box-shadow: inset 2px 0 var(--ink); font-weight: 700; }
+    footer { height: 52px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+    footer button, header button { background: var(--control); border: 0; color: var(--ink); border-radius: 8px; padding: 9px 15px; }
     footer button { padding: 6px 10px; }
-    footer button:hover:not(:disabled), header button:hover { background: #e2e2e4; }
-    button:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
-    #pageCount { margin-right: auto; color: #5e5e63; font-variant-numeric: tabular-nums; }
-    #end { background: #000; color: #fff; }
+    footer button:hover:not(:disabled), header button:hover { background: var(--control-hover); }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    #pageCount { margin-right: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #end { background: var(--strong); color: var(--on-strong); }
+    #recoverDialog { border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--ink); padding:24px; max-width:430px; }
+    #recoverMonitor { min-width:280px; padding:9px; background:var(--input); color:var(--ink); border:1px solid var(--line); border-radius:8px; }
+    .recover-actions { display:flex; gap:10px; justify-content:flex-end; }
+    .recover-actions button { background:var(--control); border:0; color:var(--ink); border-radius:8px; padding:9px 14px; }
     @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1.4fr) minmax(260px, .8fr); gap: 12px; padding: 12px; } .previews, .side { gap: 12px; } }
   </style>
 </head>
 <body>
-  <header><div class="brand">NUTBOOK · 演讲者</div><div id="status" role="status">等待观众窗口就绪…</div><button id="recover" type="button" aria-label="选择屏幕并恢复" title="选择屏幕并恢复" hidden>选择屏幕并恢复</button><label for="target">目标分钟</label><input id="target" type="number" min="1" max="600" aria-label="目标时长，分钟" title="目标时长，分钟"><div id="timer" aria-label="演示计时">00:00</div><button id="pause" type="button" aria-label="暂停计时" title="暂停计时">暂停</button><button id="reset" type="button" aria-label="重置计时" title="重置计时">重置</button></header>
+  <header><div class="brand">NUTBOOK · 演讲者</div><button id="themeToggle" class="theme-toggle" type="button" aria-label="切换到深色外观" title="切换到深色外观"><span class="theme-swatch" aria-hidden="true"></span><span id="themeToggleText">深色</span></button><div id="status" role="status">等待观众窗口就绪…</div><button id="recover" type="button" aria-label="选择屏幕并恢复" title="选择屏幕并恢复" hidden>选择屏幕并恢复</button><label for="target">目标分钟</label><input id="target" type="number" min="1" max="600" aria-label="目标时长，分钟" title="目标时长，分钟"><div id="timer" aria-label="演示计时">00:00</div><button id="pause" type="button" aria-label="暂停计时" title="暂停计时">暂停</button><button id="reset" type="button" aria-label="重置计时" title="重置计时">重置</button></header>
   <main class="layout">
     <div class="previews">
       <section class="card"><div class="caption">当前页 · 静态信息预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
@@ -65,14 +73,14 @@
     </div>
   </main>
   <footer><div id="pageCount">— / —</div><button id="previous" type="button" aria-label="上一页" title="上一页">← 上一页</button><button id="next" type="button" aria-label="下一页" title="下一页">下一页 →</button><button id="black" type="button" aria-label="临时黑屏" title="临时黑屏">临时黑屏</button><button id="end" type="button" aria-label="结束演示" title="结束演示">结束演示</button></footer>
-  <dialog id="recoverDialog" style="border:1px solid #cfc4c5;border-radius:12px;background:#fff;color:#1a1c1d;padding:24px;max-width:430px"><h2>恢复观众窗口</h2><p>选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。</p><select id="recoverMonitor" aria-label="观众屏幕" style="min-width:280px;padding:9px"></select><p id="recoverError" role="alert"></p><div style="display:flex;gap:10px;justify-content:flex-end"><button id="recoverCancel" type="button">取消</button><button id="recoverConfirm" type="button">恢复</button></div></dialog>
+  <dialog id="recoverDialog"><h2>恢复观众窗口</h2><p>选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。</p><select id="recoverMonitor" aria-label="观众屏幕"></select><p id="recoverError" role="alert"></p><div class="recover-actions"><button id="recoverCancel" type="button">取消</button><button id="recoverConfirm" type="button">恢复</button></div></dialog>
   <script>
     (() => {
       const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args);
       const byId = id => document.getElementById(id);
       const COPY = {
-        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众窗口就绪…", ready: "观众窗口已就绪", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", reset: "重置", current: "当前页 · 静态预览", nextPreview: "下一页 · 静态预览", notes: "逐页备注 · 只读", area: "区域", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在生成静态预览 · 动画及媒体仅在观众屏播放", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众窗口", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏" },
-        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience window…", ready: "Audience window ready", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", reset: "Reset", current: "Current · static preview", nextPreview: "Next · static preview", notes: "Slide notes · read only", area: "Area", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Creating static preview · media plays on audience screen", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience window", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary" }
+        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众窗口就绪…", ready: "观众窗口已就绪", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 静态预览", nextPreview: "下一页 · 静态预览", notes: "逐页备注 · 只读", area: "区域", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在生成静态预览 · 动画及媒体仅在观众屏播放", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众窗口", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏" },
+        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience window…", ready: "Audience window ready", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · static preview", nextPreview: "Next · static preview", notes: "Slide notes · read only", area: "Area", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Creating static preview · media plays on audience screen", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience window", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary" }
       };
       let language = "zh-CN";
       const t = key => COPY[language][key] || COPY["zh-CN"][key];
@@ -81,11 +89,23 @@
       const preferences = (() => { try { return JSON.parse(localStorage.getItem("nutbook-native-presenter-layout") || "{}"); } catch (_) { return {}; } })();
       let notesHeight = Math.max(25, Math.min(50, Number(preferences.notesBottomPercent) || 34));
       let notesFontSize = Math.max(16, Math.min(32, Number(preferences.notesFontSize) || 21));
+      let theme = preferences.theme === "dark" ? "dark" : "light";
+      function savePreferences() {
+        try { localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesBottomPercent: notesHeight, notesFontSize, theme })); } catch (_) {}
+      }
+      function applyTheme() {
+        document.documentElement.dataset.theme = theme;
+        const action = theme === "dark" ? t("switchToLight") : t("switchToDark");
+        byId("themeToggleText").textContent = theme === "dark" ? t("lightTheme") : t("darkTheme");
+        byId("themeToggle").title = action;
+        byId("themeToggle").setAttribute("aria-label", action);
+        savePreferences();
+      }
       function applyLayout() {
         document.querySelector(".previews").style.gridTemplateRows = `minmax(0, ${100 - notesHeight}fr) minmax(0, ${notesHeight}fr)`;
         byId("notes").style.fontSize = `${notesFontSize}px`;
         byId("notesHeight").value = String(notesHeight);
-        try { localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesBottomPercent: notesHeight, notesFontSize })); } catch (_) {}
+        savePreferences();
       }
       function applyLanguage() {
         document.documentElement.lang = language;
@@ -106,6 +126,7 @@
           byId(id).title = t(key); byId(id).setAttribute("aria-label", t(key));
         }
         byId("target").title = t("target"); byId("target").setAttribute("aria-label", t("target"));
+        applyTheme();
       }
       function renderTimer() {
         const ms = elapsed + (startedAt && !paused ? Date.now() - startedAt : 0);
@@ -235,6 +256,7 @@
       byId("notesHeight").addEventListener("input", () => { notesHeight = Number(byId("notesHeight").value); applyLayout(); });
       byId("smallerNotes").addEventListener("click", () => { notesFontSize = Math.max(16, notesFontSize - 1); applyLayout(); });
       byId("largerNotes").addEventListener("click", () => { notesFontSize = Math.min(32, notesFontSize + 1); applyLayout(); });
+      byId("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
       document.addEventListener("keydown", event => {
         if (event.isComposing || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName || "")) return;
         const i = state?.pages.findIndex(page => page.id === state.activePageId) ?? -1;
@@ -244,6 +266,7 @@
       });
       invoke("native_presentation_state").then(current => { if (current) window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(current); });
       applyLayout();
+      applyTheme();
       setInterval(renderTimer, 250);
     })();
   </script>

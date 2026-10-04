@@ -20,6 +20,18 @@ try {
   });
   await page.goto(pathToFileURL(path.resolve("dist/native-presenter.html")).href);
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
+  const previewBeforeThemeChange = await page.locator("#currentPreview img").getAttribute("src");
+  assert.equal(await page.locator("#themeToggle").getAttribute("aria-label"), "切换到深色外观");
+  await page.locator("#themeToggle").click();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
+  assert.equal(await page.locator("#themeToggle").getAttribute("aria-label"), "切换到浅色外观");
+  assert.equal(await page.locator("#currentPreview img").getAttribute("src"), previewBeforeThemeChange, "theme must not alter the slide preview");
+  assert.equal(await page.locator("#notes").textContent(), "当前页演讲备注");
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark", "presenter theme must persist across window reloads");
+  await page.locator("#themeToggle").click();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
 
   for (const [width, height] of [[1440, 900], [1080, 680]]) {
     await page.setViewportSize({ width, height });
