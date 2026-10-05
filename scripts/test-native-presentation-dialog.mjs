@@ -20,59 +20,136 @@ function functionSource(name) {
 }
 
 const harness = `
-  let nativePresentationDialog = null, nativePresentationSessionId = null;
+  let nativePresentationDialog = null, nativePresentationSessionId = null, nativePresentationTipTimer = null, nativePresentationPreparingItemId = null;
   const appState = { language: "zh-CN", isTauri: true, htmlEditSession: null, nativePresentationItemId: null, runtimeFullscreenItemId: null };
   const getActiveTab = () => ({ id: 41, preview: { fileType: "html-runtime" } });
   const nativePresentationText = (zh, en) => appState.language === "en-US" ? en : zh;
   const escapeHtml = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
   const escapeAttribute = escapeHtml;
   const setStatus = () => {};
-  const hideRuntimeSessionSurfaces = async () => {};
-  const probeNativePresentation = async () => ({ pages: [{ id: "one", title: "开场" }, { id: "two", title: "后续" }], activePageId: window.testActivePage, notes: {} });
+  const scheduleRuntimeHostSync = () => {};
+  const hideRuntimeSessionSurfaces = async () => { window.hideCalls = (window.hideCalls || 0) + 1; };
+  const probeNativePresentation = async () => {
+    window.probeCalls = (window.probeCalls || 0) + 1;
+    if (window.testProbeDeferred) await new Promise(resolve => { window.releaseProbe = resolve; });
+    return window.testProbe === null ? null : ({ pages: [{ id: "one", title: "开场" }, { id: "two", title: "后续" }], activePageId: window.testActivePage, notes: {} });
+  };
   const invoke = async (command, args) => {
     if (command === "native_presentation_monitors") return window.testMonitors;
+    if (command === "native_presentation_legacy_info") return window.testLegacy;
     if (command === "get_item_content_revision") return { revision: "sample-hash" };
     if (command === "start_native_presentation") { window.startPayload = args.payload; return { sessionId: "test-session" }; }
     return null;
   };
   ${functionSource("removeNativePresentationDialog")}
-  const restoreAfterNativePresentation = () => { removeNativePresentationDialog(); appState.nativePresentationItemId = null; };
+  const restoreAfterNativePresentation = () => { window.restoreCalls = (window.restoreCalls || 0) + 1; removeNativePresentationDialog(); appState.nativePresentationItemId = null; };
   ${functionSource("nativePresentationModalShell")}
   ${functionSource("openNativePresentationPreparation")}
   window.openTestPresentationDialog = openNativePresentationPreparation;
+  window.preparingPresentationItemId = () => nativePresentationPreparingItemId;
 `;
 
 const browser = await chromium.launch({ headless: true });
 try {
   for (const scenario of [
-    { active: "one", monitors: [{ id: "primary", name: "内建显示器", width: 1440, height: 900 }], expectedAction: "开始演示" },
+    { active: "one", monitors: [{ id: "primary", name: "Monitor #41059", width: 2940, height: 1912, primary: true }], expectedAction: "开始演示" },
     { active: "two", monitors: [{ id: "primary", name: "内建显示器", width: 1440, height: 900 }, { id: "external", name: "外接显示器", width: 1920, height: 1080 }], expectedAction: "从当前页开始" }
   ]) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.clock.install();
+    await page.addStyleTag({ content: ':root { --surface:#f9f9fb; --surface-variant:#f3f3f5; --surface-muted:#eeeef0; --paper:#fff; --ink:#1a1c1d; --ink-soft:#5e5e63; --line:#e2e2e4; --line-strong:#cfcfd3; --accent:#000; --shadow:0 12px 28px rgba(26,28,29,.06); --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",system-ui,sans-serif; }' });
     await page.evaluate(({ active, monitors, source }) => {
       window.testActivePage = active;
       window.testMonitors = monitors;
+      Math.random = () => 0;
       (0, eval)(source);
       return window.openTestPresentationDialog();
     }, { active: scenario.active, monitors: scenario.monitors, source: harness });
     const panel = page.locator(".native-presentation-panel");
     assert.equal(await panel.locator("h2").textContent(), "演示模式");
     assert.equal(await panel.locator(".native-page-count").textContent(), "2 页");
-    assert.equal(await panel.locator(".native-notes-hint").count(), 1);
+    assert.equal(await panel.locator('button[data-native-action="close"]').getAttribute("aria-label"), "关闭演示模式");
+    assert.equal(await panel.locator(".native-tip").count(), 1);
+    assert.equal(await panel.locator(".native-guidance").count(), 0, "display guidance rotates with the other tips");
+    assert.match(await panel.locator("#nativePresentationTip").textContent(), /观众窗口/);
+    await page.clock.runFor(6000);
+    assert.match(await panel.locator("#nativePresentationTip").textContent(), /备注可在 HTML/);
+    await page.clock.runFor(6000);
+    assert.match(await panel.locator("#nativePresentationTip").textContent(), /观众窗口/, "display guidance has higher frequency");
     assert.equal(await panel.locator("button.primary").count(), 1, "only the main start action should be primary");
     assert.equal(await panel.locator('button[data-native-action="start-current"]').textContent(), scenario.expectedAction);
     assert.ok((await panel.boundingBox()).width <= 560, "the setup dialog should stay compact");
+    assert.equal(await panel.evaluate(node => getComputedStyle(node).backgroundColor), "rgb(243, 243, 245)", "use the shared paper surface");
+    if (process.env.NUTBOOK_AUDIT_SHOTS) await page.screenshot({ path: `${process.env.NUTBOOK_AUDIT_SHOTS}/presentation-dialog-${scenario.monitors.length}.png` });
+    assert.equal(await panel.locator("select").count(), 0, "native floating select menu should not be used");
+    const trigger = panel.locator(".native-monitor-trigger");
+    if (scenario.monitors.length === 1) assert.equal(await trigger.locator("#nativePresentationMonitorLabel").textContent(), "主屏幕 · 2940×1912");
+    const menu = panel.locator(".native-monitor-menu");
+    assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+    assert.ok((await trigger.locator("svg").boundingBox()).width >= 20, "display choice needs a legible chevron");
+    await trigger.click();
+    assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+    assert.equal(await menu.locator('[role="option"]').count(), scenario.monitors.length);
+    const triggerBox = await trigger.boundingBox();
+    const menuBox = await menu.boundingBox();
+    assert.ok(menuBox.y >= triggerBox.y + triggerBox.height, "display choices should open below the trigger");
+    assert.ok(Math.abs(menuBox.x - triggerBox.x) <= 1, "display choices should align with the trigger");
     if (scenario.monitors.length === 1) {
-      assert.equal(await panel.locator("select").count(), 0, "a single display needs no dropdown");
+      await page.keyboard.press("Escape");
+      assert.equal(await trigger.getAttribute("aria-expanded"), "false");
       assert.equal(await panel.locator('button[data-native-action="start-first"]').count(), 0, "the first slide needs one start action");
       await panel.locator('button[data-native-action="start-current"]').click();
       assert.deepEqual(await page.evaluate(() => [window.startPayload.monitorId, window.startPayload.startPageId]), ["primary", "one"]);
     } else {
-      await panel.locator("select").selectOption("external");
+      await menu.locator('[data-monitor-id="external"]').click();
+      assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+      assert.match(await trigger.textContent(), /外接显示器/);
       assert.equal(await panel.locator('button[data-native-action="start-first"]').count(), 1);
       await panel.locator('button[data-native-action="start-first"]').click();
       assert.deepEqual(await page.evaluate(() => [window.startPayload.monitorId, window.startPayload.startPageId]), ["external", "one"]);
     }
+    await page.close();
+  }
+  for (const legacy of [null, { eligible: true, pageCount: 24 }]) {
+    const page = await browser.newPage();
+    await page.evaluate(({ source, legacy }) => {
+      window.testProbe = null;
+      window.testLegacy = legacy;
+      (0, eval)(source);
+      return window.openTestPresentationDialog();
+    }, { source: harness, legacy });
+    const panel = page.locator(".native-presentation-panel");
+    assert.equal(await page.evaluate(() => window.hideCalls), 1, "the HTML child must be hidden before showing a host dialog");
+    assert.equal(await panel.count(), 1);
+    if (legacy) {
+      assert.match(await panel.locator("h2").textContent(), /升级旧演示副本/);
+      await panel.locator('[data-native-action="cancel"]').click();
+    } else {
+      assert.equal(await panel.locator("h2").textContent(), "无法启动演示");
+      assert.match(await panel.textContent(), /全屏查看/);
+      await panel.locator('[data-native-action="close"]').click();
+    }
+    assert.equal(await page.evaluate(() => window.restoreCalls), 1, "closing the dialog must restore the HTML document");
+    assert.equal(await panel.count(), 0);
+    await page.close();
+  }
+  {
+    const page = await browser.newPage();
+    const concurrent = await page.evaluate(source => {
+      window.testProbe = null;
+      window.testLegacy = null;
+      window.testProbeDeferred = true;
+      (0, eval)(source);
+      window.firstOpen = window.openTestPresentationDialog();
+      window.secondOpen = window.openTestPresentationDialog();
+      return { probeCalls: window.probeCalls, preparingItemId: window.preparingPresentationItemId() };
+    }, harness);
+    assert.deepEqual(concurrent, { probeCalls: 1, preparingItemId: 41 }, "a second click during probing must not start another presentation setup");
+    await page.evaluate(async () => { window.releaseProbe(); await Promise.all([window.firstOpen, window.secondOpen]); });
+    assert.equal(await page.evaluate(() => window.hideCalls), 1, "the unsupported document must open only one dialog");
+    assert.equal(await page.locator(".native-presentation-panel").count(), 1);
+    await page.locator('[data-native-action="close"]').click();
+    assert.equal(await page.evaluate(() => window.restoreCalls), 1);
     await page.close();
   }
 } finally {

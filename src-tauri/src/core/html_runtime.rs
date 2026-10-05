@@ -24,7 +24,7 @@ use tauri::{
 #[cfg(target_os = "macos")]
 use block2::RcBlock;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSResponder, NSWindow, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
+use objc2_app_kit::{NSResponder, NSWindow, NSWindowDidDeminiaturizeNotification, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification, NSWindowDidMiniaturizeNotification};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSNotification, NSNotificationCenter};
 #[cfg(target_os = "macos")]
@@ -49,6 +49,8 @@ static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = O
 static HTML_FULLSCREEN_FOCUS_ITEM_ID: AtomicI64 = AtomicI64::new(0);
 #[cfg(target_os = "macos")]
 static HTML_FULLSCREEN_FOCUS_OBSERVER: OnceLock<()> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static HTML_RUNTIME_MINIMIZE_OBSERVER: OnceLock<()> = OnceLock::new();
 
 fn presentation_preview_instances() -> &'static Mutex<HashMap<i64, String>> {
     PRESENTATION_PREVIEW_INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -1227,6 +1229,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
     window: &tauri::Window,
     item_id: i64,
     bounds: RuntimeHostBounds,
+    language: &str,
     mode: &str,
     file_name: &str,
     request_id: &str,
@@ -1245,7 +1248,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
         return Ok(true);
     }
 
-    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, mode, file_name, request_id)?;
+    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, language, mode, file_name, request_id)?;
     let webview = window
         .add_child(
             builder,
@@ -1551,6 +1554,61 @@ fn install_html_fullscreen_focus_observer(app: &tauri::AppHandle) {
             std::mem::forget(observer);
         }
     });
+}
+
+#[cfg(target_os = "macos")]
+pub fn install_html_runtime_minimize_observer(app: &tauri::AppHandle) {
+    let Some(main_webview) = app.get_webview("main") else {
+        return;
+    };
+    let webview_for_main = main_webview.clone();
+    let app_handle = app.clone();
+    let _ = main_webview.run_on_main_thread(move || {
+        let _ = webview_for_main.with_webview(move |platform_webview| {
+            HTML_RUNTIME_MINIMIZE_OBSERVER.get_or_init(|| unsafe {
+                let window: &NSWindow = &*platform_webview.ns_window().cast();
+                let center = NSNotificationCenter::defaultCenter();
+                for (name, minimized) in [
+                    (NSWindowDidMiniaturizeNotification, true),
+                    (NSWindowDidDeminiaturizeNotification, false),
+                ] {
+                    let app_for_event = app_handle.clone();
+                    let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                        if let Some(webview) = app_for_event.get_webview("main") {
+                            let _ = webview.eval(format!("window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__?.({minimized});"));
+                        }
+                    });
+                    let observer = center.addObserverForName_object_queue_usingBlock(
+                        Some(name), Some(window), None, &handler,
+                    );
+                    std::mem::forget(observer);
+                }
+            });
+        });
+    });
+}
+
+/// The main page can reload in `tauri dev` while native children outlive its
+/// JavaScript state. Those children belong to the previous page instance and
+/// cannot be reconciled by the newly initialized tab coordinator.
+pub fn clear_main_window_children_on_page_load(main: &tauri::Webview) {
+    if main.label() != "main" { return; }
+    let app = main.app_handle();
+    let children: Vec<_> = main.window().webviews().into_iter()
+        .filter(|child| child.label() != "main")
+        .collect();
+    for child in children {
+        let label = child.label().to_string();
+        let _ = child.set_bounds(runtime_host_rect(RuntimeHostBounds {
+            x: 0.0, y: 0.0, width: 1.0, height: 1.0,
+        }));
+        let _ = child.hide();
+        if child.close().is_ok() {
+            if let Some(state) = app.try_state::<crate::state::AppState>() {
+                state.content_sessions.unregister(&label);
+            }
+        }
+    }
 }
 
 pub fn focus_main_webview(
@@ -2295,6 +2353,7 @@ fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
     item_id: i64,
+    language: &str,
     mode: &str,
     file_name: &str,
     request_id: &str,
@@ -2302,7 +2361,7 @@ fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("html-edit-leave-confirm.html"));
     Ok(
         WebviewBuilder::new(label, overlay_url)
-            .initialization_script(&html_edit_leave_confirm_init_script(item_id, mode, file_name, request_id))
+            .initialization_script(&html_edit_leave_confirm_init_script(item_id, language, mode, file_name, request_id))
             .background_color(tauri::webview::Color(0, 0, 0, 0))
             .transparent(true)
             .focused(true)
@@ -3351,9 +3410,10 @@ fn html_edit_toolbar_init_script(
     format!("window.__NUTBOOK_HTML_EDIT_TOOLBAR__ = {payload};")
 }
 
-fn html_edit_leave_confirm_init_script(item_id: i64, mode: &str, file_name: &str, request_id: &str) -> String {
+fn html_edit_leave_confirm_init_script(item_id: i64, language: &str, mode: &str, file_name: &str, request_id: &str) -> String {
     format!(
-        "window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, mode: {}, fileName: {}, requestId: {} }};",
+        "window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, language: {}, mode: {}, fileName: {}, requestId: {} }};",
+        serde_json::to_string(if language == "en-US" { "en-US" } else { "zh-CN" }).unwrap(),
         serde_json::to_string(mode).unwrap(),
         serde_json::to_string(file_name).unwrap(),
         serde_json::to_string(request_id).unwrap()
@@ -3456,6 +3516,7 @@ mod tests {
         external_html_find_action_script, external_view_state_capture_script,
         external_view_state_restore_script,
         find_result_identity_matches, html_edit_toolbar_label, html_edit_toolbar_update_script,
+        html_edit_leave_confirm_init_script,
         html_find_overlay_init_script,
         html_find_overlay_label, html_find_overlay_label_for, html_runtime_compatibility_script,
         html_runtime_controls_label_for, html_runtime_host_label, html_runtime_host_label_for,
@@ -3467,6 +3528,14 @@ mod tests {
         HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlFindActionPayload, HtmlRuntimeSession,
     };
     use crate::core::content_session::RuntimeKey;
+
+    #[test]
+    fn html_edit_copy_dialog_receives_host_language() {
+        let english = html_edit_leave_confirm_init_script(41, "en-US", "create-copy", "", "");
+        assert!(english.contains(r#"language: "en-US""#));
+        let fallback = html_edit_leave_confirm_init_script(41, "unsupported", "create-copy", "", "");
+        assert!(fallback.contains(r#"language: "zh-CN""#));
+    }
 
     /// P2 / §6.2：promotion 采集脚本只做「读一次滚动 + hash + 演示页 id 并
     /// 回报」，不得携带 surface token、不得注册常驻全局或监听事件。

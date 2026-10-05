@@ -294,6 +294,11 @@ fn main() {
                 let _ = webview.eval(script);
             }
         })
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started && webview.label() == "main" {
+                nutbook_backend::core::html_runtime::clear_main_window_children_on_page_load(webview);
+            }
+        })
         .setup(|app| {
             app.manage(commands::context_menu::ContextState::default());
             let app_data_dir = prepare_app_data_dir(app.handle())
@@ -316,6 +321,8 @@ fn main() {
                 eprintln!("Nutbook CLI IPC unavailable: {error}");
             }
             app.manage(HtmlEditAppExitState::default());
+            #[cfg(target_os = "macos")]
+            nutbook_backend::core::html_runtime::install_html_runtime_minimize_observer(app.handle());
             Ok(())
         })
         .invoke_handler({

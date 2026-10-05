@@ -467,6 +467,7 @@ pub struct PresentationScreenshotInput {
     pub page_id: String,
     pub width: i32,
     pub height: i32,
+    pub pixel_ratio: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -783,6 +784,7 @@ struct PresentationThumbnailWorker {
     source_revision: String,
     width: i32,
     height: i32,
+    pixel_ratio: i32,
     session_id: String,
 }
 
@@ -802,14 +804,14 @@ impl PresentationThumbnailWorker {
                 .get("sessionId").and_then(Value::as_str).ok_or("CDP session id missing")?.to_string();
             pipe.call("Page.enable", json!({}), Some(&session_id))?;
             pipe.call("Emulation.setDeviceMetricsOverride", json!({
-                "width": input.width, "height": input.height, "deviceScaleFactor": 1, "mobile": false,
+                "width": input.width, "height": input.height, "deviceScaleFactor": input.pixel_ratio, "mobile": false,
             }), Some(&session_id))?;
             pipe.call("Page.navigate", json!({ "url": input.url }), Some(&session_id))?;
             pipe.wait_for_event("Page.loadEventFired", &session_id, Duration::from_secs(8))?;
             Ok(session_id)
         })();
         match setup {
-            Ok(session_id) => Ok(Self { pipe, profile_path, chromium_path: input.chromium_path.clone(), url: input.url.clone(), source_revision: source_revision.to_string(), width: input.width, height: input.height, session_id }),
+            Ok(session_id) => Ok(Self { pipe, profile_path, chromium_path: input.chromium_path.clone(), url: input.url.clone(), source_revision: source_revision.to_string(), width: input.width, height: input.height, pixel_ratio: input.pixel_ratio, session_id }),
             Err(error) => { pipe.close(); let _ = fs::remove_dir_all(&profile_path); Err(error) }
         }
     }
@@ -820,6 +822,7 @@ impl PresentationThumbnailWorker {
             && self.source_revision == input.source_revision
             && self.width == input.screenshot.width
             && self.height == input.screenshot.height
+            && self.pixel_ratio == input.screenshot.pixel_ratio
             && self.pipe.is_running()
     }
 
@@ -832,7 +835,7 @@ impl PresentationThumbnailWorker {
         let encoded = captured.get("data").and_then(Value::as_str).ok_or("CDP screenshot payload missing")?;
         let bytes = BASE64.decode(encoded).map_err(|error| format!("invalid CDP screenshot: {error}"))?;
         if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") { return Err("CDP did not produce a PNG screenshot".to_string()); }
-        Ok(GeneratedThumbnailAsset { backend: "presentation-cdp-worker", content_type: "image/png", file_extension: "png", bytes, svg: String::new(), width: self.width, height: self.height })
+        Ok(GeneratedThumbnailAsset { backend: "presentation-cdp-worker", content_type: "image/png", file_extension: "png", bytes, svg: String::new(), width: self.width * self.pixel_ratio, height: self.height * self.pixel_ratio })
     }
 
     fn close(&mut self) { self.pipe.close(); let _ = fs::remove_dir_all(&self.profile_path); }
@@ -849,6 +852,18 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       const bridge=window.__NUTBOOK_PRESENTATION__;
       if(!bridge || typeof bridge.goTo!=="function" || typeof bridge.whenReady!=="function") throw new Error("presentation bridge unavailable");
       await bridge.whenReady();
+      // The worker reuses one document. Undo only our previous still-frame
+      // overrides before asking the deck to lay out the next page.
+      for(const saved of window.__NUTBOOK_PREVIEW_ROOT_STYLES__ || []){{
+        if(!saved.node.isConnected) continue;
+        saved.node.hidden=saved.hidden;
+        saved.node.classList.toggle("is-active",saved.isActive);
+        for(const [property,value,priority] of saved.styles){{
+          if(value) saved.node.style.setProperty(property,value,priority);
+          else saved.node.style.removeProperty(property);
+        }}
+      }}
+      window.__NUTBOOK_PREVIEW_ROOT_STYLES__=[];
       await bridge.setEditMode?.(false);
       const moved=await bridge.goTo(pageId);
       if(moved===false) throw new Error("presentation page navigation failed");
@@ -866,7 +881,9 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       // `hidden` alone loses to a deck's author rule such as `.slide {{display:flex}}`.
       // Force every non-target root out of the paint tree so transition frames
       // from the previous cover page cannot bleed into chapter thumbnails.
+      const previousStyles=[];
       document.querySelectorAll("[data-nutbook-page-id]").forEach((node)=>{{
+        previousStyles.push({{node,hidden:node.hidden,isActive:node.classList.contains("is-active"),styles:["display","opacity","transform","transition"].map(property=>[property,node.style.getPropertyValue(property),node.style.getPropertyPriority(property)])}});
         const target=node===root;
         node.hidden=!target;
         node.style.setProperty("display",target?targetDisplay:"none","important");
@@ -874,6 +891,7 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
         node.style.setProperty("transform","none","important");
         node.style.setProperty("transition","none","important");
       }});
+      window.__NUTBOOK_PREVIEW_ROOT_STYLES__=previousStyles;
       root.hidden=false; root.classList.add("is-active");
       document.querySelectorAll(".deck-controls,.presentation-controls,[data-nutbook-presentation-controls]").forEach((node)=>{{ node.style.setProperty("display","none","important"); }});
       await Promise.all(Array.from(root.querySelectorAll("img")).map(async(image)=>{{ try {{ if(!image.complete) await new Promise((resolve)=>{{ image.addEventListener("load",resolve,{{once:true}}); image.addEventListener("error",resolve,{{once:true}}); }}); if(image.decode) await image.decode(); }} catch(_) {{}} }}));
@@ -1981,13 +1999,15 @@ mod tests {
             chromium_path,
             url: url::Url::from_file_path(&source).expect("file url").to_string(),
             page_id: "page-two".to_string(),
-            width: 480,
-            height: 270,
+            width: 1024,
+            height: 576,
+            pixel_ratio: 2,
         }).expect("presentation screenshot should succeed");
         assert_eq!(asset.backend, "presentation-cdp-worker");
         assert!(asset.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
         let captured = image::load_from_memory(&asset.bytes).expect("capture should decode as PNG");
-        assert_eq!(captured.get_pixel(30, 30).0[..3], [255, 255, 255], "the animated content must be captured at its final opaque position");
+        assert_eq!((captured.width(), captured.height()), (2048, 1152));
+        assert_eq!(captured.get_pixel(60, 60).0[..3], [255, 255, 255], "the animated content must be captured at its final opaque position");
     }
 
     #[test]
@@ -1996,17 +2016,21 @@ mod tests {
         let Some(chromium_path) = find_local_chromium_executable() else { return; };
         let directory = tempfile::tempdir().expect("temporary directory");
         let source = directory.path().join("deck.html");
-        fs::write(&source, r#"<!doctype html><html><body>
-          <section data-nutbook-page-id="page-one" class="is-active">one</section><section data-nutbook-page-id="page-two">two</section>
-          <script>let active="page-one";window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{active=id;for(const page of document.querySelectorAll('[data-nutbook-page-id]'))page.classList.toggle('is-active',page.dataset.nutbookPageId===id);return true;}};</script>
+        fs::write(&source, r#"<!doctype html><html><head><style>
+          body{margin:0}.page{display:none;width:480px;height:270px}.page.active{display:flex}.copy{width:200px;height:90px;background:#f00}.icon{width:100px;height:90px;background:#0f0}
+        </style></head><body>
+          <section data-nutbook-page-id="page-one" class="page active"><div class="copy"></div><div class="icon"></div></section><section data-nutbook-page-id="page-two" class="page"><div class="copy"></div></section>
+          <script>let active="page-one";window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{if(active===id)return true;active=id;for(const page of document.querySelectorAll('[data-nutbook-page-id]'))page.classList.toggle('active',page.dataset.nutbookPageId===id);return true;}};</script>
         </body></html>"#).expect("presentation fixture should be written");
         let url = url::Url::from_file_path(&source).expect("file url").to_string();
-        let request = |page_id: &str| PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput { chromium_path: chromium_path.clone(), url: url.clone(), page_id: page_id.to_string(), width: 480, height: 270 }, source_revision: "worker-test-v1".to_string() };
-        let first = capture_presentation_thumbnail_with_worker(request("page-one")).expect("first worker screenshot");
-        let second = capture_presentation_thumbnail_with_worker(request("page-two")).expect("second worker screenshot");
+        let request = |page_id: &str| PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput { chromium_path: chromium_path.clone(), url: url.clone(), page_id: page_id.to_string(), width: 480, height: 270, pixel_ratio: 1 }, source_revision: "worker-test-v1".to_string() };
+        let first = capture_presentation_thumbnail_with_worker(request("page-two")).expect("first worker screenshot");
+        let second = capture_presentation_thumbnail_with_worker(request("page-one")).expect("second worker screenshot");
         assert_eq!(first.backend, "presentation-cdp-worker");
         assert_eq!(second.backend, "presentation-cdp-worker");
         assert!(second.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let restored = image::load_from_memory(&second.bytes).expect("second page should decode as PNG");
+        assert_eq!(restored.get_pixel(250, 50).0[..3], [0, 255, 0], "returning to a page must preserve its horizontal layout");
     }
 
     #[test]

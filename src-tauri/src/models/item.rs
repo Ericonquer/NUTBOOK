@@ -953,6 +953,8 @@ pub struct AttachHtmlEditLeaveConfirmOverlayRequest {
     pub item_id: i64,
     pub bounds: RuntimeHostBounds,
     #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
     pub file_name: Option<String>,

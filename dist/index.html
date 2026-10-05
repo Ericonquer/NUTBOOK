@@ -9244,6 +9244,7 @@
         runtimeHostSyncPending: false,
         runtimeSurfacesSuspended: false,
         runtimeSurfaceSuspendPromise: null,
+        runtimeSurfaceLifecycleEpoch: 0,
         runtimeSurfaceTokens: new Map(),
         runtimeHiddenSurfaceIds: new Set(),
         runtimePatchAppliedKeys: new Map(),
@@ -11024,6 +11025,7 @@
             payload: {
               itemId,
               bounds: htmlEditLeaveConfirmBounds(),
+              language: appState.language,
               mode: "create-copy"
             }
           });
@@ -11066,6 +11068,7 @@
               payload: {
                 itemId,
                 bounds: htmlEditLeaveConfirmBounds(),
+                language: appState.language,
                 mode: "remove",
                 fileName: item?.fileName || "",
                 requestId: request.requestId
@@ -11177,7 +11180,8 @@
           await invoke("attach_html_edit_leave_confirm_overlay_command", {
             payload: {
               itemId: session.itemId,
-              bounds: htmlEditLeaveConfirmBounds()
+              bounds: htmlEditLeaveConfirmBounds(),
+              language: appState.language
             }
           });
         } catch (error) {
@@ -21074,6 +21078,8 @@ if (!chipTipController) {
       const nativePresentationProbeWaiters = new Map();
       let nativePresentationDialog = null;
       let nativePresentationSessionId = null;
+      let nativePresentationTipTimer = null;
+      let nativePresentationPreparingItemId = null;
 
       window.__NUTBOOK_NATIVE_PRESENTATION_PROBE__ = (payload) => {
         const waiter = nativePresentationProbeWaiters.get(payload?.requestId);
@@ -21093,6 +21099,8 @@ if (!chipTipController) {
       }
 
       function removeNativePresentationDialog() {
+        clearInterval(nativePresentationTipTimer);
+        nativePresentationTipTimer = null;
         nativePresentationDialog?.remove();
         nativePresentationDialog = null;
       }
@@ -21114,19 +21122,19 @@ if (!chipTipController) {
       window.__NUTBOOK_NATIVE_PRESENTATION_ENDED__ = (itemId) => restoreAfterNativePresentation(Number(itemId));
 
       function nativePresentationProbeScript(itemId, requestId) {
-        return `;(async()=>{try{
+        return `;(async()=>{const unsupported=()=>window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:true,pages:[],notes:{},activePageId:''}});try{
           const bridge=window.__NUTBOOK_PRESENTATION__;
-          if(!bridge || Number(bridge.version)!==1 || bridge.capabilities?.managedPresenter!==true || typeof bridge.goTo!=='function' || typeof bridge.subscribe!=='function' || typeof bridge.setManagedMode!=='function') return;
+          if(!bridge || Number(bridge.version)!==1 || bridge.capabilities?.managedPresenter!==true || typeof bridge.goTo!=='function' || typeof bridge.subscribe!=='function' || typeof bridge.setManagedMode!=='function') return unsupported();
           await bridge.whenReady?.();
           const pages=(Array.isArray(bridge.pages)?bridge.pages:[]).map(p=>({id:String(p?.id||''),title:String(p?.title||'')}));
-          if(!pages.length || new Set(pages.map(p=>p.id)).size!==pages.length || !pages.every(p=>p.id&&document.querySelector('[data-nutbook-page-id="'+CSS.escape(p.id)+'"]'))) return;
+          if(!pages.length || new Set(pages.map(p=>p.id)).size!==pages.length || !pages.every(p=>p.id&&document.querySelector('[data-nutbook-page-id="'+CSS.escape(p.id)+'"]'))) return unsupported();
           let notes={};
-          try { const node=document.getElementById('nutbook-presentation-notes'); if(!node)return; const data=JSON.parse(node.textContent||'{}'); if(data.version!==1||!data.pages||typeof data.pages!=='object')return; for(const [id,paragraphs] of Object.entries(data.pages)){ if(!Array.isArray(paragraphs))continue; notes[id]=paragraphs.filter(p=>p?.type==='paragraph'&&Array.isArray(p.runs)).map(p=>({runs:p.runs.map(r=>({text:String(r?.text||''),bold:r?.bold===true}))})); }
+          try { const node=document.getElementById('nutbook-presentation-notes'); if(!node)return unsupported(); const data=JSON.parse(node.textContent||'{}'); if(data.version!==1||!data.pages||typeof data.pages!=='object')return unsupported(); for(const [id,paragraphs] of Object.entries(data.pages)){ if(!Array.isArray(paragraphs))continue; notes[id]=paragraphs.filter(p=>p?.type==='paragraph'&&Array.isArray(p.runs)).map(p=>({runs:p.runs.map(r=>({text:String(r?.text||''),bold:r?.bold===true}))})); }
             for(const page of pages){ if(notes[page.id])continue; const root=document.querySelector('[data-nutbook-page-id="'+CSS.escape(page.id)+'"]'); const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes'); if(!legacy)continue; const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean); notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]})); }
-          } catch(_){return;}
+          } catch(_){return unsupported();}
           const payload={itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},pages,notes,activePageId:String(bridge.activePageId||'')};
           await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload});
-        }catch(error){}})();`;
+        }catch(error){await unsupported();}})();`;
       }
 
       async function probeNativePresentation(itemId) {
@@ -21143,7 +21151,7 @@ if (!chipTipController) {
           if (waiter) { nativePresentationProbeWaiters.delete(requestId); clearTimeout(waiter.timer); waiter.resolve(null); }
         }
         const payload = await result;
-        return payload?.itemId === itemId ? payload : null;
+        return payload?.itemId === itemId && !payload.unsupported ? payload : null;
       }
 
       function nativePresentationModalShell() {
@@ -21151,24 +21159,34 @@ if (!chipTipController) {
         if (!style) {
           style = document.createElement("style"); style.id = "nativePresentationDialogStyle";
           style.textContent = `
-            .native-presentation-scrim { position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,.48); display:grid; place-items:center; padding:24px; }
-            .native-presentation-panel { box-sizing:border-box; width:min(560px,100%); max-height:90vh; overflow:auto; background:#fff; color:#1a1c1d; border-radius:16px; box-shadow:0 24px 80px #0002; padding:28px; font-size:15px; }
-            .native-presentation-panel h2 { margin:0; font-size:24px; line-height:32px; }
+            .native-presentation-scrim { position:fixed; inset:0; z-index:100000; background:rgba(17,17,19,.12); backdrop-filter:blur(10px); display:grid; place-items:center; padding:24px; }
+            .native-presentation-panel { box-sizing:border-box; width:min(560px,100%); max-height:90vh; overflow:auto; background:var(--surface-variant); color:var(--ink); border:1px solid var(--line); border-radius:20px; box-shadow:0 24px 60px rgba(20,20,20,.14); padding:20px; font-family:var(--font-ui); font-size:15px; }
+            .native-presentation-panel h2 { margin:0; font-size:18px; font-weight:700; line-height:28px; letter-spacing:-.02em; }
             .native-presentation-panel p { line-height:1.5; }
-            .native-presentation-panel .native-heading { display:flex; align-items:center; gap:12px; margin-bottom:24px; }
-            .native-presentation-panel .native-page-count { margin-left:auto; border-radius:999px; padding:5px 10px; background:#eeeef0; color:#4c4546; font-size:12px; font-weight:600; white-space:nowrap; }
-            .native-presentation-panel .native-field-label { display:block; margin-bottom:8px; color:#4c4546; font-size:13px; font-weight:600; }
-            .native-presentation-panel .native-display-choice { display:flex; align-items:center; min-height:46px; width:100%; padding:10px 12px; border:1px solid #cfc4c5; border-radius:8px; background:#f9f9fb; }
-            .native-presentation-panel .native-guidance { margin:12px 0 0; color:#4c4546; font-size:13px; line-height:1.55; }
-            .native-presentation-panel .native-notes-hint { margin:20px 0 0; padding-top:16px; border-top:1px solid #eeeef0; color:#5e5e63; font-size:13px; line-height:1.5; }
-            .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:9px; justify-content:flex-end; margin-top:24px; }
-            .native-presentation-panel button { border:0; border-radius:8px; background:#eeeef0; padding:9px 14px; color:#1a1c1d; cursor:pointer; }
-            .native-presentation-panel button.primary { background:#000; color:#fff; }
+            .native-presentation-panel .native-heading { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+            .native-presentation-panel .native-page-count { border-radius:999px; padding:4px 9px; background:var(--surface-muted); color:var(--ink-soft); font-size:12px; font-weight:600; white-space:nowrap; }
+            .native-presentation-panel .native-close { margin-left:auto; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--ink-soft); font-size:20px; line-height:1; }
+            .native-presentation-panel .native-close:hover { background:var(--surface-muted); color:var(--ink); }
+            .native-presentation-panel .native-field-label { display:block; margin-bottom:8px; color:var(--ink-soft); font-size:12px; font-weight:600; letter-spacing:.02em; }
+            .native-presentation-panel .native-monitor-picker { position:relative; }
+            .native-presentation-panel .native-tip { display:flex; align-items:baseline; gap:10px; min-height:40px; margin:12px 0 0; color:var(--ink-soft); font-size:13px; line-height:1.5; }
+            .native-presentation-panel .native-tip-label { flex:none; font-weight:600; }
+            .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; margin-top:16px; }
+            .native-presentation-panel button { border:1px solid var(--line); border-radius:8px; background:var(--surface); min-height:34px; padding:0 14px; color:var(--ink); font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
+            .native-presentation-panel button.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
+            .native-presentation-panel .native-monitor-trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:42px; padding:8px 12px; border:1px solid var(--line-strong); background:var(--paper); text-align:left; font-size:14px; font-weight:400; }
+            .native-presentation-panel .native-monitor-trigger[aria-expanded="true"], .native-presentation-panel .native-monitor-trigger:focus-visible { border-color:var(--accent); }
+            .native-presentation-panel .native-monitor-trigger span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+            .native-presentation-panel .native-monitor-trigger svg { width:20px; height:20px; flex:none; stroke:var(--ink-soft); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+            .native-presentation-panel .native-monitor-menu { position:absolute; z-index:2; top:calc(100% + 6px); left:0; right:0; max-height:210px; overflow:auto; padding:4px; border:1px solid var(--line-strong); border-radius:10px; background:var(--paper); box-shadow:var(--shadow); }
+            .native-presentation-panel .native-monitor-menu[hidden] { display:none; }
+            .native-presentation-panel .native-monitor-option { display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border:0; background:var(--paper); text-align:left; font-size:14px; font-weight:400; }
+            .native-presentation-panel .native-monitor-option:hover, .native-presentation-panel .native-monitor-option:focus-visible { background:var(--surface-muted); }
+            .native-presentation-panel .native-monitor-option[aria-selected="true"] { font-weight:600; }
+            .native-presentation-panel .native-monitor-check { width:16px; flex:none; }
             .native-presentation-panel button:disabled { opacity:.5; cursor:default; }
-            .native-presentation-panel button:focus-visible { outline:2px solid #000; outline-offset:2px; }
+            .native-presentation-panel button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
             .native-presentation-panel:focus { outline:none; }
-            .native-presentation-panel select { width:100%; min-height:46px; padding:9px 12px; border:1px solid #7e7576; border-radius:8px; background:#fff; color:#1a1c1d; font:inherit; }
-            .native-presentation-panel select:focus { border-color:#000; outline:none; }
             @media (max-width:560px) { .native-presentation-panel { padding:20px; } .native-presentation-panel .native-actions { justify-content:stretch; } .native-presentation-panel .native-actions button { flex:1 1 auto; } }
           `;
           document.head.append(style);
@@ -21183,8 +21201,11 @@ if (!chipTipController) {
       async function openNativePresentationPreparation() {
         const tab = getActiveTab();
         if (!appState.isTauri || !tab || tab.preview?.fileType !== "html-runtime" || appState.htmlEditSession?.itemId === tab.id) return;
-        if (nativePresentationSessionId || appState.nativePresentationItemId) return;
+        if (nativePresentationSessionId || appState.nativePresentationItemId || nativePresentationPreparingItemId != null) return;
         const itemId = tab.id;
+        nativePresentationPreparingItemId = itemId;
+        scheduleRuntimeHostSync();
+        try {
         if (appState.runtimeFullscreenItemId === itemId) await toggleActiveHtmlRuntimePresentationMode();
         setStatus(nativePresentationText("正在检查演示协议…", "Checking presentation protocol…"), "info");
         const probe = await probeNativePresentation(itemId);
@@ -21192,19 +21213,30 @@ if (!chipTipController) {
         if (!probe) {
           let legacy = null;
           try { legacy = await invoke("native_presentation_legacy_info", { itemId }); } catch (_) {}
+          appState.nativePresentationItemId = itemId;
+          try { await hideRuntimeSessionSurfaces(itemId, { force: true }); }
+          catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
+          if (getActiveTab()?.id !== itemId) { restoreAfterNativePresentation(itemId); return; }
+          const panel = nativePresentationModalShell();
+          panel.tabIndex = -1;
+          panel.addEventListener("keydown", event => {
+            if (event.key === "Escape") { event.preventDefault(); restoreAfterNativePresentation(itemId); }
+          });
           if (!legacy?.eligible) {
-            setStatus(nativePresentationText("此 HTML 未提供可验证的原生演示协议", "This HTML has no verified native presentation protocol"), "warn");
+            panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("无法启动演示", "Cannot start presentation")}</h2><p>${nativePresentationText("此 HTML 没有可识别的演示页面。仍可从“更多”选择“全屏查看”，以单窗口展示文件。", "This HTML has no recognizable presentation pages. You can still choose Full-screen view from More to show the file in one window.")}</p><div class="native-actions"><button type="button" class="primary" data-native-action="close">${nativePresentationText("知道了", "Got it")}</button></div>`;
+            panel.querySelector('[data-native-action="close"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+            panel.focus();
             return;
           }
-          const panel = nativePresentationModalShell();
-          panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("升级旧演示副本", "Upgrade a copy of this presentation")}</h2><p>${nativePresentationText(`识别到 ${legacy.pageCount} 页旧 HTML-PPT。将创建同目录演示副本和专用 runtime 文件；原 HTML 与原 runtime 保持不变。`, `Found ${legacy.pageCount} legacy HTML-PPT pages. A presentation copy and dedicated runtime file will be created beside the original.`)}</p><div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" class="primary" data-native-action="upgrade">${nativePresentationText("创建副本", "Create copy")}</button></div>`;
-          panel.querySelector('[data-native-action="cancel"]').addEventListener("click", removeNativePresentationDialog);
+          panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("升级旧演示副本", "Upgrade a copy of this presentation")}</h2><p>${nativePresentationText(`识别到 ${legacy.pageCount} 页旧 HTML-PPT。将创建同目录演示副本和专用 runtime 文件；原 HTML 与原 runtime 保持不变。`, `Found ${legacy.pageCount} legacy HTML-PPT pages. A presentation copy and dedicated runtime file will be created beside the original.`)}</p><p id="nativePresentationUpgradeError" role="alert" hidden></p><div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" class="primary" data-native-action="upgrade">${nativePresentationText("创建副本", "Create copy")}</button></div>`;
+          panel.querySelector('[data-native-action="cancel"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+          panel.focus();
           panel.querySelector('[data-native-action="upgrade"]').addEventListener("click", async () => {
             panel.querySelectorAll("button").forEach(button => button.disabled = true);
             try {
               const sourceRevision = await invoke("get_item_content_revision", { itemId });
               const result = await invoke("upgrade_native_presentation_legacy", { payload: { itemId, expectedSourceHash: sourceRevision.revision } });
-              removeNativePresentationDialog();
+              restoreAfterNativePresentation(itemId);
               await loadItems();
               await openItem(result.itemId);
               setStatus(nativePresentationText("演示副本已创建，可从新标签进入演示模式", "Presentation copy created. Open presentation mode from the new tab."), "ok");
@@ -21213,7 +21245,10 @@ if (!chipTipController) {
               const detail = error?.code === "EDIT_CONFLICT"
                 ? nativePresentationText("源文件已变化或同名副本已存在", "The source changed or the copy already exists")
                 : nativePresentationErrorText(error);
-              setStatus(nativePresentationText("创建演示副本失败：", "Could not create presentation copy: ") + detail, "error");
+              const message = nativePresentationText("创建演示副本失败：", "Could not create presentation copy: ") + detail;
+              panel.querySelector("#nativePresentationUpgradeError").textContent = message;
+              panel.querySelector("#nativePresentationUpgradeError").hidden = false;
+              setStatus(message, "error");
             }
           });
           return;
@@ -21229,23 +21264,87 @@ if (!chipTipController) {
         try { await hideRuntimeSessionSurfaces(itemId, { force: true }); }
         catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
         const panel = nativePresentationModalShell();
-        const options = monitors.map(monitor => `<option value="${escapeAttribute(monitor.id)}">${escapeHtml(monitor.name)} · ${monitor.width}×${monitor.height}${monitor.primary ? nativePresentationText(" · 主屏", " · Primary") : ""}</option>`).join("");
+        const monitorLabel = monitor => {
+          const genericName = !monitor.name || /^Monitor #\d+$/i.test(monitor.name);
+          const name = genericName
+            ? monitor.primary ? nativePresentationText("主屏幕", "Primary display") : nativePresentationText(`显示器 ${monitors.indexOf(monitor) + 1}`, `Display ${monitors.indexOf(monitor) + 1}`)
+            : monitor.name;
+          return `${name} · ${monitor.width}×${monitor.height}${monitor.primary && !genericName ? nativePresentationText(" · 主屏", " · Primary") : ""}`;
+        };
+        let selectedMonitorId = String(monitors[0].id);
+        const options = monitors.map(monitor => `<button type="button" class="native-monitor-option" role="option" data-monitor-id="${escapeAttribute(monitor.id)}" aria-selected="${String(monitor.id) === selectedMonitorId}"><span class="native-monitor-check" aria-hidden="true">${String(monitor.id) === selectedMonitorId ? "✓" : ""}</span><span>${escapeHtml(monitorLabel(monitor))}</span></button>`).join("");
         const atFirstPage = !probe.activePageId || probe.activePageId === probe.pages[0].id;
-        const audienceDisplay = monitors.length === 1
-          ? `<div class="native-display-choice">${escapeHtml(monitors[0].name)} · ${monitors[0].width}×${monitors[0].height}</div><input id="nativePresentationMonitor" type="hidden" value="${escapeAttribute(monitors[0].id)}">`
-          : `<select id="nativePresentationMonitor" aria-label="${nativePresentationText("观众画面", "Audience display")}">${options}</select>`;
+        const audienceDisplay = `<div class="native-monitor-picker"><button type="button" id="nativePresentationMonitor" class="native-monitor-trigger" aria-label="${nativePresentationText("观众屏幕", "Audience display")}" title="${nativePresentationText("观众屏幕", "Audience display")}" aria-haspopup="listbox" aria-expanded="false" aria-controls="nativePresentationMonitorMenu"><span id="nativePresentationMonitorLabel">${escapeHtml(monitorLabel(monitors[0]))}</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg></button><div id="nativePresentationMonitorMenu" class="native-monitor-menu" role="listbox" aria-label="${nativePresentationText("观众屏幕", "Audience display")}" hidden>${options}</div></div>`;
+        const displayTip = monitors.length === 1
+          ? nativePresentationText("单屏演示时，在会议软件中共享“观众窗口”；备注和控制只显示在“演讲者窗口”。", "On one display, share the Audience window in your meeting app. Notes and controls stay in the Presenter window.")
+          : nativePresentationText("将观众窗口放在所选屏幕；备注和控制只显示在演讲者窗口。", "Put the Audience window on the selected display. Notes and controls stay in the Presenter window.");
+        const tips = [
+          displayTip,
+          nativePresentationText("备注可在 HTML 编辑模式中逐页添加并保存。", "Add and save slide notes in HTML edit mode."),
+          displayTip,
+          nativePresentationText("演讲者窗口可以预览下一页并调整备注字号。", "Preview the next slide and adjust note size in the Presenter window."),
+          nativePresentationText("演示时可用 ←／→ 翻页，也可以临时黑屏。", "Use ←／→ to change slides, or temporarily blank the audience screen.")
+        ];
+        let tipIndex = Math.floor(Math.random() * tips.length);
         panel.innerHTML = `
-          <div class="native-heading"><h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2><span class="native-page-count">${nativePresentationText(`${probe.pages.length} 页`, `${probe.pages.length} slides`)}</span></div>
-          <div class="native-field">${monitors.length === 1 ? `<div class="native-field-label">${nativePresentationText("观众画面", "Audience display")}</div>` : `<label class="native-field-label" for="nativePresentationMonitor">${nativePresentationText("观众画面", "Audience display")}</label>`}${audienceDisplay}</div>
-          <p class="native-guidance">${monitors.length === 1 ? nativePresentationText("单屏演示时，在会议软件中共享“观众窗口”；备注和控制只显示在“演讲者窗口”。", "On one display, share the Audience window in your meeting app. Notes and controls stay in the Presenter window.") : nativePresentationText("选择观众使用的扩展屏幕；演讲者窗口留在当前屏幕。", "Choose the extended display for the audience. The Presenter window stays on this display.")}</p>
-          <p class="native-notes-hint">${nativePresentationText("备注可在 HTML 编辑模式中逐页添加并保存。", "Add and save slide notes in HTML edit mode.")}</p>
+          <div class="native-heading"><h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2><span class="native-page-count">${nativePresentationText(`${probe.pages.length} 页`, `${probe.pages.length} slides`)}</span><button type="button" class="native-close" data-native-action="close" aria-label="${nativePresentationText("关闭演示模式", "Close presentation mode")}" title="${nativePresentationText("关闭演示模式", "Close presentation mode")}">×</button></div>
+          <div class="native-field"><label class="native-field-label" for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label>${audienceDisplay}</div>
+          <p class="native-tip"><span class="native-tip-label">${nativePresentationText("提示", "Tip")}</span><span id="nativePresentationTip" aria-live="off">${tips[tipIndex]}</span></p>
           <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button>${atFirstPage ? "" : `<button type="button" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first slide")}</button>`}<button type="button" class="primary" data-native-action="start-current">${atFirstPage ? nativePresentationText("开始演示", "Start presentation") : nativePresentationText("从当前页开始", "Start from current slide")}</button></div>
         `;
+        const trigger = panel.querySelector("#nativePresentationMonitor");
+        const menu = panel.querySelector("#nativePresentationMonitorMenu");
+        const monitorOptions = [...menu.querySelectorAll(".native-monitor-option")];
+        const closeMonitorMenu = (restoreFocus = false) => {
+          menu.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          if (restoreFocus) trigger.focus();
+        };
+        const openMonitorMenu = () => {
+          menu.hidden = false;
+          trigger.setAttribute("aria-expanded", "true");
+          monitorOptions.find(option => option.dataset.monitorId === selectedMonitorId)?.focus();
+        };
+        trigger.addEventListener("click", () => menu.hidden ? openMonitorMenu() : closeMonitorMenu(true));
+        trigger.addEventListener("keydown", event => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); openMonitorMenu(); }
+        });
+        menu.addEventListener("keydown", event => {
+          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeMonitorMenu(true); return; }
+          if (event.key === "Tab") { closeMonitorMenu(); return; }
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          const index = monitorOptions.indexOf(document.activeElement);
+          monitorOptions[(index + (event.key === "ArrowDown" ? 1 : -1) + monitorOptions.length) % monitorOptions.length].focus();
+        });
+        monitorOptions.forEach(option => option.addEventListener("click", () => {
+          selectedMonitorId = option.dataset.monitorId;
+          panel.querySelector("#nativePresentationMonitorLabel").textContent = monitorLabel(monitors.find(monitor => String(monitor.id) === selectedMonitorId));
+          monitorOptions.forEach(candidate => {
+            const selected = candidate === option;
+            candidate.setAttribute("aria-selected", String(selected));
+            candidate.querySelector(".native-monitor-check").textContent = selected ? "✓" : "";
+          });
+          closeMonitorMenu(true);
+        }));
+        nativePresentationDialog.addEventListener("pointerdown", event => {
+          if (!event.target.closest(".native-monitor-picker")) closeMonitorMenu();
+        });
+        panel.addEventListener("keydown", event => {
+          if (event.key === "Escape") { event.preventDefault(); restoreAfterNativePresentation(itemId); }
+        });
+        nativePresentationTipTimer = setInterval(() => {
+          const tip = panel.querySelector("#nativePresentationTip");
+          if (!tip) return;
+          tipIndex = (tipIndex + 1) % tips.length;
+          tip.textContent = tips[tipIndex];
+        }, 6000);
+        panel.querySelector('[data-native-action="close"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
         panel.querySelector('[data-native-action="cancel"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
         for (const action of ["start-first", "start-current"]) {
           panel.querySelector(`[data-native-action="${action}"]`)?.addEventListener("click", async () => {
             if (nativePresentationSessionId) return;
-            const monitorId = panel.querySelector("#nativePresentationMonitor").value;
+            const monitorId = selectedMonitorId;
             panel.querySelectorAll("button").forEach(button => button.disabled = true);
             try {
               const session = await invoke("start_native_presentation", { payload: {
@@ -21255,6 +21354,8 @@ if (!chipTipController) {
                 language: appState.language
               } });
               nativePresentationSessionId = session.sessionId;
+              clearInterval(nativePresentationTipTimer);
+              nativePresentationTipTimer = null;
               panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("演示进行中", "Presentation in progress")}</h2><p>${nativePresentationText("请在演讲者窗口控制演示。", "Use the presenter window to control the presentation.")}</p><div class="native-actions"><button type="button" data-native-action="end">${nativePresentationText("结束演示", "End presentation")}</button></div>`;
               panel.querySelector('[data-native-action="end"]').addEventListener("click", () => invoke("stop_native_presentation", { sessionId: nativePresentationSessionId }).catch(error => setStatus(nativePresentationErrorText(error), "error")));
             } catch (error) {
@@ -21263,8 +21364,12 @@ if (!chipTipController) {
             }
           });
         }
-        if (monitors.length > 1) panel.querySelector("#nativePresentationMonitor").focus();
-        else { panel.tabIndex = -1; panel.focus(); }
+        panel.tabIndex = -1;
+        panel.focus();
+        } finally {
+          nativePresentationPreparingItemId = null;
+          scheduleRuntimeHostSync();
+        }
       }
 
       async function toggleActiveHtmlRuntimePresentationMode() {
@@ -22293,6 +22398,7 @@ if (!chipTipController) {
       }
 
       async function suspendRuntimeSurfaces() {
+        appState.runtimeSurfaceLifecycleEpoch += 1;
         if (appState.runtimeSurfacesSuspended) return appState.runtimeSurfaceSuspendPromise;
         appState.runtimeSurfacesSuspended = true;
         const editSession = appState.htmlEditSession;
@@ -22303,9 +22409,9 @@ if (!chipTipController) {
           renderHtmlEditSectionNavigationRail(editSession);
         }
         const activeRuntimeHostId = appState.activeRuntimeHostId;
-        if (activeRuntimeHostId != null) {
-          await refreshHtmlRuntimeViewState(activeRuntimeHostId).catch(() => false);
-        }
+        const captureActiveViewState = activeRuntimeHostId != null
+          ? refreshHtmlRuntimeViewState(activeRuntimeHostId).catch(() => false)
+          : Promise.resolve(false);
         cleanupRuntimeHostSync();
         appState.activeRuntimeHostId = null;
         appState.runtimeHostLastBoundsKey = null;
@@ -22324,11 +22430,14 @@ if (!chipTipController) {
             const snapshot = await captureExternalHtmlViewState(tab).catch(() => null);
             commitExternalViewStateSnapshot(tab, captureSeq, snapshot);
           });
-        const suspendPromise = Promise.all([removeConfirmClose, ...captureExternalViewStates, ...appState.runtimeSessions.map(async (session) => {
-          const token = nextRuntimeSurfaceToken(session.id);
-          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
-          await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
-        })]);
+        const suspendPromise = (async () => {
+          await captureActiveViewState;
+          await Promise.all([removeConfirmClose, ...captureExternalViewStates, ...appState.runtimeSessions.map(async (session) => {
+            const token = nextRuntimeSurfaceToken(session.id);
+            await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
+            await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
+          })]);
+        })();
         appState.runtimeSurfaceSuspendPromise = suspendPromise;
         try {
           await suspendPromise;
@@ -22341,7 +22450,7 @@ if (!chipTipController) {
 
       async function resumeRuntimeSurfaces() {
         if (!appState.runtimeSurfacesSuspended) return;
-        appState.runtimeSurfacesSuspended = false;
+        const epoch = ++appState.runtimeSurfaceLifecycleEpoch;
         const suspendPromise = appState.runtimeSurfaceSuspendPromise;
         if (suspendPromise) {
           try {
@@ -22349,7 +22458,8 @@ if (!chipTipController) {
           } catch (_) {
           }
         }
-        if (appState.runtimeSurfacesSuspended) return;
+        if (epoch !== appState.runtimeSurfaceLifecycleEpoch) return;
+        appState.runtimeSurfacesSuspended = false;
         const editSession = appState.htmlEditSession;
         if (isCurrentHtmlEditSession(editSession) && editSession.presentation?.pages?.length) {
           editSession.presentation.previewReady = false;
@@ -22358,6 +22468,11 @@ if (!chipTipController) {
         scheduleRuntimeHostSync();
         refreshHtmlEditSectionNavigation(editSession);
       }
+
+      window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__ = (minimized) => {
+        if (minimized) suspendRuntimeSurfaces().catch(() => {});
+        else resumeRuntimeSurfaces().catch(() => {});
+      };
 
       async function hideInactiveRuntimeHosts(activeItemId = null, options = {}) {
         if (options.invalidate !== false) cleanupRuntimeHostSync();
@@ -22481,6 +22596,7 @@ if (!chipTipController) {
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,
           isPrimaryBusy: primaryActionBusyItemId != null,
+          nativePresentationPreparing: nativePresentationPreparingItemId === tab.id,
           customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
           availableTags: appState.tags,
           skillTag: tab.item?.skillBinding?.displayName ?? null,

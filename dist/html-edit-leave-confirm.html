@@ -101,8 +101,10 @@
   <script src="./i18n.js?v=20260525-update-check"></script>
   <script>
     const i18n = window.NutbookI18n;
-    const t = (key, fallback) => i18n?.lookup(key) ?? fallback;
     const config = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ || {}; const itemId = config.itemId ?? null; const requestId = config.requestId || ""; const copyMode = config.mode === "create-copy"; const removeMode = config.mode === "remove"; const fileName = config.fileName || "";
+    const language = config.language === "en-US" ? "en-US" : "zh-CN";
+    i18n?.setLanguage?.(language);
+    const t = (key, fallback) => i18n?.lookup(key, language) ?? fallback;
     const els = {
       title: document.getElementById("title"),
       message: document.getElementById("message"),
@@ -120,11 +122,11 @@
         discard = "";
         save = t("actions.confirmRemove", "确认移除");
       } else if (copyMode) {
-        title = "此文件不支持 Nutbook 编辑协议";
-        message = "是否尝试创建一个可编辑副本？原文件不会修改。";
-        keep = "继续预览";
+        title = t("htmlEdit.createCopyTitle", "此文件不支持 Nutbook 编辑协议");
+        message = t("htmlEdit.createCopyMessage", "是否尝试创建一个可编辑副本？原文件不会修改。");
+        keep = t("htmlEdit.continuePreview", "继续预览");
         discard = "";
-        save = "创建并编辑";
+        save = t("htmlEdit.createAndEdit", "创建并编辑");
       } else {
         title = t("htmlEdit.leavePrompt", "有未保存的修改");
         message = t("htmlEdit.leaveMessage", "退出编辑前，可以保存修改或放弃本次修改。");

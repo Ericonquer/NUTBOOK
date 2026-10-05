@@ -61,6 +61,7 @@ pub async fn generate_presentation_thumbnail(
                 page_id: page_id.clone(),
                 width: 480,
                 height: 270,
+                pixel_ratio: 1,
             },
             source_revision: payload.source_file_hash,
         }).map(|asset| (page_id, asset))

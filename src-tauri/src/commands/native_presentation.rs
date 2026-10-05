@@ -492,6 +492,8 @@ pub(crate) fn validate_notes(pages: &[PresentationPage], notes: &PresentationNot
 pub struct ProbePayload {
     pub item_id: i64,
     pub request_id: String,
+    #[serde(default)]
+    pub unsupported: bool,
     pub pages: Vec<PresentationPage>,
     #[serde(default)]
     pub notes: PresentationNotes,
@@ -525,8 +527,14 @@ pub fn native_presentation_probe_command(
     {
         return Err(AppError::InvalidSession);
     }
-    validate_pages(&payload.pages, &payload.active_page_id)?;
-    validate_notes(&payload.pages, &payload.notes)?;
+    if payload.unsupported {
+        if !payload.pages.is_empty() || !payload.notes.is_empty() || !payload.active_page_id.is_empty() {
+            return Err(AppError::InvalidParams);
+        }
+    } else {
+        validate_pages(&payload.pages, &payload.active_page_id)?;
+        validate_notes(&payload.pages, &payload.notes)?;
+    }
     let main = app.get_webview("main").ok_or(AppError::InternalError)?;
     let wire = serde_json::to_string(&payload).map_err(|_| AppError::InternalError)?;
     main.eval(&format!(
@@ -805,8 +813,13 @@ fn create_audience_window(
         &session.active_page_id,
         session.generation,
     );
+    let audience_title = if session.language == "en-US" {
+        format!("NUTBOOK · Audience Window · {}", item.summary.file_name)
+    } else {
+        format!("NUTBOOK · 观众窗口 · {}", item.summary.file_name)
+    };
     let result = tauri::WebviewWindowBuilder::new(app, AUDIENCE_LABEL, webview_url)
-        .title(item.summary.file_name.clone())
+        .title(audience_title)
         .position(x, y)
         .inner_size(width, height)
         .fullscreen(!session.rehearsal)
@@ -1308,8 +1321,9 @@ pub async fn native_presentation_thumbnail(
                 chromium_path,
                 url,
                 page_id: page_id.clone(),
-                width: 640,
-                height: 360,
+                width: 1024,
+                height: 576,
+                pixel_ratio: 2,
             },
             source_revision: revision,
         })
