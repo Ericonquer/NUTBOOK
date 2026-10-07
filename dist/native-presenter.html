@@ -66,12 +66,12 @@
   <header><div class="brand">NUTBOOK · 演讲者</div><button id="themeToggle" class="theme-toggle" type="button" aria-label="切换到深色外观" title="切换到深色外观"><span class="theme-swatch" aria-hidden="true"></span><span id="themeToggleText">深色</span></button><div id="status" role="status">等待观众画面就绪…</div><button id="recover" type="button" aria-label="选择屏幕并恢复" title="选择屏幕并恢复" hidden>选择屏幕并恢复</button><label for="target">目标分钟</label><input id="target" type="number" min="1" max="600" aria-label="目标时长，分钟" title="目标时长，分钟"><div id="timer" aria-label="演示计时">00:00</div><button id="pause" type="button" aria-label="暂停计时" title="暂停计时" disabled>暂停</button><button id="reset" type="button" aria-label="开始计时" title="开始计时" disabled>开始</button></header>
   <main class="layout">
     <div class="previews">
-      <section class="card"><div class="caption">当前页 · 静态信息预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
+      <section class="card"><div class="caption">当前页 · 动态预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
       <div id="previewDivider" class="preview-divider" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="调整当前页与备注高度" aria-valuemin="20" aria-valuemax="50" aria-valuenow="25" title="拖动调整当前页与备注高度"></div>
       <section class="card notes"><div class="caption tools"><span>逐页备注 · 只读</span><button id="smallerNotes" type="button" aria-label="缩小备注字号" title="缩小备注字号">A−</button><button id="largerNotes" type="button" aria-label="放大备注字号" title="放大备注字号">A+</button></div><div id="notes"></div></section>
     </div>
     <div class="side">
-      <section class="card next"><div class="caption">下一页 · 静态信息预览</div><div class="preview-body" id="nextPreview"><div><strong>—</strong></div></div></section>
+      <section class="card next"><div class="caption">下一页 · 静态预览</div><div class="preview-body" id="nextPreview"><div><strong>—</strong></div></div></section>
       <section class="card pages"><div class="caption">页面</div><div id="pages"></div></section>
     </div>
   </main>
@@ -82,13 +82,59 @@
       const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args);
       const byId = id => document.getElementById(id);
       const COPY = {
-        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众画面就绪…", ready: "观众画面已就绪", shareWindow: "在线会议中请共享 NUTBOOK 窗口", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", start: "开始", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 静态预览", nextPreview: "下一页 · 静态预览", notes: "逐页备注 · 只读", resizePreview: "调整当前页与备注高度", dragPreview: "拖动调整当前页与备注高度", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在生成静态预览 · 动画及媒体仅在观众屏播放", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众画面", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏", primaryDisplay: "主屏幕", display: "显示器" },
-        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience view…", ready: "Audience view ready", shareWindow: "In online meetings, share the NUTBOOK window", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", start: "Start", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · static preview", nextPreview: "Next · static preview", notes: "Slide notes · read only", resizePreview: "Resize slide and notes", dragPreview: "Drag to resize slide and notes", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Creating static preview · media plays on audience screen", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience view", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary", primaryDisplay: "Primary display", display: "Display" }
+        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众画面就绪…", ready: "观众画面已就绪", shareWindow: "在线会议中请共享 NUTBOOK 窗口", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", start: "开始", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 动态预览", nextPreview: "下一页 · 静态预览", currentStatic: "当前页 · 静态预览", notes: "逐页备注 · 只读", resizePreview: "调整当前页与备注高度", dragPreview: "拖动调整当前页与备注高度", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在准备预览…", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众画面", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏", primaryDisplay: "主屏幕", display: "显示器" },
+        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience view…", ready: "Audience view ready", shareWindow: "In online meetings, share the NUTBOOK window", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", start: "Start", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · live preview", nextPreview: "Next · static preview", currentStatic: "Current · static preview", notes: "Slide notes · read only", resizePreview: "Resize slide and notes", dragPreview: "Drag to resize slide and notes", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Preparing preview…", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience view", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary", primaryDisplay: "Primary display", display: "Display" }
       };
       let language = "zh-CN";
       const t = key => COPY[language][key] || COPY["zh-CN"][key];
       let state = null, startedAt = 0, elapsed = 0, paused = false, busy = false;
       const previews = new Map();
+      let liveUnavailable = false, liveFailures = 0, liveSyncBusy = false, liveSyncRequested = false, liveSyncScheduled = false, lastLiveKey = "";
+      let liveReady = false, liveTimedOut = false, liveTimer = null;
+      function liveCaption() {
+        const captions = document.querySelectorAll(".caption");
+        captions[0].textContent = t(liveUnavailable || liveTimedOut ? "currentStatic" : "current");
+        captions[2].textContent = t("nextPreview");
+      }
+      window.__NUTBOOK_LIVE_PREVIEW_READY__ = () => {
+        liveReady = true; liveTimedOut = false;
+        clearTimeout(liveTimer); liveTimer = null;
+        liveCaption();
+      };
+      function fittedPreviewBounds(container) {
+        const box = container.getBoundingClientRect();
+        const width = Math.max(0, Math.min(box.width - 16, (box.height - 16) * 16 / 9));
+        const height = width * 9 / 16;
+        return { x: Math.round(box.left + (box.width - width) / 2), y: Math.round(box.top + (box.height - height) / 2), width: Math.round(width), height: Math.round(height) };
+      }
+      function scheduleLiveSync() {
+        if (liveUnavailable || liveSyncScheduled || !state?.ready || state.suspended) return;
+        liveSyncScheduled = true;
+        requestAnimationFrame(() => { liveSyncScheduled = false; void syncLivePreviews(); });
+      }
+      async function syncLivePreviews() {
+        if (liveUnavailable || !state?.ready || state.suspended) return;
+        if (liveSyncBusy) { liveSyncRequested = true; return; }
+        const current = fittedPreviewBounds(byId("currentPreview"));
+        if (Math.min(current.width, current.height) < 32) return;
+        const key = JSON.stringify({ sessionId: state.sessionId, activePageId: state.activePageId, current });
+        if (key === lastLiveKey) return;
+        liveSyncBusy = true;
+        try {
+          await invoke("native_presentation_live_preview", { payload: { sessionId: state.sessionId, current, viewportWidth: innerWidth, viewportHeight: innerHeight } });
+          lastLiveKey = key; liveFailures = 0;
+          if (!liveReady && !liveTimer) liveTimer = setTimeout(() => {
+            liveTimer = null;
+            if (!liveReady) { liveTimedOut = true; liveCaption(); }
+          }, 12000);
+        } catch (_) {
+          if (++liveFailures >= 3) { liveUnavailable = true; liveCaption(); }
+          else setTimeout(scheduleLiveSync, 500);
+        } finally {
+          liveSyncBusy = false;
+          if (liveSyncRequested) { liveSyncRequested = false; scheduleLiveSync(); }
+        }
+      }
       const preferences = (() => { try { return JSON.parse(localStorage.getItem("nutbook-native-presenter-layout") || "{}"); } catch (_) { return {}; } })();
       const storedNotesHeight = Number(preferences.notesBottomPercent);
       let notesHeight = Math.max(20, Math.min(50, preferences.layoutVersion !== 2 && storedNotesHeight === 34 ? 25 : storedNotesHeight || 25));
@@ -110,13 +156,14 @@
         byId("notes").style.fontSize = `${notesFontSize}px`;
         byId("previewDivider").setAttribute("aria-valuenow", String(notesHeight));
         savePreferences();
+        scheduleLiveSync();
       }
       function applyLanguage() {
         document.documentElement.lang = language;
         document.querySelector(".brand").textContent = t("brand");
         document.querySelector('label[for="target"]').textContent = t("target");
         const captions = document.querySelectorAll(".caption");
-        captions[0].textContent = t("current"); captions[2].textContent = t("nextPreview");
+        liveCaption();
         captions[1].querySelector("span").textContent = t("notes");
         byId("previewDivider").setAttribute("aria-label", t("resizePreview"));
         byId("previewDivider").title = t("dragPreview");
@@ -218,6 +265,7 @@
         byId("pageCount").textContent = `${index + 1} / ${state.pages.length}`;
         addPreview(byId("currentPreview"), state.pages[index]);
         addPreview(byId("nextPreview"), state.pages[index + 1]);
+        scheduleLiveSync();
         requestPreview(state.pages[index - 1]);
         requestPreview(state.pages[index + 2]);
         renderNotes(state.activePageId);
@@ -246,6 +294,12 @@
           // audience ready report. Readiness is monotonic within a generation
           // unless the display was explicitly suspended.
           if (state.ready && !next.ready && !next.suspended && nextSequence === currentSequence) return;
+        }
+        if (next.suspended && !state?.suspended) {
+          liveReady = false; liveTimedOut = false; lastLiveKey = "";
+          clearTimeout(liveTimer); liveTimer = null;
+        } else if (state?.suspended && !next.suspended) {
+          liveUnavailable = false; liveFailures = 0; lastLiveKey = "";
         }
         state = next; language = next.language === "en-US" ? "en-US" : "zh-CN"; applyLanguage(); elapsed = next.timerElapsedMs || 0;
         startedAt = next.timerRunning ? Date.now() : 0; paused = !next.timerRunning;
@@ -327,6 +381,7 @@
         if (event.key === "Escape" && state) { event.preventDefault(); invoke("stop_native_presentation", { sessionId: state.sessionId }); }
       });
       invoke("native_presentation_state").then(current => { if (current) window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(current); });
+      new ResizeObserver(scheduleLiveSync).observe(byId("currentPreview"));
       applyLayout();
       applyTheme();
       setInterval(renderTimer, 250);

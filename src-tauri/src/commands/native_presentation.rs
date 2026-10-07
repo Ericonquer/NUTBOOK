@@ -6,7 +6,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -46,6 +46,7 @@ use crate::{
 
 const PRESENTER_LABEL: &str = "native-presentation-presenter";
 const BLACKOUT_LABEL: &str = "native-presentation-blackout";
+const LIVE_CURRENT_LABEL: &str = "native-presentation-live-current";
 const AUDIENCE_BANNER_HEIGHT: f64 = 36.0;
 
 fn audience_top_inset(rehearsal: bool, screen_filling: bool) -> f64 {
@@ -898,9 +899,9 @@ fn audience_init_script(
 }
 
 fn notify_presenter(app: &tauri::AppHandle, session: &NativePresentationSession) {
-    if let Some(window) = app.get_webview_window(PRESENTER_LABEL) {
+    if let Some(webview) = app.get_webview(PRESENTER_LABEL) {
         if let Ok(wire) = serde_json::to_string(&session.view()) {
-            let _ = window.eval(&format!(
+            let _ = webview.eval(&format!(
                 "window.__NUTBOOK_NATIVE_PRESENTATION_STATE__?.({wire})"
             ));
         }
@@ -1023,7 +1024,7 @@ fn install_audience_fullscreen_observer(app: &tauri::AppHandle) {
                         if !entered { set_audience_child_autoresizing(&app_for_event, false); }
                         resize_audience_child(&app_for_event);
                         if restore_presenter {
-                            if let Some(window) = app_for_event.get_webview_window(PRESENTER_LABEL) {
+                            if let Some(window) = app_for_event.get_window(PRESENTER_LABEL) {
                                 let _ = window.set_focus();
                             }
                             if let Some(webview) = app_for_event.get_webview(PRESENTER_LABEL) {
@@ -1238,6 +1239,7 @@ fn suspend_for_missing_monitor(app: &tauri::AppHandle, state: &AppState, id: &st
     if let Some(blackout) = app.get_webview(BLACKOUT_LABEL) {
         let _ = blackout.close();
     }
+    if let Some(preview) = app.get_webview(LIVE_CURRENT_LABEL) { let _ = preview.close(); }
     let _ = set_html_runtime_host_visibility(app, snapshot.item_id, false);
     state.content_sessions.unregister(&html_runtime_host_label(snapshot.item_id));
     notify_presenter(app, &snapshot);
@@ -1328,7 +1330,7 @@ pub fn recover_native_presentation(
         .iter()
         .find(|candidate| monitor_id(candidate) != session.monitor_id)
     {
-        if let Some(presenter) = app.get_webview_window(PRESENTER_LABEL) {
+        if let Some(presenter) = app.get_window(PRESENTER_LABEL) {
             let scale = presenter_monitor.scale_factor();
             let _ = presenter.set_position(tauri::LogicalPosition::new(
                 presenter_monitor.position().x as f64 / scale + 60.0,
@@ -1629,7 +1631,7 @@ pub fn native_presentation_blackout(
         session.clone()
     };
     notify_presenter(&app, &snapshot);
-    if let Some(presenter) = app.get_webview_window(PRESENTER_LABEL) {
+    if let Some(presenter) = app.get_window(PRESENTER_LABEL) {
         let _ = presenter.set_focus();
     }
     Ok(snapshot.view())
@@ -1706,6 +1708,239 @@ pub async fn native_presentation_thumbnail(
     .await
     .map_err(|_| AppError::InternalError)?;
     result.map_err(|_| AppError::ThumbnailGenerationFailed)
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LivePreviewBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl LivePreviewBounds {
+    fn with_viewport_offset(
+        self,
+        window_width: f64,
+        window_height: f64,
+        viewport_width: f64,
+        viewport_height: f64,
+    ) -> Result<Self, AppError> {
+        let top_inset = window_height - viewport_height;
+        if !viewport_width.is_finite()
+            || !viewport_height.is_finite()
+            || (window_width - viewport_width).abs() > 2.0
+            || !(0.0..=100.0).contains(&top_inset)
+        {
+            return Err(AppError::InvalidParams);
+        }
+        Ok(Self { y: self.y + top_inset, ..self })
+    }
+
+    fn checked(self, window: &tauri::Window) -> Result<Self, AppError> {
+        let size = window.inner_size().map_err(|_| AppError::InternalError)?;
+        let scale = window.scale_factor().map_err(|_| AppError::InternalError)?;
+        let width = size.width as f64 / scale;
+        let height = size.height as f64 / scale;
+        if ![self.x, self.y, self.width, self.height].iter().all(|v| v.is_finite())
+            || self.x < 0.0 || self.y < 0.0 || self.width < 32.0 || self.height < 32.0
+            || self.x + self.width > width + 2.0 || self.y + self.height > height + 2.0
+        {
+            return Err(AppError::InvalidParams);
+        }
+        Ok(self)
+    }
+
+    fn rect(self) -> tauri::Rect {
+        tauri::Rect {
+            position: tauri::Position::Logical(tauri::LogicalPosition::new(self.x, self.y)),
+            size: tauri::Size::Logical(tauri::LogicalSize::new(self.width, self.height)),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LivePreviewPayload {
+    session_id: String,
+    current: LivePreviewBounds,
+    viewport_width: f64,
+    viewport_height: f64,
+}
+
+fn live_preview_init_script(session_id: &str, page_id: &str) -> String {
+    let marker = format!("__NUTBOOK_LIVE_PREVIEW_READY__:{session_id}");
+    format!(r#"
+(() => {{
+  if (window.top !== window.self) return;
+  let desiredPageId = {page_id:?};
+  let bridge = null;
+  let ready = false;
+  const signalReady = () => {{ document.title = {marker:?} + ':' + performance.now(); }};
+  const muteMedia = () => document.querySelectorAll('audio,video').forEach(media => {{ media.muted = true; }});
+  window.__NUTBOOK_LIVE_PREVIEW__ = {{ select(pageId) {{
+    if (typeof pageId !== 'string' || !pageId) return;
+    desiredPageId = pageId;
+    if (ready) Promise.resolve(bridge.goTo(pageId)).then(signalReady).catch(() => {{}});
+  }} }};
+  const boot = async () => {{
+    for (let attempt = 0; attempt < 100; attempt++) {{
+      const candidate = window.__NUTBOOK_PRESENTATION__;
+      if (Number(candidate?.version) === 1 && candidate.capabilities?.managedPresenter === true
+          && typeof candidate.goTo === 'function') {{ bridge = candidate; break; }}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }}
+    if (!bridge) return;
+    try {{
+      await bridge.whenReady?.();
+      if (await bridge.setManagedMode(true) !== true) return;
+      muteMedia();
+      new MutationObserver(muteMedia).observe(document.documentElement, {{ childList: true, subtree: true }});
+      document.addEventListener('play', event => {{ if (event.target instanceof HTMLMediaElement) event.target.muted = true; }}, true);
+      // The presenter owns navigation. Prevent a focused preview from changing
+      // its page independently of the audience.
+      document.addEventListener('keydown', event => {{
+        if (['ArrowLeft','ArrowRight','PageUp','PageDown',' '].includes(event.key)) {{
+          event.preventDefault(); event.stopImmediatePropagation();
+        }}
+      }}, true);
+      document.addEventListener('pointerdown', event => {{
+        event.preventDefault(); event.stopImmediatePropagation();
+        document.title = {marker:?} + ':focus:' + performance.now();
+      }}, true);
+      document.addEventListener('click', event => {{ event.preventDefault(); event.stopImmediatePropagation(); }}, true);
+      await bridge.goTo(desiredPageId);
+      ready = true;
+      signalReady();
+    }} catch (_) {{}}
+  }};
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {{ once: true }});
+  else boot();
+}})();
+"#)
+}
+
+fn sync_live_preview(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    url: Option<&str>,
+    session: &NativePresentationSession,
+    label: &str,
+    page_id: &str,
+    bounds: LivePreviewBounds,
+) -> Result<(), AppError> {
+    if let Some(webview) = app.get_webview(label) {
+        webview.set_bounds(bounds.rect()).map_err(|_| AppError::InternalError)?;
+        let _ = webview.set_zoom((bounds.width / 1024.0).clamp(0.2, 2.0));
+        let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({page_id:?});"));
+        return Ok(());
+    }
+    let url = url.ok_or(AppError::InvalidSession)?;
+    let marker = format!("__NUTBOOK_LIVE_PREVIEW_READY__:{}:", session.id);
+    let app_for_ready = app.clone();
+    let id_for_ready = session.id.clone();
+    let selected_for_ready = Arc::new(Mutex::new(page_id.to_string()));
+    let builder = tauri::WebviewBuilder::new(
+        label,
+        tauri::WebviewUrl::External(url.parse().map_err(|_| AppError::PreviewLoadFailed)?),
+    )
+    .initialization_script(&live_preview_init_script(&session.id, page_id))
+    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+    .on_document_title_changed(move |webview, title| {
+        if !title.starts_with(&marker) { return; }
+        if title.contains(":focus:") {
+            if let Some(root) = app_for_ready.get_webview(PRESENTER_LABEL) { let _ = root.set_focus(); }
+            return;
+        }
+        let Some(state) = app_for_ready.try_state::<AppState>() else { return; };
+        let target = state.native_presentation.lock().ok().and_then(|guard| {
+            let current = guard.as_ref()?;
+            if current.id != id_for_ready || !current.ready || current.suspended { return None; }
+            let index = current.pages.iter().position(|page| page.id == current.active_page_id)?;
+            current.pages.get(index).map(|page| page.id.clone())
+        });
+        let Some(target) = target else { return; };
+        if let Ok(mut selected) = selected_for_ready.lock() {
+            if *selected != target {
+                *selected = target.clone();
+                let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({target:?});"));
+                return;
+            }
+        }
+        let _ = webview.show();
+        if let Some(presenter) = app_for_ready.get_webview(PRESENTER_LABEL) {
+            let _ = presenter.eval("window.__NUTBOOK_LIVE_PREVIEW_READY__?.();");
+        }
+    });
+    // Build offscreen and hide before assigning the visible preview bounds.
+    let presenter_was_focused = window.is_focused().unwrap_or(false);
+    let webview = window.add_child(builder, tauri::LogicalPosition::new(0.0, 0.0), tauri::LogicalSize::new(1.0, 1.0))
+        .map_err(|_| AppError::InternalError)?;
+    let _ = webview.hide();
+    webview.set_bounds(bounds.rect()).map_err(|_| AppError::InternalError)?;
+    let _ = webview.set_zoom((bounds.width / 1024.0).clamp(0.2, 2.0));
+    // A very fast local page may report ready before hide completes.
+    // Re-signal after hiding so the ready callback can reveal it again.
+    let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({page_id:?});"));
+    if presenter_was_focused {
+        if let Some(root) = app.get_webview(PRESENTER_LABEL) { let _ = root.set_focus(); }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn native_presentation_live_preview(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: LivePreviewPayload,
+) -> Result<(), AppError> {
+    let session = state.native_presentation.lock().map_err(|_| AppError::InternalError)?
+        .as_ref().filter(|session| session.id == payload.session_id && session.ready && !session.suspended)
+        .cloned().ok_or(AppError::InvalidSession)?;
+    let window = app.get_window(PRESENTER_LABEL).ok_or(AppError::InvalidSession)?;
+    let window_size = window.inner_size().map_err(|_| AppError::InternalError)?;
+    let scale = window.scale_factor().map_err(|_| AppError::InternalError)?;
+    let logical_width = window_size.width as f64 / scale;
+    let logical_height = window_size.height as f64 / scale;
+    let current_bounds = payload.current
+        .with_viewport_offset(logical_width, logical_height, payload.viewport_width, payload.viewport_height)?
+        .checked(&window)?;
+    let index = session.pages.iter().position(|page| page.id == session.active_page_id)
+        .ok_or(AppError::InvalidSession)?;
+    if app.get_webview(LIVE_CURRENT_LABEL).is_some() {
+        return sync_live_preview(&app, &window, None, &session, LIVE_CURRENT_LABEL,
+            &session.pages[index].id, current_bounds);
+    }
+    let item = state.get_item_detail(session.item_id)?;
+    if content_hash_bytes(&fs::read(&item.summary.file_path).map_err(|_| AppError::IoError)?) != session.source_hash {
+        return Err(AppError::InvalidSession);
+    }
+    let scope = format!("html-runtime:{}:native-presentation-live:{}", session.item_id, session.id);
+    let url = state.scoped_file_url_for_item(
+        &scope,
+        &item,
+        Path::new(&item.summary.file_path),
+    )?;
+    let still_active = state.native_presentation.lock().map_err(|_| AppError::InternalError)?
+        .as_ref().is_some_and(|current| current.id == session.id && current.ready && !current.suspended);
+    if !still_active {
+        state.drop_scoped_server(&scope);
+        return Err(AppError::InvalidSession);
+    }
+    sync_live_preview(&app, &window, Some(&url), &session, LIVE_CURRENT_LABEL,
+        &session.pages[index].id, current_bounds)?;
+    let still_active = state.native_presentation.lock().map_err(|_| AppError::InternalError)?
+        .as_ref().is_some_and(|current| current.id == session.id && current.ready && !current.suspended);
+    if !still_active {
+        let newer_session = state.native_presentation.lock().ok().and_then(|guard| guard.as_ref().map(|current| current.id != session.id)).unwrap_or(false);
+        if !newer_session {
+            if let Some(preview) = app.get_webview(LIVE_CURRENT_LABEL) { let _ = preview.close(); }
+        }
+        state.drop_scoped_server(&scope);
+        return Err(AppError::InvalidSession);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2075,6 +2310,11 @@ fn stop_session(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
     if let Some(blackout) = app.get_webview(BLACKOUT_LABEL) {
         let _ = blackout.close();
     }
+    if let Some(preview) = app.get_webview(LIVE_CURRENT_LABEL) { let _ = preview.close(); }
+    state.drop_scoped_server(&format!(
+        "html-runtime:{}:native-presentation-live:{}",
+        session.item_id, session.id
+    ));
     state.drop_scoped_server(&format!(
         "html-runtime:{}:native-presentation-thumbnail",
         session.item_id
@@ -2091,7 +2331,7 @@ fn stop_session(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
         let _ = main.set_fullscreen(session.main_window_fullscreen);
         let _ = main.set_title(&session.main_window_title);
     }
-    if let Some(presenter) = app.get_webview_window(PRESENTER_LABEL) {
+    if let Some(presenter) = app.get_window(PRESENTER_LABEL) {
         let _ = presenter.close();
     }
     if let Some(main) = app.get_webview("main") {
@@ -2135,8 +2375,8 @@ pub fn stop_native_presentation(
 mod tests {
     use super::{
         adapted_legacy_html, adapted_legacy_runtime, audience_top_inset, known_legacy_source,
-        replace_notes_json_block, validate_notes, validate_pages, NoteParagraph, NoteRun,
-        PresentationPage,
+        replace_notes_json_block, validate_notes, validate_pages, LivePreviewBounds,
+        NoteParagraph, NoteRun, PresentationPage,
     };
     use std::{
         collections::HashMap,
@@ -2149,6 +2389,16 @@ mod tests {
         assert_eq!(audience_top_inset(true, false), 36.0);
         assert_eq!(audience_top_inset(true, true), 0.0);
         assert_eq!(audience_top_inset(false, true), 0.0);
+    }
+
+    #[test]
+    fn live_preview_accounts_for_macos_titlebar_viewport_offset() {
+        let bounds = LivePreviewBounds { x: 79.0, y: 127.0, width: 633.0, height: 356.0 };
+        let adjusted = bounds.with_viewport_offset(1120.0, 760.0, 1120.0, 728.0).unwrap();
+        assert_eq!(adjusted.y, 159.0);
+        assert_eq!(adjusted.x, bounds.x);
+        assert_eq!(bounds.with_viewport_offset(1120.0, 760.0, 1120.0, 760.0).unwrap().y, 127.0);
+        assert!(bounds.with_viewport_offset(1120.0, 760.0, 1120.0, 500.0).is_err());
     }
 
     #[test]

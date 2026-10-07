@@ -54,6 +54,25 @@ try {
   assert.equal(editReady.count, 24);
   assert.equal(editReady.presentation.pages.length, 24);
 
+  const liveSample = await browser.newPage({ viewport: { width: 1024, height: 576 } });
+  await liveSample.goto(pathToFileURL(path.resolve("docs/presentations/native-presentation-sample/live-motion.html")).href);
+  const motionStart = await liveSample.locator(".page.active").evaluate(node => node.getAnimations({ subtree: true }).find(animation => animation.animationName === "travel")?.currentTime ?? -1);
+  await liveSample.waitForTimeout(150);
+  const motionLater = await liveSample.locator(".page.active").evaluate(node => node.getAnimations({ subtree: true }).find(animation => animation.animationName === "travel")?.currentTime ?? -1);
+  assert.ok(motionLater > motionStart, "the live preview sample must contain a running animation");
+  await liveSample.evaluate(() => window.__NUTBOOK_PRESENTATION__.goTo("workflow"));
+  assert.equal(await liveSample.evaluate(() => window.__NUTBOOK_PRESENTATION__.activePageId), "workflow");
+  await liveSample.evaluate(script => {
+    window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+      if (command === "native_presentation_probe_command") window.__probePayload = args.payload;
+      return true;
+    } };
+    (0, eval)(script);
+  }, buildProbeScript(3, "live-sample-probe"));
+  await liveSample.waitForFunction(() => Boolean(window.__probePayload));
+  assert.equal(await liveSample.evaluate(() => window.__probePayload.pages?.length), 3,
+    "the motion sample must be accepted through NUTBOOK's presentation protocol");
+
   const ordinaryPage = await browser.newPage();
   await ordinaryPage.goto(pathToFileURL(path.resolve("src-tauri/tests/fixtures/folder-acceptance/dist/ai-report.html")).href);
   await ordinaryPage.evaluate(script => {

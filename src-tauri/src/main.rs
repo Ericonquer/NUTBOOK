@@ -476,6 +476,7 @@ fn main() {
             commands::native_presentation::recover_native_presentation,
             commands::native_presentation::native_presentation_navigate,
             commands::native_presentation::native_presentation_thumbnail,
+            commands::native_presentation::native_presentation_live_preview,
             commands::native_presentation::native_presentation_report,
             commands::native_presentation::native_presentation_toggle_fullscreen,
             commands::native_presentation::stop_native_presentation,

@@ -8,6 +8,7 @@ try {
   const page = await browser.newPage();
   await page.addInitScript(() => {
     window.thumbnailRequests = [];
+    window.livePreviewRequests = [];
     window.fullscreenRequests = [];
     window.timerActions = [];
     window.timerState = { timerElapsedMs: 0, timerRunning: false, timerHasStarted: false };
@@ -21,6 +22,7 @@ try {
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
       if (command === "native_presentation_state") return initialState();
       if (command === "native_presentation_thumbnail") { window.thumbnailRequests.push(args.payload.pageId); return { dataUrl: preview }; }
+      if (command === "native_presentation_live_preview") { window.livePreviewRequests.push(args.payload); return true; }
       if (command === "native_presentation_toggle_fullscreen") { window.fullscreenRequests.push(args.sessionId); return true; }
       if (command === "native_presentation_timer") {
         window.timerActions.push(args.payload.action);
@@ -34,6 +36,19 @@ try {
   });
   await page.goto(pathToFileURL(path.resolve("dist/native-presenter.html")).href);
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
+  await page.waitForFunction(() => window.livePreviewRequests.length > 0);
+  const firstLiveRequest = await page.evaluate(() => window.livePreviewRequests[0]);
+  assert.equal(firstLiveRequest.sessionId, "layout-check");
+  assert.deepEqual(
+    [firstLiveRequest.viewportWidth, firstLiveRequest.viewportHeight],
+    await page.evaluate(() => [innerWidth, innerHeight]),
+    "the native child must receive the presenter's actual viewport for titlebar alignment"
+  );
+  assert.ok(firstLiveRequest.current.width > 300 && !firstLiveRequest.next,
+    "only the current slide should get a live surface; next stays static");
+  await page.evaluate(() => window.__NUTBOOK_LIVE_PREVIEW_READY__());
+  assert.equal(await page.locator(".card .caption").nth(0).textContent(), "当前页 · 动态预览");
+  assert.equal(await page.locator(".card .caption").nth(2).textContent(), "下一页 · 静态预览");
   await page.waitForFunction(() => window.thumbnailRequests.includes("three"));
   assert.equal(await page.locator("#reset").textContent(), "开始", "timer must wait for an explicit start or audience fullscreen");
   assert.equal(await page.locator("#pause").isDisabled(), true, "pause is unavailable before timing starts");
@@ -60,6 +75,7 @@ try {
     sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: true, sequence: 0,
     pages, activePageId: "two", notes: {}
   }), threePages);
+  await page.waitForFunction(() => window.livePreviewRequests.length >= 2);
   assert.equal(await page.locator("#currentPreview img").count(), 1, "forward navigation should use the prefetched next image");
   assert.equal(await page.locator("#nextPreview img").count(), 1,
     "forward navigation should reveal a prefetched next image without a loading flash");
