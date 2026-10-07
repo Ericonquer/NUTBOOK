@@ -9386,7 +9386,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.1.0",
+          currentVersion: "1.2.0",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -15216,7 +15216,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.1.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.2.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -18269,7 +18269,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.1.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.2.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -18800,7 +18800,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.1.0",
+              currentVersion: "1.2.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -18811,8 +18811,8 @@
             };
           }
           return {
-            currentVersion: "1.1.0",
-            latestVersion: "1.1.0",
+            currentVersion: "1.2.0",
+            latestVersion: "1.2.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -21293,6 +21293,11 @@ if (!chipTipController) {
         document.body.append(scrim); nativePresentationDialog = scrim;
         return scrim.querySelector(".native-presentation-panel");
       }
+
+      window.__NUTBOOK_OPEN_NATIVE_PRESENTATION__ = (itemId) => {
+        if (getActiveTab()?.id !== itemId || appState.runtimeSurfacesSuspended) return;
+        openNativePresentationPreparation().catch(() => {});
+      };
 
       async function openNativePresentationPreparation() {
         const tab = getActiveTab();
@@ -24006,15 +24011,10 @@ if (!chipTipController) {
             return;
           }
 
-          if (event.key === "s" || event.key === "S") {
+          if (event.code === "KeyS" || event.key === "s" || event.key === "S") {
+            if (event.target?.closest?.("input, textarea, select, [contenteditable]")) return;
             event.preventDefault();
-            clearHostFocus();
-            if (appState.isTauri) {
-              forwardRuntimeShortcut(tab.id, "s", "宿主已转发 S 命令");
-            } else {
-              const popup = window.open(appState.activeHtmlRuntimeUrl, "nutbook-html-preview", "width=1280,height=820");
-              setStatus(popup ? "宿主已处理 S 弹窗" : "宿主 S 弹窗失败", popup ? "ok" : "error");
-            }
+            if (!event.repeat) window.__NUTBOOK_OPEN_NATIVE_PRESENTATION__(tab.id);
             return;
           }
         }

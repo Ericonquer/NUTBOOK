@@ -2833,7 +2833,8 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
             let _ = webview.eval("window.__NUTBOOK_RUNTIME_VIEW_STATE__?.ackTitle?.();");
             return;
         }
-        if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) {
+        if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) || title.starts_with("__NUTBOOK_PRESENTATION_SHORTCUT__:") {
+            let is_presentation_shortcut = title.starts_with("__NUTBOOK_PRESENTATION_SHORTCUT__:");
             // revision 71：外部临时 host（`html-host-ext-<sessionId>`）与正式
             // item host 走同一 compatibility 脚本，Cmd+F 标题桥同样可达。
             // 身份派生自宿主 label（页面 JS 不可伪造）；main 侧
@@ -2856,7 +2857,8 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                 if title_bridge_record(&app_handle, &webview).is_some() {
                     if let Some(main_webview) = app_handle.get_webview("main") {
                         let _ = main_webview.eval(&format!(
-                            "window.__NUTBOOK_OPEN_HTML_FIND__?.({identity_literal});"
+                            "window.{}?.({identity_literal});",
+                            if is_presentation_shortcut { "__NUTBOOK_OPEN_NATIVE_PRESENTATION__" } else { "__NUTBOOK_OPEN_HTML_FIND__" }
                         ));
                     }
                 }
@@ -3375,6 +3377,15 @@ pub fn html_runtime_compatibility_script() -> &'static str {
       return;
     }
     if (isNutbookHtmlEditActive()) return;
+    if ((event.code === 'KeyS' || event.key === 's' || event.key === 'S') && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableShortcutTarget(event.target)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (!event.repeat && !event.isComposing && event.key !== 'Process') {
+        document.title = `__NUTBOOK_PRESENTATION_SHORTCUT__:${Date.now()}`;
+      }
+      return;
+    }
     if (
       !event.metaKey &&
       !event.ctrlKey &&

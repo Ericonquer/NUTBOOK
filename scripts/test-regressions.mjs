@@ -698,11 +698,22 @@ assert.match(
   /await refreshHtmlEditRuntimeState\(session, session\.documentRevision\)/,
   "save must refresh the child runtime before it decides a newly imported image is clean"
 );
-assert.match(
-  indexHtml,
-  /function htmlEditLeaveRequiresSave\(session\) \{\s*return Boolean\(session\?\.dirty \|\| session\?\.requiresPatchReconciliation\);/,
-  "a clean DOM with an older persisted patch must still follow the save-or-discard leave path"
+const leaveRequiresSaveSource = indexHtml.match(/function htmlEditLeaveRequiresSave\(session\) \{[\s\S]*?\n      \}/)?.[0];
+assert.ok(leaveRequiresSaveSource, "HTML leave must expose its save decision");
+let notesFlushed = false;
+const leaveRequiresSave = new Function("flushHtmlPresentationNotesEditor", "htmlPresentationNotesPatch", `${leaveRequiresSaveSource}; return htmlEditLeaveRequiresSave;`)(
+  session => { notesFlushed = true; if (session?.pendingNotes) session.notes = ["new note"]; },
+  session => session?.notes || []
 );
+for (const [session, expected] of [
+  [{}, false], [{ dirty: true }, true], [{ requiresPatchReconciliation: true }, true],
+  [{ notes: ["changed note"] }, true], [{ pendingNotes: true }, true]
+]) {
+  notesFlushed = false;
+  assert.equal(leaveRequiresSave(session), expected, "body edits, persisted patches and notes must protect the leave path");
+  assert.equal(notesFlushed, true, "pending note input must converge before the leave decision");
+}
+
 assert.match(
   indexHtml,
   /const candidatePersistedChanges = mergeHtmlEditPatchChanges\(session\.persistedChanges, session\.changes\);[\s\S]*?const changesForSave = candidatePersistedChanges;[\s\S]*?commit_html_edit[\s\S]*?changes: changesForSave/,
@@ -771,8 +782,8 @@ for (const updater of [
 }
 assert.match(
   indexHtml,
-  /window\.addEventListener\("keydown", \(event\) => \{\n        if \(event\.isComposing \|\| event\.key === "Process"\) return;/,
-  "global keyboard shortcuts must ignore IME composition"
+  /if \(event\.isComposing \|\| event\.key === "Process"\) return;\s*if \(\(event\.metaKey \|\| event\.ctrlKey\)/,
+  "global editing shortcuts must ignore IME composition before routing save or page shortcuts"
 );
 assert.match(
   indexHtml,
