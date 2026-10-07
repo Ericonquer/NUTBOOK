@@ -35,8 +35,6 @@ pub enum ContentSurfaceRole {
     DetachedPlayer,
     /// 演示预览（`html-presentation-preview-{item}`）。
     PresentationPreview,
-    /// 独立原生演示会话中的观众 HTML。只能回报 ready 与实际页码。
-    NativeAudience,
     /// 内容页 window.open 弹窗（`html-runtime-popup-*`）。
     RuntimePopup,
 }
@@ -55,8 +53,6 @@ impl ContentSurfaceRole {
             Some(Self::DetachedPlayer)
         } else if label.starts_with("html-presentation-preview-") {
             Some(Self::PresentationPreview)
-        } else if label == "native-presentation-audience" {
-            Some(Self::NativeAudience)
         } else if label.starts_with("html-runtime-popup-") {
             Some(Self::RuntimePopup)
         } else {
@@ -117,7 +113,6 @@ impl ContentSurfaceRole {
         match self {
             Self::RuntimeHost | Self::DetachedPlayer => RUNTIME_TYPES.contains(&message_type),
             Self::PresentationPreview => PREVIEW_TYPES.contains(&message_type),
-            Self::NativeAudience => false,
             // P2 细线：外部临时 host 是**阅读态**，没有 item 身份，也没有编辑
             // 会话。它不与宿主发生任何桥消息往来 —— 阅读内容本身不需要桥。
             // 演示翻页 / find 等阅读能力落地时，必须在此**显式**加入所需类型，

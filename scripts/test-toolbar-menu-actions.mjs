@@ -989,6 +989,16 @@ try {
   });
   await runtimePage.goto(pathToFileURL(`${process.cwd()}/dist/runtime-overlay.html`).href);
   await runtimePage.waitForFunction(() => document.getElementById("moreButton")?.offsetParent !== null);
+  await runtimePage.evaluate(() => window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({
+    ...window.__NUTBOOK_RUNTIME_CONTROLS__, isFullscreen: true
+  }));
+  assert.equal(await runtimePage.locator("#fullscreenHint").isVisible(), true);
+  await runtimePage.evaluate(() => window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({
+    ...window.__NUTBOOK_RUNTIME_CONTROLS__, isFullscreen: false
+  }));
+  assert.equal(await runtimePage.locator("#fullscreenHint").isVisible(), false,
+    "a rapid F exit must not leave the hint over the restored controls");
+  assert.equal(await runtimePage.locator("#moreButton").isVisible(), true);
   assert.equal(
     await runtimePage.locator("#addTagBtn").textContent(),
     "+ 标签",

@@ -296,6 +296,7 @@ fn main() {
         })
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Started && webview.label() == "main" {
+                nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_reload(webview.app_handle());
                 nutbook_backend::core::html_runtime::clear_main_window_children_on_page_load(webview);
             }
         })
@@ -476,6 +477,7 @@ fn main() {
             commands::native_presentation::native_presentation_navigate,
             commands::native_presentation::native_presentation_thumbnail,
             commands::native_presentation::native_presentation_report,
+            commands::native_presentation::native_presentation_toggle_fullscreen,
             commands::native_presentation::stop_native_presentation,
             commands::preview::save_markdown_content,
             commands::preview::export_markdown_file,
@@ -540,6 +542,10 @@ fn main() {
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
             } if label == "main" => {
+                if nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_close(app) {
+                    api.prevent_close();
+                    return;
+                }
                 if consume_html_edit_app_exit_allowance(app) {
                     return;
                 }
@@ -547,6 +553,10 @@ fn main() {
                 request_html_edit_app_exit_decision(app);
             }
             tauri::RunEvent::ExitRequested { api, .. } => {
+                if nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_close(app) {
+                    api.prevent_exit();
+                    return;
+                }
                 if consume_html_edit_app_exit_allowance(app) {
                     return;
                 }
@@ -648,9 +658,6 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
         "html-presentation-preview-",
         "html-runtime-popup-",
     ];
-    if label == "native-presentation-audience" {
-        return command == "native_presentation_report";
-    }
     if label == "native-presentation-blackout" {
         return command == "stop_native_presentation";
     }
@@ -667,6 +674,7 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
                 // 会话/代次校验，语义只限「回传一次滚动/hash 快照」）。
                 | "external_html_view_state_report_command"
                 | "native_presentation_probe_command"
+                | "native_presentation_report"
         )
     } else {
         false

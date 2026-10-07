@@ -63,7 +63,7 @@
   </style>
 </head>
 <body>
-  <header><div class="brand">NUTBOOK · 演讲者</div><button id="themeToggle" class="theme-toggle" type="button" aria-label="切换到深色外观" title="切换到深色外观"><span class="theme-swatch" aria-hidden="true"></span><span id="themeToggleText">深色</span></button><div id="status" role="status">等待观众窗口就绪…</div><button id="recover" type="button" aria-label="选择屏幕并恢复" title="选择屏幕并恢复" hidden>选择屏幕并恢复</button><label for="target">目标分钟</label><input id="target" type="number" min="1" max="600" aria-label="目标时长，分钟" title="目标时长，分钟"><div id="timer" aria-label="演示计时">00:00</div><button id="pause" type="button" aria-label="暂停计时" title="暂停计时">暂停</button><button id="reset" type="button" aria-label="重置计时" title="重置计时">重置</button></header>
+  <header><div class="brand">NUTBOOK · 演讲者</div><button id="themeToggle" class="theme-toggle" type="button" aria-label="切换到深色外观" title="切换到深色外观"><span class="theme-swatch" aria-hidden="true"></span><span id="themeToggleText">深色</span></button><div id="status" role="status">等待观众画面就绪…</div><button id="recover" type="button" aria-label="选择屏幕并恢复" title="选择屏幕并恢复" hidden>选择屏幕并恢复</button><label for="target">目标分钟</label><input id="target" type="number" min="1" max="600" aria-label="目标时长，分钟" title="目标时长，分钟"><div id="timer" aria-label="演示计时">00:00</div><button id="pause" type="button" aria-label="暂停计时" title="暂停计时" disabled>暂停</button><button id="reset" type="button" aria-label="开始计时" title="开始计时" disabled>开始</button></header>
   <main class="layout">
     <div class="previews">
       <section class="card"><div class="caption">当前页 · 静态信息预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
@@ -76,14 +76,14 @@
     </div>
   </main>
   <footer><div id="pageCount">— / —</div><button id="previous" type="button" aria-label="上一页" title="上一页">← 上一页</button><button id="next" type="button" aria-label="下一页" title="下一页">下一页 →</button><button id="black" type="button" aria-label="临时黑屏" title="临时黑屏">临时黑屏</button><button id="end" type="button" aria-label="结束演示" title="结束演示">结束演示</button></footer>
-  <dialog id="recoverDialog"><h2>恢复观众窗口</h2><p>选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。</p><select id="recoverMonitor" aria-label="观众屏幕"></select><p id="recoverError" role="alert"></p><div class="recover-actions"><button id="recoverCancel" type="button">取消</button><button id="recoverConfirm" type="button">恢复</button></div></dialog>
+  <dialog id="recoverDialog"><h2>恢复观众画面</h2><p>选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。</p><select id="recoverMonitor" aria-label="观众屏幕"></select><p id="recoverError" role="alert"></p><div class="recover-actions"><button id="recoverCancel" type="button">取消</button><button id="recoverConfirm" type="button">恢复</button></div></dialog>
   <script>
     (() => {
       const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args);
       const byId = id => document.getElementById(id);
       const COPY = {
-        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众窗口就绪…", ready: "观众窗口已就绪", shareWindow: "在线会议中请共享「观众窗口」", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 静态预览", nextPreview: "下一页 · 静态预览", notes: "逐页备注 · 只读", resizePreview: "调整当前页与备注高度", dragPreview: "拖动调整当前页与备注高度", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在生成静态预览 · 动画及媒体仅在观众屏播放", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众窗口", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏", primaryDisplay: "主屏幕", display: "显示器" },
-        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience window…", ready: "Audience window ready", shareWindow: "In online meetings, share “Audience Window”", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · static preview", nextPreview: "Next · static preview", notes: "Slide notes · read only", resizePreview: "Resize slide and notes", dragPreview: "Drag to resize slide and notes", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Creating static preview · media plays on audience screen", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience window", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary", primaryDisplay: "Primary display", display: "Display" }
+        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众画面就绪…", ready: "观众画面已就绪", shareWindow: "在线会议中请共享 NUTBOOK 窗口", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", start: "开始", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 静态预览", nextPreview: "下一页 · 静态预览", notes: "逐页备注 · 只读", resizePreview: "调整当前页与备注高度", dragPreview: "拖动调整当前页与备注高度", pages: "页面", previous: "← 上一页", next: "下一页 →", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在生成静态预览 · 动画及媒体仅在观众屏播放", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众画面", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏", primaryDisplay: "主屏幕", display: "显示器" },
+        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience view…", ready: "Audience view ready", shareWindow: "In online meetings, share the NUTBOOK window", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", start: "Start", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · static preview", nextPreview: "Next · static preview", notes: "Slide notes · read only", resizePreview: "Resize slide and notes", dragPreview: "Drag to resize slide and notes", pages: "Slides", previous: "← Previous", next: "Next →", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Creating static preview · media plays on audience screen", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience view", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary", primaryDisplay: "Primary display", display: "Display" }
       };
       let language = "zh-CN";
       const t = key => COPY[language][key] || COPY["zh-CN"][key];
@@ -122,12 +122,12 @@
         byId("previewDivider").title = t("dragPreview");
         captions[3].textContent = t("pages");
         byId("previous").textContent = t("previous"); byId("next").textContent = t("next");
-        byId("end").textContent = t("end"); byId("reset").textContent = t("reset");
+        byId("end").textContent = t("end");
         byId("recover").textContent = t("recover");
         byId("recoverDialog").querySelector("h2").textContent = t("recoverTitle");
         byId("recoverDialog").querySelector("p").textContent = t("recoverDescription");
         byId("recoverCancel").textContent = t("cancel"); byId("recoverConfirm").textContent = t("resume");
-        for (const [id, key] of [["previous", "previous"], ["next", "next"], ["end", "end"], ["reset", "reset"], ["recover", "recover"]]) {
+        for (const [id, key] of [["previous", "previous"], ["next", "next"], ["end", "end"], ["recover", "recover"]]) {
           byId(id).title = t(key); byId(id).setAttribute("aria-label", t(key));
         }
         byId("target").title = t("target"); byId("target").setAttribute("aria-label", t("target"));
@@ -141,6 +141,11 @@
         byId("pause").textContent = paused ? t("resume") : t("pause");
         byId("pause").title = byId("pause").textContent;
         byId("pause").setAttribute("aria-label", byId("pause").title);
+        byId("pause").disabled = !state?.ready || !state?.timerHasStarted;
+        byId("reset").textContent = t(state?.timerHasStarted ? "reset" : "start");
+        byId("reset").title = byId("reset").textContent;
+        byId("reset").setAttribute("aria-label", byId("reset").title);
+        byId("reset").disabled = !state?.ready;
       }
       function requestPreview(page) {
         if (!page || !state || previews.has(page.id)) return;
@@ -148,20 +153,27 @@
         const sessionId = state.sessionId;
         const stillVisible = () => state?.sessionId === sessionId && (() => {
           const index = state.pages.findIndex(candidate => candidate.id === state.activePageId);
-          return state.pages[index]?.id === page.id || state.pages[index + 1]?.id === page.id;
+          return state.pages[index - 1]?.id === page.id || state.pages[index]?.id === page.id || state.pages[index + 1]?.id === page.id || state.pages[index + 2]?.id === page.id;
         })();
         invoke("native_presentation_thumbnail", { payload: { sessionId, pageId: page.id } })
-          .then(result => { if (stillVisible()) { previews.set(page.id, { dataUrl: result.dataUrl }); render(); } })
+          .then(async result => {
+            const image = new Image();
+            image.src = result.dataUrl;
+            await image.decode?.();
+            if (stillVisible()) { image.alt = `${page.title || page.id} 静态预览`; previews.set(page.id, { image }); render(); }
+          })
           .catch(() => { if (stillVisible()) { previews.set(page.id, { failed: true }); render(); } });
       }
       function addPreview(container, page) {
-        container.replaceChildren();
+        requestPreview(page);
         const preview = page && previews.get(page.id);
-        if (preview?.dataUrl) {
-          const image = document.createElement("img"); image.src = preview.dataUrl;
-          image.alt = `${page.title || page.id} 静态预览`;
-          container.append(image); return;
+        const key = `${page?.id || "none"}:${preview?.image ? "ready" : preview?.failed ? "failed" : "pending"}`;
+        if (container.dataset.previewKey === key && (!preview?.image || container.firstChild === preview.image)) return;
+        container.dataset.previewKey = key;
+        if (preview?.image) {
+          container.replaceChildren(preview.image); return;
         }
+        container.replaceChildren();
         const box = document.createElement("div");
         const heading = document.createElement("strong");
         heading.textContent = page ? page.title || page.id : "—";
@@ -173,7 +185,6 @@
           retry.addEventListener("click", () => { previews.delete(page.id); requestPreview(page); render(); });
           box.append(retry);
         }
-        requestPreview(page);
       }
       function renderNotes(pageId) {
         const root = byId("notes"); root.replaceChildren();
@@ -199,7 +210,7 @@
         if (!state) return;
         const index = Math.max(0, state.pages.findIndex(page => page.id === state.activePageId));
         for (const pageId of previews.keys()) {
-          if (pageId !== state.pages[index]?.id && pageId !== state.pages[index + 1]?.id) previews.delete(pageId);
+          if (pageId !== state.pages[index - 1]?.id && pageId !== state.pages[index]?.id && pageId !== state.pages[index + 1]?.id && pageId !== state.pages[index + 2]?.id) previews.delete(pageId);
         }
         byId("status").textContent = state.error || (state.ready ? state.pendingPageId ? t("navigating") : t(state.rehearsal ? "shareWindow" : "ready") : t("waiting"));
         byId("status").classList.toggle("error", Boolean(state.error));
@@ -207,6 +218,8 @@
         byId("pageCount").textContent = `${index + 1} / ${state.pages.length}`;
         addPreview(byId("currentPreview"), state.pages[index]);
         addPreview(byId("nextPreview"), state.pages[index + 1]);
+        requestPreview(state.pages[index - 1]);
+        requestPreview(state.pages[index + 2]);
         renderNotes(state.activePageId);
         byId("previous").disabled = !state.ready || busy || Boolean(state.pendingPageId) || index === 0;
         byId("next").disabled = !state.ready || busy || Boolean(state.pendingPageId) || index >= state.pages.length - 1;
@@ -229,6 +242,10 @@
           const currentSequence = Number(state.sequence ?? -1);
           const nextSequence = Number(next.sequence ?? -1);
           if (nextSequence < currentSequence || (nextSequence === currentSequence && !state.pendingPageId && next.pendingPageId)) return;
+          // Initial state fetch and a page callback may finish after the
+          // audience ready report. Readiness is monotonic within a generation
+          // unless the display was explicitly suspended.
+          if (state.ready && !next.ready && !next.suspended && nextSequence === currentSequence) return;
         }
         state = next; language = next.language === "en-US" ? "en-US" : "zh-CN"; applyLanguage(); elapsed = next.timerElapsedMs || 0;
         startedAt = next.timerRunning ? Date.now() : 0; paused = !next.timerRunning;
@@ -264,8 +281,8 @@
           byId("recoverDialog").close(); window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(next);
         } catch (error) { byId("recoverError").textContent = String(error); }
       });
-      byId("pause").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: paused ? "resume" : "pause" } })); } catch (_) {} });
-      byId("reset").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: "reset" } })); } catch (_) {} });
+      byId("pause").addEventListener("click", async () => { if (!state?.ready || !state.timerHasStarted) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: paused ? "resume" : "pause" } })); } catch (_) {} });
+      byId("reset").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_timer", { payload: { sessionId: state.sessionId, action: state.timerHasStarted ? "reset" : "start" } })); } catch (_) {} });
       byId("target").addEventListener("change", async () => {
         if (!state) return;
         const value = Number(byId("target").value);
@@ -297,7 +314,13 @@
       byId("largerNotes").addEventListener("click", () => { notesFontSize = Math.min(32, notesFontSize + 1); applyLayout(); });
       byId("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
       document.addEventListener("keydown", event => {
-        if (event.isComposing || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName || "")) return;
+        if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName || "")) return;
+        if ((event.code === "KeyF" || event.key?.toLowerCase() === "f") && state) {
+          event.preventDefault();
+          if (!event.repeat) invoke("native_presentation_toggle_fullscreen", { sessionId: state.sessionId });
+          return;
+        }
+        if (event.isComposing) return;
         const i = state?.pages.findIndex(page => page.id === state.activePageId) ?? -1;
         if (["ArrowRight", "PageDown"].includes(event.key) && i + 1 < (state?.pages.length || 0)) { event.preventDefault(); navigate(state.pages[i + 1].id); }
         if (["ArrowLeft", "PageUp"].includes(event.key) && i > 0) { event.preventDefault(); navigate(state.pages[i - 1].id); }

@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 
 const indexHtml = readFileSync("dist/index.html", "utf8");
 function functionSource(name) {
-  const start = indexHtml.indexOf(`      ${name === "openNativePresentationPreparation" ? "async " : ""}function ${name}(`);
+  const start = indexHtml.indexOf(`      ${["openNativePresentationPreparation", "hideRuntimeHostForNativePresentation"].includes(name) ? "async " : ""}function ${name}(`);
   assert.ok(start >= 0, `${name} must exist`);
   const bodyStart = indexHtml.indexOf("{", indexHtml.indexOf(") {", start));
   let depth = 0, quote = "", escaped = false;
@@ -20,14 +20,17 @@ function functionSource(name) {
 }
 
 const harness = `
+  document.body.insertAdjacentHTML("afterbegin", '<span id="nativeAudienceBannerText"></span>');
   let nativePresentationDialog = null, nativePresentationSessionId = null, nativePresentationTipTimer = null, nativePresentationPreparingItemId = null;
   const appState = { language: "zh-CN", isTauri: true, htmlEditSession: null, nativePresentationItemId: null, runtimeFullscreenItemId: null };
+  const els = { appShell: document.createElement("div") };
   const getActiveTab = () => ({ id: 41, preview: { fileType: "html-runtime" } });
   const nativePresentationText = (zh, en) => appState.language === "en-US" ? en : zh;
   const escapeHtml = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
   const escapeAttribute = escapeHtml;
   const setStatus = () => {};
   const scheduleRuntimeHostSync = () => {};
+  const cleanupRuntimeHostSync = () => {};
   const hideRuntimeSessionSurfaces = async () => { window.hideCalls = (window.hideCalls || 0) + 1; };
   const probeNativePresentation = async () => {
     window.probeCalls = (window.probeCalls || 0) + 1;
@@ -43,10 +46,12 @@ const harness = `
   };
   ${functionSource("removeNativePresentationDialog")}
   const restoreAfterNativePresentation = () => { window.restoreCalls = (window.restoreCalls || 0) + 1; removeNativePresentationDialog(); appState.nativePresentationItemId = null; };
+  ${functionSource("hideRuntimeHostForNativePresentation")}
   ${functionSource("nativePresentationModalShell")}
   ${functionSource("openNativePresentationPreparation")}
   window.openTestPresentationDialog = openNativePresentationPreparation;
   window.preparingPresentationItemId = () => nativePresentationPreparingItemId;
+  window.audienceMode = () => els.appShell.classList.contains("native-audience-mode");
 `;
 
 const browser = await chromium.launch({ headless: true });
@@ -71,11 +76,11 @@ try {
     assert.equal(await panel.locator('button[data-native-action="close"]').getAttribute("aria-label"), "关闭演示模式");
     assert.equal(await panel.locator(".native-tip").count(), 1);
     assert.equal(await panel.locator(".native-guidance").count(), 0, "display guidance rotates with the other tips");
-    assert.match(await panel.locator("#nativePresentationTip").textContent(), /观众窗口/);
+    assert.match(await panel.locator("#nativePresentationTip").textContent(), /NUTBOOK 窗口/);
     await page.clock.runFor(6000);
     assert.match(await panel.locator("#nativePresentationTip").textContent(), /备注可在 HTML/);
     await page.clock.runFor(6000);
-    assert.match(await panel.locator("#nativePresentationTip").textContent(), /观众窗口/, "display guidance has higher frequency");
+    assert.match(await panel.locator("#nativePresentationTip").textContent(), /共享 NUTBOOK 窗口|NUTBOOK 窗口将在/, "display guidance has higher frequency");
     assert.equal(await panel.locator("button.primary").count(), 1, "only the main start action should be primary");
     assert.equal(await panel.locator('button[data-native-action="start-current"]').textContent(), scenario.expectedAction);
     assert.ok((await panel.boundingBox()).width <= 560, "the setup dialog should stay compact");
@@ -107,6 +112,11 @@ try {
       assert.equal(await panel.locator('button[data-native-action="start-first"]').count(), 1);
       await panel.locator('button[data-native-action="start-first"]').click();
       assert.deepEqual(await page.evaluate(() => [window.startPayload.monitorId, window.startPayload.startPageId]), ["external", "one"]);
+    }
+    assert.equal(await panel.count(), 0, "the setup dialog must leave the shared NUTBOOK audience window unobstructed");
+    assert.equal(await page.evaluate(() => window.audienceMode()), true);
+    if (scenario.monitors.length === 1) {
+      assert.match(await page.locator("#nativeAudienceBannerText").textContent(), /观众窗口/);
     }
     await page.close();
   }
@@ -150,6 +160,23 @@ try {
     assert.equal(await page.locator(".native-presentation-panel").count(), 1);
     await page.locator('[data-native-action="close"]').click();
     assert.equal(await page.evaluate(() => window.restoreCalls), 1);
+    await page.close();
+  }
+  {
+    const page = await browser.newPage({ viewport: { width: 1080, height: 680 } });
+    const css = indexHtml.slice(indexHtml.indexOf("<style>") + 7, indexHtml.indexOf("</style>"));
+    await page.setContent('<div class="app-shell native-audience-rehearsal"><div class="native-audience-banner"><span>观众窗口 · 在线会议请共享此 NUTBOOK 窗口</span></div></div>');
+    await page.addStyleTag({ content: css });
+    const banner = page.locator(".native-audience-banner");
+    const text = banner.locator("span");
+    const textBox = await text.boundingBox();
+    assert.ok(Math.abs(textBox.x + textBox.width / 2 - 540) < 2, "audience label should be centered in the window, clear of macOS traffic lights");
+    assert.ok(textBox.x >= 140, "audience label must not cover title bar controls");
+    assert.equal(await banner.locator("button").count(), 0, "the audience banner should only identify the shared window");
+    await page.locator(".app-shell").evaluate(node => node.classList.add("native-audience-screenfill"));
+    assert.equal(await banner.isVisible(), false, "native fullscreen must not reserve a visible audience control strip");
+    await page.locator(".app-shell").evaluate(node => node.classList.remove("native-audience-screenfill"));
+    assert.equal(await banner.isVisible(), true, "leaving fullscreen should restore the audience label");
     await page.close();
   }
 } finally {

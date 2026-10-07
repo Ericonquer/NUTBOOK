@@ -6,6 +6,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
+    sync::OnceLock,
     time::{Duration, Instant},
 };
 
@@ -13,10 +14,25 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSEvent, NSEventMask, NSEventModifierFlags, NSWindow, NSWindowCollectionBehavior, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSNotification, NSNotificationCenter};
+#[cfg(target_os = "macos")]
+use objc2_web_kit::WKWebView;
+
 use crate::{
     core::{
         content_session::{origin_of_url, ContentSessionRecord, ContentSurfaceRole, RuntimeKey},
         html_edit::content_hash_bytes,
+        html_runtime::{
+            attach_html_runtime_host_for_presentation, html_runtime_host_label,
+            set_html_runtime_host_visibility, HtmlRuntimeSession,
+        },
         thumbnail::{
             capture_presentation_thumbnail_with_worker, find_local_chromium_executable,
             PresentationScreenshotInput, PresentationThumbnailWorkerInput,
@@ -24,13 +40,27 @@ use crate::{
     },
     db::repositories::ItemRepository,
     errors::AppError,
-    models::{ItemDetail, ListItemsQuery},
+    models::{ItemDetail, ListItemsQuery, RuntimeHostBounds},
     state::AppState,
 };
 
-const AUDIENCE_LABEL: &str = "native-presentation-audience";
 const PRESENTER_LABEL: &str = "native-presentation-presenter";
 const BLACKOUT_LABEL: &str = "native-presentation-blackout";
+const AUDIENCE_BANNER_HEIGHT: f64 = 36.0;
+
+fn audience_top_inset(rehearsal: bool, screen_filling: bool) -> f64 {
+    if rehearsal && !screen_filling { AUDIENCE_BANNER_HEIGHT } else { 0.0 }
+}
+static AUDIENCE_RESIZE_OBSERVER: OnceLock<()> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static AUDIENCE_FULLSCREEN_OBSERVER: OnceLock<()> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static AUDIENCE_KEY_MONITOR: OnceLock<()> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static AUDIENCE_MOUSE_MONITOR: OnceLock<()> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static AUDIENCE_EXIT_HOVER: AtomicBool = AtomicBool::new(false);
+
 const LEGACY_RUNTIME_HASH: &str =
     "cc3d67a8aef4af8529d0047810620b13212d950bbefffd4f5814f972a2cf6529";
 
@@ -89,6 +119,7 @@ pub struct NativePresentationView {
     pub rehearsal: bool,
     pub timer_elapsed_ms: u64,
     pub timer_running: bool,
+    pub timer_has_started: bool,
     pub target_minutes: Option<u32>,
     pub black: bool,
     pub suspended: bool,
@@ -110,6 +141,7 @@ pub struct NativePresentationSession {
     pub rehearsal: bool,
     pub timer_elapsed: Duration,
     pub timer_started: Option<Instant>,
+    pub timer_has_started: bool,
     pub timer_was_running_before_suspend: bool,
     pub target_minutes: Option<u32>,
     pub black: bool,
@@ -117,6 +149,15 @@ pub struct NativePresentationSession {
     pub monitor_id: String,
     pub generation: u64,
     pub language: String,
+    pub main_window_position: tauri::PhysicalPosition<i32>,
+    pub main_window_size: tauri::PhysicalSize<u32>,
+    pub main_window_fullscreen: bool,
+    pub audience_fullscreen_requested: bool,
+    pub audience_fullscreen_transitioning: bool,
+    pub audience_fullscreen_initiated_by_presenter: bool,
+    pub audience_editable_focus: bool,
+    pub main_window_maximized: bool,
+    pub main_window_title: String,
 }
 
 impl NativePresentationSession {
@@ -140,11 +181,33 @@ impl NativePresentationSession {
             .as_millis()
             .min(u64::MAX as u128) as u64,
             timer_running: self.timer_started.is_some(),
+            timer_has_started: self.timer_has_started,
             target_minutes: self.target_minutes,
             black: self.black,
             suspended: self.suspended,
             language: self.language.clone(),
         }
+    }
+}
+
+impl NativePresentationSession {
+    fn start_timer(&mut self) -> bool {
+        if !self.ready || self.suspended || self.timer_started.is_some() { return false; }
+        self.timer_started = Some(Instant::now());
+        self.timer_has_started = true;
+        true
+    }
+
+    fn pause_timer(&mut self) -> bool {
+        let Some(started) = self.timer_started.take() else { return false; };
+        self.timer_elapsed += started.elapsed();
+        true
+    }
+
+    fn reset_timer(&mut self) {
+        self.timer_elapsed = Duration::ZERO;
+        self.timer_started = None;
+        self.timer_has_started = false;
     }
 }
 
@@ -710,18 +773,88 @@ fn audience_init_script(
     item_id: i64,
     start_page_id: &str,
     generation: u64,
+    language: &str,
 ) -> String {
+    let fullscreen_hint = if language == "en-US" {
+        "Press F again to exit fullscreen"
+    } else {
+        "再次按 F 退出全屏"
+    };
+    let exit_label = if language == "en-US" { "Exit Fullscreen (F)" } else { "退出全屏（F）" };
     format!(
         r#"(() => {{
       const sessionId = {session_id:?}, itemId = {item_id}, startPageId = {start_page_id:?}, generation = {generation};
+      window.__NUTBOOK_NATIVE_PRESENTATION_ACTIVE__ = true;
+      let hintFadeTimer, hintHideTimer;
+      const exitLabel = {exit_label:?};
+      let fullscreenExit;
+      window.__NUTBOOK_NATIVE_PRESENTATION_SET_FULLSCREEN__ = (active) => {{
+        if (!fullscreenExit) {{
+          fullscreenExit = document.createElement('div');
+          fullscreenExit.id = 'nutbook-native-presentation-fullscreen-exit';
+          fullscreenExit.style.cssText = 'position:fixed;right:36px;bottom:36px;z-index:2147483647;display:none;pointer-events:auto;';
+          const shadow = fullscreenExit.attachShadow({{ mode: 'closed' }});
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = exitLabel;
+          button.setAttribute('aria-label', exitLabel);
+          button.style.cssText = 'border:1px solid rgba(255,255,255,.28);border-radius:9px;padding:9px 13px;background:rgba(17,17,19,.72);color:#fff;font:600 13px/1 -apple-system,BlinkMacSystemFont,sans-serif;cursor:pointer;opacity:.24;transition:opacity 160ms ease;';
+          button.addEventListener('pointerenter', () => {{ button.style.opacity = '1'; }});
+          button.addEventListener('pointerleave', () => {{ button.style.opacity = '.24'; }});
+          button.addEventListener('focus', () => {{ button.style.opacity = '1'; }});
+          button.addEventListener('blur', () => {{ button.style.opacity = '.24'; }});
+          button.addEventListener('click', () => invoke('fullscreen-toggle'));
+          shadow.append(button);
+          document.documentElement.append(fullscreenExit);
+          fullscreenExit.__nutbookButton = button;
+        }}
+        fullscreenExit.style.display = active ? 'block' : 'none';
+        fullscreenExit.__nutbookButton.style.opacity = '.24';
+      }};
+      window.__NUTBOOK_NATIVE_PRESENTATION_EXIT_HOVER__ = (active) => {{
+        if (fullscreenExit?.style.display === 'block') {{
+          fullscreenExit.__nutbookButton.style.opacity = active ? '1' : '.24';
+        }}
+      }};
+      window.__NUTBOOK_NATIVE_PRESENTATION_SHOW_FULLSCREEN_HINT__ = () => {{
+        let host = document.getElementById('nutbook-native-presentation-fullscreen-hint');
+        if (!host) {{
+          host = document.createElement('div');
+          host.id = 'nutbook-native-presentation-fullscreen-hint';
+          host.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:none;';
+          const shadow = host.attachShadow({{ mode: 'closed' }});
+          const label = document.createElement('div');
+          label.textContent = {fullscreen_hint:?};
+          label.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:12px;background:rgba(17,17,19,.58);color:white;font:600 18px/1 -apple-system,BlinkMacSystemFont,sans-serif;white-space:nowrap;opacity:1;transition:opacity 520ms ease,transform 520ms ease;';
+          shadow.append(label);
+          document.documentElement.append(host);
+          host.__nutbookHintLabel = label;
+        }}
+        host.style.display = 'block';
+        host.__nutbookHintLabel.style.opacity = '1';
+        host.__nutbookHintLabel.style.transform = 'translateY(0)';
+        clearTimeout(hintFadeTimer);
+        clearTimeout(hintHideTimer);
+        hintFadeTimer = setTimeout(() => {{ host.__nutbookHintLabel.style.opacity = '0'; host.__nutbookHintLabel.style.transform = 'translateY(-8px)'; }}, 1000);
+        hintHideTimer = setTimeout(() => {{ host.style.display = 'none'; }}, 1500);
+      }};
       let pendingSequence = 0;
       const invoke = (type, extra = {{}}) => window.__TAURI_INTERNALS__?.invoke('native_presentation_report', {{
         payload: {{ sessionId, itemId, generation, type, ...extra }}
       }}).catch(() => {{}});
+      const editableFocus = () => {{
+        const active = document.activeElement;
+        return !!(active?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active?.tagName || ''));
+      }};
+      const reportEditableFocus = () => invoke('editable-focus', {{ direction: editableFocus() ? 'true' : 'false' }});
+      document.addEventListener('focusin', reportEditableFocus, true);
+      document.addEventListener('focusout', () => queueMicrotask(reportEditableFocus), true);
       document.addEventListener('keydown', event => {{
-        if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+        if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
         const target = event.target;
         if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName || '')) return;
+        if (event.code === 'KeyF' || event.key?.toLowerCase() === 'f') {{ event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) invoke('fullscreen-toggle'); return; }}
+        if (event.isComposing) return;
         if (event.key === 'Escape') {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('end'); return; }}
         if (event.key === 'ArrowRight' || event.key === 'PageDown') {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('navigation-request', {{ direction: 'next' }}); }}
         if (event.key === 'ArrowLeft' || event.key === 'PageUp') {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('navigation-request', {{ direction: 'previous' }}); }}
@@ -741,9 +874,13 @@ fn audience_init_script(
           const managed = await bridge.setManagedMode(true);
           if (managed !== true) throw new Error('managed_mode_rejected');
           const pages = (bridge.pages || []).map(page => ({{ id: String(page.id || ''), title: String(page.title || '') }}));
-          bridge.subscribe(pageId => invoke('page', {{ pageId: String(pageId), sequence: pendingSequence }}));
+          let controllerReady = false;
+          bridge.subscribe(pageId => {{
+            if (controllerReady) invoke('page', {{ pageId: String(pageId), sequence: pendingSequence }});
+          }});
           if (bridge.activePageId !== startPageId) await bridge.goTo(startPageId);
-          invoke('ready', {{ pages, pageId: String(bridge.activePageId || '') }});
+          await invoke('ready', {{ pages, pageId: String(bridge.activePageId || '') }});
+          controllerReady = true;
           window.__NUTBOOK_NATIVE_PRESENTATION_NAVIGATE__ = async (pageId, sequence) => {{
             pendingSequence = sequence;
             try {{
@@ -770,107 +907,311 @@ fn notify_presenter(app: &tauri::AppHandle, session: &NativePresentationSession)
     }
 }
 
-fn create_audience_window(
+fn resize_audience_child(app: &tauri::AppHandle) {
+    let Some(main) = app.get_window("main") else { return; };
+    let (Ok(size), Ok(scale)) = (main.inner_size(), main.scale_factor()) else { return; };
+    let audience = app.try_state::<AppState>().and_then(|state|
+        state.native_presentation.lock().ok().and_then(|guard|
+            guard.as_ref().map(|session| (html_runtime_host_label(session.item_id), session.rehearsal, session.audience_fullscreen_requested, session.audience_fullscreen_transitioning))));
+    let native_fullscreen = main.is_fullscreen().unwrap_or(false);
+    let screen_filling = match audience.as_ref() {
+        Some((_, true, requested, transitioning)) => *requested || *transitioning || native_fullscreen,
+        _ => native_fullscreen,
+    };
+    let top = audience_top_inset(audience.as_ref().is_some_and(|(_, rehearsal, _, _)| *rehearsal), screen_filling);
+    if audience.as_ref().is_some_and(|(_, rehearsal, _, _)| *rehearsal) {
+        if let Some(host) = app.get_webview("main") {
+            let _ = host.eval(format!("document.querySelector('.app-shell')?.classList.toggle('native-audience-screenfill', {screen_filling});"));
+        }
+    }
+    let bounds = tauri::Rect {
+        position: tauri::Position::Logical(tauri::LogicalPosition::new(0.0, top)),
+        size: tauri::Size::Logical(tauri::LogicalSize::new(
+            size.width as f64 / scale,
+            (size.height as f64 / scale - top).max(1.0),
+        )),
+    };
+    for label in [audience.as_ref().map(|(label, _, _, _)| label.as_str()).unwrap_or(""), BLACKOUT_LABEL] {
+        if let Some(child) = app.get_webview(label) {
+            let _ = child.set_bounds(bounds);
+        }
+    }
+}
+
+fn focus_audience_if_main_focused(app: &tauri::AppHandle) {
+    let Some(main) = app.get_window("main") else { return; };
+    if !main.is_focused().unwrap_or(false)
+        || app.get_window(PRESENTER_LABEL)
+            .is_some_and(|presenter| presenter.is_focused().unwrap_or(false))
+    {
+        return;
+    }
+    let item_id = app.try_state::<AppState>().and_then(|state|
+        state.native_presentation.lock().ok().and_then(|guard|
+            guard.as_ref().filter(|session|
+                session.rehearsal && session.ready && !session.suspended
+            ).map(|session| session.item_id)));
+    let Some(item_id) = item_id else { return; };
+    let _ = crate::core::html_runtime::focus_html_runtime_host(app, item_id, None);
+}
+
+#[cfg(target_os = "macos")]
+fn set_audience_child_autoresizing(app: &tauri::AppHandle, enabled: bool) {
+    let label = app.try_state::<AppState>().and_then(|state|
+        state.native_presentation.lock().ok().and_then(|guard|
+            guard.as_ref().map(|session| html_runtime_host_label(session.item_id))));
+    for label in [label.as_deref().unwrap_or(""), BLACKOUT_LABEL] {
+        let Some(webview) = app.get_webview(label) else { continue; };
+        let view_for_main = webview.clone();
+        let _ = webview.run_on_main_thread(move || {
+            let _ = view_for_main.with_webview(move |platform_webview| unsafe {
+                let view: &WKWebView = &*platform_webview.inner().cast();
+                let mask = if enabled {
+                    NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable
+                } else {
+                    NSAutoresizingMaskOptions::ViewMinYMargin
+                };
+                view.setAutoresizingMask(mask);
+            });
+        });
+    }
+}
+
+fn install_audience_resize_observer(app: &tauri::AppHandle) {
+    let Some(main) = app.get_window("main") else { return; };
+    AUDIENCE_RESIZE_OBSERVER.get_or_init(|| {
+        let app_handle = app.clone();
+        main.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_)) {
+                resize_audience_child(&app_handle);
+                if matches!(event, tauri::WindowEvent::Focused(true)) {
+                    focus_audience_if_main_focused(&app_handle);
+                }
+            }
+        });
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn install_audience_fullscreen_observer(app: &tauri::AppHandle) {
+    let Some(main_webview) = app.get_webview("main") else { return; };
+    let webview_for_main = main_webview.clone();
+    let app_handle = app.clone();
+    let _ = main_webview.run_on_main_thread(move || {
+        let _ = webview_for_main.with_webview(move |platform_webview| {
+            AUDIENCE_FULLSCREEN_OBSERVER.get_or_init(|| unsafe {
+                let window: &NSWindow = &*platform_webview.ns_window().cast();
+                let center = NSNotificationCenter::defaultCenter();
+                for (name, entered) in [
+                    (NSWindowDidEnterFullScreenNotification, true),
+                    (NSWindowDidExitFullScreenNotification, false),
+                ] {
+                    let app_for_event = app_handle.clone();
+                    let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                        let Some(state) = app_for_event.try_state::<AppState>() else { return; };
+                        let (item_id, restore_presenter) = {
+                            let Ok(mut guard) = state.native_presentation.lock() else { return; };
+                            let Some(session) = guard.as_mut().filter(|session| !session.suspended) else { return; };
+                            let restore_presenter = session.audience_fullscreen_transitioning
+                                && session.audience_fullscreen_initiated_by_presenter;
+                            session.audience_fullscreen_requested = entered;
+                            session.audience_fullscreen_transitioning = false;
+                            let timer_changed = if entered { session.start_timer() } else { session.pause_timer() };
+                            if timer_changed { notify_presenter(&app_for_event, session); }
+                            (session.item_id, restore_presenter)
+                        };
+                        if !entered { set_audience_child_autoresizing(&app_for_event, false); }
+                        resize_audience_child(&app_for_event);
+                        if restore_presenter {
+                            if let Some(window) = app_for_event.get_webview_window(PRESENTER_LABEL) {
+                                let _ = window.set_focus();
+                            }
+                            if let Some(webview) = app_for_event.get_webview(PRESENTER_LABEL) {
+                                let _ = webview.set_focus();
+                            }
+                            return;
+                        }
+                        // The OS window can remain key while WebKit leaves the
+                        // IME or former child view as its first responder.
+                        if app_for_event.get_window("main").is_some_and(|main| main.is_focused().unwrap_or(false)) {
+                            let _ = crate::core::html_runtime::focus_html_runtime_host(&app_for_event, item_id, Some(entered));
+                        }
+                    });
+                    let observer = center.addObserverForName_object_queue_usingBlock(
+                        Some(name), Some(window), None, &handler,
+                    );
+                    std::mem::forget(observer);
+                }
+            });
+        });
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn install_audience_key_monitor(app: &tauri::AppHandle) {
+    let Some(main_webview) = app.get_webview("main") else { return; };
+    let app_handle = app.clone();
+    let _ = main_webview.run_on_main_thread(move || {
+      AUDIENCE_KEY_MONITOR.get_or_init(|| {
+        let app_for_key = app_handle.clone();
+        let handler = RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            let native_event = unsafe { event.as_ref() };
+            if native_event.keyCode() != 3
+                || native_event.modifierFlags().intersects(
+                    NSEventModifierFlags::Command | NSEventModifierFlags::Control | NSEventModifierFlags::Option,
+                )
+            {
+                return event.as_ptr();
+            }
+            let Some(main) = app_for_key.get_window("main") else { return event.as_ptr(); };
+            if !main.is_focused().unwrap_or(false) { return event.as_ptr(); }
+            let Some(state) = app_for_key.try_state::<AppState>() else { return event.as_ptr(); };
+            let session_id = {
+                let Ok(guard) = state.native_presentation.lock() else { return event.as_ptr(); };
+                let Some(session) = guard.as_ref().filter(|session|
+                    session.rehearsal && session.ready && !session.suspended && !session.audience_editable_focus
+                ) else { return event.as_ptr(); };
+                session.id.clone()
+            };
+            if !native_event.isARepeat() {
+                let app_for_toggle = app_for_key.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app_for_toggle.state::<AppState>();
+                    let _ = toggle_audience_fullscreen(&app_for_toggle, &state, &session_id, "native-key");
+                });
+            }
+            std::ptr::null_mut()
+        });
+        if let Some(observer) = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &handler)
+        } {
+            std::mem::forget(observer);
+        }
+      });
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn install_audience_mouse_monitor(app: &tauri::AppHandle) {
+    let Some(main_webview) = app.get_webview("main") else { return; };
+    let webview_for_main = main_webview.clone();
+    let app_handle = app.clone();
+    let _ = main_webview.run_on_main_thread(move || {
+        let _ = webview_for_main.with_webview(move |platform_webview| {
+            let window: &NSWindow = unsafe { &*platform_webview.ns_window().cast() };
+            let window_number = window.windowNumber();
+            AUDIENCE_MOUSE_MONITOR.get_or_init(|| {
+                let app_for_mouse = app_handle.clone();
+                let handler = RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+                    let native_event = unsafe { event.as_ref() };
+                    if native_event.windowNumber() != window_number { return event.as_ptr(); }
+                    let Some(state) = app_for_mouse.try_state::<AppState>() else { return event.as_ptr(); };
+                    let label = state.native_presentation.lock().ok().and_then(|guard|
+                        guard.as_ref().filter(|session|
+                            session.rehearsal && session.audience_fullscreen_requested && !session.suspended
+                        ).map(|session| html_runtime_host_label(session.item_id)));
+                    let Some(label) = label else { return event.as_ptr(); };
+                    let Some(main) = app_for_mouse.get_window("main") else { return event.as_ptr(); };
+                    let (Ok(size), Ok(scale)) = (main.inner_size(), main.scale_factor()) else { return event.as_ptr(); };
+                    let location = native_event.locationInWindow();
+                    let width = size.width as f64 / scale;
+                    let near_exit = location.x > width - 190.0 && location.y > 8.0 && location.y < 110.0;
+                    if AUDIENCE_EXIT_HOVER.swap(near_exit, Ordering::Relaxed) != near_exit {
+                        if let Some(audience) = app_for_mouse.get_webview(&label) {
+                            let _ = audience.eval(&format!(
+                                "window.__NUTBOOK_NATIVE_PRESENTATION_EXIT_HOVER__?.({near_exit})"
+                            ));
+                        }
+                    }
+                    event.as_ptr()
+                });
+                if let Some(observer) = unsafe {
+                    NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::MouseMoved, &handler)
+                } {
+                    std::mem::forget(observer);
+                }
+            });
+        });
+    });
+}
+
+fn create_audience_surface(
     app: &tauri::AppHandle,
     state: &AppState,
     item: &ItemDetail,
     monitor: &tauri::Monitor,
     session: &NativePresentationSession,
 ) -> Result<(), AppError> {
-    let key = format!("html-runtime:{}:native-presentation", session.item_id);
+    let key = format!("html-runtime:{}:host", session.item_id);
     let url = state.scoped_file_url_for_item(&key, item, Path::new(&item.summary.file_path))?;
-    let webview_url =
-        tauri::WebviewUrl::External(url.parse().map_err(|_| AppError::PreviewLoadFailed)?);
     let origin = origin_of_url(&url).ok_or(AppError::InvalidSession)?;
-    state
-        .content_sessions
-        .register(
-            AUDIENCE_LABEL,
-            ContentSessionRecord {
-                role: ContentSurfaceRole::NativeAudience,
-                key: RuntimeKey::Item(session.item_id),
-                origin,
-                runtime_session_id: session.id.clone(),
-                generation: session.generation,
-                view_state_surface_token: 0,
-            },
-        )
-        .map_err(|_| AppError::InternalError)?;
-    let scale = monitor.scale_factor();
-    let mut x = monitor.position().x as f64 / scale;
-    let mut y = monitor.position().y as f64 / scale;
-    let mut width = monitor.size().width as f64 / scale;
-    let mut height = monitor.size().height as f64 / scale;
+    let runtime = HtmlRuntimeSession::from_item(item, url)?;
+    let audience_label = html_runtime_host_label(session.item_id);
+    // Preparation normally closes this surface. A late old attach must never
+    // be reused without the presentation controller initialization script.
+    let _ = set_html_runtime_host_visibility(app, session.item_id, false)?;
+    state.content_sessions.register(&audience_label, ContentSessionRecord {
+        role: ContentSurfaceRole::RuntimeHost,
+        key: RuntimeKey::Item(session.item_id),
+        origin,
+        runtime_session_id: session.id.clone(),
+        generation: session.generation,
+        view_state_surface_token: 0,
+    })?;
+    let main = app.get_window("main").ok_or(AppError::InvalidSession)?;
+    install_audience_resize_observer(app);
+    #[cfg(target_os = "macos")]
+    install_audience_fullscreen_observer(app);
+    #[cfg(target_os = "macos")]
+    install_audience_key_monitor(app);
+    #[cfg(target_os = "macos")]
+    install_audience_mouse_monitor(app);
     if session.rehearsal {
-        width = width.min(900.0) * 0.72;
-        height = height.min(700.0) * 0.72;
-        x += 120.0;
-        y += 120.0;
+        main.set_fullscreen(false).map_err(|_| AppError::InternalError)?;
+        main.maximize().map_err(|_| AppError::InternalError)?;
+    } else {
+        main.set_fullscreen(false).map_err(|_| AppError::InternalError)?;
+        main.set_position(tauri::Position::Physical(*monitor.position()))
+            .map_err(|_| AppError::InternalError)?;
+        main.set_fullscreen(true).map_err(|_| AppError::InternalError)?;
     }
-    let init_script = audience_init_script(
+    let size = main.inner_size().map_err(|_| AppError::InternalError)?;
+    let scale = main.scale_factor().map_err(|_| AppError::InternalError)?;
+    let presentation_script = audience_init_script(
         &session.id,
         session.item_id,
         &session.active_page_id,
         session.generation,
+        &session.language,
     );
     let audience_title = if session.language == "en-US" {
         format!("NUTBOOK · Audience Window · {}", item.summary.file_name)
     } else {
         format!("NUTBOOK · 观众窗口 · {}", item.summary.file_name)
     };
-    let result = tauri::WebviewWindowBuilder::new(app, AUDIENCE_LABEL, webview_url)
-        .title(audience_title)
-        .position(x, y)
-        .inner_size(width, height)
-        .fullscreen(!session.rehearsal)
-        .resizable(session.rehearsal)
-        .initialization_script(&init_script)
-        .build();
-    let window = match result {
-        Ok(window) => window,
-        Err(_) => {
-            state.content_sessions.unregister(AUDIENCE_LABEL);
-            state.drop_scoped_server(&key);
-            return Err(AppError::InternalError);
+    let result = attach_html_runtime_host_for_presentation(
+        app,
+        &main,
+        &runtime,
+        RuntimeHostBounds {
+            x: 0.0,
+            y: audience_top_inset(session.rehearsal, main.is_fullscreen().unwrap_or(false)),
+            width: size.width as f64 / scale,
+            height: (size.height as f64 / scale
+                - audience_top_inset(session.rehearsal, main.is_fullscreen().unwrap_or(false))).max(1.0),
+        },
+        &presentation_script,
+    );
+    match result {
+        Ok(_) => {
+            let _ = main.set_title(&audience_title);
+            resize_audience_child(app);
         }
-    };
-    let app_handle = app.clone();
-    let id = session.id.clone();
-    let generation = session.generation;
-    window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::Resized(_)) {
-            if let (Some(audience), Some(blackout)) = (
-                app_handle.get_webview_window(AUDIENCE_LABEL),
-                app_handle.get_webview(BLACKOUT_LABEL),
-            ) {
-                if let (Ok(size), Ok(scale)) = (audience.inner_size(), audience.scale_factor()) {
-                    let _ = blackout.set_bounds(tauri::Rect {
-                        position: tauri::Position::Logical(tauri::LogicalPosition::new(0.0, 0.0)),
-                        size: tauri::Size::Logical(tauri::LogicalSize::new(
-                            size.width as f64 / scale,
-                            size.height as f64 / scale,
-                        )),
-                    });
-                }
-            }
+        Err(error) => {
+            state.content_sessions.unregister(&audience_label);
+            return Err(error);
         }
-        if matches!(event, tauri::WindowEvent::Destroyed) {
-            let state = app_handle.state::<AppState>();
-            let expected_disconnect = state
-                .native_presentation
-                .lock()
-                .ok()
-                .and_then(|guard| {
-                    guard.as_ref().map(|current| {
-                        current.id == id && current.generation == generation && current.suspended
-                    })
-                })
-                .unwrap_or(false);
-            if !expected_disconnect {
-                stop_session(&app_handle, &state, &id);
-            }
-        }
-    });
+    }
     Ok(())
 }
 
@@ -886,9 +1227,7 @@ fn suspend_for_missing_monitor(app: &tauri::AppHandle, state: &AppState, id: &st
             return;
         };
         session.timer_was_running_before_suspend = session.timer_started.is_some();
-        if let Some(started) = session.timer_started.take() {
-            session.timer_elapsed += started.elapsed();
-        }
+        session.pause_timer();
         session.suspended = true;
         session.ready = false;
         session.black = false;
@@ -899,14 +1238,8 @@ fn suspend_for_missing_monitor(app: &tauri::AppHandle, state: &AppState, id: &st
     if let Some(blackout) = app.get_webview(BLACKOUT_LABEL) {
         let _ = blackout.close();
     }
-    state.content_sessions.unregister(AUDIENCE_LABEL);
-    if let Some(audience) = app.get_webview_window(AUDIENCE_LABEL) {
-        let _ = audience.close();
-    }
-    state.drop_scoped_server(&format!(
-        "html-runtime:{}:native-presentation",
-        snapshot.item_id
-    ));
+    let _ = set_html_runtime_host_visibility(app, snapshot.item_id, false);
+    state.content_sessions.unregister(&html_runtime_host_label(snapshot.item_id));
     notify_presenter(app, &snapshot);
 }
 
@@ -1003,7 +1336,7 @@ pub fn recover_native_presentation(
             ));
         }
     }
-    if let Err(error) = create_audience_window(&app, &state, &item, monitor, &session) {
+    if let Err(error) = create_audience_surface(&app, &state, &item, monitor, &session) {
         let mut guard = state
             .native_presentation
             .lock()
@@ -1013,7 +1346,7 @@ pub fn recover_native_presentation(
             .filter(|current| current.id == session.id && current.generation == session.generation)
         {
             current.suspended = true;
-            current.error = Some("恢复观众窗口失败，请重新选择屏幕".into());
+            current.error = Some("恢复观众画面失败，请重新选择屏幕".into());
             notify_presenter(&app, current);
         }
         return Err(error);
@@ -1064,6 +1397,7 @@ pub fn start_native_presentation(
     for (id, paragraphs) in saved_notes_json_block(html)? { notes.insert(id, paragraphs); }
     validate_notes(&payload.pages, &notes)?;
     let session_id = uuid::Uuid::new_v4().to_string();
+    let main = app.get_window("main").ok_or(AppError::InvalidSession)?;
     let session = NativePresentationSession {
         id: session_id.clone(),
         item_id: payload.item_id,
@@ -1078,7 +1412,8 @@ pub fn start_native_presentation(
         rehearsal: payload.rehearsal,
         timer_elapsed: Duration::ZERO,
         timer_started: None,
-        timer_was_running_before_suspend: true,
+        timer_has_started: false,
+        timer_was_running_before_suspend: false,
         target_minutes: None,
         black: false,
         suspended: false,
@@ -1089,6 +1424,15 @@ pub fn start_native_presentation(
         } else {
             "zh-CN".into()
         },
+        main_window_position: main.outer_position().map_err(|_| AppError::InternalError)?,
+        main_window_size: main.outer_size().map_err(|_| AppError::InternalError)?,
+        main_window_fullscreen: main.is_fullscreen().map_err(|_| AppError::InternalError)?,
+        audience_fullscreen_requested: !payload.rehearsal,
+        audience_fullscreen_transitioning: false,
+        audience_fullscreen_initiated_by_presenter: false,
+        audience_editable_focus: false,
+        main_window_maximized: main.is_maximized().map_err(|_| AppError::InternalError)?,
+        main_window_title: main.title().map_err(|_| AppError::InternalError)?,
     };
     {
         let mut current = state
@@ -1117,9 +1461,32 @@ pub fn start_native_presentation(
         stop_session(&app, &state, &session_id);
         return Err(AppError::InternalError);
     }
-    if create_audience_window(&app, &state, &item, audience_monitor, &session).is_err() {
+    #[cfg(target_os = "macos")]
+    if payload.rehearsal {
+        // A native fullscreen audience gets macOS's own titlebar controls.
+        // Keep the presenter eligible to appear in that fullscreen Space.
+        if let Some(webview) = app.get_webview(PRESENTER_LABEL) {
+            let window_webview = webview.clone();
+            let _ = webview.run_on_main_thread(move || {
+                let _ = window_webview.with_webview(|platform_webview| unsafe {
+                    let window: &NSWindow = &*platform_webview.ns_window().cast();
+                    let behavior = window.collectionBehavior()
+                        | NSWindowCollectionBehavior::FullScreenAuxiliary
+                        | NSWindowCollectionBehavior::CanJoinAllSpaces;
+                    window.setCollectionBehavior(behavior);
+                });
+            });
+        }
+    }
+    if create_audience_surface(&app, &state, &item, audience_monitor, &session).is_err() {
         stop_session(&app, &state, &session_id);
         return Err(AppError::InternalError);
+    }
+    if let Some(window) = app.get_webview_window(PRESENTER_LABEL) {
+        let _ = window.set_focus();
+    }
+    if let Some(webview) = app.get_webview(PRESENTER_LABEL) {
+        let _ = webview.set_focus();
     }
     if let Some(window) = app.get_webview_window(PRESENTER_LABEL) {
         let app_handle = app.clone();
@@ -1171,18 +1538,10 @@ pub fn native_presentation_timer(
             .filter(|session| session.id == payload.session_id)
             .ok_or(AppError::InvalidSession)?;
         match payload.action.as_str() {
-            "pause" if session.timer_started.is_some() => {
-                session.timer_elapsed += session.timer_started.take().unwrap().elapsed();
-            }
-            "resume" if session.ready && session.timer_started.is_none() => {
-                session.timer_started = Some(Instant::now())
-            }
-            "reset" => {
-                session.timer_elapsed = Duration::ZERO;
-                if session.timer_started.is_some() {
-                    session.timer_started = Some(Instant::now());
-                }
-            }
+            "start" if !session.timer_has_started && session.start_timer() => {}
+            "pause" if session.timer_started.is_some() => { session.pause_timer(); }
+            "resume" if session.timer_has_started && session.start_timer() => {}
+            "reset" if session.timer_has_started => session.reset_timer(),
             "target" => {
                 if payload
                     .target_minutes
@@ -1214,9 +1573,9 @@ pub fn native_presentation_blackout(
     payload: BlackoutPayload,
 ) -> Result<NativePresentationView, AppError> {
     let audience = app
-        .get_window(AUDIENCE_LABEL)
+        .get_window("main")
         .ok_or(AppError::InvalidSession)?;
-    {
+    let (rehearsal, screen_filling) = {
         let guard = state
             .native_presentation
             .lock()
@@ -1228,12 +1587,14 @@ pub fn native_presentation_blackout(
         if session.black == payload.black {
             return Ok(session.view());
         }
-    }
+        (session.rehearsal, session.audience_fullscreen_requested)
+    };
     if payload.black {
         let size = audience.inner_size().map_err(|_| AppError::InternalError)?;
         let scale = audience
             .scale_factor()
             .map_err(|_| AppError::InternalError)?;
+        let top = audience_top_inset(rehearsal, screen_filling || audience.is_fullscreen().unwrap_or(false));
         audience
             .add_child(
                 tauri::WebviewBuilder::new(
@@ -1242,8 +1603,14 @@ pub fn native_presentation_blackout(
                         format!("native-blackout.html#{}", payload.session_id).into(),
                     ),
                 ),
-                tauri::LogicalPosition::new(0.0, 0.0),
-                tauri::LogicalSize::new(size.width as f64 / scale, size.height as f64 / scale),
+                tauri::LogicalPosition::new(
+                    0.0,
+                    top,
+                ),
+                tauri::LogicalSize::new(
+                    size.width as f64 / scale,
+                    (size.height as f64 / scale - top).max(1.0),
+                ),
             )
             .map_err(|_| AppError::InternalError)?;
     } else if let Some(blackout) = app.get_webview(BLACKOUT_LABEL) {
@@ -1373,7 +1740,7 @@ pub fn native_presentation_navigate(
         session.view()
     };
     let window = app
-        .get_webview_window(AUDIENCE_LABEL)
+        .get_webview(&html_runtime_host_label(view.item_id))
         .ok_or(AppError::InvalidSession)?;
     let page = serde_json::to_string(&payload.page_id).map_err(|_| AppError::InternalError)?;
     let script = format!(
@@ -1390,7 +1757,7 @@ pub fn native_presentation_navigate(
             .filter(|session| session.id == payload.session_id && session.sequence == view.sequence)
         {
             session.pending_page_id = None;
-            session.error = Some("观众窗口无法接收翻页命令".into());
+            session.error = Some("观众画面无法接收翻页命令".into());
             notify_presenter(&app, session);
         }
         return Err(AppError::InternalError);
@@ -1408,7 +1775,7 @@ pub fn native_presentation_navigate(
                     && session.pending_page_id.is_some()
             }) {
                 session.pending_page_id = None;
-                session.error = Some("翻页未获观众窗口确认，请重试".into());
+                session.error = Some("翻页未获观众画面确认，请重试".into());
                 notify_presenter(&app_handle, session);
             }
         };
@@ -1431,6 +1798,103 @@ pub struct ReportPayload {
     pub direction: Option<String>,
 }
 
+fn toggle_audience_fullscreen(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    session_id: &str,
+    source: &str,
+) -> Result<bool, AppError> {
+    let main = app.get_window("main").ok_or(AppError::InvalidSession)?;
+    let native_fullscreen = main.is_fullscreen().map_err(|_| AppError::InternalError)?;
+    let (next, previous_requested, original_fullscreen, rehearsal, exit_native) = {
+        let mut guard = state.native_presentation.lock().map_err(|_| AppError::InternalError)?;
+        let session = guard.as_mut()
+            .filter(|session| session.id == session_id && session.ready && !session.suspended)
+            .ok_or(AppError::InvalidSession)?;
+        let previous_requested = session.audience_fullscreen_requested;
+        let exit_native = session.rehearsal && native_fullscreen;
+        session.audience_fullscreen_requested = if exit_native { false } else { !previous_requested };
+        session.audience_fullscreen_transitioning = session.rehearsal;
+        session.audience_fullscreen_initiated_by_presenter = source == PRESENTER_LABEL;
+        (session.audience_fullscreen_requested, previous_requested, session.main_window_fullscreen, session.rehearsal, exit_native)
+    };
+    #[cfg(target_os = "macos")]
+    if rehearsal { set_audience_child_autoresizing(app, true); }
+    let result = if exit_native {
+        main.set_fullscreen(false)
+    } else if rehearsal {
+        main.set_simple_fullscreen(next)
+    } else {
+        main.set_fullscreen(next)
+    };
+    if result.is_err() {
+        if let Ok(mut guard) = state.native_presentation.lock() {
+            if let Some(session) = guard.as_mut().filter(|session| session.id == session_id) {
+                session.audience_fullscreen_requested = previous_requested;
+                session.audience_fullscreen_transitioning = false;
+            }
+        }
+        #[cfg(target_os = "macos")]
+        if rehearsal { set_audience_child_autoresizing(app, previous_requested); }
+        return Err(AppError::InternalError);
+    }
+    let session_still_active = state.native_presentation.lock().ok()
+        .is_some_and(|guard| guard.as_ref().is_some_and(|session| session.id == session_id));
+    if !session_still_active {
+        if rehearsal && !exit_native { let _ = main.set_simple_fullscreen(false); }
+        let _ = main.set_fullscreen(original_fullscreen);
+        return Err(AppError::InvalidSession);
+    }
+    if rehearsal && !exit_native {
+        if let Ok(mut guard) = state.native_presentation.lock() {
+            if let Some(session) = guard.as_mut().filter(|session| session.id == session_id) {
+                session.audience_fullscreen_transitioning = false;
+                let timer_changed = if next { session.start_timer() } else { session.pause_timer() };
+                if timer_changed { notify_presenter(app, session); }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    if rehearsal { AUDIENCE_EXIT_HOVER.store(false, Ordering::Relaxed); }
+    resize_audience_child(app);
+    if rehearsal {
+        if let Some(label) = state.native_presentation.lock().ok()
+            .and_then(|guard| guard.as_ref().filter(|session| session.id == session_id)
+                .map(|session| html_runtime_host_label(session.item_id))) {
+            if let Some(audience) = app.get_webview(&label) {
+                let _ = audience.eval(&format!("window.__NUTBOOK_NATIVE_PRESENTATION_SET_FULLSCREEN__?.({next})"));
+            }
+        }
+        if source != PRESENTER_LABEL {
+            focus_audience_if_main_focused(app);
+        }
+    }
+    if next {
+        if let Some(label) = state.native_presentation.lock().ok()
+            .and_then(|guard| guard.as_ref().filter(|session| session.id == session_id)
+                .map(|session| html_runtime_host_label(session.item_id))) {
+            if let Some(audience) = app.get_webview(&label) {
+                let _ = audience.eval("window.__NUTBOOK_NATIVE_PRESENTATION_SHOW_FULLSCREEN_HINT__?.()");
+            }
+        }
+    }
+    Ok(next)
+}
+
+#[tauri::command]
+pub fn native_presentation_toggle_fullscreen(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, AppError> {
+    let source = webview.label();
+    if source != "main" && source != PRESENTER_LABEL {
+        return Err(AppError::InvalidSession);
+    }
+    toggle_audience_fullscreen(&app, &state, &session_id, source)
+}
+
 #[tauri::command]
 pub fn native_presentation_report(
     app: tauri::AppHandle,
@@ -1451,15 +1915,27 @@ pub fn native_presentation_report(
     {
         return Err(AppError::InvalidSession);
     }
-    if record.role != ContentSurfaceRole::NativeAudience
+    if record.role != ContentSurfaceRole::RuntimeHost
         || record.key != RuntimeKey::Item(payload.item_id)
+        || webview.label() != html_runtime_host_label(payload.item_id)
         || record.runtime_session_id != payload.session_id
         || record.generation != payload.generation
     {
         return Err(AppError::InvalidSession);
     }
+    if payload.kind == "editable-focus" {
+        let mut guard = state.native_presentation.lock().map_err(|_| AppError::InternalError)?;
+        let session = guard.as_mut().filter(|session| session.id == payload.session_id)
+            .ok_or(AppError::InvalidSession)?;
+        session.audience_editable_focus = payload.direction.as_deref() == Some("true");
+        return Ok(true);
+    }
     if payload.kind == "end" {
         return Ok(stop_session(&app, &state, &payload.session_id));
+    }
+    if payload.kind == "fullscreen-toggle" {
+        toggle_audience_fullscreen(&app, &state, &payload.session_id, "audience")?;
+        return Ok(true);
     }
     if payload.kind == "navigation-request" {
         let target_id = {
@@ -1530,11 +2006,14 @@ pub fn native_presentation_report(
                     session.error = Some("演示文档页面与准备时不一致".into());
                 } else {
                     session.active_page_id = active.to_string();
+                    let became_ready = !session.ready;
                     session.ready = true;
                     session.error = None;
-                    if session.timer_started.is_none() && session.timer_was_running_before_suspend {
-                        session.timer_started = Some(Instant::now());
+                    if became_ready && (session.timer_was_running_before_suspend
+                        || (!session.timer_has_started && session.audience_fullscreen_requested)) {
+                        session.start_timer();
                     }
+                    session.timer_was_running_before_suspend = false;
                 }
             }
             "page" => {
@@ -1564,7 +2043,7 @@ pub fn native_presentation_report(
                 session.error = Some(
                     payload
                         .error
-                        .unwrap_or_else(|| "观众窗口失联".into())
+                        .unwrap_or_else(|| "观众画面失联".into())
                         .chars()
                         .take(300)
                         .collect(),
@@ -1575,6 +2054,11 @@ pub fn native_presentation_report(
         session.clone()
     };
     notify_presenter(&app, &snapshot);
+    if payload.kind == "ready" && snapshot.ready {
+        // Reconcile the audience child bounds with the current OS window mode
+        // even if maximize happened before the page finished loading.
+        resize_audience_child(&app);
+    }
     Ok(true)
 }
 
@@ -1588,22 +2072,27 @@ fn stop_session(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
         }
         guard.take().unwrap()
     };
-    state.content_sessions.unregister(AUDIENCE_LABEL);
     if let Some(blackout) = app.get_webview(BLACKOUT_LABEL) {
         let _ = blackout.close();
     }
     state.drop_scoped_server(&format!(
-        "html-runtime:{}:native-presentation",
-        session.item_id
-    ));
-    state.drop_scoped_server(&format!(
         "html-runtime:{}:native-presentation-thumbnail",
         session.item_id
     ));
-    for label in [AUDIENCE_LABEL, PRESENTER_LABEL] {
-        if let Some(window) = app.get_webview_window(label) {
-            let _ = window.close();
-        }
+    let _ = set_html_runtime_host_visibility(app, session.item_id, false);
+    state.content_sessions.unregister(&html_runtime_host_label(session.item_id));
+    if let Some(main) = app.get_window("main") {
+        if session.rehearsal { let _ = main.set_simple_fullscreen(false); }
+        let _ = main.set_fullscreen(false);
+        let _ = main.unmaximize();
+        let _ = main.set_position(tauri::Position::Physical(session.main_window_position));
+        let _ = main.set_size(tauri::Size::Physical(session.main_window_size));
+        if session.main_window_maximized { let _ = main.maximize(); }
+        let _ = main.set_fullscreen(session.main_window_fullscreen);
+        let _ = main.set_title(&session.main_window_title);
+    }
+    if let Some(presenter) = app.get_webview_window(PRESENTER_LABEL) {
+        let _ = presenter.close();
     }
     if let Some(main) = app.get_webview("main") {
         let _ = main.eval(&format!(
@@ -1612,6 +2101,25 @@ fn stop_session(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
         ));
     }
     true
+}
+
+pub fn stop_native_presentation_on_main_reload(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return; };
+    let id = state.native_presentation.lock().ok()
+        .and_then(|guard| guard.as_ref().map(|session| session.id.clone()));
+    if let Some(id) = id {
+        stop_session(app, &state, &id);
+    }
+}
+
+/// A close request on the shared NUTBOOK window ends presentation first.
+/// The caller must prevent that close so a click on the traffic light cannot
+/// silently turn into an application exit.
+pub fn stop_native_presentation_on_main_close(app: &tauri::AppHandle) -> bool {
+    let Some(state) = app.try_state::<AppState>() else { return false; };
+    let id = state.native_presentation.lock().ok()
+        .and_then(|guard| guard.as_ref().map(|session| session.id.clone()));
+    id.is_some_and(|id| stop_session(app, &state, &id))
 }
 
 #[tauri::command]
@@ -1626,14 +2134,22 @@ pub fn stop_native_presentation(
 #[cfg(test)]
 mod tests {
     use super::{
-        adapted_legacy_html, adapted_legacy_runtime, known_legacy_source, replace_notes_json_block,
-        validate_notes, validate_pages, NoteParagraph, NoteRun, PresentationPage,
+        adapted_legacy_html, adapted_legacy_runtime, audience_top_inset, known_legacy_source,
+        replace_notes_json_block, validate_notes, validate_pages, NoteParagraph, NoteRun,
+        PresentationPage,
     };
     use std::{
         collections::HashMap,
         io::Write,
         process::{Command, Stdio},
     };
+
+    #[test]
+    fn fullscreen_audience_uses_the_whole_window() {
+        assert_eq!(audience_top_inset(true, false), 36.0);
+        assert_eq!(audience_top_inset(true, true), 0.0);
+        assert_eq!(audience_top_inset(false, true), 0.0);
+    }
 
     #[test]
     fn legacy_upgrade_uses_real_runtime_and_leaves_source_unchanged() {

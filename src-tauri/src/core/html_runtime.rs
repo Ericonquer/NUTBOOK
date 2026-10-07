@@ -392,6 +392,35 @@ pub fn attach_html_runtime_host(
     view_state_surface_token: u64,
     view_state: Option<Value>,
 ) -> Result<bool, AppError> {
+    attach_html_runtime_host_with_script(
+        app, window, session, bounds, view_state_surface_token, view_state, None,
+    )
+}
+
+/// Present the active tab in the main window using its ordinary runtime host.
+/// The preparation dialog closes the reading surface, so this creates its next
+/// instance with the presentation controller installed before document load.
+pub fn attach_html_runtime_host_for_presentation(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    session: &HtmlRuntimeSession,
+    bounds: RuntimeHostBounds,
+    presentation_script: &str,
+) -> Result<bool, AppError> {
+    attach_html_runtime_host_with_script(
+        app, window, session, bounds, 0, None, Some(presentation_script),
+    )
+}
+
+fn attach_html_runtime_host_with_script(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    session: &HtmlRuntimeSession,
+    bounds: RuntimeHostBounds,
+    view_state_surface_token: u64,
+    view_state: Option<Value>,
+    presentation_script: Option<&str>,
+) -> Result<bool, AppError> {
     let host_label = html_runtime_host_label_for(&session.key);
     if let Some(webview) = app.get_webview(&host_label) {
         webview
@@ -401,13 +430,16 @@ pub fn attach_html_runtime_host(
         return Ok(true);
     }
 
-    let builder = build_runtime_webview_builder(
+    let mut builder = build_runtime_webview_builder(
         app,
         &host_label,
         session,
         view_state_surface_token,
         view_state.as_ref(),
     )?;
+    if let Some(script) = presentation_script {
+        builder = builder.initialization_script(script);
+    }
     let webview = window
         .add_child(
             builder,
@@ -420,16 +452,20 @@ pub fn attach_html_runtime_host(
         .map_err(|_| AppError::InternalError)?;
 
     // R9：登记内嵌 host 会话身份。
-    register_content_session(
-        app,
-        &host_label,
-        crate::core::content_session::ContentSurfaceRole::RuntimeHost,
-        session.key.clone(),
-        &session.runtime_url,
-        "",
-        0,
-        view_state_surface_token,
-    );
+    // Presentation registration is installed before the child is created so
+    // a document-ready report cannot race ahead of its session identity.
+    if presentation_script.is_none() {
+        register_content_session(
+            app,
+            &host_label,
+            crate::core::content_session::ContentSurfaceRole::RuntimeHost,
+            session.key.clone(),
+            &session.runtime_url,
+            "",
+            0,
+            view_state_surface_token,
+        );
+    }
 
     Ok(true)
 }
@@ -1529,6 +1565,14 @@ fn install_html_fullscreen_focus_observer(app: &tauri::AppHandle) {
         for notification_name in notification_names {
             let app_handle = app.clone();
             let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                // This notification center is app-wide. Presenter fullscreen
+                // transitions must not focus the ordinary HTML child in the
+                // audience window and pull macOS back to its Space.
+                if app_handle.try_state::<crate::state::AppState>()
+                    .is_some_and(|state| state.native_presentation.lock().ok()
+                        .is_some_and(|guard| guard.is_some())) {
+                    return;
+                }
                 let item_id = HTML_FULLSCREEN_FOCUS_ITEM_ID.load(Ordering::Acquire);
                 if item_id <= 0 {
                     return;
@@ -2903,6 +2947,15 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
         }
 
         if title.starts_with(HTML_FULLSCREEN_TITLE_PREFIX) {
+            let is_managed_presentation = app_handle.try_state::<crate::state::AppState>()
+                .and_then(|state| state.native_presentation.lock().ok().map(|guard|
+                    guard.as_ref().is_some_and(|session|
+                        webview.label() == html_runtime_host_label(session.item_id))))
+                .unwrap_or(false);
+            if is_managed_presentation {
+                let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
+                return;
+            }
             let window = webview.window();
             let next_fullscreen = !window.is_fullscreen().unwrap_or(false);
             let runtime_focus_script = format!(
@@ -3309,6 +3362,9 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   };
 
   const handleRuntimeShortcut = (event) => {
+    if (window.__NUTBOOK_NATIVE_PRESENTATION_ACTIVE__) {
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && !event.altKey && String(event.key).toLowerCase() === 'f') {
       event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
       document.title = `__NUTBOOK_HTML_FIND_SHORTCUT__:${Date.now()}`;

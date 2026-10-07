@@ -798,6 +798,41 @@
         height: 100vh;
       }
 
+      .app-shell.native-audience-mode .sidebar,
+      .app-shell.native-audience-mode .topbar,
+      .app-shell.native-audience-mode .document-toolbar,
+      .app-shell.native-audience-mode .footer-bar {
+        display: none;
+      }
+
+      .native-audience-banner { display:none; }
+      .app-shell.native-audience-rehearsal:not(.native-audience-screenfill) .native-audience-banner {
+        position:fixed;
+        inset:0 0 auto;
+        z-index:100001;
+        box-sizing:border-box;
+        height:36px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:0 14px;
+        background:var(--surface-variant);
+        border-bottom:1px solid var(--line);
+        color:var(--ink-soft);
+        font:600 12px/1.25 var(--font-ui);
+      }
+      .native-audience-banner span {
+        position:absolute;
+        left:50%;
+        transform:translateX(-50%);
+        width:max-content;
+        max-width:calc(100% - 280px);
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+        text-align:center;
+      }
+
       .settings-inline-feedback {
         align-self: center;
         display: inline-flex;
@@ -8625,6 +8660,7 @@
   </head>
   <body>
     <div id="appShell" class="app-shell">
+      <div class="native-audience-banner" role="note" data-tauri-drag-region><span id="nativeAudienceBannerText"></span></div>
       <input id="folderPicker" type="file" webkitdirectory directory multiple style="display: none;" />
       <input id="singleFilePicker" type="file" accept=".md,.markdown,.html,.htm,text/markdown,text/html" style="display: none;" />
       <aside class="sidebar" data-tauri-drag-region>
@@ -21108,6 +21144,14 @@ if (!chipTipController) {
       function restoreAfterNativePresentation(itemId) {
         removeNativePresentationDialog();
         nativePresentationSessionId = null;
+        // A runtime fullscreen notification may arrive while the audience
+        // owns the main window. Its host-only view state must not survive the
+        // presentation session after the native window has been restored.
+        appState.runtimeFullscreenItemId = null;
+        applyRuntimeFullscreenState();
+        els.appShell.classList.remove("native-audience-mode");
+        els.appShell.classList.remove("native-audience-rehearsal");
+        els.appShell.classList.remove("native-audience-screenfill");
         if (appState.nativePresentationItemId === itemId) appState.nativePresentationItemId = null;
         if (getActiveTab()?.id === itemId) {
           // The content child was hidden for preparation. Its previous bounds
@@ -21120,6 +21164,17 @@ if (!chipTipController) {
       }
 
       window.__NUTBOOK_NATIVE_PRESENTATION_ENDED__ = (itemId) => restoreAfterNativePresentation(Number(itemId));
+
+      async function hideRuntimeHostForNativePresentation(itemId) {
+        // An older attach must finish before the presentation host takes the
+        // same label. Invalidate its run, await its actual completion, then
+        // close the reading surface and its controls.
+        cleanupRuntimeHostSync();
+        while (appState.runtimeHostSyncInFlight) {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        await hideRuntimeSessionSurfaces(itemId, { force: true });
+      }
 
       function nativePresentationProbeScript(itemId, requestId) {
         return `;(async()=>{const unsupported=()=>window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:true,pages:[],notes:{},activePageId:''}});try{
@@ -21214,7 +21269,7 @@ if (!chipTipController) {
           let legacy = null;
           try { legacy = await invoke("native_presentation_legacy_info", { itemId }); } catch (_) {}
           appState.nativePresentationItemId = itemId;
-          try { await hideRuntimeSessionSurfaces(itemId, { force: true }); }
+          try { await hideRuntimeHostForNativePresentation(itemId); }
           catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
           if (getActiveTab()?.id !== itemId) { restoreAfterNativePresentation(itemId); return; }
           const panel = nativePresentationModalShell();
@@ -21261,7 +21316,7 @@ if (!chipTipController) {
         try { sourceRevision = await invoke("get_item_content_revision", { itemId }); }
         catch (error) { setStatus(nativePresentationErrorText(error), "error"); return; }
         appState.nativePresentationItemId = itemId;
-        try { await hideRuntimeSessionSurfaces(itemId, { force: true }); }
+        try { await hideRuntimeHostForNativePresentation(itemId); }
         catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
         const panel = nativePresentationModalShell();
         const monitorLabel = monitor => {
@@ -21276,8 +21331,8 @@ if (!chipTipController) {
         const atFirstPage = !probe.activePageId || probe.activePageId === probe.pages[0].id;
         const audienceDisplay = `<div class="native-monitor-picker"><button type="button" id="nativePresentationMonitor" class="native-monitor-trigger" aria-label="${nativePresentationText("观众屏幕", "Audience display")}" title="${nativePresentationText("观众屏幕", "Audience display")}" aria-haspopup="listbox" aria-expanded="false" aria-controls="nativePresentationMonitorMenu"><span id="nativePresentationMonitorLabel">${escapeHtml(monitorLabel(monitors[0]))}</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg></button><div id="nativePresentationMonitorMenu" class="native-monitor-menu" role="listbox" aria-label="${nativePresentationText("观众屏幕", "Audience display")}" hidden>${options}</div></div>`;
         const displayTip = monitors.length === 1
-          ? nativePresentationText("单屏演示时，在会议软件中共享“观众窗口”；备注和控制只显示在“演讲者窗口”。", "On one display, share the Audience window in your meeting app. Notes and controls stay in the Presenter window.")
-          : nativePresentationText("将观众窗口放在所选屏幕；备注和控制只显示在演讲者窗口。", "Put the Audience window on the selected display. Notes and controls stay in the Presenter window.");
+          ? nativePresentationText("在线会议中请共享 NUTBOOK 窗口；演讲者窗口保留备注和控制。", "In online meetings, share the NUTBOOK window. Notes and controls stay in the Presenter window.")
+          : nativePresentationText("NUTBOOK 窗口将在所选屏幕展示观众画面；演讲者窗口保留备注和控制。", "The NUTBOOK window shows the audience view on the selected display. Notes and controls stay in the Presenter window.");
         const tips = [
           displayTip,
           nativePresentationText("备注可在 HTML 编辑模式中逐页添加并保存。", "Add and save slide notes in HTML edit mode."),
@@ -21353,11 +21408,19 @@ if (!chipTipController) {
                 rehearsal: monitors.length === 1,
                 language: appState.language
               } });
+              if (appState.nativePresentationItemId !== itemId) {
+                await invoke("stop_native_presentation", { sessionId: session.sessionId }).catch(() => {});
+                return;
+              }
               nativePresentationSessionId = session.sessionId;
+              els.appShell.classList.add("native-audience-mode");
+              if (monitors.length === 1) {
+                els.appShell.classList.add("native-audience-rehearsal");
+                document.getElementById("nativeAudienceBannerText").textContent = nativePresentationText("观众窗口 · 在线会议请共享此 NUTBOOK 窗口", "Audience window · Share this NUTBOOK window in your meeting");
+              }
               clearInterval(nativePresentationTipTimer);
               nativePresentationTipTimer = null;
-              panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("演示进行中", "Presentation in progress")}</h2><p>${nativePresentationText("请在演讲者窗口控制演示。", "Use the presenter window to control the presentation.")}</p><div class="native-actions"><button type="button" data-native-action="end">${nativePresentationText("结束演示", "End presentation")}</button></div>`;
-              panel.querySelector('[data-native-action="end"]').addEventListener("click", () => invoke("stop_native_presentation", { sessionId: nativePresentationSessionId }).catch(error => setStatus(nativePresentationErrorText(error), "error")));
+              removeNativePresentationDialog();
             } catch (error) {
               setStatus(nativePresentationErrorText(error), "error");
               panel.querySelectorAll("button").forEach(button => button.disabled = false);
@@ -23816,9 +23879,14 @@ if (!chipTipController) {
       });
 
       window.addEventListener("keydown", (event) => {
-        if (event.isComposing || event.key === "Process") return;
         const tab = getActiveTab();
         const isMarkdownEditorKeyEvent = Boolean(event.target?.closest?.(".milkdown-editor-root .ProseMirror"));
+        if (nativePresentationSessionId && (event.code === "KeyF" || event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey && !event.target?.isContentEditable && !/^(INPUT|TEXTAREA|SELECT)$/.test(event.target?.tagName || "")) {
+          event.preventDefault();
+          if (!event.repeat) invoke("native_presentation_toggle_fullscreen", { sessionId: nativePresentationSessionId }).catch(() => {});
+          return;
+        }
+        if (event.isComposing || event.key === "Process") return;
         if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
           if (tab?.preview?.fileType === "markdown") {
             event.preventDefault();

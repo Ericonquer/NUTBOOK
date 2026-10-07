@@ -7,31 +7,87 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();
   await page.addInitScript(() => {
+    window.thumbnailRequests = [];
+    window.fullscreenRequests = [];
+    window.timerActions = [];
+    window.timerState = { timerElapsedMs: 0, timerRunning: false, timerHasStarted: false };
     const preview = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="576"><rect width="1024" height="576" fill="#142035"/><text x="60" y="130" fill="white" font-size="72">Slide</text></svg>')}`;
-    window.__TAURI_INTERNALS__ = { invoke: async (command) => {
-      if (command === "native_presentation_state") return {
-        sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: true,
-        pages: [{ id: "one", title: "开场" }, { id: "two", title: "下一页" }, { id: "three", title: "结束" }],
-        activePageId: "one", notes: { one: [{ runs: [{ text: "当前页演讲备注", bold: false }] }] }
-      };
-      if (command === "native_presentation_thumbnail") return { dataUrl: preview };
+    const initialState = () => ({
+      sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: true, sequence: 0,
+      pages: [{ id: "one", title: "开场" }, { id: "two", title: "第二页" }, { id: "three", title: "第三页" }, { id: "four", title: "结束" }],
+      activePageId: "one", notes: { one: [{ runs: [{ text: "当前页演讲备注", bold: false }] }] },
+      ...window.timerState
+    });
+    window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+      if (command === "native_presentation_state") return initialState();
+      if (command === "native_presentation_thumbnail") { window.thumbnailRequests.push(args.payload.pageId); return { dataUrl: preview }; }
+      if (command === "native_presentation_toggle_fullscreen") { window.fullscreenRequests.push(args.sessionId); return true; }
+      if (command === "native_presentation_timer") {
+        window.timerActions.push(args.payload.action);
+        if (args.payload.action === "start" || args.payload.action === "resume") window.timerState = { timerElapsedMs: 0, timerRunning: true, timerHasStarted: true };
+        if (args.payload.action === "pause") window.timerState.timerRunning = false;
+        if (args.payload.action === "reset") window.timerState = { timerElapsedMs: 0, timerRunning: false, timerHasStarted: false };
+        return initialState();
+      }
       return true;
     } };
   });
   await page.goto(pathToFileURL(path.resolve("dist/native-presenter.html")).href);
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
-  assert.equal(await page.locator("#status").textContent(), "在线会议中请共享「观众窗口」", "single-screen presenter should tell the user which window to share");
+  await page.waitForFunction(() => window.thumbnailRequests.includes("three"));
+  assert.equal(await page.locator("#reset").textContent(), "开始", "timer must wait for an explicit start or audience fullscreen");
+  assert.equal(await page.locator("#pause").isDisabled(), true, "pause is unavailable before timing starts");
+  await page.locator("#reset").click();
+  assert.equal(await page.locator("#reset").textContent(), "重置");
+  assert.equal(await page.locator("#pause").isEnabled(), true);
+  await page.locator("#pause").click();
+  assert.equal(await page.locator("#pause").textContent(), "继续");
+  await page.locator("#pause").click();
+  assert.equal(await page.locator("#pause").textContent(), "暂停");
+  await page.locator("#reset").click();
+  assert.equal(await page.locator("#reset").textContent(), "开始");
+  assert.equal(await page.locator("#pause").isDisabled(), true);
+  assert.deepEqual(await page.evaluate(() => window.timerActions), ["start", "pause", "resume", "reset"]);
+  await page.keyboard.press("f");
+  await page.keyboard.press("f");
+  assert.deepEqual(await page.evaluate(() => window.fullscreenRequests), ["layout-check", "layout-check"],
+    "F should toggle the audience fullscreen on both presses while the presenter has focus");
+  assert.equal(await page.evaluate(() => window.thumbnailRequests.includes("three")), true,
+    "the slide after next must be requested before advancing, so the next preview can be reused");
+  await page.evaluate(() => { window.firstSlideImage = document.querySelector("#currentPreview img"); });
+  const threePages = [{ id: "one", title: "开场" }, { id: "two", title: "第二页" }, { id: "three", title: "第三页" }, { id: "four", title: "结束" }];
+  await page.evaluate(pages => window.__NUTBOOK_NATIVE_PRESENTATION_STATE__({
+    sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: true, sequence: 0,
+    pages, activePageId: "two", notes: {}
+  }), threePages);
+  assert.equal(await page.locator("#currentPreview img").count(), 1, "forward navigation should use the prefetched next image");
+  assert.equal(await page.locator("#nextPreview img").count(), 1,
+    "forward navigation should reveal a prefetched next image without a loading flash");
+  await page.evaluate(pages => window.__NUTBOOK_NATIVE_PRESENTATION_STATE__({
+    sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: true, sequence: 0,
+    pages, activePageId: "one", notes: {}
+  }), threePages);
+  assert.equal(await page.evaluate(() => document.querySelector("#currentPreview img") === window.firstSlideImage), true,
+    "reverse navigation should reuse the decoded image without exposing a loading placeholder");
+  assert.equal(await page.locator("#status").textContent(), "在线会议中请共享 NUTBOOK 窗口", "single-screen presenter should tell the user which window to share");
+  await page.evaluate(() => window.__NUTBOOK_NATIVE_PRESENTATION_STATE__({
+    sessionId: "layout-check", language: "zh-CN", ready: false, rehearsal: true, sequence: 0,
+    pages: [{ id: "one", title: "开场" }, { id: "two", title: "下一页" }, { id: "three", title: "结束" }],
+    activePageId: "one", notes: {}
+  }));
+  assert.equal(await page.locator("#status").textContent(), "在线会议中请共享 NUTBOOK 窗口", "a late pre-ready snapshot must not disable presenter controls");
+  assert.equal(await page.locator("#next").isEnabled(), true);
   assert.equal(await page.locator("#notesHeight").count(), 0, "the redundant notes height slider should be gone");
   await page.evaluate(() => window.__NUTBOOK_NATIVE_PRESENTATION_STATE__({
-    sessionId: "layout-check", language: "en-US", ready: true, rehearsal: true,
+    sessionId: "layout-check", language: "en-US", ready: true, rehearsal: true, sequence: 0,
     pages: [{ id: "one", title: "Opening" }], activePageId: "one", notes: {}
   }));
-  assert.equal(await page.locator("#status").textContent(), "In online meetings, share “Audience Window”");
+  assert.equal(await page.locator("#status").textContent(), "In online meetings, share the NUTBOOK window");
   await page.evaluate(() => window.__NUTBOOK_NATIVE_PRESENTATION_STATE__({
-    sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: false,
+    sessionId: "layout-check", language: "zh-CN", ready: true, rehearsal: false, sequence: 0,
     pages: [{ id: "one", title: "开场" }], activePageId: "one", notes: {}
   }));
-  assert.equal(await page.locator("#status").textContent(), "观众窗口已就绪", "dual-screen mode should keep its ready status");
+  assert.equal(await page.locator("#status").textContent(), "观众画面已就绪", "dual-screen mode should keep its ready status");
   await page.evaluate(() => localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesBottomPercent: 34, theme: "light" })));
   await page.reload();
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
@@ -92,7 +148,7 @@ try {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => window.__NUTBOOK_NATIVE_PRESENTATION_STATE__({
-    sessionId: "layout-check", language: "zh-CN", ready: true,
+    sessionId: "layout-check", language: "zh-CN", ready: true, sequence: 0,
     pages: Array.from({ length: 30 }, (_, index) => ({ id: `page-${index + 1}`, title: `第 ${index + 1} 页` })),
     activePageId: "page-1", notes: {}
   }));
@@ -129,6 +185,7 @@ try {
     activePageId: "page-23", pendingPageId: null, sequence: 1, notes: {}
   }));
   assert.equal(await page.locator("#pageCount").textContent(), "24 / 30", "a late ACK from an older navigation must not roll the presenter backward");
+
 } finally {
   await browser.close();
 }

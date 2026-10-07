@@ -14,6 +14,14 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1024, height: 576 } });
   await page.goto(pathToFileURL(sample).href);
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.evaluate(() => window.__NUTBOOK_PRESENTATION__.activePageId), "page-02", "the long sample must turn pages in ordinary viewing");
+  await page.keyboard.press("ArrowLeft");
+  assert.equal(await page.evaluate(() => window.__NUTBOOK_PRESENTATION__.activePageId), "page-01");
+  await page.evaluate(() => window.__NUTBOOK_PRESENTATION__.setManagedMode(true));
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.evaluate(() => window.__NUTBOOK_PRESENTATION__.activePageId), "page-01", "managed mode must leave keyboard navigation to NUTBOOK");
+  await page.evaluate(() => window.__NUTBOOK_PRESENTATION__.setManagedMode(false));
   await page.evaluate(script => {
     window.__editMessages = [];
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
