@@ -3338,6 +3338,10 @@ pub fn html_runtime_compatibility_script() -> &'static str {
       refocusRuntimeSoon();
     }
   };
+  // Presentation templates can use the same host-window fullscreen path as
+  // the runtime F shortcut. DOM fullscreen on an embedded child WebView can
+  // leave a detached WebKit fullscreen surface covering the document.
+  window.__NUTBOOK_REQUEST_HOST_FULLSCREEN__ = requestRuntimeFullscreen;
 
   const isEscapeKey = (event) => (
     event.key === 'Escape' ||
@@ -4132,6 +4136,7 @@ mod tests {
 
         assert!(script.contains("about:blank"));
         assert!(script.contains("__NUTBOOK_TOGGLE_FULLSCREEN__"));
+        assert!(script.contains("__NUTBOOK_REQUEST_HOST_FULLSCREEN__ = requestRuntimeFullscreen"));
         assert!(script.contains("[contenteditable]"));
         assert!(script.contains("__NUTBOOK_HTML_EDIT__?.isEditing"));
         assert!(script.contains("document.activeElement"));

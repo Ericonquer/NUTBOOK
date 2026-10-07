@@ -400,17 +400,7 @@ pub fn commit_html_edit(
         changes: payload.changes,
         presentation_notes: if payload.presentation_notes.is_empty() { None } else { Some(serde_json::to_value(payload.presentation_notes).map_err(|_| AppError::InternalError)?) },
     };
-    let committed = match commit_html_edit_for_file(&commit) {
-        Ok(committed) => committed,
-        Err(error) => {
-            // Temporary, host-readable diagnostic for the repeated editor
-            // save failure. Remove after the rejected field is fixed.
-            if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("nutbook-html-edit-debug.log")) {
-                let _ = writeln!(log, "event=commit-html-edit-rejected error={error:?} artifact_edit_id={} changes={:?}", commit.artifact_edit_id, commit.changes);
-            }
-            return Err(error);
-        }
-    };
+    let committed = commit_html_edit_for_file(&commit)?;
     // The commit is already durable. A best-effort refresh must never turn it
     // into an apparent failed save that the user might retry.
     //

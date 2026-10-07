@@ -35,6 +35,7 @@ const harness = `
   const probeNativePresentation = async () => {
     window.probeCalls = (window.probeCalls || 0) + 1;
     if (window.testProbeDeferred) await new Promise(resolve => { window.releaseProbe = resolve; });
+    if (window.testProbeFailure) return window.testProbeFailure;
     return window.testProbe === null ? null : ({ pages: [{ id: "one", title: "开场" }, { id: "two", title: "后续" }], activePageId: window.testActivePage, notes: {} });
   };
   const invoke = async (command, args) => {
@@ -47,6 +48,7 @@ const harness = `
   ${functionSource("removeNativePresentationDialog")}
   const restoreAfterNativePresentation = () => { window.restoreCalls = (window.restoreCalls || 0) + 1; removeNativePresentationDialog(); appState.nativePresentationItemId = null; };
   ${functionSource("hideRuntimeHostForNativePresentation")}
+  ${functionSource("nativePresentationProbeFailure")}
   ${functionSource("nativePresentationModalShell")}
   ${functionSource("openNativePresentationPreparation")}
   window.openTestPresentationDialog = openNativePresentationPreparation;
@@ -141,6 +143,18 @@ try {
     }
     assert.equal(await page.evaluate(() => window.restoreCalls), 1, "closing the dialog must restore the HTML document");
     assert.equal(await panel.count(), 0);
+    await page.close();
+  }
+  {
+    const page = await browser.newPage();
+    await page.evaluate(source => {
+      window.testLegacy = null;
+      window.testProbeFailure = { unsupported: true, declared: true, reason: "missing_managed_mode" };
+      (0, eval)(source);
+      return window.openTestPresentationDialog();
+    }, harness);
+    assert.match(await page.locator(".native-presentation-panel").textContent(), /缺少 setManagedMode/);
+    await page.locator('[data-native-action="close"]').click();
     await page.close();
   }
   {

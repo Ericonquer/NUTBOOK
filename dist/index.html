@@ -21177,19 +21177,44 @@ if (!chipTipController) {
       }
 
       function nativePresentationProbeScript(itemId, requestId) {
-        return `;(async()=>{const unsupported=()=>window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:true,pages:[],notes:{},activePageId:''}});try{
-          const bridge=window.__NUTBOOK_PRESENTATION__;
-          if(!bridge || Number(bridge.version)!==1 || bridge.capabilities?.managedPresenter!==true || typeof bridge.goTo!=='function' || typeof bridge.subscribe!=='function' || typeof bridge.setManagedMode!=='function') return unsupported();
-          await bridge.whenReady?.();
-          const pages=(Array.isArray(bridge.pages)?bridge.pages:[]).map(p=>({id:String(p?.id||''),title:String(p?.title||'')}));
-          if(!pages.length || new Set(pages.map(p=>p.id)).size!==pages.length || !pages.every(p=>p.id&&document.querySelector('[data-nutbook-page-id="'+CSS.escape(p.id)+'"]'))) return unsupported();
-          let notes={};
-          try { const node=document.getElementById('nutbook-presentation-notes'); if(!node)return unsupported(); const data=JSON.parse(node.textContent||'{}'); if(data.version!==1||!data.pages||typeof data.pages!=='object')return unsupported(); for(const [id,paragraphs] of Object.entries(data.pages)){ if(!Array.isArray(paragraphs))continue; notes[id]=paragraphs.filter(p=>p?.type==='paragraph'&&Array.isArray(p.runs)).map(p=>({runs:p.runs.map(r=>({text:String(r?.text||''),bold:r?.bold===true}))})); }
-            for(const page of pages){ if(notes[page.id])continue; const root=document.querySelector('[data-nutbook-page-id="'+CSS.escape(page.id)+'"]'); const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes'); if(!legacy)continue; const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean); notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]})); }
-          } catch(_){return unsupported();}
-          const payload={itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},pages,notes,activePageId:String(bridge.activePageId||'')};
-          await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload});
-        }catch(error){await unsupported();}})();`;
+        return `;(async()=>{
+          const declared=document.documentElement.getAttribute('data-nutbook-artifact-kind')==='presentation';
+          const report=(reason)=>window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:true,declared,reason,pages:[],notes:{},activePageId:''}});
+          try{
+            const domPageIds=[...document.querySelectorAll('[data-nutbook-page-id]')].map(root=>root.getAttribute('data-nutbook-page-id')||'');
+            if(declared&&(domPageIds.some(id=>!id)||new Set(domPageIds).size!==domPageIds.length))return report('duplicate_page_id');
+            const bridge=window.__NUTBOOK_PRESENTATION__;
+            if(!bridge || Number(bridge.version)!==1)return report('missing_bridge');
+            if(bridge.capabilities?.managedPresenter!==true || typeof bridge.setManagedMode!=='function')return report('missing_managed_mode');
+            if(typeof bridge.goTo!=='function'||typeof bridge.subscribe!=='function')return report('missing_navigation');
+            await bridge.whenReady?.();
+            const encoder=new TextEncoder();
+            const pageTitle=(value)=>{let title='';let bytes=0;for(const character of String(value||'')){const size=encoder.encode(character).length;if(bytes+size>512)break;title+=character;bytes+=size;}return title;};
+            const pages=(Array.isArray(bridge.pages)?bridge.pages:[]).map(p=>({id:String(p?.id||''),title:pageTitle(p?.title)}));
+            if(!pages.length||pages.length>500||pages.some(p=>encoder.encode(p.id).length>256))return report('invalid_page_list');
+            if(pages.some(p=>!p.id)||new Set(pages.map(p=>p.id)).size!==pages.length)return report('duplicate_page_id');
+            const roots=[...document.querySelectorAll('[data-nutbook-page-id]')];
+            if(roots.length!==pages.length||!pages.every(p=>roots.filter(root=>root.getAttribute('data-nutbook-page-id')===p.id).length===1))return report('page_dom_mismatch');
+            const activePageId=String(bridge.activePageId||'');
+            if(!pages.some(p=>p.id===activePageId))return report('page_dom_mismatch');
+            const node=document.getElementById('nutbook-presentation-notes');
+            if(!node)return report('missing_notes');
+            let data;
+            try{data=JSON.parse(node.textContent||'{}');}catch(_){return report('invalid_notes');}
+            if(data.version!==1||!data.pages||typeof data.pages!=='object'||Array.isArray(data.pages))return report('invalid_notes');
+            const notes={};
+            let noteBytes=0;
+            for(const [id,paragraphs] of Object.entries(data.pages)){
+              if(!pages.some(page=>page.id===id)||!Array.isArray(paragraphs)||paragraphs.length>100)return report('invalid_notes');
+              if(paragraphs.some(p=>p?.type!=='paragraph'||!Array.isArray(p.runs)||p.runs.length>100||p.runs.some(r=>typeof r?.text!=='string'||(r.bold!==undefined&&typeof r.bold!=='boolean')||encoder.encode(r.text).length>10000)))return report('invalid_notes');
+              for(const paragraph of paragraphs)for(const run of paragraph.runs)noteBytes+=encoder.encode(run.text).length;
+              if(noteBytes>512*1024)return report('invalid_notes');
+              notes[id]=paragraphs.map(p=>({runs:p.runs.map(r=>({text:r.text,bold:r.bold===true}))}));
+            }
+            for(const page of pages){if(notes[page.id])continue;const root=roots.find(node=>node.getAttribute('data-nutbook-page-id')===page.id);const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes');if(!legacy)continue;const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean);notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]}));}
+            await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:false,declared,pages,notes,activePageId}});
+          }catch(_){await report('bridge_error');}
+        })();`;
       }
 
       async function probeNativePresentation(itemId) {
@@ -21206,7 +21231,23 @@ if (!chipTipController) {
           if (waiter) { nativePresentationProbeWaiters.delete(requestId); clearTimeout(waiter.timer); waiter.resolve(null); }
         }
         const payload = await result;
-        return payload?.itemId === itemId && !payload.unsupported ? payload : null;
+        return payload?.itemId === itemId ? payload : null;
+      }
+
+      function nativePresentationProbeFailure(probe) {
+        const reasons = {
+          missing_bridge: ["缺少演示桥或版本不匹配", "Presentation bridge is missing or has the wrong version"],
+          missing_managed_mode: ["缺少 setManagedMode 或受管理演示能力声明", "setManagedMode or the managed presentation capability is missing"],
+          missing_navigation: ["缺少 goTo 或 subscribe 导航接口", "goTo or subscribe navigation is missing"],
+          duplicate_page_id: ["页面 ID 为空或重复", "Page IDs are empty or duplicated"],
+          invalid_page_list: ["页面数量或 ID 长度超出演示协议限制", "Page count or ID length exceeds the presentation protocol limits"],
+          page_dom_mismatch: ["页面列表、页面 DOM 或当前页 ID 不一致", "Page list, page DOM, or active page ID does not match"],
+          missing_notes: ["缺少 nutbook-presentation-notes 备注块", "The nutbook-presentation-notes block is missing"],
+          invalid_notes: ["备注 JSON 结构无效或引用了未知页面", "Notes JSON is invalid or refers to an unknown page"],
+          bridge_error: ["演示桥初始化或探测时发生错误", "Presentation bridge failed during initialization or probing"]
+        };
+        if (probe?.declared && reasons[probe.reason]) return nativePresentationText(...reasons[probe.reason]);
+        return nativePresentationText("此 HTML 没有可识别的演示页面。仍可从“更多”选择“全屏查看”，以单窗口展示文件。", "This HTML has no recognizable presentation pages. You can still choose Full-screen view from More to show the file in one window.");
       }
 
       function nativePresentationModalShell() {
@@ -21265,9 +21306,11 @@ if (!chipTipController) {
         setStatus(nativePresentationText("正在检查演示协议…", "Checking presentation protocol…"), "info");
         const probe = await probeNativePresentation(itemId);
         if (getActiveTab()?.id !== itemId) return;
-        if (!probe) {
+        if (!probe || probe.unsupported) {
           let legacy = null;
-          try { legacy = await invoke("native_presentation_legacy_info", { itemId }); } catch (_) {}
+          if (!probe?.declared) {
+            try { legacy = await invoke("native_presentation_legacy_info", { itemId }); } catch (_) {}
+          }
           appState.nativePresentationItemId = itemId;
           try { await hideRuntimeHostForNativePresentation(itemId); }
           catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
@@ -21278,7 +21321,7 @@ if (!chipTipController) {
             if (event.key === "Escape") { event.preventDefault(); restoreAfterNativePresentation(itemId); }
           });
           if (!legacy?.eligible) {
-            panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("无法启动演示", "Cannot start presentation")}</h2><p>${nativePresentationText("此 HTML 没有可识别的演示页面。仍可从“更多”选择“全屏查看”，以单窗口展示文件。", "This HTML has no recognizable presentation pages. You can still choose Full-screen view from More to show the file in one window.")}</p><div class="native-actions"><button type="button" class="primary" data-native-action="close">${nativePresentationText("知道了", "Got it")}</button></div>`;
+            panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("无法启动演示", "Cannot start presentation")}</h2><p>${escapeHtml(nativePresentationProbeFailure(probe))}</p><div class="native-actions"><button type="button" class="primary" data-native-action="close">${nativePresentationText("知道了", "Got it")}</button></div>`;
             panel.querySelector('[data-native-action="close"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
             panel.focus();
             return;

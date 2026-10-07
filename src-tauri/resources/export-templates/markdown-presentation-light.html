@@ -108,6 +108,7 @@
     .missing-image, .export-warnings { display: block; padding: 12px 14px; border-radius: 8px; background: #eeeef0; color: #4c4546; font-size: 14px; }
     .deck-footer { position: absolute; left: 38px; right: 38px; bottom: 22px; display: flex; justify-content: space-between; color: #7e7576; font-size: 12px; z-index: 3; }
     .presentation-controls { position: fixed; left: 50%; bottom: 18px; z-index: 10; display: inline-flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid rgba(0,0,0,0.08); border-radius: 999px; background: rgba(255,255,255,0.88); box-shadow: 0 12px 32px rgba(0,0,0,0.12); backdrop-filter: blur(12px); transform: translateX(-50%); }
+    html[data-nutbook-managed-presentation="true"] .presentation-controls { display: none !important; }
     .presentation-controls button { width: 30px; height: 30px; border: 0; border-radius: 999px; background: transparent; color: #1a1c1d; cursor: pointer; font-size: 15px; }
     .presentation-controls button:hover { background: #f1f1f3; }
     .presentation-controls [data-counter] { min-width: 52px; text-align: center; color: #5e5e63; font-size: 12px; font-weight: 700; }
@@ -171,7 +172,11 @@
       <span class="presentation-control-tooltip">全屏演示</span>
     </span>
   </div>
+  <script type="application/json" id="nutbook-presentation-notes">{"version":1,"pages":{}}</script>
   {{motion_script}}
+  <script>
+    {{presentation_bridge_script}}
+  </script>
   <script>
     (() => {
       const slides = [...document.querySelectorAll(".slide")];
@@ -179,6 +184,7 @@
       const controls = document.querySelector("[data-presentation-controls]");
       const subscribers = new Set();
       let editMode = false;
+      let managedMode = false;
       let index = Math.max(0, slides.findIndex((slide) => slide.classList.contains("is-active")));
       function isEditableTarget(target) {
         return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
@@ -222,12 +228,16 @@
       document.querySelector("[data-prev]")?.addEventListener("click", previous);
       document.querySelector("[data-next]")?.addEventListener("click", next);
       document.querySelector("[data-fullscreen]")?.addEventListener("click", () => {
+        if (typeof window.__NUTBOOK_REQUEST_HOST_FULLSCREEN__ === "function") {
+          window.__NUTBOOK_REQUEST_HOST_FULLSCREEN__();
+          return;
+        }
         const target = document.documentElement;
         if (document.fullscreenElement) document.exitFullscreen?.();
         else target.requestFullscreen?.();
       });
       window.addEventListener("keydown", (event) => {
-        if (editMode || isEditableTarget(event.target)) return;
+        if (editMode || managedMode || event.isComposing || event.defaultPrevented || isEditableTarget(event.target)) return;
         if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
           event.preventDefault();
           next();
@@ -238,15 +248,13 @@
         }
         if (event.key.toLowerCase() === "f") document.querySelector("[data-fullscreen]")?.click();
       });
-      window.__NUTBOOK_PRESENTATION__ = {
-        version: 1,
-        pages: slides.map((slide, pageIndex) => ({
+      window.__NUTBOOK_PRESENTATION__ = window.createNutbookPresentationBridge({
+        pages: slides.map((slide) => ({
           id: slide.dataset.nutbookPageId,
-          index: pageIndex + 1,
           title: slide.dataset.title || "",
           kind: slide.dataset.slideKind || ""
         })),
-        get activePageId() { return slides[index]?.dataset.nutbookPageId || ""; },
+        activePageId: () => slides[index]?.dataset.nutbookPageId || "",
         goTo(pageId) {
           const nextIndex = slides.findIndex((slide) => slide.dataset.nutbookPageId === pageId);
           if (nextIndex < 0) return false;
@@ -258,13 +266,18 @@
           subscribers.add(listener);
           return () => subscribers.delete(listener);
         },
-        setEditMode(enabled) {
-          editMode = Boolean(enabled);
-          controls?.toggleAttribute("hidden", editMode);
+        setManagedMode(enabled) {
+          managedMode = enabled;
+          document.documentElement.dataset.nutbookManagedPresentation = String(enabled);
+          controls?.toggleAttribute("hidden", editMode || managedMode);
           return true;
         },
-        whenReady() { return Promise.resolve(); }
-      };
+        setEditMode(enabled) {
+          editMode = enabled;
+          controls?.toggleAttribute("hidden", editMode || managedMode);
+          return true;
+        }
+      });
       show(index);
     })();
   </script>

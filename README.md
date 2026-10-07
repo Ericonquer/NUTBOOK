@@ -144,6 +144,8 @@ This walkthrough shows Markdown outline navigation, live editing, text formattin
 
 * Provide deterministic navigation for supported presentation and vertical HTML artifacts.
 
+* Open nbskill presentation HTML and Markdown presentation exports in NUTBOOK's native presentation mode, with editable slide text and per-page notes that persist after saving and reopening.
+
 The goal is not merely to open AI-generated HTML, but to make it useful for explaining, proposing, teaching, and reviewing ideas.
 
 This walkthrough shows native text editing, heading formatting, image-frame insertion, and saving in presentation HTML:

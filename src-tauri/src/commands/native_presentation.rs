@@ -558,6 +558,10 @@ pub struct ProbePayload {
     pub request_id: String,
     #[serde(default)]
     pub unsupported: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub declared: bool,
     pub pages: Vec<PresentationPage>,
     #[serde(default)]
     pub notes: PresentationNotes,
@@ -595,7 +599,13 @@ pub fn native_presentation_probe_command(
         if !payload.pages.is_empty() || !payload.notes.is_empty() || !payload.active_page_id.is_empty() {
             return Err(AppError::InvalidParams);
         }
+        if !matches!(payload.reason.as_deref(), None | Some("missing_bridge" | "missing_managed_mode" | "missing_navigation" | "duplicate_page_id" | "invalid_page_list" | "page_dom_mismatch" | "missing_notes" | "invalid_notes" | "bridge_error")) {
+            return Err(AppError::InvalidParams);
+        }
     } else {
+        if payload.reason.is_some() {
+            return Err(AppError::InvalidParams);
+        }
         validate_pages(&payload.pages, &payload.active_page_id)?;
         validate_notes(&payload.pages, &payload.notes)?;
     }
