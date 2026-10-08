@@ -1,3 +1,4 @@
+use tauri::Emitter;
 use crate::{
     commands::window::open_downloaded_installer,
     core::update::{
@@ -70,6 +71,7 @@ pub async fn check_for_updates(
             next_settings.last_known_release_url = Some(release.html_url.clone());
             next_settings.last_known_release_notes = Some(release.body.clone());
             state.save_update_settings(&next_settings)?;
+            let _ = app.emit("update-settings-changed", ());
             Ok(build_update_response(
                 &current_version,
                 Some(&release),
@@ -79,6 +81,7 @@ pub async fn check_for_updates(
         }
         Err(message) => {
             state.save_update_settings(&next_settings)?;
+            let _ = app.emit("update-settings-changed", ());
             Ok(UpdateCheckResponse {
                 current_version,
                 latest_version: next_settings.last_known_latest_version,
