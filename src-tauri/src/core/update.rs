@@ -3,7 +3,7 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use sha2::{Digest, Sha256};
@@ -122,6 +122,59 @@ fn github_agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(30))
         .build()
+}
+
+// Installer bodies may take minutes on a healthy connection. Limit connection
+// setup and each stalled read, rather than the lifetime of the whole transfer.
+fn installer_agent(read_timeout: Duration) -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(read_timeout)
+        .timeout_write(Duration::from_secs(30))
+        .build()
+}
+
+fn copy_installer(
+    mut reader: impl Read,
+    mut writer: impl Write,
+    expected_size: u64,
+    checksum: &str,
+    mut progress: impl FnMut(u64),
+) -> Result<(), AppError> {
+    let mut hasher = Sha256::new();
+    let mut downloaded = 0_u64;
+    let mut last_progress = None;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = reader.read(&mut buffer).map_err(|error| {
+            AppError::UpdateFailed(format!(
+                "installer download was interrupted after {downloaded}/{expected_size} bytes ({:?}): {error}",
+                error.kind()
+            ))
+        })?;
+        if count == 0 { break; }
+        downloaded = downloaded.checked_add(count as u64).ok_or_else(|| {
+            AppError::UpdateFailed("installer is too large".to_string())
+        })?;
+        if downloaded > expected_size || downloaded > MAX_INSTALLER_SIZE {
+            return Err(AppError::UpdateFailed("installer exceeds its declared size".to_string()));
+        }
+        writer.write_all(&buffer[..count]).map_err(|_| AppError::IoError)?;
+        hasher.update(&buffer[..count]);
+        let now = Instant::now();
+        if downloaded == expected_size || last_progress.is_none_or(|last| now.duration_since(last) >= Duration::from_millis(250)) {
+            progress(downloaded);
+            last_progress = Some(now);
+        }
+    }
+    writer.flush().map_err(|_| AppError::IoError)?;
+    if downloaded != expected_size {
+        return Err(AppError::UpdateFailed("installer download size did not match release metadata".to_string()));
+    }
+    if format!("{:x}", hasher.finalize()) != checksum {
+        return Err(AppError::UpdateFailed("installer checksum did not match the release checksum".to_string()));
+    }
+    Ok(())
 }
 
 pub fn fetch_latest_github_release() -> Result<GitHubRelease, String> {
@@ -383,7 +436,7 @@ pub fn download_and_verify_update(
     let final_path = cache_dir.join(&expected_name);
     let temporary_path = cache_dir.join(format!(".{expected_name}.{}.part", Uuid::new_v4()));
     let result = (|| -> Result<(), AppError> {
-        let response = github_agent()
+        let response = installer_agent(Duration::from_secs(30))
             .get(&installer.browser_download_url)
             .call()
             .map_err(|error| {
@@ -398,58 +451,24 @@ pub fn download_and_verify_update(
                 "installer size does not match release metadata".to_string(),
             ));
         }
-        let mut reader = response.into_reader();
+        let reader = response.into_reader();
         let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&temporary_path)
             .map_err(|_| AppError::IoError)?;
-        let mut writer = std::io::BufWriter::new(file);
-        let mut hasher = Sha256::new();
-        let mut downloaded = 0_u64;
-        let mut buffer = [0_u8; 64 * 1024];
-        loop {
-            let count = reader.read(&mut buffer).map_err(|_| {
-                AppError::UpdateFailed("installer download was interrupted".to_string())
-            })?;
-            if count == 0 {
-                break;
-            }
-            downloaded = downloaded
-                .checked_add(count as u64)
-                .ok_or_else(|| AppError::UpdateFailed("installer is too large".to_string()))?;
-            if downloaded > installer.size || downloaded > MAX_INSTALLER_SIZE {
-                return Err(AppError::UpdateFailed(
-                    "installer exceeds its declared size".to_string(),
-                ));
-            }
-            writer
-                .write_all(&buffer[..count])
-                .map_err(|_| AppError::IoError)?;
-            hasher.update(&buffer[..count]);
-            if downloaded == installer.size || downloaded % (512 * 1024) < count as u64 {
-                let _ = app.emit(
-                    UPDATE_EVENT,
-                    UpdateDownloadProgress {
-                        tag: tag.to_string(),
-                        asset_key: asset_key.to_string(),
-                        downloaded_bytes: downloaded,
-                        total_bytes: content_length,
-                    },
-                );
-            }
-        }
-        writer.flush().map_err(|_| AppError::IoError)?;
-        if downloaded != installer.size {
-            return Err(AppError::UpdateFailed(
-                "installer download size did not match release metadata".to_string(),
-            ));
-        }
-        if format!("{:x}", hasher.finalize()) != checksum {
-            return Err(AppError::UpdateFailed(
-                "installer checksum did not match the release checksum".to_string(),
-            ));
-        }
+        let writer = std::io::BufWriter::new(file);
+        copy_installer(reader, writer, installer.size, &checksum, |downloaded| {
+            let _ = app.emit(
+                UPDATE_EVENT,
+                UpdateDownloadProgress {
+                    tag: tag.to_string(),
+                    asset_key: asset_key.to_string(),
+                    downloaded_bytes: downloaded,
+                    total_bytes: Some(installer.size),
+                },
+            );
+        })?;
         fs::rename(&temporary_path, &final_path).map_err(|_| AppError::IoError)?;
         Ok(())
     })();
@@ -462,11 +481,87 @@ pub fn download_and_verify_update(
 
 #[cfg(test)]
 mod tests {
+    use sha2::Digest;
     use super::{
         build_update_response, compare_release_versions, load_update_settings, save_update_settings,
     };
     use crate::models::{GitHubRelease, GitHubReleaseAsset, UpdateSettings};
     use std::{cmp::Ordering, time::{SystemTime, UNIX_EPOCH}};
+
+    #[test]
+    fn installer_reports_small_download_and_rejects_corruption() {
+        let body = b"small installer";
+        let checksum = format!("{:x}", sha2::Sha256::digest(body));
+        let mut events = Vec::new();
+        super::copy_installer(&body[..], Vec::new(), body.len() as u64, &checksum, |n| events.push(n)).unwrap();
+        assert_eq!(events, vec![body.len() as u64]);
+        assert!(super::copy_installer(&body[..], Vec::new(), body.len() as u64, "wrong", |_| {}).is_err());
+        assert!(super::copy_installer(&body[..], Vec::new(), body.len() as u64 + 1, &checksum, |_| {}).is_err());
+        assert!(super::copy_installer(&body[..], Vec::new(), 1, &checksum, |_| {}).is_err());
+    }
+
+    #[test]
+    fn installer_preserves_read_failure_details() {
+        struct Stalled;
+        impl std::io::Read for Stalled {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "test stalled connection"))
+            }
+        }
+        let error = super::copy_installer(Stalled, Vec::new(), 42, "", |_| {}).unwrap_err();
+        let crate::errors::AppError::UpdateFailed(message) = error else { panic!("wrong error") };
+        assert!(message.contains("0/42 bytes"));
+        assert!(message.contains("TimedOut"));
+        assert!(message.contains("test stalled connection"));
+    }
+
+    #[test]
+    fn installer_continues_past_old_thirty_second_deadline() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            stream.read(&mut request).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\n").unwrap();
+            for i in 0..32 {
+                if i > 0 { std::thread::sleep(std::time::Duration::from_secs(1)); }
+                if stream.write_all(b"x").is_err() { break; }
+            }
+        });
+        let started = std::time::Instant::now();
+        let response = super::installer_agent(std::time::Duration::from_secs(30))
+            .get(&format!("http://{address}/installer")).call().unwrap();
+        let body = [b'x'; 32];
+        let checksum = format!("{:x}", sha2::Sha256::digest(body));
+        let mut events = Vec::new();
+        let result = super::copy_installer(response.into_reader(), Vec::new(), 32, &checksum, |n| events.push(n));
+        server.join().unwrap();
+        result.unwrap();
+        assert!(started.elapsed() > std::time::Duration::from_secs(30));
+        assert_eq!(events.first(), Some(&1));
+        assert_eq!(events.last(), Some(&32));
+    }
+
+    #[test]
+    fn installer_stalled_connection_times_out() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 2048]; stream.read(&mut request).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 42\r\nConnection: close\r\n\r\n").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        });
+        let response = super::installer_agent(std::time::Duration::from_millis(100))
+            .get(&format!("http://{address}/installer")).call().unwrap();
+        let result = super::copy_installer(response.into_reader(), Vec::new(), 42, "", |_| {});
+        server.join().unwrap();
+        let crate::errors::AppError::UpdateFailed(message) = result.unwrap_err() else { panic!("wrong error") };
+        assert!(message.contains("TimedOut") || message.contains("WouldBlock"));
+    }
 
     #[test]
     fn compare_versions_handles_v_prefix_and_numeric_parts() {
