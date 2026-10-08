@@ -29,6 +29,7 @@ const MENU_SHOW_ALL_ID: &str = "nutbook_show_all";
 const MENU_SHOW_RECENT_ID: &str = "nutbook_show_recent";
 const MENU_SHOW_STARRED_ID: &str = "nutbook_show_starred";
 const MENU_TOGGLE_OUTLINE_ID: &str = "nutbook_toggle_outline";
+const MENU_TOGGLE_PRESENTATION_NOTES_ID: &str = "nutbook_toggle_presentation_notes";
 const MENU_UNDO_ID: &str = "nutbook_undo";
 const MENU_REDO_ID: &str = "nutbook_redo";
 const MAX_CLI_IPC_REQUEST_BYTES: u64 = 64 * 1024;
@@ -175,6 +176,9 @@ fn main() {
             let toggle_outline = MenuItemBuilder::with_id(MENU_TOGGLE_OUTLINE_ID, "Markdown 大纲")
                 .accelerator("CmdOrCtrl+Shift+B")
                 .build(app)?;
+            let toggle_presentation_notes = MenuItemBuilder::with_id(MENU_TOGGLE_PRESENTATION_NOTES_ID, "切换演示备注（HTML 编辑）")
+                .accelerator("CmdOrCtrl+Shift+N")
+                .build(app)?;
             let undo = MenuItemBuilder::with_id(MENU_UNDO_ID, "撤销")
                 .accelerator("CmdOrCtrl+Z")
                 .build(app)?;
@@ -232,6 +236,7 @@ fn main() {
                     &show_starred,
                     &PredefinedMenuItem::separator(app)?,
                     &toggle_outline,
+                    &toggle_presentation_notes,
                     &PredefinedMenuItem::separator(app)?,
                     &exit_presentation,
                 ],
@@ -267,7 +272,7 @@ fn main() {
                     return;
                 }
             }
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(webview) = app.get_webview("main") {
                 let script = match event.id().as_ref() {
                     EXIT_PRESENTATION_MENU_ID => {
                         "window.__NUTBOOK_EXIT_RUNTIME_FULLSCREEN__?.('native-escape');"
@@ -281,11 +286,18 @@ fn main() {
                     MENU_SHOW_RECENT_ID => "window.__NUTBOOK_NATIVE_MENU__?.('show-recent');",
                     MENU_SHOW_STARRED_ID => "window.__NUTBOOK_NATIVE_MENU__?.('show-starred');",
                     MENU_TOGGLE_OUTLINE_ID => "window.__NUTBOOK_NATIVE_MENU__?.('toggle-outline');",
+                    MENU_TOGGLE_PRESENTATION_NOTES_ID => "window.__NUTBOOK_NATIVE_MENU__?.('toggle-presentation-notes');",
                     MENU_UNDO_ID => "window.__NUTBOOK_NATIVE_MENU__?.('undo');",
                     MENU_REDO_ID => "window.__NUTBOOK_NATIVE_MENU__?.('redo');",
                     _ => return,
                 };
-                let _ = window.eval(script);
+                let _ = webview.eval(script);
+            }
+        })
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started && webview.label() == "main" {
+                nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_reload(webview.app_handle());
+                nutbook_backend::core::html_runtime::clear_main_window_children_on_page_load(webview);
             }
         })
         .setup(|app| {
@@ -310,6 +322,8 @@ fn main() {
                 eprintln!("Nutbook CLI IPC unavailable: {error}");
             }
             app.manage(HtmlEditAppExitState::default());
+            #[cfg(target_os = "macos")]
+            nutbook_backend::core::html_runtime::install_html_runtime_minimize_observer(app.handle());
             Ok(())
         })
         .invoke_handler({
@@ -450,6 +464,22 @@ fn main() {
             commands::html_edit::register_html_edit_session_lease,
             commands::html_edit::invalidate_html_edit_session_lease,
             commands::html_edit::write_editable_html_copy,
+            commands::native_presentation::native_presentation_monitors,
+            commands::native_presentation::native_presentation_legacy_info,
+            commands::native_presentation::upgrade_native_presentation_legacy,
+            commands::native_presentation::native_presentation_probe_command,
+            commands::native_presentation::start_native_presentation,
+            commands::native_presentation::save_native_presentation_notes,
+            commands::native_presentation::native_presentation_state,
+            commands::native_presentation::native_presentation_timer,
+            commands::native_presentation::native_presentation_blackout,
+            commands::native_presentation::recover_native_presentation,
+            commands::native_presentation::native_presentation_navigate,
+            commands::native_presentation::native_presentation_thumbnail,
+            commands::native_presentation::native_presentation_live_preview,
+            commands::native_presentation::native_presentation_report,
+            commands::native_presentation::native_presentation_toggle_fullscreen,
+            commands::native_presentation::stop_native_presentation,
             commands::preview::save_markdown_content,
             commands::preview::export_markdown_file,
             commands::preview::export_markdown_html,
@@ -513,6 +543,10 @@ fn main() {
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
             } if label == "main" => {
+                if nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_close(app) {
+                    api.prevent_close();
+                    return;
+                }
                 if consume_html_edit_app_exit_allowance(app) {
                     return;
                 }
@@ -520,6 +554,10 @@ fn main() {
                 request_html_edit_app_exit_decision(app);
             }
             tauri::RunEvent::ExitRequested { api, .. } => {
+                if nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_close(app) {
+                    api.prevent_exit();
+                    return;
+                }
                 if consume_html_edit_app_exit_allowance(app) {
                     return;
                 }
@@ -598,7 +636,11 @@ fn main() {
 /// 其余（未知 label）一律拒绝。注意：PR C 不拦截导航/外链，本表只管
 /// invoke 命令边界；新页面/弹窗仍按内容面 caller 对待。
 fn webview_may_invoke(label: &str, command: &str) -> bool {
-    if label == "main" || label == "detached" || label == "settings-overlay" {
+    if label == "main"
+        || label == "detached"
+        || label == "settings-overlay"
+        || label == "native-presentation-presenter"
+    {
         return true;
     }
     const TRUSTED_PREFIXES: [&str; 5] = [
@@ -617,6 +659,9 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
         "html-presentation-preview-",
         "html-runtime-popup-",
     ];
+    if label == "native-presentation-blackout" {
+        return command == "stop_native_presentation";
+    }
     if CONTENT_PREFIXES.iter().any(|prefix| label.starts_with(prefix)) {
         matches!(
             command,
@@ -629,6 +674,8 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
                 // 的一次性采集靠这条专用回报命令（命令内按 External 角色 +
                 // 会话/代次校验，语义只限「回传一次滚动/hash 快照」）。
                 | "external_html_view_state_report_command"
+                | "native_presentation_probe_command"
+                | "native_presentation_report"
         )
     } else {
         false

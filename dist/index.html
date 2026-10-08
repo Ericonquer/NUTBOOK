@@ -649,6 +649,10 @@
         height: 100vh;
       }
 
+      .main-shell.presentation-notes-layout { grid-template-rows: auto auto minmax(0, 1fr); }
+      .main-shell.presentation-notes-layout .footer-bar { display: none; }
+      .main-shell.presentation-notes-layout .runtime-host-page { min-height: 0; }
+
       .app-shell.document-mode {
         grid-template-columns: var(--sidebar-collapsed-width) 1fr;
       }
@@ -792,6 +796,41 @@
       .app-shell.runtime-focus-mode .runtime-host-shell {
         min-height: 100vh;
         height: 100vh;
+      }
+
+      .app-shell.native-audience-mode .sidebar,
+      .app-shell.native-audience-mode .topbar,
+      .app-shell.native-audience-mode .document-toolbar,
+      .app-shell.native-audience-mode .footer-bar {
+        display: none;
+      }
+
+      .native-audience-banner { display:none; }
+      .app-shell.native-audience-rehearsal:not(.native-audience-screenfill) .native-audience-banner {
+        position:fixed;
+        inset:0 0 auto;
+        z-index:100001;
+        box-sizing:border-box;
+        height:36px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:0 14px;
+        background:var(--surface-variant);
+        border-bottom:1px solid var(--line);
+        color:var(--ink-soft);
+        font:600 12px/1.25 var(--font-ui);
+      }
+      .native-audience-banner span {
+        position:absolute;
+        left:50%;
+        transform:translateX(-50%);
+        width:max-content;
+        max-width:calc(100% - 280px);
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+        text-align:center;
       }
 
       .settings-inline-feedback {
@@ -4266,6 +4305,21 @@
       @keyframes presentation-thumb-loading { to { transform: translateX(100%); } }
 
       .runtime-host-page.presentation-editing .runtime-host-shell { flex: 1 1 auto; min-width: 0; }
+
+      .runtime-host-page.presentation-notes-open { position: relative; }
+      .runtime-host-page.presentation-notes-open .runtime-host-shell { height: calc(100% - 184px); min-height: 0; }
+      .presentation-notes-pane { display: none; position: absolute; left: 224px; right: 0; bottom: 0; height: 184px; box-sizing: border-box; border-top: 1px solid #cfc4c5; background: #f9f9fb; padding: 12px 24px; z-index: 1; }
+      .runtime-host-page.presentation-notes-open .presentation-notes-pane { display: flex; flex-direction: column; gap: 8px; }
+      .presentation-notes-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 600; color: #4c4546; }
+      .presentation-notes-feedback { margin-left: auto; color: #ba1a1a; font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .presentation-notes-feedback[data-tone="warn"] { color: #5e5e63; }
+      .presentation-notes-head > div { display: flex; align-items: center; gap: 8px; }
+      .presentation-notes-head button { border: 0; border-radius: 8px; background: #eeeef0; color: #1a1c1d; cursor: pointer; font: inherit; padding: 4px 8px; }
+      .presentation-notes-head button:hover { background: #e2e2e4; }
+      .presentation-notes-head button:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
+      .presentation-notes-editor { flex: 1; min-height: 0; overflow: auto; border: 1px solid #d9dadc; border-radius: 8px; padding: 8px 12px; background: #fff; color: #1a1c1d; font: 15px/1.5 Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; white-space: pre-wrap; }
+      .presentation-notes-editor:focus { border-color: #7e7576; outline: none; }
+      .presentation-notes-editor p { margin: 0 0 .4em; }
 
       .runtime-card-inner {
         max-width: 520px;
@@ -8606,6 +8660,7 @@
   </head>
   <body>
     <div id="appShell" class="app-shell">
+      <div class="native-audience-banner" role="note" data-tauri-drag-region><span id="nativeAudienceBannerText"></span></div>
       <input id="folderPicker" type="file" webkitdirectory directory multiple style="display: none;" />
       <input id="singleFilePicker" type="file" accept=".md,.markdown,.html,.htm,text/markdown,text/html" style="display: none;" />
       <aside class="sidebar" data-tauri-drag-region>
@@ -9091,6 +9146,7 @@
         tabs: [],
         runtimeSessions: [],
         htmlEditSession: null,
+        nativePresentationItemId: null,
         htmlEditSessionGeneration: 0,
         htmlEditToolbarVisible: false,
         htmlEditToolbarSyncInFlight: false,
@@ -9224,6 +9280,7 @@
         runtimeHostSyncPending: false,
         runtimeSurfacesSuspended: false,
         runtimeSurfaceSuspendPromise: null,
+        runtimeSurfaceLifecycleEpoch: 0,
         runtimeSurfaceTokens: new Map(),
         runtimeHiddenSurfaceIds: new Set(),
         runtimePatchAppliedKeys: new Map(),
@@ -9329,7 +9386,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.1.0",
+          currentVersion: "1.2.0",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -9674,6 +9731,12 @@
       function setStatus(message, tone = "ok") {
         els.statusText.textContent = tr(message);
         els.statusDot.className = `status-dot${tone === "warn" ? " warn" : tone === "error" ? " error" : ""}`;
+        const notesFeedback = document.getElementById("presentationNotesFeedback");
+        if (notesFeedback) {
+          notesFeedback.hidden = tone !== "warn" && tone !== "error";
+          notesFeedback.textContent = notesFeedback.hidden ? "" : tr(message);
+          notesFeedback.dataset.tone = tone;
+        }
       }
 
       function fileCountText(count) {
@@ -10872,7 +10935,8 @@
       }
 
       function htmlEditLeaveRequiresSave(session) {
-        return Boolean(session?.dirty || session?.requiresPatchReconciliation);
+        flushHtmlPresentationNotesEditor(session);
+        return Boolean(session?.dirty || session?.requiresPatchReconciliation || htmlPresentationNotesPatch(session).length);
       }
 
       function canProceedHtmlEditLeaveAfterSnapshotRefresh(session, refreshed) {
@@ -10997,6 +11061,7 @@
             payload: {
               itemId,
               bounds: htmlEditLeaveConfirmBounds(),
+              language: appState.language,
               mode: "create-copy"
             }
           });
@@ -11039,6 +11104,7 @@
               payload: {
                 itemId,
                 bounds: htmlEditLeaveConfirmBounds(),
+                language: appState.language,
                 mode: "remove",
                 fileName: item?.fileName || "",
                 requestId: request.requestId
@@ -11150,7 +11216,8 @@
           await invoke("attach_html_edit_leave_confirm_overlay_command", {
             payload: {
               itemId: session.itemId,
-              bounds: htmlEditLeaveConfirmBounds()
+              bounds: htmlEditLeaveConfirmBounds(),
+              language: appState.language
             }
           });
         } catch (error) {
@@ -11224,6 +11291,10 @@
         const session = appState.htmlEditSession;
         if (!session || session.itemId !== tabId) return true;
         if (appState.htmlEditSession?.runtimeSessionId !== session.runtimeSessionId) return true;
+        if (session.presentationNotes?.composing) {
+          setStatus(nativePresentationText("请先完成中文输入", "Finish composing text first"), "warn");
+          return false;
+        }
         if (!htmlEditLeaveRequiresSave(session)) {
           await exitHtmlEditMode({ runtimeSessionId: session.runtimeSessionId, discard: false });
           return true;
@@ -11236,6 +11307,7 @@
           const saveResult = await saveActiveHtmlEditPatch();
           if (!saveResult?.saved || !saveResult.canLeave) return false;
           if (appState.htmlEditSession?.runtimeSessionId !== session.runtimeSessionId) return true;
+          if (htmlEditLeaveRequiresSave(session)) return false;
         }
         await exitHtmlEditMode({ runtimeSessionId: session.runtimeSessionId, discard: choice === "discard" });
         return true;
@@ -11549,7 +11621,7 @@
         const access = await invoke("get_html_edit_patch", { itemId });
         await invoke("eval_html_runtime_script_command", {
           itemId,
-          script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},managedSourceAllowed:${access.managedSourceAllowed !== false},hasProtocol:Boolean(document.querySelector('[data-editable]'))});`
+          script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},managedSourceAllowed:${access.managedSourceAllowed !== false},hasProtocol:Boolean(document.querySelector('[data-editable]')||(window.__NUTBOOK_PRESENTATION__?.version===1&&window.__NUTBOOK_PRESENTATION__?.capabilities?.managedPresenter===true&&typeof window.__NUTBOOK_PRESENTATION__?.setEditMode==='function'&&document.getElementById('nutbook-presentation-notes')))});`
         });
       }
 
@@ -11696,10 +11768,11 @@
       function renderHtmlEditPresentationRail(session = appState.htmlEditSession) {
         const page = document.querySelector(".runtime-host-page");
         const rail = document.getElementById("presentationEditRail");
-        if (!page || !rail) return;
+        if (!page || !rail) { els.mainShell.classList.remove("presentation-notes-layout"); return; }
         if (!isCurrentHtmlEditSession(session) || !session.presentation?.pages?.length) {
           page.classList.remove("presentation-editing");
           rail.replaceChildren();
+          renderHtmlPresentationNotesPane(null);
           return;
         }
         page.classList.add("presentation-editing");
@@ -11752,6 +11825,175 @@
         rail.addEventListener("scroll", requestVisibleThumbnails, { passive: true });
         requestVisibleThumbnails();
         prefetchPresentationThumbnails(session);
+        renderHtmlPresentationNotesPane(session);
+      }
+
+      function noteParagraphsFromEditor(editor) {
+        const paragraphs = []; let runs = [];
+        const append = (text, bold) => {
+          if (!text) return;
+          const last = runs[runs.length - 1];
+          if (last?.bold === bold) last.text += text;
+          else runs.push({ text, bold });
+        };
+        const flush = () => { if (runs.length) { paragraphs.push({ type: "paragraph", runs }); runs = []; } };
+        const walk = (node, bold = false) => {
+          if (node.nodeType === Node.TEXT_NODE) { append(node.nodeValue || "", bold); return; }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          const tag = node.tagName;
+          if (tag === "BR") { flush(); return; }
+          const block = tag === "P" || tag === "DIV";
+          if (block) flush();
+          for (const child of node.childNodes) walk(child, bold || tag === "B" || tag === "STRONG");
+          if (block) flush();
+        };
+        for (const child of editor.childNodes) walk(child);
+        flush();
+        return paragraphs;
+      }
+
+      function htmlPresentationNotesPatch(session) {
+        const notes = session?.presentationNotes;
+        if (!notes?.loaded) return [];
+        return Object.keys(notes.draft).filter(id => stableHtmlEditJson(notes.draft[id] || []) !== stableHtmlEditJson(notes.baseline[id] || []));
+      }
+
+      function flushHtmlPresentationNotesEditor(session) {
+        const notes = session?.presentationNotes;
+        if (!notes?.inputPending || !notes.renderedPageId || notes.composing) return;
+        const editor = document.getElementById("presentationNotesEditor");
+        if (!editor || editor !== notes.editor) return;
+        notes.draft[notes.renderedPageId] = noteParagraphsFromEditor(editor);
+        notes.inputPending = false;
+        syncHtmlPresentationNotesToolbar(session);
+      }
+
+      function syncHtmlPresentationNotesToolbar(session) {
+        const notes = session?.presentationNotes;
+        if (!notes?.loaded || !isCurrentHtmlEditSession(session)) return;
+        const visible = Boolean(notes.open);
+        const dirty = Boolean(notes.inputPending || htmlPresentationNotesPatch(session).length);
+        const stateKey = `${visible}:${dirty}`;
+        if (notes.toolbarStateKey === stateKey) return;
+        notes.toolbarStateKey = stateKey;
+        invoke("eval_html_runtime_script_command", { itemId: session.itemId, script: `window.__NUTBOOK_HTML_EDIT__?.setNotesState(${JSON.stringify({ visible, dirty })});` }).catch(() => { notes.toolbarStateKey = null; });
+      }
+
+      function renderHtmlPresentationNotesPane(session = appState.htmlEditSession) {
+        const page = document.querySelector(".runtime-host-page");
+        const pane = document.getElementById("presentationNotesPane");
+        const editor = document.getElementById("presentationNotesEditor");
+        if (!page || !pane || !editor) { els.mainShell.classList.remove("presentation-notes-layout"); return; }
+        const notes = session?.presentationNotes;
+        const open = Boolean(isCurrentHtmlEditSession(session) && session.presentation?.pageIds?.length && notes?.loaded && notes.open);
+        if (!open) {
+          flushHtmlPresentationNotesEditor(session);
+          page.classList.remove("presentation-notes-open");
+          els.mainShell.classList.remove("presentation-notes-layout");
+          pane.hidden = true;
+          scheduleRuntimeHostSync();
+          return;
+        }
+        pane.hidden = false;
+        pane.setAttribute("aria-label", nativePresentationText("演示备注", "Presenter notes"));
+        for (const [id, label] of [["presentationNotesBold", nativePresentationText("加粗所选备注", "Bold selected note text")], ["presentationNotesClose", nativePresentationText("隐藏备注", "Hide notes")]]) {
+          const button = document.getElementById(id);
+          button?.setAttribute("aria-label", label);
+          button?.setAttribute("title", label);
+        }
+        page.classList.add("presentation-notes-open");
+        els.mainShell.classList.add("presentation-notes-layout");
+        const pageId = session.presentation.activePageId;
+        if (notes.editor !== editor) {
+          notes.editor = editor;
+          editor.addEventListener("input", () => { if (isCurrentHtmlEditSession(session)) { notes.inputPending = true; notes.revision += 1; syncHtmlPresentationNotesToolbar(session); } });
+          editor.addEventListener("compositionstart", () => { notes.composing = true; });
+          editor.addEventListener("compositionend", () => { notes.composing = false; notes.inputPending = true; notes.revision += 1; flushHtmlPresentationNotesEditor(session); renderHtmlPresentationNotesPane(session); });
+          editor.addEventListener("paste", event => {
+            event.preventDefault();
+            const plain = event.clipboardData?.getData("text/plain") || "";
+            document.execCommand("insertText", false, plain);
+          });
+          const bold = document.getElementById("presentationNotesBold");
+          bold?.addEventListener("mousedown", event => event.preventDefault());
+          bold?.addEventListener("click", () => { editor.focus(); document.execCommand("bold"); notes.inputPending = true; notes.revision += 1; syncHtmlPresentationNotesToolbar(session); });
+          document.getElementById("presentationNotesClose")?.addEventListener("click", () => toggleHtmlPresentationNotes(session, false));
+        }
+        if (notes.composing && notes.renderedPageId && notes.renderedPageId !== pageId) return;
+        if (notes.renderedPageId !== pageId) {
+          flushHtmlPresentationNotesEditor(session);
+          notes.renderedPageId = pageId;
+          editor.replaceChildren();
+          for (const paragraph of notes.draft[pageId] || []) {
+            const p = document.createElement("p");
+            for (const run of paragraph.runs || []) {
+              const span = document.createElement(run.bold ? "strong" : "span");
+              span.textContent = run.text || "";
+              p.append(span);
+            }
+            editor.append(p);
+          }
+          if (!editor.childNodes.length) editor.append(document.createElement("p"));
+        }
+        const current = session.presentation.pages.find(page => page.id === pageId);
+        document.getElementById("presentationNotesTitle").textContent = `${current?.index || ""}. ${current?.title || pageId} · ${nativePresentationText("演示备注", "Presenter notes")}`;
+        editor.setAttribute("aria-label", nativePresentationText(`${current?.title || pageId} 备注`, `Notes for ${current?.title || pageId}`));
+        syncHtmlPresentationNotesToolbar(session);
+        scheduleRuntimeHostSync();
+      }
+
+      function toggleHtmlPresentationNotes(session = appState.htmlEditSession, force) {
+        if (!isCurrentHtmlEditSession(session) || !session.presentation?.pageIds?.length) return;
+        if (force === undefined) {
+          const now = performance.now();
+          if (now - (session.presentationNotesLastToggleAt || -Infinity) < 150) return;
+          session.presentationNotesLastToggleAt = now;
+        }
+        const notes = session.presentationNotes;
+        if (!notes?.loaded) {
+          session.presentationNotesRequestedOpen = force !== false;
+          if (!session.presentationNotesLoading) initializeHtmlPresentationNotes(session).catch(() => setStatus(nativePresentationText("无法读取演示备注", "Could not load presenter notes"), "warn"));
+          setStatus(nativePresentationText("正在读取备注，请稍候", "Loading notes, please wait"), "info");
+          return;
+        }
+        notes.open = typeof force === "boolean" ? force : !notes.open;
+        renderHtmlPresentationNotesPane(session);
+        syncHtmlPresentationNotesToolbar(session);
+        if (notes.open) document.getElementById("presentationNotesEditor")?.focus();
+      }
+
+      document.addEventListener("keydown", event => {
+        const session = appState.htmlEditSession;
+        if (!isCurrentHtmlEditSession(session) || !session.presentation || event.isComposing) return;
+        if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s" && event.target?.closest?.("#presentationNotesPane")) {
+          event.preventDefault();
+          event.stopPropagation();
+          saveActiveHtmlEditPatch().catch(error => setStatus(htmlEditSaveErrorStatus(error), "error"));
+          return;
+        }
+        if (!event.metaKey || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "n") return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleHtmlPresentationNotes(session);
+      }, true);
+
+      async function initializeHtmlPresentationNotes(session) {
+        if (session.presentationNotesLoading) return;
+        session.presentationNotesLoading = true;
+        try {
+          const probe = await probeNativePresentation(session.itemId);
+          if (!isCurrentHtmlEditSession(session)) return;
+          if (!probe || !session.presentation || probe.pages.length !== session.presentation.pages.length
+            || probe.pages.some((page, index) => page.id !== session.presentation.pages[index].id)) {
+            setStatus(nativePresentationText("无法读取演示备注", "Could not load presenter notes"), "warn");
+            return;
+          }
+          const initial = Object.fromEntries(Object.entries(probe.notes || {}).map(([id, paragraphs]) => [id, paragraphs.map(paragraph => ({ type: "paragraph", runs: (paragraph.runs || []).map(run => ({ text: String(run.text || ""), bold: run.bold === true })) }))]));
+          session.presentationNotes = { loaded: true, open: Boolean(session.presentationNotesRequestedOpen), baseline: structuredClone(initial), draft: structuredClone(initial), renderedPageId: null, editor: null, inputPending: false, composing: false, revision: 0 };
+          if (session.presentationNotes.open) toggleHtmlPresentationNotes(session, true);
+        } finally {
+          session.presentationNotesLoading = false;
+        }
       }
 
       async function navigateHtmlEditSection(session, pageId, requestId) {
@@ -12004,6 +12246,9 @@
           shortcutsIntercepted: false,
           inlineToolbar: true,
           presentation: null,
+          presentationNotes: null,
+          presentationNotesLoading: false,
+          presentationNotesRequestedOpen: false,
           sectionNavigation: null,
           sectionNavigationEpoch: 0
         };
@@ -12194,6 +12439,10 @@
           logHtmlEditSaveCoordinator(session, "host-save-already-clean");
           return htmlEditSaveResult({ saved: true, canLeave: true });
         }
+        if (session.presentationNotes?.composing) {
+          setStatus(nativePresentationText("请先完成中文输入", "Finish composing text first"), "warn");
+          return htmlEditSaveResult();
+        }
         if (session.saveInFlight) {
           logHtmlEditSaveCoordinator(session, "host-save-waiting-for-prior");
           // Never return an earlier Save's result for a newer document state.
@@ -12209,6 +12458,9 @@
         const runtimeSessionId = session.runtimeSessionId;
         const generation = session.generation;
         const savedChangesJson = stableHtmlEditJson(session.changes || {});
+        const notePatchIds = htmlPresentationNotesPatch(session);
+        const notePatch = Object.fromEntries(notePatchIds.map(id => [id, structuredClone(session.presentationNotes.draft[id])]));
+        const notePages = notePatchIds.length ? session.presentation.pages.map(page => ({ id: page.id, title: page.title || "" })) : [];
         const savedDocumentRevision = session.documentRevision;
         const candidatePersistedChanges = mergeHtmlEditPatchChanges(session.persistedChanges, session.changes);
         // Commit needs the full canonical state: an older sidecar may contain
@@ -12225,7 +12477,9 @@
               artifactEditId: session.artifactEditId,
               expectedFileHash: session.sourceFileHash,
               expectedModifiedAt: session.sourceModifiedAt,
-              changes: changesForSave
+              changes: changesForSave,
+              presentationPages: notePages,
+              presentationNotes: notePatch
             });
             logHtmlEditSaveCoordinator(session, "host-save-commit-success");
             if (appState.htmlEditSession !== session || session.generation !== generation || session.runtimeSessionId !== runtimeSessionId) {
@@ -12235,6 +12489,10 @@
             session.sourceCommitted = true;
             session.sourceFileHash = result.sourceFileHash ?? session.sourceFileHash;
             session.sourceModifiedAt = result.sourceModifiedAt ?? session.sourceModifiedAt;
+            if (session.presentationNotes) {
+              for (const [id, paragraphs] of Object.entries(notePatch)) session.presentationNotes.baseline[id] = paragraphs;
+              syncHtmlPresentationNotesToolbar(session);
+            }
             // The commit is now the source of truth for presentation pixels.
             // Do not show a previous page bitmap after a successful save.
             discardPresentationThumbnailsForItem(session.itemId);
@@ -12314,6 +12572,11 @@
             session.changes = {};
             session.requiresPatchReconciliation = false;
             session.persistedChanges = {};
+            flushHtmlPresentationNotesEditor(session);
+            if (htmlPresentationNotesPatch(session).length) {
+              setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+              return htmlEditSaveResult({ saved: true, canLeave: false });
+            }
             // 保存成功但索引待同步时，最终状态必须是明确警告，不能被普通"已保存"覆盖；
             // 也不得把缩略图失败伪装成保存失败。
             if (indexSyncPending) {
@@ -12354,7 +12617,7 @@
             const message = normalizeError(error);
             if ((message.includes("EDIT_CONFLICT") || message.includes("edit conflict")) && window.confirm(t("htmlEdit.saveConflictCopyPrompt"))) {
               try {
-                const copied = await invoke("save_html_edit_conflict_copy", { itemId: session.itemId, runtimeSessionId, generation, artifactEditId: session.artifactEditId, changes: candidatePersistedChanges });
+                const copied = await invoke("save_html_edit_conflict_copy", { itemId: session.itemId, runtimeSessionId, generation, artifactEditId: session.artifactEditId, changes: candidatePersistedChanges, presentationPages: notePages, presentationNotes: notePatch });
                 setStatus(`${t("htmlEdit.saveConflictCopySaved")}${copied.filePath}`, "warn");
                 // The recovery file is a new artifact. Do not leave an active
                 // editor bound to the externally changed original path.
@@ -12483,8 +12746,12 @@
         const session = appState.htmlEditSession;
         if (!session || session.runtimeSessionId !== data.runtimeSessionId) return;
         if (!isCurrentHtmlEditSession(session)) return;
-        const isStrictRuntimeMessage = data.type === "html_edit_ready" || String(data.type || "").startsWith("html_edit_section_navigation_");
+        const isStrictRuntimeMessage = data.type === "html_edit_ready" || data.type === "html_edit_toggle_notes_requested_from_runtime" || String(data.type || "").startsWith("html_edit_section_navigation_");
         if (isStrictRuntimeMessage && (Number(data.itemId) !== session.itemId || Number(data.generation) !== session.generation)) return;
+        if (data.type === "html_edit_toggle_notes_requested_from_runtime") {
+          toggleHtmlPresentationNotes(session);
+          return;
+        }
         if (data.type === "html_edit_section_navigation_ready") {
           applyHtmlEditSectionNavigationReady(session, data.sectionNavigation, Number(data.requestEpoch));
           return;
@@ -12558,7 +12825,7 @@
             exitHtmlEditMode({ discard: true }).catch(() => {});
             return;
           }
-          if (!Number(data.count || 0)) {
+          if (!Number(data.count || 0) && !data.presentation?.pages?.length) {
             setStatus(t("htmlEdit.noEditableFields"), "warn");
             exitHtmlEditMode({ runtimeSessionId: data.runtimeSessionId, discard: true }).catch(() => {});
             return;
@@ -12581,6 +12848,7 @@
             };
             renderHtmlEditPresentationRail(session);
             scheduleRuntimeHostSync();
+            initializeHtmlPresentationNotes(session).catch(() => setStatus(nativePresentationText("无法读取演示备注", "Could not load presenter notes"), "warn"));
           }
           if (data.sectionNavigation) applyHtmlEditSectionNavigationReady(session, data.sectionNavigation);
           syncHtmlEditToolbar().catch((error) => setStatus(htmlEditSaveErrorStatus(error), "error"));
@@ -14948,7 +15216,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.1.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.2.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -16664,7 +16932,7 @@
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
-        // 固定顺序：Markdown=[导出中心, 另存文件, 移除文件]；HTML runtime=[演示模式, 移除文件]。
+        // 固定顺序：Markdown=[导出中心, 另存文件, 移除文件]；HTML runtime=[演示模式, 全屏查看, 移除文件]。
         let options = [];
         if (isExternalRuntimeTab(tab)) {
           // 临时 HTML 是只读会话：不提供导出 / 另存 / 移除（§6.1 不开放编辑、
@@ -16687,6 +16955,12 @@
           ];
         } else if (isHtmlRuntime) {
           options = [
+            {
+              action: "prepare-native-presentation",
+              label: appState.language === "en-US" ? "Presentation mode" : "演示模式",
+              icon: MENU_ICON_SVG.presentation,
+              disabled: Boolean(appState.htmlEditSession?.itemId === tab?.id)
+            },
             {
               action: "toggle-runtime-presentation",
               label: appState.runtimeFullscreenItemId === tab?.id ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut"),
@@ -16759,6 +17033,10 @@
             }
             if (action === "toggle-runtime-presentation") {
               await toggleActiveHtmlRuntimePresentationMode();
+              return;
+            }
+            if (action === "prepare-native-presentation") {
+              await openNativePresentationPreparation();
               return;
             }
             if (action === "remove-from-nutbook") {
@@ -17991,7 +18269,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.1.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.2.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -18522,7 +18800,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.1.0",
+              currentVersion: "1.2.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -18533,8 +18811,8 @@
             };
           }
           return {
-            currentVersion: "1.1.0",
-            latestVersion: "1.1.0",
+            currentVersion: "1.2.0",
+            latestVersion: "1.2.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -20833,11 +21111,383 @@ if (!chipTipController) {
         }
       }
 
+      const nativePresentationProbeWaiters = new Map();
+      let nativePresentationDialog = null;
+      let nativePresentationSessionId = null;
+      let nativePresentationTipTimer = null;
+      let nativePresentationPreparingItemId = null;
+
+      window.__NUTBOOK_NATIVE_PRESENTATION_PROBE__ = (payload) => {
+        const waiter = nativePresentationProbeWaiters.get(payload?.requestId);
+        if (!waiter) return;
+        nativePresentationProbeWaiters.delete(payload.requestId);
+        clearTimeout(waiter.timer);
+        waiter.resolve(payload);
+      };
+
+      function nativePresentationText(zh, en) { return appState.language === "en-US" ? en : zh; }
+      function nativePresentationErrorText(error) {
+        const code = error?.code || "";
+        if (code === "EDIT_CONFLICT") return nativePresentationText("源文件已被外部修改，请重新打开后再试", "The source file changed. Reopen it and try again.");
+        if (code === "INVALID_SESSION") return nativePresentationText("演示会话已失效，请重新进入演示模式", "The presentation session expired. Open presentation mode again.");
+        if (code === "THUMBNAIL_GENERATION_FAILED") return nativePresentationText("静态预览生成失败", "Could not create static preview");
+        return error?.message || String(error);
+      }
+
+      function removeNativePresentationDialog() {
+        clearInterval(nativePresentationTipTimer);
+        nativePresentationTipTimer = null;
+        nativePresentationDialog?.remove();
+        nativePresentationDialog = null;
+      }
+
+      function restoreAfterNativePresentation(itemId) {
+        removeNativePresentationDialog();
+        nativePresentationSessionId = null;
+        // A runtime fullscreen notification may arrive while the audience
+        // owns the main window. Its host-only view state must not survive the
+        // presentation session after the native window has been restored.
+        appState.runtimeFullscreenItemId = null;
+        applyRuntimeFullscreenState();
+        els.appShell.classList.remove("native-audience-mode");
+        els.appShell.classList.remove("native-audience-rehearsal");
+        els.appShell.classList.remove("native-audience-screenfill");
+        if (appState.nativePresentationItemId === itemId) appState.nativePresentationItemId = null;
+        if (getActiveTab()?.id === itemId) {
+          // The content child was hidden for preparation. Its previous bounds
+          // still match the current mount, so force a fresh attach on return.
+          cleanupRuntimeHostSync();
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+          scheduleRuntimeHostSync();
+        }
+      }
+
+      window.__NUTBOOK_NATIVE_PRESENTATION_ENDED__ = (itemId) => restoreAfterNativePresentation(Number(itemId));
+
+      async function hideRuntimeHostForNativePresentation(itemId) {
+        // An older attach must finish before the presentation host takes the
+        // same label. Invalidate its run, await its actual completion, then
+        // close the reading surface and its controls.
+        cleanupRuntimeHostSync();
+        while (appState.runtimeHostSyncInFlight) {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        await hideRuntimeSessionSurfaces(itemId, { force: true });
+      }
+
+      function nativePresentationProbeScript(itemId, requestId) {
+        return `;(async()=>{
+          const declared=document.documentElement.getAttribute('data-nutbook-artifact-kind')==='presentation';
+          const report=(reason)=>window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:true,declared,reason,pages:[],notes:{},activePageId:''}});
+          try{
+            const domPageIds=[...document.querySelectorAll('[data-nutbook-page-id]')].map(root=>root.getAttribute('data-nutbook-page-id')||'');
+            if(declared&&(domPageIds.some(id=>!id)||new Set(domPageIds).size!==domPageIds.length))return report('duplicate_page_id');
+            const bridge=window.__NUTBOOK_PRESENTATION__;
+            if(!bridge || Number(bridge.version)!==1)return report('missing_bridge');
+            if(bridge.capabilities?.managedPresenter!==true || typeof bridge.setManagedMode!=='function')return report('missing_managed_mode');
+            if(typeof bridge.goTo!=='function'||typeof bridge.subscribe!=='function')return report('missing_navigation');
+            await bridge.whenReady?.();
+            const encoder=new TextEncoder();
+            const pageTitle=(value)=>{let title='';let bytes=0;for(const character of String(value||'')){const size=encoder.encode(character).length;if(bytes+size>512)break;title+=character;bytes+=size;}return title;};
+            const pages=(Array.isArray(bridge.pages)?bridge.pages:[]).map(p=>({id:String(p?.id||''),title:pageTitle(p?.title)}));
+            if(!pages.length||pages.length>500||pages.some(p=>encoder.encode(p.id).length>256))return report('invalid_page_list');
+            if(pages.some(p=>!p.id)||new Set(pages.map(p=>p.id)).size!==pages.length)return report('duplicate_page_id');
+            const roots=[...document.querySelectorAll('[data-nutbook-page-id]')];
+            if(roots.length!==pages.length||!pages.every(p=>roots.filter(root=>root.getAttribute('data-nutbook-page-id')===p.id).length===1))return report('page_dom_mismatch');
+            const activePageId=String(bridge.activePageId||'');
+            if(!pages.some(p=>p.id===activePageId))return report('page_dom_mismatch');
+            const node=document.getElementById('nutbook-presentation-notes');
+            if(!node)return report('missing_notes');
+            let data;
+            try{data=JSON.parse(node.textContent||'{}');}catch(_){return report('invalid_notes');}
+            if(data.version!==1||!data.pages||typeof data.pages!=='object'||Array.isArray(data.pages))return report('invalid_notes');
+            const notes={};
+            let noteBytes=0;
+            for(const [id,paragraphs] of Object.entries(data.pages)){
+              if(!pages.some(page=>page.id===id)||!Array.isArray(paragraphs)||paragraphs.length>100)return report('invalid_notes');
+              if(paragraphs.some(p=>p?.type!=='paragraph'||!Array.isArray(p.runs)||p.runs.length>100||p.runs.some(r=>typeof r?.text!=='string'||(r.bold!==undefined&&typeof r.bold!=='boolean')||encoder.encode(r.text).length>10000)))return report('invalid_notes');
+              for(const paragraph of paragraphs)for(const run of paragraph.runs)noteBytes+=encoder.encode(run.text).length;
+              if(noteBytes>512*1024)return report('invalid_notes');
+              notes[id]=paragraphs.map(p=>({runs:p.runs.map(r=>({text:r.text,bold:r.bold===true}))}));
+            }
+            for(const page of pages){if(notes[page.id])continue;const root=roots.find(node=>node.getAttribute('data-nutbook-page-id')===page.id);const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes');if(!legacy)continue;const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean);notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]}));}
+            await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:false,declared,pages,notes,activePageId}});
+          }catch(_){await report('bridge_error');}
+        })();`;
+      }
+
+      async function probeNativePresentation(itemId) {
+        const requestId = `native-presentation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const result = new Promise((resolve) => {
+          const timer = setTimeout(() => { nativePresentationProbeWaiters.delete(requestId); resolve(null); }, 4000);
+          nativePresentationProbeWaiters.set(requestId, { timer, resolve });
+        });
+        try {
+          const applied = await invoke("eval_html_runtime_script_command", { itemId, script: nativePresentationProbeScript(itemId, requestId) });
+          if (!applied) { const waiter = nativePresentationProbeWaiters.get(requestId); if (waiter) { nativePresentationProbeWaiters.delete(requestId); clearTimeout(waiter.timer); waiter.resolve(null); } }
+        } catch (_) {
+          const waiter = nativePresentationProbeWaiters.get(requestId);
+          if (waiter) { nativePresentationProbeWaiters.delete(requestId); clearTimeout(waiter.timer); waiter.resolve(null); }
+        }
+        const payload = await result;
+        return payload?.itemId === itemId ? payload : null;
+      }
+
+      function nativePresentationProbeFailure(probe) {
+        const reasons = {
+          missing_bridge: ["缺少演示桥或版本不匹配", "Presentation bridge is missing or has the wrong version"],
+          missing_managed_mode: ["缺少 setManagedMode 或受管理演示能力声明", "setManagedMode or the managed presentation capability is missing"],
+          missing_navigation: ["缺少 goTo 或 subscribe 导航接口", "goTo or subscribe navigation is missing"],
+          duplicate_page_id: ["页面 ID 为空或重复", "Page IDs are empty or duplicated"],
+          invalid_page_list: ["页面数量或 ID 长度超出演示协议限制", "Page count or ID length exceeds the presentation protocol limits"],
+          page_dom_mismatch: ["页面列表、页面 DOM 或当前页 ID 不一致", "Page list, page DOM, or active page ID does not match"],
+          missing_notes: ["缺少 nutbook-presentation-notes 备注块", "The nutbook-presentation-notes block is missing"],
+          invalid_notes: ["备注 JSON 结构无效或引用了未知页面", "Notes JSON is invalid or refers to an unknown page"],
+          bridge_error: ["演示桥初始化或探测时发生错误", "Presentation bridge failed during initialization or probing"]
+        };
+        if (probe?.declared && reasons[probe.reason]) return nativePresentationText(...reasons[probe.reason]);
+        return nativePresentationText("此 HTML 没有可识别的演示页面。仍可从“更多”选择“全屏查看”，以单窗口展示文件。", "This HTML has no recognizable presentation pages. You can still choose Full-screen view from More to show the file in one window.");
+      }
+
+      function nativePresentationModalShell() {
+        let style = document.getElementById("nativePresentationDialogStyle");
+        if (!style) {
+          style = document.createElement("style"); style.id = "nativePresentationDialogStyle";
+          style.textContent = `
+            .native-presentation-scrim { position:fixed; inset:0; z-index:100000; background:rgba(17,17,19,.12); backdrop-filter:blur(10px); display:grid; place-items:center; padding:24px; }
+            .native-presentation-panel { box-sizing:border-box; width:min(560px,100%); max-height:90vh; overflow:auto; background:var(--surface-variant); color:var(--ink); border:1px solid var(--line); border-radius:20px; box-shadow:0 24px 60px rgba(20,20,20,.14); padding:20px; font-family:var(--font-ui); font-size:15px; }
+            .native-presentation-panel h2 { margin:0; font-size:18px; font-weight:700; line-height:28px; letter-spacing:-.02em; }
+            .native-presentation-panel p { line-height:1.5; }
+            .native-presentation-panel .native-heading { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+            .native-presentation-panel .native-page-count { border-radius:999px; padding:4px 9px; background:var(--surface-muted); color:var(--ink-soft); font-size:12px; font-weight:600; white-space:nowrap; }
+            .native-presentation-panel .native-close { margin-left:auto; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--ink-soft); font-size:20px; line-height:1; }
+            .native-presentation-panel .native-close:hover { background:var(--surface-muted); color:var(--ink); }
+            .native-presentation-panel .native-field-label { display:block; margin-bottom:8px; color:var(--ink-soft); font-size:12px; font-weight:600; letter-spacing:.02em; }
+            .native-presentation-panel .native-monitor-picker { position:relative; }
+            .native-presentation-panel .native-tip { display:flex; align-items:baseline; gap:10px; min-height:40px; margin:12px 0 0; color:var(--ink-soft); font-size:13px; line-height:1.5; }
+            .native-presentation-panel .native-tip-label { flex:none; font-weight:600; }
+            .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; margin-top:16px; }
+            .native-presentation-panel button { border:1px solid var(--line); border-radius:8px; background:var(--surface); min-height:34px; padding:0 14px; color:var(--ink); font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
+            .native-presentation-panel button.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
+            .native-presentation-panel .native-monitor-trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:42px; padding:8px 12px; border:1px solid var(--line-strong); background:var(--paper); text-align:left; font-size:14px; font-weight:400; }
+            .native-presentation-panel .native-monitor-trigger[aria-expanded="true"], .native-presentation-panel .native-monitor-trigger:focus-visible { border-color:var(--accent); }
+            .native-presentation-panel .native-monitor-trigger span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+            .native-presentation-panel .native-monitor-trigger svg { width:20px; height:20px; flex:none; stroke:var(--ink-soft); stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+            .native-presentation-panel .native-monitor-menu { position:absolute; z-index:2; top:calc(100% + 6px); left:0; right:0; max-height:210px; overflow:auto; padding:4px; border:1px solid var(--line-strong); border-radius:10px; background:var(--paper); box-shadow:var(--shadow); }
+            .native-presentation-panel .native-monitor-menu[hidden] { display:none; }
+            .native-presentation-panel .native-monitor-option { display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border:0; background:var(--paper); text-align:left; font-size:14px; font-weight:400; }
+            .native-presentation-panel .native-monitor-option:hover, .native-presentation-panel .native-monitor-option:focus-visible { background:var(--surface-muted); }
+            .native-presentation-panel .native-monitor-option[aria-selected="true"] { font-weight:600; }
+            .native-presentation-panel .native-monitor-check { width:16px; flex:none; }
+            .native-presentation-panel button:disabled { opacity:.5; cursor:default; }
+            .native-presentation-panel button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+            .native-presentation-panel:focus { outline:none; }
+            @media (max-width:560px) { .native-presentation-panel { padding:20px; } .native-presentation-panel .native-actions { justify-content:stretch; } .native-presentation-panel .native-actions button { flex:1 1 auto; } }
+          `;
+          document.head.append(style);
+        }
+        removeNativePresentationDialog();
+        const scrim = document.createElement("div"); scrim.className = "native-presentation-scrim";
+        scrim.innerHTML = '<div class="native-presentation-panel" role="dialog" aria-modal="true" aria-labelledby="nativePresentationTitle"></div>';
+        document.body.append(scrim); nativePresentationDialog = scrim;
+        return scrim.querySelector(".native-presentation-panel");
+      }
+
+      window.__NUTBOOK_OPEN_NATIVE_PRESENTATION__ = (itemId) => {
+        if (getActiveTab()?.id !== itemId || appState.runtimeSurfacesSuspended) return;
+        openNativePresentationPreparation().catch(() => {});
+      };
+
+      async function openNativePresentationPreparation() {
+        const tab = getActiveTab();
+        if (!appState.isTauri || !tab || tab.preview?.fileType !== "html-runtime" || appState.htmlEditSession?.itemId === tab.id) return;
+        if (nativePresentationSessionId || appState.nativePresentationItemId || nativePresentationPreparingItemId != null) return;
+        const itemId = tab.id;
+        nativePresentationPreparingItemId = itemId;
+        scheduleRuntimeHostSync();
+        try {
+        if (appState.runtimeFullscreenItemId === itemId) await toggleActiveHtmlRuntimePresentationMode();
+        setStatus(nativePresentationText("正在检查演示协议…", "Checking presentation protocol…"), "info");
+        const probe = await probeNativePresentation(itemId);
+        if (getActiveTab()?.id !== itemId) return;
+        if (!probe || probe.unsupported) {
+          let legacy = null;
+          if (!probe?.declared) {
+            try { legacy = await invoke("native_presentation_legacy_info", { itemId }); } catch (_) {}
+          }
+          appState.nativePresentationItemId = itemId;
+          try { await hideRuntimeHostForNativePresentation(itemId); }
+          catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
+          if (getActiveTab()?.id !== itemId) { restoreAfterNativePresentation(itemId); return; }
+          const panel = nativePresentationModalShell();
+          panel.tabIndex = -1;
+          panel.addEventListener("keydown", event => {
+            if (event.key === "Escape") { event.preventDefault(); restoreAfterNativePresentation(itemId); }
+          });
+          if (!legacy?.eligible) {
+            panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("无法启动演示", "Cannot start presentation")}</h2><p>${escapeHtml(nativePresentationProbeFailure(probe))}</p><div class="native-actions"><button type="button" class="primary" data-native-action="close">${nativePresentationText("知道了", "Got it")}</button></div>`;
+            panel.querySelector('[data-native-action="close"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+            panel.focus();
+            return;
+          }
+          panel.innerHTML = `<h2 id="nativePresentationTitle">${nativePresentationText("升级旧演示副本", "Upgrade a copy of this presentation")}</h2><p>${nativePresentationText(`识别到 ${legacy.pageCount} 页旧 HTML-PPT。将创建同目录演示副本和专用 runtime 文件；原 HTML 与原 runtime 保持不变。`, `Found ${legacy.pageCount} legacy HTML-PPT pages. A presentation copy and dedicated runtime file will be created beside the original.`)}</p><p id="nativePresentationUpgradeError" role="alert" hidden></p><div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button><button type="button" class="primary" data-native-action="upgrade">${nativePresentationText("创建副本", "Create copy")}</button></div>`;
+          panel.querySelector('[data-native-action="cancel"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+          panel.focus();
+          panel.querySelector('[data-native-action="upgrade"]').addEventListener("click", async () => {
+            panel.querySelectorAll("button").forEach(button => button.disabled = true);
+            try {
+              const sourceRevision = await invoke("get_item_content_revision", { itemId });
+              const result = await invoke("upgrade_native_presentation_legacy", { payload: { itemId, expectedSourceHash: sourceRevision.revision } });
+              restoreAfterNativePresentation(itemId);
+              await loadItems();
+              await openItem(result.itemId);
+              setStatus(nativePresentationText("演示副本已创建，可从新标签进入演示模式", "Presentation copy created. Open presentation mode from the new tab."), "ok");
+            } catch (error) {
+              panel.querySelectorAll("button").forEach(button => button.disabled = false);
+              const detail = error?.code === "EDIT_CONFLICT"
+                ? nativePresentationText("源文件已变化或同名副本已存在", "The source changed or the copy already exists")
+                : nativePresentationErrorText(error);
+              const message = nativePresentationText("创建演示副本失败：", "Could not create presentation copy: ") + detail;
+              panel.querySelector("#nativePresentationUpgradeError").textContent = message;
+              panel.querySelector("#nativePresentationUpgradeError").hidden = false;
+              setStatus(message, "error");
+            }
+          });
+          return;
+        }
+        let monitors;
+        try { monitors = await invoke("native_presentation_monitors"); }
+        catch (error) { setStatus(nativePresentationErrorText(error), "error"); return; }
+        if (!Array.isArray(monitors) || !monitors.length) { setStatus(nativePresentationText("找不到可用显示器", "No displays available"), "error"); return; }
+        let sourceRevision;
+        try { sourceRevision = await invoke("get_item_content_revision", { itemId }); }
+        catch (error) { setStatus(nativePresentationErrorText(error), "error"); return; }
+        appState.nativePresentationItemId = itemId;
+        try { await hideRuntimeHostForNativePresentation(itemId); }
+        catch (error) { restoreAfterNativePresentation(itemId); setStatus(nativePresentationErrorText(error), "error"); return; }
+        const panel = nativePresentationModalShell();
+        const monitorLabel = monitor => {
+          const genericName = !monitor.name || /^Monitor #\d+$/i.test(monitor.name);
+          const name = genericName
+            ? monitor.primary ? nativePresentationText("主屏幕", "Primary display") : nativePresentationText(`显示器 ${monitors.indexOf(monitor) + 1}`, `Display ${monitors.indexOf(monitor) + 1}`)
+            : monitor.name;
+          return `${name} · ${monitor.width}×${monitor.height}${monitor.primary && !genericName ? nativePresentationText(" · 主屏", " · Primary") : ""}`;
+        };
+        let selectedMonitorId = String(monitors[0].id);
+        const options = monitors.map(monitor => `<button type="button" class="native-monitor-option" role="option" data-monitor-id="${escapeAttribute(monitor.id)}" aria-selected="${String(monitor.id) === selectedMonitorId}"><span class="native-monitor-check" aria-hidden="true">${String(monitor.id) === selectedMonitorId ? "✓" : ""}</span><span>${escapeHtml(monitorLabel(monitor))}</span></button>`).join("");
+        const atFirstPage = !probe.activePageId || probe.activePageId === probe.pages[0].id;
+        const audienceDisplay = `<div class="native-monitor-picker"><button type="button" id="nativePresentationMonitor" class="native-monitor-trigger" aria-label="${nativePresentationText("观众屏幕", "Audience display")}" title="${nativePresentationText("观众屏幕", "Audience display")}" aria-haspopup="listbox" aria-expanded="false" aria-controls="nativePresentationMonitorMenu"><span id="nativePresentationMonitorLabel">${escapeHtml(monitorLabel(monitors[0]))}</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg></button><div id="nativePresentationMonitorMenu" class="native-monitor-menu" role="listbox" aria-label="${nativePresentationText("观众屏幕", "Audience display")}" hidden>${options}</div></div>`;
+        const displayTip = monitors.length === 1
+          ? nativePresentationText("在线会议中请共享 NUTBOOK 窗口；演讲者窗口保留备注和控制。", "In online meetings, share the NUTBOOK window. Notes and controls stay in the Presenter window.")
+          : nativePresentationText("NUTBOOK 窗口将在所选屏幕展示观众画面；演讲者窗口保留备注和控制。", "The NUTBOOK window shows the audience view on the selected display. Notes and controls stay in the Presenter window.");
+        const tips = [
+          displayTip,
+          nativePresentationText("备注可在 HTML 编辑模式中逐页添加并保存。", "Add and save slide notes in HTML edit mode."),
+          displayTip,
+          nativePresentationText("演讲者窗口可以预览下一页并调整备注字号。", "Preview the next slide and adjust note size in the Presenter window."),
+          nativePresentationText("演示时可用 ←／→ 翻页，也可以临时黑屏。", "Use ←／→ to change slides, or temporarily blank the audience screen.")
+        ];
+        let tipIndex = Math.floor(Math.random() * tips.length);
+        panel.innerHTML = `
+          <div class="native-heading"><h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2><span class="native-page-count">${nativePresentationText(`${probe.pages.length} 页`, `${probe.pages.length} slides`)}</span><button type="button" class="native-close" data-native-action="close" aria-label="${nativePresentationText("关闭演示模式", "Close presentation mode")}" title="${nativePresentationText("关闭演示模式", "Close presentation mode")}">×</button></div>
+          <div class="native-field"><label class="native-field-label" for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label>${audienceDisplay}</div>
+          <p class="native-tip"><span class="native-tip-label">${nativePresentationText("提示", "Tip")}</span><span id="nativePresentationTip" aria-live="off">${tips[tipIndex]}</span></p>
+          <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button>${atFirstPage ? "" : `<button type="button" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first slide")}</button>`}<button type="button" class="primary" data-native-action="start-current">${atFirstPage ? nativePresentationText("开始演示", "Start presentation") : nativePresentationText("从当前页开始", "Start from current slide")}</button></div>
+        `;
+        const trigger = panel.querySelector("#nativePresentationMonitor");
+        const menu = panel.querySelector("#nativePresentationMonitorMenu");
+        const monitorOptions = [...menu.querySelectorAll(".native-monitor-option")];
+        const closeMonitorMenu = (restoreFocus = false) => {
+          menu.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          if (restoreFocus) trigger.focus();
+        };
+        const openMonitorMenu = () => {
+          menu.hidden = false;
+          trigger.setAttribute("aria-expanded", "true");
+          monitorOptions.find(option => option.dataset.monitorId === selectedMonitorId)?.focus();
+        };
+        trigger.addEventListener("click", () => menu.hidden ? openMonitorMenu() : closeMonitorMenu(true));
+        trigger.addEventListener("keydown", event => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); openMonitorMenu(); }
+        });
+        menu.addEventListener("keydown", event => {
+          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeMonitorMenu(true); return; }
+          if (event.key === "Tab") { closeMonitorMenu(); return; }
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          const index = monitorOptions.indexOf(document.activeElement);
+          monitorOptions[(index + (event.key === "ArrowDown" ? 1 : -1) + monitorOptions.length) % monitorOptions.length].focus();
+        });
+        monitorOptions.forEach(option => option.addEventListener("click", () => {
+          selectedMonitorId = option.dataset.monitorId;
+          panel.querySelector("#nativePresentationMonitorLabel").textContent = monitorLabel(monitors.find(monitor => String(monitor.id) === selectedMonitorId));
+          monitorOptions.forEach(candidate => {
+            const selected = candidate === option;
+            candidate.setAttribute("aria-selected", String(selected));
+            candidate.querySelector(".native-monitor-check").textContent = selected ? "✓" : "";
+          });
+          closeMonitorMenu(true);
+        }));
+        nativePresentationDialog.addEventListener("pointerdown", event => {
+          if (!event.target.closest(".native-monitor-picker")) closeMonitorMenu();
+        });
+        panel.addEventListener("keydown", event => {
+          if (event.key === "Escape") { event.preventDefault(); restoreAfterNativePresentation(itemId); }
+        });
+        nativePresentationTipTimer = setInterval(() => {
+          const tip = panel.querySelector("#nativePresentationTip");
+          if (!tip) return;
+          tipIndex = (tipIndex + 1) % tips.length;
+          tip.textContent = tips[tipIndex];
+        }, 6000);
+        panel.querySelector('[data-native-action="close"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+        panel.querySelector('[data-native-action="cancel"]').addEventListener("click", () => restoreAfterNativePresentation(itemId));
+        for (const action of ["start-first", "start-current"]) {
+          panel.querySelector(`[data-native-action="${action}"]`)?.addEventListener("click", async () => {
+            if (nativePresentationSessionId) return;
+            const monitorId = selectedMonitorId;
+            panel.querySelectorAll("button").forEach(button => button.disabled = true);
+            try {
+              const session = await invoke("start_native_presentation", { payload: {
+                itemId, monitorId, pages: probe.pages, notes: probe.notes || {}, expectedSourceHash: sourceRevision.revision,
+                startPageId: action === "start-first" ? probe.pages[0].id : (probe.activePageId || probe.pages[0].id),
+                rehearsal: monitors.length === 1,
+                language: appState.language
+              } });
+              if (appState.nativePresentationItemId !== itemId) {
+                await invoke("stop_native_presentation", { sessionId: session.sessionId }).catch(() => {});
+                return;
+              }
+              nativePresentationSessionId = session.sessionId;
+              els.appShell.classList.add("native-audience-mode");
+              if (monitors.length === 1) {
+                els.appShell.classList.add("native-audience-rehearsal");
+                document.getElementById("nativeAudienceBannerText").textContent = nativePresentationText("观众窗口 · 在线会议请共享此 NUTBOOK 窗口", "Audience window · Share this NUTBOOK window in your meeting");
+              }
+              clearInterval(nativePresentationTipTimer);
+              nativePresentationTipTimer = null;
+              removeNativePresentationDialog();
+            } catch (error) {
+              setStatus(nativePresentationErrorText(error), "error");
+              panel.querySelectorAll("button").forEach(button => button.disabled = false);
+            }
+          });
+        }
+        panel.tabIndex = -1;
+        panel.focus();
+        } finally {
+          nativePresentationPreparingItemId = null;
+          scheduleRuntimeHostSync();
+        }
+      }
+
       async function toggleActiveHtmlRuntimePresentationMode() {
         const tab = getActiveTab();
         if (!tab || tab.preview?.fileType !== "html-runtime") return;
         if (appState.htmlEditSession?.itemId === tab.id) {
-          setStatus("编辑模式下不可进入演示全屏", "warn");
+          setStatus("编辑模式下不可进入全屏查看", "warn");
           return;
         }
         const nextEnabled = appState.runtimeFullscreenItemId !== tab.id;
@@ -20885,6 +21535,11 @@ if (!chipTipController) {
           renderTabs();
           renderViewer();
           await toggleActiveHtmlRuntimePresentationMode();
+          return;
+        }
+        if (action === "prepare-native-presentation") {
+          if (getActiveTab()?.id !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+          await openNativePresentationPreparation();
           return;
         }
         if (action === "overlay-layout") {
@@ -21337,6 +21992,10 @@ if (!chipTipController) {
               <aside id="presentationEditRail" class="presentation-edit-rail" aria-label="演示页面"></aside>
               <section id="runtimeHostShell" class="runtime-host-shell">
                 <div id="runtimeHostMount" class="runtime-host-mount"></div>
+              </section>
+              <section id="presentationNotesPane" class="presentation-notes-pane" aria-label="演示备注" hidden>
+                <div class="presentation-notes-head"><span id="presentationNotesTitle"></span><span id="presentationNotesFeedback" class="presentation-notes-feedback" role="status" hidden></span><div><button id="presentationNotesBold" type="button" aria-label="加粗所选备注" title="加粗所选备注">B</button><button id="presentationNotesClose" type="button" aria-label="隐藏备注" title="隐藏备注">×</button></div></div>
+                <div id="presentationNotesEditor" class="presentation-notes-editor" contenteditable="true" role="textbox" aria-multiline="true"></div>
               </section>
             </section>
           `;
@@ -21850,6 +22509,7 @@ if (!chipTipController) {
       }
 
       async function suspendRuntimeSurfaces() {
+        appState.runtimeSurfaceLifecycleEpoch += 1;
         if (appState.runtimeSurfacesSuspended) return appState.runtimeSurfaceSuspendPromise;
         appState.runtimeSurfacesSuspended = true;
         const editSession = appState.htmlEditSession;
@@ -21860,9 +22520,9 @@ if (!chipTipController) {
           renderHtmlEditSectionNavigationRail(editSession);
         }
         const activeRuntimeHostId = appState.activeRuntimeHostId;
-        if (activeRuntimeHostId != null) {
-          await refreshHtmlRuntimeViewState(activeRuntimeHostId).catch(() => false);
-        }
+        const captureActiveViewState = activeRuntimeHostId != null
+          ? refreshHtmlRuntimeViewState(activeRuntimeHostId).catch(() => false)
+          : Promise.resolve(false);
         cleanupRuntimeHostSync();
         appState.activeRuntimeHostId = null;
         appState.runtimeHostLastBoundsKey = null;
@@ -21881,11 +22541,14 @@ if (!chipTipController) {
             const snapshot = await captureExternalHtmlViewState(tab).catch(() => null);
             commitExternalViewStateSnapshot(tab, captureSeq, snapshot);
           });
-        const suspendPromise = Promise.all([removeConfirmClose, ...captureExternalViewStates, ...appState.runtimeSessions.map(async (session) => {
-          const token = nextRuntimeSurfaceToken(session.id);
-          await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
-          await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
-        })]);
+        const suspendPromise = (async () => {
+          await captureActiveViewState;
+          await Promise.all([removeConfirmClose, ...captureExternalViewStates, ...appState.runtimeSessions.map(async (session) => {
+            const token = nextRuntimeSurfaceToken(session.id);
+            await syncHtmlEditReadonlyPatchSurfaceToken(session.id, token).catch(() => {});
+            await hideRuntimeSessionSurfaces(session.id, { force: true, token, preservePresentationPreview: true });
+          })]);
+        })();
         appState.runtimeSurfaceSuspendPromise = suspendPromise;
         try {
           await suspendPromise;
@@ -21898,7 +22561,7 @@ if (!chipTipController) {
 
       async function resumeRuntimeSurfaces() {
         if (!appState.runtimeSurfacesSuspended) return;
-        appState.runtimeSurfacesSuspended = false;
+        const epoch = ++appState.runtimeSurfaceLifecycleEpoch;
         const suspendPromise = appState.runtimeSurfaceSuspendPromise;
         if (suspendPromise) {
           try {
@@ -21906,7 +22569,8 @@ if (!chipTipController) {
           } catch (_) {
           }
         }
-        if (appState.runtimeSurfacesSuspended) return;
+        if (epoch !== appState.runtimeSurfaceLifecycleEpoch) return;
+        appState.runtimeSurfacesSuspended = false;
         const editSession = appState.htmlEditSession;
         if (isCurrentHtmlEditSession(editSession) && editSession.presentation?.pages?.length) {
           editSession.presentation.previewReady = false;
@@ -21915,6 +22579,11 @@ if (!chipTipController) {
         scheduleRuntimeHostSync();
         refreshHtmlEditSectionNavigation(editSession);
       }
+
+      window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__ = (minimized) => {
+        if (minimized) suspendRuntimeSurfaces().catch(() => {});
+        else resumeRuntimeSurfaces().catch(() => {});
+      };
 
       async function hideInactiveRuntimeHosts(activeItemId = null, options = {}) {
         if (options.invalidate !== false) cleanupRuntimeHostSync();
@@ -22038,6 +22707,7 @@ if (!chipTipController) {
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,
           isPrimaryBusy: primaryActionBusyItemId != null,
+          nativePresentationPreparing: nativePresentationPreparingItemId === tab.id,
           customTag: Array.isArray(tab.item?.tags) ? (tab.item.tags[0] ?? null) : null,
           availableTags: appState.tags,
           skillTag: tab.item?.skillBinding?.displayName ?? null,
@@ -22148,6 +22818,7 @@ if (!chipTipController) {
       async function syncActiveRuntimeHost(runId = null) {
         if (appState.runtimeSurfacesSuspended) return;
         const tab = getActiveTab();
+        if (tab?.id === appState.nativePresentationItemId) return;
         if (!tab || !isRuntimeHostTab(tab)) {
           appState.runtimeControlsOverlayExpanded = false;
           appState.runtimeControlsOverlayMode = "default";
@@ -23256,9 +23927,14 @@ if (!chipTipController) {
       });
 
       window.addEventListener("keydown", (event) => {
-        if (event.isComposing || event.key === "Process") return;
         const tab = getActiveTab();
         const isMarkdownEditorKeyEvent = Boolean(event.target?.closest?.(".milkdown-editor-root .ProseMirror"));
+        if (nativePresentationSessionId && (event.code === "KeyF" || event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey && !event.target?.isContentEditable && !/^(INPUT|TEXTAREA|SELECT)$/.test(event.target?.tagName || "")) {
+          event.preventDefault();
+          if (!event.repeat) invoke("native_presentation_toggle_fullscreen", { sessionId: nativePresentationSessionId }).catch(() => {});
+          return;
+        }
+        if (event.isComposing || event.key === "Process") return;
         if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
           if (tab?.preview?.fileType === "markdown") {
             event.preventDefault();
@@ -23335,15 +24011,10 @@ if (!chipTipController) {
             return;
           }
 
-          if (event.key === "s" || event.key === "S") {
+          if (event.code === "KeyS" || event.key === "s" || event.key === "S") {
+            if (event.target?.closest?.("input, textarea, select, [contenteditable]")) return;
             event.preventDefault();
-            clearHostFocus();
-            if (appState.isTauri) {
-              forwardRuntimeShortcut(tab.id, "s", "宿主已转发 S 命令");
-            } else {
-              const popup = window.open(appState.activeHtmlRuntimeUrl, "nutbook-html-preview", "width=1280,height=820");
-              setStatus(popup ? "宿主已处理 S 弹窗" : "宿主 S 弹窗失败", popup ? "ok" : "error");
-            }
+            if (!event.repeat) window.__NUTBOOK_OPEN_NATIVE_PRESENTATION__(tab.id);
             return;
           }
         }
@@ -24645,6 +25316,10 @@ if (!chipTipController) {
           }
           if (action === "toggle-outline") {
             updateMarkdownPreference("outlineEnabled", !Boolean(appState.markdownPreferences.outlineEnabled));
+            return;
+          }
+          if (action === "toggle-presentation-notes") {
+            toggleHtmlPresentationNotes(appState.htmlEditSession);
             return;
           }
         } catch (error) {

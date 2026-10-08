@@ -139,6 +139,10 @@ pub struct CommitHtmlEditRequest {
     pub expected_modified_at: i64,
     #[serde(default)]
     pub changes: BTreeMap<String, HtmlEditChange>,
+    #[serde(default)]
+    pub presentation_pages: Vec<crate::commands::native_presentation::PresentationPage>,
+    #[serde(default)]
+    pub presentation_notes: std::collections::HashMap<String, Vec<crate::commands::native_presentation::NoteParagraph>>,
 }
 
 /// HTML durable commit 的部分成功合同（B2）：
@@ -179,6 +183,10 @@ pub struct SaveHtmlEditConflictCopyRequest {
     pub artifact_edit_id: String,
     #[serde(default)]
     pub changes: BTreeMap<String, HtmlEditChange>,
+    #[serde(default)]
+    pub presentation_pages: Vec<crate::commands::native_presentation::PresentationPage>,
+    #[serde(default)]
+    pub presentation_notes: std::collections::HashMap<String, Vec<crate::commands::native_presentation::NoteParagraph>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

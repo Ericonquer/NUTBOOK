@@ -1,6 +1,6 @@
 {
   "package": "nbskill",
-  "version": "1.3.5",
+  "version": "1.4.0",
   "files": [
     {
       "path": "evals/evals.json",
@@ -28,14 +28,19 @@
       "bytes": 6496
     },
     {
+      "path": "references/presentation-html-v1.md",
+      "sha256": "fb8ca1e693983a02380274f1e8faa6f844e904a207753006caf1be1a4b75f047",
+      "bytes": 2266
+    },
+    {
       "path": "scripts/install.mjs",
       "sha256": "8e6428d9a2f04183864a0e91240577771a1cc1a19e34d89c46b10cdf4f675b71",
       "bytes": 4352
     },
     {
       "path": "scripts/manifest-lib.mjs",
-      "sha256": "fd6e7411bb4f5fb2428c54c25faa15e8518cb3230843b9b8653409ca11b3e32d",
-      "bytes": 19996
+      "sha256": "ca14d8c74ad9ea813c66e7305b1ec5bd2940f668d0b24eddf57ce567cc63c298",
+      "bytes": 22865
     },
     {
       "path": "scripts/register.mjs",
@@ -49,8 +54,8 @@
     },
     {
       "path": "scripts/test.mjs",
-      "sha256": "75ed9272587fe99dd295fd26536a7e0eba6b171add23c22740c80e8f9cca83c0",
-      "bytes": 9968
+      "sha256": "2424abdd2359a79cd6ff9d3a363da01393397fd9b6c00367c7e667395d30586f",
+      "bytes": 12804
     },
     {
       "path": "scripts/validate.mjs",
@@ -59,8 +64,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "d751cbb8f1046e41cef5ae48c4ac5300b7d168d28294f758b6a93ff8a393f2da",
-      "bytes": 7715
+      "sha256": "85cd776591c8ab5c3fd9025c096bb7e25f95154b73b5e8cc3b6a9f7a04eb022a",
+      "bytes": 8210
     },
     {
       "path": "templates/manifest.json",
@@ -68,8 +73,23 @@
       "bytes": 582
     },
     {
+      "path": "templates/presentation-mark.svg",
+      "sha256": "16f247b666d927a79ea6a3c17ef276ed716fb246013b2d255011f467bc3f3bbb",
+      "bytes": 310
+    },
+    {
+      "path": "templates/presentation.html",
+      "sha256": "708659ce2374dcdd00bc82da8fc57e058f02af9c857d3c90a1b1a157cb074a4d",
+      "bytes": 6298
+    },
+    {
+      "path": "templates/presentation.source.html",
+      "sha256": "980cde2820c09bd0287494d55f317282c3c36dec099b32bc01bbe2c4655f8e8a",
+      "bytes": 5328
+    },
+    {
       "path": "VERSION",
-      "sha256": "fc253dae4f432925780b608f87298fbbd2f948cd811d2e894cdcbb98ec855d2e",
+      "sha256": "78b591400c56b7b67b8cb3b2b8a8e65e9093897f02ce0878e6b5405c68620fa7",
       "bytes": 6
     }
   ]

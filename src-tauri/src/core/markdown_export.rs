@@ -19,6 +19,7 @@ const FALLBACK_READING_LIGHT_TEMPLATE: &str = include_str!("../../resources/expo
 const FALLBACK_READING_DARK_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-reading-dark.html");
 const FALLBACK_PRESENTATION_LIGHT_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-presentation-light.html");
 const FALLBACK_PRESENTATION_DARK_TEMPLATE: &str = include_str!("../../resources/export-templates/markdown-presentation-dark.html");
+const PRESENTATION_BRIDGE_SCRIPT: &str = include_str!("../../resources/export-templates/presentation-bridge.js");
 const NUTBOOK_LOGO_BYTES: &[u8] = include_bytes!("../../../assets/nutbook-logo.png");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,7 +345,10 @@ fn editable_element_has_readonly_descendant(markup: &str, content_start: usize, 
         return true;
     };
     let content = &markup[content_start..content_start + relative_end];
-    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol"]
+    // Images are independent editable targets. A rich-text parent containing one
+    // gains image editor attributes at runtime, making an untouched paragraph
+    // look changed and producing HTML the rich-text sanitizer rejects on save.
+    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol", "<img"]
         .iter()
         .any(|needle| content.contains(needle))
 }
@@ -358,6 +362,12 @@ pub fn render_presentation_html(
     preferences: PresentationHtmlExportPreferences,
 ) -> Result<MarkdownHtmlExportOutput, AppError> {
     if input.template_html.trim().is_empty() {
+        return Err(AppError::InvalidParams);
+    }
+    if !input.template_html.contains("{{presentation_bridge_script}}")
+        || !input.template_html.contains("nutbook-presentation-notes")
+        || !input.template_html.contains("{{slides_html}}")
+    {
         return Err(AppError::InvalidParams);
     }
 
@@ -374,6 +384,9 @@ pub fn render_presentation_html(
         return Err(AppError::InvalidParams);
     }
     let slide_total = slides.matches(r#"<section class="slide"#).count().max(1);
+    if slide_total > 500 {
+        return Err(AppError::InvalidParams);
+    }
     let warnings_html = render_warnings(&embedder.warnings);
     let aspect_class = match preferences.aspect_ratio.as_str() {
         "4-3" => "aspect-4-3",
@@ -408,16 +421,37 @@ pub fn render_presentation_html(
         .replace("{{output_kind}}", &escape_html_attr(&preferences.output_kind))
         .replace("{{motion_styles}}", motion_styles)
         .replace("{{motion_script}}", motion_script)
+        .replace("{{presentation_bridge_script}}", PRESENTATION_BRIDGE_SCRIPT)
         .replace("{{motion_preset_attr}}", &motion_preset_attr)
         .replace("{{generated_at}}", &escape_html_text(&input.generated_at))
         .replace("{{source_file}}", &escape_html_text(&input.source_file))
         .replace("{{logo_data_uri}}", &nutbook_logo_data_uri())
         .replace("{{warnings}}", &warnings_html);
 
+    validate_generated_presentation_html(&html, slide_total)?;
+
     Ok(MarkdownHtmlExportOutput {
         html,
         warnings: embedder.warnings,
     })
+}
+
+fn validate_generated_presentation_html(html: &str, slide_total: usize) -> Result<(), AppError> {
+    let ids = html.match_indices("data-nutbook-page-id=\"")
+        .filter_map(|(offset, marker)| html[offset + marker.len()..].split('"').next())
+        .collect::<Vec<_>>();
+    if ids.len() != slide_total
+        || ids.iter().any(|id| id.is_empty())
+        || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
+        || html.matches("data-editable=").count() < slide_total
+        || !html.contains("capabilities: { managedPresenter: true }")
+        || !html.contains("setManagedMode(enabled)")
+        || !html.contains("id=\"nutbook-presentation-notes\">{\"version\":1,\"pages\":{}}</script>")
+        || html.contains("{{presentation_bridge_script}}")
+    {
+        return Err(AppError::InvalidParams);
+    }
+    Ok(())
 }
 
 const CODE_COPY_STYLES: &str = r#"
@@ -5086,7 +5120,9 @@ mod tests {
                 assert!(!output.html.contains("<blockquote class=\"presentation-quote\" data-id="));
                 assert!(!output.html.contains("<pre class=\"code-frame data-id="));
                 assert!(!output.html.contains("{{"));
-                assert!(!output.html.contains("}}"));
+                assert!(!output.html.contains("{{presentation_bridge_script}}"));
+                assert!(output.html.contains("setManagedMode(enabled)"));
+                assert!(output.html.contains("nutbook-presentation-notes\">{\"version\":1,\"pages\":{}}"));
 
                 let page_ids = output.html.match_indices("data-nutbook-page-id=\"")
                     .filter_map(|(index, needle)| output.html[index + needle.len()..].split('"').next())
@@ -5095,6 +5131,27 @@ mod tests {
                 assert_eq!(page_ids.len(), page_ids.iter().collect::<std::collections::HashSet<_>>().len());
             }
         }
+    }
+
+    #[test]
+    fn presentation_missing_local_image_keeps_warning_and_protocol() {
+        let output = render_presentation_html(MarkdownHtmlExportInput {
+            title: "Missing image".to_string(),
+            source_file: "missing.md".to_string(),
+            source_path: temp_path("presentation-missing-image").with_extension("md"),
+            markdown: "# Missing image\n\n## Figure\n\n![Unavailable](./not-found.png)".to_string(),
+            generated_at: "now".to_string(),
+            template_html: fallback_presentation_light_template().to_string(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        }, PresentationHtmlExportPreferences {
+            aspect_ratio: "16-9".to_string(),
+            density: PresentationDensity::Balanced,
+            output_kind: "static".to_string(),
+        }).expect("missing resource is a warning, not protocol failure");
+        assert!(!output.warnings.is_empty());
+        assert!(output.html.contains("missing-image"));
+        assert!(output.html.contains("nutbook-presentation-notes"));
+        assert!(output.html.contains("managedPresenter: true"));
     }
 
     #[test]
@@ -5132,7 +5189,7 @@ mod tests {
         assert!(!static_output.html.contains("nutbook-default"));
         assert!(!static_output.html.contains("data-motion-preset"));
         assert!(!static_output.html.contains("{{"));
-        assert!(!static_output.html.contains("}}"));
+        assert!(!static_output.html.contains("{{presentation_bridge_script}}"));
 
         assert!(dynamic_output.html.contains(r#"data-output-kind="dynamic""#));
         assert!(dynamic_output.html.contains(r#"data-motion-preset="nutbook-default""#));
@@ -5141,7 +5198,7 @@ mod tests {
         assert!(dynamic_output.html.contains("prefers-reduced-motion: reduce"));
         assert!(dynamic_output.html.contains("matchMedia"));
         assert!(!dynamic_output.html.contains("{{"));
-        assert!(!dynamic_output.html.contains("}}"));
+        assert!(!dynamic_output.html.contains("{{presentation_bridge_script}}"));
     }
 
     #[test]
@@ -5168,7 +5225,7 @@ mod tests {
         assert!(output.html.contains(r#"data-motion-preset="nutbook-default""#));
         assert!(output.html.contains("nutbook-motion-styles"));
         assert!(!output.html.contains("{{"));
-        assert!(!output.html.contains("}}"));
+        assert!(!output.html.contains("{{presentation_bridge_script}}"));
     }
 
     #[test]

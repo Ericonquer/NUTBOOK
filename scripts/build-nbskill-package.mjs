@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 import { writeFileSync } from "node:fs";
 
 const root = fileURLToPath(new URL("../integrations/nbskill", import.meta.url));
+const bridge = readFileSync(fileURLToPath(new URL("../src-tauri/resources/export-templates/presentation-bridge.js", import.meta.url)), "utf8");
+const presentationSource = readFileSync(join(root, "templates/presentation.source.html"), "utf8");
+if (!presentationSource.includes("{{presentation_bridge_script}}")) throw new Error("presentation source is missing the bridge placeholder");
+writeFileSync(join(root, "templates/presentation.html"), presentationSource.replace("{{presentation_bridge_script}}", bridge));
 const files = [];
 function visit(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {

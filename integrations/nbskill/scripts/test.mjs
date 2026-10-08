@@ -14,6 +14,7 @@ const supersede = join(scripts, "supersede.mjs");
 const validate = join(scripts, "validate.mjs");
 const fixtureRoot = resolve("src-tauri/tests/fixtures/agent-artifact-discovery/projects/sample-agent-project");
 const invalidVectors = resolve("src-tauri/tests/fixtures/agent-artifact-discovery/contract-vectors/invalid");
+const presentationSample = resolve("docs/presentations/agent-presentation-sample/index.html");
 
 async function runNode(script, args) {
   return run(process.execPath, [script, ...args], { cwd: resolve(".") });
@@ -68,11 +69,25 @@ writeFileSync(join(root, "docs", "legacy-inline-code.html"), `<!doctype html>
   </body>
 </html>
 `);
+const presentationHtml = readFileSync(presentationSample, "utf8");
+writeFileSync(join(root, "docs", "presentation.html"), presentationHtml);
+writeFileSync(join(root, "docs", "presentation-mark.svg"), readFileSync(resolve("docs/presentations/agent-presentation-sample/presentation-mark.svg")));
+await runNode(register, ["--project-root", root, "--id", "presentation", "--path", "docs/presentation.html", "--skill", "deck-writer", "--kind", "presentation", "--related", "docs/presentation-mark.svg:asset"]);
+for (const [name, broken, message] of [
+  ["duplicate-page", presentationHtml.replace('data-nutbook-page-id="evidence"', 'data-nutbook-page-id="opening"'), /duplicate data-nutbook-page-id/],
+  ["missing-notes", presentationHtml.replace('id="nutbook-presentation-notes"', 'id="removed-notes"'), /nutbook-presentation-notes block/],
+  ["missing-bridge", presentationHtml.replaceAll("setManagedMode", "removedManagedMode"), /presentation bridge declaration/],
+  ["uneditable-body", presentationHtml.replace('data-id="evidence-copy" data-editable="text"', ''), /visible text outside an editable target/],
+]) {
+  writeFileSync(join(root, "docs", `${name}.html`), broken);
+  await assert.rejects(runNode(register, ["--project-root", root, "--id", name, "--path", `docs/${name}.html`, "--skill", "deck-writer", "--kind", "presentation"]), message);
+  assert.equal(readManifest(root).entries.some((entry) => entry.id === name), false);
+}
 
 await runNode(register, ["--project-root", root, "--id", "report-v1", "--path", "docs/report-v1.md", "--skill", "report-writer", "--kind", "report", "--related", "assets/cover.png:asset"]);
 let manifest = readManifest(root);
-assert.equal(manifest.entries.length, 1);
-assert.equal(manifest.entries[0].relatedFiles[0].path, "assets/cover.png");
+assert.equal(manifest.entries.length, 2);
+assert.equal(manifest.entries.find((entry) => entry.id === "report-v1").relatedFiles[0].path, "assets/cover.png");
 
 await runNode(register, ["--project-root", root, "--id", "complete-html", "--path", "docs/complete.html", "--skill", "html-writer", "--kind", "document", "--related", "assets/cover.png:asset"]);
 manifest = readManifest(root);
@@ -99,7 +114,7 @@ await Promise.all([
   runNode(register, ["--project-root", root, "--id", "parallel-b", "--path", "docs/parallel-b.md", "--skill", "nbskill", "--kind", "document"]),
 ]);
 manifest = readManifest(root);
-assert.deepEqual(new Set(manifest.entries.map((entry) => entry.id)), new Set(["report-v1", "complete-html", "legacy-inline-code", "parallel-a", "parallel-b"]));
+assert.deepEqual(new Set(manifest.entries.map((entry) => entry.id)), new Set(["presentation", "report-v1", "complete-html", "legacy-inline-code", "parallel-a", "parallel-b"]));
 
 await runNode(supersede, ["--project-root", root, "--old-id", "report-v1", "--new-id", "report-v2", "--path", "docs/report-v2.md", "--skill", "report-writer", "--kind", "report"]);
 manifest = readManifest(root);
@@ -148,6 +163,17 @@ const repairedManifest = readManifest(legacyRoot);
 assert.equal(repairedManifest.entries.find((entry) => entry.id === "legacy-html").state, "superseded");
 assert.equal(repairedManifest.entries.find((entry) => entry.id === "replacement-html").state, "active");
 assert.deepEqual(activeHtmlContractIssues(repairedManifest, legacyRoot), []);
+
+const legacyPresentationRoot = mkdtempSync(join(tmpdir(), "nbskill-legacy-presentation-"));
+mkdirSync(join(legacyPresentationRoot, "output"), { recursive: true });
+mkdirSync(join(legacyPresentationRoot, ".agent-outputs"), { recursive: true });
+writeFileSync(join(legacyPresentationRoot, "output", "old.html"), presentationHtml.replace('id="nutbook-presentation-notes"', 'id="removed-notes"'));
+writeFileSync(join(legacyPresentationRoot, "output", "new.md"), "# New item\n");
+writeFileSync(join(legacyPresentationRoot, ".agent-outputs", "manifest.json"), `${JSON.stringify({ schemaVersion: 1, projectRoot: ".", entries: [{ id: "old", path: "output/old.html", state: "active", skill: { name: "deck-writer" }, kind: "presentation", editContract: "nutbook-html/v1", savePolicy: "managed-source" }] })}\n`);
+assert.equal(readManifest(legacyPresentationRoot).entries[0].id, "old");
+assert.match(activeHtmlContractIssues(readManifest(legacyPresentationRoot), legacyPresentationRoot)[0].message, /nutbook-presentation-notes block/);
+await runNode(register, ["--project-root", legacyPresentationRoot, "--id", "new", "--path", "output/new.md", "--skill", "writer", "--kind", "document"]);
+assert.equal(readManifest(legacyPresentationRoot).entries.length, 2);
 
 const manifestFile = join(root, ".agent-outputs", "manifest.json");
 writeFileSync(manifestFile, "{ broken json\n");

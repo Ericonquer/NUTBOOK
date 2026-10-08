@@ -140,9 +140,11 @@ This walkthrough shows Markdown outline navigation, live editing, text formattin
 
 * Present HTML in window-level fullscreen.
 
-* Support page-owned keyboard navigation, presenter mode, and playback controls.
+* Support page-owned keyboard navigation and playback controls.
 
 * Provide deterministic navigation for supported presentation and vertical HTML artifacts.
+
+* Open nbskill presentation HTML and Markdown presentation exports in NUTBOOK's native presentation mode, with editable slide text and per-page notes that persist after saving and reopening.
 
 The goal is not merely to open AI-generated HTML, but to make it useful for explaining, proposing, teaching, and reviewing ideas.
 
@@ -342,12 +344,12 @@ Bold, italic, inline code, strikethrough, links, headings, and table operations 
 | Shortcut  | Action                        | Notes                                                     |
 | --------- | ----------------------------- | --------------------------------------------------------- |
 | `F`       | Toggle fullscreen             | Enter or exit window-level fullscreen in the HTML runtime |
-| `S`       | Trigger presenter mode        | For artifacts whose own page supports presenter mode      |
+| `S`       | Open presentation mode        | Open NUTBOOK native presentation preparation; requires the presentation protocol      |
 | `←` / `→` | Previous / next page          | Forwarded to the current HTML page                        |
 | `↑` / `↓` | Previous / next step          | Exact behavior is defined by the page                     |
 | `Space`   | Next step or playback control | For pages that support Space                              |
 
-HTML shortcuts are prioritized for the currently open page. While editing text, NUTBOOK protects input from bare `f/F` presentation shortcuts.
+F and S are handled by NUTBOOK; navigation and playback keys are forwarded to the current HTML page. While editing text, NUTBOOK protects input from bare F/S shortcuts.
 
 ## Product Boundaries
 
@@ -369,60 +371,23 @@ NUTBOOK is closer to an “AI artifact desk” and local presentation library th
 
 ## Release Highlights
 
-### 1.1.0: Markdown Export Center
+### 1.2.0: Native HTML Presentation Mode
 
-Open a Markdown file, choose **Export Center** from its **More** menu, then select the output format and template. If the document has unsaved changes, NUTBOOK asks you to save before exporting.
+Open an HTML file that implements the presentation protocol, then choose **More → Presentation Mode** to prepare and start presenting.
 
-* Export a standalone reading HTML page with Light or Dark styling, optional embedded local images, an outline, and a code-copy button.
-* Export presentation HTML with Light or Dark styling, 16:9 or 4:3 layout, content density options, and static or dynamic output.
-* Export a PDF with document or report styling, page margins, and optional cover/table of contents and page numbers.
-* Export a PNG long image with Light or Dark styling and width/quality choices; exceptionally tall documents can be split into multiple images after confirmation.
+* NUTBOOK manages the audience view and a separate presenter window, with navigation, a slide list, a timer, blackout, and return to the original document when the session ends.
+* The presenter window shows a live current slide, a static next-slide preview, and per-slide notes that can be edited, saved, and restored after reopening.
+* Presentation HTML from the Markdown Export Center works directly with native presentation mode. Agents can generate compatible pages using the template and protocol bundled with nbskill.
+* The export center consistently uses “Presentation HTML”, with Light/Dark templates and static/dynamic output.
 
-PDF and long-image export use a locally available Chromium engine. The export center shows when that engine is unavailable.
+The main single-screen paths have been verified on real macOS windows. Dual-screen placement and display-disconnection recovery still require validation with an external display. Arbitrary HTML does not automatically implement the presentation protocol.
 
-### 1.0.0: First Stable Release
+### Earlier Releases
 
-NUTBOOK 1.0.0 brings together local artifact intake, Markdown / HTML reading and light editing, and presentation.
-
-* Open Markdown or HTML from the system into a temporary session, then explicitly add it to the library when needed.
-* Connect folders through a preview and synchronize external file changes.
-* Use contextual native menus for file actions, text editing, document search, and closing tabs.
-* Use Chinese or English application labels in native file, folder, and image dialogs. System-owned controls follow the operating system's application language settings.
-* nbskill registration succeeds quietly and coalesces intermediate edits before delivery. Explicit CLI intake remains separate from manifest registration.
-
-DeepSeek Harness integration is deferred to a later version.
-
-
-
-### 0.8.0: From Finding Files Manually to Agent Project and Task Artifacts
-
-Version 0.8.0 lets NUTBOOK receive Agent-created work more directly while keeping every modification explicit and local:
-
-* Discover project and task artifacts through bounded adapters for Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy.
-
-* Review suggested, optional, and already connected artifacts before intake.
-
-* Preserve artifact identity, provenance, lifecycle, and HTML editing capabilities through nbskill manifests.
-
-* Enable, repair, manage, or remove verified Agent integrations through one confirmation flow.
-
-* Add or remove files, folders, and Agent projects through the Nutbook CLI, with a read-only health check.
-
-* Retain the non-nbskill discovery path so enhanced integration never becomes a single point of failure.
-
-### 0.6.0: From HTML Presentation to Lightweight HTML Editing
-
-Version 0.6.0 added light editing for supported AI-generated HTML while preserving the original artifact and page behavior:
-
-* Edit plain text and rich text inside the HTML runtime.
-
-* Replace, crop, move, and insert images with undo and redo.
-
-* Navigate editable presentation pages and supported vertical content.
-
-* Save, close, and reopen through a session-validated save flow.
-
-* Create a same-directory `.nutbook-editable.html` copy for ordinary HTML instead of rewriting the original.
+* **1.1.0**: Added the Markdown Export Center for reading HTML, presentation HTML, PDF, and PNG long images.
+* **1.0.0**: First stable release, combining local intake, Markdown / HTML reading and light editing, and system file opening.
+* **0.8.0**: Added Agent project and task artifact discovery, nbskill integration, and the Nutbook CLI.
+* **0.6.0**: Added HTML text and image editing with save, close, and reopen recovery.
 
 ## Development Progress and Roadmap
 
@@ -434,8 +399,9 @@ Version 0.6.0 added light editing for supported AI-generated HTML while preservi
 | Shipped   | **Agent integrations**                     | Register artifact identity, lifecycle, and HTML editing protocols through nbskill while managing only verified Agent installations. |
 | Shipped   | **Nutbook CLI**                            | Add or remove files, folders, and Agent projects while the desktop app is running or closed, with a read-only health check.         |
 | Shipped   | **Markdown export center**                 | Export Markdown as reading or presentation HTML, PDF, and PNG long images.                                                           |
-| Next      | **Native HTML presentation mode**          | Provide a NUTBOOK-controlled presentation surface with deterministic navigation and stable behavior.                                |
-| Next      | **Presentation drawing tools**             | Add temporary on-screen annotation for classes, meetings, proposals, and reviews.                                                   |
+| Shipped | **Native HTML presentation mode** | NUTBOOK-controlled navigation, a live presenter view, and saved per-slide notes; external-display validation remains pending. |
+| Next | **Markdown formatting center** | Create separate publishing drafts for WeChat Official Accounts, X, and Weibo with formatting, previews, and copy actions: combined text/images for WeChat, per-segment text and separate images for X/Weibo. |
+| Later | **Presentation drawing tools** | Add temporary on-screen annotation for classes, meetings, proposals, and reviews. |
 | Exploring | **AI-assisted capabilities**               | Help users discover, understand, and refine content after local file safety and deterministic editing boundaries are clear.         |
 
 Every stage supports one goal: make AI artifacts easier to find, understand, refine, explain, and use again—not merely generate once.

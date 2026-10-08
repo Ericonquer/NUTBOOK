@@ -915,6 +915,7 @@ pub fn attach_html_edit_leave_confirm_overlay_command(
         &window,
         payload.item_id,
         payload.bounds,
+        payload.language.as_deref().unwrap_or("zh-CN"),
         payload.mode.as_deref().unwrap_or("leave"),
         payload.file_name.as_deref().unwrap_or(""),
         payload.request_id.as_deref().unwrap_or(""),

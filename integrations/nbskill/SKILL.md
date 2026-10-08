@@ -14,6 +14,9 @@ an Agent project into a general file browser.
   before registering or superseding an artifact.
 - Read [references/nutbook-html-edit-contract-v1.md](references/nutbook-html-edit-contract-v1.md)
   before creating, updating, registering, or superseding any HTML artifact.
+- For `kind: presentation` HTML, read [references/presentation-html-v1.md](references/presentation-html-v1.md)
+  and start from the bundled [standalone template](templates/presentation.html).
+  Run the independent browser behavior check described there before delivery.
 - Treat registration as part of completing a user-facing Markdown or HTML
   deliverable. Before the final response, register every primary `.md` and
   `.html` file created or updated for the user; do not wait for a separate
@@ -91,6 +94,9 @@ For HTML, author the root marker and complete editable field coverage first.
 The registrar rejects unmarked visible text, uneditable images, duplicate or
 nested targets, unsupported target types, unsafe rich-text descendants, and
 markup or attributes Nutbook would remove during editing.
+For `--kind presentation`, it also rejects missing or duplicate page IDs,
+invalid notes, absent intent marker, and absent bridge declarations. This is
+static validation only; a real browser and Nutbook still verify behavior.
 
 Manifest structure and current HTML-edit compatibility are separate checks. A
 legacy active HTML entry that needs repair must never make the manifest

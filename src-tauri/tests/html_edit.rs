@@ -9,6 +9,7 @@ use nutbook_backend::core::html_edit::{
     HtmlEditPatchLookup, HtmlEditPatchSave, populate_runtime_asset_urls,
     resolve_html_edit_asset_path,
 };
+use nutbook_backend::core::markdown_export::{fallback_presentation_light_template, render_presentation_html, MarkdownHtmlExportInput, MarkdownHtmlExportPreferences, PresentationDensity, PresentationHtmlExportPreferences};
 use nutbook_backend::errors::AppError;
 use nutbook_backend::models::html_edit::{HtmlEditPictureSource, HtmlEditRole, HtmlEditTextAlign};
 use nutbook_backend::models::{
@@ -2255,7 +2256,7 @@ fn html_edit_commit_retires_sidecar_and_keeps_unedited_source_bytes() {
         expected_file_hash: opened.source_file_hash.clone(), expected_modified_at: opened.source_modified_at,
         expected_patch_revision: 0, changes: std::collections::BTreeMap::new(),
     }).expect("create legacy sidecar");
-    let committed = commit_html_edit_for_file(&HtmlEditCommit {
+    let committed = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None,
         library_root: root.path().to_path_buf(), file_path: html_path.clone(),
         artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash,
         expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::new(),
@@ -2264,6 +2265,65 @@ fn html_edit_commit_retires_sidecar_and_keeps_unedited_source_bytes() {
     assert_eq!(committed.source_size as usize, before.len());
     assert!(!patch_path(root.path(), &opened.artifact_edit_id).expect("patch path").exists());
     assert!(load_html_edit_manifest(root.path()).expect("manifest").entries.is_empty());
+}
+
+#[test]
+fn html_edit_commit_saves_text_and_current_page_notes_in_one_file_revision() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("presentation.html");
+    std::fs::write(&html_path, r#"<!doctype html><html><body><div data-id="title" data-editable="text">Before</div><script type="application/json" id="nutbook-presentation-notes">{"version":1,"pages":{"other":[{"type":"paragraph","runs":[{"text":"Keep"}]}]}}</script></body></html>"#).expect("write source");
+    let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "presentation".to_string() }).expect("open editor");
+    let change = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"title\"]".to_string(), original_text_hash: Some("runtime-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some("After".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
+    let committed = commit_html_edit_for_file(&HtmlEditCommit {
+        library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id,
+        expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at,
+        changes: std::collections::BTreeMap::from([("title".to_string(), change)]),
+        presentation_notes: Some(serde_json::json!({"one":[{"type":"paragraph","runs":[{"text":"新备注","bold":true}]}]})),
+    }).expect("commit text and notes");
+    let saved = std::fs::read_to_string(&html_path).expect("read saved source");
+    assert!(saved.contains(">After</div>"));
+    assert!(saved.contains("Keep"));
+    assert!(saved.contains("新备注"));
+    assert_eq!(committed.source_file_hash, format!("{:x}", Sha256::digest(saved.as_bytes())));
+}
+
+#[test]
+fn exported_presentation_commits_body_and_notes_and_reopens() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let html_path = root.path().join("export.html");
+    std::fs::write(root.path().join("illustration.svg"), r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3"/></svg>"#).expect("write illustration");
+    let output = render_presentation_html(MarkdownHtmlExportInput {
+        title: "验收".into(), source_file: "source.md".into(), source_path: root.path().join("source.md"),
+        markdown: "# 验收\n\n## 第一节\n\n原有正文。\n\n![插图](./illustration.svg)\n\n## 第二节\n\n另一页。".into(),
+        generated_at: "now".into(), template_html: fallback_presentation_light_template().into(),
+        preferences: MarkdownHtmlExportPreferences::default(),
+    }, PresentationHtmlExportPreferences { aspect_ratio: "16-9".into(), density: PresentationDensity::Balanced, output_kind: "static".into() }).expect("render deck");
+    assert!(output.html.contains("data-editable=\"image\""));
+    assert!(!output.html.contains("data-editable=\"rich-text\" data-edit-role=\"content\"><img"));
+    std::fs::write(&html_path, output.html).expect("write export");
+    let lookup = HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "验收".into() };
+    let opened = get_html_edit_patch_for_file(&lookup).expect("open export");
+    let field = "nutbook-page-001-field-002";
+    let change = HtmlEditChange { change_type: HtmlEditChangeType::RichText, selector: format!("[data-id=\"{field}\"]"), original_text_hash: Some("runtime-hash".into()), original_src_hash: None, original_style_hash: None, text: None, src: None, alt: None, html: Some("修改后的标题".into()), text_align: None, edit_role: Some(HtmlEditRole::Short), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: Some("nutbook-page-001".into()), deleted: false };
+    let saved = commit_html_edit_for_file(&HtmlEditCommit {
+        library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id,
+        expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at,
+        changes: std::collections::BTreeMap::from([(field.into(), change)]),
+        presentation_notes: None,
+    }).expect("commit body without notes");
+    let reopened = get_html_edit_patch_for_file(&lookup).expect("reopen export");
+    let saved_notes = commit_html_edit_for_file(&HtmlEditCommit {
+        library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: reopened.artifact_edit_id,
+        expected_file_hash: reopened.source_file_hash.clone(), expected_modified_at: reopened.source_modified_at,
+        changes: std::collections::BTreeMap::new(),
+        presentation_notes: Some(serde_json::json!({"nutbook-page-001":[{"type":"paragraph","runs":[{"text":"修改后的备注"}]}]})),
+    }).expect("commit notes after body-only save");
+    let source = std::fs::read_to_string(&html_path).expect("read saved export");
+    assert!(source.contains("修改后的标题"));
+    assert!(source.contains("修改后的备注"));
+    assert!(source.contains("window.__NUTBOOK_PRESENTATION__"));
+    assert_eq!(reopened.source_file_hash, saved.source_file_hash);
+    assert_eq!(saved_notes.source_file_hash, format!("{:x}", Sha256::digest(source.as_bytes())));
 }
 
 #[test]
@@ -2295,7 +2355,7 @@ fn html_edit_commit_preserves_vertical_structure_metadata_for_reopen() {
         width_permille: None, height_permille: None, canvas_width: None, canvas_height: None,
         page_id: None, deleted: false,
     };
-    let committed = commit_html_edit_for_file(&HtmlEditCommit {
+    let committed = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None,
         library_root: root.path().to_path_buf(), file_path: html_path.clone(),
         artifact_edit_id: opened.artifact_edit_id, expected_file_hash: opened.source_file_hash,
         expected_modified_at: opened.source_modified_at,
@@ -2320,7 +2380,7 @@ fn html_edit_conflict_copy_never_replaces_the_external_source() {
     let html_path = root.path().join("editable-basic.html");
     std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
     let original = std::fs::read(&html_path).expect("source");
-    let output = save_html_edit_conflict_copy_for_file(&HtmlEditCommit {
+    let output = save_html_edit_conflict_copy_for_file(&HtmlEditCommit { presentation_notes: None,
         library_root: root.path().to_path_buf(), file_path: html_path.clone(),
         artifact_edit_id: "html-edit-acceptance".to_string(), expected_file_hash: String::new(),
         expected_modified_at: 0, changes: std::collections::BTreeMap::new(),
@@ -2339,7 +2399,7 @@ fn html_edit_commit_rejects_text_when_the_target_changed_externally() {
     std::fs::write(&html_path, std::fs::read_to_string(&html_path).expect("read").replace("Original Title", "External Title")).expect("external change");
     let hash = |value: &str| format!("{:x}", Sha256::digest(value.as_bytes()));
     let change = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"cover-title\"]".to_string(), original_text_hash: Some(hash("Original Title")), original_src_hash: None, original_style_hash: None, text: Some("My Title".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
-    let error = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path, artifact_edit_id: opened.artifact_edit_id, expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), change)]) }).expect_err("external edit blocks commit");
+    let error = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path, artifact_edit_id: opened.artifact_edit_id, expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), change)]) }).expect_err("external edit blocks commit");
     assert!(matches!(error, AppError::EditConflict));
 }
 
@@ -2350,8 +2410,8 @@ fn html_edit_commit_allows_a_second_save_in_the_same_session() {
     std::fs::copy(fixture_path("editable-basic.html"), &html_path).expect("copy fixture");
     let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "basic".to_string() }).expect("open");
     let make_change = |id: &str, value: &str| HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: format!("[data-id=\"{id}\"]"), original_text_hash: Some("runtime-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some(value.to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
-    let first = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), make_change("cover-title", "First"))]) }).expect("first save");
-    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id, expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("cover-body".to_string(), make_change("cover-body", "Second"))]) }).expect("second save");
+    let first = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), make_change("cover-title", "First"))]) }).expect("first save");
+    commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id, expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("cover-body".to_string(), make_change("cover-body", "Second"))]) }).expect("second save");
     let output = std::fs::read_to_string(&html_path).expect("saved source");
     assert!(output.contains("First") && output.contains("Second"));
 }
@@ -2370,9 +2430,9 @@ fn html_edit_commit_keeps_reopened_inserted_images_when_saving_text() {
     let mut inserted = inserted_image_change(relative);
     inserted.original_style_hash = Some("nutbook-inserted-crop:v1:1750:320:680".to_string());
     let inserted_id = inserted.inserted_image_id.clone().expect("id");
-    let first = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([(inserted_id.clone(), inserted.clone())]) }).expect("inserted save");
+    let first = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([(inserted_id.clone(), inserted.clone())]) }).expect("inserted save");
     let title = HtmlEditChange { change_type: HtmlEditChangeType::Text, selector: "[data-id=\"cover-title\"]".to_string(), original_text_hash: Some("ignored-after-source-hash".to_string()), original_src_hash: None, original_style_hash: None, text: Some("Changed title".to_string()), src: None, alt: None, html: None, text_align: None, edit_role: Some(HtmlEditRole::Plain), picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
-    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), title)]) }).expect("text save preserves layer");
+    commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("cover-title".to_string(), title)]) }).expect("text save preserves layer");
     let output = std::fs::read_to_string(&html_path).expect("output");
     assert!(output.contains(&inserted_id));
     assert!(output.contains("Changed title"));
@@ -2397,7 +2457,7 @@ fn html_edit_commit_scopes_inserted_images_to_the_declared_presentation_page() {
     let mut inserted = inserted_image_change(".nutbook/html-edit/assets/html-edit-acceptance/asset.png");
     inserted.page_id = Some("slide-b".to_string());
     let id = inserted.inserted_image_id.clone().expect("id");
-    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([(id.clone(), inserted)]) }).expect("page-local save");
+    commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([(id.clone(), inserted)]) }).expect("page-local save");
     let output = std::fs::read_to_string(&html_path).expect("output");
     let before_b = output.split("data-nutbook-page-id=\"slide-b\"").next().expect("page split");
     assert!(!before_b.contains(&id), "the first page must not receive slide-b's layer");
@@ -2416,7 +2476,7 @@ fn html_edit_commit_embeds_imported_image_as_data_url() {
     let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "image".to_string() }).expect("open");
     let mut image = image_change(".nutbook/html-edit/assets/html-edit-acceptance/asset.png");
     image.picture_sources = None;
-    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), image)]) }).expect("embed image");
+    commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), image)]) }).expect("embed image");
     assert!(std::fs::read_to_string(&html_path).expect("output").contains("data:image/png;base64,"));
 }
 
@@ -2432,7 +2492,7 @@ fn html_edit_commit_persists_image_crop_without_replacing_the_source_asset() {
         text: None, src: None, alt: None, html: None, text_align: None, edit_role: None, picture_sources: None,
         inserted_image_id: None, left_permille: Some(1750), top_permille: Some(320), width_permille: Some(680), height_permille: None, canvas_width: Some(640), canvas_height: Some(230), page_id: None, deleted: false,
     };
-    let first = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), crop.clone())]) }).expect("crop save");
+    let first = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), crop.clone())]) }).expect("crop save");
     let first_output = std::fs::read_to_string(&html_path).expect("first output");
     assert!(first_output.contains("data-nutbook-crop-frame=\"1\""));
     assert!(first_output.contains("data-nutbook-crop-scale=\"1750\""));
@@ -2447,7 +2507,7 @@ fn html_edit_commit_persists_image_crop_without_replacing_the_source_asset() {
     assert!(!first_output.contains("filter:none !important"), "persisting a crop must not erase the page author's image filters");
     let mut second_crop = crop;
     second_crop.left_permille = Some(2200);
-    let second = commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), second_crop)]) }).expect("second crop save");
+    let second = commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: first.source_file_hash, expected_modified_at: first.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), second_crop)]) }).expect("second crop save");
     let output = std::fs::read_to_string(&html_path).expect("second output");
     assert_eq!(output.matches("data-nutbook-crop-frame=\"1\"").count(), 1);
     assert!(output.contains("data-nutbook-crop-scale=\"2200\""));
@@ -2460,7 +2520,7 @@ fn html_edit_commit_persists_image_crop_without_replacing_the_source_asset() {
         text: None, src: Some(format!(".nutbook/html-edit/assets/{}/asset.png", opened.artifact_edit_id)), alt: Some("replacement".to_string()), html: None, text_align: None, edit_role: None, picture_sources: None,
         inserted_image_id: None, left_permille: Some(0), top_permille: Some(0), width_permille: Some(0), height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false,
     };
-    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: second.source_file_hash, expected_modified_at: second.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), replacement)]) }).expect("replacement resets crop");
+    commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: second.source_file_hash, expected_modified_at: second.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), replacement)]) }).expect("replacement resets crop");
     let replacement_output = std::fs::read_to_string(&html_path).expect("replacement output");
     assert!(!replacement_output.contains("data-nutbook-crop-frame"));
     assert!(!replacement_output.contains("data-nutbook-crop-image"));
@@ -2478,7 +2538,7 @@ fn html_edit_commit_replaces_spaced_attribute_without_duplicate_src() {
     std::fs::create_dir_all(&assets).expect("assets"); std::fs::write(assets.join("asset.png"), MINIMAL_PNG).expect("asset");
     let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup { library_id: 1, library_root: root.path().to_path_buf(), item_id: 1, file_path: html_path.clone(), title_hint: "spaced".to_string() }).expect("open");
     let change = HtmlEditChange { change_type: HtmlEditChangeType::Image, selector: "[data-id=\"brief-hero\"]".to_string(), original_text_hash: None, original_src_hash: Some("ignored".to_string()), original_style_hash: None, text: None, src: Some(".nutbook/html-edit/assets/html-edit-acceptance/asset.png".to_string()), alt: Some("new".to_string()), html: None, text_align: None, edit_role: None, picture_sources: None, inserted_image_id: None, left_permille: None, top_permille: None, width_permille: None, height_permille: None, canvas_width: None, canvas_height: None, page_id: None, deleted: false };
-    commit_html_edit_for_file(&HtmlEditCommit { library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), change)]) }).expect("save");
+    commit_html_edit_for_file(&HtmlEditCommit { presentation_notes: None, library_root: root.path().to_path_buf(), file_path: html_path.clone(), artifact_edit_id: artifact.to_string(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("brief-hero".to_string(), change)]) }).expect("save");
     let output = std::fs::read_to_string(html_path).expect("output");
     assert_eq!(output.matches("src=").count(), 1);
     assert!(output.contains("data:image/png;base64,"));

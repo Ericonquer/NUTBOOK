@@ -65,6 +65,29 @@
       transform: translate(-50%, -8px);
     }
 
+    /* The controls return on fullscreen exit. Never let a late hint frame
+       cover their buttons, even when two F transitions resolve quickly. */
+    .panel:not(.hidden) ~ .fullscreen-hint { display: none; }
+
+    .native-presentation-progress {
+      position: absolute;
+      top: 40px;
+      right: 0;
+      display: flex;
+      align-items: center;
+      box-sizing: border-box;
+      min-height: 24px;
+      padding: 0 10px;
+      border: 1px solid #e2e2e4;
+      border-radius: 8px;
+      background: #f5f5f7;
+      color: #5e5e63;
+      font-size: 12px;
+      font-weight: 600;
+      pointer-events: none;
+    }
+    .native-presentation-progress[hidden] { display: none; }
+
     .row {
       position: absolute;
       top: 0;
@@ -498,9 +521,13 @@
       </div>
     </div>
     <div id="menu" class="menu" role="menu" aria-hidden="true">
-      <button id="presentationOption" class="menu-option" type="button" role="menuitem" aria-label="演示模式">
+      <button id="nativePresentationOption" class="menu-option" type="button" role="menuitem" aria-label="演示模式" title="演示模式">
+        <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 16.5h4M10 13v3.5"/></svg></span>
+        <span id="nativePresentationLabel" class="menu-option-label">演示模式</span>
+      </button>
+      <button id="presentationOption" class="menu-option" type="button" role="menuitem" aria-label="全屏查看" title="全屏查看">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 16.5h4"/><path d="M10 13v3.5"/></svg></span>
-        <span id="presentationLabel" class="menu-option-label">演示模式</span>
+        <span id="presentationLabel" class="menu-option-label">全屏查看</span>
       </button>
       <button id="removeOption" class="menu-option danger-option" type="button" role="menuitem" aria-label="移除文件">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 5.5h11"/><path d="M7.5 5.5V4a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 12.5 4v1.5"/><path d="M6 5.5l.8 10a1.5 1.5 0 0 0 1.5 1.4h3.4a1.5 1.5 0 0 0 1.5-1.4l.8-10"/></svg></span>
@@ -516,6 +543,7 @@
       <div id="tagMenuOptions" class="tag-menu-options"></div>
     </div>
   </div>
+  <div id="nativePresentationProgress" class="native-presentation-progress" role="status" aria-live="polite" hidden></div>
   <div id="fullscreenHint" class="fullscreen-hint" aria-live="polite"></div>
 
   <script src="./i18n.js?v=20260525-update-check"></script>
@@ -530,6 +558,7 @@
       isFullscreen: false,
       isEditing: false,
       isPrimaryBusy: false,
+      nativePresentationPreparing: false,
       menuOpen: false,
       tagMenuOpen: false,
       customTag: null,
@@ -547,6 +576,7 @@
     let menuOpenTimer = null;
     let tagMenuAutoCloseTimer = null;
     let lastPresentationActivationAt = 0;
+    let lastNativePresentationActivationAt = 0;
     let lastTagActivationAt = 0;
     let tagMenuOpenTimer = null;
     let actionSequence = 0;
@@ -568,6 +598,9 @@
       menu: document.getElementById("menu"),
       editButton: document.getElementById("editButton"),
       editLabel: document.getElementById("editLabel"),
+      nativePresentationOption: document.getElementById("nativePresentationOption"),
+      nativePresentationLabel: document.getElementById("nativePresentationLabel"),
+      nativePresentationProgress: document.getElementById("nativePresentationProgress"),
       presentationOption: document.getElementById("presentationOption"),
       presentationLabel: document.getElementById("presentationLabel"),
       addTagBtn: document.getElementById("addTagBtn"),
@@ -616,6 +649,7 @@
     function currentLayoutMode() {
       if (state.tagMenuOpen) return "tags";
       if (state.menuOpen) return "more";
+      if (state.nativePresentationPreparing) return "hover";
       // A1.3：来源徽标 tooltip 待显示时走 badge-tip 扩高态（宿主实测 viewport ≥ 100 才显示 tooltip）。
       if (pendingTip) return "badge-tip";
       if (controlsHover) return "hover";
@@ -848,6 +882,7 @@
       els.moreButton.style.display = isHtml ? "" : "none";
       els.favoriteButton.style.display = isHtml ? "" : "none";
       els.removeOption.style.display = isHtml ? "" : "none";
+      els.nativePresentationOption.style.display = isHtml ? "" : "none";
       els.editButton.style.display = isHtml ? "" : "none";
       els.addTagBtn.textContent = t("actions.addTag");
       els.tagNameInput.placeholder = t("html.newTagName");
@@ -919,8 +954,16 @@
       els.editButton.disabled = state.isPrimaryBusy;
       els.editButton.setAttribute("aria-busy", state.isPrimaryBusy ? "true" : "false");
       const presentationLabel = state.isFullscreen ? t("actions.exitPresentationShortcut") : t("actions.presentationShortcut");
+      const nativePresentationLabel = state.language === "en-US" ? "Presentation mode" : "演示模式";
+      els.nativePresentationLabel.textContent = nativePresentationLabel;
+      els.nativePresentationOption.setAttribute("aria-label", nativePresentationLabel);
+      els.nativePresentationOption.title = nativePresentationLabel;
+      els.nativePresentationOption.disabled = state.isEditing || state.nativePresentationPreparing;
+      els.nativePresentationProgress.textContent = state.language === "en-US" ? "Checking presentation…" : "正在检查演示…";
+      els.nativePresentationProgress.hidden = !state.nativePresentationPreparing;
       if (els.presentationLabel) els.presentationLabel.textContent = presentationLabel;
       els.presentationOption.setAttribute("aria-label", presentationLabel);
+      els.presentationOption.title = presentationLabel;
       els.presentationOption.disabled = state.isEditing;
       updateTagChips();
       if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");
@@ -964,6 +1007,8 @@
       state.isFullscreen = !!next.isFullscreen;
       state.isEditing = !!next.isEditing;
       state.isPrimaryBusy = !!next.isPrimaryBusy;
+      const preparationChanged = state.nativePresentationPreparing !== !!next.nativePresentationPreparing;
+      state.nativePresentationPreparing = !!next.nativePresentationPreparing;
       state.customTag = next.customTag || null;
       state.availableTags = Array.isArray(next.availableTags) ? next.availableTags : [];
       state.skillTag = next.skillTag || null;
@@ -978,6 +1023,7 @@
         i18n?.setLanguage?.(nextLanguage);
       }
       refresh();
+      if (preparationChanged) emitLayout();
       if (!wasFullscreen && state.isFullscreen) showFullscreenHint();
       if (wasFullscreen && !state.isFullscreen) hideFullscreenHint();
     }
@@ -1105,6 +1151,23 @@
       emit({ action: "toggle-presentation" });
     }
 
+    function activateNativePresentation(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (state.isEditing || state.nativePresentationPreparing) return;
+      const now = Date.now();
+      if (now - lastNativePresentationActivationAt < 180) return;
+      lastNativePresentationActivationAt = now;
+      state.nativePresentationPreparing = true;
+      state.menuOpen = false;
+      refresh();
+      clearMenuAutoClose();
+      emitLayout();
+      emit({ action: "prepare-native-presentation" });
+    }
+
     function handleEscapeFullscreen(e) {
       if (!state.isFullscreen || !isEscapeKey(e)) return;
       e.preventDefault();
@@ -1135,7 +1198,12 @@
     });
     els.presentationOption.addEventListener("pointerdown", activatePresentationMode);
     els.presentationOption.addEventListener("click", activatePresentationMode);
+    els.nativePresentationOption.addEventListener("pointerdown", activateNativePresentation);
+    els.nativePresentationOption.addEventListener("click", activateNativePresentation);
     els.menu.addEventListener("pointerdown", function(e) {
+      if (e.target === els.nativePresentationOption || els.nativePresentationOption.contains(e.target)) {
+        activateNativePresentation(e);
+      }
       if (e.target === els.presentationOption || els.presentationOption.contains(e.target)) {
         activatePresentationMode(e);
       }

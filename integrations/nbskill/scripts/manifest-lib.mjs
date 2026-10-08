@@ -135,6 +135,44 @@ export function validateEditableHtmlContract(source, label = "HTML") {
   if (!targetCount) throw new Error(`${label} has no editable targets`);
 }
 
+export function validatePresentationHtmlContract(source, label = "HTML") {
+  const htmlOpen = source.match(/<html\b[^>]*>/iu)?.[0] || "";
+  if (tagAttributes(htmlOpen).get("data-nutbook-artifact-kind") !== "presentation") {
+    throw new Error(`${label} is missing the presentation intent marker on <html>`);
+  }
+  const bodyMarkup = source.replace(/<!--[\s\S]*?-->/gu, "").replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, "");
+  const ids = [...bodyMarkup.matchAll(/<[^>]+\bdata-nutbook-page-id\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/giu)]
+    .map((match) => match[1] ?? match[2]);
+  if (!ids.length || ids.length > 500 || ids.some((id) => !id.trim() || Buffer.byteLength(id) > 256) || new Set(ids).size !== ids.length) {
+    throw new Error(`${label} has empty or duplicate data-nutbook-page-id values`);
+  }
+  const notes = [...source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/giu)]
+    .filter((match) => tagAttributes(`<script ${match[1]}>`).get("id") === "nutbook-presentation-notes");
+  if (notes.length !== 1 || tagAttributes(`<script ${notes[0][1]}>`).get("type") !== "application/json") {
+    throw new Error(`${label} needs one application/json nutbook-presentation-notes block`);
+  }
+  let parsed;
+  try { parsed = JSON.parse(notes[0][2]); } catch { throw new Error(`${label} has invalid presentation notes JSON`); }
+  if (parsed?.version !== 1 || !parsed.pages || typeof parsed.pages !== "object" || Array.isArray(parsed.pages)) {
+    throw new Error(`${label} has invalid presentation notes structure`);
+  }
+  let noteBytes = 0;
+  for (const [id, paragraphs] of Object.entries(parsed.pages)) {
+    if (!ids.includes(id) || !Array.isArray(paragraphs) || paragraphs.length > 100 || paragraphs.some((item) => item?.type !== "paragraph" || !Array.isArray(item.runs) || item.runs.length > 100 || item.runs.some((run) => typeof run?.text !== "string" || Buffer.byteLength(run.text) > 10_000 || (run.bold !== undefined && typeof run.bold !== "boolean")))) {
+      throw new Error(`${label} has invalid notes for page ${id}`);
+    }
+    for (const paragraph of paragraphs) for (const run of paragraph.runs) noteBytes += Buffer.byteLength(run.text);
+    if (noteBytes > 512 * 1024) throw new Error(`${label} has presentation notes over 512 KiB`);
+  }
+  if (!/window\.__NUTBOOK_PRESENTATION__\s*=/u.test(source)
+    || !/managedPresenter\s*:\s*true/u.test(source)
+    || !/\bgoTo\s*\(/u.test(source)
+    || !/\bsubscribe\s*\(/u.test(source)
+    || !/\bsetManagedMode\s*\(/u.test(source)) {
+    throw new Error(`${label} is missing a required presentation bridge declaration`);
+  }
+}
+
 export function parseArgs(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -249,7 +287,9 @@ export function validateManifest(manifest, projectRoot, options = {}) {
         throw new Error(`${label} active HTML requires nutbook-html/v1 managed-source editing`);
       }
       const htmlPath = join(canonicalProjectRoot, ...entry.path.split("/"));
-      validateEditableHtmlContract(readFileSync(htmlPath, "utf8"), `${label}.path`);
+      const source = readFileSync(htmlPath, "utf8");
+      validateEditableHtmlContract(source, `${label}.path`);
+      if (entry.kind === "presentation") validatePresentationHtmlContract(source, `${label}.path`);
     }
     if (entry.state === "superseded") {
       if (typeof entry.supersededBy !== "string" || entry.supersededBy === entry.id) throw new Error(`${label}.supersededBy is invalid`);
@@ -282,7 +322,9 @@ export function validateEntryHtmlContract(entry, projectRoot, label = `entry ${e
   }
   const canonicalProjectRoot = realpathSync(projectRoot);
   const htmlPath = join(canonicalProjectRoot, ...entry.path.split("/"));
-  validateEditableHtmlContract(readFileSync(htmlPath, "utf8"), `${label}.path`);
+  const source = readFileSync(htmlPath, "utf8");
+  validateEditableHtmlContract(source, `${label}.path`);
+  if (entry.kind === "presentation") validatePresentationHtmlContract(source, `${label}.path`);
 }
 
 export function activeHtmlContractIssues(manifest, projectRoot) {

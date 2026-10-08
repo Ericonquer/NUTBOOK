@@ -21,6 +21,9 @@ assert.equal(i18n.lookup("htmlEdit.confirmImageFrame", "zh-CN"), "确认框选")
 assert.equal(i18n.lookup("htmlEdit.cancelImageFrame", "zh-CN"), "取消框选");
 assert.equal(i18n.lookup("htmlEdit.confirmImageFrame", "en-US"), "Confirm frame");
 assert.equal(i18n.lookup("htmlEdit.cancelImageFrame", "en-US"), "Cancel frame");
+assert.equal(i18n.lookup("htmlEdit.createCopyTitle", "en-US"), "This file does not support Nutbook editing");
+assert.equal(i18n.lookup("htmlEdit.createAndEdit", "en-US"), "Create and Edit");
+assert.match(indexHtml, /function showHtmlEditCreateCopyConfirmOverlay\([\s\S]*?language: appState\.language,[\s\S]*?mode: "create-copy"/, "the host must pass its current language into the native copy dialog");
 
 assert.match(runtime, /imageFrameLabels/, "the child runtime must retain explicit image-frame labels");
 assert.match(runtime, /function updateLocale\(/, "the child runtime must expose a locale update hook");
@@ -85,6 +88,25 @@ try {
   })), true, "the runtime locale update must accept the active session");
   assert.equal(await frame.getAttribute("data-nutbook-inserted-image-id"), frameId, "locale updates must keep the existing frame node");
   assert.deepEqual(await buttons.allTextContents(), ["确认框选", "取消框选"], "the same existing frame must update its labels after a locale change");
+
+  for (const scenario of [
+    { language: "en-US", title: "This file does not support Nutbook editing", message: "Create an editable copy? The original file will not be changed.", keep: "Continue Preview", save: "Create and Edit" },
+    { language: "zh-CN", title: "此文件不支持 Nutbook 编辑协议", message: "是否尝试创建一个可编辑副本？原文件不会修改。", keep: "继续预览", save: "创建并编辑" }
+  ]) {
+    const confirmPage = await browser.newPage();
+    await confirmPage.addInitScript(language => {
+      window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = { itemId: 41, mode: "create-copy", language };
+    }, scenario.language);
+    await confirmPage.goto(pathToFileURL(path.resolve("dist/html-edit-leave-confirm.html")).href);
+    assert.equal(await confirmPage.locator("#title").textContent(), scenario.title);
+    assert.equal(await confirmPage.locator("#message").textContent(), scenario.message);
+    assert.equal(await confirmPage.locator("#keepButton").textContent(), scenario.keep);
+    assert.equal(await confirmPage.locator("#saveButton").textContent(), scenario.save);
+    assert.equal(await confirmPage.locator("#keepButton").getAttribute("aria-label"), scenario.keep);
+    assert.equal(await confirmPage.locator("#saveButton").getAttribute("title"), scenario.save);
+    assert.equal(await confirmPage.locator("#discardButton").isVisible(), false);
+    await confirmPage.close();
+  }
 } finally {
   await browser.close();
 }

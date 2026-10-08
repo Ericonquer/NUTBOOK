@@ -24,7 +24,7 @@ use tauri::{
 #[cfg(target_os = "macos")]
 use block2::RcBlock;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSResponder, NSWindow, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
+use objc2_app_kit::{NSResponder, NSWindow, NSWindowDidDeminiaturizeNotification, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification, NSWindowDidMiniaturizeNotification};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSNotification, NSNotificationCenter};
 #[cfg(target_os = "macos")]
@@ -49,6 +49,8 @@ static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = O
 static HTML_FULLSCREEN_FOCUS_ITEM_ID: AtomicI64 = AtomicI64::new(0);
 #[cfg(target_os = "macos")]
 static HTML_FULLSCREEN_FOCUS_OBSERVER: OnceLock<()> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static HTML_RUNTIME_MINIMIZE_OBSERVER: OnceLock<()> = OnceLock::new();
 
 fn presentation_preview_instances() -> &'static Mutex<HashMap<i64, String>> {
     PRESENTATION_PREVIEW_INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -390,6 +392,35 @@ pub fn attach_html_runtime_host(
     view_state_surface_token: u64,
     view_state: Option<Value>,
 ) -> Result<bool, AppError> {
+    attach_html_runtime_host_with_script(
+        app, window, session, bounds, view_state_surface_token, view_state, None,
+    )
+}
+
+/// Present the active tab in the main window using its ordinary runtime host.
+/// The preparation dialog closes the reading surface, so this creates its next
+/// instance with the presentation controller installed before document load.
+pub fn attach_html_runtime_host_for_presentation(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    session: &HtmlRuntimeSession,
+    bounds: RuntimeHostBounds,
+    presentation_script: &str,
+) -> Result<bool, AppError> {
+    attach_html_runtime_host_with_script(
+        app, window, session, bounds, 0, None, Some(presentation_script),
+    )
+}
+
+fn attach_html_runtime_host_with_script(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    session: &HtmlRuntimeSession,
+    bounds: RuntimeHostBounds,
+    view_state_surface_token: u64,
+    view_state: Option<Value>,
+    presentation_script: Option<&str>,
+) -> Result<bool, AppError> {
     let host_label = html_runtime_host_label_for(&session.key);
     if let Some(webview) = app.get_webview(&host_label) {
         webview
@@ -399,13 +430,16 @@ pub fn attach_html_runtime_host(
         return Ok(true);
     }
 
-    let builder = build_runtime_webview_builder(
+    let mut builder = build_runtime_webview_builder(
         app,
         &host_label,
         session,
         view_state_surface_token,
         view_state.as_ref(),
     )?;
+    if let Some(script) = presentation_script {
+        builder = builder.initialization_script(script);
+    }
     let webview = window
         .add_child(
             builder,
@@ -418,16 +452,20 @@ pub fn attach_html_runtime_host(
         .map_err(|_| AppError::InternalError)?;
 
     // R9：登记内嵌 host 会话身份。
-    register_content_session(
-        app,
-        &host_label,
-        crate::core::content_session::ContentSurfaceRole::RuntimeHost,
-        session.key.clone(),
-        &session.runtime_url,
-        "",
-        0,
-        view_state_surface_token,
-    );
+    // Presentation registration is installed before the child is created so
+    // a document-ready report cannot race ahead of its session identity.
+    if presentation_script.is_none() {
+        register_content_session(
+            app,
+            &host_label,
+            crate::core::content_session::ContentSurfaceRole::RuntimeHost,
+            session.key.clone(),
+            &session.runtime_url,
+            "",
+            0,
+            view_state_surface_token,
+        );
+    }
 
     Ok(true)
 }
@@ -1227,6 +1265,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
     window: &tauri::Window,
     item_id: i64,
     bounds: RuntimeHostBounds,
+    language: &str,
     mode: &str,
     file_name: &str,
     request_id: &str,
@@ -1245,7 +1284,7 @@ pub fn attach_html_edit_leave_confirm_overlay(
         return Ok(true);
     }
 
-    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, mode, file_name, request_id)?;
+    let builder = build_html_edit_leave_confirm_builder(app, &overlay_label, item_id, language, mode, file_name, request_id)?;
     let webview = window
         .add_child(
             builder,
@@ -1526,6 +1565,14 @@ fn install_html_fullscreen_focus_observer(app: &tauri::AppHandle) {
         for notification_name in notification_names {
             let app_handle = app.clone();
             let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                // This notification center is app-wide. Presenter fullscreen
+                // transitions must not focus the ordinary HTML child in the
+                // audience window and pull macOS back to its Space.
+                if app_handle.try_state::<crate::state::AppState>()
+                    .is_some_and(|state| state.native_presentation.lock().ok()
+                        .is_some_and(|guard| guard.is_some())) {
+                    return;
+                }
                 let item_id = HTML_FULLSCREEN_FOCUS_ITEM_ID.load(Ordering::Acquire);
                 if item_id <= 0 {
                     return;
@@ -1551,6 +1598,61 @@ fn install_html_fullscreen_focus_observer(app: &tauri::AppHandle) {
             std::mem::forget(observer);
         }
     });
+}
+
+#[cfg(target_os = "macos")]
+pub fn install_html_runtime_minimize_observer(app: &tauri::AppHandle) {
+    let Some(main_webview) = app.get_webview("main") else {
+        return;
+    };
+    let webview_for_main = main_webview.clone();
+    let app_handle = app.clone();
+    let _ = main_webview.run_on_main_thread(move || {
+        let _ = webview_for_main.with_webview(move |platform_webview| {
+            HTML_RUNTIME_MINIMIZE_OBSERVER.get_or_init(|| unsafe {
+                let window: &NSWindow = &*platform_webview.ns_window().cast();
+                let center = NSNotificationCenter::defaultCenter();
+                for (name, minimized) in [
+                    (NSWindowDidMiniaturizeNotification, true),
+                    (NSWindowDidDeminiaturizeNotification, false),
+                ] {
+                    let app_for_event = app_handle.clone();
+                    let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                        if let Some(webview) = app_for_event.get_webview("main") {
+                            let _ = webview.eval(format!("window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__?.({minimized});"));
+                        }
+                    });
+                    let observer = center.addObserverForName_object_queue_usingBlock(
+                        Some(name), Some(window), None, &handler,
+                    );
+                    std::mem::forget(observer);
+                }
+            });
+        });
+    });
+}
+
+/// The main page can reload in `tauri dev` while native children outlive its
+/// JavaScript state. Those children belong to the previous page instance and
+/// cannot be reconciled by the newly initialized tab coordinator.
+pub fn clear_main_window_children_on_page_load(main: &tauri::Webview) {
+    if main.label() != "main" { return; }
+    let app = main.app_handle();
+    let children: Vec<_> = main.window().webviews().into_iter()
+        .filter(|child| child.label() != "main")
+        .collect();
+    for child in children {
+        let label = child.label().to_string();
+        let _ = child.set_bounds(runtime_host_rect(RuntimeHostBounds {
+            x: 0.0, y: 0.0, width: 1.0, height: 1.0,
+        }));
+        let _ = child.hide();
+        if child.close().is_ok() {
+            if let Some(state) = app.try_state::<crate::state::AppState>() {
+                state.content_sessions.unregister(&label);
+            }
+        }
+    }
 }
 
 pub fn focus_main_webview(
@@ -2022,6 +2124,7 @@ fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
             .initialization_script(html_runtime_compatibility_script())
         .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
             .initialization_script(&presentation_preview_init_script(
+                session.key.item_id().ok_or(AppError::InvalidParams)?,
                 runtime_session_id,
                 generation,
                 active_page_id,
@@ -2044,6 +2147,7 @@ fn presentation_preview_update_script(
 }
 
 fn presentation_preview_init_script(
+    item_id: i64,
     runtime_session_id: &str,
     generation: u64,
     active_page_id: &str,
@@ -2055,7 +2159,7 @@ fn presentation_preview_init_script(
   const titlePrefix = "__NUTBOOK_HTML_EDIT_RUNTIME__:";
   const report = async (type, pageId) => {{
     const state = window.__NUTBOOK_PRESENTATION_PREVIEW__?.state || initialSession;
-    const payload = {{ type, pageId, runtimeSessionId: state.runtimeSessionId, generation: state.generation, previewInstanceId: state.previewInstanceId }};
+    const payload = {{ type, itemId: {item_id}, pageId, runtimeSessionId: state.runtimeSessionId, generation: state.generation, previewInstanceId: state.previewInstanceId }};
     const invoke = window.__TAURI_INTERNALS__?.invoke;
     if (typeof invoke === "function") {{
       try {{ await invoke("html_edit_runtime_message_command", {{ payload }}); return; }} catch (_) {{}}
@@ -2069,7 +2173,10 @@ fn presentation_preview_init_script(
     const pages = Array.from(document.querySelectorAll("[data-nutbook-page-id]")).filter((node) => node instanceof HTMLElement);
     const pageIds = pages.map((page) => page.dataset.nutbookPageId || "");
     if (!pages.length || pageIds.some((id) => !id) || new Set(pageIds).size !== pageIds.length) return;
-    const deckRoot = pages[0].closest(".deck-shell") || pages[0].parentElement || document.body;
+    const sourceStyles = Array.from(document.head.querySelectorAll('style,link[rel~="stylesheet"]')).map((node) => node.outerHTML).join("");
+    const base = document.createElement("base"); base.href = document.baseURI;
+    const visiblePage = pages.find((page) => getComputedStyle(page).display !== "none") || pages[0];
+    const activeDisplay = ["block", "flex", "grid"].includes(getComputedStyle(visiblePage).display) ? getComputedStyle(visiblePage).display : "block";
     const root = document.createElement("main");
     root.id = "nutbook-presentation-preview-root";
     root.setAttribute("aria-label", "演示页面缩略图");
@@ -2084,13 +2191,7 @@ fn presentation_preview_init_script(
       .nb-preview-stage *{{pointer-events:none!important;}}
       .nb-preview-canvas{{position:absolute;inset:0 auto auto 0;width:1024px;height:576px;transform-origin:top left;overflow:hidden;}}
       .nb-preview-canvas.deck{{position:absolute!important;width:1024px!important;height:576px!important;aspect-ratio:16 / 9!important;}}
-      .nb-preview-canvas > [data-nutbook-page-id]{{position:absolute!important;inset:0!important;width:1024px!important;height:576px!important;display:flex!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;pointer-events:none!important;}}
-      /* The child preview is physically narrow, so source @media rules would
-         otherwise turn every cloned desktop slide into its mobile layout. */
-      .nb-preview-canvas > .slide{{padding:58px 76px 62px!important;}}
-      .nb-preview-canvas .cover-title,.nb-preview-canvas .chapter-title{{font-size:58px!important;}}
-      .nb-preview-canvas .slide-title{{font-size:40px!important;}}
-      .nb-preview-canvas .slide-content{{font-size:19px!important;}}
+      .nb-preview-canvas iframe{{display:block;width:1024px;height:576px;border:0;pointer-events:none;}}
       .nb-preview-placeholder{{display:grid;place-items:center;width:100%;height:100%;color:#777;font:600 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}}
       .nb-preview-meta{{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:5px;align-items:baseline;padding:4px 2px 0;color:#25252a;font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:left;}}
       .nb-preview-meta-index{{color:#777780;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}} .nb-preview-meta-title{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}} .nb-preview-meta-kind{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#85858c;font-size:9px;font-weight:550;}}
@@ -2111,9 +2212,20 @@ fn presentation_preview_init_script(
       const stage = card.querySelector(".nb-preview-stage");
       const canvas = document.createElement("span"); canvas.className = "nb-preview-canvas deck aspect-16-9";
       const clone = source.cloneNode(true);
-      clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-      clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
-      canvas.append(clone); stage.replaceChildren(canvas);
+      clone.style.removeProperty("display");
+      clone.querySelectorAll("script,iframe").forEach((node) => node.remove());
+      let content = clone;
+      for (let parent = source.parentElement; parent && parent !== document.body; parent = parent.parentElement) {{
+        const wrapper = parent.cloneNode(false); wrapper.style.removeProperty("display"); wrapper.replaceChildren(content); content = wrapper;
+      }}
+      const snapshot = document.documentElement.cloneNode(false);
+      const head = document.createElement("head");
+      head.innerHTML = `<meta charset="utf-8">${{base.outerHTML}}${{sourceStyles}}<style>html,body{{margin:0!important;width:1024px!important;height:576px!important;overflow:hidden!important}}[data-nutbook-page-id]{{display:${{activeDisplay}}!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;width:1024px!important;height:576px!important}}</style>`;
+      const body = document.body.cloneNode(false); body.style.removeProperty("display"); body.replaceChildren(content);
+      snapshot.replaceChildren(head, body);
+      const frame = document.createElement("iframe"); frame.setAttribute("sandbox", ""); frame.setAttribute("aria-hidden", "true"); frame.tabIndex = -1;
+      frame.srcdoc = `<!doctype html>${{snapshot.outerHTML}}`;
+      canvas.append(frame); stage.replaceChildren(canvas);
       const fit = () => {{ canvas.style.transform = `scale(${{stage.clientWidth / 1024}})`; }};
       fit(); new ResizeObserver(fit).observe(stage);
       card.dataset.mounted = "true";
@@ -2285,6 +2397,7 @@ fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     label: &str,
     item_id: i64,
+    language: &str,
     mode: &str,
     file_name: &str,
     request_id: &str,
@@ -2292,7 +2405,7 @@ fn build_html_edit_leave_confirm_builder<R: tauri::Runtime>(
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("html-edit-leave-confirm.html"));
     Ok(
         WebviewBuilder::new(label, overlay_url)
-            .initialization_script(&html_edit_leave_confirm_init_script(item_id, mode, file_name, request_id))
+            .initialization_script(&html_edit_leave_confirm_init_script(item_id, language, mode, file_name, request_id))
             .background_color(tauri::webview::Color(0, 0, 0, 0))
             .transparent(true)
             .focused(true)
@@ -2720,7 +2833,8 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
             let _ = webview.eval("window.__NUTBOOK_RUNTIME_VIEW_STATE__?.ackTitle?.();");
             return;
         }
-        if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) {
+        if title.starts_with(HTML_FIND_SHORTCUT_PREFIX) || title.starts_with("__NUTBOOK_PRESENTATION_SHORTCUT__:") {
+            let is_presentation_shortcut = title.starts_with("__NUTBOOK_PRESENTATION_SHORTCUT__:");
             // revision 71：外部临时 host（`html-host-ext-<sessionId>`）与正式
             // item host 走同一 compatibility 脚本，Cmd+F 标题桥同样可达。
             // 身份派生自宿主 label（页面 JS 不可伪造）；main 侧
@@ -2743,7 +2857,8 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                 if title_bridge_record(&app_handle, &webview).is_some() {
                     if let Some(main_webview) = app_handle.get_webview("main") {
                         let _ = main_webview.eval(&format!(
-                            "window.__NUTBOOK_OPEN_HTML_FIND__?.({identity_literal});"
+                            "window.{}?.({identity_literal});",
+                            if is_presentation_shortcut { "__NUTBOOK_OPEN_NATIVE_PRESENTATION__" } else { "__NUTBOOK_OPEN_HTML_FIND__" }
                         ));
                     }
                 }
@@ -2834,6 +2949,15 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
         }
 
         if title.starts_with(HTML_FULLSCREEN_TITLE_PREFIX) {
+            let is_managed_presentation = app_handle.try_state::<crate::state::AppState>()
+                .and_then(|state| state.native_presentation.lock().ok().map(|guard|
+                    guard.as_ref().is_some_and(|session|
+                        webview.label() == html_runtime_host_label(session.item_id))))
+                .unwrap_or(false);
+            if is_managed_presentation {
+                let _ = webview.eval("document.title = document.location.pathname.split('/').pop() || 'Nutbook Runtime';");
+                return;
+            }
             let window = webview.window();
             let next_fullscreen = !window.is_fullscreen().unwrap_or(false);
             let runtime_focus_script = format!(
@@ -3216,6 +3340,10 @@ pub fn html_runtime_compatibility_script() -> &'static str {
       refocusRuntimeSoon();
     }
   };
+  // Presentation templates can use the same host-window fullscreen path as
+  // the runtime F shortcut. DOM fullscreen on an embedded child WebView can
+  // leave a detached WebKit fullscreen surface covering the document.
+  window.__NUTBOOK_REQUEST_HOST_FULLSCREEN__ = requestRuntimeFullscreen;
 
   const isEscapeKey = (event) => (
     event.key === 'Escape' ||
@@ -3240,12 +3368,24 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   };
 
   const handleRuntimeShortcut = (event) => {
+    if (window.__NUTBOOK_NATIVE_PRESENTATION_ACTIVE__) {
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && !event.altKey && String(event.key).toLowerCase() === 'f') {
       event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
       document.title = `__NUTBOOK_HTML_FIND_SHORTCUT__:${Date.now()}`;
       return;
     }
     if (isNutbookHtmlEditActive()) return;
+    if ((event.code === 'KeyS' || event.key === 's' || event.key === 'S') && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableShortcutTarget(event.target)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (!event.repeat && !event.isComposing && event.key !== 'Process') {
+        document.title = `__NUTBOOK_PRESENTATION_SHORTCUT__:${Date.now()}`;
+      }
+      return;
+    }
     if (
       !event.metaKey &&
       !event.ctrlKey &&
@@ -3341,9 +3481,10 @@ fn html_edit_toolbar_init_script(
     format!("window.__NUTBOOK_HTML_EDIT_TOOLBAR__ = {payload};")
 }
 
-fn html_edit_leave_confirm_init_script(item_id: i64, mode: &str, file_name: &str, request_id: &str) -> String {
+fn html_edit_leave_confirm_init_script(item_id: i64, language: &str, mode: &str, file_name: &str, request_id: &str) -> String {
     format!(
-        "window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, mode: {}, fileName: {}, requestId: {} }};",
+        "window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ = {{ itemId: {item_id}, language: {}, mode: {}, fileName: {}, requestId: {} }};",
+        serde_json::to_string(if language == "en-US" { "en-US" } else { "zh-CN" }).unwrap(),
         serde_json::to_string(mode).unwrap(),
         serde_json::to_string(file_name).unwrap(),
         serde_json::to_string(request_id).unwrap()
@@ -3446,6 +3587,7 @@ mod tests {
         external_html_find_action_script, external_view_state_capture_script,
         external_view_state_restore_script,
         find_result_identity_matches, html_edit_toolbar_label, html_edit_toolbar_update_script,
+        html_edit_leave_confirm_init_script,
         html_find_overlay_init_script,
         html_find_overlay_label, html_find_overlay_label_for, html_runtime_compatibility_script,
         html_runtime_controls_label_for, html_runtime_host_label, html_runtime_host_label_for,
@@ -3457,6 +3599,14 @@ mod tests {
         HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlFindActionPayload, HtmlRuntimeSession,
     };
     use crate::core::content_session::RuntimeKey;
+
+    #[test]
+    fn html_edit_copy_dialog_receives_host_language() {
+        let english = html_edit_leave_confirm_init_script(41, "en-US", "create-copy", "", "");
+        assert!(english.contains(r#"language: "en-US""#));
+        let fallback = html_edit_leave_confirm_init_script(41, "unsupported", "create-copy", "", "");
+        assert!(fallback.contains(r#"language: "zh-CN""#));
+    }
 
     /// P2 / §6.2：promotion 采集脚本只做「读一次滚动 + hash + 演示页 id 并
     /// 回报」，不得携带 surface token、不得注册常驻全局或监听事件。
@@ -3931,12 +4081,13 @@ mod tests {
 
     #[test]
     fn presentation_preview_scripts_keep_the_editor_lease_and_scaled_canvas() {
-        let init = presentation_preview_init_script("html-edit-42-1", 7, "nutbook-page-003", "preview-1");
+        let init = presentation_preview_init_script(42, "html-edit-42-1", 7, "nutbook-page-003", "preview-1");
         let update = presentation_preview_update_script("html-edit-42-2", 8, "nutbook-page-004", "preview-2");
 
         assert!(init.contains("html-edit-42-1"));
         assert!(init.contains("nutbook-page-003"));
         assert!(init.contains("preview-1"));
+        assert!(init.contains("itemId: 42"));
         assert!(init.contains("html_edit_presentation_preview_clicked"));
         assert!(init.contains("html_edit_presentation_preview_navigate"));
         assert!(init.contains("nb-preview-canvas"));
@@ -3996,6 +4147,7 @@ mod tests {
 
         assert!(script.contains("about:blank"));
         assert!(script.contains("__NUTBOOK_TOGGLE_FULLSCREEN__"));
+        assert!(script.contains("__NUTBOOK_REQUEST_HOST_FULLSCREEN__ = requestRuntimeFullscreen"));
         assert!(script.contains("[contenteditable]"));
         assert!(script.contains("__NUTBOOK_HTML_EDIT__?.isEditing"));
         assert!(script.contains("document.activeElement"));
