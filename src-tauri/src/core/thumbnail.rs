@@ -53,7 +53,7 @@ pub const TITLE_PARSER_VERSION: &str = "title-parser-v1";
 /// default-cover-v2 书脊缓存、default-cover-v3 色场缓存与 default-cover-v4
 /// 顶部横线缓存都不得再被读取为当前 ready，新 key 一律使用 v5。
 pub const DEFAULT_COVER_VERSION: &str = "default-cover-v5";
-pub const IMAGE_COVER_VERSION: &str = "image-cover-v1";
+pub const IMAGE_COVER_VERSION: &str = "image-cover-v3";
 /// 在线封面只读投影 key 版本。在线封面不下载、不写本地 ready bytes、
 /// 不进入本地 CAS；该 key 只标识「源 Markdown 中该 URL 的投影状态」。
 pub const REMOTE_COVER_VERSION: &str = "remote-cover-v2";
@@ -1813,7 +1813,9 @@ mod tests {
         assert!(!markdown_key_is_current("md-default:title-hash:title-parser-v1:default-cover-v4"));
         assert!(!markdown_key_is_current("md-screenshot:title-hash:md-screenshot-v1"));
         // PR C / C2：md-image / md-remote 是当前封面路径的合法 key；更早版本拒绝。
-        assert!(markdown_key_is_current("md-image:hash:image-cover-v1"));
+        assert!(markdown_key_is_current("md-image:hash:image-cover-v3"));
+        assert!(!markdown_key_is_current("md-image:hash:image-cover-v2"));
+        assert!(!markdown_key_is_current("md-image:hash:image-cover-v1"));
         assert!(!markdown_key_is_current("md-image:hash:image-cover-v0"));
         assert!(markdown_key_is_current("md-remote:urlhash:titlehash:remote-cover-v2"));
         assert!(!markdown_key_is_current("md-remote:urlhash:remote-cover-v1"));

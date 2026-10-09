@@ -6,11 +6,11 @@ import { closeHistory, redo, undo } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { liftListItem } from "@milkdown/kit/prose/schema-list";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
-import { DOMSerializer } from "@milkdown/kit/prose/model";
+import { Plugin, Selection, TextSelection, NodeSelection } from "@milkdown/kit/prose/state";
+import { DOMSerializer, Fragment, Slice } from "@milkdown/kit/prose/model";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { $nodeSchema, $remark } from "@milkdown/kit/utils";
-import { setBlockType, toggleMark } from "prosemirror-commands";
+import { setBlockType, toggleMark, joinBackward, selectNodeBackward } from "prosemirror-commands";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import {
   addColumnAfter,
@@ -1074,6 +1074,21 @@ function coverAttrsFromImage(node) {
 
 // Milkdown 的 link 是 mark（非 node）：linked image 在 ProseMirror 里表现为
 // image 节点带 link mark。此 helper 返回 image 上的 link mark（若有）。
+// Clipboard/soft-break padding is not prose. Ignore it only when resolving an
+// explicit image action; never rewrite the live document during typing.
+function standaloneTextblockImage(paragraph) {
+  if (!["paragraph", "heading"].includes(paragraph?.type?.name)) return null;
+  let image = null;
+  let mixed = false;
+  paragraph.forEach((child) => {
+    if (child.type.name === "image" && !image) image = child;
+    else if (child.isText && /^[\s\u200b\ufeff]*$/u.test(child.text || "")) return;
+    else if (child.type.name === "hardbreak") return;
+    else mixed = true;
+  });
+  return mixed ? null : image;
+}
+
 function imageLinkMark(image) {
   if (!image?.marks) return null;
   for (let index = 0; index < image.marks.length; index += 1) {
@@ -1140,8 +1155,8 @@ function independentImageBlockAt(state, pos) {
     if (direct.type === portableType) {
       return { blockStart: safePos, blockEnd: safePos + direct.nodeSize, attrs: coverAttrsFromPortable(direct) };
     }
-    if (direct.type === paragraphType && direct.childCount === 1) {
-      const child = direct.firstChild;
+    if (standaloneTextblockImage(direct)) {
+      const child = standaloneTextblockImage(direct);
       if (child.type === imageType) {
         const linkMark = imageLinkMark(child);
         return {
@@ -1163,8 +1178,8 @@ function independentImageBlockAt(state, pos) {
         attrs: coverAttrsFromPortable(node)
       };
     }
-    if (node.type === paragraphType && node.childCount === 1) {
-      const child = node.firstChild;
+    if (standaloneTextblockImage(node)) {
+      const child = standaloneTextblockImage(node);
       if (child.type === imageType) {
         const linkMark = imageLinkMark(child);
         return {
@@ -1257,6 +1272,31 @@ function isAtStartOfListParagraph(state) {
   const { $from } = selection;
   if (!$from.parent?.isTextblock || $from.parentOffset !== 0) return false;
   return selectionIsInList(selection);
+}
+
+// Heading Backspace follows the document boundary instead of changing its level.
+function backspaceAtHeadingStart(state, dispatch, view) {
+  const { selection } = state;
+  const { $from } = selection;
+  if (view?.composing || !selection.empty || $from.parent.type.name !== "heading" || $from.parentOffset !== 0) return false;
+  const boundary = $from.before();
+  const $boundary = state.doc.resolve(boundary);
+  const previous = $boundary.nodeBefore;
+  if (!previous) return true;
+  const previousPos = boundary - previous.nodeSize;
+  if (previous.type.name === "paragraph" && previous.content.size === 0) {
+    if (dispatch) dispatch(closeHistory(state.tr.delete(previousPos, boundary).scrollIntoView()));
+    return true;
+  }
+  const image = standaloneTextblockImage(previous);
+  if (image || [PORTABLE_IMAGE_NODE_NAME, MARKDOWN_COVER_IMAGE_NODE_NAME].includes(previous.type.name)) {
+    let imagePos = previousPos;
+    if (image) previous.forEach((child, offset) => { if (child === image) imagePos = previousPos + 1 + offset; });
+    if (dispatch) dispatch(state.tr.setSelection(NodeSelection.create(state.doc, imagePos)).scrollIntoView());
+    return true;
+  }
+  return joinBackward(state, dispatch && (tr => dispatch(closeHistory(tr))), view)
+    || selectNodeBackward(state, dispatch, view) || true;
 }
 
 function liftListItemAtParagraphStart(state, dispatch, view) {
@@ -1670,8 +1710,8 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         }
         if (!files.length && !url) return false;
         event.preventDefault();
-        if (imagePastePending || view.state.selection.$from.parent.type.spec.code) {
-          onImagePasteStatus?.("error", language === "en-US" ? "Finish the current image import or leave the code block first." : "请等待当前图片处理完成，或先移出代码块。");
+        if (imagePastePending) {
+          onImagePasteStatus?.("error", language === "en-US" ? "Finish the current image import first." : "请等待当前图片处理完成。");
           return true;
         }
         const doc = view.state.doc;
@@ -1694,8 +1734,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
             const selection = bookmark.resolve(view.state.doc);
             const nodes = assets.map(asset => view.state.schema.nodes.image.create({ src: asset.relativePath, alt: imageAltFromFileName(asset.fileName || asset.relativePath), title: "" }));
             let tr = view.state.tr.setSelection(selection);
-            const content = nodes.length === 1 ? nodes[0] : view.state.schema.nodes.paragraph.create(null, nodes);
-            tr = tr.replaceSelectionWith(content);
+            const blocks = nodes.map(node => view.state.schema.nodes.paragraph.create(null, node));
+            tr = blocks.length === 1
+              ? tr.replaceSelectionWith(blocks[0])
+              : tr.replaceSelection(new Slice(Fragment.fromArray(blocks), 0, 0));
             view.dispatch(closeHistory(tr.scrollIntoView()));
             markUserInteracted();
             flushMarkdownChangeSync();
@@ -1819,7 +1861,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
             "Mod-z": (state, dispatch, view) => (editingLocked ? false : undo(state, dispatch, view)),
             "Shift-Mod-z": (state, dispatch, view) => (editingLocked ? false : redo(state, dispatch, view)),
             "Mod-y": (state, dispatch, view) => (editingLocked ? false : redo(state, dispatch, view)),
-            "Backspace": liftListItemAtParagraphStart
+            "Backspace": (state, dispatch, view) => backspaceAtHeadingStart(state, dispatch, view) || liftListItemAtParagraphStart(state, dispatch, view)
           }),
           imagePastePlugin,
           pastePlainTextWhenLeavingList(),
@@ -2709,7 +2751,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         const $pos = view.state.doc.resolve(pos);
         const isCover = node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME;
         const isPortable = node.type?.name === PORTABLE_IMAGE_NODE_NAME;
-        const isStandalone = isCover || isPortable || ($pos.parent?.type?.name === "paragraph" && $pos.parent.childCount === 1);
+        const isStandalone = isCover || isPortable || (standaloneTextblockImage($pos.parent) === node);
         target = { element: imageElement, node, pos, isPortable, isCover, isStandalone };
         return false;
       }
@@ -2890,7 +2932,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   }
 
   // PR C / C2：把当前悬停/选中的合格图片设为封面。本地图片先经宿主校验
-  // （canonical path / MIME / 尺寸 / 4:3..2:1 / SVG 安全；不重复 copy）；
+  // （canonical path / MIME / 尺寸 / 有效自然尺寸 / SVG 安全；不重复 copy）；
   // http/https 在线图片不下载不校验比例即可包裹。校验失败不产生任何身份变化。
   async function setTargetAsCover() {
     const view = getEditorView();
@@ -4030,8 +4072,8 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
             blocks.push({ pos, nodeKind: "portable-image", src: String(node.attrs.src), alt: String(node.attrs.alt || "") });
             return true;
           }
-          if (node.type.name === "paragraph" && node.childCount === 1) {
-            const child = node.firstChild;
+          if (standaloneTextblockImage(node)) {
+            const child = standaloneTextblockImage(node);
             if (child.type.name === "image") {
               // link 是 mark：带 link mark 的独立图片是 linked-image 候选。
               const linkMark = imageLinkMark(child);

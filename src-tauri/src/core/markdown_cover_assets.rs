@@ -1,16 +1,16 @@
-// PR C / Task C2：封面资源安全校验、受限 SVG 栅格化与确定性 1280×720 裁切。
+// PR C / Task C2：封面资源安全校验、受限 SVG 栅格化与确定性 1280×720 完整适配。
 //
 // 边界（与 docs/plans/2026-08-13-thumbnail-cover-source-badges-recent-search-plan.md
 // 5.5 一致）：
 // - 本地封面支持 PNG / JPEG / WebP / GIF（只取第一帧）与受限本地 SVG；
 // - 复制/写 transaction 前校验 magic bytes、真实 MIME 与扩展一致性、字节上限、
-//   解码像素上限与 `4:3..2:1` 比例；方图、竖图、纵向长截图、极宽全景、伪 MIME
+//   解码像素上限；任意有效比例均可，伪 MIME
 //   与超限资源必须在 copy/transaction 前拒绝，失败不留下半成品；
-// - EXIF orientation 参与比例判断并作用于最终裁切（90/270 旋转交换宽高）；
-// - SVG 先按 XML/SVG 解析并验证 viewBox/固有尺寸与比例，拒绝 script、
+// - EXIF orientation 参与自然尺寸判断并作用于最终缩放（90/270 旋转交换宽高）；
+// - SVG 先按 XML/SVG 解析并验证 viewBox/有效固有尺寸，拒绝 script、
 //   foreignObject、外部文件/网络资源、动态字体和危险引用，再经受限静态 renderer
 //   栅格化；用户 SVG XML 永不直接成为卡片 ready 资产；
-// - 卡片输出确定性 1280×720 居中 `cover` 裁切 PNG，纯图无叠层。
+// - 卡片输出确定性 1280×720 等比完整适配 PNG，纯图无叠层。
 
 use std::path::Path;
 
@@ -18,10 +18,6 @@ use sha2::{Digest, Sha256};
 
 pub const IMAGE_COVER_WIDTH: u32 = 1280;
 pub const IMAGE_COVER_HEIGHT: u32 = 720;
-/// 合法比例下界 4:3（约 1.3333）。
-pub const COVER_MIN_ASPECT: f64 = 4.0 / 3.0;
-/// 合法比例上界 2:1。
-pub const COVER_MAX_ASPECT: f64 = 2.0;
 /// 字节上限（20 MB）。
 pub const COVER_BYTES_LIMIT: u64 = 20 * 1024 * 1024;
 /// 解码像素上限（8 MP；fixture `cover-oversized-dimensions.png` 为 4608×2592≈11.9 MP，
@@ -125,6 +121,10 @@ pub fn validate_local_cover_asset(path: &Path) -> Result<ValidatedCoverAsset, Co
         }
     };
 
+    if !aspect_ok(natural_width, natural_height) {
+        return Err(CoverReject::new("dimensions", "cover dimensions must be nonzero"));
+    }
+
     let pixels = u64::from(natural_width) * u64::from(natural_height);
     if pixels > COVER_PIXEL_LIMIT {
         return Err(CoverReject::new(
@@ -133,17 +133,6 @@ pub fn validate_local_cover_asset(path: &Path) -> Result<ValidatedCoverAsset, Co
                 "cover asset `{}` is {natural_width}×{natural_height} ({pixels} px), \
                  exceeding the {COVER_PIXEL_LIMIT} px decode limit",
                 path.display()
-            ),
-        ));
-    }
-    if !aspect_ok(natural_width, natural_height) {
-        return Err(CoverReject::new(
-            "aspect",
-            format!(
-                "cover asset `{}` is {natural_width}×{natural_height} \
-                 ({:.2} aspect), outside the 4:3..2:1 horizontal range",
-                path.display(),
-                natural_width as f64 / natural_height as f64
             ),
         ));
     }
@@ -157,13 +146,9 @@ pub fn validate_local_cover_asset(path: &Path) -> Result<ValidatedCoverAsset, Co
     })
 }
 
-/// 宽高比例是否落在 `4:3..2:1` 合法横图区间。
+/// 任意比例均可；自然尺寸必须非零。
 pub fn aspect_ok(width: u32, height: u32) -> bool {
-    if width == 0 || height == 0 {
-        return false;
-    }
-    let ratio = f64::from(width) / f64::from(height);
-    (COVER_MIN_ASPECT..=COVER_MAX_ASPECT).contains(&ratio)
+    width > 0 && height > 0
 }
 
 pub fn content_hash_of(bytes: &[u8]) -> String {
@@ -492,7 +477,7 @@ fn svg_intrinsic_size(
 }
 
 /// 把位图/SVG 像素解码为 `DynamicImage`，应用 EXIF orientation 旋转/翻转，
-/// 使后续裁切基于正确的自然方向。
+/// 使后续缩放基于正确的自然方向。
 pub fn decode_cover_pixels(path: &Path) -> Result<image::DynamicImage, CoverReject> {
     let bytes = std::fs::read(path).map_err(|_| {
         CoverReject::new("unreadable", format!("cannot read `{}`", path.display()))
@@ -565,36 +550,36 @@ fn apply_orientation(image: &mut image::DynamicImage, orientation: u16) {
     }
 }
 
-/// 居中 `cover` 裁切为确定性 1280×720 并编码为 PNG bytes。
+/// 等比完整适配为确定性 1280×720 并编码为 PNG bytes。
 pub fn encode_cover_png(image: &image::DynamicImage) -> Vec<u8> {
-    let cropped = center_crop_cover(image);
+    let fitted = fit_cover(image);
     let mut output = std::io::Cursor::new(Vec::new());
-    cropped
+    fitted
         .write_to(&mut output, image::ImageFormat::Png)
         .expect("PNG encode is infallible in memory");
     output.into_inner()
 }
 
-/// 居中裁切到 16:9 后精确缩放到 1280×720（确定性）。
-pub fn center_crop_cover(image: &image::DynamicImage) -> image::DynamicImage {
-    let (width, height) = (image.width(), image.height());
-    let target_ratio = f64::from(IMAGE_COVER_WIDTH) / f64::from(IMAGE_COVER_HEIGHT);
-    let image_ratio = f64::from(width) / f64::from(height);
-    let (crop_width, crop_height) = if image_ratio > target_ratio {
-        // 过宽：裁左右。
-        (f64::from(height) * target_ratio, f64::from(height))
-    } else {
-        // 过高：裁上下。
-        (f64::from(width), f64::from(width) / target_ratio)
-    };
-    let x = ((f64::from(width) - crop_width) / 2.0).floor().max(0.0) as u32;
-    let y = ((f64::from(height) - crop_height) / 2.0).floor().max(0.0) as u32;
-    let cropped = image.crop_imm(x, y, crop_width as u32, crop_height as u32);
-    cropped.resize_exact(
+/// 横图完整适配；方图/竖图居中裁切铺满 1280×720，仅生成缩略图。
+pub fn fit_cover(image: &image::DynamicImage) -> image::DynamicImage {
+    if image.width() <= image.height() {
+        return image.resize_to_fill(
+            IMAGE_COVER_WIDTH, IMAGE_COVER_HEIGHT,
+            image::imageops::FilterType::Lanczos3,
+        );
+    }
+    let fitted = image.resize(
         IMAGE_COVER_WIDTH,
         IMAGE_COVER_HEIGHT,
         image::imageops::FilterType::Lanczos3,
-    )
+    ).to_rgba8();
+    let mut canvas = image::RgbaImage::from_pixel(
+        IMAGE_COVER_WIDTH, IMAGE_COVER_HEIGHT, image::Rgba([245, 245, 244, 255]),
+    );
+    image::imageops::overlay(&mut canvas, &fitted,
+        i64::from((IMAGE_COVER_WIDTH - fitted.width()) / 2),
+        i64::from((IMAGE_COVER_HEIGHT - fitted.height()) / 2));
+    image::DynamicImage::ImageRgba8(canvas)
 }
 
 #[cfg(test)]
@@ -615,7 +600,7 @@ mod tests {
         assert_eq!(asset.natural_width, 640);
         assert_eq!(asset.natural_height, 480);
         assert_eq!(asset.content_hash.len(), 64);
-        // 裁切输出确定性 1280×720 PNG。
+        // 完整适配输出确定性 1280×720 PNG。
         let image = decode_cover_pixels(&fixture_asset("cover-landscape.png")).expect("decode");
         let png = encode_cover_png(&image);
         assert_eq!(png.len(), encode_cover_png(&image).len(), "PNG output must be deterministic");
@@ -645,11 +630,10 @@ mod tests {
     }
 
     #[test]
-    fn portrait_and_square_and_ultrawide_are_rejected() {
+    fn portrait_and_square_and_ultrawide_are_accepted() {
         for name in ["cover-portrait.jpg", "cover-square.png", "cover-ultrawide.png"] {
             let result = validate_local_cover_asset(&fixture_asset(name));
-            let reject = result.expect_err("out-of-range aspect must be rejected");
-            assert_eq!(reject.kind, "aspect", "{name}: {:?}", reject);
+            result.expect("valid images of any aspect must be accepted");
         }
     }
 
@@ -675,13 +659,12 @@ mod tests {
     }
 
     #[test]
-    fn aspect_boundaries_are_inclusive() {
-        assert!(aspect_ok(4, 3), "4:3 lower boundary must be legal");
-        assert!(aspect_ok(2, 1), "2:1 upper boundary must be legal");
-        assert!(!aspect_ok(1, 1), "square must be rejected");
-        assert!(!aspect_ok(1, 2), "portrait must be rejected");
-        assert!(!aspect_ok(21, 9), "2.33:1 ultrawide must be rejected");
-        assert!(!aspect_ok(4, 5), "0.8:1 portrait must be rejected");
+    fn all_positive_dimensions_are_accepted() {
+        for (w, h) in [(235,100), (5,2), (16,9), (1,1), (1,2), (21,9), (1,1000)] {
+            assert!(aspect_ok(w,h));
+        }
+        assert!(!aspect_ok(0,100));
+        assert!(!aspect_ok(100,0));
     }
 
     // ---- 程序化构造的 WebP / GIF 首帧 / EXIF orientation 覆盖 ----
@@ -785,14 +768,12 @@ mod tests {
     }
 
     #[test]
-    fn exif_orientation_swaps_landscape_to_portrait_and_rejects() {
+    fn exif_orientation_swaps_landscape_to_portrait_and_accepts() {
         let dir = temp_dir();
         let bytes = jpeg_with_exif_orientation(6);
         let path = write_bytes(&dir, "oriented.jpg", &bytes);
-        let reject = validate_local_cover_asset(&path).expect_err(
-            "EXIF 90° rotation makes the 640×360 landscape a 360×640 portrait -> aspect reject",
-        );
-        assert_eq!(reject.kind, "aspect", "{:?}", reject);
+        let rotated = validate_local_cover_asset(&path).expect("rotated portrait must validate");
+        assert_eq!((rotated.natural_width, rotated.natural_height), (360, 640));
         // 方向不交换时（orientation=1）同像素是合法横图。
         let plain = write_bytes(&dir, "plain.jpg", &jpeg_with_exif_orientation(1));
         let asset = validate_local_cover_asset(&plain).expect("orientation=1 keeps landscape");
@@ -801,8 +782,8 @@ mod tests {
     }
 
     #[test]
-    fn exif_rotation_is_applied_before_crop() {
-        // orientation=6（90° CW）：解码后旋转 → 360×640 竖图裁切输出仍是 1280×720。
+    fn exif_rotation_is_applied_before_fit() {
+        // orientation=6（90° CW）：解码后旋转 → 360×640 竖图适配输出仍是 1280×720。
         let dir = temp_dir();
         let path = write_bytes(&dir, "oriented.jpg", &jpeg_with_exif_orientation(6));
         let decoded = decode_cover_pixels(&path).expect("decode + rotate");
@@ -900,8 +881,47 @@ mod tests {
     }
 
     #[test]
-    fn center_crop_prefers_center_and_is_deterministic() {
-        // 4:3 图（640×480）裁成 16:9：裁掉上下，保留水平中心。
+    fn platform_covers_preserve_all_four_edges() {
+        for (w, h) in [(940,400), (1000,400), (640,360)] {
+            let mut pixels = image::RgbaImage::from_pixel(w, h, image::Rgba([0,0,0,255]));
+            for x in 0..w {
+                pixels.put_pixel(x, 0, image::Rgba([255,0,0,255]));
+                pixels.put_pixel(x, h-1, image::Rgba([0,255,0,255]));
+            }
+            for y in 0..h {
+                pixels.put_pixel(0, y, image::Rgba([0,0,255,255]));
+                pixels.put_pixel(w-1, y, image::Rgba([255,255,0,255]));
+            }
+            let input = image::DynamicImage::ImageRgba8(pixels);
+            let png = encode_cover_png(&input);
+            assert_eq!(png, encode_cover_png(&input));
+            let output = image::load_from_memory(&png).unwrap().to_rgba8();
+            assert_eq!(output.dimensions(), (1280,720));
+            for color in [[255,0,0], [0,255,0], [0,0,255], [255,255,0]] {
+                assert!(output.pixels().any(|p| (0..3).all(|i| p[i].abs_diff(color[i]) < 40)),
+                    "{w}x{h}: edge {color:?} was lost");
+            }
+        }
+    }
+
+    #[test]
+    fn square_and_portrait_fill_card_and_keep_center() {
+        for (w,h) in [(400,400), (320,640)] {
+            let pixels = image::RgbaImage::from_fn(w,h,|_,y| {
+                if y < h/8 { image::Rgba([255,0,0,255]) }
+                else if y >= 7*h/8 { image::Rgba([0,0,255,255]) }
+                else { image::Rgba([0,255,0,255]) }
+            });
+            let output = fit_cover(&image::DynamicImage::ImageRgba8(pixels)).to_rgba8();
+            assert_eq!(output.dimensions(), (1280,720));
+            assert!(output.pixels().all(|p| p[1] > 250 && p[0] < 5 && p[2] < 5),
+                "square/portrait must crop top/bottom and fill all card pixels with center");
+        }
+    }
+
+    #[test]
+    fn fit_preserves_edges_and_is_deterministic() {
+        // 4:3 图完整缩放到 960×720，左右各留 160 像素背景。
         let image = image::RgbaImage::from_fn(640, 480, |x, y| {
             // 水平区分：左半红、右半蓝；垂直区分：上半绿、下半黄。
             let channel = if x < 320 { 255 } else { 0 };
@@ -909,13 +929,12 @@ mod tests {
             image::Rgba([channel, second, 0, 255])
         });
         let dynamic = image::DynamicImage::ImageRgba8(image);
-        let cropped = center_crop_cover(&dynamic);
+        let cropped = fit_cover(&dynamic);
         assert_eq!((cropped.width(), cropped.height()), (1280, 720));
-        // 水平中心应各含左右两半（裁切居中）；垂直中心 480*9/16=270 → y 起 (480-270)/2=105，
-        // 105..375 同时覆盖上(0..240)下(240..480)两半。
+        // 四个方向的原始内容均保留。
         let rgba = cropped.to_rgba8();
-        let left = rgba.get_pixel(300, 360).0;
-        let right = rgba.get_pixel(980, 360).0;
+        let left = rgba.get_pixel(161, 360).0;
+        let right = rgba.get_pixel(1118, 360).0;
         let top = rgba.get_pixel(640, 100).0;
         let bottom = rgba.get_pixel(640, 620).0;
         assert_eq!(left[0], 255, "left half must be red");

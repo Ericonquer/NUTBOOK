@@ -3,8 +3,8 @@
 // 加载真实 dist/index.html（宿主完整脚本），验证：
 // - 远程封面卡片 DOM：标题 SVG fallback 常显 + 远程 <img> 带 loading=lazy /
 //   no-referrer / decoding=async（只读被动资源，绝不 fetch 后 inline）
-// - onload 后复核自然尺寸 4:3..2:1：合格 → 整体替换（fallback 隐藏、live 显示、
-//   警告清空、卡片 aria 移除警告后缀）；不合格 → 继续标题 SVG + 比例警告
+// - onload 后复核自然尺寸 有效自然尺寸：合格 → 整体替换（fallback 隐藏、live 显示、
+//   警告清空、卡片 aria 移除警告后缀）；尺寸无效 → 继续标题 SVG + 尺寸警告
 // - onerror / 离线 → 继续标题 SVG + 失败/离线警告；accessible name 同步
 // - 本地降级封面（failed + markdown-image-cover）：fallback SVG + hover 警告
 // - URL 变化守卫：旧异步结果（已脱离文档的元素）不再生效
@@ -32,6 +32,9 @@ try {
     hasRemoteFailed: typeof window.NutbookCoverCard.remoteFailed === "function",
     hasRemoteTimeout: typeof window.NutbookCoverCard.remoteTimedOut === "function",
     hasRetry: typeof window.NutbookCoverCard.retry === "function",
+    wechat: window.NutbookCoverCard.coverRatioOk(940,400),
+    x: window.NutbookCoverCard.coverRatioOk(1000,400),
+    invalid: window.NutbookCoverCard.coverRatioOk(0,400),
     ratioOk: window.NutbookCoverCard.coverRatioOk(640, 360),
     ratioBad: window.NutbookCoverCard.coverRatioOk(640, 640),
     ratioPortrait: window.NutbookCoverCard.coverRatioOk(360, 640),
@@ -42,19 +45,32 @@ try {
   assert.equal(controller.hasRemoteLoaded, true, "NutbookCoverCard must register in the real host script");
   assert.equal(controller.hasRemoteTimeout, true, "remote covers need an explicit visible-load timeout");
   assert.equal(controller.hasRetry, true, "failed remote covers need a recovery path");
+  assert.equal(controller.wechat, true);
+  assert.equal(controller.x, true);
+  assert.equal(controller.invalid, false);
   assert.equal(controller.ratioOk, true, "16:9 must pass the ratio recheck");
-  assert.equal(controller.ratioBad, false, "square must fail the ratio recheck");
-  assert.equal(controller.ratioPortrait, false, "portrait must fail the ratio recheck");
+  assert.equal(controller.ratioBad, true, "square must pass");
+  assert.equal(controller.ratioPortrait, true, "portrait must pass");
   assert.equal(controller.ratioEdge43, true, "4:3 lower boundary must pass");
   assert.equal(controller.ratioEdge21, true, "2:1 upper boundary must pass");
-  assert.equal(controller.ratioUltrawide, false, "2.33:1 ultrawide must fail");
+  assert.equal(controller.ratioUltrawide, true, "ultrawide must pass");
+
+  const fit = await page.evaluate(() => {
+    const img = document.createElement("img");
+    img.className = "thumb thumb-remote-live";
+    document.body.append(img);
+    const value = getComputedStyle(img).objectFit;
+    img.remove();
+    return value;
+  });
+  assert.equal(fit, "contain", "production CSS must preserve the complete remote cover");
 
   // 构造远程封面卡片 DOM（与 thumbnailNode 输出同构）。
   await page.evaluate(() => {
     document.body.innerHTML = `
       <style>
         .thumb-wrap { position: relative; width: 320px; height: 180px; overflow: hidden; }
-        .thumb-cover-fallback, .thumb-remote-live { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+        .thumb-cover-fallback, .thumb-remote-live { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
         .thumb-cover-warning { opacity: 0; }
       </style>
       <article class="item-card" tabindex="0" aria-label="打开 demo">
@@ -95,10 +111,19 @@ try {
   assert.equal(success.warning, "", "warning must clear after success");
   assert.equal(success.aria, "打开 demo", "accessible name must drop the loading suffix after success");
 
+  for (const [width,height,fit] of [[940,400,"contain"],[1000,400,"contain"],[640,360,"contain"],[400,400,"cover"],[320,640,"cover"]]) {
+    const actual = await page.evaluate(({width,height})=>{
+      Object.defineProperty(__live,"naturalWidth",{value:width,configurable:true});
+      Object.defineProperty(__live,"naturalHeight",{value:height,configurable:true});
+      NutbookCoverCard.remoteLoaded(__live);
+      return getComputedStyle(__live).objectFit;
+    },{width,height});
+    assert.equal(actual,fit,`${width}x${height} remote fit policy`);
+  }
   // 比例不合格：fallback 保持 + 比例警告 + aria 同步。
   await page.evaluate(() => {
     Object.defineProperty(window.__live, "naturalWidth", { value: 640, configurable: true });
-    Object.defineProperty(window.__live, "naturalHeight", { value: 640, configurable: true });
+    Object.defineProperty(window.__live, "naturalHeight", { value: 0, configurable: true });
     window.__live.style.display = "none";
     window.__fallback.style.display = "";
     window.NutbookCoverCard.remoteLoaded(window.__live);
@@ -112,8 +137,8 @@ try {
   }));
   assert.equal(ratioFail.liveDisplay, "none", "ratio-fail must keep the fallback");
   assert.notEqual(ratioFail.fallbackDisplay, "none", "fallback must stay visible");
-  assert.ok(ratioFail.warning.includes("4:3"), `ratio warning expected, got: ${ratioFail.warning}`);
-  assert.ok(ratioFail.aria.includes("4:3"), `aria must carry the ratio reason, got: ${ratioFail.aria}`);
+  assert.ok(ratioFail.warning.includes("尺寸"), `ratio warning expected, got: ${ratioFail.warning}`);
+  assert.ok(ratioFail.aria.includes("尺寸"), `aria must carry the ratio reason, got: ${ratioFail.aria}`);
   assert.equal(ratioFail.warningOn, true, "hover warning state must be armed");
 
   // 失败/离线：fallback 保持 + 失败警告 + aria 同步。

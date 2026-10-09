@@ -114,6 +114,57 @@ try {
     return Array.from(root.querySelectorAll('.markdown-image-align-toolbar button')).every((button) => button.disabled);
   });
   assert.equal(inlineState, true, "an inline image with adjacent text must not expose block presentation actions");
+  for (const padding of ["\u00a0", "\u200b", "  \n", "### "]) {
+    const result = await page.evaluate(async ({ padding, icon }) => {
+      const root = document.getElementById("editor");
+      window.__portableEditor.destroy();
+      const source = `${padding}![Padded](./assets/icon-112.png)${padding === "### " ? "" : padding}\n\n- list item\n\n> quote`;
+      window.__portableEditor = await NutbookMarkdownEditor.create({ root, markdown:source,
+        resolveImageSrc: () => icon });
+      const baseline = __portableEditor.getMarkdown();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const img = root.querySelector('.ProseMirror img[data-nutbook-original-src]');
+      await img.decode();
+      img.dispatchEvent(new PointerEvent("pointerover", { bubbles:true }));
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const button = root.querySelector('[data-image-size="small"]');
+      const disabled = button.disabled;
+      const candidates = __portableEditor.getCoverableImageBlocks();
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles:true, cancelable:true }));
+      await new Promise(r => setTimeout(r,80));
+      const resized = __portableEditor.getMarkdown();
+      __portableEditor.undo();
+      const restored = __portableEditor.getMarkdown();
+      const cover = __portableEditor.setCoverImage(candidates[0]?.pos);
+      const covered = __portableEditor.getMarkdown();
+      __portableEditor.undo();
+      return { disabled, resized, restored, baseline, cover, covered,
+        coverUndo:__portableEditor.getMarkdown(), candidates:candidates.length };
+    }, { padding, icon:iconDataUrl });
+    assert.equal(result.disabled, false, "invisible padding must not disable image presentation");
+    assert.equal(result.candidates, 1, "cover enumeration must use the same standalone rule");
+    assert.match(result.resized, /width="112"/);
+    assert.match(result.resized, /[-*] list item/);
+    assert.match(result.resized, /> quote/);
+    assert.equal(result.restored, result.baseline, "undo restores exact normalized padding");
+    assert.equal(result.cover, true, "padded image can become a cover");
+    assert.match(result.covered, /<!-- nutbook-cover -->/);
+    assert.equal(result.coverUndo, result.baseline);
+  }
+  for (const markdown of ["text ![Inline](./assets/icon-112.png)", "![One](./a.png) ![Two](./b.png)"]) {
+    const blocked = await page.evaluate(async ({markdown,icon}) => {
+      const root=document.getElementById("editor");
+      __portableEditor.destroy();
+      window.__portableEditor=await NutbookMarkdownEditor.create({root,markdown,resolveImageSrc:()=>icon});
+      root.querySelector('.ProseMirror img').dispatchEvent(new PointerEvent("pointerover",{bubbles:true}));
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      return {disabled:root.querySelector('[data-image-size="small"]').disabled,
+        candidates:__portableEditor.getCoverableImageBlocks().length};
+    }, {markdown,icon:iconDataUrl});
+    assert.equal(blocked.disabled,true,"prose and multiple images must stay blocked");
+    assert.equal(blocked.candidates,0);
+  }
+
 } finally {
   await page.evaluate(() => window.__portableEditor?.destroy?.()).catch(() => {});
   await browser.close();

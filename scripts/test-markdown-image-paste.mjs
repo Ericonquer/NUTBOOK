@@ -32,7 +32,7 @@ try {
       if (image) {
         const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8;
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-        transfer.items.add(new File([blob], 'clipboard.png', { type:'image/png' }));
+        for (let i=0;i<Number(image);i++) transfer.items.add(new File([blob], `clipboard-${i}.png`, { type:'image/png' }));
       } else transfer.setData('text/plain', text);
       document.querySelector('.ProseMirror').dispatchEvent(new ClipboardEvent('paste', { clipboardData:transfer, bubbles:true, cancelable:true }));
     };
@@ -46,12 +46,29 @@ try {
   assert.doesNotMatch(await page.evaluate(() => editor.getMarkdown()), /pasted\.png/);
   assert.equal(await page.evaluate(() => editor.redo()), true);
   assert.match(await page.evaluate(() => editor.getMarkdown()), /pasted\.png/);
+  await page.evaluate(async () => {
+    await mount('### List and quote');
+    const heading = document.querySelector('.ProseMirror h3');
+    heading.focus();
+    const range = document.createRange(); range.setStart(heading.firstChild,0); range.collapse(true);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+    await paste('',true);
+  });
+  await page.waitForFunction(() => editor.getMarkdown().includes('pasted.png'));
+  assert.equal(await page.locator('.ProseMirror h3 img').count(),0,'paste at heading start must create a paragraph image');
+  assert.equal(await page.locator('.ProseMirror p img[data-nutbook-original-src]').count(),1);
+  assert.equal(await page.locator('.ProseMirror h3').textContent(),'List and quote');
+  assert.equal(await page.evaluate(()=>editor.undo()),true);
+  assert.doesNotMatch(await page.evaluate(()=>editor.getMarkdown()),/pasted.png/);
+  assert.equal(await page.locator('.ProseMirror h3').textContent(),'List and quote');
+  assert.equal(await page.evaluate(()=>editor.redo()),true);
+  assert.equal(await page.locator('.ProseMirror h3 img').count(),0);
   await page.evaluate(async () => { await mount(); caret(0); await paste('https://example.com/article'); });
   assert.match(await page.locator('.ProseMirror').textContent(), /https:\/\/example.com\/article/);
-  assert.equal(await page.evaluate(() => calls.length), 1, 'ordinary URL does not download');
+  assert.equal(await page.evaluate(() => calls.length), 2, 'ordinary URL does not download');
   await page.evaluate(async () => { await mount(); caret(0); await paste('![cover](https://example.com/download?id=1)'); });
-  await page.waitForFunction(() => calls.length === 2 && editor.getMarkdown().includes('pasted.png'));
-  assert.equal(await page.evaluate(() => calls[1].src), 'https://example.com/download?id=1');
+  await page.waitForFunction(() => calls.length === 3 && editor.getMarkdown().includes('pasted.png'));
+  assert.equal(await page.evaluate(() => calls[2].src), 'https://example.com/download?id=1');
   await page.evaluate(async () => { await mount(); window.delay = true; caret(0); await paste('', true); });
   await page.waitForFunction(() => window.finish);
   assert.equal(await page.locator('.markdown-image-paste-progress').isVisible(), true, 'pending image has an inline progress marker');
@@ -74,6 +91,42 @@ try {
   assert.match(await page.evaluate(() => editor.getMarkdown()), /before .*picker\.png.*after/s);
   assert.equal(await page.evaluate(() => editor.undo()), true);
   assert.doesNotMatch(await page.evaluate(() => editor.getMarkdown()), /picker\.png/);
+  for (const sample of [
+    {md:'before after',selector:'p',offset:7},
+    {md:'### before after',selector:'h3',offset:7},
+    {md:'### before after',selector:'h3',offset:12},
+    {md:'- before after',selector:'li p',offset:7},
+    {md:'> before after',selector:'blockquote p',offset:7},
+    {md:'```js\nbefore after\n```',selector:'pre code',offset:7},
+    {md:'| A | B |\n| --- | --- |\n| before after | value |',selector:'td p',offset:7}
+  ]) {
+    const result = await page.evaluate(async sample=>{
+      await mount(sample.md);
+      const baseline=editor.getMarkdown();
+      const target=document.querySelector('.ProseMirror '+sample.selector);
+      const walker=document.createTreeWalker(target,NodeFilter.SHOW_TEXT);
+      const text=walker.nextNode();
+      document.querySelector('.ProseMirror').focus();
+      const range=document.createRange();range.setStart(text,sample.offset);range.collapse(true);
+      getSelection().removeAllRanges();getSelection().addRange(range);
+      await paste('',true);
+      return baseline;
+    },sample);
+    await page.waitForFunction(()=>editor.getMarkdown().includes('pasted.png'));
+    assert.equal(await page.locator('.ProseMirror p img[data-nutbook-original-src]').count(),1,
+      `image must be a paragraph block at ${sample.selector}`);
+    const output=await page.evaluate(()=>editor.getMarkdown());
+    assert.match(output,/before/);assert.match(output,/after/);
+    assert.equal(await page.evaluate(()=>editor.undo()),true);
+    assert.equal(await page.evaluate(()=>editor.getMarkdown()),result,'one undo restores original container and content');
+    assert.equal(await page.evaluate(()=>editor.redo()),true);
+    assert.match(await page.evaluate(()=>editor.getMarkdown()),/pasted.png/);
+  }
+  await page.evaluate(async()=>{await mount('before after');caret(7);await paste('',2);});
+  await page.waitForFunction(()=>document.querySelectorAll('.ProseMirror p img[data-nutbook-original-src]').length===2);
+  assert.equal(await page.evaluate(()=>editor.getCoverableImageBlocks().length),2,'each pasted image must have its own block');
+  assert.equal(await page.evaluate(()=>editor.undo()),true);
+  assert.doesNotMatch(await page.evaluate(()=>editor.getMarkdown()),/pasted.png/);
   const hostFunction = readFileSync('dist/index.html', 'utf8').match(/async function pasteMarkdownImageAssetForTab\(tab, input, options = \{\}\) \{[\s\S]*?\n      \}/)[0];
   await page.evaluate(async code => {
     window.importForTab = eval(`(${code})`);

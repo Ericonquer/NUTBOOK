@@ -2142,6 +2142,8 @@
       }
 
       .thumb-remote-live {
+        object-fit: contain;
+        background: #f5f5f4;
         z-index: 1;
       }
 
@@ -13626,7 +13628,7 @@
       }
 
       // PR C / C2：`+ → 封面图` 的宿主侧 picker/copy。复制前由后端完成全部安全
-      // 校验（magic MIME / 扩展 / 字节 / 像素 / 4:3..2:1 / EXIF / SVG 安全），
+      // 校验（magic MIME / 扩展 / 字节 / 像素 / 有效自然尺寸 / EXIF / SVG 安全），
       // 校验失败不留下半成品；成功后注册 staged lease 并绑定 item + tab +
       // operation generation。picker/copy 晚到或 generation 已失效时释放 lease，
       // 绝不把结果写入错误文档。
@@ -13702,7 +13704,7 @@
       }
 
       // 已有正文本地图片设为封面：不重复 copy，只校验 canonical path / MIME /
-      // 尺寸 / 4:3..2:1（http/https 在线图片不下载不校验比例，直接可设封面）。
+      // 尺寸 / 有效自然尺寸（http/https 在线图片不下载不校验比例，直接可设封面）。
       async function validateMarkdownCoverAssetForTab(tab, src) {
         if (!tab?.item?.filePath || !src || !appState.isTauri) return false;
         if (/^https?:\/\//i.test(String(src).trim())) return true;
@@ -20185,7 +20187,7 @@
           const isDegradedLocal = thumb.renderKind === "markdown-image-cover" && thumb.status === "failed";
           // PR C / C2：在线封面 / 本地降级封面 —— 标题 SVG fallback 常显；
           // 远程图片仅在可见卡片 lazy 加载（no-referrer、异步解码），onload 后
-          // 复核自然尺寸与 4:3..2:1 比例，合格才整体替换；加载前/离线/超时/
+          // 复核自然尺寸与 有效自然尺寸 比例，合格才整体替换；加载前/离线/超时/
           // 失败/比例变化继续显示标题 SVG。警告常态隐藏，hover/focus 显示完整
           // 原因，accessible name 同步（卡片级 aria-label 由 renderItems 追加）。
           if (isRemote || isDegradedLocal) {
@@ -20875,7 +20877,7 @@ if (!chipTipController) {
 
         // PR C / C2：在线封面卡片的 lazy 加载 / 比例复核 / 失败与恢复控制器。
         // 远程 SVG 只能作为被动 <img>（禁止 fetch 后 inline）；no-referrer +
-        // loading=lazy + 异步解码；onload 复核自然尺寸 4:3..2:1，合格才整体替换
+        // loading=lazy + 异步解码；onload 复核自然尺寸 有效自然尺寸，合格才整体替换
         // 标题 SVG fallback；失败/离线/比例变化继续显示标题 SVG。URL 变化后旧
         // 异步结果（旧 DOM 元素）已被重渲染替换，此处再复核当前 item URL。
         window.NutbookCoverCard = {
@@ -20883,8 +20885,8 @@ if (!chipTipController) {
           observer: null,
           coverRatioOk(naturalWidth, naturalHeight) {
             if (!naturalWidth || !naturalHeight) return false;
-            const ratio = naturalWidth / naturalHeight;
-            return ratio >= 4 / 3 && ratio <= 2;
+            return Number.isFinite(naturalWidth) && Number.isFinite(naturalHeight)
+              && naturalWidth > 0 && naturalHeight > 0;
           },
           syncCoverCardAria(wrap, warning) {
             const card = wrap?.closest(".item-card");
@@ -20901,6 +20903,7 @@ if (!chipTipController) {
             const currentUrl = item?.thumbnail?.remoteCoverUrl || "";
             if (currentUrl && currentUrl !== img.dataset.coverUrl) return;
             if (this.coverRatioOk(img.naturalWidth, img.naturalHeight)) {
+              img.style.objectFit = img.naturalWidth > img.naturalHeight ? "contain" : "cover";
               img.dataset.coverFailed = "false";
               img.style.display = "block";
               img.setAttribute("aria-hidden", "false");
@@ -20970,7 +20973,8 @@ if (!chipTipController) {
             if (!img?.isConnected || img.dataset.coverFailed !== "true") return;
             const url = img.dataset.coverUrl || "";
             if (!url) return;
-            img.dataset.coverFailed = "false";
+            img.style.objectFit = img.naturalWidth > img.naturalHeight ? "contain" : "cover";
+              img.dataset.coverFailed = "false";
             img.dataset.coverArmed = "false";
             img.removeAttribute("src");
             window.requestAnimationFrame(() => {
