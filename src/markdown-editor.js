@@ -3750,6 +3750,11 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
       lastNotifiedMarkdown = value;
       return value;
     },
+    // Reuse the existing empty-paragraph image command in isolated workspaces.
+    insertImageAsset() {
+      if (readOnly || destroyed || isEditorComposing()) return Promise.resolve(false);
+      return runInsertImageAsset();
+    },
     getBaselineMarkdown() {
       return baselineMarkdown;
     },

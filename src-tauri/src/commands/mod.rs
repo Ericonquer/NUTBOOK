@@ -14,3 +14,5 @@ pub mod window;
 pub mod external;
 
 pub mod context_menu;
+
+pub mod formatting;
