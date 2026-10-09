@@ -4,8 +4,8 @@
     'zh-CN': { title: '排版发布', workspaceTitle: 'Markdown 排版中心', trial: '公众号', source: '原文', draft: '发布稿', undo: '撤销', preview: 'Nutbook 预览', save: '保存发布稿', back: '返回阅读', copy: '复制到公众号', copyX: '复制到 X Articles', copiedX: '正文已复制', copyXError: '文字复制失败，当前稿件仍保留。', copied: '已复制，请到公众号后台粘贴检查', busy: '正在处理…', dirty: '未保存', saved: '已保存', image: '插入图片', imageHelp: '可粘贴截图、图片文件、以 PNG/JPEG/WebP 结尾的图片地址，或 Markdown 图片语法；单张 ≤10 MB。普通网址保留为链接。', localOnly: '图片随发布稿缓存保存。', imageError: '图片无法转换，请检查路径、格式和大小：', copyError: '图文复制失败；稿件仍保留。', compose: '请先完成中文输入', fallback: '编辑器加载失败，已切换为 Markdown 源码编辑', changed: '原文件已变化，发布稿仍保留创建时快照。', gate: '公众号会再次处理样式和图片，请保存草稿后检查预览。X Articles 复制正文格式；标题和图片单独添加。微博尚未开放。', invalid: '发布稿格式不支持，未覆盖已有文件', conflict: '保存失败（可能存在版本冲突），当前稿件仍保留：', failedImages: '以下图片未能转换，已阻止图文复制。请修复后重试：', editor: '发布稿编辑区', theme: '主题与排版', themeUnavailable: 'X 不支持主题', moreThemes: '更多模板将陆续加入', simple: '白纸', reading: '长文', tech: '留白', newspaper: '报纸', fine: '细线', minimal: '简约', size: '正文字号', leading: '行距', radius: '图片圆角', reset: '恢复主题默认', close: '收起主题面板', retry: '重试失败图片', phone: '切换手机宽度预览', help: '图片与复制说明', importBusy: '正在处理图片…', sourceReadonly: '原文只读', tooLarge: '图片超出限制：单张 10 MB、总计 24 MB、边长 8192 像素。', insertHelp: '可直接粘贴图片，或在正文空行使用插图按钮。', saveError: '保存失败，当前稿件仍保留。', loading: '正在打开排版工作区…', references: '参考链接', linkNote: '普通外链能否点击以公众号后台为准；文末会保留网址。' },
     'en-US': { title: 'Format', workspaceTitle: 'Markdown Formatting Center', trial: 'WeChat', source: 'Original', draft: 'Publishing draft', undo: 'Undo', preview: 'Nutbook preview', save: 'Save publishing draft', back: 'Back to reading', copy: 'Copy to WeChat', copyX: 'Copy to X Articles', copiedX: 'Body copied', copyXError: 'Text copy failed. Your draft is retained.', copied: 'Copied. Paste into the WeChat editor and check.', busy: 'Processing…', dirty: 'Unsaved', saved: 'Saved', image: 'Insert image', imageHelp: 'Paste a screenshot, image file, PNG/JPEG/WebP URL, or Markdown image syntax. ≤10 MB each. Other URLs remain links.', localOnly: 'Images are cached with the publishing draft.', imageError: 'Cannot convert image; check path, format and size: ', copyError: 'Rich copy failed. Your draft is retained.', compose: 'Finish composing text first', fallback: 'Editor failed to load. Markdown source editing is available.', changed: 'The source file changed. The original draft snapshot is retained.', gate: 'WeChat processes styles and images again. Save your platform draft and check its preview. X Articles copies formatted text; add the title and images separately. Weibo is not available yet.', invalid: 'Unsupported draft format. The existing file was not overwritten.', conflict: 'Save failed (possible revision conflict). Your draft is retained: ', failedImages: 'Copy blocked because these images could not be converted. Fix them and retry:', editor: 'Publishing draft editor', theme: 'Theme and formatting', themeUnavailable: 'Themes are unavailable in X', moreThemes: 'More templates coming soon', simple: 'Paper', reading: 'Longform', tech: 'Whitespace', newspaper: 'Newspaper', fine: 'Fine lines', minimal: 'Minimal', size: 'Font size', leading: 'Line spacing', radius: 'Image corners', reset: 'Reset theme', close: 'Close theme panel', retry: 'Retry failed images', phone: 'Toggle phone preview width', help: 'Image and copy help', importBusy: 'Importing image…', sourceReadonly: 'Read-only source', tooLarge: 'Image limit exceeded: 10 MB each, 24 MB total, 8192 pixels per side.', insertHelp: 'Paste an image, or use the image button in an empty paragraph.', saveError: 'Save failed. Your draft is retained.', loading: 'Opening the formatting workspace…', references: 'References', linkNote: 'Clickable external links depend on the WeChat editor. URLs are also retained at the end.' }
   };
-  Object.assign(messages['zh-CN'], { weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号、微博粘贴后请保存检查；微博标题单独复制。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
-  Object.assign(messages['en-US'], { weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Paste images directly (≤10 MB each). Check saved WeChat and Weibo drafts; copy the Weibo title separately. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
+  Object.assign(messages['zh-CN'], { summaryUnavailable:'X 不使用摘要 / 导语', summary:'摘要 / 导语', summaryWechat:'公众号摘要', summaryWeibo:'微博导语', extract:'提取候选', useSelection:'从选中文字填入', adopt:'采用', cancelCandidate:'取消', candidate:'提取候选（采用后替换）', copySummary:'复制摘要 / 导语', summaryCopied:'已复制', noCandidate:'未找到合适短句，请手动填写或选取正文。', noSelection:'请先在发布稿中选择文字。', summaryTooLong:'内容超出字数限制，请缩短后复制。', weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号、微博粘贴后请保存检查；微博标题单独复制。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
+  Object.assign(messages['en-US'], { summaryUnavailable:'Summary / lead is unavailable in X', summary:'Summary / Lead', summaryWechat:'WeChat summary', summaryWeibo:'Weibo lead', extract:'Extract candidate', useSelection:'Use selected text', adopt:'Use candidate', cancelCandidate:'Cancel candidate', candidate:'Candidate (apply to replace)', copySummary:'Copy summary / lead', summaryCopied:'Copied', noCandidate:'No suitable short sentence. Edit manually or select text.', noSelection:'Select text in the publishing draft first.', summaryTooLong:'Text exceeds the limit. Shorten it before copying.', weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Paste images directly (≤10 MB each). Check saved WeChat and Weibo drafts; copy the Weibo title separately. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
   let active = null;
   let openGeneration = 0;
   const styleMap = {
@@ -37,7 +37,7 @@
     node.addEventListener('click', action);
     return node;
   }
-  const icons = {weibo: 'M11 3a3 3 0 0 1 3 3M11 1a5 5 0 0 1 5 5M12.5 8c1.3.7 1.5 1.5 1.1 2.5-.6 1.8-3.5 3.1-6.5 3.1S1.8 12.2 2 10.4c.1-1.4 1.9-3.7 3.6-4.6.8-.4 1.2-.1 1 .7l-.2.8c1.7-.7 3.5-1.1 4-.4.3.4 0 .9-.3 1.3M9.8 10.2c0 1.2-1.4 2.1-3.1 2.1s-2.9-.7-2.9-1.8 1.4-2 3.1-2 2.9.6 2.9 1.7ZM6 10.5h.01', plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
+  const icons = {summary:'M3 3h10M3 6h10M3 9h7M3 12h5', weibo: 'M11 3a3 3 0 0 1 3 3M11 1a5 5 0 0 1 5 5M12.5 8c1.3.7 1.5 1.5 1.1 2.5-.6 1.8-3.5 3.1-6.5 3.1S1.8 12.2 2 10.4c.1-1.4 1.9-3.7 3.6-4.6.8-.4 1.2-.1 1 .7l-.2.8c1.7-.7 3.5-1.1 4-.4.3.4 0 .9-.3 1.3M9.8 10.2c0 1.2-1.4 2.1-3.1 2.1s-2.9-.7-2.9-1.8 1.4-2 3.1-2 2.9.6 2.9 1.7ZM6 10.5h.01', plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
   function iconButton(key, label, action) {
     const node = button(label, action);
     node.className = 'formatting-icon';
@@ -303,14 +303,14 @@
   function current(s) { return active === s && s.root.isConnected; }
   function flush(s) {
     if (s.importing) throw new Error(text('importBusy'));
-    if (s.composing) throw new Error(text('compose'));
+    if (s.composing || s.summaryComposing) throw new Error(text('compose'));
     s.data.markdown = s.editor ? s.editor.getMarkdown() : s.fallback.value;
     return s.data.markdown;
   }
-  function snapshotSerialized(markdown, pref) {
-    return JSON.stringify({ markdown, settings: Object.fromEntries(Object.entries(pref).sort(([a],[b]) => a.localeCompare(b))) });
+  function snapshotSerialized(markdown, pref, metadata) {
+    return JSON.stringify({ markdown, settings: Object.fromEntries(Object.entries(pref).sort(([a],[b]) => a.localeCompare(b))), metadata: { wechat: metadata?.wechat || '', weibo: metadata?.weibo || '' } });
   }
-  function serialized(s) { return snapshotSerialized(s.data.markdown, settings(s)); }
+  function serialized(s) { return snapshotSerialized(s.data.markdown, settings(s), s.data.metadata); }
   function updateState(s) { s.status.textContent = s.revision && serialized(s) === s.baseline ? text('saved') : text('dirty'); }
   function dispose(s) {
     clearTimeout(s.timer);
@@ -449,15 +449,16 @@
     try {
       const markdown = flush(s);
       const pref = settings(s);
+      const metadata = structuredClone(s.data.metadata || {});
       // Freeze a complete content+resource snapshot. Edits during I/O remain dirty.
       await convert(s, markdown, pref);
       if (!current(s)) return false;
-      const data = JSON.parse(JSON.stringify({ ...s.data, markdown, settings: pref }));
+      const data = JSON.parse(JSON.stringify({ ...s.data, markdown, settings: pref, metadata }));
       s.persisting = true;
       const revision = await s.bridge.invoke('save_formatting_draft', { itemId: s.id, expectedRevision: s.revision, draft: data });
       if (!current(s)) return false;
       s.revision = revision;
-      s.baseline = snapshotSerialized(markdown, pref);
+      s.baseline = snapshotSerialized(markdown, pref, metadata);
       flush(s);
       updateState(s);
       return true;
@@ -705,6 +706,7 @@
     s.themeName.hidden = mode !== 'wechat';
     updateThemeAvailability(s);
     if (mode !== 'wechat') { s.settingsPanel.hidden = true; s.themeButton.setAttribute('aria-expanded','false'); }
+    updateSummaryPanel(s);
     preview(s);
   }
   function refreshLanguage() {
@@ -722,6 +724,7 @@
     }
     for (const node of s.root.querySelectorAll('[data-formatting-aria]')) node.setAttribute('aria-label', text(node.dataset.formattingAria));
     updateThemeAvailability(s);
+    updateSummaryPanel(s);
     s.themeName.textContent = text(settings(s).theme);
     s.hint.textContent = text('helpBrief');
     if (s.data.source !== s.sourceAtOpen) s.hint.textContent += ` ${text('changed')}`;
@@ -794,6 +797,143 @@
       }, { once: true }); input.click();
     });
   }
+  function extractSummary(section, limit, title) {
+    // Full-document sentence scoring; fragments without terminal punctuation
+    // are excluded so outlines do not masquerade as a summary.
+    const blocks = [...section.querySelectorAll('p,blockquote')].filter(node => !node.parentElement.closest('blockquote'));
+    const sentences = blocks.flatMap(node => node.textContent.replace(/https?:\/\/\S+/g,'').split(/\n+/))
+      .flatMap(line => line.match(/[^。！？.!?]+[。！？.!?][”’"']?/g) || [])
+      .map(value => value.trim()).filter(value => Array.from(value).length >= 12 && !/^(大家好|你好|目录|前言|视角[：:]|思路[：:]|从.{0,24}(角度|视角).{0,8}(聊|谈)|hello|hi\b)/i.test(value));
+    const stop = new Set(['这个','那个','我们','你们','他们','一个','一些','所有','可以','需要','就是','还是','因为','所以','但是','然后','时候','自己','最后','the','and','that','this','with','from']);
+    const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh',{granularity:'word'}) : null;
+    const words = value => segmenter ? [...segmenter.segment(value.toLowerCase())].filter(part => part.isWordLike).map(part => part.segment).filter(word => Array.from(word).length > 1 && !stop.has(word)) : value.toLowerCase().match(/[a-z]{3,}|[\u4e00-\u9fff]{2}/g) || [];
+    const frequencies = new Map();
+    const sentenceWords = sentences.map(words);
+    for (const tokens of sentenceWords) for (const word of new Set(tokens)) frequencies.set(word,(frequencies.get(word) || 0) + 1);
+    const titleWords = new Set(words(title));
+    const ranked = sentences.map((value,index) => {
+      const tokens = [...new Set(sentenceWords[index])];
+      let score = tokens.reduce((sum,word) => sum + Math.log(1 + frequencies.get(word)) + (titleWords.has(word) ? 3 : 0),0) / Math.sqrt(Math.max(tokens.length,1));
+      if (/^(我|我们).{0,12}(接触|记得|参加|学习|误打误撞)/.test(value)) score *= .5;
+      return {value,index,score};
+    }).filter(item => Array.from(item.value).length <= limit).sort((a,b) => b.score - a.score || a.index - b.index);
+    if (!ranked.length) return '';
+    const selected = [ranked[0]];
+    if (limit > 44) {
+      const second = ranked.slice(1).find(item => Array.from(selected[0].value + item.value).length <= limit);
+      if (second) selected.push(second);
+    }
+    return selected.sort((a,b) => a.index - b.index).map(item => item.value).join('');
+  }
+  function updateSummaryPanel(s) {
+    if (!s.summaryPanel) return;
+    const mode = s.mode === 'weibo' ? 'weibo' : 'wechat';
+    const unavailable = s.mode === 'x';
+    s.summaryButton.setAttribute('aria-disabled',String(unavailable));
+    const key = unavailable ? 'summaryUnavailable' : 'summary';
+    s.summaryButton.dataset.formattingLabel = key; s.summaryButton.dataset.formattingAria = key;
+    s.summaryButton.setAttribute('aria-label',text(key));
+    const tooltip = s.summaryButton.querySelector('.formatting-tooltip');
+    tooltip.dataset.formattingLabel = key; tooltip.textContent = text(key);
+    s.summaryPanel.hidden = s.mode === 'x' || !s.summaryOpen;
+    s.summaryButton.setAttribute('aria-expanded', String(!s.summaryPanel.hidden));
+    s.summaryLabel.textContent = text(mode === 'weibo' ? 'summaryWeibo' : 'summaryWechat');
+    s.summaryInput.setAttribute('aria-label', s.summaryLabel.textContent);
+    const candidate = s.summaryCandidates?.[mode] || '';
+    s.summaryInput.value = candidate || s.data.metadata?.[mode] || '';
+    s.summaryInput.readOnly = Boolean(candidate);
+    s.summaryAdopt.hidden = !candidate;
+    s.summaryCancel.hidden = !candidate;
+    const count = Array.from(s.summaryInput.value).length;
+    const limit = mode === 'weibo' ? 44 : 120;
+    s.summaryCount.textContent = `${count}/${limit}`;
+    s.summaryInput.setAttribute('aria-invalid', String(count > limit));
+
+  }
+  function summaryPanel(s) {
+    const panel = element('aside', '', {class:'formatting-summary', hidden:''});
+    s.summaryLabel = element('strong', '');
+    s.summaryCount = element('span', '', {class:'formatting-summary-count'});
+    s.summaryInput = element('textarea', '', {rows:'2'});
+    s.summaryHistory = {};
+    s.summaryInput.addEventListener('compositionstart', () => { s.summaryComposing = true; });
+    s.summaryInput.addEventListener('compositionend', () => { s.summaryComposing = false; s.summaryInput.dispatchEvent(new Event('input')); });
+    s.summaryUndo = redo => {
+      const mode = s.mode === 'weibo' ? 'weibo' : 'wechat';
+      const history = s.summaryHistory[mode];
+      if (!history || s.summaryComposing || s.summaryInput.readOnly) return;
+      const index = history.index + (redo ? 1 : -1);
+      if (index < 0 || index >= history.values.length) return;
+      history.index = index; s.summaryInput.value = history.values[index];
+      s.summaryReplaying = true; s.summaryInput.dispatchEvent(new Event('input')); s.summaryReplaying = false;
+    };
+    s.summaryInput.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && ['z','y'].includes(event.key.toLowerCase())) { event.preventDefault(); event.stopPropagation(); s.summaryUndo(event.shiftKey || event.key.toLowerCase() === 'y'); }
+    });
+    s.summaryInput.addEventListener('input', () => {
+      if (s.summaryInput.readOnly) return;
+      const mode = s.mode === 'weibo' ? 'weibo' : 'wechat';
+      s.data.metadata ||= {};
+      const history = s.summaryHistory[mode] ||= {values:[s.data.metadata[mode] || ''], index:0};
+      if (!s.summaryReplaying && !s.summaryComposing && history.values[history.index] !== s.summaryInput.value) { history.values.splice(history.index + 1); history.values.push(s.summaryInput.value); history.index++; }
+      s.data.metadata[mode] = s.summaryInput.value;
+      const limit = mode === 'weibo' ? 44 : 120;
+      s.summaryCount.textContent = `${Array.from(s.summaryInput.value).length}/${limit}`;
+      s.summaryInput.setAttribute('aria-invalid',String(Array.from(s.summaryInput.value).length > limit));
+      updateState(s);
+    });
+    const propose = value => {
+      const mode = s.mode === 'weibo' ? 'weibo' : 'wechat';
+      s.summaryCandidates ||= {}; s.summaryCandidates[mode] = value;
+      updateSummaryPanel(s);
+      s.errors.textContent = '';
+      if (value) s.summaryInput.focus();
+    };
+    const extract = iconButton('summary',text('extract'),async () => {
+      if (s.extracting) return;
+      const mode = s.mode;
+      const markdown = flush(s);
+      s.extracting = true;
+      try {
+        const html = await s.bridge.invoke('render_formatting_markdown',{markdown});
+        if (!current(s) || s.mode !== mode || flush(s) !== markdown) return;
+        const section = inlineHtml(html);
+        const title = section.querySelector('h1')?.textContent || s.name;
+        section.querySelectorAll('h1,h2,h3,h4,h5,h6,img,pre,code,table,ul,ol').forEach(node => node.remove());
+        section.querySelectorAll('a').forEach(node => node.replaceWith(node.textContent));
+        const value = extractSummary(section, mode === 'weibo' ? 44 : 120, title);
+        if (value) propose(value); else { propose(''); s.errors.textContent = text('noCandidate'); }
+      } catch (error) { if (current(s)) s.errors.textContent = s.bridge.error(error); }
+      finally { s.extracting = false; }
+    });
+    const selectionButton = iconButton('draft',text('useSelection'),() => {
+      const selected = s.editor?.takeSelectedText?.() || '';
+      if (selected) propose(selected); else s.errors.textContent = text('noSelection');
+    });
+    selectionButton.addEventListener('pointerdown', event => event.preventDefault());
+    const copyButton = iconButton('copy',text('copySummary'),async () => {
+      const limit = s.mode === 'weibo' ? 44 : 120;
+      if (s.summaryInput.readOnly) return;
+      const value = s.summaryInput.value;
+      if (Array.from(value).length > limit) { s.errors.textContent = text('summaryTooLong'); return; }
+      try { if (s.bridge.copyText) await s.bridge.copyText(value); else await navigator.clipboard.writeText(value); if (current(s)) s.status.textContent = text('summaryCopied'); }
+      catch (error) { if (current(s)) s.errors.textContent = s.bridge.error(error); }
+    });
+    s.summaryAdopt = button(text('adopt'),() => {
+      const value = s.summaryInput.value;
+      propose('');
+      s.summaryInput.value = value;
+      s.summaryInput.dispatchEvent(new Event('input'));
+      s.summaryInput.focus();
+    });
+    s.summaryCancel = button(text('cancelCandidate'),() => { propose(''); s.summaryInput.focus(); });
+    const head = element('div','',{class:'formatting-summary-head'});
+    head.append(s.summaryLabel,s.summaryCount,extract,selectionButton,copyButton);
+    const actions = element('div','',{class:'formatting-summary-actions'});
+    actions.append(s.summaryCancel,s.summaryAdopt);
+    panel.append(head,s.summaryInput,actions);
+    return panel;
+  }
   function themePanel(s) {
     const panel = element('aside', '', { class: 'formatting-settings', hidden: '', 'aria-label': text('theme') });
     const heading = element('div', '', { class: 'formatting-settings-head' });
@@ -845,12 +985,14 @@
     s.copyWeiboButton = iconButton('weibo', text('copyWeibo'), () => copyWeibo(s));
     s.themeButton = iconButton('theme', text('theme'), () => { if (s.mode !== 'wechat') return; s.settingsPanel.hidden = !s.settingsPanel.hidden; s.themeButton.setAttribute('aria-expanded', String(!s.settingsPanel.hidden)); });
     s.themeButton.setAttribute('aria-expanded', 'false');
-    s.undoButton = iconButton('undo', text('undo'), () => { if (!s.composing && !s.importing && !s.originalVisible) s.editor?.undo?.(); });
+    s.undoButton = iconButton('undo', text('undo'), () => { if (s.summaryUndoHandled) { s.summaryUndoHandled = false; return; } if (!s.composing && !s.importing && !s.originalVisible) s.editor?.undo?.(); });
+    s.undoButton.addEventListener('pointerdown', event => { if (document.activeElement === s.summaryInput) { event.preventDefault(); s.summaryUndo?.(false); s.summaryUndoHandled = true; } });
     header.append(s.status, s.undoButton, iconButton('image', text('image'), async () => { if (!(await s.editor?.insertImageAsset?.()) && !s.errors.textContent) s.errors.textContent = text('insertHelp'); }), s.themeButton, s.saveButton, s.copyButton, s.copyXButton, s.copyWeiboButton, iconButton('back', text('back'), () => leave(s.id)));
     const body = element('div', '', { class: 'formatting-columns' });
     const left = element('section', '', { class: 'formatting-left' });
     const tabs = element('div', '', { class: 'formatting-tools' });
     const mount = element('div', '', { class: 'formatting-editor milkdown-editor-root', 'aria-label': text('editor') });
+    s.editorMount = mount;
     const editorOverlay = element('div', '', { class:'formatting-editor-overlay', 'data-markdown-shell-overlay':'' });
     const original = element('article', '', { 'aria-label': text('sourceReadonly'), class: 'formatting-original', hidden: '' });
     const tabList = element('div', '', { class:'formatting-tab-list', role:'tablist', 'aria-label':text('title') });
@@ -920,8 +1062,12 @@
     s.retryButton = iconButton('retry', text('retry'), () => { s.imageFailures.clear(); preview(s); });
     s.retryButton.hidden = true; header.append(s.retryButton);
     s.settingsPanel = themePanel(s);
+    s.summaryButton = iconButton('summary',text('summary'),() => { if (s.mode === 'x') return; s.summaryOpen = !s.summaryOpen; updateSummaryPanel(s); });
+    s.summaryPanel = summaryPanel(s);
+    header.insertBefore(s.summaryButton,s.saveButton);
+    updateSummaryPanel(s);
     s.hint = hint;
-    root.append(header, s.settingsPanel, body, s.errors, hint);
+    root.append(header, s.settingsPanel, s.summaryPanel, body, s.errors, hint);
     bridge.container.replaceChildren(root);
     root.addEventListener('keydown', event => { if (event.key === 'Escape' && !s.settingsPanel.hidden) { event.preventDefault(); event.stopPropagation(); s.settingsPanel.hidden = true; s.themeButton.setAttribute('aria-expanded', 'false'); s.themeButton.focus(); } });
     mount.addEventListener('compositionstart', () => { s.composing = true; });
@@ -943,6 +1089,11 @@
       });
       if (!current(s)) { editor.destroy?.(); return; }
       s.editor = editor;
+      const parsedTitle = api.parseDocumentTitle?.(editor.getMarkdown(), s.name.replace(/\.(md|markdown)$/i,''));
+      if (parsedTitle?.isFileNameFallback && editor.setDocumentTitle) {
+        s.titleBaselineMarkdown = editor.getMarkdown();
+        editor.setDocumentTitle(parsedTitle.displayText);
+      }
       editor.rebindInsertMenuHost?.(editorOverlay);
       s.undoButton.disabled = Boolean(s.originalVisible);
       s.data.markdown = editor.getMarkdown();
@@ -955,7 +1106,7 @@
       mount.replaceChildren(s.fallback);
       s.fallback.addEventListener('input', () => { s.data.markdown = s.fallback.value; updateState(s); schedule(s); });
     }
-    s.baseline = serialized(s);
+    s.baseline = s.titleBaselineMarkdown == null ? serialized(s) : snapshotSerialized(s.titleBaselineMarkdown,settings(s),s.data.metadata);
     if (data.source !== raw) hint.textContent += ` ${text('changed')}`;
     await preview(s);
   }

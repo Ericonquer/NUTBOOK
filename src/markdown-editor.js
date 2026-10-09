@@ -4148,6 +4148,19 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         ctx.get(editorViewCtx).focus();
       });
     },
+    takeSelectedText() {
+      if (destroyed || isEditorComposing()) return '';
+      return editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const selection = view.state.selection;
+        const value = view.state.doc.textBetween(selection.from, selection.to, '\n').trim();
+        if (!value) return '';
+        view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.head))).setMeta('addToHistory',false));
+        view.dom.blur();
+        hideFormatToolbar();
+        return value;
+      });
+    },
     blur() {
       if (destroyed) return;
       editor.action((ctx) => {

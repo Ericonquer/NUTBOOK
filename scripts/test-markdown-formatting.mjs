@@ -325,6 +325,86 @@ try {
   assert.doesNotMatch(weiboPayload.html, /style=|<section|References|image position|Weibo title|data-article-title/i);
   await page.getByRole('tab',{name:'WeChat',exact:true}).click();
   await page.evaluate(() => { bridge.invoke = fixture.beforeWeiboInvoke; });
+  // Summary metadata stays outside body/source and persists only when adopted/saved.
+  await page.getByRole('button',{name:'Summary / Lead',exact:true}).click();
+  const summary = page.getByRole('textbox',{name:'WeChat summary',exact:true});
+  await page.locator('.formatting-editor .ProseMirror p').first().click();
+  await page.keyboard.down('Shift');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowLeft');
+  await page.keyboard.up('Shift');
+  await page.waitForFunction(() => document.querySelector('.markdown-format-toolbar.visible'));
+  await page.getByRole('button',{name:'Use selected text',exact:true}).click();
+  assert.equal(await summary.evaluate(node => node.readOnly),true);
+  assert.equal(await page.locator('.markdown-format-toolbar.visible').count(),0,'selected-text transfer collapses PM selection and closes toolbar');
+  await page.getByRole('button',{name:'Cancel candidate',exact:true}).click();
+  await summary.fill('Manual summary.');
+  await page.evaluate(() => {
+    fixture.beforeSummaryInvoke = bridge.invoke;
+    bridge.invoke = (command,args) => command === 'render_formatting_markdown'
+      ? Promise.resolve('<h1>Ignored heading</h1><p>大家好，欢迎阅读。</p><p>这是正文中的完整观点句，说明本地提取可以产生候选。</p><pre>ignore code</pre>')
+      : fixture.beforeSummaryInvoke(command,args);
+  });
+  await page.getByRole('button',{name:'Extract candidate',exact:true}).click();
+  await page.waitForFunction(() => document.querySelector('.formatting-summary textarea').readOnly);
+  assert.match(await summary.inputValue(),/^这是正文/);
+  assert.equal(await page.locator('.formatting-summary textarea').count(),1);
+  const summaryActions = page.locator('.formatting-summary-actions');
+  assert.equal(await summaryActions.evaluate(node => getComputedStyle(node).justifyContent),'flex-end');
+  assert.equal(await summaryActions.evaluate(node => getComputedStyle(node).gap),'12px');
+  assert.equal(await summaryActions.locator('button').first().getAttribute('aria-label'),'Cancel candidate');
+  assert.equal(await page.evaluate(() => fixture.saved.metadata?.wechat || ''),'');
+  await page.getByRole('button',{name:'Cancel candidate',exact:true}).click();
+  assert.equal(await summary.inputValue(),'Manual summary.');
+  assert.equal(await summary.getAttribute('readonly'),null);
+  await page.getByRole('button',{name:'Extract candidate',exact:true}).click();
+  await page.waitForFunction(() => document.querySelector('.formatting-summary textarea').readOnly);
+  await page.getByRole('button',{name:'Use candidate',exact:true}).click();
+  assert.match(await summary.inputValue(),/^这是正文/);
+  await summary.focus();
+  await page.keyboard.press('Control+z');
+  assert.equal(await summary.inputValue(),'Manual summary.');
+  await page.keyboard.press('Control+Shift+z');
+  assert.match(await summary.inputValue(),/^这是正文/);
+  await page.getByRole('tab',{name:'Weibo Articles',exact:true}).click();
+  const lead = page.getByRole('textbox',{name:'Weibo lead',exact:true});
+  assert.equal(await lead.inputValue(),'');
+  await page.evaluate(() => { bridge.invoke = (command,args) => command === 'render_formatting_markdown'
+    ? Promise.resolve('<h1>开源的变化</h1><p>视角：<br>从营销广告从业者角度来聊<br>思路：</p><p>开源软件推动行业变化，使原有工具和传统工作流程都发生变化，也让更多人参与内容制作并重新考虑自己的工作方式。</p><p>开源正在改变创作工具，行业变化要求我们重新学习。</p>')
+    : fixture.beforeSummaryInvoke(command,args); });
+  await page.getByRole('button',{name:'Extract candidate',exact:true}).click();
+  await page.waitForFunction(() => document.querySelector('.formatting-summary textarea').readOnly);
+  assert.equal(await lead.inputValue(),'开源正在改变创作工具，行业变化要求我们重新学习。');
+  await page.getByRole('button',{name:'Cancel candidate',exact:true}).click();
+
+  await lead.fill('Independent lead.');
+  assert.equal(await page.evaluate(() => NutbookFormatting.save()),true);
+  await page.evaluate(async () => { await NutbookFormatting.leave(1); await NutbookFormatting.open(bridge,tab); });
+  await page.getByRole('button',{name:'Summary / Lead',exact:true}).click();
+  assert.match(await summary.inputValue(),/^这是正文/);
+  await page.getByRole('tab',{name:'Weibo Articles',exact:true}).click();
+  assert.equal(await lead.inputValue(),'Independent lead.');
+  await lead.fill('x'.repeat(45));
+  await page.getByRole('button',{name:'Copy summary / lead',exact:true}).click();
+  assert.match(await page.locator('[role=alert]').textContent(),/exceeds the limit/);
+  await page.getByRole('tab',{name:'X Articles',exact:true}).click();
+  const disabledSummary = page.getByRole('button',{name:'Summary / lead is unavailable in X',exact:true});
+  assert.equal(await disabledSummary.getAttribute('aria-disabled'),'true');
+  await disabledSummary.dispatchEvent('click');
+  assert.equal(await page.locator('.formatting-summary').isVisible(),false);
+  await page.getByRole('tab',{name:'WeChat',exact:true}).click();
+  await page.evaluate(() => { bridge.invoke = fixture.beforeSummaryInvoke; });
+  await page.evaluate(async () => {
+    fixture.choice = 'discard'; await NutbookFormatting.leave(1);
+    fixture.saved = {version:1,source:'Body only',markdown:'### Existing subheading\n\nBody only',assets:{}};
+    fixture.revision = 'title-fallback'; tab.item.fileName = 'Fallback article.md';
+    await NutbookFormatting.open(bridge,tab);
+  });
+  assert.equal(await page.locator('.formatting-editor .ProseMirror h1').textContent(),'Fallback article');
+  assert.match(await page.locator('.formatting-editor .ProseMirror').textContent(),/Existing subheading/);
+  assert.equal(await page.locator('[role=status]').textContent(),'Unsaved','generated filename title needs explicit save');
+  assert.equal(await page.evaluate(() => NutbookFormatting.save()),true);
+  assert.match(await page.evaluate(() => fixture.saved.markdown),/# Fallback article/);
+  await page.evaluate(() => { fixture.choice = 'continue'; });
   // Native transport receives the same frozen HTML and must acknowledge readback.
   await page.evaluate(() => {
     const invoke = bridge.invoke;

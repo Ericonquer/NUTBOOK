@@ -38,3 +38,6 @@
 /* Publishing drafts edit their title in the document, without the reader title bar. */
 .formatting-workspace .formatting-editor .ProseMirror > h1:first-child,
 .formatting-workspace .formatting-editor .ProseMirror h1.markdown-document-title-source{display:block}
+.formatting-summary{flex:none;border:1px solid #e2e2e4;border-radius:8px;padding:10px 12px;background:#fff}.formatting-summary-head{display:flex;align-items:center;gap:8px;font-size:12px}.formatting-summary-count{margin-left:auto;color:#5e5e63}.formatting-summary textarea{box-sizing:border-box;display:block;width:100%;resize:vertical;min-height:52px;max-height:120px;border:1px solid #e2e2e4;border-radius:8px;padding:8px;margin-top:6px;background:transparent;color:inherit;font:inherit;font-size:13px}.formatting-summary textarea[aria-invalid=true]{border-color:#ba1a1a}.formatting-summary-actions>button{border:1px solid #e2e2e4;border-radius:8px;padding:4px 10px;background:#eeeef0;margin-top:6px;font-size:12px}
+
+.formatting-summary-actions{display:flex;justify-content:flex-end;gap:12px}
