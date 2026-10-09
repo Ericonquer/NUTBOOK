@@ -1425,7 +1425,7 @@ assert.match(
 );
 assert.match(
   markdownEditor,
-  /localImageSrcPlugin\(resolveImageSrc\),[\s\S]*?markdownOutlineDecorationPlugin\(\)/,
+  /localImageSrcPlugin\(resolveImageSrc, isolateImages\),[\s\S]*?markdownOutlineDecorationPlugin\(\)/,
   "the Markdown outline decoration plugin must remain registered in the editor"
 );
 for (const key of ["markdown.saveAndClose", "markdown.discardAndClose", "markdown.continueEditing", "markdown.textAlignBlockOnly", "markdown.saveConflict", "markdown.saveConflictToast"]) {
@@ -3183,8 +3183,8 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /NutbookCoverCard\.remoteLoaded[\s\S]*?coverRatioOk[\s\S]*?4 \/ 3[\s\S]*?<= 2/,
-  "在线封面 onload 后必须复核自然尺寸 4:3..2:1 比例"
+  /NutbookCoverCard\.remoteLoaded[\s\S]*?coverRatioOk[\s\S]*?naturalWidth > 0 && naturalHeight > 0/,
+  "在线封面必须验证有效自然尺寸"
 );
 assert.match(
   indexHtml,
@@ -3238,8 +3238,8 @@ assert.match(
 );
 assert.match(
   markdownCoverAssetsRust,
-  /COVER_MIN_ASPECT: f64 = 4\.0 \/ 3\.0[\s\S]*?COVER_MAX_ASPECT: f64 = 2\.0/,
-  "封面比例边界必须为 4:3..2:1"
+  /pub fn aspect_ok[\s\S]*?width > 0 && height > 0/,
+  "封面必须接受任意有效比例"
 );
 assert.match(
   markdownCoverAssetsRust,

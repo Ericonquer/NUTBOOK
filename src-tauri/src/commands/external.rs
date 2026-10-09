@@ -1045,3 +1045,24 @@ mod native_drop_tests {
         assert_eq!(requests.len(), 3, "all independent drops must be enqueued");
     }
 }
+
+#[tauri::command]
+pub fn external_session_paste_image(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    generation: u64,
+    data: String,
+) -> Result<crate::models::CopyMarkdownImageAssetResponse, String> {
+    if webview.label() != "main" {
+        return Err("Invalid caller".into());
+    }
+    let session = state
+        .external_sessions
+        .get(&session_id)
+        .ok_or("Invalid session")?;
+    if session.generation != generation {
+        return Err("Invalid session".into());
+    }
+    crate::core::image_import::write_pasted_image(std::path::Path::new(&session.raw_path), &data)
+}

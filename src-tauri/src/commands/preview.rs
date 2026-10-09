@@ -4611,9 +4611,6 @@ mod tests {
     #[test]
     fn copy_cover_asset_rejects_every_negative_sample_without_side_effects() {
         let cases = [
-            ("cover-square.png", "aspect"),
-            ("cover-portrait.jpg", "aspect"),
-            ("cover-ultrawide.png", "aspect"),
             ("cover-fake-mime.png", "mime-mismatch"),
             ("cover-oversized-dimensions.png", "pixel-limit"),
             ("cover-unsafe.svg", "svg-unsafe-element"),
@@ -4799,7 +4796,7 @@ mod tests {
         let (root, markdown_path, state) = cover_lease_state();
         let markdown_dir = root.join("assets");
         fs::create_dir_all(&markdown_dir).expect("assets");
-        // 合法横图 + 无效竖图。
+        // 横图与竖图都可作为封面，校验不得复制或改写资源。
         fs::copy(
             card_revision_asset("cover-landscape.png"),
             markdown_dir.join("ok.png"),
@@ -4830,12 +4827,8 @@ mod tests {
             },
         )
         .expect("validate");
-        assert!(!bad.valid, "portrait must be rejected");
-        assert!(
-            bad.reason.as_deref().unwrap_or("").contains("aspect"),
-            "{:?}",
-            bad.reason
-        );
+        assert!(bad.valid, "legal in-document portrait must validate");
+        assert!(bad.natural_height > bad.natural_width);
         // 越界 src → 拒绝。
         let escaped = validate_markdown_cover_asset_impl(
             &state,

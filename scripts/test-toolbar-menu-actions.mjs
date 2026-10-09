@@ -955,10 +955,10 @@ try {
   ], "each settings page must be the only visible section");
   assert.ok(mainUi.settingsWidth >= 700, "settings modal must retain its intended layout");
   assert.deepEqual(mainUi.menu.map((entry) => [entry.action, entry.label]), [
-    ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"],
+    ["format-markdown", "排版发布"], ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"],
     ["remove-from-nutbook", "移除文件"]
   ]);
-  assert.notEqual(mainUi.menu[0].icon, mainUi.menu[1].icon, "export center and save-as need distinct icons");
+  assert.notEqual(mainUi.menu[1].icon, mainUi.menu[2].icon, "export center and save-as need distinct icons");
   assert.equal(mainUi.exportDialog.open, true, "export center must open from the Markdown menu");
   assert.deepEqual(mainUi.exportDialog.formats, ["html", "pdf", "image"]);
   assert.equal(mainUi.exportDialog.actionStyle, "8px", "export actions must receive their styles");
