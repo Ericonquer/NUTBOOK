@@ -4,8 +4,8 @@
     'zh-CN': { title: '排版发布', workspaceTitle: 'Markdown 排版中心', trial: '公众号', source: '原文', draft: '发布稿', undo: '撤销', preview: 'Nutbook 预览', save: '保存发布稿', back: '返回阅读', copy: '复制到公众号', copyX: '复制到 X Articles', copiedX: '正文已复制', copyXError: '文字复制失败，当前稿件仍保留。', copied: '已复制，请到公众号后台粘贴检查', busy: '正在处理…', dirty: '未保存', saved: '已保存', image: '插入图片', imageHelp: '可粘贴截图、图片文件、以 PNG/JPEG/WebP 结尾的图片地址，或 Markdown 图片语法；单张 ≤10 MB。普通网址保留为链接。', localOnly: '图片随发布稿缓存保存。', imageError: '图片无法转换，请检查路径、格式和大小：', copyError: '图文复制失败；稿件仍保留。', compose: '请先完成中文输入', fallback: '编辑器加载失败，已切换为 Markdown 源码编辑', changed: '原文件已变化，发布稿仍保留创建时快照。', gate: '公众号会再次处理样式和图片，请保存草稿后检查预览。X Articles 复制正文格式；标题和图片单独添加。微博尚未开放。', invalid: '发布稿格式不支持，未覆盖已有文件', conflict: '保存失败（可能存在版本冲突），当前稿件仍保留：', failedImages: '以下图片未能转换，已阻止图文复制。请修复后重试：', editor: '发布稿编辑区', theme: '主题与排版', themeUnavailable: 'X 不支持主题', moreThemes: '更多模板将陆续加入', simple: '白纸', reading: '长文', tech: '留白', newspaper: '报纸', fine: '细线', minimal: '简约', size: '正文字号', leading: '行距', radius: '图片圆角', reset: '恢复主题默认', close: '收起主题面板', retry: '重试失败图片', phone: '切换手机宽度预览', help: '图片与复制说明', importBusy: '正在处理图片…', sourceReadonly: '原文只读', tooLarge: '图片超出限制：单张 10 MB、总计 24 MB、边长 8192 像素。', insertHelp: '可直接粘贴图片，或在正文空行使用插图按钮。', saveError: '保存失败，当前稿件仍保留。', loading: '正在打开排版工作区…', references: '参考链接', linkNote: '普通外链能否点击以公众号后台为准；文末会保留网址。' },
     'en-US': { title: 'Format', workspaceTitle: 'Markdown Formatting Center', trial: 'WeChat', source: 'Original', draft: 'Publishing draft', undo: 'Undo', preview: 'Nutbook preview', save: 'Save publishing draft', back: 'Back to reading', copy: 'Copy to WeChat', copyX: 'Copy to X Articles', copiedX: 'Body copied', copyXError: 'Text copy failed. Your draft is retained.', copied: 'Copied. Paste into the WeChat editor and check.', busy: 'Processing…', dirty: 'Unsaved', saved: 'Saved', image: 'Insert image', imageHelp: 'Paste a screenshot, image file, PNG/JPEG/WebP URL, or Markdown image syntax. ≤10 MB each. Other URLs remain links.', localOnly: 'Images are cached with the publishing draft.', imageError: 'Cannot convert image; check path, format and size: ', copyError: 'Rich copy failed. Your draft is retained.', compose: 'Finish composing text first', fallback: 'Editor failed to load. Markdown source editing is available.', changed: 'The source file changed. The original draft snapshot is retained.', gate: 'WeChat processes styles and images again. Save your platform draft and check its preview. X Articles copies formatted text; add the title and images separately. Weibo is not available yet.', invalid: 'Unsupported draft format. The existing file was not overwritten.', conflict: 'Save failed (possible revision conflict). Your draft is retained: ', failedImages: 'Copy blocked because these images could not be converted. Fix them and retry:', editor: 'Publishing draft editor', theme: 'Theme and formatting', themeUnavailable: 'Themes are unavailable in X', moreThemes: 'More templates coming soon', simple: 'Paper', reading: 'Longform', tech: 'Whitespace', newspaper: 'Newspaper', fine: 'Fine lines', minimal: 'Minimal', size: 'Font size', leading: 'Line spacing', radius: 'Image corners', reset: 'Reset theme', close: 'Close theme panel', retry: 'Retry failed images', phone: 'Toggle phone preview width', help: 'Image and copy help', importBusy: 'Importing image…', sourceReadonly: 'Read-only source', tooLarge: 'Image limit exceeded: 10 MB each, 24 MB total, 8192 pixels per side.', insertHelp: 'Paste an image, or use the image button in an empty paragraph.', saveError: 'Save failed. Your draft is retained.', loading: 'Opening the formatting workspace…', references: 'References', linkNote: 'Clickable external links depend on the WeChat editor. URLs are also retained at the end.' }
   };
-  Object.assign(messages['zh-CN'], { helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号粘贴后请保存检查。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
-  Object.assign(messages['en-US'], { helpBrief:'Paste images directly (≤10 MB each). Check your saved WeChat draft. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
+  Object.assign(messages['zh-CN'], { weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号、微博粘贴后请保存检查；微博标题单独复制。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
+  Object.assign(messages['en-US'], { weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Paste images directly (≤10 MB each). Check saved WeChat and Weibo drafts; copy the Weibo title separately. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
   let active = null;
   let openGeneration = 0;
   const styleMap = {
@@ -37,7 +37,7 @@
     node.addEventListener('click', action);
     return node;
   }
-  const icons = {plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
+  const icons = {weibo: 'M11 3a3 3 0 0 1 3 3M11 1a5 5 0 0 1 5 5M12.5 8c1.3.7 1.5 1.5 1.1 2.5-.6 1.8-3.5 3.1-6.5 3.1S1.8 12.2 2 10.4c.1-1.4 1.9-3.7 3.6-4.6.8-.4 1.2-.1 1 .7l-.2.8c1.7-.7 3.5-1.1 4-.4.3.4 0 .9-.3 1.3M9.8 10.2c0 1.2-1.4 2.1-3.1 2.1s-2.9-.7-2.9-1.8 1.4-2 3.1-2 2.9.6 2.9 1.7ZM6 10.5h.01', plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
   function iconButton(key, label, action) {
     const node = button(label, action);
     node.className = 'formatting-icon';
@@ -307,7 +307,10 @@
     s.data.markdown = s.editor ? s.editor.getMarkdown() : s.fallback.value;
     return s.data.markdown;
   }
-  function serialized(s) { return JSON.stringify({ markdown: s.data.markdown, settings: settings(s) }); }
+  function snapshotSerialized(markdown, pref) {
+    return JSON.stringify({ markdown, settings: Object.fromEntries(Object.entries(pref).sort(([a],[b]) => a.localeCompare(b))) });
+  }
+  function serialized(s) { return snapshotSerialized(s.data.markdown, settings(s)); }
   function updateState(s) { s.status.textContent = s.revision && serialized(s) === s.baseline ? text('saved') : text('dirty'); }
   function dispose(s) {
     clearTimeout(s.timer);
@@ -392,11 +395,11 @@
       section.append(element('p', `[${number}] ${url}`, { style: styleMap.p }));
     }
   }
-  async function convert(s, markdown, pref = settings(s)) {
+  async function convert(s, markdown, pref = settings(s), platform = 'wechat') {
     const html = await s.bridge.invoke('render_formatting_markdown', { markdown });
     if (!current(s)) throw new Error('superseded');
     const section = inlineHtml(html);
-    retainLinkAddresses(section);
+    if (platform === 'wechat') retainLinkAddresses(section);
     const errors = [];
     // Serial conversion bounds peak memory and avoids duplicate resource reads.
     for (const img of section.querySelectorAll('img')) {
@@ -406,7 +409,16 @@
       try { img.setAttribute('src', await imageData(s, src)); }
       catch (error) { img.removeAttribute('src'); img.alt = `${text('imageError')}${src}`; errors.push(`${src}: ${s.bridge.error(error)}`); }
     }
-    applyTheme(s, section, pref);
+    if (platform === 'wechat') applyTheme(s, section, pref);
+    else {
+      const title = section.querySelector(':scope > h1');
+      section.dataset.articleTitle = title?.textContent.trim() || '';
+      title?.remove();
+      section.removeAttribute('style');
+      section.querySelectorAll('[style]').forEach(node => node.removeAttribute('style'));
+      // Keep each list item's text beside its marker in paste importers.
+      section.querySelectorAll('li > p').forEach(node => node.replaceWith(...node.childNodes));
+    }
     return { section, errors };
   }
   async function preview(s) {
@@ -415,6 +427,7 @@
       const markdown = flush(s);
       updateState(s);
       if (s.mode === 'x') { await xPreview(s,markdown,generation); return; }
+      if (s.mode === 'weibo') { await weiboPreview(s,markdown,generation); return; }
       const result = await convert(s, markdown);
       if (!current(s) || s.generation !== generation || s.data.markdown !== markdown) return;
       const top = s.preview.scrollTop;
@@ -444,7 +457,7 @@
       const revision = await s.bridge.invoke('save_formatting_draft', { itemId: s.id, expectedRevision: s.revision, draft: data });
       if (!current(s)) return false;
       s.revision = revision;
-      s.baseline = JSON.stringify({ markdown, settings: { theme: 'simple', size: 16, leading: 1.8, radius: 6, ...data.settings } });
+      s.baseline = snapshotSerialized(markdown, pref);
       flush(s);
       updateState(s);
       return true;
@@ -561,7 +574,7 @@
   }
   async function copyX(s) {
     if (s.copying) return;
-    s.copying = true; s.copyXButton.disabled = true; s.copyButton.disabled = true;
+    s.copying = true; s.copyXButton.disabled = true; s.copyWeiboButton.disabled = true; s.copyButton.disabled = true;
     s.status.textContent = text('busy');
     try {
       const markdown = flush(s);
@@ -574,9 +587,25 @@
       await writeRich(s,prepared,xPlain);
       if (current(s)) s.status.textContent = text('copiedX') + (imageCount ? ` · ${(imageCount === 1 ? text('xPendingOne') : text('xPending').replace('{count}',imageCount))}` : '');
     } catch (error) { if (current(s)) s.errors.textContent = `${text('copyXError')} ${s.bridge.error(error)}`; }
-    finally { s.copying = false; s.copyXButton.disabled = false; s.copyButton.disabled = false; }
+    finally { s.copying = false; s.copyXButton.disabled = false; s.copyWeiboButton.disabled = false; s.copyButton.disabled = false; }
   }
-  async function copyXTitle(s) {
+  async function copyWeibo(s) {
+    if (s.copying || s.composing) return;
+    s.copying = true;
+    s.copyButton.disabled = s.copyXButton.disabled = s.copyWeiboButton.disabled = true;
+    s.status.textContent = text('busy');
+    try {
+      const prepared = convert(s, flush(s), settings(s), 'weibo').then(result => {
+        if (result.errors.length) throw new Error(`${text('failedImages')}\n${result.errors.join('\n')}`);
+        result.section.removeAttribute('data-article-title');
+        return result.section;
+      });
+      await writeRich(s, prepared);
+      if (current(s)) s.status.textContent = text('copiedWeibo');
+    } catch (error) { if (current(s)) s.errors.textContent = `${text('copyError')} ${s.bridge.error(error)}`; }
+    finally { s.copying = false; s.copyButton.disabled = s.copyXButton.disabled = s.copyWeiboButton.disabled = false; }
+  }
+  async function copyXTitle(s, platform = 'x') {
     if (s.copying) return;
     s.copying = true;
     try {
@@ -584,7 +613,7 @@
       const html = await s.bridge.invoke('render_formatting_markdown', {markdown});
       if (!current(s)) return;
       const title = xArticle(html).title;
-      if (!title) throw new Error(text('noTitle'));
+      if (!title) throw new Error(text(platform === 'weibo' ? 'weiboNoTitle' : 'noTitle'));
       if (s.bridge.copyText) await s.bridge.copyText(title); else await navigator.clipboard.writeText(title);
       if (current(s)) s.status.textContent = text('copiedTitle');
     } catch (error) { if (current(s)) s.errors.textContent = s.bridge.error(error); }
@@ -645,9 +674,21 @@
       }
     }
   }
+  async function weiboPreview(s, markdown, generation) {
+    const result = await convert(s, markdown, settings(s), 'weibo');
+    if (!current(s) || s.generation !== generation || s.data.markdown !== markdown || s.mode !== 'weibo') return;
+    const wrapper = element('section', '', {class:'formatting-x-article formatting-weibo-article'});
+    const titleRow = element('div', '', {class:'formatting-x-title'});
+    titleRow.append(element('h1', result.section.dataset.articleTitle || text('weiboNoTitle')), iconButton('copy', text('copyTitle'), () => copyXTitle(s, 'weibo')));
+    result.section.removeAttribute('data-article-title');
+    wrapper.append(titleRow, result.section);
+    const top = s.preview.scrollTop; s.preview.replaceChildren(wrapper); s.preview.scrollTop = top;
+    s.retryButton.hidden = !result.errors.length;
+    s.errors.textContent = result.errors.length ? `${text('failedImages')}\n${result.errors.join('\n')}` : '';
+  }
   function updateThemeAvailability(s) {
-    const unavailable = s.mode === 'x';
-    const key = unavailable ? 'themeUnavailable' : 'theme';
+    const unavailable = s.mode !== 'wechat';
+    const key = s.mode === 'weibo' ? 'weiboThemeUnavailable' : unavailable ? 'themeUnavailable' : 'theme';
     s.themeButton.setAttribute('aria-disabled', String(unavailable));
     s.themeButton.dataset.formattingLabel = key;
     s.themeButton.dataset.formattingAria = key;
@@ -658,13 +699,12 @@
   }
   function setPreviewMode(s,mode) {
     s.mode = mode;
-    s.wechatMode.setAttribute('aria-selected',String(mode === 'wechat'));
-    s.xMode.setAttribute('aria-selected',String(mode === 'x'));
-    s.wechatMode.tabIndex = mode === 'wechat' ? 0 : -1;
-    s.xMode.tabIndex = mode === 'x' ? 0 : -1;
-    s.themeName.hidden = mode === 'x';
+    for (const [node, value] of [[s.wechatMode,'wechat'],[s.xMode,'x'],[s.weiboMode,'weibo']]) {
+      node.setAttribute('aria-selected', String(mode === value)); node.tabIndex = mode === value ? 0 : -1;
+    }
+    s.themeName.hidden = mode !== 'wechat';
     updateThemeAvailability(s);
-    if (mode === 'x') { s.settingsPanel.hidden = true; s.themeButton.setAttribute('aria-expanded','false'); }
+    if (mode !== 'wechat') { s.settingsPanel.hidden = true; s.themeButton.setAttribute('aria-expanded','false'); }
     preview(s);
   }
   function refreshLanguage() {
@@ -693,7 +733,7 @@
     if (s.copying) return;
     clearTimeout(s.timer);
     s.copying = true;
-    s.copyButton.disabled = true; s.copyXButton.disabled = true;
+    s.copyButton.disabled = true; s.copyXButton.disabled = true; s.copyWeiboButton.disabled = true;
     s.status.textContent = text('busy');
     try {
       const markdown = flush(s);
@@ -720,7 +760,7 @@
       }
       if (current(s)) s.status.textContent = text('copied');
     } catch (error) { if (current(s)) s.errors.textContent = `${text('copyError')} ${s.bridge.error(error)}`; }
-    finally { s.copying = false; s.copyButton.disabled = false; s.copyXButton.disabled = false; }
+    finally { s.copying = false; s.copyButton.disabled = false; s.copyXButton.disabled = false; s.copyWeiboButton.disabled = false; }
   }
   async function importImage(s, file) {
     if (file.src) {
@@ -802,10 +842,11 @@
     s.saveButton = iconButton('save', text('save'), save);
     s.copyButton = iconButton('wechat', text('copy'), () => copy(s));
     s.copyXButton = iconButton('x', text('copyX'), () => copyX(s));
-    s.themeButton = iconButton('theme', text('theme'), () => { if (s.mode === 'x') return; s.settingsPanel.hidden = !s.settingsPanel.hidden; s.themeButton.setAttribute('aria-expanded', String(!s.settingsPanel.hidden)); });
+    s.copyWeiboButton = iconButton('weibo', text('copyWeibo'), () => copyWeibo(s));
+    s.themeButton = iconButton('theme', text('theme'), () => { if (s.mode !== 'wechat') return; s.settingsPanel.hidden = !s.settingsPanel.hidden; s.themeButton.setAttribute('aria-expanded', String(!s.settingsPanel.hidden)); });
     s.themeButton.setAttribute('aria-expanded', 'false');
     s.undoButton = iconButton('undo', text('undo'), () => { if (!s.composing && !s.importing && !s.originalVisible) s.editor?.undo?.(); });
-    header.append(s.status, s.undoButton, iconButton('image', text('image'), async () => { if (!(await s.editor?.insertImageAsset?.()) && !s.errors.textContent) s.errors.textContent = text('insertHelp'); }), s.themeButton, s.saveButton, s.copyButton, s.copyXButton, iconButton('back', text('back'), () => leave(s.id)));
+    header.append(s.status, s.undoButton, iconButton('image', text('image'), async () => { if (!(await s.editor?.insertImageAsset?.()) && !s.errors.textContent) s.errors.textContent = text('insertHelp'); }), s.themeButton, s.saveButton, s.copyButton, s.copyXButton, s.copyWeiboButton, iconButton('back', text('back'), () => leave(s.id)));
     const body = element('div', '', { class: 'formatting-columns' });
     const left = element('section', '', { class: 'formatting-left' });
     const tabs = element('div', '', { class: 'formatting-tools' });
@@ -852,18 +893,20 @@
     const previewTabs = element('div','',{class:'formatting-tab-list',role:'tablist','aria-label':text('preview')});
     s.wechatMode = button(text('wechatTab'),()=>setPreviewMode(s,'wechat'));
     s.xMode = button(text('xTab'),()=>setPreviewMode(s,'x'));
-    for (const [node,mode] of [[s.wechatMode,'wechat'],[s.xMode,'x']]) {
+    s.weiboMode = button(text('weiboTab'),()=>setPreviewMode(s,'weibo'));
+    const platformTabs = [[s.wechatMode,'wechat'],[s.xMode,'x'],[s.weiboMode,'weibo']];
+    for (const [node,mode] of platformTabs) {
       node.className = 'formatting-tab'; node.setAttribute('role','tab');
       node.setAttribute('aria-selected',String(mode === 'wechat')); node.tabIndex = mode === 'wechat' ? 0 : -1;
       node.addEventListener('keydown',event => {
         if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) {
           event.preventDefault();
-          const next = event.key === 'Home' ? 'wechat' : event.key === 'End' ? 'x' : mode === 'wechat' ? 'x' : 'wechat';
-          setPreviewMode(s,next); (next === 'wechat' ? s.wechatMode : s.xMode).focus();
+          const index = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (platformTabs.findIndex(([,value]) => value === mode) + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+          setPreviewMode(s,platformTabs[index][1]); platformTabs[index][0].focus();
         }
       });
     }
-    previewTabs.append(s.wechatMode,s.xMode);
+    previewTabs.append(s.wechatMode,s.xMode,s.weiboMode);
     const previewActions = element('div','',{class:'formatting-preview-actions'});
     previewActions.append(s.themeName,iconButton('phone',text('phone'),()=>s.preview.classList.toggle('formatting-phone')));
     previewHeader.append(previewTabs,previewActions);

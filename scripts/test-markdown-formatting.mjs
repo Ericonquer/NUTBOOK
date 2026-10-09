@@ -28,7 +28,7 @@ try {
       } }),
       invoke: async (command, args) => {
         fixture.calls.push(command);
-        if (command === 'load_formatting_draft') return { draft: fixture.saved, revision: fixture.revision };
+        if (command === 'load_formatting_draft') return { draft: structuredClone(fixture.saved), revision: fixture.revision };
         if (command === 'render_formatting_markdown') return args.markdown.includes('missing') ? '<p>text</p><img src="missing.png">' : '<h1>Heading</h1>'+Array.from({length:70}, (_,i)=>`<p>Paragraph ${i} ${args.markdown}</p>`).join('');
         if (command === 'validate_formatting_image_data') return null;
         if (command === 'read_formatting_image') throw new Error('missing');
@@ -111,6 +111,7 @@ try {
     bridge.invoke = fixture.originalInvoke;
     bridge.editor = async () => window.NutbookMarkdownEditor;
     fixture.saved = null; fixture.revision = null;
+    tab.preview.raw = '# Draft title\n\noriginal';
     await NutbookFormatting.open(bridge, tab);
     window.ClipboardItem = class { constructor(data) { this.data = data; } };
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write: async items => {
@@ -120,6 +121,28 @@ try {
       fixture.clipboard = { html: await html.text(), plain: await plain.text() };
     } } });
   });
+  const publishingTitle = page.locator('.formatting-editor .ProseMirror h1').first();
+  assert.equal(await publishingTitle.isVisible(),true,'publishing title is not hidden by reader styles');
+  await publishingTitle.click();
+  await publishingTitle.evaluate(node => { const selection = getSelection(); selection.collapse(node.firstChild,0); });
+  await page.keyboard.type('Edited ');
+  assert.equal(await publishingTitle.textContent(),'Edited Draft title');
+  assert.equal(await page.evaluate(() => NutbookFormatting.save()),true);
+  assert.match(await page.evaluate(() => fixture.saved.markdown), /# Edited Draft title/);
+  assert.equal(await page.locator('[role=status]').textContent(),'Saved','successful save converges to normalized baseline');
+  await page.evaluate(() => { fixture.confirmCount = 0; fixture.beforeTitleConfirm = bridge.confirm; bridge.confirm = (...args) => { fixture.confirmCount++; return fixture.beforeTitleConfirm(...args); }; });
+
+  await page.evaluate(async () => { await NutbookFormatting.leave(1); await NutbookFormatting.open(bridge,tab); });
+  assert.equal(await publishingTitle.textContent(),'Edited Draft title','title survives save and reopen');
+  assert.equal(await page.evaluate(() => fixture.confirmCount),0,'saved title returns without unsaved prompt');
+  await publishingTitle.click();
+  await publishingTitle.evaluate(node => getSelection().collapse(node.firstChild,0));
+  await page.keyboard.type('Discarded ');
+  await page.evaluate(() => { fixture.choice = 'discard'; });
+  await page.evaluate(async () => { await NutbookFormatting.leave(1); await NutbookFormatting.open(bridge,tab); });
+  assert.equal(await publishingTitle.textContent(),'Edited Draft title','discard returns to last saved title');
+  await page.evaluate(() => { fixture.choice = 'continue'; bridge.confirm = fixture.beforeTitleConfirm; });
+
   const phoneButton = page.getByRole('button', { name:'Toggle phone preview width', exact:true });
   await phoneButton.hover();
   const tooltipLayout = await phoneButton.evaluate(button => {
@@ -208,6 +231,7 @@ try {
   assert.equal(await page.locator('.formatting-x-title h1').textContent(),'Article title');
   assert.equal((await phoneButton.boundingBox()).x,phoneBeforeX.x,'phone button remains at the right edge in both modes');
   assert.equal(await page.getByRole('tab',{name:'X Articles',exact:true}).getAttribute('aria-selected'),'true');
+  assert.equal(await page.getByRole('tab',{name:'X Articles',exact:true}).evaluate(node => getComputedStyle(node).borderBottomColor),'rgb(0, 0, 0)','selected underline survives button focus');
   assert.equal(await page.locator('.formatting-x-article .formatting-x-image').count(),1);
   await page.getByRole('button', { name:'Copy article title', exact:true }).click();
   await page.waitForFunction(() => fixture.xText === 'Article title');
@@ -273,6 +297,34 @@ try {
   await page.getByRole('tab',{name:'WeChat',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'Theme and formatting',exact:true}).isDisabled(),false);
   await page.evaluate(() => { bridge.invoke = fixture.preXInvoke; bridge.nativeClipboard = false; });
+  // Weibo exports semantic HTML without themes, URL footnotes or X downgrades.
+  await page.evaluate(() => {
+    fixture.beforeWeiboInvoke = bridge.invoke;
+    fixture.clipboard = null;
+    bridge.invoke = (command,args) => command === 'render_formatting_markdown'
+      ? Promise.resolve('<h1>Weibo title</h1><p><a href="https://example.com">Link</a></p><ul><li><p>Bullet</p></li></ul><ol><li>Number</li></ol><pre><code>code</code></pre><table><tr><td>Cell</td></tr></table><img src="weibo.png" alt="Weibo image">')
+      : command === 'read_formatting_image' ? Promise.resolve('data:image/png;base64,aGVsbG8=') : fixture.beforeWeiboInvoke(command,args);
+  });
+  await page.getByRole('tab',{name:'Weibo Articles',exact:true}).click();
+  await page.waitForFunction(() => document.querySelector('.formatting-weibo-article h1')?.textContent === 'Weibo title');
+  assert.equal(await page.getByRole('tab',{name:'Weibo Articles',exact:true}).evaluate(node => getComputedStyle(node).borderBottomWidth),'2px');
+  assert.match(await page.locator('.formatting-hint').textContent(), /Weibo/);
+  assert.equal((await phoneButton.boundingBox()).x,phoneBeforeX.x);
+  assert.equal(await page.getByRole('button',{name:'Themes are unavailable in Weibo',exact:true}).getAttribute('aria-disabled'),'true');
+  await page.getByRole('button',{name:'Copy article title',exact:true}).click();
+  await page.waitForFunction(() => fixture.xText === 'Weibo title');
+  await page.getByRole('button',{name:'Copy to Weibo Article',exact:true}).click();
+  await page.waitForFunction(() => fixture.clipboard);
+  const weiboPayload = await page.evaluate(() => fixture.clipboard);
+  assert.match(weiboPayload.html, /<a href="https:\/\/example.com">Link<\/a>/);
+  assert.match(weiboPayload.html, /<ul><li>Bullet<\/li><\/ul>/);
+  assert.match(weiboPayload.html, /<ol><li>Number<\/li><\/ol>/);
+  assert.match(weiboPayload.html, /<pre><code>code/);
+  assert.match(weiboPayload.html, /<table>/);
+  assert.match(weiboPayload.html, /<img[^>]*src="data:image\/png;base64,aGVsbG8="/);
+  assert.doesNotMatch(weiboPayload.html, /style=|<section|References|image position|Weibo title|data-article-title/i);
+  await page.getByRole('tab',{name:'WeChat',exact:true}).click();
+  await page.evaluate(() => { bridge.invoke = fixture.beforeWeiboInvoke; });
   // Native transport receives the same frozen HTML and must acknowledge readback.
   await page.evaluate(() => {
     const invoke = bridge.invoke;
