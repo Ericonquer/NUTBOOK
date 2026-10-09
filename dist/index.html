@@ -8217,6 +8217,8 @@
         opacity: 1;
       }
 
+      .markdown-image-paste-progress { display: inline-block; padding: 4px 8px; margin: 0 8px; border-radius: 8px; background: #eeeef0; color: #5e5e63; font-size: 12px; pointer-events: none; }
+
       .milkdown-editor-root .milkdown {
         min-height: auto;
       }
@@ -13593,6 +13595,36 @@
         }
       }
 
+      async function pasteMarkdownImageAssetForTab(tab, input, options = {}) {
+        const expectedEditor = appState.activeMarkdownEditor;
+        const activationToken = tab.coverActivationToken || 0;
+        const activeAtStart = appState.activeTabId;
+        const generation = tab.external?.generation;
+        let data;
+        if (input.src) {
+          const requestId = crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, '0')).join('');
+          const cancel = () => invoke("cancel_formatting_image", { requestId }).catch(() => {});
+          options.signal?.addEventListener("abort", cancel, { once: true });
+          try { data = await invoke("fetch_formatting_image", { src: input.src, requestId }); }
+          finally { options.signal?.removeEventListener("abort", cancel); }
+        } else {
+          if (!["image/png", "image/jpeg", "image/webp"].includes(input.type) || input.size > 10 * 1024 * 1024) throw new Error("PNG / JPEG / WebP ≤ 10 MB");
+          data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error("Image read failed")); reader.readAsDataURL(input); });
+        }
+        if (options.signal?.aborted || tab.closed || appState.activeTabId !== activeAtStart || appState.activeTabId !== tab.id || appState.activeMarkdownEditor !== expectedEditor || (tab.coverActivationToken || 0) !== activationToken) throw new Error("Image import cancelled");
+        let result;
+        if (tab.sourceMode === "external") {
+          if (tab.external.saveLock || tab.external.generation !== generation) throw new Error("Image import cancelled");
+          result = await invoke("external_session_paste_image", { sessionId: tab.external.sessionId, generation, data });
+          const sourceDir = (tab.external.path || tab.item.filePath).split("/").slice(0, -1).join("/");
+          (tab.external.insertedResources ??= new Set()).add(`${sourceDir}/${result.relativePath.replace(/^\.\//, "")}`);
+        } else {
+          result = await invoke("paste_markdown_image_asset", { itemId: tab.id, data });
+        }
+        if (options.signal?.aborted || tab.closed || appState.activeTabId !== tab.id || appState.activeMarkdownEditor !== expectedEditor || (tab.coverActivationToken || 0) !== activationToken) throw new Error("Image import cancelled");
+        return result;
+      }
+
       // PR C / C2：`+ → 封面图` 的宿主侧 picker/copy。复制前由后端完成全部安全
       // 校验（magic MIME / 扩展 / 字节 / 像素 / 4:3..2:1 / EXIF / SVG 安全），
       // 校验失败不留下半成品；成功后注册 staged lease 并绑定 item + tab +
@@ -13820,6 +13852,12 @@
             },
             onInsertImageAsset() {
               return insertMarkdownImageAssetForTab(tab);
+            },
+            onPasteImageAsset(input, options) { return pasteMarkdownImageAssetForTab(tab, input, options); },
+            onImagePasteStatus(kind, message) {
+              const label = message || (kind === "busy" ? (appState.language === "en-US" ? "Importing image…" : "正在处理图片…") : t("markdown.imageInserted"));
+              setStatus(label, kind === "error" ? "error" : kind === "busy" ? "info" : "ok");
+              if (kind === "error") showToast(label);
             },
             onInsertCoverAsset() {
               return insertMarkdownCoverAssetForTab(tab);
@@ -15579,6 +15617,7 @@
         const activeTabBeforeLanguageChange = getActiveTab();
         const activeHtmlEditSessionBeforeLanguageChange = appState.htmlEditSession;
         appState.language = i18n?.setLanguage?.(language) ?? language;
+        globalThis.NutbookFormatting?.refreshLanguage?.();
         if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
         if (!appState.isSettingsOverlay
           && activeHtmlEditSessionBeforeLanguageChange
@@ -17067,6 +17106,7 @@
                 await globalThis.NutbookFormatting.open({
                   invoke, container: els.viewerBody, language: () => appState.language,
                   nativeClipboard: appState.isTauri && /Mac/i.test(navigator.platform),
+                  copyText: writeClipboardText,
                   activeId: () => appState.activeTabId, editor: loadMarkdownEditorApi,
                   suspend: () => { captureActiveMarkdownDraft(); suspendActiveMarkdownEditor(); },
                   restore: () => renderViewer(), confirm: confirmMarkdownUnsavedClose,

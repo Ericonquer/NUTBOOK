@@ -7,6 +7,7 @@ import { keymap } from "@milkdown/kit/prose/keymap";
 import { liftListItem } from "@milkdown/kit/prose/schema-list";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
+import { DOMSerializer } from "@milkdown/kit/prose/model";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { $nodeSchema, $remark } from "@milkdown/kit/utils";
 import { setBlockType, toggleMark } from "prosemirror-commands";
@@ -1335,7 +1336,7 @@ function markdownImageAssetRemovalPlugin(onRemoveImageAsset) {
   });
 }
 
-function localImageSrcPlugin(resolveImageSrc) {
+function localImageSrcPlugin(resolveImageSrc, isolateImages = false) {
   const normalizeImage = (image) => {
     const originalSrc = image.dataset.nutbookOriginalSrc || image.getAttribute("src") || "";
     if (typeof resolveImageSrc === "function") {
@@ -1351,7 +1352,19 @@ function localImageSrcPlugin(resolveImageSrc) {
     root.querySelectorAll("img[src]").forEach(normalizeImage);
   };
 
+  const safeSpec = (spec) => {
+    if (!Array.isArray(spec)) return spec;
+    const copy = spec.map(value => Array.isArray(value) ? safeSpec(value) : value);
+    if (copy[0] === "img" && copy[1] && typeof copy[1] === "object") {
+      const original = copy[1].src || "";
+      copy[1] = { ...copy[1], src: resolveImageSrc?.(original) || "data:image/png;base64,", "data-nutbook-original-src": original };
+    }
+    return copy;
+  };
   return new Plugin({
+    // Publishing images must not briefly request an unchecked URL before the
+    // observer runs. Resolve their DOM spec before any src attribute is set.
+    props: isolateImages ? { nodeViews: Object.fromEntries(["image", PORTABLE_IMAGE_NODE_NAME, MARKDOWN_COVER_IMAGE_NODE_NAME].map(name => [name, node => ({ dom: DOMSerializer.renderSpec(document, safeSpec(node.type.spec.toDOM(node))).dom })])) } : {},
     view(view) {
       const observer = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
@@ -1503,7 +1516,7 @@ function alignedTextSelectionState(state, selection = state?.selection) {
   return { supported: true, targets, alignment };
 }
 
-async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, onInsertImageAsset = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null, readOnly = false }) {
+async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, isolateImages = false, onInsertImageAsset = null, onPasteImageAsset = null, onImagePasteStatus = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null, readOnly = false }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -1615,6 +1628,85 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   // this.dispatch.bind(this)` 创建的 bound 方法，delete 后 keymap 命令内部
   // 裸调用 dispatch 时 this=undefined 直接 TypeError（prosemirror-view
   // src/index.ts:75 已核验）。
+  let imagePastePending = false;
+  let imageImportAbort = null;
+  // Clipboard images belong to this editor session, never the active tab at completion.
+  const imagePastePlugin = new Plugin({
+    state: {
+      init: () => null,
+      apply(tr, position) {
+        const explicit = tr.getMeta(imagePastePlugin);
+        if (explicit !== undefined) return explicit;
+        return position == null ? null : tr.mapping.map(position, 1);
+      }
+    },
+    props: {
+      decorations(state) {
+        if (!imagePastePending) return null;
+        const position = imagePastePlugin.getState(state);
+        if (position == null) return null;
+        return DecorationSet.create(state.doc, [Decoration.widget(position, () => {
+          const indicator = document.createElement("span");
+          indicator.className = "markdown-image-paste-progress";
+          indicator.setAttribute("role", "status");
+          indicator.textContent = language === "en-US" ? "Importing image…" : "正在处理图片…";
+          return indicator;
+        }, { side:1, key:"image-paste-progress" })]);
+      },
+      handlePaste(view, event) {
+        if (!onPasteImageAsset || readOnly || editingLocked || view.composing) return false;
+        const clipboard = event.clipboardData;
+        const files = [...(clipboard?.items || [])].filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter(Boolean);
+        const plain = (clipboard?.getData("text/plain") || "").trim();
+        const md = plain.match(/^!\[([^\]\n]*)\]\((https?:\/\/[^\s]+)\)$/i);
+        let url = md?.[2] || (/^https?:\/\/\S+$/i.test(plain) && /\.(png|jpe?g|webp)(?:[?#]|$)/i.test(plain) ? plain : null);
+        if (!files.length && !url && !plain) {
+          const html = clipboard?.getData("text/html") || "";
+          if (html) {
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            const images = doc.querySelectorAll("img");
+            if (images.length === 1 && !doc.body.textContent.trim() && /^https?:\/\//i.test(images[0].getAttribute("src") || "")) url = images[0].getAttribute("src");
+          }
+        }
+        if (!files.length && !url) return false;
+        event.preventDefault();
+        if (imagePastePending || view.state.selection.$from.parent.type.spec.code) {
+          onImagePasteStatus?.("error", language === "en-US" ? "Finish the current image import or leave the code block first." : "请等待当前图片处理完成，或先移出代码块。");
+          return true;
+        }
+        const doc = view.state.doc;
+        const bookmark = view.state.selection.getBookmark();
+        imagePastePending = true;
+        imageImportAbort = new AbortController();
+        view.dispatch(view.state.tr.setMeta(imagePastePlugin, view.state.selection.from).setMeta("addToHistory", false));
+        onImagePasteStatus?.("busy");
+        (async () => {
+          try {
+            const assets = [];
+            for (const input of files.length ? files : [{ src: url, fileName: md?.[1] || "image" }]) {
+              const asset = await onPasteImageAsset(input, { signal: imageImportAbort.signal });
+              if (!asset?.relativePath) throw new Error(language === "en-US" ? "Image import cancelled." : "图片未插入。");
+              assets.push(asset);
+            }
+            if (destroyed || editingLocked || !root.isConnected) return;
+            // Do not replace newer edits or a selection whose content has changed.
+            if (!view.state.doc.eq(doc) || view.composing) throw new Error(language === "en-US" ? "Content changed. Paste the image again." : "内容已变化，请在需要的位置重新粘贴图片。");
+            const selection = bookmark.resolve(view.state.doc);
+            const nodes = assets.map(asset => view.state.schema.nodes.image.create({ src: asset.relativePath, alt: imageAltFromFileName(asset.fileName || asset.relativePath), title: "" }));
+            let tr = view.state.tr.setSelection(selection);
+            const content = nodes.length === 1 ? nodes[0] : view.state.schema.nodes.paragraph.create(null, nodes);
+            tr = tr.replaceSelectionWith(content);
+            view.dispatch(closeHistory(tr.scrollIntoView()));
+            markUserInteracted();
+            flushMarkdownChangeSync();
+            onImagePasteStatus?.("done");
+          } catch (error) { if (!destroyed) onImagePasteStatus?.("error", String(error.message || error)); }
+          finally { imagePastePending = false; imageImportAbort = null; if (!destroyed) view.dispatch(view.state.tr.setMeta(imagePastePlugin, null).setMeta("addToHistory", false)); }
+        })();
+        return true;
+      }
+    }
+  });
   const lockGatePlugin = new Plugin({
     filterTransaction: () => !editingLocked
   });
@@ -1712,7 +1804,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
           editable: () => false
         }));
         ctx.update(prosePluginsCtx, () => [
-          localImageSrcPlugin(resolveImageSrc),
+          localImageSrcPlugin(resolveImageSrc, isolateImages),
           markdownOutlineDecorationPlugin()
         ].filter(Boolean));
       } else {
@@ -1729,9 +1821,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
             "Mod-y": (state, dispatch, view) => (editingLocked ? false : redo(state, dispatch, view)),
             "Backspace": liftListItemAtParagraphStart
           }),
+          imagePastePlugin,
           pastePlainTextWhenLeavingList(),
           markdownImageAssetRemovalPlugin(onRemoveImageAsset),
-          localImageSrcPlugin(resolveImageSrc),
+          localImageSrcPlugin(resolveImageSrc, isolateImages),
           markdownOutlineDecorationPlugin(),
           findPlugin,
           ...plugins
@@ -2199,23 +2292,28 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   }
 
   async function runInsertImageAsset() {
-    if (typeof onInsertImageAsset !== "function") return false;
+    if (typeof onInsertImageAsset !== "function" || destroyed || editingLocked || isEditorComposing() || imagePastePending) return false;
     const view = getEditorView();
-    if (!view || !emptyParagraphSelection(view)) return false;
-    insertMenuSelection = { from: view.state.selection.from };
+    if (!view || view.state.selection.$from.parent.type.spec.code) return false;
+    const doc = view.state.doc;
+    const bookmark = view.state.selection.getBookmark();
+    const empty = emptyParagraphSelection(view);
+    insertMenuSelection = empty ? { from: view.state.selection.from } : null;
     closeInsertMenu({ preserveSelection: true });
-    let asset = null;
+    let failed = false;
+    imagePastePending = true;
+    onImagePasteStatus?.("busy");
     try {
-      asset = await onInsertImageAsset();
-    } catch (error) {
-      console.warn("Markdown image insert failed", error);
-    }
-    if (!asset?.relativePath) {
-      insertMenuSelection = null;
-      scheduleInsertMenuUpdate();
-      return false;
-    }
-    return runInsertImage(asset.relativePath, asset.fileName);
+      const asset = await onInsertImageAsset();
+      if (!asset?.relativePath || destroyed || editingLocked || !root.isConnected) return false;
+      if (!view.state.doc.eq(doc) || isEditorComposing()) throw new Error(language === "en-US" ? "Content changed. Insert the image again." : "内容已变化，请在需要的位置重新插入图片。");
+      if (empty) return runInsertImage(asset.relativePath, asset.fileName);
+      const node = view.state.schema.nodes.image.create({ src: asset.relativePath, alt: imageAltFromFileName(asset.fileName || asset.relativePath), title: "" });
+      view.dispatch(closeHistory(view.state.tr.setSelection(bookmark.resolve(view.state.doc)).replaceSelectionWith(node).scrollIntoView()));
+      markUserInteracted(); flushMarkdownChangeSync(); view.focus();
+      return true;
+    } catch (error) { failed = true; if (!destroyed) onImagePasteStatus?.("error", String(error.message || error)); return false; }
+    finally { imagePastePending = false; insertMenuSelection = null; scheduleInsertMenuUpdate(); if (!destroyed && !failed) onImagePasteStatus?.("done"); }
   }
 
   // PR C / C2：`+ → 封面图` —— 在当前空段落插入 canonical 封面（marker + 图片），
@@ -3662,6 +3760,27 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
   }
 
   const api = {
+    setLanguage(nextLanguage) {
+      if (destroyed) return;
+      language = nextLanguage;
+      // Translate editor chrome only; preserve the document, history and typed queries.
+      for (const surface of [formatToolbar, tableToolbar, insertMenu, imageAlignToolbar, codeLanguageLayer, findPanel]) {
+        if (!surface) continue;
+        for (const node of [surface, ...surface.querySelectorAll('*')]) {
+          if (node.closest('[data-find-history-item]')) continue;
+          for (const attribute of ['aria-label','title','placeholder']) {
+            if (node.hasAttribute(attribute)) node.setAttribute(attribute, i18n?.translateText?.(node.getAttribute(attribute), language) ?? node.getAttribute(attribute));
+          }
+          for (const child of node.childNodes) {
+            if (child.nodeType !== Node.TEXT_NODE || !child.textContent.trim()) continue;
+            const value = child.textContent.trim();
+            const translated = i18n?.translateText?.(value, language) ?? value;
+            if (translated !== value) child.textContent = child.textContent.replace(value, translated);
+          }
+        }
+      }
+    },
+    refreshImageSources() { if (!destroyed) getEditorView()?.dom.dispatchEvent(new Event("nutbook:normalize-local-images")); },
     editor,
     /**
      * Codex review R3-1 / R4-2 / R4-3：真实编辑锁（主 Milkdown 运行面）。
@@ -4087,6 +4206,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
     },
     destroy() {
       destroyed = true;
+      imageImportAbort?.abort();
       if (findPanel) findPanel.remove();
       root.removeEventListener("keydown", handleFindShortcut, true);
       window.removeEventListener("scroll", scheduleFindPanelPosition, true);

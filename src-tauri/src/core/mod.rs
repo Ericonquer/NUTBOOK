@@ -27,3 +27,5 @@ pub mod traversal;
 pub mod update;
 pub mod watcher;
 pub mod external_open;
+
+pub mod image_import;

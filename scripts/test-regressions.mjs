@@ -1425,7 +1425,7 @@ assert.match(
 );
 assert.match(
   markdownEditor,
-  /localImageSrcPlugin\(resolveImageSrc\),[\s\S]*?markdownOutlineDecorationPlugin\(\)/,
+  /localImageSrcPlugin\(resolveImageSrc, isolateImages\),[\s\S]*?markdownOutlineDecorationPlugin\(\)/,
   "the Markdown outline decoration plugin must remain registered in the editor"
 );
 for (const key of ["markdown.saveAndClose", "markdown.discardAndClose", "markdown.continueEditing", "markdown.textAlignBlockOnly", "markdown.saveConflict", "markdown.saveConflictToast"]) {

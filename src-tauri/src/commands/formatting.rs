@@ -1,6 +1,9 @@
 //! Isolated formatting drafts. The source document is never a write target.
 use crate::{
-    core::{document::content_hash, markdown_render::render_markdown_html},
+    core::{
+        document::content_hash, markdown_cover::parse_cover_metadata,
+        markdown_render::render_markdown_html,
+    },
     db::repositories::ItemRepository,
     errors::AppError,
     state::AppState,
@@ -109,9 +112,21 @@ pub fn render_formatting_markdown(markdown: String) -> Result<String, AppError> 
     if markdown.len() > MAX_DRAFT {
         return Err(AppError::InvalidParams);
     }
+    // Cover identity is source metadata, not published text. Use the shared AST
+    // parser so examples in code, lists and prose retain their literal content.
+    let cover = parse_cover_metadata(&markdown, None);
+    let published = if let Some(cover) = cover.cover {
+        markdown
+            .split_inclusive('\n')
+            .enumerate()
+            .filter_map(|(index, line)| (index + 1 != cover.line).then_some(line))
+            .collect::<String>()
+    } else {
+        markdown
+    };
     Ok(ammonia::Builder::default()
         .url_schemes(["http", "https", "data"].into_iter().collect())
-        .clean(&render_markdown_html(&markdown))
+        .clean(&render_markdown_html(&published))
         .to_string())
 }
 /// Only relative raster images inside the source's canonical parent are admitted.
@@ -171,6 +186,126 @@ fn read_local_image(source: &Path, src: &str) -> Result<String, AppError> {
     reader.limits(limits);
     reader.decode().map_err(|_| AppError::InvalidParams)?;
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
+static IMAGE_REQUESTS: std::sync::LazyLock<
+    Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+> = std::sync::LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+#[tauri::command]
+pub async fn fetch_formatting_image(
+    webview: tauri::Webview,
+    src: String,
+    request_id: String,
+) -> Result<String, String> {
+    if webview.label() != "main" || request_id.len() > 100 {
+        return Err("Invalid caller".into());
+    }
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let mut requests = IMAGE_REQUESTS.lock().map_err(|_| "Image task failed")?;
+        if requests.len() >= 8 || requests.contains_key(&request_id) {
+            return Err("图片任务繁忙 / Image tasks busy".into());
+        }
+        requests.insert(request_id.clone(), cancelled.clone());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::core::image_import::fetch_raster_cancelable(&src, &cancelled)
+    })
+    .await
+    .map_err(|_| "Image task failed".to_string());
+    if let Ok(mut requests) = IMAGE_REQUESTS.lock() {
+        requests.remove(&request_id);
+    }
+    result?
+}
+#[tauri::command]
+pub fn cancel_formatting_image(webview: tauri::Webview, request_id: String) -> bool {
+    if webview.label() != "main" {
+        return false;
+    }
+    if let Ok(requests) = IMAGE_REQUESTS.lock() {
+        if let Some(cancelled) = requests.get(&request_id) {
+            cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+            return true;
+        }
+    }
+    false
+}
+#[tauri::command]
+pub fn validate_formatting_image_data(webview: tauri::Webview, data: String) -> Result<(), String> {
+    if webview.label() != "main" {
+        return Err("Invalid caller".into());
+    }
+    crate::core::image_import::decode_raster_data(&data).map(|_| ())
+}
+#[tauri::command]
+pub fn paste_markdown_image_asset(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    item_id: i64,
+    data: String,
+) -> Result<crate::models::CopyMarkdownImageAssetResponse, String> {
+    if webview.label() != "main" {
+        return Err("Invalid caller".into());
+    }
+    let item = state.get_item_detail(item_id).map_err(|e| e.to_string())?;
+    if item.summary.file_type != "markdown" {
+        return Err("Invalid file type".into());
+    }
+    crate::core::image_import::write_pasted_image(Path::new(&item.summary.file_path), &data)
+}
+
+/// A standalone raster clipboard item, not an HTML image placeholder.
+#[tauri::command]
+pub fn write_formatting_image_clipboard(
+    webview: tauri::Webview,
+    data: String,
+) -> Result<Value, String> {
+    if webview.label() != "main" {
+        return Err("Invalid caller".into());
+    }
+    let bytes = crate::core::image_import::decode_raster_data(&data)?;
+    #[cfg(target_os = "macos")]
+    {
+        let raster = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+        let mut output = std::io::Cursor::new(Vec::new());
+        raster
+            .write_to(&mut output, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        write_native_image_clipboard(
+            &objc2_app_kit::NSPasteboard::generalPasteboard(),
+            output.get_ref(),
+        )?;
+        Ok(json!({"verified":true}))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = bytes;
+        Err("Native image clipboard is unavailable".into())
+    }
+}
+#[cfg(target_os = "macos")]
+fn write_native_image_clipboard(
+    board: &objc2_app_kit::NSPasteboard,
+    bytes: &[u8],
+) -> Result<(), String> {
+    use objc2_app_kit::NSPasteboardTypePNG;
+    use objc2_foundation::{NSArray, NSData};
+    unsafe {
+        board.declareTypes_owner(&NSArray::from_slice(&[NSPasteboardTypePNG]), None);
+        if !board.setData_forType(Some(&NSData::with_bytes(bytes)), NSPasteboardTypePNG) {
+            return Err("Image clipboard write failed".into());
+        }
+        if board
+            .dataForType(NSPasteboardTypePNG)
+            .map(|data| data.to_vec())
+            .as_deref()
+            != Some(bytes)
+        {
+            return Err("Image clipboard verification failed".into());
+        }
+    }
+    Ok(())
 }
 
 /// Write the exact publishing payload, avoiding WebKit's HTML clipboard rewrite.
@@ -259,6 +394,29 @@ mod tests {
         );
         write_native_rich_clipboard(&board, &html, "中文").unwrap();
     }
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires native pasteboard access; run outside the sandbox"]
+    fn native_image_clipboard_is_standalone_png() {
+        let board = objc2_app_kit::NSPasteboard::pasteboardWithUniqueName();
+        let bytes = test_png_bytes();
+        write_native_rich_clipboard(&board, "<p>old</p>", "old").unwrap();
+        write_native_image_clipboard(&board, &bytes).unwrap();
+        unsafe {
+            assert!(board
+                .stringForType(objc2_app_kit::NSPasteboardTypeHTML)
+                .is_none());
+            assert!(board
+                .stringForType(objc2_app_kit::NSPasteboardTypeString)
+                .is_none());
+            let data = board
+                .dataForType(objc2_app_kit::NSPasteboardTypePNG)
+                .unwrap()
+                .to_vec();
+            assert_eq!(image::load_from_memory(&data).unwrap().width(), 2);
+            board.clearContents();
+        }
+    }
     #[test]
     fn draft_compare_and_swap_preserves_last_complete_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -280,6 +438,32 @@ mod tests {
             b
         );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[test]
+    fn publishing_hides_cover_metadata_but_preserves_image_and_examples() {
+        for image in [
+            "![cover](cover.png)",
+            "[![cover](cover.png)](https://example.com)",
+        ] {
+            for newline in ["\n", "\r\n"] {
+                let source = format!(
+                    "# Title{newline}{newline}<!-- nutbook-cover -->{newline}{image}{newline}"
+                );
+                let html = render_formatting_markdown(source).unwrap();
+                assert!(!html.contains("nutbook-cover"), "{html}");
+                assert!(html.contains("src=\"cover.png\""), "{html}");
+            }
+        }
+        for source in [
+            "```md\n<!-- nutbook-cover -->\n![cover](cover.png)\n```",
+            "    <!-- nutbook-cover -->\n    ![cover](cover.png)",
+            "Example: `<!-- nutbook-cover -->`",
+            "<!-- nutbook-cover -->\n\nordinary paragraph\n\n![cover](cover.png)",
+        ] {
+            assert!(render_formatting_markdown(source.into())
+                .unwrap()
+                .contains("nutbook-cover"));
+        }
     }
     #[test]
     fn static_output_escapes_scripts_and_rejects_dangerous_links() {
