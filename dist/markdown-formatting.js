@@ -4,8 +4,8 @@
     'zh-CN': { title: '排版发布', workspaceTitle: 'Markdown 排版中心', trial: '公众号', source: '原文', draft: '发布稿', undo: '撤销', preview: 'Nutbook 预览', save: '保存发布稿', back: '返回阅读', copy: '复制到公众号', copyX: '复制到 X Articles', copiedX: '正文已复制', copyXError: '文字复制失败，当前稿件仍保留。', copied: '已复制，请到公众号后台粘贴检查', busy: '正在处理…', dirty: '未保存', saved: '已保存', image: '插入图片', imageHelp: '可粘贴截图、图片文件、以 PNG/JPEG/WebP 结尾的图片地址，或 Markdown 图片语法；单张 ≤10 MB。普通网址保留为链接。', localOnly: '图片随发布稿缓存保存。', imageError: '图片无法转换，请检查路径、格式和大小：', copyError: '图文复制失败；稿件仍保留。', compose: '请先完成中文输入', fallback: '编辑器加载失败，已切换为 Markdown 源码编辑', changed: '原文件已变化，发布稿仍保留创建时快照。', gate: '公众号会再次处理样式和图片，请保存草稿后检查预览。X Articles 复制正文格式；标题和图片单独添加。微博尚未开放。', invalid: '发布稿格式不支持，未覆盖已有文件', conflict: '保存失败（可能存在版本冲突），当前稿件仍保留：', failedImages: '以下图片未能转换，已阻止图文复制。请修复后重试：', editor: '发布稿编辑区', theme: '主题与排版', themeUnavailable: 'X 不支持主题', moreThemes: '更多模板将陆续加入', simple: '白纸', reading: '长文', tech: '留白', newspaper: '报纸', fine: '细线', minimal: '简约', size: '正文字号', leading: '行距', radius: '图片圆角', reset: '恢复主题默认', close: '收起主题面板', retry: '重试失败图片', phone: '切换手机宽度预览', help: '图片与复制说明', importBusy: '正在处理图片…', sourceReadonly: '原文只读', tooLarge: '图片超出限制：单张 10 MB、总计 24 MB、边长 8192 像素。', insertHelp: '可直接粘贴图片，或在正文空行使用插图按钮。', saveError: '保存失败，当前稿件仍保留。', loading: '正在打开排版工作区…', references: '参考链接', linkNote: '普通外链能否点击以公众号后台为准；文末会保留网址。' },
     'en-US': { title: 'Format', workspaceTitle: 'Markdown Formatting Center', trial: 'WeChat', source: 'Original', draft: 'Publishing draft', undo: 'Undo', preview: 'Nutbook preview', save: 'Save publishing draft', back: 'Back to reading', copy: 'Copy to WeChat', copyX: 'Copy to X Articles', copiedX: 'Body copied', copyXError: 'Text copy failed. Your draft is retained.', copied: 'Copied. Paste into the WeChat editor and check.', busy: 'Processing…', dirty: 'Unsaved', saved: 'Saved', image: 'Insert image', imageHelp: 'Paste a screenshot, image file, PNG/JPEG/WebP URL, or Markdown image syntax. ≤10 MB each. Other URLs remain links.', localOnly: 'Images are cached with the publishing draft.', imageError: 'Cannot convert image; check path, format and size: ', copyError: 'Rich copy failed. Your draft is retained.', compose: 'Finish composing text first', fallback: 'Editor failed to load. Markdown source editing is available.', changed: 'The source file changed. The original draft snapshot is retained.', gate: 'WeChat processes styles and images again. Save your platform draft and check its preview. X Articles copies formatted text; add the title and images separately. Weibo is not available yet.', invalid: 'Unsupported draft format. The existing file was not overwritten.', conflict: 'Save failed (possible revision conflict). Your draft is retained: ', failedImages: 'Copy blocked because these images could not be converted. Fix them and retry:', editor: 'Publishing draft editor', theme: 'Theme and formatting', themeUnavailable: 'Themes are unavailable in X', moreThemes: 'More templates coming soon', simple: 'Paper', reading: 'Longform', tech: 'Whitespace', newspaper: 'Newspaper', fine: 'Fine lines', minimal: 'Minimal', size: 'Font size', leading: 'Line spacing', radius: 'Image corners', reset: 'Reset theme', close: 'Close theme panel', retry: 'Retry failed images', phone: 'Toggle phone preview width', help: 'Image and copy help', importBusy: 'Importing image…', sourceReadonly: 'Read-only source', tooLarge: 'Image limit exceeded: 10 MB each, 24 MB total, 8192 pixels per side.', insertHelp: 'Paste an image, or use the image button in an empty paragraph.', saveError: 'Save failed. Your draft is retained.', loading: 'Opening the formatting workspace…', references: 'References', linkNote: 'Clickable external links depend on the WeChat editor. URLs are also retained at the end.' }
   };
-  Object.assign(messages['zh-CN'], { summaryUnavailable:'X 不使用摘要 / 导语', summary:'摘要 / 导语', summaryWechat:'公众号摘要', summaryWeibo:'微博导语', extract:'提取候选', useSelection:'从选中文字填入', adopt:'采用', cancelCandidate:'取消', candidate:'提取候选（采用后替换）', copySummary:'复制摘要 / 导语', summaryCopied:'已复制', noCandidate:'未找到合适短句，请手动填写或选取正文。', noSelection:'请先在发布稿中选择文字。', summaryTooLong:'内容超出字数限制，请缩短后复制。', weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号、微博粘贴后请保存检查；微博标题单独复制。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
-  Object.assign(messages['en-US'], { summaryUnavailable:'Summary / lead is unavailable in X', summary:'Summary / Lead', summaryWechat:'WeChat summary', summaryWeibo:'Weibo lead', extract:'Extract candidate', useSelection:'Use selected text', adopt:'Use candidate', cancelCandidate:'Cancel candidate', candidate:'Candidate (apply to replace)', copySummary:'Copy summary / lead', summaryCopied:'Copied', noCandidate:'No suitable short sentence. Edit manually or select text.', noSelection:'Select text in the publishing draft first.', summaryTooLong:'Text exceeds the limit. Shorten it before copying.', weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Paste images directly (≤10 MB each). Check saved WeChat and Weibo drafts; copy the Weibo title separately. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
+  Object.assign(messages['zh-CN'], { experimental:'实验性', experimentalHelp:'自动提取仍在实验中，请检查并编辑结果。', wechatNoTitle:'未找到一级标题，请填写文章标题', summaryUnavailable:'X 不使用摘要 / 导语', summary:'摘要 / 导语', summaryWechat:'公众号摘要', summaryWeibo:'微博导语', extract:'提取候选', useSelection:'从选中文字填入', adopt:'采用', cancelCandidate:'取消', candidate:'提取候选（采用后替换）', copySummary:'复制摘要 / 导语', summaryCopied:'已复制', noCandidate:'未找到合适短句，请手动填写或选取正文。', noSelection:'请先在发布稿中选择文字。', summaryTooLong:'内容超出字数限制，请缩短后复制。', weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号、微博标题单独复制，正文粘贴后请保存检查。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
+  Object.assign(messages['en-US'], { experimental:'Experimental', experimentalHelp:'Automatic extraction is experimental. Review and edit the result.', wechatNoTitle:'No H1 title found. Enter an article title.', summaryUnavailable:'Summary / lead is unavailable in X', summary:'Summary / Lead', summaryWechat:'WeChat summary', summaryWeibo:'Weibo lead', extract:'Extract candidate', useSelection:'Use selected text', adopt:'Use candidate', cancelCandidate:'Cancel candidate', candidate:'Candidate (apply to replace)', copySummary:'Copy summary / lead', summaryCopied:'Copied', noCandidate:'No suitable short sentence. Edit manually or select text.', noSelection:'Select text in the publishing draft first.', summaryTooLong:'Text exceeds the limit. Shorten it before copying.', weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Paste images directly (≤10 MB each). Copy WeChat and Weibo titles separately; check saved drafts after pasting the body. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
   let active = null;
   let openGeneration = 0;
   const styleMap = {
@@ -299,6 +299,22 @@
     }
     section.querySelectorAll('pre code').forEach(node => { node.style.background = 'transparent'; node.style.color = 'inherit'; });
     section.querySelectorAll('img').forEach(node => { node.style.borderRadius = `${pref.radius}px`; });
+    // Reference sections use compact type after theme sizing, including exports.
+    for (const heading of section.querySelectorAll('h2,h3,h4,h5,h6')) {
+      if (!/^(?:参考文献|参考链接|参考资料|references|bibliography)\s*[:：]?$/i.test(heading.textContent.trim())) continue;
+      const compact = node => {
+        for (const child of [node, ...node.querySelectorAll('*')]) {
+          child.style.fontSize = '13px';
+          child.style.lineHeight = '20.8px';
+        }
+      };
+      compact(heading);
+      const level = Number(heading.tagName.slice(1));
+      for (let node = heading.nextElementSibling; node; node = node.nextElementSibling) {
+        if (/^H[1-6]$/.test(node.tagName) && Number(node.tagName.slice(1)) <= level) break;
+        compact(node);
+      }
+    }
   }
   function current(s) { return active === s && s.root.isConnected; }
   function flush(s) {
@@ -431,6 +447,10 @@
       const result = await convert(s, markdown);
       if (!current(s) || s.generation !== generation || s.data.markdown !== markdown) return;
       const top = s.preview.scrollTop;
+      const heading = result.section.querySelector(':scope > h1');
+      const titleRow = element('div','',{class:'formatting-article-title'});
+      titleRow.append(heading || element('h1',text('wechatNoTitle')),iconButton('copy',text('copyTitle'),()=>copyArticleTitle(s,'wechat')));
+      result.section.prepend(titleRow);
       s.preview.replaceChildren(result.section);
       s.preview.scrollTop = top;
       s.retryButton.hidden = !result.errors.length;
@@ -606,7 +626,7 @@
     } catch (error) { if (current(s)) s.errors.textContent = `${text('copyError')} ${s.bridge.error(error)}`; }
     finally { s.copying = false; s.copyButton.disabled = s.copyXButton.disabled = s.copyWeiboButton.disabled = false; }
   }
-  async function copyXTitle(s, platform = 'x') {
+  async function copyArticleTitle(s, platform = 'x') {
     if (s.copying) return;
     s.copying = true;
     try {
@@ -614,7 +634,7 @@
       const html = await s.bridge.invoke('render_formatting_markdown', {markdown});
       if (!current(s)) return;
       const title = xArticle(html).title;
-      if (!title) throw new Error(text(platform === 'weibo' ? 'weiboNoTitle' : 'noTitle'));
+      if (!title) throw new Error(text(platform === 'weibo' ? 'weiboNoTitle' : platform === 'wechat' ? 'wechatNoTitle' : 'noTitle'));
       if (s.bridge.copyText) await s.bridge.copyText(title); else await navigator.clipboard.writeText(title);
       if (current(s)) s.status.textContent = text('copiedTitle');
     } catch (error) { if (current(s)) s.errors.textContent = s.bridge.error(error); }
@@ -651,7 +671,7 @@
     const result = xArticle(html);
     const wrapper = element('section','',{class:'formatting-x-article'});
     const titleRow = element('div','',{class:'formatting-x-title'});
-    titleRow.append(element('h1',result.title || text('noTitle')),iconButton('copy',text('copyTitle'),()=>copyXTitle(s)));
+    titleRow.append(element('h1',result.title || text('noTitle')),iconButton('copy',text('copyTitle'),()=>copyArticleTitle(s)));
     wrapper.append(titleRow,result.section);
     const top = s.preview.scrollTop; s.preview.replaceChildren(wrapper); s.preview.scrollTop = top;
     s.retryButton.hidden = true; s.errors.textContent = '';
@@ -680,7 +700,7 @@
     if (!current(s) || s.generation !== generation || s.data.markdown !== markdown || s.mode !== 'weibo') return;
     const wrapper = element('section', '', {class:'formatting-x-article formatting-weibo-article'});
     const titleRow = element('div', '', {class:'formatting-x-title'});
-    titleRow.append(element('h1', result.section.dataset.articleTitle || text('weiboNoTitle')), iconButton('copy', text('copyTitle'), () => copyXTitle(s, 'weibo')));
+    titleRow.append(element('h1', result.section.dataset.articleTitle || text('weiboNoTitle')), iconButton('copy', text('copyTitle'), () => copyArticleTitle(s, 'weibo')));
     result.section.removeAttribute('data-article-title');
     wrapper.append(titleRow, result.section);
     const top = s.preview.scrollTop; s.preview.replaceChildren(wrapper); s.preview.scrollTop = top;
@@ -746,6 +766,7 @@
       const prepared = convert(s, markdown).then(result => {
         if (result.errors.length) throw new Error(`${text('failedImages')}\n${result.errors.join('\n')}`);
         if (!current(s)) throw new Error('superseded');
+        result.section.querySelector(':scope > h1')?.remove();
         return result.section;
       });
       if (s.bridge.nativeClipboard) {
@@ -928,7 +949,7 @@
     });
     s.summaryCancel = button(text('cancelCandidate'),() => { propose(''); s.summaryInput.focus(); });
     const head = element('div','',{class:'formatting-summary-head'});
-    head.append(s.summaryLabel,s.summaryCount,extract,selectionButton,copyButton);
+    head.append(s.summaryLabel,element('span',text('experimental'),{class:'formatting-experimental',title:text('experimentalHelp')}),s.summaryCount,extract,selectionButton,copyButton);
     const actions = element('div','',{class:'formatting-summary-actions'});
     actions.append(s.summaryCancel,s.summaryAdopt);
     panel.append(head,s.summaryInput,actions);

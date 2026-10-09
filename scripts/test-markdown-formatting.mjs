@@ -196,8 +196,10 @@ try {
   await page.keyboard.type(' edit in Milkdown');
   await page.getByRole('button', { name:'Copy to WeChat', exact:true }).click();
   await page.waitForFunction(() => fixture.clipboard);
-  assert.match(await page.evaluate(() => fixture.clipboard.html), /font-size:\s*32px/);
-  assert.match(await page.evaluate(() => fixture.clipboard.plain), /Heading\n\nParagraph/);
+  assert.doesNotMatch(await page.evaluate(() => fixture.clipboard.html), /<h1|formatting-article-title|Copy article title/, 'WeChat clipboard contains only the themed body');
+  assert.match(await page.evaluate(() => fixture.clipboard.plain), /^Paragraph/);
+  await page.getByRole('button',{name:'Copy article title',exact:true}).click();
+  assert.equal(await page.evaluate(() => fixture.xText),'Heading');
   assert.match(await page.evaluate(() => fixture.clipboard.html), /edit in Milkdown/, 'immediate copy flushes editor');
   assert.equal(await page.evaluate(() => NutbookFormatting.save()), true);
   assert.match(await page.evaluate(() => fixture.saved.markdown), /edit in Milkdown/);
@@ -337,6 +339,7 @@ try {
   assert.equal(await summary.evaluate(node => node.readOnly),true);
   assert.equal(await page.locator('.markdown-format-toolbar.visible').count(),0,'selected-text transfer collapses PM selection and closes toolbar');
   await page.getByRole('button',{name:'Cancel candidate',exact:true}).click();
+  assert.equal(await page.locator('.formatting-experimental').textContent(),'Experimental');
   await summary.fill('Manual summary.');
   await page.evaluate(() => {
     fixture.beforeSummaryInvoke = bridge.invoke;
@@ -424,10 +427,18 @@ try {
   const nativeHtml = await page.evaluate(() => fixture.nativeClipboard.html);
   assert.match(nativeHtml, /src="data:image\/png;base64,aGVsbG8="/);
   assert.doesNotMatch(nativeHtml, /line-height:\s*\d+(?:\.\d+)?;/, 'export cannot use unitless line-height');
-  assert.match(nativeHtml, /line-height:\s*41\.6px/);
+  assert.doesNotMatch(nativeHtml, /<h1|Heading/, 'native WeChat copy also excludes the title');
+  assert.match(nativeHtml, /line-height:\s*28\.9px/);
   assert.match(nativeHtml, /23\.8px/);
   assert.match(nativeHtml, /href="https:\/\/example.com"/, 'ordinary links retain href');
   assert.match(nativeHtml, /\[1\] https:\/\/example.com/, 'literal URL survives platform anchor removal');
+  const referenceSizes = await page.evaluate(html => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const heading = [...doc.querySelectorAll('h3')].find(node => node.textContent === 'References');
+    return [heading?.style.fontSize, heading?.nextElementSibling?.style.fontSize, doc.querySelector('p a')?.style.fontSize];
+  }, nativeHtml);
+  assert.deepEqual(referenceSizes.slice(0, 2), ['13px', '13px'], 'reference heading and URLs export compact font sizes');
+  assert.notEqual(referenceSizes[2], '13px', 'ordinary body links keep their body sizing');
   await page.evaluate(() => { fixture.nativeClipboard = null; });
   await page.getByRole('button',{name:'Copy to X Articles',exact:true}).click();
   await page.waitForFunction(() => fixture.nativeClipboard);
@@ -519,19 +530,20 @@ try {
     const selection = getSelection(); selection.selectAllChildren(body); selection.collapseToEnd();
     body.dispatchEvent(new ClipboardEvent('paste', { clipboardData:data, bubbles:true, cancelable:true }));
   });
-  await page.waitForFunction(() => document.querySelector('.ProseMirror img'));
+  await page.waitForFunction(() => document.querySelector('.ProseMirror img:not(.ProseMirror-separator)'));
   await page.evaluate(() => { fixture.language = 'zh-CN'; NutbookFormatting.refreshLanguage(); fixture.language = 'en-US'; NutbookFormatting.refreshLanguage(); });
   await page.getByRole('button', { name:'Undo', exact:true }).click();
-  assert.equal(await page.locator('.ProseMirror img').count(), 0, 'toolbar undo uses editor image history');
+  assert.equal(await page.locator('.ProseMirror img:not(.ProseMirror-separator)').count(), 0, 'toolbar undo uses editor image history');
   assert.equal(await page.locator('[role=status]').textContent(), 'Saved', 'undoing an image restores the saved document baseline despite retained history assets');
   await page.keyboard.press('Control+Shift+z');
-  assert.equal(await page.locator('.ProseMirror img').count(), 1);
+  // ProseMirror adds an empty separator img beside inline image cursors.
+  assert.equal(await page.locator('.ProseMirror img:not(.ProseMirror-separator)').count(), 1);
   assert.equal(await page.evaluate(() => NutbookFormatting.save()), true);
   assert.match(await page.evaluate(() => fixture.saved.markdown), /nutbook-image-/);
   assert.equal(await page.evaluate(() => Object.values(fixture.saved.assets).some(v => v === fixture.png)), true);
   await page.evaluate(async () => { await NutbookFormatting.leave(1); await NutbookFormatting.open(bridge, tab); });
-  await page.waitForFunction(() => document.querySelector('.ProseMirror img')?.getAttribute('src')?.startsWith('data:image/png;base64,'));
-  assert.match(await page.locator('.ProseMirror img').first().getAttribute('src'), /^data:image\/png;base64,/);
+  await page.waitForFunction(() => document.querySelector('.ProseMirror img:not(.ProseMirror-separator)')?.getAttribute('src')?.startsWith('data:image/png;base64,'));
+  assert.match(await page.locator('.ProseMirror img:not(.ProseMirror-separator)').first().getAttribute('src'), /^data:image\/png;base64,/);
   // A remote image is fetched once, then remains usable offline after reopening.
   await page.evaluate(async () => {
     await NutbookFormatting.leave(1);
