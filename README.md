@@ -110,6 +110,10 @@ NUTBOOK is not a heavy authoring suite. It focuses on the edits that matter whil
 
 * A Markdown export center for standalone reading or presentation HTML, PDF, and PNG long images.
 
+* A Markdown publishing workspace with separate drafts, previews, and copy actions for WeChat Official Accounts, X Articles, and Weibo Articles.
+
+* Pin frequently used actions from More to the toolbar, with separate Markdown / HTML preferences and up to three shortcut positions.
+
 * A dedicated HTML runtime that preserves JavaScript interaction instead of treating runnable HTML as a static document.
 
 * Text and rich-text editing plus image replacement, cropping, movement, and insertion in supported HTML.
@@ -371,19 +375,17 @@ NUTBOOK is closer to an “AI artifact desk” and local presentation library th
 
 ## Release Highlights
 
-### 1.2.0: Native HTML Presentation Mode
+### 1.3.0: Markdown Publishing Workspace and Customizable Toolbar
 
-Open an HTML file that implements the presentation protocol, then choose **More → Presentation Mode** to prepare and start presenting.
-
-* NUTBOOK manages the audience view and a separate presenter window, with navigation, a slide list, a timer, blackout, and return to the original document when the session ends.
-* The presenter window shows a live current slide, a static next-slide preview, and per-slide notes that can be edited, saved, and restored after reopening.
-* Presentation HTML from the Markdown Export Center works directly with native presentation mode. Agents can generate compatible pages using the template and protocol bundled with nbskill.
-* The export center consistently uses “Presentation HTML”, with Light/Dark templates and static/dynamic output.
-
-The main single-screen paths have been verified on real macOS windows. Dual-screen placement and display-disconnection recovery still require validation with an external display. Arbitrary HTML does not automatically implement the presentation protocol.
+* Create, edit, save, and reopen separate publishing drafts for WeChat Official Accounts, X Articles, and Weibo Articles without changing the original Markdown.
+* Preview platform output and copy titles / bodies separately. WeChat supports themes and combined text/images; X keeps image placeholders with separate image copying; Weibo provides semantic text/image copying. Review formatting after pasting into the destination platform.
+* Edit and copy independent WeChat / Weibo summaries. Local automatic extraction is labeled experimental and requires review before adoption.
+* Pin or unpin frequently used actions in More, with up to three shortcuts that adapt to window width. Markdown and HTML retain separate preferences, while the path bar keeps the filename visible.
+* Distinguish presentation and fullscreen icons, shorten and reposition pin tooltips, and fix the brief white border when entering HTML fullscreen.
 
 ### Earlier Releases
 
+* **1.2.0**: Added native HTML presentation mode with audience / presenter windows and saved slide notes; external-display validation remains pending.
 * **1.1.0**: Added the Markdown Export Center for reading HTML, presentation HTML, PDF, and PNG long images.
 * **1.0.0**: First stable release, combining local intake, Markdown / HTML reading and light editing, and system file opening.
 * **0.8.0**: Added Agent project and task artifact discovery, nbskill integration, and the Nutbook CLI.
@@ -400,7 +402,7 @@ The main single-screen paths have been verified on real macOS windows. Dual-scre
 | Shipped   | **Nutbook CLI**                            | Add or remove files, folders, and Agent projects while the desktop app is running or closed, with a read-only health check.         |
 | Shipped   | **Markdown export center**                 | Export Markdown as reading or presentation HTML, PDF, and PNG long images.                                                           |
 | Shipped | **Native HTML presentation mode** | NUTBOOK-controlled navigation, a live presenter view, and saved per-slide notes; external-display validation remains pending. |
-| Next | **Markdown formatting center** | Create separate publishing drafts for WeChat Official Accounts, X, and Weibo with formatting, previews, and copy actions: combined text/images for WeChat, per-segment text and separate images for X/Weibo. |
+| Shipped | **Markdown publishing workspace** | Separate drafts, platform previews, title/body copying, and image handling for WeChat, X Articles, and Weibo; local summary extraction is experimental. |
 | Later | **Presentation drawing tools** | Add temporary on-screen annotation for classes, meetings, proposals, and reviews. |
 | Exploring | **AI-assisted capabilities**               | Help users discover, understand, and refine content after local file safety and deterministic editing boundaries are clear.         |
 
