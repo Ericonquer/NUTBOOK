@@ -1,6 +1,6 @@
 # Third-Party Licenses / 第三方许可声明
 
-NUTBOOK 1.2.0 includes third-party software and assets. This inventory covers the complete locked JavaScript and Rust dependency graphs, including transitive, build, development and platform-specific packages; not every listed package is present in every installer.
+NUTBOOK 1.3.0 includes third-party software and assets. This inventory covers the complete locked JavaScript and Rust dependency graphs, including transitive, build, development and platform-specific packages; not every listed package is present in every installer.
 
 本清单覆盖锁文件中的直接、传递、构建、开发及平台依赖；各平台安装包实际包含的子集有所不同。上游许可条款保持有效。
 

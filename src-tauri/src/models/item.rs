@@ -844,6 +844,8 @@ pub struct AttachHtmlRuntimeControlsOverlayRequest {
     /// own update payload rather than waiting for a later user interaction.
     #[serde(default = "default_runtime_controls_language")]
     pub language: String,
+    #[serde(default)]
+    pub toolbar: serde_json::Value,
 }
 
 /// 已创建的 HTML controls child 只更新内容状态；不得在此路径变更原生 bounds、
@@ -868,6 +870,8 @@ pub struct UpdateHtmlRuntimeControlsOverlayRequest {
     pub source_badges: Vec<ItemSourceBadge>,
     #[serde(default = "default_runtime_controls_language")]
     pub language: String,
+    #[serde(default)]
+    pub toolbar: serde_json::Value,
 }
 
 fn default_runtime_controls_language() -> String {

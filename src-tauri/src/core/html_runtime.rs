@@ -13,7 +13,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
-    sync::{atomic::{AtomicI64, Ordering}, Mutex, OnceLock},
+    sync::{atomic::{AtomicBool, AtomicI64, Ordering}, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
@@ -45,6 +45,31 @@ const SETTINGS_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_SETTINGS_OVERLAY__:";
 const INSPECTOR_MORE_OVERLAY_ACTION_PREFIX: &str = "__NUTBOOK_INSPECTOR_MORE_OVERLAY__:";
 const HTML_EDIT_DEBUG_LOG_PATH: &str = "/tmp/nutbook-html-edit-debug.log";
 static PRESENTATION_PREVIEW_INSTANCES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+// Ordinary HTML full-screen view stays in the current macOS Space.
+// Tauri exposes no simple-fullscreen getter; only this helper owns its state.
+static HTML_VIEW_SIMPLE_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+pub fn html_view_is_fullscreen<R: tauri::Runtime>(window: &tauri::Window<R>) -> bool {
+    window.is_fullscreen().unwrap_or(false)
+        || (window.label() == "main" && HTML_VIEW_SIMPLE_FULLSCREEN.load(Ordering::Acquire))
+}
+
+pub fn set_html_view_fullscreen<R: tauri::Runtime>(window: &tauri::Window<R>, enabled: bool) -> Result<(), AppError> {
+    if window.label() != "main" {
+        return window.set_fullscreen(enabled).map_err(|_| AppError::InternalError);
+    }
+    // A user can still enter native fullscreen with the green window button.
+    // Exit that real mode rather than attempting a simple-fullscreen toggle.
+    if window.is_fullscreen().map_err(|_| AppError::InternalError)? {
+        if !enabled { window.set_fullscreen(false).map_err(|_| AppError::InternalError)?; }
+        HTML_VIEW_SIMPLE_FULLSCREEN.store(false, Ordering::Release);
+        return Ok(());
+    }
+    window.set_simple_fullscreen(enabled).map_err(|_| AppError::InternalError)?;
+    HTML_VIEW_SIMPLE_FULLSCREEN.store(enabled, Ordering::Release);
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 static HTML_FULLSCREEN_FOCUS_ITEM_ID: AtomicI64 = AtomicI64::new(0);
 #[cfg(target_os = "macos")]
@@ -819,6 +844,7 @@ pub fn attach_html_runtime_controls_overlay(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
     language: String,
+    toolbar: serde_json::Value,
 ) -> Result<bool, AppError> {
     attach_controls_overlay(
         app,
@@ -837,6 +863,7 @@ pub fn attach_html_runtime_controls_overlay(
         source_badges,
         file_name,
         language,
+        toolbar,
     )
 }
 
@@ -857,6 +884,7 @@ pub fn attach_controls_overlay(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
     language: String,
+    toolbar: serde_json::Value,
 ) -> Result<bool, AppError> {
     let overlay_label = html_runtime_controls_label(item_id);
     if let Some(webview) = app.get_webview(&overlay_label) {
@@ -876,6 +904,7 @@ pub fn attach_controls_overlay(
             source_badges.clone(),
             file_name.clone(),
             language.clone(),
+            toolbar.clone(),
         ));
         let _ = webview.show();
         return Ok(true);
@@ -897,6 +926,7 @@ pub fn attach_controls_overlay(
         source_badges,
         file_name,
         language,
+        toolbar,
     )?;
     let webview = window
         .add_child(
@@ -929,6 +959,7 @@ pub fn update_html_runtime_controls_overlay(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
     language: String,
+    toolbar: serde_json::Value,
 ) -> Result<bool, AppError> {
     let overlay_label = html_runtime_controls_label(item_id);
     let Some(webview) = app.get_webview(&overlay_label) else {
@@ -949,6 +980,7 @@ pub fn update_html_runtime_controls_overlay(
             source_badges,
             file_name,
             language,
+            toolbar,
         ))
         .map_err(|_| AppError::InternalError)?;
     Ok(true)
@@ -2293,6 +2325,7 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
     language: String,
+    toolbar: serde_json::Value,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("runtime-overlay.html"));
     let init_script = html_runtime_controls_overlay_init_script(
@@ -2309,6 +2342,7 @@ fn build_runtime_controls_overlay_builder<R: tauri::Runtime>(
         source_badges,
         file_name,
         language,
+        toolbar,
     );
 
     Ok(
@@ -2959,7 +2993,7 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                 return;
             }
             let window = webview.window();
-            let next_fullscreen = !window.is_fullscreen().unwrap_or(false);
+            let next_fullscreen = !html_view_is_fullscreen(&window);
             let runtime_focus_script = format!(
                 "try {{ window.__NUTBOOK_HOST_FULLSCREEN__ = {}; window.__NUTBOOK_FOCUS_RUNTIME__?.(); }} catch (_) {{}}",
                 if next_fullscreen { "true" } else { "false" }
@@ -2969,7 +3003,7 @@ fn detached_embedded_fullscreen_handler<R: tauri::Runtime>(
                     "try { if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur(); } catch (_) {}"
                 );
             }
-            let _ = window.set_fullscreen(next_fullscreen);
+            if set_html_view_fullscreen(&window, next_fullscreen).is_err() { return; }
             if let Some(item_id) = webview
                 .label()
                 .strip_prefix("html-host-")
@@ -3444,6 +3478,7 @@ fn html_runtime_controls_overlay_init_script(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
     language: String,
+    toolbar: serde_json::Value,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
@@ -3453,8 +3488,9 @@ fn html_runtime_controls_overlay_init_script(
     let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
     let file_name_json = serde_json::to_string(&file_name).unwrap_or_else(|_| "\"\"".to_string());
     let language_json = serde_json::to_string(&language).unwrap_or_else(|_| "\"zh-CN\"".to_string());
+    let toolbar_json = serde_json::to_string(&toolbar).unwrap_or_else(|_| "null".into());
     format!(
-        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, isPrimaryBusy: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json}, fileName: {file_name_json}, language: {language_json} }};",
+        "window.__NUTBOOK_RUNTIME_CONTROLS__ = {{ itemId: {item_id}, isFavorite: {}, isFullscreen: {}, isEditing: {}, isPrimaryBusy: {}, customTag: {custom_tag_json}, availableTags: {available_tags_json}, skillTag: {skill_tag_json}, typeTag: {type_tag_json}, customTags: {custom_tags_json}, sourceBadges: {source_badges_json}, fileName: {file_name_json}, language: {language_json}, toolbar: {toolbar_json} }};",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
         if is_editing { "true" } else { "false" },
@@ -3540,6 +3576,7 @@ fn html_runtime_controls_overlay_update_script(
     source_badges: Vec<ItemSourceBadge>,
     file_name: String,
     language: String,
+    toolbar: serde_json::Value,
 ) -> String {
     let custom_tag_json = serde_json::to_string(&custom_tag).unwrap_or_else(|_| "null".to_string());
     let available_tags_json = serde_json::to_string(&available_tags).unwrap_or_else(|_| "[]".to_string());
@@ -3549,8 +3586,9 @@ fn html_runtime_controls_overlay_update_script(
     let source_badges_json = serde_json::to_string(&source_badges).unwrap_or_else(|_| "[]".to_string());
     let file_name_json = serde_json::to_string(&file_name).unwrap_or_else(|_| "\"\"".to_string());
     let language_json = serde_json::to_string(&language).unwrap_or_else(|_| "\"zh-CN\"".to_string());
+    let toolbar_json = serde_json::to_string(&toolbar).unwrap_or_else(|_| "null".into());
     format!(
-        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"isPrimaryBusy\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}, \"fileName\": {file_name_json}, \"language\": {language_json}}});",
+        "window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.({{\"itemId\": {item_id}, \"isFavorite\": {}, \"isFullscreen\": {}, \"isEditing\": {}, \"isPrimaryBusy\": {}, \"customTag\": {custom_tag_json}, \"availableTags\": {available_tags_json}, \"skillTag\": {skill_tag_json}, \"typeTag\": {type_tag_json}, \"customTags\": {custom_tags_json}, \"sourceBadges\": {source_badges_json}, \"fileName\": {file_name_json}, \"language\": {language_json}, \"toolbar\": {toolbar_json}}});",
         if is_favorite { "true" } else { "false" },
         if is_fullscreen { "true" } else { "false" },
         if is_editing { "true" } else { "false" },
@@ -3599,6 +3637,28 @@ mod tests {
         HTML_EDIT_RUNTIME_ACTION_PREFIX, HtmlFindActionPayload, HtmlRuntimeSession,
     };
     use crate::core::content_session::RuntimeKey;
+
+    #[test]
+    fn controls_toolbar_state_survives_init_update_and_pin_action_bridge() {
+        let toolbar = serde_json::json!({ "pinned": ["prepare-native-presentation", "toggle-runtime-presentation"], "capacity": 2, "preparing": true });
+        let initial = super::html_runtime_controls_overlay_init_script(
+            41, false, false, false, false, None, vec![], None, Some("HTML".into()),
+            vec![], vec![], "sample.html".into(), "en-US".into(), toolbar.clone(),
+        );
+        assert!(initial.contains(&format!("toolbar: {}", toolbar)));
+        let update = super::html_runtime_controls_overlay_update_script(
+            41, false, false, false, false, None, vec![], None, Some("HTML".into()),
+            vec![], vec![], "sample.html".into(), "en-US".into(), toolbar.clone(),
+        );
+        let json = update.strip_prefix("window.__NUTBOOK_UPDATE_OVERLAY_STATE__?.(").unwrap().strip_suffix(");").unwrap();
+        let state: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(state["toolbar"], toolbar);
+        let action: super::HtmlControlsActionPayload = serde_json::from_value(serde_json::json!({
+            "itemId": 41, "action": "toggle-toolbar-pin", "name": "prepare-native-presentation"
+        })).unwrap();
+        let forwarded = serde_json::to_value(action).unwrap();
+        assert_eq!(forwarded["name"], "prepare-native-presentation");
+    }
 
     #[test]
     fn html_edit_copy_dialog_receives_host_language() {

@@ -1283,6 +1283,7 @@
       }
 
       #breadcrumbItem {
+        text-align: left;
         flex: 0 1 auto;
         min-width: 0;
         overflow: hidden;
@@ -1556,6 +1557,16 @@
         color: #111;
         font-weight: 600;
       }
+
+
+      .document-pinned-actions { display:flex; gap:6px; align-items:center; }
+      .document-pinned-actions:empty { display:none; }
+      .document-menu-row { display:flex; align-items:center; }
+      .document-menu-row > .menu-option { flex:1; min-width:0; }
+      .document-pin-button { position:relative; display:flex; align-items:center; justify-content:center; flex:0 0 30px; height:30px; padding:0; border:0; border-radius:6px; background:transparent; color:#888; cursor:pointer; }
+      .document-pin-button.active { color:var(--ink); background:#ededf0; }
+      .document-pin-button:hover { background:#ededf0; }
+      .document-pin-button:hover .document-action-tooltip, .document-pin-button:focus-visible .document-action-tooltip { opacity:1; visibility:visible; }
 
       .toolbar-actions {
         display: flex;
@@ -8795,6 +8806,7 @@
           <div id="breadcrumbTags" class="breadcrumb-tags"></div>
           <div id="documentTagMenu" class="popover-menu document-tag-menu" aria-hidden="true"></div>
           <div class="toolbar-actions">
+            <div id="documentPinnedActions" class="document-pinned-actions"></div>
             <button id="documentFavoriteButton" class="document-action-button" type="button" aria-label="收藏文件" disabled>
               <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true">
                 <path class="star-icon-path" d="M10 2.7 12.1 7l4.7.7-3.4 3.3.8 4.7L10 13.5l-4.2 2.2.8-4.7L3.2 7.7 7.9 7 10 2.7Z"></path>
@@ -9103,6 +9115,7 @@
     <div id="exportScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <link rel="stylesheet" href="./markdown-formatting.css">
+    <script src="./document-toolbar.js"></script>
     <script src="./markdown-formatting.js"></script>
     <script src="./assets/update-ui.js"></script>
     <script src="./i18n.js?v=20260525-update-check"></script>
@@ -9405,7 +9418,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.2.0",
+          currentVersion: "1.3.0",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -15273,7 +15286,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.2.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.3.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -17008,7 +17021,35 @@
         });
       }
 
-      function renderDocumentMoreMenu() {
+      const documentToolbarPreferences = NutbookDocumentToolbar.read();
+      function documentToolbarType() { return getActiveTab()?.preview?.fileType === 'html-runtime' ? 'html' : 'markdown'; }
+      function documentToolbarCapacity() { return NutbookDocumentToolbar.capacity(document.querySelector('.document-toolbar')?.getBoundingClientRect().width || 0); }
+      function toggleDocumentToolbarPin(type, action) {
+        if (!(NutbookDocumentToolbar.allowed[type] || []).includes(action)) return;
+        const values = [...documentToolbarPreferences[type]];
+        const index = values.indexOf(action);
+        if (index >= 0) values.splice(index, 1);
+        else if (values.length < 3) values.push(action);
+        else { showToast(NutbookDocumentToolbar.labels(appState.language).limit); return; }
+        try { NutbookDocumentToolbar.save(window.localStorage, { ...documentToolbarPreferences, [type]: values }); }
+        catch (error) { showToast(normalizeError(error)); return; }
+        documentToolbarPreferences[type] = values;
+        renderPinnedDocumentActions(documentActionOptions());
+        scheduleRuntimeHostSync();
+      }
+      let documentPinnedSignature = "";
+      function renderPinnedDocumentActions(options) {
+        const target = document.getElementById('documentPinnedActions');
+        const pinned = documentToolbarPreferences[documentToolbarType()];
+        const visible = pinned.map(id => options.find(option => option.action === id)).filter(Boolean).slice(0, documentToolbarCapacity());
+        const signature = JSON.stringify([appState.activeTabId, visible, appState.language]);
+        if (signature === documentPinnedSignature) return;
+        documentPinnedSignature = signature;
+        target.innerHTML = visible.map(option => `<span class="document-action-wrap"><button type="button" class="document-action-button tooltip-explain" data-pinned-action="${option.action}" aria-label="${escapeAttribute(option.label)}" ${option.disabled ? 'disabled' : ''}>${option.icon}<span class="document-action-tooltip">${option.label}${option.disabled ? ' · ' + NutbookDocumentToolbar.labels(appState.language).unavailable : ''}</span></button></span>`).join('');
+        target.querySelectorAll('[data-pinned-action]').forEach(button => button.addEventListener('click', () => executeDocumentToolbarAction(button.dataset.pinnedAction)));
+      }
+
+      function documentActionOptions() {
         const tab = getActiveTab();
         const isMarkdown = tab?.preview?.fileType === "markdown";
         const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
@@ -17038,14 +17079,14 @@
             {
               action: "prepare-native-presentation",
               label: appState.language === "en-US" ? "Presentation mode" : "演示模式",
-              icon: MENU_ICON_SVG.presentation,
+              icon: NutbookDocumentToolbar.icons.presentation,
               disabled: Boolean(appState.htmlEditSession?.itemId === tab?.id)
             },
             {
               action: "toggle-runtime-presentation",
               label: appState.runtimeFullscreenItemId === tab?.id ? t("actions.exitPresentationShortcut") : t("actions.enterPresentationShortcut"),
-              icon: MENU_ICON_SVG.presentation,
-              disabled: false
+              icon: appState.runtimeFullscreenItemId === tab?.id ? NutbookDocumentToolbar.icons.exitFullscreen : NutbookDocumentToolbar.icons.fullscreen,
+              disabled: Boolean(appState.htmlEditSession?.itemId === tab?.id)
             },
             {
               action: "remove-from-nutbook",
@@ -17084,71 +17125,92 @@
             }
           ];
         }
+        return options;
+      }
+
+      function renderDocumentMoreMenu() {
+        const options = documentActionOptions();
+        renderPinnedDocumentActions(options);
+        const type = documentToolbarType();
+        const pinned = documentToolbarPreferences[type] || [];
+        const labels = NutbookDocumentToolbar.labels(appState.language);
         els.documentMoreMenu.innerHTML = options.map((option) => `
+          <div class="document-menu-row" role="none">
           <button class="popover-option menu-option${option.danger ? " danger-option" : ""} ${option.disabled ? "disabled" : ""}" type="button" role="menuitem" data-document-action="${option.action}" ${option.disabled ? "disabled" : ""}>
             <span class="menu-option-icon" aria-hidden="true">${option.icon || ""}</span>
             <span class="menu-option-label">${option.label}</span>
           </button>
+          ${(NutbookDocumentToolbar.allowed[type] || []).includes(option.action) ? `<button type="button" role="menuitem" class="document-pin-button ${pinned.includes(option.action) ? 'active' : ''}" data-pin-action="${option.action}" aria-pressed="${pinned.includes(option.action)}" aria-label="${escapeAttribute(pinned.includes(option.action) ? labels.unpin : labels.pin)}"><span aria-hidden="true">${NutbookDocumentToolbar.icons.pin}</span><span class="document-action-tooltip">${pinned.includes(option.action) ? labels.unpin : labels.pin}</span></button>` : ''}
+          </div>
         `).join("");
+        els.documentMoreMenu.querySelectorAll('[data-pin-action]').forEach(button => button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          toggleDocumentToolbarPin(type, button.dataset.pinAction);
+          renderDocumentMoreMenu();
+          els.documentMoreMenu.querySelector(`[data-pin-action="${button.dataset.pinAction}"]`)?.focus();
+        }));
         els.documentMoreMenu.classList.toggle("open", appState.isDocumentMoreMenuOpen);
         els.documentMoreMenu.setAttribute("aria-hidden", appState.isDocumentMoreMenuOpen ? "false" : "true");
         els.documentMoreButton.setAttribute("aria-expanded", appState.isDocumentMoreMenuOpen ? "true" : "false");
         els.documentMoreMenu.querySelectorAll("[data-document-action]").forEach((node) => {
-          node.addEventListener("click", async () => {
-            const action = node.dataset.documentAction;
-            closeDocumentMoreMenu({ restoreFocus: true });
-            if (action === "save-markdown") {
-              await saveActiveMarkdown();
-              return;
-            }
-            if (action === "format-markdown") {
-              const tab = getActiveTab();
-              if (!tab || !(await ensureMarkdownSavedBeforeContinue(tab))) return;
-              try {
-                await globalThis.NutbookFormatting.open({
-                  invoke, container: els.viewerBody, language: () => appState.language,
-                  nativeClipboard: appState.isTauri && /Mac/i.test(navigator.platform),
-                  copyText: writeClipboardText,
-                  activeId: () => appState.activeTabId, editor: loadMarkdownEditorApi,
-                  suspend: () => { captureActiveMarkdownDraft(); suspendActiveMarkdownEditor(); },
-                  restore: () => renderViewer(), confirm: confirmMarkdownUnsavedClose,
-                  error: normalizeError, resolveImage: resolveMarkdownImageUrl
-                }, tab);
-              } catch (error) { showToast(normalizeError(error)); }
-              return;
-            }
-            if (action === "export-markdown-center") {
-              await openMarkdownExportDialog();
-              return;
-            }
-            if (action === "export-markdown") {
-              await exportActiveMarkdown();
-              return;
-            }
-            if (action === "external-save-copy") {
-              await externalSaveCopyForActiveTab();
-              return;
-            }
-            if (action === "external-save-as") {
-              await externalSaveAsForActiveTab();
-              return;
-            }
-            if (action === "toggle-runtime-presentation") {
-              await toggleActiveHtmlRuntimePresentationMode();
-              return;
-            }
-            if (action === "prepare-native-presentation") {
-              await openNativePresentationPreparation();
-              return;
-            }
-            if (action === "remove-from-nutbook") {
-              const tab = getActiveTab();
-              if (!tab) return;
-              await requestRemoveItemFromNutbook(tab.id);
-              return;
-            }
-          });
+          node.addEventListener("click", () => executeDocumentToolbarAction(node.dataset.documentAction));
         });
+      }
+
+      async function executeDocumentToolbarAction(action) {
+        const option = documentActionOptions().find(option => option.action === action);
+        if (!option || option.disabled) return;
+        closeDocumentMoreMenu({ restoreFocus: true });
+        if (action === "save-markdown") {
+          await saveActiveMarkdown();
+          return;
+        }
+        if (action === "format-markdown") {
+          const tab = getActiveTab();
+          if (!tab || !(await ensureMarkdownSavedBeforeContinue(tab))) return;
+          try {
+            await globalThis.NutbookFormatting.open({
+              invoke, container: els.viewerBody, language: () => appState.language,
+              nativeClipboard: appState.isTauri && /Mac/i.test(navigator.platform),
+              copyText: writeClipboardText,
+              activeId: () => appState.activeTabId, editor: loadMarkdownEditorApi,
+              suspend: () => { captureActiveMarkdownDraft(); suspendActiveMarkdownEditor(); },
+              restore: () => renderViewer(), confirm: confirmMarkdownUnsavedClose,
+              error: normalizeError, resolveImage: resolveMarkdownImageUrl
+            }, tab);
+          } catch (error) { showToast(normalizeError(error)); }
+          return;
+        }
+        if (action === "export-markdown-center") {
+          await openMarkdownExportDialog();
+          return;
+        }
+        if (action === "export-markdown") {
+          await exportActiveMarkdown();
+          return;
+        }
+        if (action === "external-save-copy") {
+          await externalSaveCopyForActiveTab();
+          return;
+        }
+        if (action === "external-save-as") {
+          await externalSaveAsForActiveTab();
+          return;
+        }
+        if (action === "toggle-runtime-presentation") {
+          await toggleActiveHtmlRuntimePresentationMode();
+          return;
+        }
+        if (action === "prepare-native-presentation") {
+          await openNativePresentationPreparation();
+          return;
+        }
+        if (action === "remove-from-nutbook") {
+          const tab = getActiveTab();
+          if (!tab) return;
+          await requestRemoveItemFromNutbook(tab.id);
+          return;
+        }
       }
 
       function documentMoreMenuItems() {
@@ -18371,7 +18433,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.2.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.3.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -18902,7 +18964,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.2.0",
+              currentVersion: "1.3.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -18913,8 +18975,8 @@
             };
           }
           return {
-            currentVersion: "1.2.0",
-            latestVersion: "1.2.0",
+            currentVersion: "1.3.0",
+            latestVersion: "1.3.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -21084,6 +21146,16 @@ if (!chipTipController) {
         presentation: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="7" rx="1"/><path d="M6.5 12.5h3"/><path d="M8 10.5v2"/></svg>'
       };
 
+      let documentToolbarObservedCapacity = null;
+      new ResizeObserver(() => {
+        if (appState.runtimeFullscreenItemId != null) return;
+        const capacity = documentToolbarCapacity();
+        if (capacity === documentToolbarObservedCapacity) return;
+        documentToolbarObservedCapacity = capacity;
+        renderPinnedDocumentActions(documentActionOptions());
+        scheduleRuntimeHostSync();
+      }).observe(document.querySelector('.document-toolbar'));
+
       // 设置菜单图标（16×16，currentColor，约 1.5 描边，线性）。图标 aria-hidden，
       // 菜单项可访问名称仍来自文字。
       const SETTINGS_ICON_SVG = {
@@ -21620,6 +21692,11 @@ if (!chipTipController) {
         const itemId = Number(payload?.itemId);
         const action = payload?.action;
         if (!itemId || !action) return;
+        if (action === "toggle-toolbar-pin") {
+          if (getActiveTab()?.id !== itemId || getActiveTab()?.preview?.fileType !== 'html-runtime') return;
+          toggleDocumentToolbarPin('html', payload.name);
+          return;
+        }
         if (action === "toggle-favorite") {
           await toggleFavorite(itemId);
           if (appState.activeTabId === itemId && getActiveTab()?.preview?.fileType === "html-runtime") {
@@ -21924,10 +22001,14 @@ if (!chipTipController) {
         }
 
         // 路径 = 当前文档真实 filePath（不再拼接资料库名 crumb）；
-        // 截断时尾部 ellipsis，title / aria-label 保留完整路径作为 accessible name。
+        // 长路径从左侧省略，保留文件名；bdi 固定原路径阅读方向，完整路径留在 title / ARIA。
         const documentPath = tab.item?.filePath || tab.item?.fileName || tab.preview?.title || "";
-        els.breadcrumbItem.textContent = documentPath;
+        const pathText = document.createElement("bdi");
+        pathText.dir = "ltr";
+        pathText.textContent = documentPath;
+        els.breadcrumbItem.replaceChildren(pathText);
         els.breadcrumbItem.title = documentPath;
+        els.breadcrumbItem.dir = "rtl";
         els.breadcrumbItem.setAttribute("aria-label", documentPath);
         if (els.breadcrumbTags) {
           const typeLabel = tab.preview.fileType === "markdown" || tab.preview.fileType === "markdown-loading"
@@ -22810,6 +22891,7 @@ if (!chipTipController) {
       function runtimeControlsOverlayState(tab, isFullscreen) {
         return {
           itemId: tab.id,
+          toolbar: { pinned: documentToolbarPreferences.html, capacity: documentToolbarCapacity(), preparing: nativePresentationPreparingItemId === tab.id },
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,

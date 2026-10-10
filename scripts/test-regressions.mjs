@@ -2221,7 +2221,7 @@ assert.match(
 // ---- A1.3 回滚守卫：保住 HTML controls overlay 已验证的按钮 tooltip 路径 ----
 assert.match(
   runtimeOverlay,
-  /\.action \.tip \{[\s\S]*?top: calc\(100% \+ 8px\);[\s\S]*?pointer-events: none;/,
+  /\.action \.tip, \.pinned-action-wrap > \.tip \{[\s\S]*?top: calc\(100% \+ 8px\);[\s\S]*?pointer-events: none;/,
   "HTML action tooltips must remain inside the existing controls overlay"
 );
 assert.match(
@@ -3349,7 +3349,7 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /function renderDocumentMoreMenu\(\)[\s\S]*?if \(isHtmlRuntime\) \{[\s\S]*?action: "toggle-runtime-presentation"[\s\S]*?action: "remove-from-nutbook"[\s\S]*?\} else \{[\s\S]*?action: "export-markdown"[\s\S]*?action: "remove-from-nutbook"/,
+  /function documentActionOptions\(\)[\s\S]*?if \(isHtmlRuntime\) \{[\s\S]*?action: "toggle-runtime-presentation"[\s\S]*?action: "remove-from-nutbook"[\s\S]*?\} else \{[\s\S]*?action: "export-markdown"[\s\S]*?action: "remove-from-nutbook"/,
   "更多菜单顺序：HTML=[演示模式, 全屏查看, 移除文件]，Markdown=[导出文件, 移除文件]"
 );
 assert.match(

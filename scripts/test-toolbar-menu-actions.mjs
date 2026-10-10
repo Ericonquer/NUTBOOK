@@ -539,6 +539,8 @@ const controlsTab = {
   }
 };
 const controlsCoordinator = {
+  documentToolbarPreferences: { html: [] },
+  documentToolbarCapacity: () => 3,
   appState: {
     runtimeControlsOverlayAttachedItemId: null,
     runtimeControlsOverlayLastBoundsKey: null,
@@ -1065,7 +1067,11 @@ try {
   await runtimePage.waitForFunction(() => document.activeElement?.id === "nativePresentationOption");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "nativePresentationOption");
   await runtimePage.keyboard.press("ArrowDown");
+  assert.equal(await runtimePage.evaluate(() => document.activeElement?.classList.contains("toolbar-pin")), true);
+  await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "presentationOption");
+  await runtimePage.keyboard.press("ArrowDown");
+  assert.equal(await runtimePage.evaluate(() => document.activeElement?.classList.contains("toolbar-pin")), true);
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "removeOption");
   await runtimePage.keyboard.press("Escape");
