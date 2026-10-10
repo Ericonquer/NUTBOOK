@@ -773,6 +773,7 @@ pub fn attach_html_runtime_controls_overlay_command(
         payload.source_badges,
         item.summary.file_name.clone(),
         payload.language,
+        payload.toolbar,
     )?;
     session.to_payload(false)
 }
@@ -810,6 +811,7 @@ pub fn update_html_runtime_controls_overlay_command(
         payload.source_badges,
         item.summary.file_name.clone(),
         payload.language,
+        payload.toolbar,
     )
 }
 
@@ -1201,6 +1203,7 @@ pub fn attach_markdown_controls_overlay_command(
         payload.source_badges,
         item.summary.file_name.clone(),
         payload.language,
+        payload.toolbar,
     )?;
     Ok(true)
 }
@@ -1226,9 +1229,7 @@ pub fn set_window_fullscreen_command(
     window: tauri::Window,
     fullscreen: bool,
 ) -> Result<bool, AppError> {
-    window
-        .set_fullscreen(fullscreen)
-        .map_err(|_| AppError::InternalError)?;
+    crate::core::html_runtime::set_html_view_fullscreen(&window, fullscreen)?;
     Ok(true)
 }
 

@@ -48,8 +48,9 @@ function functionSource(name) {
 
 // --- 真实 CSS：直接抽 dist 的规则，避免测试自己重抄一份失真 ---
 function cssRule(selector) {
-  const anchor = indexHtml.indexOf(selector);
-  assert.notEqual(anchor, -1, `缺少 CSS 规则 ${selector}`);
+  const lineAnchor = indexHtml.indexOf(`\n      ${selector}`);
+  assert.notEqual(lineAnchor, -1, `缺少 CSS 规则 ${selector}`);
+  const anchor = lineAnchor + 7;
   // 锚点位于规则选择器行的行首：从锚点切片到块尾，保留完整规则原文。
   // 不能只拼「传入的选择器 + 声明块」——分组选择器（`.a,\n.b {…}`）会被截成
   // `.a, {…}`，尾逗号非法、整条规则被浏览器丢弃，harness 随之失真。
@@ -81,7 +82,16 @@ const css = [
 // --- 真实 toolbar 标记：抽 dist 里 .toolbar-actions 那一段，不改结构 ---
 const actionsAnchor = indexHtml.indexOf('<div class="toolbar-actions">');
 assert.notEqual(actionsAnchor, -1, "缺少 toolbar-actions 标记");
-const actionsMarkup = indexHtml.slice(actionsAnchor, indexHtml.indexOf("</div>\n", actionsAnchor));
+// The shortcut group is a nested div; locate the matching close rather than
+// truncating the toolbar at its first child container.
+let actionsDepth = 0;
+let actionsEnd = -1;
+for (const token of indexHtml.slice(actionsAnchor).matchAll(/<\/?div\b[^>]*>/g)) {
+  actionsDepth += token[0].startsWith("</") ? -1 : 1;
+  if (actionsDepth === 0) { actionsEnd = actionsAnchor + token.index + token[0].length; break; }
+}
+assert.notEqual(actionsEnd, -1, "toolbar-actions must have a matching closing div");
+const actionsMarkup = indexHtml.slice(actionsAnchor, actionsEnd);
 
 const helperSource = functionSource("pointerWithinPrimaryButtonRect");
 const controllerSource = functionSource("syncDisabledPrimaryTooltip");
