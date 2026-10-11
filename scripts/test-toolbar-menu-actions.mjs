@@ -35,7 +35,7 @@ assert.equal(htmlFavoritePath[2], "1.5", "HTML and Markdown favorite icons must 
 
 assert.match(
   indexHtml,
-  /<article class="item-card[^>]*" data-open-item="\$\{item\.id\}">[\s\S]*?<button class="card-remove"[\s\S]*?<button class="card-favorite[^>]*"[\s\S]*?<div class="item-card-open" data-open-trigger="\$\{item\.id\}"/,
+  /<article class="item-card[^>]*" data-open-item="\$\{item\.id\}"[^>]*>[\s\S]*?<button class="card-remove"[\s\S]*?<button class="card-favorite[^>]*"[\s\S]*?<div class="item-card-open" data-open-trigger="\$\{item\.id\}"/,
   "file-card preview group must be a sibling of remove and favorite buttons so tag buttons are never nested inside an open button"
 );
 assert.doesNotMatch(

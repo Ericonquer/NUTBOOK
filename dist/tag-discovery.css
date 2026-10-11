@@ -1,0 +1,47 @@
+.tag-discovery { grid-column:1 / -1; }
+.tag-discovery[hidden] { display:none; }
+.tag-discovery button { font:inherit; cursor:pointer; }
+
+.tag-discovery-shortcuts { display:flex; gap:6px; flex-wrap:wrap; align-items:center; padding:7px 0 2px; }
+.tag-discovery-chip { border:1px solid #e2e2e7; border-radius:99px; padding:3px 9px; background:#fff; color:#666; font-size:11px!important; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tag-discovery-chip:hover,.tag-discovery-chip.active { background:#eeeef0; color:#222; border-color:#bdbdc5; }
+.tag-discovery-count { color:#999; font-size:10px; margin-left:7px; font-variant-numeric:tabular-nums; }
+.tag-discovery-all { border:0; background:none; color:#777; padding:3px 4px; font-size:11px!important; }
+.tag-discovery-popup { position:fixed; z-index:1000; width:288px; max-width:calc(100vw - 16px); padding:12px; background:#fff; color:#333; border:1px solid #dedee3; border-radius:11px; box-shadow:0 8px 26px #00000015; font:12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.tag-discovery-popup-header { display:flex; align-items:center; justify-content:space-between; color:#888; font-size:11px; margin-bottom:8px; }
+.tag-discovery-popup button { cursor:pointer; background:none; border:0; color:#888; }
+.tag-discovery-popup-header button { font-size:18px; }
+.tag-discovery-popup>input { width:100%; height:30px; border:1px solid #dedee3; border-radius:6px; background:#fafafa; padding:4px 8px; font:inherit; color:#333; }
+.tag-discovery-options { max-height:min(280px,40vh); overflow-y:auto; margin-top:8px; }
+.tag-discovery-option { display:flex; align-items:center; min-height:32px; gap:8px; }
+.tag-discovery-option label { display:flex; align-items:center; gap:7px; flex:1; min-width:0; overflow-wrap:anywhere; cursor:pointer; }
+.tag-discovery-option input { accent-color:#333; flex-shrink:0; }
+.tag-discovery-option .tag-discovery-count { margin-left:auto; padding-left:5px; }
+.tag-discovery-pin { display:flex; padding:5px; border-radius:4px; }
+.tag-discovery-pin.pinned { color:#222; background:#eee; }
+.tag-discovery-empty,.tag-discovery-error { font-size:11px; color:#888; padding:8px 0; }
+.tag-discovery :focus-visible,.tag-discovery-popup :focus-visible { outline:2px solid #888; outline-offset:2px; }
+.tag-filter-summary button { font-size:11px; cursor:pointer; }
+
+.tag-discovery-summary { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.tag-discovery-summary .tag-filter-summary { margin-top:0; }
+.settings-tag-pill .tag-discovery-pin { appearance:none; border:0; background:none; color:#aaa; cursor:pointer; padding:3px; }
+.settings-tag-pill .tag-discovery-pin[aria-pressed=true] { color:#333; }
+
+.main-shell.home-mode .list-header { display:grid; grid-template-columns:minmax(0,1fr) auto; row-gap:6px; align-items:end; }
+.main-shell.home-mode .list-header .home-actions { align-self:end; margin-bottom:-5px; }
+#tagDiscoveryToggle[aria-pressed=true] { background:rgba(20,20,20,.06); }
+.home-actions .icon-button:focus-visible .home-action-tooltip { opacity:1; visibility:visible; transform:translateX(-50%) translateY(0); }
+
+.tag-discovery-all { border-radius:6px; transition:background 120ms,color 120ms; }
+.tag-discovery-all:hover,.tag-discovery-all:focus-visible { background:#eeeef0; color:#222; }
+.tag-discovery-popup>input { appearance:none; box-sizing:border-box; height:32px; border-radius:7px; padding:0 10px; font-size:12px; line-height:30px; outline:none; box-shadow:none; }
+.tag-discovery-popup>input:focus-visible { outline:none; border-color:#77777e; box-shadow:0 0 0 2px rgba(20,20,24,.08); }
+.tag-discovery-popup .tag-discovery-pin { position:relative; align-items:center; justify-content:center; }
+.tag-discovery-popup .tag-discovery-pin:hover,.tag-discovery-popup .tag-discovery-pin:focus-visible { color:#222; background:#eeeef0; }
+.tag-discovery-popup .tag-pin-tooltip { position:absolute; right:calc(100% + 4px); top:50%; transform:translateY(-50%); padding:5px 8px; border-radius:6px; background:#242427; color:#fff; font:11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; white-space:nowrap; visibility:hidden; opacity:0; pointer-events:none; z-index:2; }
+.tag-discovery-popup .tag-discovery-pin:hover .tag-pin-tooltip,.tag-discovery-popup .tag-discovery-pin:focus-visible .tag-pin-tooltip { visibility:visible; opacity:1; }
+.home-actions .view-mode-icon { display:inline-flex; }
+
+.tag-discovery-files { border:0; border-radius:6px; background:none; color:#777; padding:3px 4px; font-size:11px!important; }
+.tag-discovery-files:hover,.tag-discovery-files:focus-visible { background:#eeeef0; color:#222; }

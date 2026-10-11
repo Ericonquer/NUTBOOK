@@ -133,7 +133,7 @@ assert.match(inspectorGlobalSortSrc, /case "fileNameAsc":[\s\S]*?sortKey = "file
 const applyLayoutSrc = extractFunctionSource(INDEX_HTML, "function applyHomeLayout() {");
 assert.match(applyLayoutSrc, /destroyMarkdownInspector\(\)/, "leaving the inspector view must destroy the inspector");
 assert.match(applyLayoutSrc, /appState\.inspector\.sortKey = "modifiedAt"/, "column sort must reset when leaving the inspector view");
-assert.match(INDEX_HTML, /function renderItems\(\) \{\s*\/\/ 检查视图接管列表渲染[^\n]*\n\s*if \(appState\.homeLayout === "inspector"\) \{\s*renderInspectorItems\(\);\s*return;\s*\}/, "renderItems must delegate to the inspector list");
+assert.match(extractFunctionSource(INDEX_HTML, "function renderItems() {"), /if \(appState\.homeLayout === "inspector"\) \{\s*(?:closeCardTags\(\);\s*)?renderInspectorItems\(\);\s*return;\s*\}/, "renderItems must delegate to the inspector list");
 assert.match(INDEX_HTML, /selectionToken \+= 1/, "selection token must advance to invalidate late async results");
 const selectSrc = extractFunctionSource(INDEX_HTML, "function selectInspectorItem(itemId");
 assert.match(selectSrc, /appState\.inspector\.selectionToken \+= 1/, "selecting an item must invalidate the previous token");

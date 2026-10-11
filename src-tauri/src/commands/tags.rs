@@ -15,26 +15,35 @@ pub fn list_tags(state: tauri::State<'_, AppState>) -> Result<Vec<Tag>, AppError
 
 #[tauri::command]
 pub fn create_tag(
+    app:tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: CreateTagRequest,
 ) -> Result<Tag, AppError> {
-    state.create_tag(&payload)
+    let result=state.create_tag(&payload)?;
+    use tauri::Emitter; let _=app.emit("tags-changed",());
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn update_tag(
+    app:tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: UpdateTagRequest,
 ) -> Result<Tag, AppError> {
-    state.update_tag(&payload)
+    let result=state.update_tag(&payload)?;
+    use tauri::Emitter; let _=app.emit("tags-changed",());
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn delete_tag(
+    app:tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: DeleteTagRequest,
 ) -> Result<DeleteTagResponse, AppError> {
-    state.delete_tag(payload.id)
+    let result=state.delete_tag(payload.id)?;
+    use tauri::Emitter; let _=app.emit("tags-changed",());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -129,11 +138,21 @@ mod tests {
             .expect("tag should update");
         assert_eq!(updated.name, "Beta Updated");
 
+        let empty = state.database.tag_discovery_counts(&ListItemsQuery::default()).unwrap();
+        assert_eq!(empty["untagged"], 1);
+        assert_eq!(state.list_items(&ListItemsQuery { untagged:Some(true), ..Default::default() }).unwrap().total, 1);
         let assigned = state
             .set_item_tags(1, &[alpha.id, beta.id])
             .expect("tags should be assigned");
         assert_eq!(assigned.tags.len(), 2);
 
+        let counts = state.database.tag_discovery_counts(&ListItemsQuery { keyword:Some("absent".into()), tag_ids:Some(vec![-999]), page_size:Some(1), ..Default::default() }).unwrap();
+        assert_eq!(counts["counts"][alpha.id.to_string()], 1, "count ignores current tag, keyword and pagination");
+        assert_eq!(counts["untagged"], 0);
+        assert_eq!(state.list_items(&ListItemsQuery { untagged:Some(true), ..Default::default() }).unwrap().total, 0);
+        for query in [ListItemsQuery { library_id:Some(999), ..Default::default() }, ListItemsQuery { file_types:Some(vec!["html".into()]), ..Default::default() }, ListItemsQuery { browse_mode:Some("starred".into()), ..Default::default() }] {
+            assert!(state.database.tag_discovery_counts(&query).unwrap()["counts"].as_object().unwrap().is_empty());
+        }
         let detail = state.get_item_detail(1).expect("detail should load");
         assert_eq!(detail.summary.tags.len(), 2);
 
@@ -194,4 +213,22 @@ pub fn save_item_tags(
     payload: SaveItemTagsRequest,
 ) -> Result<SetItemTagsResponse, AppError> {
     state.database.save_item_tag_selection(&payload)
+}
+
+#[tauri::command]
+pub fn get_tag_discovery(state: tauri::State<'_, AppState>, query: crate::models::ListItemsQuery) -> Result<serde_json::Value, AppError> {
+    state.database.tag_discovery_counts(&query)
+}
+
+#[tauri::command]
+pub fn merge_tags(app:tauri::AppHandle, state:tauri::State<'_,AppState>, payload:crate::models::tag::MergeTagRequest) -> Result<Vec<SetItemTagsResponse>,AppError> {
+    let result=state.database.merge_tags(&payload)?;
+    use tauri::Emitter; let _=app.emit("tags-changed",());
+    Ok(result)
+}
+#[tauri::command]
+pub fn batch_tags(app:tauri::AppHandle, state:tauri::State<'_,AppState>, payload:crate::models::tag::BatchTagsRequest) -> Result<Vec<SetItemTagsResponse>,AppError> {
+    let result=state.database.batch_tags(&payload)?;
+    use tauri::Emitter; let _=app.emit("tags-changed",());
+    Ok(result)
 }

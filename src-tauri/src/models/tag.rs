@@ -65,3 +65,10 @@ pub struct SaveItemTagsRequest {
     pub selections: Vec<TagSelection>,
     pub primary_index: Option<usize>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeTagRequest { pub source_ids:Vec<i64>, pub target_id:i64 }
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchTagsRequest { pub item_ids:Vec<i64>, pub tag_ids:Vec<i64>, pub operation:String }

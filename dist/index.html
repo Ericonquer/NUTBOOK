@@ -8685,6 +8685,8 @@
       }
     </style>
     <link rel="stylesheet" href="./tag-editor.css" />
+    <link rel="stylesheet" href="./tag-discovery.css" />
+    <link rel="stylesheet" href="./tag-management.css" />
 </head>
   <body>
     <div id="appShell" class="app-shell">
@@ -8841,22 +8843,27 @@
               <div>
                 <div class="home-header-copy">
                   <h1 id="listTitle" class="home-title">所有文件</h1>
-                  <div class="muted" id="listSummary">等待扫描</div>
-                  <div id="tagFilterSummary" class="tag-filter-summary" data-i18n-skip></div>
+                  <div class="tag-discovery-summary"><div class="muted" id="listSummary">等待扫描</div><div id="tagFilterSummary" class="tag-filter-summary" data-i18n-skip></div></div>
                 </div>
               </div>
               <div class="home-actions">
                 <button id="clearTabsButton" class="button button-ghost">清空标签页</button>
+                <button id="tagDiscoveryToggle" class="icon-button" type="button" aria-controls="tagDiscovery" aria-expanded="false" data-i18n-skip>
+                  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5h4.6a2 2 0 0 1 1.4.6l6.5 6.5a1.5 1.5 0 0 1 0 2.1l-3.8 3.8a1.5 1.5 0 0 1-2.1 0L4.1 10A2 2 0 0 1 3.5 8.6V4a.5.5 0 0 1 .5-.5Z"/><circle cx="6.6" cy="6.6" r=".8"/></svg>
+                  <span class="home-action-tooltip"></span>
+                </button>
                 <button id="viewModeButtonHome" class="icon-button" type="button" aria-label="切换视图">
-                  <span class="view-mode-icon material-symbols-outlined" aria-hidden="true">grid_view</span>
+                  <span class="view-mode-icon" aria-hidden="true"></span>
                   <span class="home-action-tooltip">切换视图</span>
                 </button>
                 <button id="sortButton" class="icon-button home-filter-button" type="button" aria-label="排序文件">
-                  <span class="material-symbols-outlined">filter_list</span>
+                  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5h13M6.5 10h7M9 15h2"/></svg>
                   <span class="home-action-tooltip">排序文件</span>
                 </button>
                 <div id="sortMenu" class="popover-menu" aria-hidden="true"></div>
               </div>
+              <div id="tagDiscovery" class="tag-discovery" data-i18n-skip hidden></div>
+              <div id="tagBatchArea" data-i18n-skip hidden></div>
             </div>
             <div id="itemList" class="list-body" data-i18n-skip></div>
 
@@ -9118,6 +9125,8 @@
 
     <link rel="stylesheet" href="./markdown-formatting.css">
     <script src="./tag-editor.js"></script>
+    <script src="./tag-discovery.js"></script>
+    <script src="./tag-management.js"></script>
   <script src="./document-toolbar.js"></script>
     <script src="./markdown-formatting.js"></script>
     <script src="./assets/update-ui.js"></script>
@@ -9209,6 +9218,16 @@
         htmlFindOverlayLastContentKey: null,
         htmlFindOverlayLastBoundsKey: null,
         activeTagFilterIds: [],
+        untaggedFilter: false,
+        tagManagementCounts: null,
+        tagBatchMode: false,
+        tagBatchSelected: new Set(),
+        tagBatchOperation: null,
+        tagBatchDraft: new Set(),
+        tagBatchBusy: false,
+        tagBatchError: "",
+        tagDiscoveryStats: null,
+        tagDiscoveryError: false,
         isSettingsOverlay: Boolean(window.__NUTBOOK_SETTINGS_OVERLAY__),
         settingsOverlayMode: window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "panel",
         isBooting: true,
@@ -14721,7 +14740,7 @@
       }
 
       function refreshDocumentTagControls(tab) {
-        if (getActiveTab() !== tab || tab.preview?.fileType === "html-runtime") return;
+        if (!tab || getActiveTab() !== tab || tab.preview?.fileType === "html-runtime") return;
         els.breadcrumbTags.innerHTML = renderDocumentTagChips(tab.item, tab.item.fileType === "html" ? "HTML" : "MD");
         els.breadcrumbTags.querySelectorAll('[data-document-tag-trigger]').forEach(node => {
           node.addEventListener('click', event => {
@@ -14817,7 +14836,7 @@
       function commandVariants(command, args = {}) {
         if (command === "list_libraries" || command === "list_tags" || command === "list_ignored_items" || command === "get_cached_agent_projects" || command === "discover_agent_projects" || command === "get_nbskill_agent_status" || command === "get_local_server_origin" || command === "get_thumbnail_backend_status" || command === "get_update_settings" || command === "open_folder_dialog" || command === "open_file_dialog" || command === "open_image_file_dialog" || command === "open_html_edit_image_file_dialog" || command === "focus_main_webview_command" || command === "start_window_drag_command" || command === "sync_filesystem_state") return [{}];
         if (command === "open_folder_dialog_at") return [args, { payload: args.payload || args }];
-        if (command === "list_items") return [{ query: args }];
+        if (command === "list_items" || command === "get_tag_discovery") return [{ query: args }];
         if (command === "set_window_fullscreen_command") return [{ fullscreen: args.fullscreen }, { payload: args }];
         if (command === "is_window_minimized_command") return [{}];
         if (command === "set_system_chrome_thumbnail_enabled") return [{ enabled: args.enabled }, { payload: args }];
@@ -14825,7 +14844,7 @@
         // Markdown image asset callers already provide `{ payload: {...} }`.
         // Keep that shape intact while still accepting a bare request object
         // from older/local callers; Rust expects exactly one payload layer.
-        if (command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "save_item_tags") {
+        if (command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "save_item_tags" || command === "merge_tags" || command === "batch_tags") {
           const payload = args && typeof args === "object" && args.payload && typeof args.payload === "object"
             ? args.payload
             : args;
@@ -18361,16 +18380,11 @@
         const nextSkillViewport = els.settingsSkillList.querySelector(".settings-list-viewport");
         if (nextSkillViewport) nextSkillViewport.scrollTop = appState.settingsSkillScrollTop;
 
-        els.settingsTagList.innerHTML = appState.tags.length
-          ? `<div class="settings-tag-cloud">
-              ${appState.tags.map((tag) => `
-                <div class="settings-tag-pill">
-                  <div class="settings-row-title">${escapeHtml(tag.name)}</div>
-                  <button class="settings-tag-remove" type="button" data-settings-delete-tag="${tag.id}" aria-label="${t("actions.deleteTag")}">×</button>
-                </div>
-              `).join("")}
-            </div>`
-          : `<div class="settings-empty">${t("settings.noLabels")}</div>`;
+        NutbookTagManagement.mount(els.settingsTagList, {
+          tags:appState.tags, counts:appState.tagManagementCounts, language:appState.language,
+          isPinned:id=>NutbookTagDiscovery.isPinned(id), pin:id=>NutbookTagDiscovery.togglePin(id),
+          error:normalizeError, mutate:manageTagMutation
+        });
 
         els.settingsPreferenceList.innerHTML = `
           <div class="preference-row">
@@ -18663,11 +18677,7 @@
             );
           });
         });
-        els.settingsTagList.querySelectorAll("[data-settings-delete-tag]").forEach((node) => {
-          node.addEventListener("click", async () => {
-            await deleteTag(Number(node.dataset.settingsDeleteTag));
-          });
-        });
+
       }
 
       async function invoke(command, args = {}) {
@@ -19049,12 +19059,22 @@
             finishedAt: new Date().toISOString()
           };
         }
+        if (command === "get_tag_discovery") {
+          const result=await invokeMock('list_items',{libraryId:args.libraryId,browseMode:args.browseMode,fileTypes:args.fileTypes});
+          const counts={};let untagged=0;
+          for(const item of result.items.filter(item=>item.pathState!=='missing')){if(!item.tags?.length)untagged++;for(const tag of item.tags||[])counts[tag.id]=(counts[tag.id]||0)+1;}
+          return {counts,untagged};
+        }
         if (command === "list_items") {
           let items = mockData.items.filter((item) => !args.libraryId || item.libraryId === args.libraryId);
+          if(args.browseMode==='starred')items=items.filter(item=>item.isFavorite);
+          if(args.browseMode==='recent')items=items.filter(item=>item.lastOpenedAt);
+          if(args.untagged)items=items.filter(item=>!item.tags?.length);
+          if(args.tagIds?.length)items=items.filter(item=>args.tagIds.every(id=>item.tags?.some(tag=>tag.id===id)));
           if (args.fileTypes?.length) items = items.filter((item) => args.fileTypes.includes(item.fileType));
           if (args.keyword) {
             const keyword = args.keyword.toLowerCase();
-            items = items.filter((item) => [item.fileName, item.title, item.summary].join(" ").toLowerCase().includes(keyword));
+            items = items.filter((item) => [item.fileName, item.title, item.summary, ...(item.tags||[]).map(tag=>tag.name)].join(" ").toLowerCase().includes(keyword));
           }
           return {
             items: structuredClone(items),
@@ -19288,6 +19308,29 @@
           };
           mockData.tags.push(tag);
           return structuredClone(tag);
+        }
+        if(command==='update_tag'){
+          const tag=mockData.tags.find(tag=>tag.id===args.id);if(!tag)throw new Error('TAG_NOT_FOUND');
+          const name=args.name?.trim()||'';if(!name)throw new Error('INVALID_PARAMS');if(mockData.tags.some(t=>t.id!==tag.id&&t.name===name))throw new Error('TAG_NAME_EXISTS');
+          tag.name=name;for(const item of mockData.items)for(const value of item.tags||[])if(value.id===tag.id)value.name=name;
+          return structuredClone(tag);
+        }
+        if(command==='delete_tag'||command==='merge_tags'){
+          const sources=command==='delete_tag'?[args.id]:[...new Set(args.sourceIds||[])],target=mockData.tags.find(t=>t.id===args.targetId);
+          if(!sources.length||sources.some(source=>!mockData.tags.some(t=>t.id===source))||command==='merge_tags'&&(!target||sources.includes(target.id)))throw new Error('INVALID_PARAMS');
+          for(const source of sources){
+          for(const item of mockData.items){const old=item.tags||[],primary=old[0]?.id;
+            if(target&&old.some(t=>t.id===source)){
+              item.tags=old.filter(t=>t.id!==source&&t.id!==target.id);if(primary===source)item.tags.unshift(structuredClone(target));else {item.tags=old.filter(t=>t.id!==source);if(!item.tags.some(t=>t.id===target.id))item.tags.push(structuredClone(target));}
+            }else item.tags=old.filter(t=>t.id!==source);
+          }
+          mockData.tags=mockData.tags.filter(t=>t.id!==source); } return {success:true};
+        }
+        if(command==='batch_tags'){
+          const tags=args.tagIds.map(id=>mockData.tags.find(tag=>tag.id===id));if(tags.some(t=>!t))throw new Error('TAG_NOT_FOUND');
+          const items=args.itemIds.map(id=>mockData.items.find(item=>item.id===id));if(items.some(i=>!i))throw new Error('ITEM_NOT_FOUND');
+          for(const item of items){if(args.operation==='add'){for(const tag of tags)if(!item.tags.some(t=>t.id===tag.id))item.tags.push(structuredClone(tag));}else item.tags=item.tags.filter(t=>!args.tagIds.includes(t.id));}
+          return items.map(item=>({itemId:item.id,tags:structuredClone(item.tags)}));
         }
         if (command === "set_item_tags") {
           const item = mockData.items.find((entry) => entry.id === args.itemId);
@@ -19882,7 +19925,9 @@
         [els.viewModeButton, els.viewModeButtonHome].forEach((button) => {
           if (!button) return;
           const icon = button.querySelector(".view-mode-icon");
-          if (icon) icon.textContent = inspectorActive ? "grid_view" : "view_column_2";
+          if (icon && button === els.viewModeButtonHome) {
+            icon.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + (inspectorActive ? '<rect x="3.5" y="3.5" width="5" height="5" rx="1"/><rect x="11.5" y="3.5" width="5" height="5" rx="1"/><rect x="3.5" y="11.5" width="5" height="5" rx="1"/><rect x="11.5" y="11.5" width="5" height="5" rx="1"/>' : '<rect x="3.5" y="3.5" width="5" height="13" rx="1"/><rect x="11.5" y="3.5" width="5" height="13" rx="1"/>') + '</svg>';
+          } else if (icon) icon.textContent = inspectorActive ? "grid_view" : "view_column_2";
           // 状态切换按钮：aria-label 与可见 tooltip 必须描述切换目标，与图标状态同步。
           const label = inspectorActive ? t("inspector.toGrid") : t("inspector.toInspector");
           button.setAttribute("aria-label", label);
@@ -19933,7 +19978,7 @@
         }
         // A2：切到文档模式 / 离开主页立即关闭最近搜索 popup，
         // 绝不让普通 DOM popup 出现在 HTML runtime child WebView 上方。
-        if (!homeMode) closeRecentSearchPopup();
+        if (!homeMode) { closeRecentSearchPopup(); NutbookTagDiscovery.close(); }
       }
 
       function renderLibraries() {
@@ -19964,18 +20009,44 @@
         });
       }
 
+      function renderTagDiscovery() {
+        NutbookTagDiscovery.mount(document.getElementById('tagDiscovery'), {
+          toggle: document.getElementById("tagDiscoveryToggle"),
+          language: () => appState.language,
+          data: () => ({ tags:appState.tags, selected:appState.activeTagFilterIds, untagged:appState.untaggedFilter, stats:appState.tagDiscoveryStats, error:appState.tagDiscoveryError }),
+          changed: () => { renderTagDiscovery(); if(appState.isSettingsOpen || appState.isSettingsOverlay) renderSettingsPanel(); },
+          retry: () => refreshTagDiscovery(),
+          selectFiles: () => { appState.tagBatchMode=true; appState.lastItemsFingerprint=""; appState.inspector.listFingerprint=""; renderItems(); },
+          select: async (id,multi) => {
+            if(id==null) { appState.untaggedFilter=!appState.untaggedFilter; appState.activeTagFilterIds=[]; }
+            else { appState.untaggedFilter=false; appState.activeTagFilterIds=multi ? (appState.activeTagFilterIds.includes(id)?appState.activeTagFilterIds.filter(value=>value!==id):[...appState.activeTagFilterIds,id]) : (appState.activeTagFilterIds.length===1&&appState.activeTagFilterIds[0]===id?[]:[id]); }
+            renderTags(); renderTagFilterSummary(); await loadItems();
+          }
+        });
+      }
+      let tagDiscoveryEpoch=0, tagDiscoveryScope="";
+      async function refreshTagDiscovery() {
+        const epoch=++tagDiscoveryEpoch;
+        const scope={libraryId:['all','recent','starred'].includes(appState.browseMode)?undefined:appState.activeLibraryId,browseMode:appState.browseMode,fileTypes:getFileTypeFilter()?[getFileTypeFilter()]:undefined};
+        const scopeKey=JSON.stringify(scope);
+        if(tagDiscoveryScope!==scopeKey){tagDiscoveryScope=scopeKey;appState.tagDiscoveryStats=null;renderTagDiscovery();}
+        try { const stats=await invoke('get_tag_discovery',scope); if(epoch!==tagDiscoveryEpoch)return; appState.tagDiscoveryStats=stats;appState.tagDiscoveryError=false; }
+        catch(error) { if(epoch!==tagDiscoveryEpoch)return;appState.tagDiscoveryStats=null;appState.tagDiscoveryError=true; }
+        renderTagDiscovery();
+      }
       function renderTagFilterSummary() {
+        renderTagDiscovery();
         const container = document.getElementById('tagFilterSummary');
         container.replaceChildren();
+        const add=(label,remove)=>{const button=document.createElement('button');button.className='tag-chip';button.textContent=label+' ×';button.title=appState.language==='en-US'?'Remove filter':'移除筛选';button.setAttribute('aria-label',button.title+' '+label);button.onclick=async()=>{remove();renderTags();renderTagFilterSummary();await loadItems();};container.append(button);};
         for (const id of appState.activeTagFilterIds) {
-          const tag = appState.tags.find(tag => tag.id === id); if (!tag) continue;
-          const button = document.createElement('button'); button.className = 'tag-chip';
-          button.textContent = tag.name + ' ×'; button.title = appState.language === 'en-US' ? 'Remove filter' : '移除筛选';
-          button.onclick = async () => { appState.activeTagFilterIds = appState.activeTagFilterIds.filter(value => value !== id); renderTags(); await loadItems(); };
-          container.append(button);
+          const tag=appState.tags.find(tag=>tag.id===id);if(tag)add(tag.name,()=>{appState.activeTagFilterIds=appState.activeTagFilterIds.filter(value=>value!==id);});
         }
+        if(appState.untaggedFilter)add(appState.language==='en-US'?'Untagged':'未打标',()=>{appState.untaggedFilter=false;});
+        if(appState.activeTagFilterIds.length||appState.untaggedFilter){const clear=document.createElement('button');clear.className='tag-discovery-all';clear.textContent=appState.language==='en-US'?'Clear all':'清除全部';clear.title=clear.textContent;clear.onclick=async()=>{appState.activeTagFilterIds=[];appState.untaggedFilter=false;renderTags();await loadItems();};container.append(clear);}
       }
       function renderTags() {
+        renderTagDiscovery();
         if (!appState.tags.length) {
           els.tagList.innerHTML = `<div class="muted">还没有标签。这个 demo 里也支持直接新增。</div>`;
           return;
@@ -20711,6 +20782,7 @@
       window.addEventListener('resize', () => closeCardTags());
       async function selectExactTag(id) {
         appState.activeTagFilterIds = [id];
+        appState.untaggedFilter = false;
         closeCardTags(); renderTags(); await loadItems();
       }
       document.addEventListener('click', event => {
@@ -20752,6 +20824,7 @@
       });
 
       function renderItems() {
+        renderTagBatch();
         renderTagFilterSummary();
         // 检查视图接管列表渲染：同一份 appState.items（搜索/筛选/范围保持不变）。
         if (appState.homeLayout === "inspector") {
@@ -20831,7 +20904,8 @@
                 ? `${baseAria}，${sourceAria ? `${sourceAria}，` : ""}${coverWarning}`
                 : (sourceAria ? `${baseAria}，${sourceAria}` : baseAria);
               return `
-              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}">
+              <article class="item-card ${pathMissing ? "path-missing" : ""}" data-open-item="${item.id}" data-batch-selected="${appState.tagBatchSelected.has(item.id)}">
+                ${batchFileCheck(item)}
                 <button class="card-remove" type="button" data-remove-item="${item.id}" aria-label="${escapeAttribute(t("actions.removeFromNutbook"))}">
                   <span style="font-size:18px; line-height:1; font-weight:500;">×</span>
                   <span class="card-action-tooltip">${appState.altKeyPressed ? t("actions.delete") : t("actions.remove")}</span>
@@ -20859,7 +20933,8 @@
 
         els.itemList.querySelectorAll("[data-open-trigger]").forEach((node) => {
           node.addEventListener("click", async (event) => {
-            if (event.target.closest("[data-card-tag], [data-card-tags], .card-tags-panel")) return;
+            if (event.target.closest("[data-card-tag], [data-card-tags], .card-tags-panel, .batch-file-check")) return;
+            if(appState.tagBatchMode){toggleBatchFile(Number(node.dataset.openTrigger));return;}
             // §3.3/验收16：用户手动打开资料库条目属于手动导航，先取消未裁决提示。
             cancelExternalOpenPromptForNavigation();
             try {
@@ -23307,13 +23382,21 @@ if (!chipTipController) {
         renderSettingsPanel();
       }
 
+      let tagLoadEpoch=0;
       async function loadTags() {
+        const epoch=++tagLoadEpoch;
         try {
-          appState.tags = (await invoke("list_tags")).map(normalizeTag).filter(Boolean);
-          renderTags();
-          renderSettingsPanel();
-        } catch (error) {
-          setStatus(`加载标签失败：${normalizeError(error)}`, "warn");
+          const [tags,stats]=await Promise.all([invoke("list_tags"),invoke("get_tag_discovery",{browseMode:"all"})]);
+          if(epoch!==tagLoadEpoch)return "stale";
+          appState.tags=tags.map(normalizeTag).filter(Boolean);
+          appState.tagManagementCounts=stats.counts;
+          NutbookTagDiscovery.prune(appState.tags.map(tag=>tag.id));
+          appState.activeTagFilterIds=appState.activeTagFilterIds.filter(id=>appState.tags.some(tag=>tag.id===id));
+          renderTags();refreshTagDiscovery();renderSettingsPanel();
+          return true;
+        } catch(error) {
+          if(epoch!==tagLoadEpoch)return "stale";
+          setStatus(`加载标签失败：${normalizeError(error)}`,"warn");return false;
         }
       }
 
@@ -23401,12 +23484,14 @@ if (!chipTipController) {
           const libraryId = appState.browseMode === "all" || appState.browseMode === "recent" || appState.browseMode === "starred"
             ? undefined
             : appState.activeLibraryId;
+          refreshTagDiscovery();
           const result = await invoke("list_items", {
             libraryId,
             browseMode: appState.browseMode,
             keyword: getSearchKeyword() || undefined,
             fileTypes: getFileTypeFilter() ? [getFileTypeFilter()] : undefined,
             tagIds: appState.activeTagFilterIds.length ? appState.activeTagFilterIds : undefined,
+            untagged: appState.untaggedFilter || undefined,
             page: 1,
             pageSize: 100,
             sortBy: sortConfig.sortBy,
@@ -24775,16 +24860,71 @@ if (!chipTipController) {
         }
       }
 
-      async function deleteTag(tagId) {
-        try {
-          await invoke("delete_tag", { id: tagId });
-          await loadTags();
-          renderSettingsPanel();
-          await loadItems();
-          setStatus("标签已删除", "ok");
-        } catch (error) {
-          setStatus(`删除标签失败：${normalizeError(error)}`, "error");
+      async function manageTagMutation(operation) {
+        if(operation.mode==='rename')await invoke('update_tag',{id:operation.id,name:operation.name.trim()});
+        else if(operation.mode==='merge')await invoke('merge_tags',{sourceIds:operation.ids.filter(id=>id!==Number(operation.target)),targetId:Number(operation.target)});
+        else await invoke('delete_tag',{id:operation.id});
+        await syncTagMetadata();
+      }
+      let tagMetadataEpoch=0;
+      async function syncTagMetadata() {
+        const epoch=++tagMetadataEpoch;
+        const loaded=await loadTags();
+        if(loaded!==true||epoch!==tagMetadataEpoch)return;
+        if(appState.isSettingsOverlay)return;
+        const tabs=getOpenTabs().filter(tab=>tab.item&&tab.sourceMode!=='external');
+        const details=await Promise.all(tabs.map(async tab=>{try{return {tab,detail:await invoke('get_item_detail',{itemId:tab.id})};}catch(_){return null;}}));
+        if(epoch!==tagMetadataEpoch)return;
+        for(const entry of details.filter(Boolean)){
+          if(!getOpenTabs().includes(entry.tab))continue;
+          const tags=(entry.detail.tags||entry.detail.summary?.tags||[]).map(normalizeTag).filter(Boolean);
+          entry.tab.item.tags=tags;if(entry.tab.detail)entry.tab.detail.tags=tags;if(entry.tab.detail?.summary)entry.tab.detail.summary.tags=tags;
         }
+        // Update classification controls only, preserving body editor/history/dirty state.
+        refreshDocumentTagControls(getActiveTab());
+        scheduleRuntimeHostSync();
+        await loadItems();
+      }
+      function batchFileCheck(item) {
+        if(!appState.tagBatchMode||isItemPathMissing(item))return '';
+        return `<label class="batch-file-check"><input type="checkbox" data-batch-file="${item.id}" aria-label="${escapeAttribute((appState.language==='en-US'?'Select ':'选择文件 ')+item.fileName)}" ${appState.tagBatchSelected.has(item.id)?'checked':''} ${appState.tagBatchBusy?'disabled':''}></label>`;
+      }
+      function toggleBatchFile(id) {
+        if(appState.tagBatchBusy)return;
+        if(appState.tagBatchSelected.has(id))appState.tagBatchSelected.delete(id);else appState.tagBatchSelected.add(id);
+        appState.lastItemsFingerprint='';appState.inspector.listFingerprint='';renderItems();
+      }
+      document.addEventListener('change',event=>{const check=event.target.closest('[data-batch-file]');if(check)toggleBatchFile(Number(check.dataset.batchFile));});
+      let tagBatchFingerprint="";
+      function renderTagBatch() {
+        const root=document.getElementById('tagBatchArea');root.hidden=!appState.tagBatchMode;
+        els.itemList.classList.toggle('tag-batch-selecting',appState.tagBatchMode);
+        if(!appState.tagBatchMode){root.replaceChildren();tagBatchFingerprint='';return;}
+        const visible=new Set(appState.items.map(item=>item.id));
+        if(!appState.tagBatchBusy)appState.tagBatchSelected.forEach(id=>{if(!visible.has(id))appState.tagBatchSelected.delete(id);});
+        const fingerprint=JSON.stringify([appState.language,[...appState.tagBatchSelected],appState.tagBatchOperation,appState.tagBatchBusy,appState.tagBatchError,appState.tags]);
+        if(tagBatchFingerprint===fingerprint&&root.firstChild)return;tagBatchFingerprint=fingerprint;
+        const en=appState.language==='en-US',count=appState.tagBatchSelected.size;
+        root.className='tag-batch-toolbar';root.replaceChildren();
+        const title=document.createElement('span');title.textContent=en?`${count} files selected`:`已选择 ${count} 个文件`;root.append(title);
+        const action=(label,fn,disabled=false)=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.title=label;button.disabled=disabled||appState.tagBatchBusy;button.onclick=fn;root.append(button);};
+        for(const mode of ['add','remove'])action(mode==='add'?(en?'Add tags':'添加标签'):(en?'Remove tags':'移除标签'),()=>{appState.tagBatchOperation=mode;appState.tagBatchDraft.clear();appState.tagBatchError='';renderTagBatch();},!count);
+        action(en?'Done':'退出选择',()=>{appState.tagBatchMode=false;appState.tagBatchOperation=null;appState.tagBatchSelected.clear();appState.lastItemsFingerprint='';appState.inspector.listFingerprint='';renderItems();});
+        if(!appState.tagBatchOperation)return;
+        const panel=document.createElement('div');panel.className='tag-batch-dialog';panel.style.width='100%';panel.setAttribute('role','group');panel.setAttribute('aria-label',en?'Batch tags':'批量标签');
+        const hint=document.createElement('div');hint.textContent=en?`Confirm ${appState.tagBatchOperation==='add'?'adding':'removing'} tags for ${count} selected files only.`:`确认${appState.tagBatchOperation==='add'?'添加':'移除'}标签，仅影响已选择的 ${count} 个文件。`;panel.append(hint);
+        const options=document.createElement('div');options.className='tag-management-options';
+        for(const tag of appState.tags){const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=appState.tagBatchDraft.has(tag.id);check.disabled=appState.tagBatchBusy;check.onchange=()=>{if(check.checked)appState.tagBatchDraft.add(tag.id);else appState.tagBatchDraft.delete(tag.id);};label.append(check,document.createTextNode(tag.name));options.append(label);}panel.append(options);
+        const error=document.createElement('div');error.className='tag-management-error';error.setAttribute('role','alert');error.textContent=appState.tagBatchError;panel.append(error);root.append(panel);
+        action(en?'Cancel':'取消',()=>{appState.tagBatchOperation=null;renderTagBatch();});
+        action(en?'Confirm':'确认',async()=>{
+          if(!appState.tagBatchDraft.size){appState.tagBatchError=en?'Choose at least one tag':'请至少选择一个标签';renderTagBatch();return;}
+          const payload={itemIds:[...appState.tagBatchSelected],tagIds:[...appState.tagBatchDraft],operation:appState.tagBatchOperation};
+          appState.tagBatchBusy=true;renderTagBatch();
+          try{await invoke('batch_tags',payload);appState.tagBatchOperation=null;await syncTagMetadata();}
+          catch(error){appState.tagBatchError=normalizeError(error);}
+          finally{appState.tagBatchBusy=false;renderTagBatch();}
+        },!count);
       }
 
       async function restoreIgnoredItem(itemId) {
@@ -25768,7 +25908,7 @@ if (!chipTipController) {
         const modifiedTime = formatInspectorListTime(item.modifiedAt || "");
         return `
           <div class="inspector-row${selected ? " selected" : ""}${pathMissing ? " path-missing" : ""}" role="option" aria-selected="${selected}" data-inspector-item="${item.id}">
-            <span class="inspector-cell-name">${escapeHtml(item.fileName || "")}</span>
+            <span class="inspector-cell-name">${batchFileCheck(item)}${escapeHtml(item.fileName || "")}</span>
             <span class="inspector-cell-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>
             <span class="inspector-cell-source">${escapeHtml(inspectorSourceLabel(item))}</span>
             <span class="inspector-cell-time"><span class="inspector-cell-time-date">${escapeHtml(modifiedDate)}</span><span class="inspector-cell-time-clock">${escapeHtml(modifiedTime)}</span></span>
@@ -25833,6 +25973,7 @@ if (!chipTipController) {
           appState.inspector.sortKey,
           appState.inspector.sortDir,
           appState.inspector.selectedItemId,
+          appState.tagBatchMode, [...appState.tagBatchSelected],
           sorted.map((item) => [
             item.id,
             item.fileName || "",
@@ -26719,11 +26860,14 @@ if (!chipTipController) {
         els.inspectorRows?.addEventListener("click", (event) => {
           const row = event.target.closest(".inspector-row");
           if (!row) return;
+          if(event.target.closest(".batch-file-check"))return;
+          if(appState.tagBatchMode){toggleBatchFile(Number(row.dataset.inspectorItem));return;}
           selectInspectorItem(Number(row.dataset.inspectorItem));
         });
         els.inspectorRows?.addEventListener("dblclick", (event) => {
           const row = event.target.closest(".inspector-row");
           if (!row) return;
+          if(appState.tagBatchMode)return;
           openItem(Number(row.dataset.inspectorItem));
         });
         els.inspectorRows?.addEventListener("keydown", (event) => {
@@ -29171,6 +29315,7 @@ if (!chipTipController) {
 
       async function boot() {
         if (appState.isTauri) {
+          await listenRaw("tags-changed", () => syncTagMetadata().catch(console.error)).catch(console.error);
           await listenRaw("update-settings-changed", () => {
             if (!appState.updateCheckInFlight && !appState.updateDownload.inProgress) {
               loadUpdateSettings().catch(console.error);

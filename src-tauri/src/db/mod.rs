@@ -1,3 +1,4 @@
+mod tag_operations;
 pub mod agent_artifacts;
 pub mod migrations;
 pub mod repositories;
@@ -3833,6 +3834,10 @@ impl ItemRepository for Database {
             }
         }
 
+        if query.untagged == Some(true) {
+            where_clauses.push("NOT EXISTS (SELECT 1 FROM item_tags WHERE item_id = items.id)".into());
+        }
+
         if let Some(tag_ids) = query.tag_ids.as_ref() {
             if !tag_ids.is_empty() {
                 let placeholders = vec!["?"; tag_ids.len()].join(", ");
@@ -6214,6 +6219,37 @@ fn current_timestamp() -> String {
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string())
 }
+
+impl Database {
+    /// Discovery counts intentionally ignore keyword and current tag selection.
+    pub fn tag_discovery_counts(&self, query: &ListItemsQuery) -> Result<serde_json::Value, AppError> {
+        let connection = self.connection()?;
+        let mut clauses = vec!["i.is_deleted = 0".to_string(), "i.path_state = 'valid'".to_string()];
+        let mut args = Vec::<Value>::new();
+        if let Some(id) = query.library_id {
+            clauses.push("EXISTS (SELECT 1 FROM item_sources s WHERE s.item_id=i.id AND s.library_id=?)".into());
+            args.push(Value::Integer(id));
+        }
+        match query.browse_mode.as_deref() {
+            Some("starred") => clauses.push("i.is_favorite=1".into()),
+            Some("recent") => clauses.push("i.last_opened_at IS NOT NULL".into()),
+            Some("all") | None => {},
+            _ => return Err(AppError::InvalidParams),
+        }
+        if let Some(types) = query.file_types.as_ref().filter(|types| !types.is_empty()) {
+            clauses.push(format!("i.file_type IN ({})", vec!["?"; types.len()].join(",")));
+            args.extend(types.iter().cloned().map(Value::Text));
+        }
+        let scope = clauses.join(" AND ");
+        let mut statement = connection.prepare(&format!("SELECT it.tag_id, COUNT(DISTINCT i.id) FROM items i JOIN item_tags it ON it.item_id=i.id WHERE {scope} GROUP BY it.tag_id")).map_err(|_| AppError::DatabaseError)?;
+        let rows = statement.query_map(params_from_iter(args.clone()), |row| Ok((row.get::<_,i64>(0)?,row.get::<_,u64>(1)?))).map_err(|_| AppError::DatabaseError)?;
+        let mut counts = serde_json::Map::new();
+        for row in rows { let (id,count)=row.map_err(|_| AppError::DatabaseError)?; counts.insert(id.to_string(),serde_json::json!(count)); }
+        let untagged:u64 = connection.query_row(&format!("SELECT COUNT(*) FROM items i WHERE {scope} AND NOT EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id=i.id)"),params_from_iter(args),|row|row.get(0)).map_err(|_| AppError::DatabaseError)?;
+        Ok(serde_json::json!({"counts":counts,"untagged":untagged}))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

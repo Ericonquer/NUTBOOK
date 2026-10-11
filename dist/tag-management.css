@@ -1,0 +1,56 @@
+.tag-management-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 0; border-bottom:1px solid #e7e7eb; }
+.tag-management-name { flex:1; min-width:90px; overflow-wrap:anywhere; font-size:13px; font-weight:500; }
+.tag-management-count { color:#999; font-size:11px; margin-right:8px; }
+.tag-management-action { appearance:none; cursor:pointer; border:0; border-radius:5px; background:none; color:#777; padding:4px 6px; font:11px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.tag-management-action:hover { background:#eeeef0; color:#222; }
+.tag-management-action:disabled { opacity:.45; cursor:default; }
+.tag-management-editor { background:#fafafa; padding:12px; border:1px solid #e0e0e5; border-radius:8px; margin:6px 0 12px; }
+.tag-management-input { box-sizing:border-box; width:100%; border:1px solid #dedee3; border-radius:7px; background:white; height:32px; padding:0 10px; color:#333; font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.tag-management-hint { font-size:11px; color:#888; margin:8px 0; overflow-wrap:anywhere; }
+.tag-management-actions { display:flex; justify-content:flex-end; gap:8px; }
+.tag-management-actions button { border:1px solid #ddd; padding:5px 10px; background:white; }
+.tag-management-actions button:last-child { background:#222; border-color:#222; color:white; }
+.tag-management-error { font-size:11px; color:#9a3030; overflow-wrap:anywhere; }
+.tag-management-input:focus-visible { outline:none; border-color:#777; box-shadow:0 0 0 2px #00000012; }
+.tag-management-action:focus-visible { outline:2px solid #888; outline-offset:2px; }
+.tag-batch-toolbar { grid-column:1/-1; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; }
+.tag-batch-toolbar button { cursor:pointer; font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:white; border:1px solid #ddd; border-radius:6px; padding:5px 9px; }
+.tag-batch-dialog { grid-column:1/-1; padding:12px; border:1px solid #ddd; border-radius:9px; background:white; font-size:12px; }
+.tag-batch-dialog .tag-management-options { max-height:180px; overflow:auto; display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+.tag-batch-dialog label { display:flex; align-items:center; gap:5px; }
+.tag-batch-dialog input,.batch-file-check input { accent-color:#333; }
+.batch-file-check { position:absolute; top:10px; left:10px; z-index:6; width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:#ffffffed; border-radius:50%; cursor:pointer; }
+.batch-file-check input { width:15px; height:15px; }
+.tag-batch-selecting .card-remove { display:none; }
+.tag-batch-selecting .item-card[data-batch-selected=true] { outline:2px solid #777; outline-offset:1px; }
+.inspector-cell-name .batch-file-check { position:static; display:inline-flex; width:24px; height:24px; background:none; margin-right:4px; }
+
+/* Compact capsule management: actions stay attached to their tag. */
+.tag-management-cloud { display:flex; flex-wrap:wrap; gap:14px 12px; padding:8px 4px 14px; }
+.tag-management-row { position:relative; flex:none; display:inline-flex; gap:3px; padding:4px 9px 4px 16px; border:1px solid #dedee3; border-radius:999px; background:#fff; }
+.tag-management-row[data-selected=true] { background:#242424; border-color:#242424; color:white; }
+.tag-management-name { flex:none; min-width:0; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; padding:7px 4px; color:inherit; }
+.tag-management-name:hover { background:transparent; color:inherit; }
+.tag-management-pin { display:flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; color:#aaa; border-radius:50%; }
+.tag-management-pin[aria-pressed=true] { color:inherit; background:#8882; }
+.tag-management-row[data-selected=true] .tag-management-pin { color:#ddd; }
+.tag-management-remove { position:absolute; top:-6px; right:-5px; width:19px; height:19px; padding:0; border-radius:50%; background:#333; color:white; font-size:15px; line-height:19px; opacity:0; }
+.tag-management-row:hover .tag-management-remove,.tag-management-row:focus-within .tag-management-remove { opacity:1; }
+.tag-management-remove:hover { background:#111; color:white; }
+.tag-management-selection { display:flex; align-items:center; gap:12px; padding:4px 0 12px; }
+.tag-management-selection>button { border:1px solid #ddd; border-radius:999px; background:white; padding:6px 14px; color:#333; }
+.tag-management-selection>button:not(:disabled) { background:#222; color:white; border-color:#222; }
+
+.tag-management-row[data-selected=true] { background:#eeeef1; border-color:#999ba3; color:#292929; box-shadow:0 0 0 1px #999ba326; }
+.tag-management-row[data-selected=true] .tag-management-pin { color:#888; }
+.tag-management-pin:hover { background:#e6e6ea; color:#333; }
+.tag-management-inline-input { box-sizing:content-box; min-width:45px; max-width:240px; border:0; outline:none; background:transparent; color:#292929; padding:7px 4px; font:600 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.tag-management-row:has(.tag-management-inline-input) { border-color:#888; }
+.tag-management-inline-error { position:absolute; top:100%; left:0; z-index:2; width:240px; padding:5px 8px; background:#fff; border:1px solid #ddd; border-radius:6px; font-size:11px; color:#9a3030; }
+
+.tag-management-keep { font-size:10px; color:#777; margin:0 3px; white-space:nowrap; }
+.tag-management-merge-confirm { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; padding:6px 0; margin:0; border:0; background:none; }
+.tag-management-merge-summary { font-size:12px; color:#444; }
+.tag-management-merge-confirm .tag-management-actions { margin-left:auto; }
+.tag-management-merge-confirm .tag-management-error:empty { display:none; }
+.tag-management-keep { display:inline-flex; align-items:center; justify-content:center; flex:none; width:20px; height:20px; margin:0 5px; border-radius:50%; background:transparent; color:#222; font-size:16px; font-weight:800; line-height:1; }

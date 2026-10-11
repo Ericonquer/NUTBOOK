@@ -6,7 +6,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1080, height: 680 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto(pathToFileURL(`${process.cwd()}/dist/index.html`).href);
+  await page.goto(pathToFileURL(`${process.cwd()}/dist/index.html`).href,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => typeof renderItems === 'function' && !appState.isBooting);
   await page.evaluate(() => {
     window.openedCards = [];
