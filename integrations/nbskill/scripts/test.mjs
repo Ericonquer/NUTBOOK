@@ -175,6 +175,39 @@ assert.match(activeHtmlContractIssues(readManifest(legacyPresentationRoot), lega
 await runNode(register, ["--project-root", legacyPresentationRoot, "--id", "new", "--path", "output/new.md", "--skill", "writer", "--kind", "document"]);
 assert.equal(readManifest(legacyPresentationRoot).entries.length, 2);
 
+// Exercise the actual CLI recovery path, with byte preservation on failure.
+const staleRoot = mkdtempSync(join(tmpdir(), "nbskill-stale-path-"));
+mkdirSync(join(staleRoot, ".agent-outputs"));
+writeFileSync(join(staleRoot, "new.md"), "# Replacement\n");
+const staleFile = join(staleRoot, ".agent-outputs", "manifest.json");
+const old = { id: "old", path: "gone/old.md", state: "active", skill: { name: "writer" }, kind: "document" };
+const seedStale = (entries) => writeFileSync(staleFile, JSON.stringify({ schemaVersion: 1, projectRoot: ".", entries }));
+const recoveryArgs = ["--project-root", staleRoot, "--old-id", "old", "--new-id", "new", "--path", "new.md", "--skill", "writer", "--kind", "document"];
+seedStale([old]);
+await assert.rejects(runNode(register, ["--project-root", staleRoot, "--id", "new", "--path", "new.md", "--skill", "writer", "--kind", "document"]), /ENOENT/);
+await runNode(supersede, recoveryArgs);
+assert.equal(readManifest(staleRoot).entries[0].state, "superseded");
+await runNode(supersede, recoveryArgs); // idempotent retry
+await runNode(validate, ["--project-root", staleRoot]);
+for (const entries of [
+  [old, { ...old, id: "other", path: "also-missing.md" }],
+  [{ ...old, path: "../outside.md" }],
+  [old, { ...old }],
+]) {
+  seedStale(entries);
+  const before = readFileSync(staleFile, "utf8");
+  await assert.rejects(runNode(supersede, recoveryArgs));
+  assert.equal(readFileSync(staleFile, "utf8"), before);
+}
+seedStale([old]);
+await assert.rejects(runNode(supersede, recoveryArgs.map((arg) => arg === "new.md" ? "absent.md" : arg)), /ENOENT/);
+symlinkSync(tmpdir(), join(staleRoot, "escape"));
+seedStale([{ ...old, path: "escape/nonexistent-nbskill-target.md" }]);
+await assert.rejects(runNode(supersede, recoveryArgs), /outside the project root/);
+symlinkSync(join(staleRoot, "missing-target"), join(staleRoot, "dangling"));
+seedStale([{ ...old, path: "dangling/old.md" }]);
+await assert.rejects(runNode(supersede, recoveryArgs), /dangling symlink/);
+
 const manifestFile = join(root, ".agent-outputs", "manifest.json");
 writeFileSync(manifestFile, "{ broken json\n");
 const corruptBytes = readFileSync(manifestFile, "utf8");

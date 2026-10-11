@@ -148,3 +148,12 @@ supersede path; do not replace the manifest manually or weaken validation.
 
 Use `node scripts/validate.mjs --self-test` only to verify the installed package
 runtime; it writes solely to an operating-system temporary directory.
+
+### Recover a moved or deleted primary file
+
+If registration fails because an old active primary path no longer exists,
+use `supersede.mjs` with that entry's `--old-id` and a verified replacement
+path and new ID. This explicitly retires the missing primary and registers
+the replacement atomically. Repeat for each affected entry; unrelated missing
+entries still block writes. Do not guess replacement paths or edit JSON.
+Missing related files, unsafe paths, and symlink escapes remain errors.

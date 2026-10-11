@@ -99,3 +99,8 @@ current strict edit-contract validation before it can be written. A legacy
 active HTML compatibility failure remains visible to `validate.mjs` but cannot
 make the manifest structure unreadable or block its scripted supersede path.
 Git merges and direct Agent-authored JSON are not concurrency control.
+
+For a moved or deleted primary file, scripted supersede may read the explicitly
+selected old entry with a missing primary path. All path syntax and existing
+ancestor containment checks remain mandatory. Other entries and related files
+remain strictly validated; the final manifest must pass normal validation.

@@ -16,7 +16,7 @@ try {
       validateEntryHtmlContract(replacement, root);
       // Read legacy entries structurally so an obsolete active HTML artifact can
       // be atomically retired. The final write still performs full validation.
-      const manifest = readManifestForSupersede(root);
+      const manifest = readManifestForSupersede(root, oldId);
       const oldEntry = manifest.entries.find((entry) => entry.id === oldId);
       const existingReplacement = manifest.entries.find((entry) => entry.id === replacement.id);
       if (!oldEntry) throw new Error(`entry not found: ${oldId}`);
