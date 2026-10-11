@@ -229,9 +229,34 @@ function validateRelativePath(value, label) {
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) throw new Error(`${label} contains an unsafe path segment`);
 }
 
-function assertContainedExistingFile(projectRoot, value, label) {
+function assertContainedExistingFile(projectRoot, value, label, allowMissing = false) {
   const absolute = join(projectRoot, ...value.split("/"));
-  const canonical = realpathSync(absolute);
+  let canonical;
+  try {
+    canonical = realpathSync(absolute);
+  } catch (error) {
+    if (!allowMissing || error.code !== "ENOENT") throw error;
+    // Walk existing ancestors, including symlinks, before accepting a missing
+    // retirement target. A dangling/outside symlink is never a missing file.
+    let ancestor = absolute;
+    while (ancestor !== projectRoot) {
+      try {
+        lstatSync(ancestor);
+        const resolved = realpathSync(ancestor);
+        const rel = relative(projectRoot, resolved);
+        if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`${label} resolves outside the project root`);
+        if (!statSync(resolved).isDirectory()) throw new Error(`${label} ancestor is not a directory`);
+        return;
+      } catch (ancestorError) {
+        if (ancestorError.code !== "ENOENT") throw ancestorError;
+        // lstat succeeds for dangling symlinks; explicitly reject them.
+        try { if (lstatSync(ancestor).isSymbolicLink()) throw new Error(`${label} has a dangling symlink`); }
+        catch (linkError) { if (linkError.code !== "ENOENT") throw linkError; }
+        ancestor = dirname(ancestor);
+      }
+    }
+    return;
+  }
   const rel = relative(projectRoot, canonical);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`${label} resolves outside the project root`);
   if (!statSync(canonical).isFile()) throw new Error(`${label} is not a file`);
@@ -272,7 +297,7 @@ export function validateManifest(manifest, projectRoot, options = {}) {
     if (entry.state === "active") {
       if (activePaths.has(entry.path)) throw new Error(`duplicate active path: ${entry.path}`);
       activePaths.add(entry.path);
-      assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`);
+      assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`, entry.id === options.retiringId);
     } else if (existsSync(join(projectRoot, ...entry.path.split("/")))) {
       assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`);
     }
@@ -365,8 +390,8 @@ export function readManifestStrict(projectRoot) {
   return validateActiveHtmlContracts(manifest, projectRoot);
 }
 
-export function readManifestForSupersede(projectRoot) {
-  return readManifest(projectRoot, { validateActiveHtml: false });
+export function readManifestForSupersede(projectRoot, retiringId) {
+  return readManifest(projectRoot, { retiringId });
 }
 
 export function writeManifestAtomic(projectRoot, manifest) {
