@@ -504,6 +504,7 @@ fn main() {
             commands::tags::update_tag,
             commands::tags::delete_tag,
             commands::tags::set_item_tags,
+            commands::tags::save_item_tags,
             commands::thumbnails::generate_thumbnail,
             commands::thumbnails::get_thumbnail_backend_status,
             commands::thumbnails::set_system_chrome_thumbnail_enabled,

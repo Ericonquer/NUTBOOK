@@ -1997,7 +1997,7 @@
         flex: 0 0 auto;
       }
 
-      /* 标签行从左侧开始排布（不再 flex-end）；给右侧类型徽标让位。 */
+      /* 标签作为一组靠右排列；长名称允许收缩，类型与计数保持可见。 */
       .thumb-chip-row {
         position: absolute;
         left: 8px;
@@ -2005,7 +2005,7 @@
         bottom: 8px;
         display: flex;
         align-items: center;
-        justify-content: flex-start;
+        justify-content: flex-end;
         gap: 4px;
         min-width: 0;
         z-index: 2;
@@ -2023,7 +2023,7 @@
 
       /* 外层 pill：只负责高度、padding、背景、边框与垂直居中。
          min-width:0 允许收缩；明确 hard cap；不承担文本裁切。 */
-      .thumb-chip-row .tag-chip,
+      :is(.thumb-chip-row, .card-tags-list) .tag-chip,
       .thumb-chip-row .meta-chip,
       .thumb-chip-row .source-badge {
         display: inline-flex;
@@ -2065,7 +2065,7 @@
       }
 
       /* 内层 label：真正负责文本裁切，text-align:left 保证开头可见、尾部省略。 */
-      .thumb-chip-row .tag-chip-label,
+      :is(.thumb-chip-row, .card-tags-list) .tag-chip-label,
       .thumb-chip-row .source-badge-label {
         display: block;
         min-width: 0;
@@ -2099,15 +2099,15 @@
       }
 
       /* hover / 卡片 focus-visible：只加深一档，保持浅底深字，不做深黑底白字。 */
-      .item-card:hover .thumb-chip-row .tag-chip,
+      .item-card:hover :is(.thumb-chip-row, .card-tags-list) .tag-chip,
       .item-card:hover .thumb-chip-row .meta-chip,
       .item-card:hover .thumb-chip-row .source-badge,
       .item-card:hover .thumb-badge,
-      .item-card:focus-within .thumb-chip-row .tag-chip,
+      .item-card:focus-within :is(.thumb-chip-row, .card-tags-list) .tag-chip,
       .item-card:focus-within .thumb-chip-row .meta-chip,
       .item-card:focus-within .thumb-chip-row .source-badge,
       .item-card:focus-within .thumb-badge,
-      .item-card:focus-visible .thumb-chip-row .tag-chip,
+      .item-card:focus-visible :is(.thumb-chip-row, .card-tags-list) .tag-chip,
       .item-card:focus-visible .thumb-chip-row .meta-chip,
       .item-card:focus-visible .thumb-chip-row .source-badge,
       .item-card:focus-visible .thumb-badge {
@@ -4140,7 +4140,7 @@
         position: absolute;
         left: 50%;
         top: 31px;
-        min-width: 32px;
+        min-width: 52px;
         padding: 5px 8px;
         border-radius: 8px;
         background: rgba(24, 24, 24, 0.92);
@@ -8684,7 +8684,8 @@
         }
       }
     </style>
-  </head>
+    <link rel="stylesheet" href="./tag-editor.css" />
+</head>
   <body>
     <div id="appShell" class="app-shell">
       <div class="native-audience-banner" role="note" data-tauri-drag-region><span id="nativeAudienceBannerText"></span></div>
@@ -8841,6 +8842,7 @@
                 <div class="home-header-copy">
                   <h1 id="listTitle" class="home-title">所有文件</h1>
                   <div class="muted" id="listSummary">等待扫描</div>
+                  <div id="tagFilterSummary" class="tag-filter-summary" data-i18n-skip></div>
                 </div>
               </div>
               <div class="home-actions">
@@ -9115,7 +9117,8 @@
     <div id="exportScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <link rel="stylesheet" href="./markdown-formatting.css">
-    <script src="./document-toolbar.js"></script>
+    <script src="./tag-editor.js"></script>
+  <script src="./document-toolbar.js"></script>
     <script src="./markdown-formatting.js"></script>
     <script src="./assets/update-ui.js"></script>
     <script src="./i18n.js?v=20260525-update-check"></script>
@@ -14648,10 +14651,10 @@
         const customTags = Array.isArray(item.tags) ? item.tags : [];
         // 自定义标签：保持现有交互按钮（添加/删除/菜单/焦点/关闭），不改成普通 span。
         const customTrigger = customTags.length
-          ? `<button class="breadcrumb-tag-trigger" type="button" data-document-tag-trigger="current"><span class="tag-chip"><span class="tag-chip-label">${escapeHtml(customTags[0].name)}</span><span class="chip-tooltip">${escapeHtml(customTags.map((t) => t.name).join("，"))}</span></span><span class="breadcrumb-tag-remove" data-document-tag-remove="true">×</span></button>`
+          ? `<button class="breadcrumb-tag-trigger" type="button" data-document-tag-trigger="current"><span class="tag-chip"><span class="tag-chip-label">${escapeHtml(customTags[0].name)}</span><span class="chip-tooltip">${escapeHtml(customTags.map((t) => t.name).join("，"))}</span></span></button>`
           : `<button class="breadcrumb-tag-trigger" type="button" data-document-tag-trigger="add"><span class="breadcrumb-tag-placeholder">+ 标签</span></button>`;
         const customMore = customTags.length > 1
-          ? `<span class="tag-chip tag-chip-more"><span class="chip-tooltip">${escapeHtml(customTags.map((t) => t.name).join("，"))}</span>+${customTags.length - 1}</span>`
+          ? `<button type="button" class="tag-chip tag-chip-more" data-document-tag-trigger="more">+${customTags.length - 1}</button>`
           : "";
 
         // 来源徽标只从 item.sourceBadges 投影（与卡片同一语义），不从 skillBinding / library fallback 补。
@@ -14688,67 +14691,68 @@
         `;
       }
 
+      let documentTagEditor = null;
+      let documentTagEditorOwner = null;
       function renderDocumentTagMenu() {
         const tab = getActiveTab();
-        const item = tab?.item;
-        if (!els.documentTagMenu) return;
-        const isHtmlRuntime = tab?.preview?.fileType === "html-runtime";
-        if (!item || isHtmlRuntime) {
-          els.documentTagMenu.innerHTML = "";
-          els.documentTagMenu.classList.remove("open");
-          els.documentTagMenu.classList.remove("upward");
-          els.documentTagMenu.setAttribute("aria-hidden", "true");
-          els.documentToolbar?.classList.remove("tag-menu-open");
-          return;
+        if (documentTagEditorOwner && documentTagEditorOwner !== tab) appState.isDocumentTagMenuOpen = false;
+        const open = Boolean(appState.isDocumentTagMenuOpen && tab?.item && tab.preview?.fileType !== "html-runtime");
+        els.documentTagMenu.classList.toggle("open", open);
+        els.documentTagMenu.setAttribute("aria-hidden", String(!open));
+        els.documentToolbar?.classList.toggle("tag-menu-open", open);
+        if (!open) {
+          documentTagEditor = null; documentTagEditorOwner = null;
+          els.documentTagMenu.replaceChildren(); return;
         }
-        const currentTagId = Array.isArray(item.tags) && item.tags[0] ? Number(item.tags[0].id) : null;
-        const options = appState.tags.map((tag) => `
-          <button class="popover-option document-tag-option ${currentTagId === tag.id ? "active" : ""}" type="button" data-document-tag-id="${tag.id}">
-            ${escapeHtml(tag.name)}
-          </button>
-        `).join("");
-        els.documentTagMenu.innerHTML = `
-          <div class="document-tag-menu-title">${t("html.tagMenuTitle")}</div>
-          <div class="document-tag-create">
-            <input id="documentTagNewInput" class="input" placeholder="${t("html.newTagName")}" value="${escapeAttribute(appState.documentTagDraft)}" data-i18n-skip />
-            <button id="documentTagCreateButton" class="button button-primary button-small" type="button">${t("actions.createTag")}</button>
-          </div>
-          <div class="document-tag-options">${options || `<div class="muted" style="padding:4px 2px;">${t("settings.noLabels")}</div>`}</div>
-        `;
-        els.documentTagMenu.classList.toggle("open", appState.isDocumentTagMenuOpen);
-        els.documentTagMenu.classList.toggle("upward", Boolean(appState.isDocumentTagMenuOpen && isHtmlRuntime));
-        els.documentTagMenu.setAttribute("aria-hidden", appState.isDocumentTagMenuOpen ? "false" : "true");
-        els.documentToolbar?.classList.toggle("tag-menu-open", Boolean(appState.isDocumentTagMenuOpen));
-        const anchorLeft = typeof appState.documentTagAnchorLeft === "number" ? appState.documentTagAnchorLeft : 0;
+        if (documentTagEditorOwner === tab) { documentTagEditor?.setLanguage(appState.language); return; }
+        documentTagEditorOwner = tab;
         const toolbarWidth = els.documentToolbar?.getBoundingClientRect().width || 0;
-        const menuWidth = 280;
-        const safeRightInset = 18;
-        const maxLeft = toolbarWidth ? Math.max(0, toolbarWidth - menuWidth - safeRightInset) : anchorLeft;
-        els.documentTagMenu.style.left = `${Math.max(0, Math.min(anchorLeft, maxLeft))}px`;
-        els.documentTagMenu.addEventListener("mouseenter", cancelDocumentTagMenuClose);
-        els.documentTagMenu.addEventListener("mouseleave", scheduleDocumentTagMenuClose);
-        els.documentTagMenu.querySelector(".document-tag-create")?.addEventListener("pointerdown", (event) => {
-          event.stopPropagation();
-        });
-        els.documentTagMenu.querySelectorAll("[data-document-tag-id]").forEach((node) => {
-          node.addEventListener("click", async () => {
-            await assignDocumentCustomTag(Number(node.dataset.documentTagId));
-          });
-        });
-        els.documentTagMenu.querySelector("#documentTagCreateButton")?.addEventListener("click", async (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          await createAndAssignDocumentTag();
-        });
-        els.documentTagMenu.querySelector("#documentTagNewInput")?.addEventListener("input", (event) => {
-          appState.documentTagDraft = event.target.value;
-        });
-        els.documentTagMenu.querySelector("#documentTagNewInput")?.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            createAndAssignDocumentTag();
+        els.documentTagMenu.style.left = `${Math.max(0, Math.min(appState.documentTagAnchorLeft || 0, toolbarWidth - 300))}px`;
+        documentTagEditor = NutbookTagEditor.mount(els.documentTagMenu, {
+          language: appState.language, tags: tab.item.tags || [], available: appState.tags,
+          onSave: draft => saveDocumentTags(tab, draft),
+          onCancel: () => {
+            if (documentTagEditorOwner !== tab) return;
+            appState.isDocumentTagMenuOpen = false; renderDocumentTagMenu();
+            refreshDocumentTagControls(tab);
+            els.breadcrumbTags.querySelector('[data-document-tag-trigger]')?.focus();
           }
         });
+      }
+
+      function refreshDocumentTagControls(tab) {
+        if (getActiveTab() !== tab || tab.preview?.fileType === "html-runtime") return;
+        els.breadcrumbTags.innerHTML = renderDocumentTagChips(tab.item, tab.item.fileType === "html" ? "HTML" : "MD");
+        els.breadcrumbTags.querySelectorAll('[data-document-tag-trigger]').forEach(node => {
+          node.addEventListener('click', event => {
+            event.stopPropagation();
+            const toolbar = els.documentToolbar.getBoundingClientRect();
+            appState.documentTagAnchorLeft = node.getBoundingClientRect().left - toolbar.left;
+            appState.isDocumentTagMenuOpen = !appState.isDocumentTagMenuOpen;
+            renderDocumentTagMenu();
+          });
+        });
+      }
+
+      async function saveDocumentTags(tab, draft) {
+        const response = await invoke("save_item_tags", { itemId: tab.id, ...draft });
+        const tags = (response.tags || []).map(normalizeTag).filter(Boolean);
+        // Update the original tab object only. A late reply cannot target a different file.
+        tab.item.tags = tags;
+        if (tab.detail?.summary) tab.detail.summary.tags = tags;
+        if (tab.detail) tab.detail.tags = tags;
+        const item = appState.items.find(item => item.id === tab.id);
+        if (item) item.tags = tags;
+        for (const tag of tags) {
+          const index = appState.tags.findIndex(entry => entry.id === tag.id);
+          if (index < 0) appState.tags.push(tag); else appState.tags[index] = tag;
+        }
+        renderTags();
+        if (getActiveTab() === tab) {
+          scheduleRuntimeHostSync();
+        }
+        await loadItems();
+        return tags;
       }
 
       function cancelDocumentTagMenuClose() {
@@ -14760,12 +14764,6 @@
 
       function scheduleDocumentTagMenuClose() {
         cancelDocumentTagMenuClose();
-        appState.documentTagMenuCloseTimer = window.setTimeout(() => {
-          appState.documentTagMenuCloseTimer = null;
-          if (!appState.isDocumentTagMenuOpen) return;
-          appState.isDocumentTagMenuOpen = false;
-          renderDocumentTagMenu();
-        }, 180);
       }
 
       function resolveItemSkillBinding(item) {
@@ -14827,7 +14825,7 @@
         // Markdown image asset callers already provide `{ payload: {...} }`.
         // Keep that shape intact while still accepting a bare request object
         // from older/local callers; Rust expects exactly one payload layer.
-        if (command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset") {
+        if (command === "copy_markdown_image_asset" || command === "delete_markdown_image_asset" || command === "save_item_tags") {
           const payload = args && typeof args === "object" && args.payload && typeof args.payload === "object"
             ? args.payload
             : args;
@@ -19966,6 +19964,17 @@
         });
       }
 
+      function renderTagFilterSummary() {
+        const container = document.getElementById('tagFilterSummary');
+        container.replaceChildren();
+        for (const id of appState.activeTagFilterIds) {
+          const tag = appState.tags.find(tag => tag.id === id); if (!tag) continue;
+          const button = document.createElement('button'); button.className = 'tag-chip';
+          button.textContent = tag.name + ' ×'; button.title = appState.language === 'en-US' ? 'Remove filter' : '移除筛选';
+          button.onclick = async () => { appState.activeTagFilterIds = appState.activeTagFilterIds.filter(value => value !== id); renderTags(); await loadItems(); };
+          container.append(button);
+        }
+      }
       function renderTags() {
         if (!appState.tags.length) {
           els.tagList.innerHTML = `<div class="muted">还没有标签。这个 demo 里也支持直接新增。</div>`;
@@ -20193,16 +20202,13 @@
 
       function thumbnailNode(item) {
         const pathMissing = isItemPathMissing(item);
-        // 自定义标签压缩成 primary +N（与 Project/Skill 同模式）：只显示第一个主标签，
-        // 其余数量折叠进不可收缩的 +N chip；tooltip 列出全部自定义标签完整名。
         const customTags = item.tags || [];
-        const allCustomNames = customTags.map((tag) => tag.name).join("，");
+        const allCustomNames = customTags.map(tag => tag.name).join("，");
         const customPrimary = customTags[0]
-          ? `<span class="tag-chip"><span class="tag-chip-label">${escapeHtml(customTags[0].name)}</span><span class="chip-tooltip">${escapeHtml(allCustomNames)}</span></span>`
-          : "";
+          ? `<button type="button" class="tag-chip" data-card-tag="${customTags[0].id}" title="${escapeAttribute(customTags[0].name)}" aria-label="${escapeAttribute(customTags[0].name)}"><span class="tag-chip-label">${escapeHtml(customTags[0].name)}</span></button>` : "";
         const customMore = customTags.length > 1
-          ? `<span class="tag-chip tag-chip-more"><span class="chip-tooltip">${escapeHtml(allCustomNames)}</span>+${customTags.length - 1}</span>`
-          : "";
+          ? `<button type="button" class="tag-chip tag-chip-more" data-card-tags="${item.id}" aria-expanded="false" title="${appState.language === "en-US" ? "View tags" : "查看标签"}" aria-label="${appState.language === "en-US" ? "View tags" : "查看标签"}">+${customTags.length - 1}</button>` : "";
+        const tagsPanel = customTags.length > 1 ? `<div class="card-tags-panel" data-card-tags-panel="${item.id}" hidden data-i18n-skip><button type="button" class="card-tags-close" data-close-card-tags title="${appState.language === "en-US" ? "Collapse tags" : "收起标签"}" aria-label="${appState.language === "en-US" ? "Collapse tags" : "收起标签"}">⌄</button><div class="card-tags-list">${customTags.slice(1).map(tag => `<button type="button" class="tag-chip" data-card-tag="${tag.id}" title="${escapeAttribute(tag.name)}"><span class="tag-chip-label">${escapeHtml(tag.name)}</span></button>`).join("")}</div></div>` : "";
         const projects = (item.sourceBadges || []).filter((badge) => badge.kind === "project");
         const skills = (item.sourceBadges || []).filter((badge) => badge.kind === "skill");
         // available=false：加 .source-badge--unavailable（中性降饱和 + 虚线边框），
@@ -20227,7 +20233,7 @@
           .filter(Boolean)
           .join("");
         // 无自定义标签时，让来源徽标整体靠右，与右下角类型徽标作为一个组对齐；
-        // 有自定义标签时按"自定义 → Project → Skill → 类型"从左开始；
+        // 有自定义标签时也整组靠右，顺序保持 自定义 → Project → Skill → 类型；
         // 无自定义时来源徽标作为一组靠右与类型徽标并齐；
         // 只有类型徽标（无来源徽标）时也右对齐，避免单 MD 标签左对齐。
         const hasSources = customPrimary || customMore || projectPrimary || projectMore || skillPrimary || skillMore;
@@ -20239,7 +20245,7 @@
         }
         const typeChip = `<span class="thumb-badge thumb-badge-type">${escapeHtml(item.fileType === "html" ? "HTML" : "MD")}</span>`;
         const overlayRow = `<div class="${rowClass}">${chips}${typeChip}</div>`;
-        const badge = `${overlayRow}`;
+        const badge = `${tagsPanel}${overlayRow}`;
         const missingMask = pathMissing
           ? `<div class="thumb-missing-mask"><span class="thumb-missing-pill">文件路径失效</span></div>`
           : "";
@@ -20690,14 +20696,66 @@
           item.thumbnail
             ? [item.thumbnail.path || "", item.thumbnail.status || "", item.thumbnail.width || "", item.thumbnail.height || "", item.thumbnail.lastGeneratedAt || "", item.thumbnail.errorMessage || "", item.thumbnail.renderKind || "", item.thumbnail.desiredKey || "", item.thumbnail.remoteCoverUrl || ""]
             : null,
-          (item.tags || []).map((tag) => tag.name || ""),
+          (item.tags || []).map((tag) => [tag.id, tag.name || ""]),
           (item.sourceBadges || []).map((badge) => [badge.kind || "", badge.sourceId || "", badge.label || "", badge.isOwner ? 1 : 0, badge.available === false ? 0 : 1])
         ])]);
       }
 
+      let expandedCardTagTrigger = null;
+      function closeCardTags(restoreFocus = false) {
+        document.querySelectorAll('[data-card-tags-panel]').forEach(panel => { panel.hidden = true; });
+        document.querySelectorAll('[data-card-tags]').forEach(button => button.setAttribute('aria-expanded', 'false'));
+        if (restoreFocus && expandedCardTagTrigger?.isConnected) expandedCardTagTrigger.focus();
+        expandedCardTagTrigger = null;
+      }
+      window.addEventListener('resize', () => closeCardTags());
+      async function selectExactTag(id) {
+        appState.activeTagFilterIds = [id];
+        closeCardTags(); renderTags(); await loadItems();
+      }
+      document.addEventListener('click', event => {
+        const tag = event.target.closest('[data-card-tag]');
+        const trigger = event.target.closest('[data-card-tags]');
+        if (tag) { event.stopPropagation(); selectExactTag(Number(tag.dataset.cardTag)); return; }
+        if (trigger) {
+          event.stopPropagation();
+          const wasOpen = trigger.getAttribute('aria-expanded') === 'true';
+          closeCardTags();
+          if (!wasOpen) {
+            const panel = trigger.closest('.thumb-wrap')?.querySelector('[data-card-tags-panel]');
+            if (panel) {
+              panel.hidden = false;
+              const own = trigger.closest('.thumb-wrap').getBoundingClientRect();
+              const anchor = trigger.getBoundingClientRect();
+              panel.style.setProperty('--card-tag-list-height', `${Math.max(20, own.height - 80)}px`);
+              const list = panel.querySelector('.card-tags-list');
+              const measure = document.createElement('canvas').getContext('2d');
+              measure.font = getComputedStyle(list.querySelector('.tag-chip')).font;
+              const pills = [...list.querySelectorAll('.tag-chip')];
+              const naturalWidth = pills.reduce((sum, pill) => sum + measure.measureText(pill.textContent).width + 18, 0) + Math.max(0, pills.length - 1) * 4 + 44;
+              panel.style.width = `${Math.min(own.width - 16, Math.ceil(naturalWidth))}px`;
+              const width = panel.getBoundingClientRect().width;
+              const center = anchor.left + anchor.width / 2 - own.left;
+              const left = Math.max(8, Math.min(own.width - width - 8, center - width / 2));
+              panel.style.left = `${left}px`;
+              panel.style.setProperty('--card-tag-arrow', `${center - left}px`);
+              trigger.setAttribute('aria-expanded', 'true'); expandedCardTagTrigger = trigger;
+            }
+          }
+          return;
+        }
+        if (event.target.closest('[data-close-card-tags]')) { closeCardTags(true); return; }
+        if (!event.target.closest('.card-tags-panel')) closeCardTags();
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && expandedCardTagTrigger) { event.stopPropagation(); closeCardTags(true); }
+      });
+
       function renderItems() {
+        renderTagFilterSummary();
         // 检查视图接管列表渲染：同一份 appState.items（搜索/筛选/范围保持不变）。
         if (appState.homeLayout === "inspector") {
+          closeCardTags();
           renderInspectorItems();
           return;
         }
@@ -20710,6 +20768,7 @@
           return;
         }
         appState.lastItemsFingerprint = fingerprint;
+        closeCardTags();
         // 列表全量重建前隐藏 tooltip：旧锚点 badge 将被销毁，不能残留旧卡 tooltip
         window.__nutbookChipTipController?.hide();
 
@@ -20783,13 +20842,14 @@
                   </svg>
                   <span class="card-action-tooltip">${t("actions.favorite")}</span>
                 </button>
-                <button class="item-card-open" type="button" data-open-trigger="${item.id}" aria-label="${escapeAttribute(ariaLabel)}">
+                <div class="item-card-open" data-open-trigger="${item.id}" role="group" aria-label="${escapeAttribute(ariaLabel)}">
                   ${thumbnailNode(item)}
                   <span class="item-main">
-                    <span class="item-card-title">${escapeHtml(item.fileName)}</span>
-                    ${appState.appliedSearch && Array.isArray(item.snippets) && item.snippets[0] ? `<span class="item-search-snippet" data-i18n-skip>${escapeHtml(item.snippets[0])}</span>` : ""}
+                    <button class="item-card-title" type="button" style="border:0;background:none;text-align:inherit;color:inherit;padding:0;cursor:pointer">${escapeHtml(item.fileName)}</button>
+                    ${appState.appliedSearch && (item.tags || []).some(tag => tag.name.toLocaleLowerCase().includes(appState.appliedSearch.trim().toLocaleLowerCase())) ? `<span class="item-search-snippet" data-i18n-skip>${appState.language === "en-US" ? "Tag match: " : "标签命中："}${escapeHtml(item.tags.filter(tag => tag.name.toLocaleLowerCase().includes(appState.appliedSearch.trim().toLocaleLowerCase())).map(tag => tag.name).join("、"))}</span>` : ""}
+                  ${appState.appliedSearch && Array.isArray(item.snippets) && item.snippets[0] ? `<span class="item-search-snippet" data-i18n-skip>${escapeHtml(item.snippets[0])}</span>` : ""}
                   </span>
-                </button>
+                </div>
               </article>
             `;
             }
@@ -20798,7 +20858,8 @@
         window.NutbookCoverCard?.observe?.(els.itemList);
 
         els.itemList.querySelectorAll("[data-open-trigger]").forEach((node) => {
-          node.addEventListener("click", async () => {
+          node.addEventListener("click", async (event) => {
+            if (event.target.closest("[data-card-tag], [data-card-tags], .card-tags-panel")) return;
             // §3.3/验收16：用户手动打开资料库条目属于手动导航，先取消未裁决提示。
             cancelExternalOpenPromptForNavigation();
             try {
@@ -21735,6 +21796,18 @@ if (!chipTipController) {
             appState.runtimeControlsOverlayMode = layoutMode;
             scheduleRuntimeHostSync();
           }
+          return;
+        }
+        if (action === "save-tags") {
+          const tab = getActiveTab();
+          if (!tab || tab.id !== itemId || tab.preview?.fileType !== "html-runtime" || payload.tagSession !== `${appState.itemOpenTokens.get(tab.id) || 0}:${currentRuntimeSurfaceToken(tab.id)}`) return;
+          try {
+            await saveDocumentTags(tab, { selections: payload.selections, primaryIndex: payload.primaryIndex });
+            appState.tagSaveResult = { requestId: payload.requestId, itemId, ok: true };
+          } catch (error) {
+            appState.tagSaveResult = { requestId: payload.requestId, itemId, ok: false, error: normalizeError(error) };
+          }
+          if (getActiveTab() === tab) scheduleRuntimeHostSync();
           return;
         }
         if (action === "set-tag") {
@@ -22818,7 +22891,7 @@ if (!chipTipController) {
       }
 
       function runtimeControlsOverlayHeight() {
-        if (appState.runtimeControlsOverlayMode === "tags") return 260;
+        if (appState.runtimeControlsOverlayMode === "tags") return 360;
         if (appState.runtimeControlsOverlayMode === "more") return 180;
         // A1.3：来源徽标 tooltip 展开态（多行完整来源名），须高于 hover 68px 才不会被裁。
         if (appState.runtimeControlsOverlayMode === "badge-tip") return 100;
@@ -22891,7 +22964,7 @@ if (!chipTipController) {
       function runtimeControlsOverlayState(tab, isFullscreen) {
         return {
           itemId: tab.id,
-          toolbar: { pinned: documentToolbarPreferences.html, capacity: documentToolbarCapacity(), preparing: nativePresentationPreparingItemId === tab.id },
+          toolbar: { pinned: documentToolbarPreferences.html, capacity: documentToolbarCapacity(), preparing: nativePresentationPreparingItemId === tab.id, tagEditor: { saveResult: appState.tagSaveResult || null, session: `${appState.itemOpenTokens.get(tab.id) || 0}:${currentRuntimeSurfaceToken(tab.id)}` } },
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,
@@ -27311,7 +27384,7 @@ if (!chipTipController) {
             appState.isSortMenuOpen = false;
             renderSortMenu();
           }
-          if (appState.isDocumentTagMenuOpen && !els.documentTagMenu.contains(event.target) && !els.breadcrumbTags.contains(event.target)) {
+          if (appState.isDocumentTagMenuOpen && !documentTagEditor?.busy && !els.documentTagMenu.contains(event.target) && !els.breadcrumbTags.contains(event.target)) {
             appState.isDocumentTagMenuOpen = false;
             renderDocumentTagMenu();
           }

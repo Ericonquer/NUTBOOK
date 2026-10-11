@@ -50,3 +50,18 @@ pub struct SetItemTagsResponse {
     pub item_id: i64,
     pub tags: Vec<Tag>,
 }
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagSelection {
+    pub id: Option<i64>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveItemTagsRequest {
+    pub item_id: i64,
+    pub selections: Vec<TagSelection>,
+    pub primary_index: Option<usize>,
+}

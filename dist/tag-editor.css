@@ -1,0 +1,67 @@
+/* A complete component skin shared by both hosts; do not inherit input/button defaults. */
+#documentTagMenu.document-tag-menu, #tagMenu.tag-menu {
+  box-sizing:border-box; width:280px; min-width:280px; max-width:280px;
+  padding:12px; gap:0; border:1px solid #dedee3; border-radius:12px;
+  background:#fff; color:#1a1c1d; box-shadow:0 12px 32px rgba(20,20,24,.10);
+  font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+#tagMenuOptions.nb-tag-editor, #documentTagMenu.nb-tag-editor {
+  display:flex; flex-direction:column; flex-wrap:nowrap; gap:8px; max-height:none; overflow:visible;
+}
+.nb-tag-editor .tag-editor-title { margin:0; font-size:12px; line-height:18px; font-weight:650; color:#1a1c1d; }
+.nb-tag-editor .tag-editor-search {
+  box-sizing:border-box; display:block; width:100%; min-width:0; height:32px; margin:0; padding:0 72px 0 10px;
+  border:1px solid #dedee3; border-radius:7px; outline:none; box-shadow:none;
+  background:#fafafa; color:#1a1c1d; font:inherit; font-size:12px; line-height:30px; appearance:none;
+}
+.nb-tag-editor .tag-editor-search::placeholder { color:#88888f; font-weight:400; opacity:1; }
+.nb-tag-editor .tag-editor-search:focus { border-color:#77777e; box-shadow:0 0 0 2px rgba(20,20,24,.08); outline:none; }
+.nb-tag-editor button {
+  box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center;
+  width:auto; min-width:0; min-height:28px; height:auto; margin:0; padding:4px 9px;
+  border:1px solid #dedee3; border-radius:6px; background:#fff; color:#424249;
+  font:inherit; font-size:12px; line-height:18px; font-weight:500; text-align:center;
+  box-shadow:none; appearance:none; cursor:pointer; white-space:nowrap;
+}
+.nb-tag-editor button:hover:not(:disabled) { background:#f3f3f5; border-color:#bdbdc4; }
+.nb-tag-editor button:focus-visible { outline:2px solid #77777e; outline-offset:2px; }
+.nb-tag-editor button:disabled { opacity:.45; cursor:default; }
+.nb-tag-editor .tag-editor-search-row { position:relative; min-width:0; }
+.nb-tag-editor .tag-editor-create { position:absolute; right:4px; top:4px; min-height:24px; padding:2px 7px; font-size:11px; background:#eeeef0; border-color:transparent; }
+.nb-tag-editor .tag-editor-create[hidden] { display:none; }
+.nb-tag-editor .tag-editor-list { display:flex; flex-direction:column; max-height:144px; min-height:0; overflow-y:auto; margin:0; width:100%; }
+.nb-tag-editor .tag-editor-row { display:flex; align-items:center; gap:8px; min-height:32px; padding:3px 0; font:inherit; }
+.nb-tag-editor .tag-editor-row label { display:flex; align-items:center; gap:7px; margin:0; min-width:0; flex:1; overflow-wrap:anywhere; font:inherit; color:#1a1c1d; cursor:pointer; }
+.nb-tag-editor .tag-editor-row input[type=checkbox] { font:inherit; appearance:none; -webkit-appearance:none; box-sizing:border-box; width:14px; height:14px; min-width:14px; margin:0; padding:0; border:1px solid #aaaab2; border-radius:3px; background:#fff; cursor:pointer; outline:none; box-shadow:none; }
+.nb-tag-editor .tag-editor-row input[type=checkbox]:checked { border-color:#222; background:#222 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='m3 7 2.5 2.5L11 4' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/14px 14px no-repeat; }
+.nb-tag-editor .tag-editor-row input[type=checkbox]:focus-visible { outline:2px solid #77777e; outline-offset:2px; }
+.nb-tag-editor .tag-editor-row button { flex-shrink:0; min-height:24px; padding:2px 6px; font-size:10px; }
+.nb-tag-editor .tag-editor-footer { display:flex; justify-content:flex-end; gap:6px; padding-top:4px; }
+.nb-tag-editor .tag-editor-save { background:#222; color:#fff; border-color:#222; }
+.nb-tag-editor .tag-editor-save:hover:not(:disabled) { background:#444; border-color:#444; }
+.nb-tag-editor .tag-editor-error { color:#9a3030; font:11px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow-wrap:anywhere; max-height:48px; overflow-y:auto; }
+.nb-tag-editor .tag-editor-error:empty { display:none; }
+/* Own-card capsule expansion; header leaves both corner actions clear. */
+.card-tags-panel { position:absolute; left:8px; bottom:36px; width:max-content; max-width:calc(100% - 16px); max-height:calc(100% - 64px); display:flex; align-items:flex-start; gap:6px; z-index:3; background:#fff; border:1px solid #d9d9df; border-radius:9px; padding:7px; box-sizing:border-box; box-shadow:0 2px 6px #0000000a; }
+.card-tags-panel::after { content:""; position:absolute; bottom:-5px; left:var(--card-tag-arrow,50%); width:8px; height:8px; background:#fff; border-right:1px solid #d9d9df; border-bottom:1px solid #d9d9df; transform:translateX(-50%) rotate(45deg); }
+.card-tags-panel[hidden] { display:none; }
+.card-tags-close { align-self:center; order:2; flex:0 0 16px; appearance:none; font:14px/20px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#777; background:none; border:0; padding:0; cursor:pointer; border-radius:4px; }
+.card-tags-close:focus-visible { outline:2px solid #777; }
+.card-tags-list { flex:1; min-width:0; display:flex; flex-wrap:wrap; align-content:flex-start; justify-content:flex-start; gap:4px; min-height:0; max-height:var(--card-tag-list-height,48px); overflow-y:auto; }
+.card-tags-list .tag-chip { flex:0 0 auto; max-width:100%; min-width:0; height:auto; min-height:20px; padding:2px 8px; cursor:pointer; }
+.card-tags-list .tag-chip-label { white-space:normal; overflow-wrap:anywhere; }
+.thumb-wrap { isolation:isolate; }
+.thumb-chip-row button.tag-chip { cursor:pointer; }
+.tag-filter-summary { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+.tag-filter-summary:empty { display:none; }
+/* Preserve a single right-aligned row even with all three tag groups. */
+.thumb-chip-row { gap:3px; }
+.thumb-chip-row .tag-chip:not(.tag-chip-more) { min-width:28px; padding-inline:6px; }
+.thumb-chip-row .source-badge-project,
+.thumb-chip-row .source-badge-skill { min-width:20px; padding-inline:6px; }
+.thumb-chip-row .source-badge-more,
+.thumb-chip-row .tag-chip-more { padding-inline:2px; }
+
+.thumb-chip-row .tag-chip, .card-tags-list .tag-chip { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size:10px; font-weight:500; line-height:1.2; background:rgba(255,255,255,.94); border-color:rgba(31,35,40,.14); color:#3a3d44; box-shadow:0 1px 2px rgba(31,35,40,.08); }
+.item-card:hover :is(.thumb-chip-row,.card-tags-list) .tag-chip,
+.item-card:focus-within :is(.thumb-chip-row,.card-tags-list) .tag-chip { background:rgba(232,235,240,.98); border-color:rgba(31,35,40,.28); color:#1f2329; }

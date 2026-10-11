@@ -498,7 +498,7 @@ impl Database {
                  FROM tags t
                  INNER JOIN item_tags it ON it.tag_id = t.id
                  WHERE it.item_id = ?1
-                 ORDER BY t.name COLLATE NOCASE ASC, t.id ASC",
+                 ORDER BY it.is_primary DESC, it.position ASC, t.id ASC",
             )
             .map_err(|_| AppError::DatabaseError)?;
 
@@ -716,7 +716,7 @@ impl Database {
              FROM item_tags it
              INNER JOIN tags t ON t.id = it.tag_id
              WHERE it.item_id IN ({})
-             ORDER BY it.item_id, t.name COLLATE NOCASE ASC, t.id ASC",
+             ORDER BY it.item_id, it.is_primary DESC, it.position ASC, t.id ASC",
             vec!["?"; item_ids.len()].join(", ")
         );
         let mut statement = connection
@@ -3816,9 +3816,11 @@ impl ItemRepository for Database {
         let search_keyword = normalize_keyword_query(query.keyword.as_deref());
         if let Some(keyword) = search_keyword.as_ref() {
             where_clauses.push(
-                "id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)".to_string(),
+                "(id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?) OR id IN (SELECT it.item_id FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE t.name LIKE ? ESCAPE '\\'))".to_string(),
             );
         args.push(Value::Text(keyword.to_owned()));
+            let literal = query.keyword.as_deref().unwrap_or("").trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+            args.push(Value::Text(format!("%{literal}%")));
         }
 
         if let Some(file_types) = query.file_types.as_ref() {
@@ -4268,6 +4270,115 @@ impl ItemRepository for Database {
     }
 }
 
+impl Database {
+    /// Draft names and item associations commit together; cancellation never calls this.
+    pub fn save_item_tag_selection(
+        &self,
+        payload: &crate::models::SaveItemTagsRequest,
+    ) -> Result<SetItemTagsResponse, AppError> {
+        let mut connection = self.connection()?;
+        let tx = connection
+            .transaction()
+            .map_err(|_| AppError::DatabaseError)?;
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM items WHERE id = ?1 AND is_deleted = 0)",
+                [payload.item_id],
+                |r| r.get(0),
+            )
+            .map_err(|_| AppError::DatabaseError)?;
+        if !exists {
+            return Err(AppError::ItemNotFound);
+        }
+        if payload
+            .primary_index
+            .is_some_and(|i| i >= payload.selections.len())
+        {
+            return Err(AppError::InvalidParams);
+        }
+        let mut ids = Vec::new();
+        let now = current_timestamp();
+        for entry in &payload.selections {
+            let id = match (entry.id, entry.name.as_deref()) {
+                (Some(id), None) => {
+                    let found: bool = tx
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM tags WHERE id = ?1)",
+                            [id],
+                            |r| r.get(0),
+                        )
+                        .map_err(|_| AppError::DatabaseError)?;
+                    if !found {
+                        return Err(AppError::TagNotFound);
+                    }
+                    id
+                }
+                (None, Some(name)) if !name.trim().is_empty() => {
+                    tx.execute(
+                        "INSERT INTO tags(name, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                        params![name.trim(), now],
+                    )
+                    .map_err(|error| match error {
+                        rusqlite::Error::SqliteFailure(err, _)
+                            if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+                        {
+                            AppError::TagNameExists
+                        }
+                        _ => AppError::DatabaseError,
+                    })?;
+                    tx.last_insert_rowid()
+                }
+                _ => return Err(AppError::InvalidParams),
+            };
+            if ids.contains(&id) {
+                return Err(AppError::InvalidParams);
+            }
+            ids.push(id);
+        }
+        // Existing association order survives primary changes and removal/re-add.
+        let old_order: Vec<i64> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT tag_id FROM item_tags WHERE item_id = ?1 ORDER BY position, tag_id",
+                )
+                .map_err(|_| AppError::DatabaseError)?;
+            let rows = statement
+                .query_map([payload.item_id], |r| r.get(0))
+                .map_err(|_| AppError::DatabaseError)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|_| AppError::DatabaseError)?
+        };
+        let mut ordered: Vec<i64> = old_order
+            .into_iter()
+            .filter(|id| ids.contains(id))
+            .collect();
+        for id in &ids {
+            if !ordered.contains(id) {
+                ordered.push(*id);
+            }
+        }
+        let primary = payload
+            .primary_index
+            .and_then(|i| ids.get(i))
+            .copied()
+            .or_else(|| ordered.first().copied());
+        tx.execute(
+            "DELETE FROM item_tags WHERE item_id = ?1",
+            [payload.item_id],
+        )
+        .map_err(|_| AppError::DatabaseError)?;
+        for (position, id) in ordered.iter().enumerate() {
+            tx.execute("INSERT INTO item_tags(item_id, tag_id, created_at, position, is_primary) VALUES (?1, ?2, ?3, ?4, ?5)", params![payload.item_id, id, now, position as i64, Some(*id) == primary]).map_err(|_| AppError::DatabaseError)?;
+        }
+        let tags = Self::load_tags_for_item(&tx, payload.item_id)?;
+        tx.commit().map_err(|_| AppError::DatabaseError)?;
+        Ok(SetItemTagsResponse {
+            item_id: payload.item_id,
+            tags,
+        })
+    }
+}
+
 impl TagRepository for Database {
     fn list_tags(&self) -> Result<Vec<Tag>, AppError> {
         let connection = self.connection()?;
@@ -4385,15 +4496,12 @@ impl TagRepository for Database {
     }
 
     fn delete_tag(&self, tag_id: i64) -> Result<DeleteTagResponse, AppError> {
-        let connection = self.connection()?;
-        let changed = connection
-            .execute("DELETE FROM tags WHERE id = ?1", params![tag_id])
-            .map_err(|_| AppError::DatabaseError)?;
-
-        if changed == 0 {
-            return Err(AppError::TagNotFound);
-        }
-
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(|_| AppError::DatabaseError)?;
+        let changed = transaction.execute("DELETE FROM tags WHERE id = ?1", params![tag_id]).map_err(|_| AppError::DatabaseError)?;
+        if changed == 0 { return Err(AppError::TagNotFound); }
+        transaction.execute("UPDATE item_tags SET is_primary = 1 WHERE tag_id = (SELECT candidate.tag_id FROM item_tags candidate WHERE candidate.item_id = item_tags.item_id ORDER BY candidate.position, candidate.tag_id LIMIT 1) AND NOT EXISTS (SELECT 1 FROM item_tags primary_tag WHERE primary_tag.item_id = item_tags.item_id AND primary_tag.is_primary = 1)", []).map_err(|_| AppError::DatabaseError)?;
+        transaction.commit().map_err(|_| AppError::DatabaseError)?;
         Ok(DeleteTagResponse { success: true })
     }
 
@@ -4438,12 +4546,12 @@ impl TagRepository for Database {
             .map_err(|_| AppError::DatabaseError)?;
 
         let now = current_timestamp();
-        for tag_id in tag_ids {
+        for (position, tag_id) in tag_ids.iter().enumerate() {
             transaction
                 .execute(
-                    "INSERT INTO item_tags (item_id, tag_id, created_at)
-                     VALUES (?1, ?2, ?3)",
-                    params![item_id, tag_id, now],
+                    "INSERT INTO item_tags (item_id, tag_id, created_at, position, is_primary)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![item_id, tag_id, now, position as i64, (position == 0) as i64],
                 )
                 .map_err(|_| AppError::DatabaseError)?;
         }
@@ -4455,7 +4563,7 @@ impl TagRepository for Database {
                      FROM tags t
                      INNER JOIN item_tags it ON it.tag_id = t.id
                      WHERE it.item_id = ?1
-                     ORDER BY t.name COLLATE NOCASE ASC, t.id ASC",
+                     ORDER BY it.is_primary DESC, it.position ASC, t.id ASC",
                 )
                 .map_err(|_| AppError::DatabaseError)?;
             let rows = statement
@@ -6220,6 +6328,7 @@ mod tests {
                 "../../tests/fixtures/database/nutbook-0.6.0-schema.sql"
             ))
             .expect("published schema fixture");
+        connection.execute_batch("INSERT INTO tags(id, name, created_at, updated_at) VALUES (2, 'Z-first-by-id', 'now', 'now'); INSERT INTO item_tags(item_id, tag_id, created_at) VALUES (11, 2, 'now');").unwrap();
         drop(connection);
 
         let database = Database::new(&path).expect("published 0.6 database should migrate");
@@ -6269,6 +6378,10 @@ mod tests {
             )
             .expect("0.6 user state should remain");
         assert_eq!(preserved_user_state, (1, 1, 1, 1, 1, 1));
+        let migrated_tags = Database::load_tags_for_item(&connection, 11).unwrap();
+        assert_eq!(migrated_tags.iter().map(|tag| tag.id).collect::<Vec<_>>(), vec![2, 3]);
+        let primary_count: i64 = connection.query_row("SELECT COUNT(*) FROM item_tags WHERE item_id = 11 AND is_primary = 1", [], |row| row.get(0)).unwrap();
+        assert_eq!(primary_count, 1);
         let canonical_root_key: String = connection
             .query_row(
                 "SELECT canonical_root_key FROM libraries WHERE id = 7",

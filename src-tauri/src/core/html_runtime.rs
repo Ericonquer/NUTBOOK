@@ -163,6 +163,10 @@ pub fn html_edit_debug_payload_fields(payload: &Value) -> String {
 #[serde(rename_all = "camelCase")]
 struct HtmlControlsActionPayload {
     item_id: i64,
+    selections: Option<Vec<serde_json::Value>>,
+    primary_index: Option<usize>,
+    request_id: Option<String>,
+    tag_session: Option<String>,
     action: String,
     tag_id: Option<i64>,
     name: Option<String>,
@@ -3619,6 +3623,16 @@ fn html_find_overlay_init_script(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn controls_tag_draft_survives_native_title_bridge() {
+        let value = serde_json::json!({ "itemId": 7, "action": "save-tags", "selections": [{"id": 3}, {"name": "标签验收青松"}], "primaryIndex": 1, "requestId": "7:42", "tagSession": "2:5" });
+        let action: super::HtmlControlsActionPayload = serde_json::from_value(value.clone()).unwrap();
+        let roundtrip = serde_json::to_value(action).unwrap();
+        for key in ["itemId", "action", "selections", "primaryIndex", "requestId", "tagSession"] {
+            assert_eq!(roundtrip[key], value[key], "{key}");
+        }
+    }
+
     use crate::models::{HtmlEditToolbarFormatState, ItemDetail, ItemSummary};
 
     use super::{

@@ -78,7 +78,7 @@ pub use skill::{
 };
 pub use tag::{
     CreateTagRequest, DeleteTagRequest, DeleteTagResponse, SetItemTagsRequest,
-    SetItemTagsResponse, Tag, UpdateTagRequest,
+    SetItemTagsResponse, Tag, UpdateTagRequest, SaveItemTagsRequest, TagSelection,
 };
 pub use update::{
     CheckForUpdatesRequest, DownloadAndInstallUpdateRequest, GitHubRelease,

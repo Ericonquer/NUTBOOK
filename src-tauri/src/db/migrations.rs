@@ -7,7 +7,7 @@ use rusqlite::{backup::Backup, Connection, OptionalExtension, Transaction};
 
 use crate::errors::AppError;
 
-pub const LATEST_SCHEMA_VERSION: i64 = 8;
+pub const LATEST_SCHEMA_VERSION: i64 = 9;
 const MIGRATION_0002_SQL: &str =
     include_str!("../../migrations/0002_agent_artifact_sources.sql");
 const MIGRATION_0003_SQL: &str =
@@ -66,6 +66,7 @@ const MIGRATIONS: &[Migration] = &[
         name: "path_identity",
         sql: MIGRATION_0008_SQL,
     },
+    Migration { version: 9, name: "custom_tag_order", sql: include_str!("../../migrations/0009_custom_tag_order.sql") },
 ];
 
 pub fn ensure_migration_registry(connection: &Connection) -> Result<(), AppError> {
@@ -151,6 +152,8 @@ fn apply_migrations_transaction(
             apply_cover_dependency_columns_migration(&transaction)?;
         } else if migration.version == 8 {
             apply_path_identity_migration(&transaction)?;
+        } else if migration.version == 9 && !table_exists(&transaction, "item_tags")? {
+            // Partial pre-release drafts lack the baseline tag tables entirely.
         } else if !already_has_final_agent_schema {
             transaction
                 .execute_batch(migration.sql)
