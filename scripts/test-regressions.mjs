@@ -1628,7 +1628,7 @@ assert.match(
 // 外层 pill 只负责布局；+N（source-badge-more / tag-chip-more）不可压缩（flex: 0 0 auto）。
 assert.match(
   indexHtml,
-  /\.thumb-chip-row \.tag-chip-label,\s*\.thumb-chip-row \.source-badge-label \{[\s\S]*?display: block;[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;[\s\S]*?text-align: left;/,
+  /:is\(\.thumb-chip-row, \.card-tags-list\) \.tag-chip-label,\s*\.thumb-chip-row \.source-badge-label \{[\s\S]*?display: block;[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;[\s\S]*?text-align: left;/,
   "inner label must own the ellipsis with left alignment"
 );
 assert.match(
@@ -1639,20 +1639,20 @@ assert.match(
 // 外层 pill 不再直接承载 ellipsis（禁 inline-flex + justify-content:center 上做 text-overflow）。
 assert.doesNotMatch(
   indexHtml,
-  /\.thumb-chip-row \.tag-chip,[\s\S]*?\.source-badge \{[\s\S]*?justify-content: center;[\s\S]{0,120}?text-overflow: ellipsis;/,
+  /:is\(\.thumb-chip-row, \.card-tags-list\) \.tag-chip,[\s\S]*?\.source-badge \{[\s\S]*?justify-content: center;[\s\S]{0,120}?text-overflow: ellipsis;/,
   "ellipsis must live on the inner label, not the centered flex pill"
 );
 // 常态浅色：近白近乎不透明背景 + 深灰文字 + 细灰边框（不再是深黑底白字）。
 assert.match(
   indexHtml,
-  /\.thumb-chip-row \.tag-chip,[\s\S]*?\.source-badge \{[\s\S]*?background: rgba\(255, 255, 255, 0\.94\);[\s\S]*?border: 1px solid rgba\(31, 35, 40, 0\.14\);[\s\S]*?color: #3a3d44;[\s\S]*?cursor: default;/,
+  /:is\(\.thumb-chip-row, \.card-tags-list\) \.tag-chip,[\s\S]*?\.source-badge \{[\s\S]*?background: rgba\(255, 255, 255, 0\.94\);[\s\S]*?border: 1px solid rgba\(31, 35, 40, 0\.14\);[\s\S]*?color: #3a3d44;[\s\S]*?cursor: default;/,
   "badges must default to light pill (near-opaque white bg, gray text, thin border, default cursor)"
 );
 // 标签行从左侧排布，不再 flex-end。
 assert.match(
   indexHtml,
-  /\.thumb-chip-row \{[\s\S]*?justify-content: flex-start;/,
-  "thumb-chip-row must flow from the left by default"
+  /\.thumb-chip-row \{[\s\S]*?justify-content: flex-end;/,
+  "thumb-chip-row must align the badge group to the right"
 );
 assert.match(
   indexHtml,
@@ -1668,7 +1668,7 @@ assert.match(
 // hover / 卡片 focus-visible 只加深一档。
 assert.match(
   indexHtml,
-  /\.item-card:hover \.thumb-chip-row \.tag-chip,[\s\S]*?\.item-card:focus-visible \.thumb-chip-row \.tag-chip,[\s\S]*?\.item-card:focus-visible \.thumb-badge \{[\s\S]*?background: rgba\(232, 235, 240, 0\.98\);[\s\S]*?border-color: rgba\(31, 35, 40, 0\.28\);[\s\S]*?color: #1f2329;/,
+  /\.item-card:hover :is\(\.thumb-chip-row, \.card-tags-list\) \.tag-chip,[\s\S]*?\.item-card:focus-visible :is\(\.thumb-chip-row, \.card-tags-list\) \.tag-chip,[\s\S]*?\.item-card:focus-visible \.thumb-badge \{[\s\S]*?background: rgba\(232, 235, 240, 0\.98\);[\s\S]*?border-color: rgba\(31, 35, 40, 0\.28\);[\s\S]*?color: #1f2329;/,
   "hover and card focus-visible must deepen the badges by exactly one notch"
 );
 
@@ -2025,8 +2025,8 @@ assert.match(
 // 自定义标签交互按钮保留（data-document-tag-trigger / data-document-tag-remove），不改成普通 span。
 assert.match(
   docTagChips,
-  /<button class="breadcrumb-tag-trigger"[^>]*data-document-tag-trigger="current"[\s\S]*?data-document-tag-remove="true"/,
-  "custom tag must stay an interactive trigger button with remove affordance"
+  /<button class="breadcrumb-tag-trigger"[^>]*data-document-tag-trigger="current"/,
+  "custom tag must stay an interactive trigger button for the shared multi-tag editor"
 );
 
 // 2. CSS：文档工具栏来源徽标常态浅底深字、cursor default、+N/类型不可压缩、最大宽度约束。
@@ -2305,7 +2305,7 @@ assert.match(
 );
 assert.match(
   runtimeOverlay,
-  /id="customTagBtn"[\s\S]*?class="badge-tip" role="tooltip"[\s\S]*?id="customTagMore" class="tag-chip tag-chip-more"/,
+  /id="customTagBtn"[\s\S]*?class="badge-tip" role="tooltip"[\s\S]*?id="customTagMore"[^>]*class="tag-chip tag-chip-more"/,
   "custom tag chip must carry a badge-tip tooltip and a +N chip for multiple tags"
 );
 assert.match(
@@ -2437,7 +2437,7 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /if \(!homeMode\) closeRecentSearchPopup\(\);/,
+  /if \(!homeMode\)\s*\{\s*closeRecentSearchPopup\(\);\s*NutbookTagDiscovery.close\(\);\s*\}/,
   "switching to document mode must close the history popup so no plain DOM popup can cover the HTML runtime"
 );
 assert.match(

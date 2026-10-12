@@ -35,8 +35,8 @@ assert.equal(htmlFavoritePath[2], "1.5", "HTML and Markdown favorite icons must 
 
 assert.match(
   indexHtml,
-  /<article class="item-card[^>]*" data-open-item="\$\{item\.id\}">[\s\S]*?<button class="card-remove"[\s\S]*?<button class="card-favorite[^>]*"[\s\S]*?<button class="item-card-open" type="button" data-open-trigger="\$\{item\.id\}"/,
-  "file-card open, remove, and favorite actions must be sibling buttons"
+  /<article class="item-card[^>]*" data-open-item="\$\{item\.id\}"[^>]*>[\s\S]*?<button class="card-remove"[\s\S]*?<button class="card-favorite[^>]*"[\s\S]*?<div class="item-card-open" data-open-trigger="\$\{item\.id\}"/,
+  "file-card preview group must be a sibling of remove and favorite buttons so tag buttons are never nested inside an open button"
 );
 assert.doesNotMatch(
   indexHtml,
@@ -525,7 +525,7 @@ assert.equal(moreControlsBounds.x, defaultControlsBounds.x, "More must share the
 assert.equal(moreControlsBounds.width, defaultControlsBounds.width, "More must share the same stable controls width");
 assert.equal(defaultControlsBounds.height, 40, "closed controls keep their compact height");
 assert.equal(moreControlsBounds.height, 180, "More may change only the controls height");
-assert.equal(tagControlsBounds.height, 260, "Custom Tag may change only the controls height");
+assert.equal(tagControlsBounds.height, 360, "Custom Tag may change only the controls height");
 
 const controlsInvocations = [];
 let controlsRetryCount = 0;
@@ -539,9 +539,11 @@ const controlsTab = {
   }
 };
 const controlsCoordinator = {
+  currentRuntimeSurfaceToken: () => 1,
   documentToolbarPreferences: { html: [] },
   documentToolbarCapacity: () => 3,
   appState: {
+    itemOpenTokens: new Map([[41, 1]]),
     runtimeControlsOverlayAttachedItemId: null,
     runtimeControlsOverlayLastBoundsKey: null,
     runtimeControlsOverlayLastStateKey: null,
@@ -1019,9 +1021,9 @@ try {
   await initialTagButton.dispatchEvent("pointerdown");
   await runtimePage.waitForFunction(() => document.getElementById("tagMenu")?.classList.contains("open"));
   await runtimePage.waitForFunction(() =>
-    document.querySelector("#tagMenu .tag-menu-title")?.textContent === "Custom Tag"
-    && document.getElementById("tagNameInput")?.getAttribute("placeholder") === "New tag name"
-    && document.getElementById("createTagButton")?.textContent === "Create Tag"
+    document.querySelector("#tagMenu .tag-editor-title")?.textContent === "Custom Tag"
+    && document.querySelector("#tagMenuOptions input:not([type=checkbox])")?.getAttribute("placeholder") === "Find or create tag"
+    && document.querySelector("#tagMenuOptions .tag-editor-create")?.textContent === "＋ New"
   );
   await runtimePage.evaluate(() => {
     const next = { ...window.__NUTBOOK_RUNTIME_CONTROLS__, language: "zh-CN" };
@@ -1030,9 +1032,9 @@ try {
   });
   await runtimePage.waitForFunction(() =>
     document.getElementById("tagMenu")?.classList.contains("open")
-    && document.querySelector("#tagMenu .tag-menu-title")?.textContent === "自定义标签"
-    && document.getElementById("tagNameInput")?.getAttribute("placeholder") === "新标签名"
-    && document.getElementById("createTagButton")?.textContent === "新增标签"
+    && document.querySelector("#tagMenu .tag-editor-title")?.textContent === "自定义标签"
+    && document.querySelector("#tagMenuOptions input:not([type=checkbox])")?.getAttribute("placeholder") === "查找或新建标签"
+    && document.querySelector("#tagMenuOptions .tag-editor-create")?.textContent === "＋ 新建"
   );
   await runtimePage.waitForTimeout(220);
   await initialTagButton.dispatchEvent("pointerdown");

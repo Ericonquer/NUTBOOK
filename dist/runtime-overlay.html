@@ -496,14 +496,15 @@
     .pinned-action-wrap { position:relative; display:flex; pointer-events:auto; }
     .pinned-action-wrap:hover > .tip, .pinned-action-wrap:focus-within > .tip { opacity:1; visibility:visible; }
   </style>
+  <link rel="stylesheet" href="./tag-editor.css" />
 </head>
 <body>
   <div class="panel">
     <div class="row">
       <div id="tagRow" class="tag-row">
         <button id="addTagBtn" class="tag-chip placeholder-btn show" type="button">+ 标签</button>
-        <button id="customTagBtn" class="tag-chip custom-btn" type="button"><span id="customTagName"></span><span class="badge-tip" role="tooltip"></span><span id="clearTagBtn" class="tag-remove">×</span></button>
-        <span id="customTagMore" class="tag-chip tag-chip-more"><span class="badge-tip" role="tooltip"></span></span>
+        <button id="customTagBtn" class="tag-chip custom-btn" type="button"><span id="customTagName"></span><span class="badge-tip" role="tooltip"></span></button>
+        <button id="customTagMore" type="button" class="tag-chip tag-chip-more"><span class="badge-tip" role="tooltip"></span></button>
         <span id="sourceBadgeChips" class="source-badge-group"></span>
         <span id="typeTagChip" class="tag-chip meta">-</span>
       </div>
@@ -547,17 +548,13 @@
       </button>
     </div>
     <div id="tagMenu" class="tag-menu">
-      <div class="tag-menu-title">自定义标签</div>
-      <div class="tag-menu-create">
-        <input id="tagNameInput" placeholder="新标签名" />
-        <button id="createTagButton" type="button">新增标签</button>
-      </div>
       <div id="tagMenuOptions" class="tag-menu-options"></div>
     </div>
   </div>
   <div id="nativePresentationProgress" class="native-presentation-progress" role="status" aria-live="polite" hidden></div>
   <div id="fullscreenHint" class="fullscreen-hint" aria-live="polite"></div>
 
+  <script src="./tag-editor.js"></script>
   <script src="./document-toolbar.js"></script>
   <script src="./i18n.js?v=20260525-update-check"></script>
   <script>
@@ -621,13 +618,10 @@
       customTagBtn: document.getElementById("customTagBtn"),
       customTagName: document.getElementById("customTagName"),
       customTagMore: document.getElementById("customTagMore"),
-      clearTagBtn: document.getElementById("clearTagBtn"),
       sourceBadgeGroup: document.getElementById("sourceBadgeChips"),
       typeTagChip: document.getElementById("typeTagChip"),
       tagMenu: document.getElementById("tagMenu"),
       tagMenuOptions: document.getElementById("tagMenuOptions"),
-      tagNameInput: document.getElementById("tagNameInput"),
-      createTagButton: document.getElementById("createTagButton"),
       fullscreenHint: document.getElementById("fullscreenHint")
     };
 
@@ -899,10 +893,14 @@
       els.nativePresentationOption.style.display = isHtml ? "" : "none";
       els.editButton.style.display = isHtml ? "" : "none";
       els.addTagBtn.textContent = t("actions.addTag");
-      els.tagNameInput.placeholder = t("html.newTagName");
-      els.createTagButton.textContent = t("actions.createTag");
+      for (const button of [els.addTagBtn, els.customTagBtn, els.customTagMore]) {
+        const label = state.language === "en-US" ? "Edit tags" : "编辑标签"; button.title = label; button.setAttribute("aria-label", label);
+      }
     }
 
+    let tagEditor = null;
+    let pendingTagSave = null;
+    let tagSaveSequence = 0;
     function openTagMenu() {
       clearTagMenuOpenTimer();
       clearTagMenuAutoClose();
@@ -910,16 +908,16 @@
       // tags layout race or come back when the menu later settles.
       hidePendingTip(undefined, { skipLayout: true });
       state.tagMenuOpen = true;
-      els.tagMenuOptions.innerHTML = state.availableTags.length
-        ? state.availableTags.map(function(tag) {
-          return '<button class="tag-menu-option' + (state.customTag && state.customTag.id === tag.id ? ' active' : '') + '" type="button" data-tag-id="' + tag.id + '">' + tag.name + '</button>';
-        }).join("")
-        : '<div class="muted" style="padding:4px 2px;">' + t("settings.noLabels") + '</div>';
-      els.tagMenuOptions.querySelectorAll("[data-tag-id]").forEach(function(node) {
-        node.addEventListener("click", function() {
-          emit({ action: "set-tag", tagId: Number(node.dataset.tagId) });
-          closeTagMenuAfterAction();
-        });
+      tagEditor = NutbookTagEditor.mount(els.tagMenuOptions, {
+        language: state.language, tags: state.customTags || [], available: state.availableTags,
+        onCancel: function() { closeTagMenu(); },
+        onSave: function(draft) {
+          return new Promise(function(resolve, reject) {
+            const requestId = String(state.itemId) + ':' + Date.now() + ':' + (++tagSaveSequence);
+            pendingTagSave = { requestId: requestId, resolve: resolve, reject: reject };
+            emit(Object.assign({ action: 'save-tags', requestId: requestId, tagSession: state.toolbar?.tagEditor?.session }, draft));
+          });
+        }
       });
       emitLayout();
       tagMenuOpenTimer = setTimeout(function() {
@@ -929,11 +927,14 @@
     }
 
     function closeTagMenu(options) {
+      if (tagEditor?.busy && !(options && options.force)) return false;
       var shouldEmitLayout = !options || options.emitLayout !== false;
       var wasOpen = state.tagMenuOpen || els.tagMenu.classList.contains("open");
       clearTagMenuOpenTimer();
       clearTagMenuAutoClose();
       state.tagMenuOpen = false;
+      tagEditor = null;
+      els.tagMenuOptions.replaceChildren();
       els.tagMenu.classList.remove("open");
       hidePendingTip(undefined, { skipLayout: true });
       if (wasOpen && shouldEmitLayout) emitLayout();
@@ -1067,6 +1068,16 @@
         hidePendingTip(undefined, { skipLayout: true });
         lastLayoutSignature = "";
       }
+      if (itemChanged) {
+        closeTagMenu({ force: true, emitLayout: false });
+        if (pendingTagSave) { pendingTagSave.reject('File changed'); pendingTagSave = null; }
+      }
+      const tagSaveResult = next.toolbar?.tagEditor?.saveResult;
+      if (pendingTagSave && tagSaveResult?.requestId === pendingTagSave.requestId && tagSaveResult.itemId === next.itemId) {
+        const pending = pendingTagSave; pendingTagSave = null;
+        if (tagSaveResult.ok) { tagEditor = null; pending.resolve(); }
+        else pending.reject(tagSaveResult.error);
+      }
       state.itemId = next.itemId;
       state.fileName = next.fileName || null;
       state.isFavorite = !!next.isFavorite;
@@ -1089,6 +1100,7 @@
         // localStorage update alone does not repaint this already-open child.
         i18n?.setLanguage?.(nextLanguage);
       }
+      tagEditor?.setLanguage(state.language);
       refresh();
       if (preparationChanged) emitLayout();
       if (!wasFullscreen && state.isFullscreen) showFullscreenHint();
@@ -1115,11 +1127,9 @@
     els.addTagBtn.addEventListener("click", function(e) { e.preventDefault(); e.stopPropagation(); });
     els.customTagBtn.addEventListener("pointerdown", function(e) {
       e.stopPropagation();
-      if (e.target === els.clearTagBtn || els.clearTagBtn.contains(e.target)) {
-        emit({ action: "clear-tag" }); return;
-      }
       activateTagMenu(e);
     });
+    els.customTagMore.addEventListener("click", function(e) { e.stopPropagation(); toggleTagMenu(); });
     els.customTagBtn.addEventListener("click", function(e) { e.preventDefault(); e.stopPropagation(); });
     els.favoriteButton.addEventListener("click", function() {
       emit({ action: "toggle-favorite" });
@@ -1275,30 +1285,11 @@
         activatePresentationMode(e);
       }
     });
-    function createCustomTag(e) {
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      var now = Date.now();
-      if (now - lastCreateTagAt < 180) return;
-      lastCreateTagAt = now;
-      var name = els.tagNameInput.value.trim();
-      if (!name) return;
-      emit({ action: "create-tag", name: name });
-      els.tagNameInput.value = "";
-      closeTagMenuAfterAction();
-    }
-    els.createTagButton.addEventListener("pointerdown", createCustomTag);
-    els.createTagButton.addEventListener("click", createCustomTag);
-    els.tagNameInput.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") { e.preventDefault(); els.createTagButton.click(); }
-    });
     els.tagMenu.addEventListener("click", function(e) { e.stopPropagation(); });
     els.tagMenu.addEventListener("mouseenter", function() { clearTagMenuAutoClose(); });
-    els.tagMenu.addEventListener("mouseleave", function() { scheduleTagMenuAutoClose(220); });
-    els.addTagBtn.addEventListener("mouseleave", function() { if (state.tagMenuOpen) scheduleTagMenuAutoClose(900); });
-    els.customTagBtn.addEventListener("mouseleave", function() { if (state.tagMenuOpen) scheduleTagMenuAutoClose(900); });
+    els.tagMenu.addEventListener("mouseleave", function() { scheduleTagMenuAutoClose(700); });
+    els.addTagBtn.addEventListener("mouseleave", function() { if (state.tagMenuOpen) scheduleTagMenuAutoClose(700); });
+    els.customTagBtn.addEventListener("mouseleave", function() { if (state.tagMenuOpen) scheduleTagMenuAutoClose(700); });
     els.menu.addEventListener("mouseenter", function() { clearMenuAutoClose(); });
     els.menu.addEventListener("mouseleave", function() { scheduleMenuAutoClose(700); });
     els.moreButton.addEventListener("mouseleave", function() {
@@ -1341,6 +1332,11 @@
       } catch (_) {}
     }
 
+    // Body clicks belong to a sibling native WebView, so they never bubble here.
+    // Losing controls focus is the cross-surface equivalent of an outside click.
+    window.addEventListener("blur", function() {
+      closeTagMenu();
+    });
     document.addEventListener("click", function(e) {
       if (state.menuOpen && !els.menu.contains(e.target) && !els.moreButton.contains(e.target)) {
         state.menuOpen = false; refresh(); clearMenuAutoClose();

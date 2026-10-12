@@ -303,6 +303,7 @@ pub struct ListItemsQuery {
     pub keyword: Option<String>,
     pub file_types: Option<Vec<String>>,
     pub tag_ids: Option<Vec<i64>>,
+    pub untagged: Option<bool>,
     pub include_deleted: Option<bool>,
     pub sort_by: Option<String>,
     pub sort_order: Option<String>,
