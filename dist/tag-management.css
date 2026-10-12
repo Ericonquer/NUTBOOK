@@ -54,3 +54,11 @@
 .tag-management-merge-confirm .tag-management-actions { margin-left:auto; }
 .tag-management-merge-confirm .tag-management-error:empty { display:none; }
 .tag-management-keep { display:inline-flex; align-items:center; justify-content:center; flex:none; width:20px; height:20px; margin:0 5px; border-radius:50%; background:transparent; color:#222; font-size:16px; font-weight:800; line-height:1; }
+
+/* Compact, equal-sized capsules; frequency is expressed by order. */
+.tag-management-cloud { gap:10px; }
+.tag-management-row { padding:2px 6px 2px 10px; gap:2px; align-items:center; }
+.tag-management-name,.tag-management-inline-input { font-size:12px; font-weight:500; padding:4px 2px; }
+.tag-management-pin { width:22px; height:22px; }
+.tag-management-pin svg { width:13px; height:13px; }
+.tag-management-keep { width:16px; height:16px; margin:0 3px; font-size:14px; }

@@ -53,5 +53,5 @@
   }
   if(!config.tags.length)root.append(make('div','settings-empty',text('还没有标签','No tags yet')));
  }
- window.NutbookTagManagement={mount(node,options){root=node;config=options;if(active&&!busy&&!config.tags.some(t=>t.id===active.id))active=null;render();}};
+ window.NutbookTagManagement={mount(node,options){root=node;config={...options,tags:[...options.tags].sort((a,b)=>(options.counts?.[b.id]||0)-(options.counts?.[a.id]||0)||a.id-b.id)};if(active&&!busy&&!config.tags.some(t=>t.id===active.id))active=null;render();}};
 })();

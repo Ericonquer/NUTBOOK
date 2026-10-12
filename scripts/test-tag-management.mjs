@@ -18,7 +18,7 @@ try{
  });
  await page.evaluate(()=>openSettingsTab('tags'));
  const management=page.locator('#settingsTagList');
- assert.equal(await management.locator('.tag-management-row').count(),3);await management.screenshot({path:'/tmp/nutbook-tag-capsules.png'});
+ assert.equal(await management.locator('.tag-management-row').count(),3);assert.equal(await management.locator('.tag-management-name').first().textContent(),'客户');assert.ok(await management.locator('.tag-management-row').first().evaluate(n=>n.getBoundingClientRect().height)<=32,'Management capsules remain compact');await management.screenshot({path:'/tmp/nutbook-tag-capsules.png'});
  const row=name=>management.locator('.tag-management-row').filter({has:page.locator('.tag-management-name',{hasText:name})});
  const hold=await row('客户').locator('.tag-management-name').boundingBox();await page.mouse.move(hold.x+hold.width/2,hold.y+hold.height/2);await page.mouse.down();await page.waitForTimeout(650);await page.mouse.up();
  await management.getByRole('textbox',{name:'标签名称'}).fill('新客户');

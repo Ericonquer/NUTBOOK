@@ -27528,7 +27528,7 @@ if (!chipTipController) {
             appState.isSortMenuOpen = false;
             renderSortMenu();
           }
-          if (appState.isDocumentTagMenuOpen && !documentTagEditor?.busy && !els.documentTagMenu.contains(event.target) && !els.breadcrumbTags.contains(event.target)) {
+          if (appState.isDocumentTagMenuOpen && !documentTagEditor?.busy && !event.composedPath().includes(els.documentTagMenu) && !event.composedPath().includes(els.breadcrumbTags)) {
             appState.isDocumentTagMenuOpen = false;
             renderDocumentTagMenu();
           }

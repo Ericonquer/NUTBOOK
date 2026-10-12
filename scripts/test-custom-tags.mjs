@@ -98,6 +98,21 @@ try {
   }
 
 
+  // Exercise the actual Markdown host outside-click listener during synchronous row replacement.
+  await page.evaluate(() => {
+    const menu=els.documentTagMenu;document.body.append(menu);menu.style.position='fixed';menu.style.left='100px';menu.style.top='100px';menu.style.zIndex='10000';menu.classList.add('open');menu.setAttribute('aria-hidden','false');
+    appState.isDocumentTagMenuOpen=true;window.hostTagWrites=[];
+    NutbookTagEditor.mount(menu,{language:'zh-CN',tags:[{id:1,name:'A'},{id:2,name:'B'}],available:[{id:1,name:'A'},{id:2,name:'B'}],onSave:async draft=>hostTagWrites.push(draft),onCancel:()=>{appState.isDocumentTagMenuOpen=false;menu.replaceChildren();}});
+  });
+  const hostEditor=page.locator('#documentTagMenu');
+  await hostEditor.getByRole('button',{name:'设为主标签',exact:true}).click();
+  assert.equal(await page.evaluate(()=>appState.isDocumentTagMenuOpen),true,'Changing primary must not be mistaken for outside click after row replacement');
+  assert.equal(await hostEditor.locator('.tag-editor-row').nth(1).getByRole('button',{name:'主标签',exact:true}).count(),1);
+  assert.deepEqual(await page.evaluate(()=>hostTagWrites),[],'Primary change is draft-only');
+  await hostEditor.getByRole('button',{name:'确认',exact:true}).click();
+  assert.equal(await page.evaluate(()=>hostTagWrites[0].primaryIndex),1);
+  assert.equal(await page.evaluate(()=>appState.isDocumentTagMenuOpen),false);
+
   // The shared editor's draft is isolated until confirmation, and failures retain it.
   await page.evaluate(() => {
     window.tagWrites = []; window.tagCancels = 0;
