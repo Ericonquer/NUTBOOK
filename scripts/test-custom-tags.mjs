@@ -73,6 +73,10 @@ try {
     appState.items[0].fileType='html'; appState.items[1].fileType='markdown';
     appState.lastItemsFingerprint=''; renderItems();
   });
+  // Compare identical interaction states, independent of pointer placement after rerender.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.waitForFunction(() => [...document.querySelectorAll('.item-card')].every(card => !card.matches(':hover, :focus-visible')));
   const skins = await page.locator('.item-card').evaluateAll(cards => cards.slice(0,2).map(card => {
     const pill=card.querySelector('.thumb-chip-row .tag-chip'), style=getComputedStyle(pill);
     return Object.fromEntries(['height','fontSize','fontFamily','lineHeight','fontWeight','borderRadius','padding','backgroundColor','borderColor','boxShadow'].map(key=>[key,style[key]]));
