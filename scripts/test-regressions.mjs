@@ -281,7 +281,7 @@ assert.match(htmlEditRuntime, /function activateSectionNavigationAdapter[\s\S]*?
 assert.match(htmlEditRuntime, /function sectionScrollRoot[\s\S]*?overflowY[\s\S]*?scrollHeight[\s\S]*?document\.scrollingElement/, "section navigation must validate one explicit document or element scroll root");
 assert.match(htmlEditRuntime, /function goToSection[\s\S]*?itemId[\s\S]*?runtimeSessionId[\s\S]*?generation[\s\S]*?requestId/, "section navigation commands must carry full session and request identity");
 assert.doesNotMatch(htmlEditRuntime, /background:#(?:f8f8f9|f3f3f5)(?:!important)?/, "edit focus affordance must not force a light background over source text");
-assert.match(htmlEditRuntime, /function onCompositionStart\(\) \{ STATE\.composing = true; \}/, "plain and rich text must both suspend mutation bookkeeping during IME composition");
+assert.match(htmlEditRuntime, /function onCompositionStart\(\) \{[^\n]*STATE\.composing = true;/, "plain and rich text must both suspend mutation bookkeeping during IME composition");
 assert.doesNotMatch(runtimeSection("onKeyDownCapture", "isEditableEventTarget"), /const blocked = \[/, "ordinary and section HTML editing must not globally swallow source navigation keys");
 assert.match(indexHtml, /function renderHtmlEditSectionNavigationRail[\s\S]*?sectionNavigationRail/, "converted section navigation must use its own host rail renderer and DOM boundary");
 assert.match(indexHtml, /isStrictRuntimeMessage[\s\S]*?Number\(data\.itemId\) !== session\.itemId[\s\S]*?Number\(data\.generation\) !== session\.generation/, "section and ready messages must be rejected before handling when their item or generation is stale");
@@ -1093,7 +1093,7 @@ assert.match(
 );
 assert.match(
   htmlEditRuntime,
-  /function onCompositionStart\(\) \{ STATE\.composing = true; \}[\s\S]*?function onCompositionEnd\(event\) \{ STATE\.composing = false; commitDocumentMutation\(event\.currentTarget\); \}[\s\S]*?function onInput\(event\) \{[\s\S]*?if \(STATE\.composing\) return;/,
+  /function onCompositionStart\(\) \{[^\n]*STATE\.composing = true;[^\n]*\}[\s\S]*?function onCompositionEnd\(event\) \{ STATE\.composing = false; commitDocumentMutation\(event\.currentTarget\); \}[\s\S]*?function onInput\(event\) \{[\s\S]*?if \(STATE\.composing\) return;/,
   "plain and rich IME composition must defer their one document transaction until composition ends"
 );
 assert.doesNotMatch(

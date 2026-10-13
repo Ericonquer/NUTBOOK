@@ -1559,7 +1559,7 @@ pub fn focus_html_runtime_host(
     let fullscreen_assignment = host_fullscreen
         .map(|enabled| {
             format!(
-                "window.__NUTBOOK_HOST_FULLSCREEN__ = {};",
+                "window.__NUTBOOK_HOST_FULLSCREEN__ = {}; window.__NUTBOOK_MOTION__?.fullscreenChanged?.(window.__NUTBOOK_HOST_FULLSCREEN__);",
                 if enabled { "true" } else { "false" }
             )
         })

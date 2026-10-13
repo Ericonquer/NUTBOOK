@@ -907,6 +907,38 @@ fn apply_html_edit_changes_to_source(source: &str, library_root: &Path, artifact
             if target.open_start < page.inner_start || target.close_end > page.inner_end { return Err(AppError::EditConflict); }
         }
         match change.change_type {
+            HtmlEditChangeType::MotionConfig => {
+                let root = find_unique_tag(source, "html")?;
+                let tag = &source[target.open_start..target.open_end];
+                let contract = attribute_value(&source[root.open_start..root.open_end], "data-nutbook-motion-contract");
+                if !matches!(contract.as_deref(), Some("nutbook-motion/experimental-v1" | "nutbook-motion/v1"))
+                    || field_id != "nutbook-motion-config" || target.name != "script"
+                    || attribute_value(tag, "type").as_deref() != Some("application/json")
+                    || attribute_value(tag, "id").as_deref() != Some("nutbook-motion-config") {
+                    return Err(AppError::EditConflict);
+                }
+                if contract.as_deref() == Some("nutbook-motion/v1") {
+                    let unique = find_unique_attribute(source, "id", "nutbook-motion-config")?.ok_or(AppError::EditConflict)?;
+                    if unique.open_start != target.open_start { return Err(AppError::EditConflict); }
+                    let text = change.text.as_deref().ok_or(AppError::InvalidParams)?;
+                    validate_formal_motion_source(source, &source[target.inner_start..target.inner_end], text)?;
+                    edits.push((target.inner_start, target.inner_end, canonical_motion_json(text)?));
+                    continue;
+                }
+                let config = validate_motion_config(change.text.as_deref().ok_or(AppError::InvalidParams)?)?;
+                let original = validate_motion_config(&source[target.inner_start..target.inner_end])?;
+                if config.entries.keys().ne(original.entries.keys()) { return Err(AppError::EditConflict); }
+                for (id, entry) in &config.entries {
+                    let previous = original.entries.get(id).ok_or(AppError::EditConflict)?;
+                    if entry.target != previous.target || entry.page_id != previous.page_id { return Err(AppError::EditConflict); }
+                    let page = find_unique_attribute(source, "data-nutbook-page-id", &entry.page_id)?.ok_or(AppError::EditConflict)?;
+                    if entry.target != entry.page_id {
+                        let element = find_unique_data_id(source, &entry.target)?;
+                        if element.open_start < page.inner_start || element.close_end > page.inner_end { return Err(AppError::EditConflict); }
+                    }
+                }
+                edits.push((target.inner_start, target.inner_end, serde_json::to_string(&config).map_err(|_| AppError::InvalidParams)?));
+            }
             HtmlEditChangeType::Text => {
                 if target.name.is_empty() || attribute_value(&source[target.open_start..target.open_end], "data-editable").as_deref() != Some("text") { return Err(AppError::EditConflict); }
                 edits.push((target.inner_start, target.inner_end, escape_html_text(change.text.as_deref().ok_or(AppError::InvalidParams)?)));
@@ -1441,6 +1473,26 @@ pub fn normalize_html_edit_change(
     }
 
     match &change.change_type {
+        HtmlEditChangeType::MotionConfig => {
+            if field_id != "nutbook-motion-config" || change.page_id.is_some() || change.deleted { return Err(AppError::InvalidParams); }
+            let mut normalized = normalize_rich_text_change(change)?;
+            if change.src.is_some() || change.alt.is_some() || change.picture_sources.is_some()
+                || change.original_src_hash.is_some() || change.original_style_hash.is_some()
+                || change.inserted_image_id.is_some() || change.left_permille.is_some()
+                || change.top_permille.is_some() || change.width_permille.is_some()
+                || change.height_permille.is_some() || change.canvas_width.is_some()
+                || change.canvas_height.is_some() || change.edit_role.is_some() { return Err(AppError::InvalidParams); }
+            let text = change.text.as_deref().ok_or(AppError::InvalidParams)?;
+            let value: serde_json::Value = serde_json::from_str(text).map_err(|_| AppError::InvalidParams)?;
+            if value.get("contract").is_some() {
+                crate::core::motion::validate(text)?;
+                normalized.text = Some(canonical_motion_json(text)?);
+            } else {
+                let config = validate_motion_config(text)?;
+                normalized.text = Some(serde_json::to_string(&config).map_err(|_| AppError::InvalidParams)?);
+            }
+            Ok(normalized)
+        }
         HtmlEditChangeType::Text | HtmlEditChangeType::RichText => {
             if change.picture_sources.is_some() {
                 return Err(AppError::InvalidParams);
@@ -1854,4 +1906,122 @@ pub fn unix_timestamp() -> Result<i64, AppError> {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .map_err(|_| AppError::InternalError)
+}
+
+// Experimental, data-only motion contract. No CSS, HTML, URLs or executable code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MotionConfig { version: u32, entries: BTreeMap<String, MotionEntry> }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MotionEntry { target: String, page_id: String, effect: String, duration: f64, strength: f64, count: u32, x: f64, y: f64, seed: u32 }
+fn validate_motion_config(text: &str) -> Result<MotionConfig, AppError> {
+    if text.len() > 32768 { return Err(AppError::InvalidParams); }
+    let config: MotionConfig = serde_json::from_str(text).map_err(|_| AppError::InvalidParams)?;
+    let valid_id = |id: &str| !id.is_empty() && id.len() <= 80 && id.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_:".contains(&c));
+    if config.version != 1 || config.entries.is_empty() || config.entries.len() > 32 { return Err(AppError::InvalidParams); }
+    for (id, entry) in &config.entries {
+        if !valid_id(id) || !valid_id(&entry.target) || !valid_id(&entry.page_id)
+            || !["particles", "impact", "light"].contains(&entry.effect.as_str())
+            || !(0.5..=6.0).contains(&entry.duration) || !(0.0..=2.0).contains(&entry.strength)
+            || !(12..=400).contains(&entry.count) || !(0.0..=1.0).contains(&entry.x) || !(0.0..=1.0).contains(&entry.y) {
+            return Err(AppError::InvalidParams);
+        }
+    }
+    Ok(config)
+}
+
+// Canonical data serialization is shared with the browser's recursively sorted keys.
+fn canonical_motion_json(text: &str) -> Result<String, AppError> {
+    let mut value: serde_json::Value = serde_json::from_str(text).map_err(|_| AppError::InvalidParams)?;
+    value.sort_all_objects();
+    serde_json::to_string(&value).map_err(|_| AppError::InvalidParams)
+}
+fn validate_formal_motion_source(source: &str, original: &str, updated: &str) -> Result<(), AppError> {
+    let before = crate::core::motion::validate(original)?;
+    let after = crate::core::motion::validate(updated)?;
+    // Editing actions cannot redeclare page identity, target kind or permissions.
+    if before.pages.len() != after.pages.len() { return Err(AppError::EditConflict); }
+    let elements = html_open_elements(source)?;
+    for (previous, page) in before.pages.iter().zip(&after.pages) {
+        if previous.id != page.id
+            || serde_json::to_value(&previous.capabilities).ok() != serde_json::to_value(&page.capabilities).ok()
+            || serde_json::to_value(&previous.targets).ok() != serde_json::to_value(&page.targets).ok() { return Err(AppError::EditConflict); }
+        let root = find_unique_attribute(source, "data-nutbook-page-id", &page.id)?.ok_or(AppError::EditConflict)?;
+        for target in &page.targets {
+            let element = find_unique_data_id(source, &target.id)?;
+            if element.open_start < root.inner_start || element.close_end > root.inner_end { return Err(AppError::EditConflict); }
+            let tag = &source[element.open_start..element.open_end];
+            let role = attribute_value(tag, "data-editable");
+            let compatible = match target.kind.as_str() {
+                "text" => matches!(role.as_deref(), Some("text" | "rich-text")),
+                "image" => element.name == "img" && role.as_deref() == Some("image"),
+                "video" => element.name == "video",
+                "embedded" => element.name == "iframe",
+                "group" => attribute_value(tag, "data-nutbook-motion-group").as_deref() == Some("true"),
+                _ => false,
+            };
+            if !compatible { return Err(AppError::EditConflict); }
+        }
+        for element in &elements {
+            if element.open_start < root.inner_start || element.close_end > root.inner_end { continue; }
+            let ids = match element.name.as_str() {
+                "video" => &page.capabilities.media_target_ids,
+                "iframe" => &page.capabilities.embedded_target_ids,
+                _ => continue,
+            };
+            let id = attribute_value(&source[element.open_start..element.open_end], "data-id").ok_or(AppError::EditConflict)?;
+            if !ids.contains(&id) { return Err(AppError::EditConflict); }
+        }
+    }
+    Ok(())
+}
+
+/// Generator-only declaration from parsed semantic nodes. No caller-supplied permissions.
+pub(crate) fn declare_motion_document(source: &str) -> Result<crate::core::motion::MotionDocument, AppError> {
+    use crate::core::motion::{MotionDocument, MotionPage, Capabilities, Target};
+    let elements = html_open_elements(source)?;
+    let mut pages = Vec::new();
+    for page in &elements {
+        let Some(id) = attribute_value(&source[page.open_start..page.open_end], "data-nutbook-page-id") else { continue; };
+        let mut targets=Vec::new();let mut media=Vec::new();let mut embedded=Vec::new();
+        for element in &elements {
+            if element.open_start < page.inner_start || element.close_end > page.inner_end { continue; }
+            let tag=&source[element.open_start..element.open_end];
+            let Some(target_id)=attribute_value(tag,"data-id") else {
+                if matches!(element.name.as_str(),"video"|"iframe") { return Err(AppError::InvalidParams); }
+                continue;
+            };
+            let kind=match element.name.as_str() {
+                "video"=>{media.push(target_id.clone());"video"},
+                "iframe"=>{embedded.push(target_id.clone());"embedded"},
+                "img" if attribute_value(tag,"data-editable").as_deref()==Some("image")=>"image",
+                _ if matches!(attribute_value(tag,"data-editable").as_deref(),Some("text"|"rich-text"))=>"text",
+                _=>continue,
+            };
+            targets.push(Target{id:target_id,kind:kind.into()});
+        }
+        pages.push(MotionPage{id,capabilities:Capabilities{contains_video:!media.is_empty(),contains_embedded_frame:!embedded.is_empty(),supports_dom_transition:true,supports_filter_transition:true,media_target_ids:media,embedded_target_ids:embedded},targets,actions:Vec::new(),background:None,transition:None});
+    }
+    let config=MotionDocument{contract:"nutbook-motion/v1".into(),pages};
+    crate::core::motion::validate(&serde_json::to_string(&config).map_err(|_|AppError::InvalidParams)?)
+}
+
+/// Formal export covers small semantic leaves, including authored captions and logos.
+/// Never wraps a layout container or nests a target inside an existing editor field.
+pub(crate) fn complete_motion_edit_targets(source: &str) -> Result<String, AppError> {
+    let elements=html_open_elements(source)?;let mut edits=Vec::new();let mut index=0;
+    let body=find_unique_tag(source,"body")?;
+    for element in &elements {
+        if element.open_start<body.inner_start || element.close_end>body.inner_end || matches!(element.name.as_str(),"script"|"style"|"template"|"noscript") {continue;}
+        if elements.iter().any(|parent|parent.open_start<=element.open_start&&parent.close_end>=element.close_end&&attribute_value(&source[parent.open_start..parent.open_end],"data-editable").is_some()) {continue;}
+        let inner=&source[element.inner_start..element.inner_end];
+        let leaf=!inner.contains('<')&&!inner.trim().is_empty();
+        if element.name!="img"&&!leaf {continue;}
+        index+=1;let tag=&source[element.open_start..element.open_end];
+        let tag=set_html_attribute(tag,"data-id",&format!("nutbook-motion-extra-{index:03}"));
+        let tag=set_html_attribute(&tag,"data-editable",if element.name=="img"{"image"}else{"text"});
+        edits.push((element.open_start,element.open_end,tag));
+    }
+    let mut result=source.to_string();edits.sort_by_key(|(start,_,_)|std::cmp::Reverse(*start));for(start,end,tag)in edits{result.replace_range(start..end,&tag);}Ok(result)
 }

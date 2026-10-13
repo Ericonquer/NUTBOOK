@@ -8,9 +8,10 @@
   },
   "scripts": {
     "dev": "cargo tauri dev --config src-tauri/tauri.dev.conf.json",
-    "build:frontend": "vite build --config vite.config.mjs && node scripts/build-update-ui.mjs && node scripts/patch-markdown-editor-bundle.mjs && node scripts/build-markdown-document-title.mjs",
+    "build:frontend": "vite build --config vite.config.mjs && node scripts/build-update-ui.mjs && node scripts/patch-markdown-editor-bundle.mjs && node scripts/build-markdown-document-title.mjs && node scripts/build-motion-runtime.mjs && node scripts/build-nbskill-package.mjs",
     "prepare:nutbook-cli": "node scripts/prepare-nutbook-cli.mjs",
-    "check:frontend": "node --check dist/assets/markdown-editor.js",
+    "check:motion:p0": "node scripts/check-motion-p0.mjs",
+    "check:frontend": "node --check dist/assets/markdown-editor.js && node --check src-tauri/resources/export-templates/motion-runtime.js",
     "check:ci": "node scripts/check-ci.mjs quality",
     "check:ci:windows": "node scripts/check-ci.mjs windows",
     "check:release-preflight:windows": "node scripts/check-ci.mjs release-windows",

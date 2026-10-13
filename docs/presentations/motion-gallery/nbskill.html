@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="zh-CN" data-nutbook-motion-contract="nutbook-motion/v1" data-nutbook-edit-contract="nutbook-html/v1" data-nutbook-artifact-kind="presentation">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>演示稿示例</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; background: #171b2b; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+    body { overflow: hidden; }
+    .slide { display: none; width: 100vw; height: 100vh; padding: 8vw; align-items: center; gap: 5vw; }
+    .slide.active { display: flex; }
+    .copy { max-width: 64vw; }
+    h1 { margin: 0 0 .4em; font-size: clamp(38px, 6vw, 84px); line-height: 1.12; }
+    p { margin: 0; font-size: clamp(20px, 2.5vw, 34px); line-height: 1.4; color: #d3d7e8; }
+    img { width: 25vw; max-height: 45vh; object-fit: contain; }
+    .controls { position: fixed; right: 22px; bottom: 22px; display: flex; gap: 8px; }
+    .controls button { width: 38px; height: 38px; border: 1px solid #818ca4; border-radius: 50%; background: #252c43; color: #fff; cursor: pointer; }
+    .controls button:hover, .controls button:focus-visible { background: #394868; outline: 2px solid #fff; }
+    .controls [data-prev]::before { content: "←"; }
+    .controls [data-next]::before { content: "→"; }
+    html[data-nutbook-managed-presentation="true"] .controls { display: none; }
+  </style>
+</head>
+<body>
+  <section class="slide active" data-nutbook-page-id="opening">
+    <div class="copy"><h1 data-id="opening-title" data-editable="text">演示稿标题</h1><p data-id="opening-copy" data-editable="text">简述核心观点</p></div>
+    <img data-id="opening-image" data-editable="image" src="./presentation-mark.svg" alt="演示插图">
+  </section>
+  <section class="slide" data-nutbook-page-id="evidence">
+    <div class="copy"><h1 data-id="evidence-title" data-editable="text">关键证据</h1><p data-id="evidence-copy" data-editable="text">一页只讲一个重点</p></div>
+  </section>
+  <section class="slide" data-nutbook-page-id="finish">
+    <div class="copy"><h1 data-id="finish-title" data-editable="text">结论</h1><p data-id="finish-copy" data-editable="text">让观众带走清晰的下一步</p></div>
+  </section>
+  <nav class="controls" aria-label="独立浏览器翻页">
+    <button type="button" data-prev aria-label="上一页" title="上一页"></button>
+    <button type="button" data-next aria-label="下一页" title="下一页"></button>
+  </nav>
+  <script type="application/json" id="nutbook-presentation-notes">{"version":1,"pages":{"opening":[{"type":"paragraph","runs":[{"text":"开场备注"}]}],"evidence":[{"type":"paragraph","runs":[{"text":"说明关键证据"}]}],"finish":[{"type":"paragraph","runs":[{"text":"结束语"}]}]}}</script>
+  <script>
+// Embedded into each standalone presentation. Navigation remains owned by the deck.
+window.createNutbookPresentationBridge = function createNutbookPresentationBridge(adapter) {
+  const pages = adapter.pages.map((page, index) => ({ ...page, index: index + 1 }));
+  const ids = new Set(pages.map((page) => page.id));
+  if (!pages.length || ids.size !== pages.length || pages.some((page) => !page.id)) {
+    throw new Error("Presentation pages need unique, non-empty IDs");
+  }
+  return {
+    version: 1,
+    capabilities: { managedPresenter: true },
+    pages,
+    get activePageId() { return adapter.activePageId(); },
+    whenReady() { return Promise.resolve(adapter.whenReady?.() ?? true); },
+    goTo(id) { return ids.has(id) ? adapter.goTo(id) : false; },
+    subscribe(listener) { return adapter.subscribe(listener); },
+    setManagedMode(enabled) { return adapter.setManagedMode(Boolean(enabled)); },
+    setEditMode(enabled) { return adapter.setEditMode?.(Boolean(enabled)) ?? true; }
+  };
+};
+
+  </script>
+  <script>
+    (() => {
+      const slides = [...document.querySelectorAll(".slide")];
+      const subscribers = new Set();
+      const controls = document.querySelector(".controls");
+      let index = 0;
+      let managed = false;
+      let editing = false;
+      function goTo(id) {
+        const next = slides.findIndex(slide => slide.dataset.nutbookPageId === id);
+        if (next < 0) return false;
+        if (next === index) return true;
+        index = next;
+        slides.forEach((slide, at) => slide.classList.toggle("active", at === index));
+        subscribers.forEach(listener => listener(id));
+        return true;
+      }
+      window.__NUTBOOK_PRESENTATION__ = window.createNutbookPresentationBridge({
+        pages: slides.map(slide => ({ id: slide.dataset.nutbookPageId, title: slide.querySelector("h1")?.textContent || "" })),
+        activePageId: () => slides[index].dataset.nutbookPageId,
+        goTo,
+        subscribe(listener) { if (typeof listener !== "function") return () => {}; subscribers.add(listener); return () => subscribers.delete(listener); },
+        setManagedMode(enabled) { managed = enabled; document.documentElement.dataset.nutbookManagedPresentation = String(enabled); controls.hidden = enabled || editing; return true; },
+        setEditMode(enabled) { editing = enabled; controls.hidden = enabled || managed; return true; }
+      });
+      document.querySelector("[data-prev]").addEventListener("click", () => goTo(slides[Math.max(0, index - 1)].dataset.nutbookPageId));
+      document.querySelector("[data-next]").addEventListener("click", () => goTo(slides[Math.min(slides.length - 1, index + 1)].dataset.nutbookPageId));
+      window.addEventListener("keydown", event => {
+        if (managed || editing || event.defaultPrevented || event.isComposing || event.target?.closest?.("input,textarea,select,[contenteditable='true']")) return;
+        const next = ["ArrowRight", "PageDown", " "].includes(event.key) ? index + 1 : ["ArrowLeft", "PageUp"].includes(event.key) ? index - 1 : null;
+        if (next == null) return;
+        event.preventDefault();
+        goTo(slides[Math.max(0, Math.min(slides.length - 1, next))].dataset.nutbookPageId);
+      });
+    })();
+  </script>
+<script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">{"contract":"nutbook-motion/v1","pages":[{"actions":[],"background":null,"capabilities":{"containsEmbeddedFrame":false,"containsVideo":false,"embeddedTargetIds":[],"mediaTargetIds":[],"supportsDomTransition":true,"supportsFilterTransition":true},"id":"opening","targets":[{"id":"opening-title","kind":"text"},{"id":"opening-copy","kind":"text"},{"id":"opening-image","kind":"image"}],"transition":null},{"actions":[{"delayMs":0,"id":"motion-mv6400k9","params":{"density":343,"durationMs":2300,"hue":218,"strength":1.25},"seed":42,"targetId":"evidence-title","templateId":"text.glyph-particles","templateVersion":1,"trigger":"click"}],"background":null,"capabilities":{"containsEmbeddedFrame":false,"containsVideo":false,"embeddedTargetIds":[],"mediaTargetIds":[],"supportsDomTransition":true,"supportsFilterTransition":true},"id":"evidence","targets":[{"id":"evidence-title","kind":"text"},{"id":"evidence-copy","kind":"text"}],"transition":null},{"actions":[],"background":null,"capabilities":{"containsEmbeddedFrame":false,"containsVideo":false,"embeddedTargetIds":[],"mediaTargetIds":[],"supportsDomTransition":true,"supportsFilterTransition":true},"id":"finish","targets":[{"id":"finish-title","kind":"text"},{"id":"finish-copy","kind":"text"}],"transition":null}]}</script>
+<script>
+(() => {
+  // src/motion/registry.json
+  var registry_default = {
+    contract: "nutbook-motion/v1",
+    templates: {
+      "text.glyph-particles": {
+        version: 1,
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800
+          },
+          strength: {
+            min: 0,
+            max: 2,
+            default: 1
+          },
+          density: {
+            min: 12,
+            max: 400,
+            default: 180,
+            integer: true
+          },
+          hue: {
+            min: 0,
+            max: 360,
+            default: 210,
+            optional: true
+          }
+        }
+      }
+    }
+  };
+
+  // src/motion/contract.mjs
+  var CONTRACT = "nutbook-motion/v1";
+  var idPattern = /^[A-Za-z0-9_:-]{1,80}$/;
+  var fail = (path) => {
+    throw new TypeError(`Invalid motion contract: ${path}`);
+  };
+  function object(value, keys, path) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) fail(path);
+    if (Object.keys(value).some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(value, key))) fail(path);
+  }
+  function id(value, path) {
+    if (typeof value !== "string" || !idPattern.test(value)) fail(path);
+  }
+  function list(value, max, path) {
+    if (!Array.isArray(value) || value.length > max) fail(path);
+  }
+  function uniqueIds(values, path) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const value of values) {
+      id(value, path);
+      if (seen.has(value)) fail(path);
+      seen.add(value);
+    }
+    return seen;
+  }
+  function validateConfig(config) {
+    object(config, ["contract", "pages"], "root");
+    if (config.contract !== CONTRACT) fail("version");
+    list(config.pages, 128, "pages");
+    if (!config.pages.length) fail("pages");
+    uniqueIds(config.pages.map((page) => page.id), "page.id");
+    const targets = /* @__PURE__ */ new Set(), actions = /* @__PURE__ */ new Set();
+    for (const page of config.pages) {
+      object(page, ["id", "capabilities", "targets", "actions", "background", "transition"], "page");
+      const caps = page.capabilities;
+      object(caps, ["containsVideo", "containsEmbeddedFrame", "supportsDomTransition", "supportsFilterTransition", "mediaTargetIds", "embeddedTargetIds"], "capabilities");
+      for (const key of ["containsVideo", "containsEmbeddedFrame", "supportsDomTransition", "supportsFilterTransition"]) if (typeof caps[key] !== "boolean") fail(key);
+      list(page.targets, 256, "targets");
+      list(page.actions, 256, "actions");
+      const localTargets = /* @__PURE__ */ new Map();
+      for (const target of page.targets) {
+        object(target, ["id", "kind"], "target");
+        id(target.id, "target.id");
+        if (!["text", "image", "group", "video", "embedded"].includes(target.kind) || targets.has(target.id)) fail("target");
+        targets.add(target.id);
+        localTargets.set(target.id, target.kind);
+      }
+      for (const [key, kind, flag] of [["mediaTargetIds", "video", "containsVideo"], ["embeddedTargetIds", "embedded", "containsEmbeddedFrame"]]) {
+        list(caps[key], 256, key);
+        const ids = uniqueIds(caps[key], key);
+        for (const targetId of ids) if (localTargets.get(targetId) !== kind) fail(key);
+        for (const [targetId, targetKind] of localTargets) if (targetKind === kind && !ids.has(targetId)) fail(key);
+        if (caps[flag] !== ids.size > 0) fail(flag);
+      }
+      if (page.background !== null || page.transition !== null) fail("unsupported page slot");
+      const slots = /* @__PURE__ */ new Set();
+      for (const action of page.actions) {
+        object(action, ["id", "targetId", "templateId", "templateVersion", "params", "seed", "trigger", "delayMs"], "action");
+        id(action.id, "action.id");
+        if (actions.has(action.id)) fail("duplicate action");
+        actions.add(action.id);
+        const template = registry_default.templates[action.templateId];
+        if (!template || action.templateVersion !== template.version || !template.targets.includes(localTargets.get(action.targetId))) fail("template target");
+        const slot = `${action.targetId}:${template.category}`;
+        if (slots.has(slot)) fail("duplicate slot");
+        slots.add(slot);
+        if (!["click", "withPrevious", "afterPrevious"].includes(action.trigger)) fail("trigger");
+        if (!Number.isInteger(action.seed) || action.seed < 0 || action.seed > 4294967295) fail("seed");
+        if (!Number.isFinite(action.delayMs) || action.delayMs < 0 || action.delayMs > 6e4) fail("delay");
+        object(action.params, Object.keys(template.params).filter((key) => !template.params[key].optional || Object.hasOwn(action.params, key)), "params");
+        for (const [key, rule] of Object.entries(template.params)) {
+          const value = Object.hasOwn(action.params, key) ? action.params[key] : rule.optional ? rule.default : void 0;
+          if (!Number.isFinite(value) || value < rule.min || value > rule.max || rule.integer && !Number.isInteger(value)) fail(`params.${key}`);
+        }
+      }
+    }
+    if (new TextEncoder().encode(stableJson(config)).byteLength > 262144) fail("size");
+    return config;
+  }
+  function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+    return JSON.stringify(value);
+  }
+
+  // src/motion/clock.mjs
+  function createMotionClock({ render, requestFrame, cancelFrame, now }) {
+    let time = 0, anchor = 0, frame = null, playing = false, disposed = false;
+    let suspended = false, resumePlaying = false, generation = 0;
+    const assertTime = (value) => {
+      if (!Number.isFinite(value) || value < 0) throw new TypeError("Invalid motion time");
+    };
+    function sample() {
+      if (playing) time = Math.max(time, now() - anchor);
+      return time;
+    }
+    function stop() {
+      generation += 1;
+      if (frame !== null) cancelFrame(frame);
+      frame = null;
+    }
+    function schedule() {
+      const token = generation;
+      frame = requestFrame(() => {
+        if (token === generation) tick();
+      });
+    }
+    function tick() {
+      frame = null;
+      if (disposed || !playing || suspended) return;
+      render(sample());
+      if (!disposed && playing && !suspended) schedule();
+    }
+    const api = {
+      play() {
+        if (disposed) return false;
+        if (suspended) {
+          resumePlaying = true;
+          return true;
+        }
+        if (!playing) {
+          anchor = now() - time;
+          playing = true;
+          schedule();
+        }
+        return true;
+      },
+      pause() {
+        sample();
+        playing = false;
+        resumePlaying = false;
+        stop();
+      },
+      seek(value) {
+        assertTime(value);
+        if (disposed) return false;
+        time = value;
+        anchor = now() - time;
+        render(time);
+        return true;
+      },
+      replay() {
+        if (!api.seek(0)) return false;
+        return api.play();
+      },
+      suspend() {
+        if (disposed || suspended) return;
+        resumePlaying = playing;
+        sample();
+        playing = false;
+        suspended = true;
+        stop();
+      },
+      resume() {
+        if (disposed || !suspended) return;
+        suspended = false;
+        const restart = resumePlaying;
+        resumePlaying = false;
+        if (restart) api.play();
+      },
+      dispose() {
+        if (disposed) return;
+        sample();
+        disposed = true;
+        playing = false;
+        resumePlaying = false;
+        stop();
+      },
+      state() {
+        return { logicalTimeMs: sample(), playing, suspended, disposed, scheduledFrames: frame === null ? 0 : 1 };
+      }
+    };
+    return api;
+  }
+
+  // src/motion/glyph-particles.mjs
+  var random = (seed) => {
+    let n = seed >>> 0;
+    return () => {
+      n = Math.imul(n, 1664525) + 1013904223 >>> 0;
+      return n / 4294967296;
+    };
+  };
+  function prepareGlyphParticles(element, action) {
+    const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+    if (rect.width < 1 || rect.height < 1) throw new Error("Target is not visible");
+    const mask = document.createElement("canvas");
+    mask.width = Math.ceil(rect.width);
+    mask.height = Math.ceil(rect.height);
+    const context = mask.getContext("2d", { willReadFrequently: true });
+    context.fillStyle = "#fff";
+    context.textBaseline = "middle";
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const segmenter = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+    let node;
+    while (node = walker.nextNode()) {
+      const computed = getComputedStyle(node.parentElement);
+      context.font = computed.font || `${computed.fontWeight} ${computed.fontSize} ${computed.fontFamily}`;
+      for (const { segment, index } of segmenter.segment(node.data)) {
+        if (!segment.trim()) continue;
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + segment.length);
+        const bounds = range.getBoundingClientRect();
+        context.fillText(segment, bounds.left - rect.left, bounds.top - rect.top + bounds.height / 2);
+      }
+    }
+    const pixels = context.getImageData(0, 0, mask.width, mask.height).data, candidates = [];
+    for (let y = 0; y < mask.height; y += 2) for (let x = 0; x < mask.width; x += 2) if (pixels[(y * mask.width + x) * 4 + 3] > 80) candidates.push([x, y]);
+    if (!candidates.length) throw new Error("No readable glyph contour");
+    const rng = random(action.seed), points = Array.from({ length: action.params.density }, () => {
+      const [x, y] = candidates[Math.floor(rng() * candidates.length)];
+      return { x, y, angle: rng() * Math.PI * 2, radius: (100 + rng() * 450) * action.params.strength, size: 1 + rng() * 2.3, color: 150 + Math.floor(rng() * 100) };
+    });
+    const projectionStyle = document.createElement("style");
+    document.head.append(projectionStyle);
+    function restore() {
+      projectionStyle.textContent = "";
+    }
+    return {
+      render(time, ctx) {
+        const p = Math.max(0, Math.min(1, time / action.params.durationMs)), q = 1 - (1 - p) ** 3, settle = Math.max(0, (p - 0.75) / 0.25);
+        if (p >= 1) {
+          restore();
+          return;
+        }
+        projectionStyle.textContent = `[data-id="${element.dataset.id}"]{opacity:${settle}!important}`;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        for (const point of points) {
+          const twist = (1 - q) * 4;
+          ctx.fillStyle = (action.params.hue ?? 210) === 210 ? `rgba(${point.color},210,255,${1 - settle})` : `hsla(${action.params.hue + (point.color - 200) * 0.2},90%,72%,${1 - settle})`;
+          ctx.beginPath();
+          ctx.arc(rect.left + point.x + Math.cos(point.angle + twist) * point.radius * (1 - q), rect.top + point.y + Math.sin(point.angle + twist) * point.radius * (1 - q), Math.max(0.01, point.size * (1 - settle)), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      },
+      dispose() {
+        projectionStyle.remove();
+      }
+    };
+  }
+
+  // src/motion/runtime.mjs
+  var root = document.documentElement;
+  if (root.dataset.nutbookMotionContract === "nutbook-motion/v1") boot();
+  function boot() {
+    const nodes = document.querySelectorAll('script#nutbook-motion-config[type="application/json"][data-id="nutbook-motion-config"]');
+    if (nodes.length !== 1) return;
+    const node = nodes[0];
+    let flushPending = () => {
+    }, config, editing = false, selected = "", panel, shadow, adapters = [], generation = 0, preview = false, previewProgress = 0.45;
+    try {
+      config = validateConfig(JSON.parse(node.textContent));
+    } catch {
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.dataset.nutbookMotionLayer = "";
+    canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:4";
+    document.body.append(canvas);
+    const ctx = canvas.getContext("2d");
+    const byId = (id2) => [...document.querySelectorAll("[data-id]")].find((el) => el.dataset.id === id2);
+    const current = () => config.pages.find((p) => p.id === window.__NUTBOOK_PRESENTATION__?.activePageId) || config.pages.find((p) => document.querySelector(`[data-nutbook-page-id="${p.id}"]`)?.getBoundingClientRect().width > 0);
+    const duration = () => Math.max(0, ...(current()?.actions || []).map((a) => a.delayMs + a.params.durationMs));
+    function clear() {
+      adapters.forEach((a) => a.adapter.dispose());
+      adapters = [];
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+    }
+    const clock = createMotionClock({ now: () => performance.now(), requestFrame: (fn) => requestAnimationFrame(fn), cancelFrame: (id2) => cancelAnimationFrame(id2), render(time) {
+      if (duration() > 0) previewProgress = Math.max(0, Math.min(1, time / duration()));
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      adapters.forEach(({ adapter, action: action2 }) => adapter.render(Math.max(0, time - action2.delayMs), ctx));
+      if (time >= duration()) {
+        clock.pause();
+        preview = false;
+      }
+    } });
+    async function prepare() {
+      const token = ++generation;
+      clock.pause();
+      clear();
+      await document.fonts.ready;
+      if (token !== generation) return false;
+      const dpr = Math.min(2, devicePixelRatio || 1);
+      canvas.width = Math.ceil(innerWidth * dpr);
+      canvas.height = Math.ceil(innerHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      try {
+        adapters = (current()?.actions || []).map((action2) => ({ action: action2, adapter: prepareGlyphParticles(byId(action2.targetId), action2) }));
+        return true;
+      } catch (error) {
+        clear();
+        if (shadow) shadow.querySelector("[data-status]").textContent = error.message;
+        return false;
+      }
+    }
+    async function replay() {
+      if (!await prepare()) return false;
+      preview = true;
+      clock.replay();
+      return true;
+    }
+    async function previewAt(progress) {
+      preview = true;
+      previewProgress = progress;
+      if (!await prepare()) return false;
+      return clock.seek(duration() * progress);
+    }
+    function staticView() {
+      generation++;
+      preview = false;
+      clock.pause();
+      clear();
+    }
+    function validate(value) {
+      try {
+        validateConfig(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    function refresh() {
+      const preserve = editing && preview, progress = previewProgress;
+      config = validateConfig(JSON.parse(node.textContent));
+      if (preserve) void previewAt(progress);
+      else staticView();
+      syncPanel();
+    }
+    function action() {
+      return current()?.actions.find((a) => a.targetId === selected);
+    }
+    function commit(next) {
+      return window.__NUTBOOK_HTML_EDIT__?.commitMotionChange(next) === true;
+    }
+    function syncPanel() {
+      if (!shadow) return;
+      const page = current();
+      if (!page?.targets.some((t) => t.id === selected && t.kind === "text")) selected = page?.actions.find((a2) => page.targets.some((t) => t.id === a2.targetId && t.kind === "text"))?.targetId || page?.targets.find((t) => t.kind === "text")?.id || "";
+      const a = action();
+      shadow.querySelector("[data-target]").textContent = byId(selected)?.textContent || "\u8BF7\u9009\u62E9\u6587\u5B57";
+      shadow.querySelector("[data-apply]").disabled = !selected;
+      shadow.querySelector("[data-remove]").disabled = !a;
+      shadow.querySelector("[data-status]").textContent = a ? "\u62D6\u52A8\u53C2\u6570\u66F4\u65B0\u5F53\u524D\u753B\u9762\uFF1B\u4F7F\u7528 Nutbook \u5DE5\u5177\u680F\u4FDD\u5B58\u3002" : "\u5F53\u524D\u6587\u5B57\u5C1A\u672A\u5957\u7528\u52A8\u6548\uFF0C\u8BF7\u5148\u70B9\u51FB\u201C\u5957\u7528\u5B57\u5F62\u7C92\u5B50\u201D\u3002";
+      for (const input of shadow.querySelectorAll("[data-param]")) {
+        input.disabled = !a;
+        input.value = a?.params[input.dataset.param] ?? registry_default.templates["text.glyph-particles"].params[input.dataset.param].default;
+      }
+    }
+    function mount() {
+      panel = document.createElement("div");
+      panel.dataset.nutbookMotionPanel = "";
+      panel.style.cssText = "position:fixed;right:20px;top:80px;z-index:2147483645;width:280px";
+      shadow = panel.attachShadow({ mode: "open" });
+      shadow.innerHTML = `<style>*{box-sizing:border-box}aside{padding:20px;background:#fff;color:#1a1c1d;border:1px solid #d9dadc;border-radius:12px;box-shadow:0 12px 36px #0002;font:13px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;max-height:70vh;overflow:auto}h2{font-size:15px;margin:0 0 16px;cursor:move;touch-action:none}p{overflow-wrap:anywhere}button{background:#eeeef0;color:#1a1c1d;border:0;border-radius:8px;padding:8px;cursor:pointer;margin:4px 4px 4px 0}button:focus-visible{outline:2px solid #000}button:disabled{opacity:.4}label{display:block;margin:14px 0}input{width:100%;accent-color:#000}input[data-param=hue]{appearance:none;height:8px;border-radius:4px;background:linear-gradient(90deg,#f44,#ff4,#4f4,#4ff,#44f,#f4f,#f44)}small{color:#5e5e63}</style><aside><h2 tabindex="0" title="\u62D6\u52A8\u6807\u9898\u79FB\u52A8\u9762\u677F" aria-label="\u52A8\u6548\uFF0C\u62D6\u52A8\u6807\u9898\u79FB\u52A8\u9762\u677F">\u52A8\u6548</h2><small>\u6587\u5B57 \xB7 P0 \u5019\u9009</small><p data-target></p><button data-apply title="\u4E3A\u9009\u4E2D\u6587\u5B57\u5957\u7528\u5B57\u5F62\u7C92\u5B50" aria-label="\u4E3A\u9009\u4E2D\u6587\u5B57\u5957\u7528\u5B57\u5F62\u7C92\u5B50">\u5957\u7528\u5B57\u5F62\u7C92\u5B50</button><button data-remove title="\u79FB\u9664\u9009\u4E2D\u6587\u5B57\u7684\u52A8\u6548" aria-label="\u79FB\u9664\u9009\u4E2D\u6587\u5B57\u7684\u52A8\u6548">\u79FB\u9664</button>${[["durationMs", "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09", 100], ["strength", "\u529B\u5EA6", 0.05], ["density", "\u7C92\u5B50\u6570\u91CF", 1], ["hue", "\u7C92\u5B50\u8272\u76F8", 1]].map(([key, label, step]) => {
+        const rule = registry_default.templates["text.glyph-particles"].params[key];
+        return `<label>${label}<input type="range" data-param="${key}" min="${rule.min}" max="${rule.max}" step="${step}" title="${label}" aria-label="${label}"></label>`;
+      }).join("")}<button data-replay title="\u91CD\u64AD\u5F53\u524D\u9875\u52A8\u6548" aria-label="\u91CD\u64AD\u5F53\u524D\u9875\u52A8\u6548">\u91CD\u64AD</button><button data-pause title="\u6682\u505C\u52A8\u6548\u9884\u89C8" aria-label="\u6682\u505C\u52A8\u6548\u9884\u89C8">\u6682\u505C</button><p data-status role="status">\u70B9\u51FB\u6B63\u6587\u8FD4\u56DE\u9759\u6B62\u7F16\u8F91\u3002\u4F7F\u7528 Nutbook \u5DE5\u5177\u680F\u4FDD\u5B58\u3002</p></aside>`;
+      shadow.querySelector("[data-apply]").onclick = () => {
+        if (!selected) return;
+        const next = structuredClone(config), page = next.pages.find((p) => p.id === current().id);
+        if (!page.actions.some((a) => a.targetId === selected)) page.actions.push({ id: `motion-${Date.now().toString(36)}`, targetId: selected, templateId: "text.glyph-particles", templateVersion: 1, params: Object.fromEntries(Object.entries(registry_default.templates["text.glyph-particles"].params).map(([k, v]) => [k, v.default])), seed: 42, trigger: "click", delayMs: 0 });
+        commit(next);
+      };
+      shadow.querySelector("[data-remove]").onclick = () => {
+        const next = structuredClone(config);
+        next.pages.find((p) => p.id === current().id).actions = next.pages.find((p) => p.id === current().id).actions.filter((a) => a.targetId !== selected);
+        commit(next);
+      };
+      let draft = null;
+      flushPending = () => {
+        if (draft) {
+          const next = draft;
+          draft = null;
+          return commit(next);
+        }
+        return true;
+      };
+      for (const input of shadow.querySelectorAll("[data-param]")) {
+        input.oninput = () => {
+          draft = structuredClone(config);
+          draft.pages.find((p) => p.id === current().id).actions.find((a) => a.targetId === selected).params[input.dataset.param] = Number(input.value);
+          const progress = preview ? previewProgress : 0.45;
+          config = draft;
+          void previewAt(progress);
+        };
+        input.onchange = () => flushPending();
+      }
+      shadow.querySelector("[data-replay]").onclick = replay;
+      shadow.querySelector("[data-pause]").onclick = () => clock.pause();
+      const handle = shadow.querySelector("h2");
+      handle.onpointerdown = (e) => {
+        const rect = panel.getBoundingClientRect(), dx = e.clientX - rect.left, dy = e.clientY - rect.top;
+        handle.setPointerCapture(e.pointerId);
+        handle.onpointermove = (event) => {
+          panel.style.right = "auto";
+          panel.style.left = `${Math.max(0, Math.min(innerWidth - 280, event.clientX - dx))}px`;
+          panel.style.top = `${Math.max(0, Math.min(innerHeight - 40, event.clientY - dy))}px`;
+        };
+        handle.onpointerup = () => handle.onpointermove = null;
+      };
+      document.body.append(panel);
+      syncPanel();
+    }
+    function select(event) {
+      if (!editing) {
+        if (!event.target.closest("button,input,textarea,select,a,[contenteditable]") && current()?.actions.some((a) => a.targetId === event.target.closest("[data-id]")?.dataset.id)) void replay();
+        return;
+      }
+      if (event.composedPath().includes(panel)) return;
+      staticView();
+      const target = event.target.closest("[data-id]");
+      if (current()?.targets.some((t) => t.id === target?.dataset.id && t.kind === "text")) {
+        selected = target.dataset.id;
+        syncPanel();
+      }
+    }
+    document.addEventListener("pointerdown", select, true);
+    const onVisibility = () => document.hidden ? clock.suspend() : clock.resume();
+    document.addEventListener("visibilitychange", onVisibility);
+    const resize = () => {
+      staticView();
+    };
+    window.addEventListener("resize", resize);
+    const api = {
+      validate,
+      refresh,
+      flushPending: () => flushPending(),
+      replay,
+      pause: () => clock.pause(),
+      seek: async (time) => {
+        preview = true;
+        if (!adapters.length && !await prepare()) return false;
+        return clock.seek(time);
+      },
+      getConfig: () => structuredClone(config),
+      canvas,
+      setEditMode(enabled) {
+        flushPending = () => {
+        };
+        editing = enabled;
+        staticView();
+        panel?.remove();
+        panel = null;
+        shadow = null;
+        if (enabled) mount();
+        else beginReadPlayback();
+      },
+      pageChanged() {
+        staticView();
+        syncPanel();
+        if (!editing) beginReadPlayback();
+      },
+      dispose() {
+        staticView();
+        clock.dispose();
+        panel?.remove();
+        canvas.remove();
+        document.removeEventListener("pointerdown", select, true);
+        document.removeEventListener("visibilitychange", onVisibility);
+        window.removeEventListener("resize", resize);
+      },
+      state: () => ({ ...clock.state(), generation, preview })
+    };
+    window.__NUTBOOK_MOTION__ = api;
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    if (bridge) {
+      const original = bridge.setEditMode.bind(bridge);
+      bridge.setEditMode = (enabled) => {
+        const result = original(enabled);
+        api.setEditMode(enabled);
+        return result;
+      };
+      const unsubscribe = bridge.subscribe(() => api.pageChanged());
+      const dispose = api.dispose;
+      api.dispose = () => {
+        unsubscribe();
+        bridge.setEditMode = original;
+        dispose();
+      };
+    }
+    function beginReadPlayback() {
+      if (!editing && current()?.actions.length && !matchMedia("(prefers-reduced-motion: reduce)").matches) void replay();
+    }
+    beginReadPlayback();
+    window.addEventListener("pagehide", () => api.dispose(), { once: true });
+  }
+})();
+
+</script>
+</body>
+</html>

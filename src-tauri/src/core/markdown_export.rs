@@ -408,7 +408,7 @@ pub fn render_presentation_html(
         String::new()
     };
 
-    let html = input
+    let mut html = input
         .template_html
         .replace("{{title}}", &escape_html_text(&input.title))
         .replace("{{slides}}", &slides)
@@ -429,6 +429,15 @@ pub fn render_presentation_html(
         .replace("{{warnings}}", &warnings_html);
 
     validate_generated_presentation_html(&html, slide_total)?;
+    if preferences.output_kind == "motion-editable" {
+        html = crate::core::html_edit::complete_motion_edit_targets(&html)?;
+        let config = crate::core::html_edit::declare_motion_document(&html)?;
+        let data = serde_json::to_string(&config).map_err(|_| AppError::InvalidParams)?;
+        html = html.replacen("<html ", "<html data-nutbook-edit-contract=\"nutbook-html/v1\" data-nutbook-motion-contract=\"nutbook-motion/v1\" ", 1);
+        let scripts = format!("<script type=\"application/json\" id=\"nutbook-motion-config\" data-id=\"nutbook-motion-config\">{data}</script><script>{}</script>", include_str!("../../resources/export-templates/motion-runtime.js"));
+        html = html.replacen("</body>", &format!("{scripts}</body>"), 1);
+        crate::core::motion::validate_generated_resources(include_str!("../../resources/export-templates/motion-runtime.js"), &html)?;
+    }
 
     Ok(MarkdownHtmlExportOutput {
         html,

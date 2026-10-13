@@ -1,6 +1,6 @@
 {
   "package": "nbskill",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "files": [
     {
       "path": "evals/evals.json",
@@ -23,6 +23,16 @@
       "bytes": 4755
     },
     {
+      "path": "references/motion-html-v1.md",
+      "sha256": "1be086953b4e15bca20f61e26252ef8eea7ea0a707df807da9ee897cabd5f940",
+      "bytes": 3502
+    },
+    {
+      "path": "references/motion-schema.json",
+      "sha256": "9e44c3eaab864a813b99198651e2fe978cbbc20d52dda76e490168ae89b17b79",
+      "bytes": 5840
+    },
+    {
       "path": "references/nutbook-html-edit-contract-v1.md",
       "sha256": "b9059226b2520e59cc93e0073b35a645e554fcbdea225bd4ac58ee8f4675cc67",
       "bytes": 6496
@@ -39,8 +49,18 @@
     },
     {
       "path": "scripts/manifest-lib.mjs",
-      "sha256": "79a0f0c73a9edb20a2ef72f8c7a83deeb60bfd24564ae0f0c60b513a6b2db7ed",
-      "bytes": 24076
+      "sha256": "1738af836b127268d193a031a7bbdc47608c24a8057fa28b69b1ce30f18f9d29",
+      "bytes": 27448
+    },
+    {
+      "path": "scripts/motion/contract.mjs",
+      "sha256": "7d9ed9887a41b12fb655ea054736c5df4faf4396693b813abd4b260af70cfc91",
+      "bytes": 5351
+    },
+    {
+      "path": "scripts/motion/registry.json",
+      "sha256": "d0e5e9f0947db10ed0f6b326dfd69d2b6581286b5fdb04554f9104fffd8326bd",
+      "bytes": 1001
     },
     {
       "path": "scripts/register.mjs",
@@ -64,13 +84,18 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "c4d14156e08dafbbde4d12226f14b668ee8d53b9210f2c464dbeaa828d45637f",
-      "bytes": 8705
+      "sha256": "0477f81927410a11af89040d4e42d9c58739f68ce36520ef7f3fa02f60eb9253",
+      "bytes": 9078
     },
     {
       "path": "templates/manifest.json",
       "sha256": "dc8be5e0175b5858c182ecaf09056a8d87e5296b2a24e0a36e1eb7196d2e56ce",
       "bytes": 582
+    },
+    {
+      "path": "templates/motion-presentation.html",
+      "sha256": "7b8572445b5bd740f245d57d9f7d19d4876b2bfd1110830dab7c0d11a63e8593",
+      "bytes": 58638
     },
     {
       "path": "templates/presentation-mark.svg",
@@ -89,7 +114,7 @@
     },
     {
       "path": "VERSION",
-      "sha256": "7d072b48526b023950e4c48db01e8c273554a6401119f5691e7589ba9bc65d9d",
+      "sha256": "b99b4c7cdf236f59bc9f65d963deaecae3b16a7dad87939cacb9057f7664daee",
       "bytes": 6
     }
   ]

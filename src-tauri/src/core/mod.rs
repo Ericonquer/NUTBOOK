@@ -29,3 +29,6 @@ pub mod watcher;
 pub mod external_open;
 
 pub mod image_import;
+
+pub mod motion;
+pub mod motion_protocol;

@@ -10968,6 +10968,7 @@
         if (data.documentRevision === session.documentRevision && incomingKey !== session.documentStateKey) return false;
         session.documentRevision = data.documentRevision;
         session.documentStateKey = incomingKey;
+        session.composing = data.composing === true;
         session.dirty = data.dirty;
         session.changes = data.changes;
         if (Object.prototype.hasOwnProperty.call(data, "selectedDataId")) session.selectedDataId = data.selectedDataId || null;
@@ -12488,6 +12489,10 @@
         if (!refreshed && !htmlEditLeaveRequiresSave(session)) {
           logHtmlEditSaveCoordinator(session, "host-save-retry-needed");
           setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+          return htmlEditSaveResult();
+        }
+        if (session.composing) {
+          setStatus(nativePresentationText("请先完成中文输入", "Finish composing text first"), "warn");
           return htmlEditSaveResult();
         }
         if (!htmlEditLeaveRequiresSave(session)) {
@@ -17573,7 +17578,7 @@
                 ${densityButton("master", "densityMaster", "densityMasterTip")}${densityButton("balanced", "densityBalanced", "densityBalancedTip")}${densityButton("report", "densityReport", "densityReportTip")}
               </div></div>
               <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid two">
-                ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
+                ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"],["motion-editable","motionEditableHtml","motionEditableHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
               </div></div>
             </div>
           </aside>`;
@@ -17643,7 +17648,7 @@
               ${engineStatus}
             </aside>
           </section>`;
-        const canExportPresentation = isHtml && !isReading && ["static", "dynamic"].includes(presentationPreferences.outputKind);
+        const canExportPresentation = isHtml && !isReading && ["static", "dynamic", "motion-editable"].includes(presentationPreferences.outputKind);
         const canExport = (isHtml ? (isReading || canExportPresentation) : (isPdf || isImage)) && !appState.exportInProgress;
         const activePanel = isHtml ? htmlPanel : isPdf ? pdfPanel : imagePanel;
         const exportLabel = appState.exportInProgress
@@ -21526,7 +21531,7 @@ if (!chipTipController) {
               notes[id]=paragraphs.map(p=>({runs:p.runs.map(r=>({text:r.text,bold:r.bold===true}))}));
             }
             for(const page of pages){if(notes[page.id])continue;const root=roots.find(node=>node.getAttribute('data-nutbook-page-id')===page.id);const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes');if(!legacy)continue;const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean);notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]}));}
-            await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:false,declared,pages,notes,activePageId}});
+            await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:false,declared,pages,notes,activePageId,motion:window.__NUTBOOK_MOTION__?.capabilities||null}});
           }catch(_){await report('bridge_error');}
         })();`;
       }
@@ -24610,7 +24615,7 @@ if (!chipTipController) {
             renderMarkdownExportDialog();
             return;
           }
-          const message = normalizeError(error);
+          const message = code === "MOTION_RESOURCE_BUDGET_EXCEEDED" ? t("markdown.exportMotionBudgetExceeded") : normalizeError(error);
           appState.exportErrorMessage = `${t("markdown.exportHtmlFailedPrefix")}${message}`;
           renderMarkdownExportDialog();
           setStatus(`${t("markdown.exportHtmlFailedPrefix")}${message}`, "error");

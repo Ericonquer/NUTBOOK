@@ -1,0 +1,51 @@
+{
+  "contract": "nutbook-motion/v1",
+  "templates": {
+    "text.glyph-particles": {
+      "version": 1,
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800
+        },
+        "strength": {
+          "min": 0,
+          "max": 2,
+          "default": 1
+        },
+        "density": {
+          "min": 12,
+          "max": 400,
+          "default": 180,
+          "integer": true
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 210,
+          "optional": true
+        },
+        "colorMode": {
+          "min": 0,
+          "max": 2,
+          "default": 0,
+          "integer": true,
+          "optional": true
+        },
+        "lightness": {
+          "min": 0,
+          "max": 100,
+          "default": 0,
+          "optional": true
+        }
+      }
+    }
+  }
+}

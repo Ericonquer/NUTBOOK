@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Nutbook Motion v1 P0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "pages"
+  ],
+  "properties": {
+    "contract": {
+      "const": "nutbook-motion/v1"
+    },
+    "pages": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "capabilities",
+          "targets",
+          "actions",
+          "background",
+          "transition"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "containsVideo",
+              "containsEmbeddedFrame",
+              "supportsDomTransition",
+              "supportsFilterTransition",
+              "mediaTargetIds",
+              "embeddedTargetIds"
+            ],
+            "properties": {
+              "containsVideo": {
+                "type": "boolean"
+              },
+              "containsEmbeddedFrame": {
+                "type": "boolean"
+              },
+              "supportsDomTransition": {
+                "type": "boolean"
+              },
+              "supportsFilterTransition": {
+                "type": "boolean"
+              },
+              "mediaTargetIds": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                },
+                "uniqueItems": true
+              },
+              "embeddedTargetIds": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                },
+                "uniqueItems": true
+              }
+            }
+          },
+          "targets": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "kind"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                },
+                "kind": {
+                  "enum": [
+                    "text",
+                    "image",
+                    "group",
+                    "video",
+                    "embedded"
+                  ]
+                }
+              }
+            }
+          },
+          "actions": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "targetId",
+                "templateId",
+                "templateVersion",
+                "params",
+                "seed",
+                "trigger",
+                "delayMs"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                },
+                "targetId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                },
+                "templateId": {
+                  "const": "text.glyph-particles"
+                },
+                "templateVersion": {
+                  "const": 1
+                },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "durationMs",
+                    "strength",
+                    "density"
+                  ],
+                  "properties": {
+                    "durationMs": {
+                      "type": "number",
+                      "minimum": 500,
+                      "maximum": 6000
+                    },
+                    "strength": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 2
+                    },
+                    "density": {
+                      "type": "integer",
+                      "minimum": 12,
+                      "maximum": 400
+                    },
+                    "hue": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 360,
+                      "default": 210
+                    },
+                    "colorMode": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    },
+                    "lightness": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  }
+                },
+                "seed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "trigger": {
+                  "enum": [
+                    "click",
+                    "withPrevious",
+                    "afterPrevious"
+                  ]
+                },
+                "delayMs": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 60000
+                }
+              }
+            }
+          },
+          "background": {
+            "type": "null"
+          },
+          "transition": {
+            "type": "null"
+          }
+        }
+      },
+      "minItems": 1
+    }
+  }
+}

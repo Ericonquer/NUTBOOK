@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "motion-gallery-p0",
+      "path": "index.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "nbskill-motion-acceptance",
+      "path": "nbskill.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "nbskill 可选动效样板",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-performance-measurement",
+      "path": "performance.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "动效性能测量",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-recovery-acceptance",
+      "path": "recovery.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "动效准备与恢复验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { validateConfig } from "./motion/contract.mjs";
 
 const ROOT_KEYS = new Set(["schemaVersion", "projectRoot", "entries"]);
 const ENTRY_KEYS = new Set(["id", "path", "state", "skill", "kind", "title", "generatedAt", "relatedFiles", "editContract", "savePolicy", "supersededBy"]);
@@ -170,6 +171,56 @@ export function validatePresentationHtmlContract(source, label = "HTML") {
     || !/\bsubscribe\s*\(/u.test(source)
     || !/\bsetManagedMode\s*\(/u.test(source)) {
     throw new Error(`${label} is missing a required presentation bridge declaration`);
+  }
+}
+
+// Static declaration check only; NUTBOOK still probes the actual runtime DOM.
+export function validateMotionHtmlContract(source, label = "HTML") {
+  const cleaned = source.replace(/<!--[\s\S]*?-->/gu, "");
+  const markup = cleaned.replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, "");
+  const root = tagAttributes(markup.match(/<html\b[^>]*>/iu)?.[0] || "");
+  const blocks = [...cleaned.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/giu)]
+    .filter(match => tagAttributes(`<script ${match[1]}>`).get('id') === 'nutbook-motion-config');
+  if (!root.has('data-nutbook-motion-contract') && !blocks.length) return;
+  if (root.get('data-nutbook-motion-contract') !== 'nutbook-motion/v1' || blocks.length !== 1) throw new Error(`${label} needs a supported motion root and one config block`);
+  const attrs = tagAttributes(`<script ${blocks[0][1]}>`);
+  if (attrs.get('type') !== 'application/json' || attrs.get('data-id') !== 'nutbook-motion-config' || Buffer.byteLength(blocks[0][2]) > 256 * 1024) throw new Error(`${label} has an invalid motion config block`);
+  const config = JSON.parse(blocks[0][2]);
+  validateConfig(config);
+  const pages = [], targets = new Map(), stack = [];
+  for (const match of markup.matchAll(/<\/?[A-Za-z][^>]*>/gu)) {
+    const token = match[0], name = token.match(/^<\/?([^\s/>]+)/u)[1].toLowerCase();
+    if (token.startsWith('</')) {
+      const at = stack.map(frame => frame.name).lastIndexOf(name);
+      if (at >= 0) stack.splice(at);
+      continue;
+    }
+    const attributes = tagAttributes(token);
+    let pageId = [...stack].reverse().find(frame => frame.pageId)?.pageId;
+    if (attributes.has('data-nutbook-page-id')) {
+      if (pageId) throw new Error(`${label} has nested motion pages`);
+      pageId = attributes.get('data-nutbook-page-id'); pages.push(pageId);
+    }
+    const id = attributes.get('data-id');
+    if (id) {
+      if (targets.has(id)) throw new Error(`${label} has duplicate data-id ${id}`);
+      targets.set(id, { name, attributes, pageId });
+    }
+    if (pageId && ['video', 'iframe'].includes(name)) {
+      const page = config.pages.find(page => page.id === pageId);
+      const ids = name === 'video' ? page?.capabilities.mediaTargetIds : page?.capabilities.embeddedTargetIds;
+      if (!id || !ids?.includes(id)) throw new Error(`${label} has undeclared motion media`);
+    }
+    if (!VOID_ELEMENTS.has(name) && !/\/\s*>$/u.test(token)) stack.push({ name, pageId });
+  }
+  if (JSON.stringify(pages) !== JSON.stringify(config.pages.map(page => page.id))) throw new Error(`${label} motion pages must match DOM order`);
+  for (const page of config.pages) for (const target of page.targets) {
+    const node = targets.get(target.id), editable = node?.attributes.get('data-editable');
+    const compatible = target.kind === 'text' ? ['text', 'rich-text'].includes(editable)
+      : target.kind === 'image' ? node?.name === 'img' && editable === 'image'
+      : target.kind === 'group' ? node?.attributes.get('data-nutbook-motion-group') === 'true'
+      : node?.name === (target.kind === 'embedded' ? 'iframe' : 'video');
+    if (!compatible || node.pageId !== page.id) throw new Error(`${label} motion target ${target.id} does not match its DOM page/type`);
   }
 }
 
@@ -350,6 +401,7 @@ export function validateEntryHtmlContract(entry, projectRoot, label = `entry ${e
   const source = readFileSync(htmlPath, "utf8");
   validateEditableHtmlContract(source, `${label}.path`);
   if (entry.kind === "presentation") validatePresentationHtmlContract(source, `${label}.path`);
+  validateMotionHtmlContract(source, `${label}.path`);
 }
 
 export function activeHtmlContractIssues(manifest, projectRoot) {

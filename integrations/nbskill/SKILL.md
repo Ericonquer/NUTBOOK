@@ -17,6 +17,11 @@ an Agent project into a general file browser.
 - For `kind: presentation` HTML, read [references/presentation-html-v1.md](references/presentation-html-v1.md)
   and start from the bundled [standalone template](templates/presentation.html).
   Run the independent browser behavior check described there before delivery.
+- When the user explicitly requests motion editing, also read
+  [references/motion-html-v1.md](references/motion-html-v1.md) and start from
+  [the optional motion template](templates/motion-presentation.html).
+  New motion documents start static. Do not add this contract to arbitrary HTML
+  or change an existing document's IDs and capability declarations during editing.
 - Treat registration as part of completing a user-facing Markdown or HTML
   deliverable. Before the final response, register every primary `.md` and
   `.html` file created or updated for the user; do not wait for a separate

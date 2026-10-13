@@ -29,6 +29,7 @@ use crate::{
     core::{
         content_session::{origin_of_url, ContentSessionRecord, ContentSurfaceRole, RuntimeKey},
         html_edit::content_hash_bytes,
+        motion_protocol::{MotionCapabilities, MotionPlaybackState},
         html_runtime::{
             attach_html_runtime_host_for_presentation, html_runtime_host_label,
             set_html_runtime_host_visibility, HtmlRuntimeSession,
@@ -125,6 +126,8 @@ pub struct NativePresentationView {
     pub black: bool,
     pub suspended: bool,
     pub language: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion_state: Option<MotionPlaybackState>,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +153,7 @@ pub struct NativePresentationSession {
     pub monitor_id: String,
     pub generation: u64,
     pub language: String,
+    pub motion_state: Option<MotionPlaybackState>,
     pub main_window_position: tauri::PhysicalPosition<i32>,
     pub main_window_size: tauri::PhysicalSize<u32>,
     pub main_window_fullscreen: bool,
@@ -187,6 +191,7 @@ impl NativePresentationSession {
             black: self.black,
             suspended: self.suspended,
             language: self.language.clone(),
+            motion_state: self.motion_state.clone(),
         }
     }
 }
@@ -566,6 +571,8 @@ pub struct ProbePayload {
     #[serde(default)]
     pub notes: PresentationNotes,
     pub active_page_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<MotionCapabilities>,
 }
 
 #[tauri::command]
@@ -575,6 +582,10 @@ pub fn native_presentation_probe_command(
     state: tauri::State<'_, AppState>,
     payload: ProbePayload,
 ) -> Result<bool, AppError> {
+    // Reserved P0 wire extension. Do not accept step support until routing ships.
+    if payload.motion.as_ref().is_some_and(|motion| motion.contract != "nutbook-motion/v1" || motion.supports_steps) {
+        return Err(AppError::InvalidParams);
+    }
     let record = super::preview::content_session_record(&state, &webview)?
         .ok_or(AppError::InvalidSession)?;
     if origin_of_url(
@@ -1417,6 +1428,7 @@ pub fn start_native_presentation(
         pages: payload.pages,
         notes,
         active_page_id: payload.start_page_id.clone(),
+        motion_state: None,
         ready: false,
         pending_page_id: None,
         sequence: 0,
@@ -2393,6 +2405,17 @@ mod tests {
         io::Write,
         process::{Command, Stdio},
     };
+
+    #[test]
+    fn legacy_probe_omits_motion_extension() {
+        let json = r#"{"itemId":1,"requestId":"p","pages":[{"id":"opening","title":"Title"}],"activePageId":"opening"}"#;
+        let legacy: super::ProbePayload = serde_json::from_str(json).unwrap();
+        assert!(legacy.motion.is_none());
+        let mut value: serde_json::Value = serde_json::from_str(json).unwrap();
+        value["motion"] = serde_json::json!({"contract":"nutbook-motion/v1","supportsSteps":false});
+        let extended: super::ProbePayload = serde_json::from_value(value).unwrap();
+        assert!(!extended.motion.unwrap().supports_steps);
+    }
 
     #[test]
     fn fullscreen_audience_uses_the_whole_window() {
