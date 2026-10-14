@@ -1,0 +1,31 @@
+import {selectMotionCategory} from './motion-panel-test-helpers.mjs';
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {mkdtempSync,copyFileSync,readFileSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+const dir=mkdtempSync(join(tmpdir(),'nutbook-motion-categories-')),file=join(dir,'index.html');copyFileSync('integrations/nbskill/templates/motion-presentation.html',file);copyFileSync('integrations/nbskill/templates/presentation-mark.svg',join(dir,'presentation-mark.svg'));
+const browser=await chromium.launch({headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const open=async()=>{await page.goto(pathToFileURL(file).href);await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'categories',generation:1,inlineToolbar:true,locale:'zh-CN'}));await page.evaluate(()=>window.__NUTBOOK_MOTION__.togglePanel());};
+ await open();const panel=page.locator('[data-nutbook-motion-panel]'),title=page.locator('[data-id=opening-title]');const acts=()=>page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig().pages[0].actions);const category=async label=>{await selectMotionCategory(panel,label);};
+ await title.click();const semantic=await title.evaluate(el=>el.outerHTML);await panel.locator('[data-apply]').click();const originalId=(await acts())[0].id;
+ await category('进场');assert.equal(await panel.locator('[data-param=density]').count(),0);await panel.locator('[data-apply]').click();assert.equal((await acts()).length,1);assert.equal((await acts())[0].id,originalId);assert.equal((await acts())[0].templateId,'entrance.gravity-impact');await panel.locator('[data-param=strength]').fill('1.5');assert.equal((await acts())[0].params.strength,1.5);
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.undoHistory());assert.equal((await acts())[0].params.strength,1);await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.undoHistory());assert.equal((await acts())[0].templateId,'text.glyph-particles');await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.redoHistory());assert.equal((await acts())[0].templateId,'entrance.gravity-impact');
+ await panel.locator('[data-param=dustSize]').fill('2.25');assert.equal((await acts())[0].params.dustSize,2.25);
+ await category('强调');await panel.locator('[data-apply]').click();assert.equal((await acts()).length,2);await panel.locator('[data-param=strength]').fill('1.75');assert.equal((await acts())[0].params.strength,1,'emphasis controls must not alter entrance');
+ await category('退场');await panel.locator('[data-apply]').click();assert.equal((await acts()).length,3);await panel.locator('[data-param=density]').fill('1600');await panel.locator('[data-color-mode]').selectOption('1',{force:true});await panel.locator('[data-param=hue]').fill('70');
+ await page.evaluate(()=>window.__NUTBOOK_MOTION__.seek(5400));assert.equal(await title.evaluate(el=>getComputedStyle(el).opacity),'0','exit terminal remains hidden after entrance clears its token');
+ await panel.locator('[data-text-mode]').click();assert.equal(await title.evaluate(el=>getComputedStyle(el).opacity),'1','text edit clears all projections');assert.equal(await title.evaluate(el=>el.outerHTML),semantic);
+ await panel.locator('[data-select-mode]').click();await title.click();await panel.locator('[data-action-list] summary').click();const firstId=(await acts())[0].id;await panel.locator(`[data-action-id="${firstId}"] [data-action-select]`).click();assert.equal(await panel.locator('[data-category]').inputValue(),'entrance','list row selects the action category');
+ await category('退场');await panel.locator('[data-remove]').click();assert.equal((await acts()).length,2);assert.ok((await acts()).every(a=>a.templateId!=='exit.particle-dissolve'));await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.undoHistory());assert.equal((await acts()).length,3);
+ await page.screenshot({path:join(dir,'categories.png')});const snapshot=await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot());writeFileSync(join(dir,'changes.json'),JSON.stringify(snapshot.changes));execFileSync('cargo',['run','--quiet','--manifest-path','src-tauri/Cargo.toml','--example','commit_motion_acceptance','--',file,join(dir,'changes.json')],{encoding:'utf8'});
+ const saved=readFileSync(file,'utf8');assert.ok(!saved.includes('data-nutbook-motion-projection'));await open();assert.equal((await acts()).length,3);assert.equal((await acts()).find(a=>a.templateId==='entrance.gravity-impact').params.dustSize,2.25);assert.equal((await acts()).find(a=>a.templateId==='exit.particle-dissolve').params.lightness,70);assert.equal((await acts()).find(a=>a.templateId==='emphasis.spotlight').params.strength,1.75);
+ await category('进场');await page.locator('[data-id=opening-image]').click();await panel.locator('[data-apply]').click();assert.equal((await acts()).filter(a=>a.targetId==='opening-image').length,1,'gravity supports the declared image target');
+ await page.evaluate(()=>{const config=window.__NUTBOOK_MOTION__.getConfig();config.pages[0].actions.forEach(action=>action.params.durationMs=500);window.__NUTBOOK_HTML_EDIT__.commitMotionChange(config);});
+ await page.evaluate(()=>window.__NUTBOOK_MOTION__.replay());await page.waitForFunction(()=>!window.__NUTBOOK_MOTION__.state().playing&&!document.querySelector('[data-nutbook-motion-projection]'),{},{timeout:6000});assert.equal(await title.evaluate(el=>getComputedStyle(el).opacity),'1','naturally finished edit preview restores even exited text');
+ assert.deepEqual(errors,[]);console.log(`Category UI, slot replacement, projection composition, single undo and real Rust save/reopen passed: ${dir}`);
+}finally{await browser.close();}

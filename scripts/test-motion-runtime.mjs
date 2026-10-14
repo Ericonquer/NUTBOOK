@@ -8,9 +8,9 @@ import {execFileSync} from 'node:child_process';
 const output=mkdtempSync(join(tmpdir(),'nutbook-motion-formal-'));
 const file=join(output,'index.html');
 // Start with a static config only in the temporary test copy; preserve user source.
-const input=process.argv[2] || 'docs/presentations/motion-gallery/index.html';
+const input=process.argv[2] || 'integrations/nbskill/templates/motion-presentation.html';
 const original=readFileSync(input,'utf8');
-if (process.argv[2]) copyFileSync(join(dirname(input),'presentation-mark.svg'),join(output,'presentation-mark.svg'));
+copyFileSync(join(dirname(input),'presentation-mark.svg'),join(output,'presentation-mark.svg'));
 const marker='<script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">';
 const start=original.indexOf(marker)+marker.length,end=original.indexOf('</script>',start);
 const config=JSON.parse(original.slice(start,end));config.pages.forEach(p=>p.actions=[]);
@@ -68,7 +68,7 @@ try{
  await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.redoHistory());
  assert.equal(await panel.locator('[data-param="hue"]').inputValue(),'30');
  for(const lightness of ['0','50','100']){
-  await panel.locator('[data-color-mode]').selectOption('1');await panel.locator('[data-param="hue"]').fill(lightness);
+  await panel.locator('[data-color-mode]').selectOption('1', {force:true});await panel.locator('[data-param="hue"]').fill(lightness);
   assert.equal(await panel.locator('[data-param="hue"]').isVisible(),true);
   await page.evaluate(()=>window.__NUTBOOK_MOTION__.seek(800));
   const pixels=await page.evaluate(()=>{const c=window.__NUTBOOK_MOTION__.canvas,d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let visible=0,wrong=0;for(let i=0;i<d.length;i+=4){if(d[i+3]>20){visible++;if(d[i]!==d[i+1]||d[i]!==d[i+2])wrong++;}}return {visible,wrong};});

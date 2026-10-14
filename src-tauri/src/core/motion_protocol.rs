@@ -1,5 +1,5 @@
-//! P0 wire contract. Page ACK and motion ACK are distinct. No steps are
-//! advertised by the current runtime until the native routing adapter ships.
+//! Page ACK and motion ACK are distinct. Only the applied audience state
+//! confirms native step and background playback; pending intent is not applied.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

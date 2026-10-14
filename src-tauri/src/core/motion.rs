@@ -37,6 +37,15 @@ pub struct Action {
     pub id: String, pub target_id: String, pub template_id: String, pub template_version: u32,
     pub params: BTreeMap<String, f64>, pub seed: u32, pub trigger: String, pub delay_ms: f64,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageEffect {pub id:String,pub template_id:String,pub template_version:u32,pub params:BTreeMap<String,f64>,pub seed:u32}
+fn validate_parameters(values:&BTreeMap<String,f64>,template:&serde_json::Value)->Result<(),AppError>{
+ let params=template["params"].as_object().ok_or(AppError::InvalidParams)?;
+ if values.keys().any(|key|!params.contains_key(key)){return Err(AppError::InvalidParams);}
+ for(key,rule)in params{let number=match values.get(key){Some(value)=>*value,None if rule["optional"].as_bool()==Some(true)=>rule["default"].as_f64().ok_or(AppError::InvalidParams)?,None=>return Err(AppError::InvalidParams)};if !number.is_finite()||number<rule["min"].as_f64().ok_or(AppError::InvalidParams)?||number>rule["max"].as_f64().ok_or(AppError::InvalidParams)?||(rule["integer"].as_bool()==Some(true)&&number.fract()!=0.0){return Err(AppError::InvalidParams);}}
+ Ok(())
+}
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 80 && id.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_:".contains(&c))
 }
@@ -54,7 +63,7 @@ pub fn validate(text: &str) -> Result<MotionDocument, AppError> {
     let mut pages = BTreeSet::new(); let mut targets = BTreeSet::new(); let mut actions = BTreeSet::new();
     for page in &document.pages {
         if !valid_id(&page.id) || !pages.insert(&page.id) || page.targets.len() > 256 || page.actions.len() > 256
-            || page.background.is_some() || page.transition.is_some() { return Err(invalid()); }
+             { return Err(invalid()); }
         let mut local = BTreeMap::new();
         for target in &page.targets {
             if !valid_id(&target.id) || !targets.insert(&target.id) || !["text", "image", "group", "video", "embedded"].contains(&target.kind.as_str()) { return Err(invalid()); }
@@ -66,27 +75,18 @@ pub fn validate(text: &str) -> Result<MotionDocument, AppError> {
                 || set.iter().any(|id| local.get(id) != Some(&kind))
                 || local.iter().any(|(id, k)| *k == kind && !set.contains(id)) { return Err(invalid()); }
         }
+        for(slot,value)in [("background",&page.background),("transition",&page.transition)]{if let Some(value)=value{let effect:PageEffect=serde_json::from_value(value.clone()).map_err(|_|invalid())?;let template=&registry["templates"][&effect.template_id];if !valid_id(&effect.id)||!actions.insert(effect.id.clone())||template["category"].as_str()!=Some(slot)||template["version"].as_u64()!=Some(effect.template_version as u64){return Err(invalid());}validate_parameters(&effect.params,template)?;}}
         let mut slots = BTreeSet::new();
         for action in &page.actions {
             let template = &registry["templates"][&action.template_id];
             let kind = local.get(action.target_id.as_str()).ok_or_else(invalid)?;
-            if !valid_id(&action.id) || !actions.insert(&action.id)
+            if !valid_id(&action.id) || !actions.insert(action.id.clone())
                 || template["version"].as_u64() != Some(action.template_version as u64)
                 || !template["targets"].as_array().ok_or_else(invalid)?.iter().any(|v| v.as_str() == Some(kind))
-                || !slots.insert((&action.target_id, template["category"].as_str().ok_or_else(invalid)?))
+                || !slots.insert((&action.target_id, match template["category"].as_str().ok_or_else(invalid)? {"text"=>"entrance",category=>category}))
                 || !["click", "withPrevious", "afterPrevious"].contains(&action.trigger.as_str())
                 || !action.delay_ms.is_finite() || !(0.0..=60000.0).contains(&action.delay_ms) { return Err(invalid()); }
-            let params = template["params"].as_object().ok_or_else(invalid)?;
-            if action.params.keys().any(|key| !params.contains_key(key)) { return Err(invalid()); }
-            for (key, rule) in params {
-                let number = match action.params.get(key) {
-                    Some(value) => *value,
-                    None if rule["optional"].as_bool() == Some(true) => rule["default"].as_f64().ok_or_else(invalid)?,
-                    None => return Err(invalid()),
-                };
-                if !number.is_finite() || number < rule["min"].as_f64().ok_or_else(invalid)? || number > rule["max"].as_f64().ok_or_else(invalid)?
-                    || (rule["integer"].as_bool() == Some(true) && number.fract() != 0.0) { return Err(invalid()); }
-            }
+            validate_parameters(&action.params,template)?;
         }
     }
     Ok(document)

@@ -1,6 +1,7 @@
 // Data-only contract. DOM probing is a separate, more restrictive boundary.
 import registry from './registry.json' with { type: 'json' };
 export { registry };
+export const templateSlot = template => template.category==='text'?'entrance':template.category;
 export const CONTRACT = 'nutbook-motion/v1';
 const idPattern = /^[A-Za-z0-9_:-]{1,80}$/;
 const fail = (path) => { throw new TypeError(`Invalid motion contract: ${path}`); };
@@ -42,14 +43,20 @@ export function validateConfig(config) {
     }
     // Only implemented adapters may be saved. Future registry entries cannot
     // silently become usable merely by naming them in a document.
-    if (page.background !== null || page.transition !== null) fail('unsupported page slot');
+    for(const slot of ['background','transition'])if(page[slot]!==null){
+      const effect=page[slot];object(effect,['id','templateId','templateVersion','params','seed'],'background');id(effect.id,'background.id');if(actions.has(effect.id))fail('duplicate effect');actions.add(effect.id);
+      const template=registry.templates[effect.templateId];if(!template||template.category!==slot||effect.templateVersion!==template.version)fail('background template');
+      if(!Number.isInteger(effect.seed)||effect.seed<0||effect.seed>4294967295)fail('background seed');
+      object(effect.params,Object.keys(template.params).filter(key=>!template.params[key].optional||Object.hasOwn(effect.params,key)),'background.params');
+      for(const [key,rule]of Object.entries(template.params)){const value=effect.params[key]??(rule.optional?rule.default:undefined);if(!Number.isFinite(value)||value<rule.min||value>rule.max||(rule.integer&&!Number.isInteger(value)))fail(`background.params.${key}`);}
+    }
     const slots = new Set();
     for (const action of page.actions) {
       object(action, ['id', 'targetId', 'templateId', 'templateVersion', 'params', 'seed', 'trigger', 'delayMs'], 'action');
       id(action.id, 'action.id'); if (actions.has(action.id)) fail('duplicate action'); actions.add(action.id);
       const template = registry.templates[action.templateId];
       if (!template || action.templateVersion !== template.version || !template.targets.includes(localTargets.get(action.targetId))) fail('template target');
-      const slot = `${action.targetId}:${template.category}`;
+      const slot = `${action.targetId}:${templateSlot(template)}`;
       if (slots.has(slot)) fail('duplicate slot'); slots.add(slot);
       if (!['click', 'withPrevious', 'afterPrevious'].includes(action.trigger)) fail('trigger');
       if (!Number.isInteger(action.seed) || action.seed < 0 || action.seed > 4294967295) fail('seed');

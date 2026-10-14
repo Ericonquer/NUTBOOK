@@ -66,6 +66,92 @@
           "role": "asset"
         }
       ]
+    },
+    {
+      "id": "motion-p1-selection",
+      "path": "p1-selection.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-actions",
+      "path": "p1-actions.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-steps",
+      "path": "p1-steps.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-objects",
+      "path": "p1-objects.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-acceptance",
+      "path": "acceptance.md",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "report"
+    },
+    {
+      "id": "motion-p1-background",
+      "path": "p1-background.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-scenes",
+      "path": "p1-scenes.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-export-scenes",
+      "path": "p1-export-scenes.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
     }
   ]
 }

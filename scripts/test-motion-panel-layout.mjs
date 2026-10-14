@@ -26,9 +26,9 @@ try{
  await reset.hover();assert.equal(await reset.locator('[role=tooltip]').evaluate(el=>getComputedStyle(el).opacity),'1');
  await page.mouse.move(0,0);await reset.focus();await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');assert.equal(await reset.locator('[role=tooltip]').evaluate(el=>getComputedStyle(el).opacity),'1');
 
- assert.equal(await panel.locator('.body').evaluate(el=>el.scrollHeight<=el.clientHeight),true,'normal viewport fits without scrolling');
+ assert.equal(await panel.locator('[data-template-card]').count(),2,'aligned entrance catalog shows text and entrance cards');assert.ok((await panel.boundingBox()).y+(await panel.boundingBox()).height<=620,'catalog panel stays above the editing toolbar');
  const before=await panel.boundingBox(),header=await handle.boundingBox();
- await page.mouse.move(header.x+header.width-12,header.y+12);await page.mouse.down();await page.mouse.move(header.x+header.width-112,header.y+42);await page.mouse.up();
+ await page.mouse.move(header.x+header.width-56,header.y+12);await page.mouse.down();await page.mouse.move(header.x+header.width-156,header.y+42);await page.mouse.up();
  const after=await panel.boundingBox();assert.ok(after.x<before.x-50,'blank header area drags the panel');
  await handle.focus();await page.keyboard.press('ArrowLeft');assert.ok((await panel.boundingBox()).x<after.x);
  assert.equal(await panel.evaluate(el=>getComputedStyle(el).zIndex),'2147483646');
@@ -40,7 +40,7 @@ try{
  await handle.focus();await page.keyboard.press('ArrowUp');
  assert.equal(await panel.locator('.body').evaluate(el=>el.scrollHeight>el.clientHeight),true,'small viewport can still reach all controls');
  await panel.locator('.body').evaluate(el=>el.scrollTop=el.scrollHeight);
- assert.equal(await panel.locator('[data-pause]').isVisible(),true);await panel.locator('[data-pause]').click({trial:true});
+ assert.equal(await panel.locator('[data-action-list] summary').isVisible(),true);await panel.locator('[data-action-list] summary').click({trial:true});
  assert.ok((await handle.boundingBox()).y>=0,'drag handle remains outside scrolling content');
  await page.screenshot({path:'/tmp/nutbook-motion-panel-compact.png'});
  console.log('Motion panel full-header drag, keyboard movement, compact fit and small-window access passed');

@@ -1,0 +1,12 @@
+// One software tooltip per panel, outside its scrolling body.
+export function installPanelTooltips(root){
+ const tip=document.createElement('div');tip.dataset.panelTooltip='';tip.role='tooltip';tip.hidden=true;root.append(tip);let active=null;
+ const normalize=()=>{for(const button of root.querySelectorAll('button[title]')){if(!button.hasAttribute('aria-label'))button.setAttribute('aria-label',button.title);button.removeAttribute('title');}};
+ function hide(){active=null;tip.hidden=true;}
+ function show(button){if(!button||button.disabled||button.dataset.motionSelectTrigger!==undefined&&button.getAttribute('aria-expanded')==='true'){hide();return;}active=button;const label=button.getAttribute('aria-label')||button.textContent.trim();if(tip.textContent!==label)tip.textContent=label;tip.hidden=!tip.textContent;if(tip.hidden)return;const rect=button.getBoundingClientRect();tip.style.left='8px';tip.style.top='8px';const box=tip.getBoundingClientRect();tip.style.left=`${Math.max(8,Math.min(innerWidth-box.width-8,rect.left))}px`;tip.style.top=`${rect.bottom+box.height+12<innerHeight?rect.bottom+6:Math.max(8,rect.top-box.height-6)}px`;}
+ const enter=e=>show(e.target.closest?.('button')),leave=e=>{if(!active?.contains(e.relatedTarget))hide();};
+ root.addEventListener('pointerover',enter);root.addEventListener('pointerout',leave);root.addEventListener('focusin',enter);root.addEventListener('focusout',leave);root.addEventListener('scroll',hide,true);root.addEventListener('pointerdown',hide);
+ normalize();const observer=new MutationObserver(()=>{normalize();if(active){if(!active.isConnected)hide();else show(active);}});observer.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['title','aria-label','aria-expanded','disabled']});
+ return ()=>{observer.disconnect();hide();tip.remove();root.removeEventListener('pointerover',enter);root.removeEventListener('pointerout',leave);root.removeEventListener('focusin',enter);root.removeEventListener('focusout',leave);root.removeEventListener('scroll',hide,true);root.removeEventListener('pointerdown',hide);};
+}
+export const panelTooltipStyles=`.mode-tooltip,.action-tooltip,.reset-tooltip,.motion-select-tooltip{display:none!important}[data-panel-tooltip]{position:fixed;z-index:2147483647;max-width:min(300px,calc(100vw - 16px));padding:6px 9px;border-radius:6px;background:#222;color:#fff;font-size:11px;font-weight:400;line-height:1.4;pointer-events:none;box-shadow:0 3px 10px #0002}`;

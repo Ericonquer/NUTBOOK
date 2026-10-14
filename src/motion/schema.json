@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Nutbook Motion v1 P0",
+  "title": "Nutbook Motion v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -127,52 +127,18 @@
                   "pattern": "^[A-Za-z0-9_:-]{1,80}$"
                 },
                 "templateId": {
-                  "const": "text.glyph-particles"
+                  "enum": [
+                    "text.glyph-particles",
+                    "entrance.gravity-impact",
+                    "emphasis.spotlight",
+                    "exit.particle-dissolve"
+                  ]
                 },
                 "templateVersion": {
                   "const": 1
                 },
                 "params": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "durationMs",
-                    "strength",
-                    "density"
-                  ],
-                  "properties": {
-                    "durationMs": {
-                      "type": "number",
-                      "minimum": 500,
-                      "maximum": 6000
-                    },
-                    "strength": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 2
-                    },
-                    "density": {
-                      "type": "integer",
-                      "minimum": 12,
-                      "maximum": 400
-                    },
-                    "hue": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 360,
-                      "default": 210
-                    },
-                    "colorMode": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 2
-                    },
-                    "lightness": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 100
-                    }
-                  }
+                  "type": "object"
                 },
                 "seed": {
                   "type": "integer",
@@ -191,14 +157,335 @@
                   "minimum": 0,
                   "maximum": 60000
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.glyph-particles"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "density"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "density": {
+                            "type": "integer",
+                            "minimum": 12,
+                            "maximum": 400
+                          },
+                          "hue": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 360
+                          },
+                          "colorMode": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "lightness": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "entrance.gravity-impact"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "dustSize": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 3
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "emphasis.spotlight"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "exit.particle-dissolve"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "density"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "density": {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 2400
+                          },
+                          "hue": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 360
+                          },
+                          "colorMode": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "lightness": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
             }
           },
           "background": {
-            "type": "null"
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "templateId",
+                  "templateVersion",
+                  "params",
+                  "seed"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                  },
+                  "templateId": {
+                    "const": "background.flowing-gradient"
+                  },
+                  "templateVersion": {
+                    "const": 1
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "durationMs",
+                      "strength",
+                      "hue",
+                      "hue2",
+                      "speed",
+                      "scale"
+                    ],
+                    "properties": {
+                      "durationMs": {
+                        "type": "number",
+                        "minimum": 6000,
+                        "maximum": 30000
+                      },
+                      "strength": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 0.65
+                      },
+                      "hue": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 360
+                      },
+                      "hue2": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 360
+                      },
+                      "speed": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 2
+                      },
+                      "scale": {
+                        "type": "number",
+                        "minimum": 0.5,
+                        "maximum": 2
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           },
           "transition": {
-            "type": "null"
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "templateId",
+                  "templateVersion",
+                  "params",
+                  "seed"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                  },
+                  "templateId": {
+                    "const": "transition.curtain-reveal"
+                  },
+                  "templateVersion": {
+                    "const": 1
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "durationMs",
+                      "direction",
+                      "shape",
+                      "feather"
+                    ],
+                    "properties": {
+                      "durationMs": {
+                        "type": "number",
+                        "minimum": 300,
+                        "maximum": 2000
+                      },
+                      "direction": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 3
+                      },
+                      "shape": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "feather": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 0.3
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           }
         }
       },

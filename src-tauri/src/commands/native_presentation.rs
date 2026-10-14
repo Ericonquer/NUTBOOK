@@ -17,19 +17,23 @@ use tauri::Manager;
 #[cfg(target_os = "macos")]
 use block2::RcBlock;
 #[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSEvent, NSEventMask, NSEventModifierFlags, NSWindow, NSWindowCollectionBehavior, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSEvent, NSEventMask, NSEventModifierFlags, NSWindow, NSScreen, NSWindowCollectionBehavior, NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSNotification, NSNotificationCenter};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize};
+#[cfg(target_os = "macos")]
+use objc2::MainThreadMarker;
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
 
 use crate::{
     core::{
+        display_layout::{Display, Rect, Snapshot, logical_rect},
         content_session::{origin_of_url, ContentSessionRecord, ContentSurfaceRole, RuntimeKey},
         html_edit::content_hash_bytes,
         motion_protocol::{MotionCapabilities, MotionPlaybackState},
+        motion_session::MotionSession,
         html_runtime::{
             attach_html_runtime_host_for_presentation, html_runtime_host_label,
             set_html_runtime_host_visibility, HtmlRuntimeSession,
@@ -50,8 +54,8 @@ const BLACKOUT_LABEL: &str = "native-presentation-blackout";
 const LIVE_CURRENT_LABEL: &str = "native-presentation-live-current";
 const AUDIENCE_BANNER_HEIGHT: f64 = 36.0;
 
-fn audience_top_inset(rehearsal: bool, screen_filling: bool) -> f64 {
-    if rehearsal && !screen_filling { AUDIENCE_BANNER_HEIGHT } else { 0.0 }
+fn audience_top_inset(_rehearsal: bool, screen_filling: bool) -> f64 {
+    if !screen_filling { AUDIENCE_BANNER_HEIGHT } else { 0.0 }
 }
 static AUDIENCE_RESIZE_OBSERVER: OnceLock<()> = OnceLock::new();
 #[cfg(target_os = "macos")]
@@ -116,9 +120,13 @@ pub struct NativePresentationView {
     pub active_page_id: String,
     pub ready: bool,
     pub pending_page_id: Option<String>,
+    pub pending_motion: bool,
+    pub motion_step_count: u32,
+    pub motion_duration_ms: f64,
     pub sequence: u64,
     pub error: Option<String>,
     pub rehearsal: bool,
+    pub static_motion: bool,
     pub timer_elapsed_ms: u64,
     pub timer_running: bool,
     pub timer_has_started: bool,
@@ -143,6 +151,7 @@ pub struct NativePresentationSession {
     pub sequence: u64,
     pub error: Option<String>,
     pub rehearsal: bool,
+    pub static_motion: bool,
     pub timer_elapsed: Duration,
     pub timer_started: Option<Instant>,
     pub timer_has_started: bool,
@@ -154,8 +163,9 @@ pub struct NativePresentationSession {
     pub generation: u64,
     pub language: String,
     pub motion_state: Option<MotionPlaybackState>,
-    pub main_window_position: tauri::PhysicalPosition<i32>,
-    pub main_window_size: tauri::PhysicalSize<u32>,
+    pub motion_session: Option<MotionSession>,
+    pub queued_page_id: Option<String>,
+    pub main_window_snapshot: Snapshot,
     pub main_window_fullscreen: bool,
     pub audience_fullscreen_requested: bool,
     pub audience_fullscreen_transitioning: bool,
@@ -175,9 +185,13 @@ impl NativePresentationSession {
             active_page_id: self.active_page_id.clone(),
             ready: self.ready,
             pending_page_id: self.pending_page_id.clone(),
+            pending_motion:self.motion_session.as_ref().is_some_and(|m|m.planning.is_some()),
+            motion_duration_ms:self.motion_session.as_ref().and_then(|m|m.pages.get(&self.active_page_id)).and_then(|steps|steps.last()).map(|step|step.end).unwrap_or(0.0),
+            motion_step_count:self.motion_session.as_ref().map(|m|m.count(&self.active_page_id)).unwrap_or(0),
             sequence: self.sequence,
             error: self.error.clone(),
             rehearsal: self.rehearsal,
+            static_motion: self.static_motion,
             timer_elapsed_ms: (self.timer_elapsed
                 + self
                     .timer_started
@@ -226,6 +240,18 @@ fn monitor_id(monitor: &tauri::Monitor) -> String {
         monitor.size().height,
         monitor.name().map(String::as_str).unwrap_or("")
     )
+}
+
+fn display_key(monitor:&tauri::Monitor)->String {monitor.name().cloned().unwrap_or_else(||monitor_id(monitor))}
+fn display_layout(app:&tauri::AppHandle)->Result<Vec<Display>,AppError>{
+ let primary=app.primary_monitor().map_err(|_|AppError::InternalError)?.map(|m|display_key(&m));
+ Ok(monitors(app)?.iter().map(|m|Display{key:display_key(m),area:logical_rect(m.position().x,m.position().y,m.size().width,m.size().height,m.scale_factor()),primary:primary.as_deref()==Some(display_key(m).as_str())}).collect())
+}
+fn capture_desktop_window(app:&tauri::AppHandle,main:&tauri::Window)->Result<Snapshot,AppError>{
+ let monitor=main.current_monitor().map_err(|_|AppError::InternalError)?.or(app.primary_monitor().map_err(|_|AppError::InternalError)?).ok_or(AppError::InvalidSession)?;
+ let position=main.outer_position().map_err(|_|AppError::InternalError)?;let size=main.outer_size().map_err(|_|AppError::InternalError)?;let scale=main.scale_factor().map_err(|_|AppError::InternalError)?;
+ let displays=display_layout(app)?;let display=displays.iter().find(|d|d.key==display_key(&monitor)).ok_or(AppError::InvalidSession)?;
+ Ok(Snapshot::capture(display,logical_rect(position.x,position.y,size.width,size.height,scale)))
 }
 
 fn monitors(app: &tauri::AppHandle) -> Result<Vec<tauri::Monitor>, AppError> {
@@ -583,7 +609,7 @@ pub fn native_presentation_probe_command(
     payload: ProbePayload,
 ) -> Result<bool, AppError> {
     // Reserved P0 wire extension. Do not accept step support until routing ships.
-    if payload.motion.as_ref().is_some_and(|motion| motion.contract != "nutbook-motion/v1" || motion.supports_steps) {
+    if payload.motion.as_ref().is_some_and(|motion| motion.contract != "nutbook-motion/v1") {
         return Err(AppError::InvalidParams);
     }
     let record = super::preview::content_session_record(&state, &webview)?
@@ -641,6 +667,10 @@ pub struct StartPayload {
     pub start_page_id: String,
     pub rehearsal: bool,
     pub language: String,
+    #[serde(default)]
+    pub static_motion: bool,
+    #[serde(default)]
+    pub motion: Option<MotionCapabilities>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -790,13 +820,19 @@ pub fn save_native_presentation_notes(
     })
 }
 
-fn audience_init_script(
+pub fn audience_init_script(
     session_id: &str,
     item_id: i64,
     start_page_id: &str,
     generation: u64,
     language: &str,
+    restore_motion: Option<&MotionPlaybackState>,
+    initial_motion_sequence:u64,
+    motion_enabled:bool,
+    static_motion:bool,
 ) -> String {
+    let motion_controller=include_str!("../../resources/export-templates/native-motion-controller.js");
+    let restore_motion=serde_json::to_string(&restore_motion).unwrap_or_else(|_|"null".into());
     let fullscreen_hint = if language == "en-US" {
         "Press F again to exit fullscreen"
     } else {
@@ -805,8 +841,11 @@ fn audience_init_script(
     let exit_label = if language == "en-US" { "Exit Fullscreen (F)" } else { "退出全屏（F）" };
     format!(
         r#"(() => {{
-      const sessionId = {session_id:?}, itemId = {item_id}, startPageId = {start_page_id:?}, generation = {generation};
+      {motion_controller}
+      const sessionId = {session_id:?}, itemId = {item_id}, startPageId = {start_page_id:?}, generation = {generation}, motionEnabled={motion_enabled};
+      let motionController=null;
       window.__NUTBOOK_NATIVE_PRESENTATION_ACTIVE__ = true;
+      window.__NUTBOOK_STATIC_PRESENTATION__ = {static_motion};
       let hintFadeTimer, hintHideTimer;
       const exitLabel = {exit_label:?};
       let fullscreenExit;
@@ -814,6 +853,7 @@ fn audience_init_script(
         if (!fullscreenExit) {{
           fullscreenExit = document.createElement('div');
           fullscreenExit.id = 'nutbook-native-presentation-fullscreen-exit';
+          fullscreenExit.dataset.nutbookRuntimeControl = '';
           fullscreenExit.style.cssText = 'position:fixed;right:36px;bottom:36px;z-index:2147483647;display:none;pointer-events:auto;';
           const shadow = fullscreenExit.attachShadow({{ mode: 'closed' }});
           const button = document.createElement('button');
@@ -865,8 +905,9 @@ fn audience_init_script(
         payload: {{ sessionId, itemId, generation, type, ...extra }}
       }}).catch(() => {{}});
       const editableFocus = () => {{
-        const active = document.activeElement;
-        return !!(active?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active?.tagName || ''));
+        let active = document.activeElement;
+        while(active?.shadowRoot?.activeElement)active=active.shadowRoot.activeElement;
+        return !!(active?.isContentEditable || active?.matches?.('button,a,input,textarea,select,[role="button"],[data-nutbook-runtime-control],#nutbook-native-presentation-fullscreen-exit'));
       }};
       const reportEditableFocus = () => invoke('editable-focus', {{ direction: editableFocus() ? 'true' : 'false' }});
       document.addEventListener('focusin', reportEditableFocus, true);
@@ -874,11 +915,11 @@ fn audience_init_script(
       document.addEventListener('keydown', event => {{
         if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
         const target = event.target;
-        if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName || '')) return;
+        if (event.composedPath().some(node=>node?.matches?.('button,a,input,textarea,select,[contenteditable],[role="button"],[data-nutbook-runtime-control],#nutbook-native-presentation-fullscreen-exit'))) return;
         if (event.code === 'KeyF' || event.key?.toLowerCase() === 'f') {{ event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) invoke('fullscreen-toggle'); return; }}
         if (event.isComposing) return;
         if (event.key === 'Escape') {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('end'); return; }}
-        if (event.key === 'ArrowRight' || event.key === 'PageDown') {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('navigation-request', {{ direction: 'next' }}); }}
+        if (!event.repeat && (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ')) {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('navigation-request', {{ direction: 'next' }}); }}
         if (event.key === 'ArrowLeft' || event.key === 'PageUp') {{ event.preventDefault(); event.stopImmediatePropagation(); invoke('navigation-request', {{ direction: 'previous' }}); }}
       }}, true);
       async function boot() {{
@@ -898,16 +939,19 @@ fn audience_init_script(
           const pages = (bridge.pages || []).map(page => ({{ id: String(page.id || ''), title: String(page.title || '') }}));
           let controllerReady = false;
           bridge.subscribe(pageId => {{
-            if (controllerReady) invoke('page', {{ pageId: String(pageId), sequence: pendingSequence }});
+            if (controllerReady && !motionEnabled) invoke('page', {{ pageId: String(pageId), sequence: pendingSequence }});
           }});
           if (bridge.activePageId !== startPageId) await bridge.goTo(startPageId);
-          await invoke('ready', {{ pages, pageId: String(bridge.activePageId || '') }});
+          if({static_motion})document.addEventListener('click',event=>{{if(event.defaultPrevented||event.composedPath().some(node=>node?.matches?.('button,a,input,textarea,select,[contenteditable],iframe,video,[role="button"],[data-nutbook-runtime-control],#nutbook-native-presentation-fullscreen-exit'))||!window.getSelection()?.isCollapsed)return;event.preventDefault();event.stopImmediatePropagation();void invoke('navigation-request',{{direction:'next'}});}},true);
+          if(motionEnabled) motionController=await window.installNutbookNativeMotion({{bridge,report:invoke,restore:{restore_motion},initialSequence:{initial_motion_sequence},language:{language:?}}});
+          await invoke('ready', {{ pages, pageId: String(bridge.activePageId || ''),motionState:motionController?.state() }});
           controllerReady = true;
           window.__NUTBOOK_NATIVE_PRESENTATION_NAVIGATE__ = async (pageId, sequence) => {{
             pendingSequence = sequence;
             try {{
-              await bridge.goTo(pageId);
-              if (bridge.activePageId === pageId) invoke('page', {{ pageId, sequence }});
+              const motionState=motionController?await motionController.page(pageId,sequence):undefined;
+              if(!motionController)await bridge.goTo(pageId);
+              if (bridge.activePageId === pageId) invoke('page', {{ pageId, sequence,motionState }});
             }} catch (error) {{ invoke('error', {{ error: String(error), sequence }}); }}
             finally {{ pendingSequence = 0; }}
           }};
@@ -941,7 +985,7 @@ fn resize_audience_child(app: &tauri::AppHandle) {
         _ => native_fullscreen,
     };
     let top = audience_top_inset(audience.as_ref().is_some_and(|(_, rehearsal, _, _)| *rehearsal), screen_filling);
-    if audience.as_ref().is_some_and(|(_, rehearsal, _, _)| *rehearsal) {
+    if audience.is_some() {
         if let Some(host) = app.get_webview("main") {
             let _ = host.eval(format!("document.querySelector('.app-shell')?.classList.toggle('native-audience-screenfill', {screen_filling});"));
         }
@@ -999,13 +1043,57 @@ fn set_audience_child_autoresizing(app: &tauri::AppHandle, enabled: bool) {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug)]
+struct AudienceWindowFrame { x:f64,y:f64,width:f64,height:f64,fullscreen:bool,maximized:bool }
+#[cfg(target_os = "macos")]
+static PENDING_AUDIENCE_FRAME: Mutex<Option<(u64,AudienceWindowFrame)>> = Mutex::new(None);
+#[cfg(target_os = "macos")]
+static AUDIENCE_FRAME_EPOCH:AtomicU64=AtomicU64::new(0);
+#[cfg(target_os = "macos")]
+fn apply_native_audience_frame(window:&NSWindow, frame:AudienceWindowFrame)->bool {
+    let Some(mtm)=MainThreadMarker::new() else{return false;};
+    let screens=NSScreen::screens(mtm);let Some(primary)=screens.firstObject() else{return false;};
+    let primary_height=primary.frame().size.height;
+    if window.isZoomed(){window.zoom(None);}
+    let requested=Rect{x:frame.x,y:primary_height-frame.y-frame.height,width:frame.width,height:frame.height};
+    let mut fitted=requested;
+    for index in 0..screens.count(){let screen=screens.objectAtIndex(index);let bounds=screen.frame();let cx=requested.x+requested.width/2.0;let cy=requested.y+requested.height/2.0;if cx>=bounds.origin.x&&cx<bounds.origin.x+bounds.size.width&&cy>=bounds.origin.y&&cy<bounds.origin.y+bounds.size.height{let visible=screen.visibleFrame();fitted=requested.fit(Rect{x:visible.origin.x,y:visible.origin.y,width:visible.size.width,height:visible.size.height});break;}}
+    window.setFrame_display(NSRect::new(NSPoint::new(fitted.x,fitted.y),NSSize::new(fitted.width,fitted.height)),true);
+    if frame.maximized {window.zoom(None);}
+    let placed=window.frame();
+    let confirmed=frame.maximized||((placed.origin.x-fitted.x).abs()<2.0&&(placed.origin.y-fitted.y).abs()<2.0);
+    if frame.fullscreen&&confirmed {window.toggleFullScreen(None);}
+    confirmed
+}
+#[cfg(target_os = "macos")]
+fn place_native_audience(app:&tauri::AppHandle,frame:AudienceWindowFrame)->Result<(),AppError>{
+    let epoch=AUDIENCE_FRAME_EPOCH.fetch_add(1,Ordering::SeqCst)+1;
+    let host=app.get_webview("main").ok_or(AppError::InvalidSession)?;let view=host.clone();let app_for_placement=app.clone();
+    host.run_on_main_thread(move || {let _=view.with_webview(move |platform| unsafe{
+        if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)!=epoch{return;}
+        let window:&NSWindow=&*platform.ns_window().cast();
+        if window.styleMask().contains(objc2_app_kit::NSWindowStyleMask::FullScreen){
+            if let Ok(mut pending)=PENDING_AUDIENCE_FRAME.lock(){*pending=Some((epoch,frame));}
+            window.toggleFullScreen(None);
+        }else{if !apply_native_audience_frame(window,frame){
+            let snapshot=app_for_placement.try_state::<AppState>().and_then(|state|state.native_presentation.lock().ok().and_then(|mut guard|guard.as_mut().map(|session|{session.audience_fullscreen_requested=false;session.error=Some(if session.language=="en-US"{"Could not place the audience window. Drag its top bar, or end the presentation and select the display again."}else{"观众窗口未能移动到目标屏幕，请拖动顶部栏移动窗口，或结束后重新选择屏幕。"}.into());session.clone()})));
+            if let Some(session)=snapshot{notify_presenter(&app_for_placement,&session);}
+        }}
+    });}).map_err(|_|AppError::InternalError)
+}
+
 fn install_audience_resize_observer(app: &tauri::AppHandle) {
     let Some(main) = app.get_window("main") else { return; };
     AUDIENCE_RESIZE_OBSERVER.get_or_init(|| {
         let app_handle = app.clone();
         main.on_window_event(move |event| {
-            if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_)) {
+            if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Focused(_)) {
                 resize_audience_child(&app_handle);
+                if matches!(event,tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                    let item=app_handle.try_state::<AppState>().and_then(|state|state.native_presentation.lock().ok().and_then(|guard|guard.as_ref().map(|session|session.item_id)));
+                    if let Some(item)=item {if let Some(host)=app_handle.get_webview(&html_runtime_host_label(item)){let _=host.eval("window.dispatchEvent(new Event('resize'))");}}
+                }
                 if matches!(event, tauri::WindowEvent::Focused(true)) {
                     focus_audience_if_main_focused(&app_handle);
                 }
@@ -1030,6 +1118,15 @@ fn install_audience_fullscreen_observer(app: &tauri::AppHandle) {
                 ] {
                     let app_for_event = app_handle.clone();
                     let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
+                        if !entered {
+                            let pending=PENDING_AUDIENCE_FRAME.lock().ok().and_then(|mut frame|frame.take());
+                            if let Some((epoch,frame))=pending {
+                                // Tao queues style/maximize restoration from its exit delegate.
+                                // Cross a main-queue boundary before applying the saved desktop frame.
+                                let app_for_restore=app_for_event.clone();
+                                dispatch2::DispatchQueue::main().exec_async(move || {if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)==epoch{let _=place_native_audience(&app_for_restore,frame);}});
+                            }
+                        }
                         let Some(state) = app_for_event.try_state::<AppState>() else { return; };
                         let (item_id, restore_presenter) = {
                             let Ok(mut guard) = state.native_presentation.lock() else { return; };
@@ -1192,10 +1289,10 @@ fn create_audience_surface(
         main.set_fullscreen(false).map_err(|_| AppError::InternalError)?;
         main.maximize().map_err(|_| AppError::InternalError)?;
     } else {
-        main.set_fullscreen(false).map_err(|_| AppError::InternalError)?;
-        main.set_position(tauri::Position::Physical(*monitor.position()))
-            .map_err(|_| AppError::InternalError)?;
-        main.set_fullscreen(true).map_err(|_| AppError::InternalError)?;
+        #[cfg(target_os = "macos")]
+        {let scale=monitor.scale_factor();place_native_audience(app,AudienceWindowFrame{x:monitor.position().x as f64/scale+24.0,y:monitor.position().y as f64/scale+40.0,width:(monitor.size().width as f64/scale-48.0).max(400.0),height:(monitor.size().height as f64/scale-80.0).max(300.0),fullscreen:true,maximized:false})?;}
+        #[cfg(not(target_os = "macos"))]
+        {main.set_fullscreen(false).map_err(|_|AppError::InternalError)?;main.set_position(tauri::Position::Physical(*monitor.position())).map_err(|_|AppError::InternalError)?;main.set_fullscreen(true).map_err(|_|AppError::InternalError)?;}
     }
     let size = main.inner_size().map_err(|_| AppError::InternalError)?;
     let scale = main.scale_factor().map_err(|_| AppError::InternalError)?;
@@ -1205,6 +1302,10 @@ fn create_audience_surface(
         &session.active_page_id,
         session.generation,
         &session.language,
+        session.motion_state.as_ref(),
+        session.motion_session.as_ref().map(|m|m.last_sequence).unwrap_or(0),
+        session.motion_session.is_some(),
+        session.static_motion,
     );
     let audience_title = if session.language == "en-US" {
         format!("NUTBOOK · Audience Window · {}", item.summary.file_name)
@@ -1254,6 +1355,8 @@ fn suspend_for_missing_monitor(app: &tauri::AppHandle, state: &AppState, id: &st
         session.ready = false;
         session.black = false;
         session.pending_page_id = None;
+        session.queued_page_id=None;
+        if let Some(motion)=&mut session.motion_session{motion.clear_pending();}
         session.error = Some("观众屏幕已断开。重新选择屏幕后手动恢复。".into());
         session.clone()
     };
@@ -1286,7 +1389,12 @@ fn start_monitor_watch(app: tauri::AppHandle, id: String) {
             continue;
         };
         if !all.iter().any(|monitor| monitor_id(monitor) == target) {
-            suspend_for_missing_monitor(&app, &state, &id);
+            let key=target.splitn(5,':').nth(4).unwrap_or("");
+            let matches=all.iter().filter(|m|m.name().is_some_and(|name|name==key)).collect::<Vec<_>>();
+            if let [updated]=matches.as_slice(){
+                if let Ok(mut guard)=state.native_presentation.lock(){if let Some(session)=guard.as_mut().filter(|s|s.id==id){session.monitor_id=monitor_id(updated);}}
+                resize_audience_child(&app);
+            }else{suspend_for_missing_monitor(&app, &state, &id);}
         }
     });
 }
@@ -1419,6 +1527,7 @@ pub fn start_native_presentation(
     let html = std::str::from_utf8(&source).map_err(|_| AppError::InvalidParams)?;
     for (id, paragraphs) in saved_notes_json_block(html)? { notes.insert(id, paragraphs); }
     validate_notes(&payload.pages, &notes)?;
+    let motion_session=if !payload.static_motion&&payload.motion.as_ref().is_some_and(|m|m.contract=="nutbook-motion/v1"&&m.supports_steps){{let document=crate::core::html_edit::read_formal_motion_document(html)?.ok_or(AppError::InvalidParams)?;if document.pages.iter().map(|p|&p.id).collect::<Vec<_>>()!=payload.pages.iter().map(|p|&p.id).collect::<Vec<_>>(){return Err(AppError::InvalidParams);}Some(MotionSession::new(document))}}else{None};
     let session_id = uuid::Uuid::new_v4().to_string();
     let main = app.get_window("main").ok_or(AppError::InvalidSession)?;
     let session = NativePresentationSession {
@@ -1429,11 +1538,14 @@ pub fn start_native_presentation(
         notes,
         active_page_id: payload.start_page_id.clone(),
         motion_state: None,
+        motion_session,
+        queued_page_id:None,
         ready: false,
         pending_page_id: None,
         sequence: 0,
         error: None,
         rehearsal: payload.rehearsal,
+        static_motion: payload.static_motion,
         timer_elapsed: Duration::ZERO,
         timer_started: None,
         timer_has_started: false,
@@ -1448,8 +1560,7 @@ pub fn start_native_presentation(
         } else {
             "zh-CN".into()
         },
-        main_window_position: main.outer_position().map_err(|_| AppError::InternalError)?,
-        main_window_size: main.outer_size().map_err(|_| AppError::InternalError)?,
+        main_window_snapshot: capture_desktop_window(&app,&main)?,
         main_window_fullscreen: main.is_fullscreen().map_err(|_| AppError::InternalError)?,
         audience_fullscreen_requested: !payload.rehearsal,
         audience_fullscreen_transitioning: false,
@@ -1791,21 +1902,27 @@ pub struct LivePreviewPayload {
     viewport_height: f64,
 }
 
-fn live_preview_init_script(session_id: &str, page_id: &str) -> String {
+pub fn live_preview_init_script(session_id: &str, page_id: &str, motion:Option<&MotionPlaybackState>,static_motion:bool) -> String {
+    let motion=serde_json::to_string(&motion).unwrap_or_else(|_|"null".into());
     let marker = format!("__NUTBOOK_LIVE_PREVIEW_READY__:{session_id}");
     format!(r#"
 (() => {{
   if (window.top !== window.self) return;
+  window.__NUTBOOK_MOTION_MIRROR__=true;
+  window.__NUTBOOK_STATIC_PRESENTATION__={static_motion};
+  let desiredMotion={motion},motionToken=0,signalled=false;
   let desiredPageId = {page_id:?};
   let bridge = null;
   let ready = false;
   const signalReady = () => {{ document.title = {marker:?} + ':' + performance.now(); }};
   const muteMedia = () => document.querySelectorAll('audio,video').forEach(media => {{ media.muted = true; }});
-  window.__NUTBOOK_LIVE_PREVIEW__ = {{ select(pageId) {{
+  window.__NUTBOOK_LIVE_PREVIEW__ = {{ select(pageId,state) {{
     if (typeof pageId !== 'string' || !pageId) return;
     desiredPageId = pageId;
-    if (ready) Promise.resolve(bridge.goTo(pageId)).then(signalReady).catch(() => {{}});
-  }} }};
+    if(state!==undefined)desiredMotion=state;else if(desiredMotion?.pageId!==pageId)desiredMotion=null;
+    if (ready) void applyDesired(true);
+  }}, reapply() {{ return ready?applyDesired(true):false; }}, syncMotion(state) {{ desiredMotion=state;desiredPageId=state.pageId;if(ready)void applyDesired(false); }} }};
+  async function applyDesired(signal){{const token=++motionToken;try{{if(bridge.activePageId!==desiredPageId)await bridge.goTo(desiredPageId);if(token!==motionToken)return;if(desiredMotion&&window.__NUTBOOK_MOTION__&&!await window.__NUTBOOK_MOTION__.applyPlaybackState(desiredMotion))throw Error('mirror_state_failed');if(token===motionToken&&(signal||!signalled)){{signalled=true;signalReady();}}}}catch(_){{}}}}
   const boot = async () => {{
     for (let attempt = 0; attempt < 100; attempt++) {{
       const candidate = window.__NUTBOOK_PRESENTATION__;
@@ -1823,18 +1940,19 @@ fn live_preview_init_script(session_id: &str, page_id: &str) -> String {
       // The presenter owns navigation. Prevent a focused preview from changing
       // its page independently of the audience.
       document.addEventListener('keydown', event => {{
+        if(event.composedPath().some(node=>node?.matches?.('[data-nutbook-runtime-control],button,input,select,textarea,[contenteditable]')))return;
         if (['ArrowLeft','ArrowRight','PageUp','PageDown',' '].includes(event.key)) {{
           event.preventDefault(); event.stopImmediatePropagation();
         }}
       }}, true);
       document.addEventListener('pointerdown', event => {{
+        if(event.button!==0||event.composedPath().some(node=>node?.matches?.('[data-nutbook-runtime-control]')))return;
         event.preventDefault(); event.stopImmediatePropagation();
-        document.title = {marker:?} + ':focus:' + performance.now();
+        document.title = {marker:?} + ':advance:' + performance.now();
       }}, true);
-      document.addEventListener('click', event => {{ event.preventDefault(); event.stopImmediatePropagation(); }}, true);
-      await bridge.goTo(desiredPageId);
+      document.addEventListener('click', event => {{ if(event.composedPath().some(node=>node?.matches?.('[data-nutbook-runtime-control]')))return;event.preventDefault();event.stopImmediatePropagation(); }}, true);
       ready = true;
-      signalReady();
+      await applyDesired(true);
     }} catch (_) {{}}
   }};
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {{ once: true }});
@@ -1855,7 +1973,8 @@ fn sync_live_preview(
     if let Some(webview) = app.get_webview(label) {
         webview.set_bounds(bounds.rect()).map_err(|_| AppError::InternalError)?;
         let _ = webview.set_zoom((bounds.width / 1024.0).clamp(0.2, 2.0));
-        let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({page_id:?});"));
+        let wire=serde_json::to_string(&session.motion_state).map_err(|_|AppError::InternalError)?;
+        let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({page_id:?},{wire});"));
         return Ok(());
     }
     let url = url.ok_or(AppError::InvalidSession)?;
@@ -1867,10 +1986,19 @@ fn sync_live_preview(
         label,
         tauri::WebviewUrl::External(url.parse().map_err(|_| AppError::PreviewLoadFailed)?),
     )
-    .initialization_script(&live_preview_init_script(&session.id, page_id))
+    .initialization_script(&live_preview_init_script(&session.id, page_id,session.motion_state.as_ref(),session.static_motion))
     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
     .on_document_title_changed(move |webview, title| {
         if !title.starts_with(&marker) { return; }
+        if title.contains(":advance:") {
+            let Some(state) = app_for_ready.try_state::<AppState>() else { return; };
+            let current = state.native_presentation.lock().ok().is_some_and(|guard| guard.as_ref().is_some_and(|session| session.id == id_for_ready && session.ready && !session.suspended));
+            if current {
+                if let Some(root) = app_for_ready.get_webview(PRESENTER_LABEL) { let _ = root.set_focus(); }
+                let _ = advance_motion(&app_for_ready, &state, &id_for_ready);
+            }
+            return;
+        }
         if title.contains(":focus:") {
             if let Some(root) = app_for_ready.get_webview(PRESENTER_LABEL) { let _ = root.set_focus(); }
             return;
@@ -1880,13 +2008,14 @@ fn sync_live_preview(
             let current = guard.as_ref()?;
             if current.id != id_for_ready || !current.ready || current.suspended { return None; }
             let index = current.pages.iter().position(|page| page.id == current.active_page_id)?;
-            current.pages.get(index).map(|page| page.id.clone())
+            current.pages.get(index).map(|page| (page.id.clone(), current.motion_state.clone()))
         });
-        let Some(target) = target else { return; };
+        let Some((target,motion)) = target else { return; };
         if let Ok(mut selected) = selected_for_ready.lock() {
             if *selected != target {
                 *selected = target.clone();
-                let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({target:?});"));
+                let wire=serde_json::to_string(&motion).unwrap_or_else(|_|"null".into());
+                let _ = webview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.select({target:?},{wire});"));
                 return;
             }
         }
@@ -1978,6 +2107,9 @@ pub fn native_presentation_navigate(
     state: tauri::State<'_, AppState>,
     payload: NavigatePayload,
 ) -> Result<NativePresentationView, AppError> {
+    navigate_native(&app,&state,payload)
+}
+fn navigate_native(app:&tauri::AppHandle,state:&AppState,payload:NavigatePayload)->Result<NativePresentationView,AppError>{
     let view = {
         let mut guard = state
             .native_presentation
@@ -1986,11 +2118,11 @@ pub fn native_presentation_navigate(
         let session = guard.as_mut().ok_or(AppError::InvalidSession)?;
         if session.id != payload.session_id
             || !session.ready
-            || session.pending_page_id.is_some()
             || !session.pages.iter().any(|page| page.id == payload.page_id)
         {
             return Err(AppError::InvalidParams);
         }
+        if session.pending_page_id.is_some()||session.motion_session.as_ref().is_some_and(|m|m.planning.is_some()){session.queued_page_id=Some(payload.page_id);return Ok(session.view());}
         session.sequence += 1;
         session.pending_page_id = Some(payload.page_id.clone());
         session.error = None;
@@ -2025,17 +2157,22 @@ pub fn native_presentation_navigate(
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(5));
         let state = app_handle.state::<AppState>();
+        let mut motion_timeout=false;
         if let Ok(mut guard) = state.native_presentation.lock() {
             if let Some(session) = guard.as_mut().filter(|session| {
                 session.id == id
                     && session.sequence == sequence
                     && session.pending_page_id.is_some()
             }) {
-                session.pending_page_id = None;
-                session.error = Some("翻页未获观众画面确认，请重试".into());
-                notify_presenter(&app_handle, session);
+                if session.motion_session.is_some(){motion_timeout=true;}else{
+                    session.pending_page_id = None;
+                    session.queued_page_id=None;
+                    session.error = Some("翻页未获观众画面确认，请重试".into());
+                    notify_presenter(&app_handle, session);
+                }
             }
         };
+        if motion_timeout{suspend_motion_failure(&app_handle,&state,&id,"翻页未获观众画面确认，请恢复观众画面");}
     });
     Ok(view)
 }
@@ -2051,8 +2188,11 @@ pub struct ReportPayload {
     pub pages: Option<Vec<PresentationPage>>,
     pub page_id: Option<String>,
     pub sequence: Option<u64>,
+    pub calibration_sequence: Option<u64>,
     pub error: Option<String>,
     pub direction: Option<String>,
+    #[serde(default)]
+    pub motion_state: Option<MotionPlaybackState>,
 }
 
 fn toggle_audience_fullscreen(
@@ -2180,6 +2320,7 @@ pub fn native_presentation_report(
     {
         return Err(AppError::InvalidSession);
     }
+    {let guard=state.native_presentation.lock().map_err(|_|AppError::InternalError)?;if !guard.as_ref().is_some_and(|s|s.id==payload.session_id&&s.item_id==payload.item_id&&s.generation==payload.generation){return Err(AppError::InvalidSession);}}
     if payload.kind == "editable-focus" {
         let mut guard = state.native_presentation.lock().map_err(|_| AppError::InternalError)?;
         let session = guard.as_mut().filter(|session| session.id == payload.session_id)
@@ -2194,6 +2335,14 @@ pub fn native_presentation_report(
         toggle_audience_fullscreen(&app, &state, &payload.session_id, "audience")?;
         return Ok(true);
     }
+    if payload.kind=="navigation-request"&&payload.page_id.is_some(){return navigate_native(&app,&state,NavigatePayload{session_id:payload.session_id.clone(),page_id:payload.page_id.clone().unwrap()}).map(|_|true);}
+    if payload.kind=="navigation-request"&&payload.direction.as_deref()==Some("next"){
+        return advance_motion(&app,&state,&payload.session_id).map(|_|true);
+    }
+    if ["motion-planned","motion-applied","motion-state","motion-page-request"].contains(&payload.kind.as_str()){
+        return handle_motion_report(&app,&state,payload);
+    }
+    if payload.kind=="error"{let motion_pending={let guard=state.native_presentation.lock().map_err(|_|AppError::InternalError)?;guard.as_ref().is_some_and(|s|s.id==payload.session_id&&s.motion_session.as_ref().is_some_and(|m|m.planning==payload.sequence&&m.planning.is_some()))};if motion_pending{suspend_motion_failure(&app,&state,&payload.session_id,payload.error.as_deref().unwrap_or("动效播放失败，请恢复观众画面"));return Ok(true);}}
     if payload.kind == "navigation-request" {
         let target_id = {
             let guard = state
@@ -2262,6 +2411,7 @@ pub fn native_presentation_report(
                 {
                     session.error = Some("演示文档页面与准备时不一致".into());
                 } else {
+                    if let Some(motion)=&mut session.motion_session{let confirmed=payload.motion_state.clone().ok_or(AppError::InvalidParams)?;if confirmed.page_id!=active||!motion.ready(confirmed.clone()){return Err(AppError::InvalidParams);}session.motion_state=Some(confirmed);}
                     session.active_page_id = active.to_string();
                     let became_ready = !session.ready;
                     session.ready = true;
@@ -2286,6 +2436,7 @@ pub fn native_presentation_report(
                 } else if payload.sequence != Some(0) {
                     return Ok(false);
                 }
+                if let Some(motion)=&mut session.motion_session{let confirmed=payload.motion_state.clone().ok_or(AppError::InvalidParams)?;if confirmed.page_id!=id||!motion.valid(&confirmed){return Err(AppError::InvalidParams);}motion.confirmed=Some(confirmed.clone());motion.last_sequence=payload.sequence.unwrap_or(0);session.motion_state=Some(confirmed);}
                 session.active_page_id = id.to_string();
                 session.error = None;
             }
@@ -2311,6 +2462,7 @@ pub fn native_presentation_report(
         session.clone()
     };
     notify_presenter(&app, &snapshot);
+    if payload.kind=="page" {drain_motion_queue(&app,&state,&snapshot.id);}
     if payload.kind == "ready" && snapshot.ready {
         // Reconcile the audience child bounds with the current OS window mode
         // even if maximize happened before the page finished loading.
@@ -2345,12 +2497,10 @@ fn stop_session(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
     state.content_sessions.unregister(&html_runtime_host_label(session.item_id));
     if let Some(main) = app.get_window("main") {
         if session.rehearsal { let _ = main.set_simple_fullscreen(false); }
-        let _ = main.set_fullscreen(false);
-        let _ = main.unmaximize();
-        let _ = main.set_position(tauri::Position::Physical(session.main_window_position));
-        let _ = main.set_size(tauri::Size::Physical(session.main_window_size));
-        if session.main_window_maximized { let _ = main.maximize(); }
-        let _ = main.set_fullscreen(session.main_window_fullscreen);
+        #[cfg(target_os = "macos")]
+        {if let Ok(displays)=display_layout(app){if let Some(rect)=session.main_window_snapshot.restore(&displays){let _=place_native_audience(app,AudienceWindowFrame{x:rect.x,y:rect.y,width:rect.width,height:rect.height,fullscreen:session.main_window_fullscreen,maximized:session.main_window_maximized});}}}
+        #[cfg(not(target_os = "macos"))]
+        {let _ = main.set_fullscreen(false);let _ = main.unmaximize();if let Ok(displays)=display_layout(app){if let Some(rect)=session.main_window_snapshot.restore(&displays){let _=main.set_position(tauri::LogicalPosition::new(rect.x,rect.y));let _=main.set_size(tauri::LogicalSize::new(rect.width,rect.height));}}if session.main_window_maximized {let _=main.maximize();}let _=main.set_fullscreen(session.main_window_fullscreen);}
         let _ = main.set_title(&session.main_window_title);
     }
     if let Some(presenter) = app.get_window(PRESENTER_LABEL) {
@@ -2422,6 +2572,7 @@ mod tests {
         assert_eq!(audience_top_inset(true, false), 36.0);
         assert_eq!(audience_top_inset(true, true), 0.0);
         assert_eq!(audience_top_inset(false, true), 0.0);
+        assert_eq!(audience_top_inset(false, false), 36.0);
     }
 
     #[test]
@@ -2538,4 +2689,45 @@ mod tests {
         assert_eq!(saved["new"][0].runs[0].text, "</script><img src=evil>");
         assert_eq!(saved["old"][0].runs[0].text, "untouched");
     }
+}
+
+#[derive(Debug,Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct AdvancePayload {pub session_id:String}
+#[tauri::command]
+pub fn native_presentation_advance(app:tauri::AppHandle,webview:tauri::Webview,state:tauri::State<'_,AppState>,payload:AdvancePayload)->Result<NativePresentationView,AppError>{if webview.label()!=PRESENTER_LABEL{return Err(AppError::InvalidSession);}advance_motion(&app,&state,&payload.session_id)}
+#[derive(Debug,Deserialize,serde::Serialize,Clone)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct MotionControlPayload{pub session_id:String,pub action:String,pub time_ms:Option<f64>}
+#[tauri::command]
+pub fn native_presentation_motion_control(app:tauri::AppHandle,webview:tauri::Webview,state:tauri::State<'_,AppState>,payload:MotionControlPayload)->Result<NativePresentationView,AppError>{if webview.label()!=PRESENTER_LABEL{return Err(AppError::InvalidSession);}let id=payload.session_id.clone();request_motion(&app,&state,&id,Some(payload))}
+fn advance_motion(app:&tauri::AppHandle,state:&AppState,id:&str)->Result<NativePresentationView,AppError>{request_motion(app,state,id,None)}
+fn request_motion(app:&tauri::AppHandle,state:&AppState,id:&str,control:Option<MotionControlPayload>)->Result<NativePresentationView,AppError>{
+ let (view,legacy_target)={let mut guard=state.native_presentation.lock().map_err(|_|AppError::InternalError)?;let session=guard.as_mut().filter(|s|s.id==id&&s.ready&&!s.suspended).ok_or(AppError::InvalidSession)?;
+ if let Some(motion)=&mut session.motion_session{if motion.planning.is_some()||session.pending_page_id.is_some(){if control.is_some(){return Err(AppError::InvalidParams);}if motion.queued>=32{return Err(AppError::InvalidParams);}motion.queued+=1;return Ok(session.view());}let sequence=session.sequence+1;let began=if let Some(command)=&control{motion.begin_control(sequence,&command.action,command.time_ms)}else{motion.begin(sequence)};if !began{return Err(AppError::InvalidParams);}session.sequence=sequence;session.error=None;(session.view(),None)}else{if control.is_some(){return Err(AppError::InvalidParams);}let index=session.pages.iter().position(|p|p.id==session.active_page_id).ok_or(AppError::InvalidSession)?;(session.view(),session.pages.get(index+1).map(|p|p.id.clone()))}};
+ if let Some(page_id)=legacy_target{return navigate_native(app,state,NavigatePayload{session_id:id.into(),page_id});}
+ if !view.pending_motion{return Ok(view);}
+ let control_wire=serde_json::to_string(&control).map_err(|_|AppError::InternalError)?;
+ let delivered=app.get_webview(&html_runtime_host_label(view.item_id)).is_some_and(|child|child.eval(&format!("window.__NUTBOOK_NATIVE_MOTION_PLAN__?.({},{});",view.sequence,control_wire)).is_ok());
+ if !delivered{suspend_motion_failure(app,state,id,"观众画面无法接收动效命令，请恢复观众画面");return Err(AppError::InvalidSession);}
+ let app=app.clone();let id=id.to_string();let sequence=view.sequence;
+ std::thread::spawn(move||{for attempt in 0..2{std::thread::sleep(Duration::from_millis(2500));let state=app.state::<AppState>();let snapshot={let Ok(guard)=state.native_presentation.lock()else{return;};guard.as_ref().filter(|s|s.id==id&&s.ready&&s.sequence==sequence&&s.motion_session.as_ref().is_some_and(|m|m.planning==Some(sequence))).cloned()};let Some(session)=snapshot else{return;};if attempt==0{if let Some(child)=app.get_webview(&html_runtime_host_label(session.item_id)){let motion=session.motion_session.as_ref().unwrap();let script=if let Some(desired)=&motion.pending_state{format!("window.__NUTBOOK_NATIVE_MOTION_APPLY__?.({},{});",serde_json::to_string(desired).unwrap(),sequence)}else{format!("window.__NUTBOOK_NATIVE_MOTION_PLAN__?.({sequence},{});",serde_json::to_string(&control).unwrap())};let _=child.eval(&script);}}else{suspend_motion_failure(&app,&state,&id,"动效未获观众画面确认，请恢复观众画面后重试");}}});
+ Ok(view)
+}
+fn suspend_motion_failure(app:&tauri::AppHandle,state:&AppState,id:&str,error:&str){
+ let snapshot={let Ok(mut guard)=state.native_presentation.lock()else{return;};let Some(session)=guard.as_mut().filter(|s|s.id==id&&!s.suspended)else{return;};session.timer_was_running_before_suspend=session.timer_started.is_some();session.pause_timer();session.suspended=true;session.ready=false;session.pending_page_id=None;session.queued_page_id=None;if let Some(m)=&mut session.motion_session{m.clear_pending();}session.error=Some(error.chars().take(300).collect());session.clone()};
+ if let Some(child)=app.get_webview(&html_runtime_host_label(snapshot.item_id)){let _=child.eval("window.__NUTBOOK_MOTION__?.pause();");}let _=set_html_runtime_host_visibility(app,snapshot.item_id,false);state.content_sessions.unregister(&html_runtime_host_label(snapshot.item_id));if let Some(preview)=app.get_webview(LIVE_CURRENT_LABEL){let _=preview.close();}notify_presenter(app,&snapshot);
+}
+fn drain_motion_queue(app:&tauri::AppHandle,state:&AppState,id:&str){enum Intent{Page(String),Advance,None}let intent={let Ok(mut guard)=state.native_presentation.lock()else{return;};let Some(session)=guard.as_mut().filter(|s|s.id==id&&s.ready&&!s.suspended&&s.pending_page_id.is_none()&&!s.motion_session.as_ref().is_some_and(|m|m.planning.is_some()))else{return;};if let Some(page)=session.queued_page_id.take(){if let Some(motion)=&mut session.motion_session{motion.queued=0;}Intent::Page(page)}else if let Some(motion)=&mut session.motion_session{if motion.queued>0{motion.queued-=1;Intent::Advance}else{Intent::None}}else{Intent::None}};match intent{Intent::Page(page_id)=>{let _=navigate_native(app,state,NavigatePayload{session_id:id.into(),page_id});},Intent::Advance=>{let _=advance_motion(app,state,id);},Intent::None=>{}}}
+fn notify_motion_state(app:&tauri::AppHandle,session:&NativePresentationSession){if let Ok(wire)=serde_json::to_string(&session.view()){if let Some(presenter)=app.get_webview(PRESENTER_LABEL){let _=presenter.eval(&format!("window.__NUTBOOK_NATIVE_PRESENTATION_MOTION_STATE__?.({wire});"));}}if let(Some(preview),Some(motion))=(app.get_webview(LIVE_CURRENT_LABEL),&session.motion_state){if let Ok(wire)=serde_json::to_string(motion){let _=preview.eval(&format!("window.__NUTBOOK_LIVE_PREVIEW__?.syncMotion({wire});"));}}}
+fn handle_motion_report(app:&tauri::AppHandle,state:&AppState,payload:ReportPayload)->Result<bool,AppError>{
+ let sequence=payload.sequence.ok_or(AppError::InvalidParams)?;let desired=payload.motion_state.ok_or(AppError::InvalidParams)?;
+ let (snapshot,page_request)={let mut guard=state.native_presentation.lock().map_err(|_|AppError::InternalError)?;let session=guard.as_mut().filter(|s|s.id==payload.session_id&&s.generation==payload.generation&&s.ready&&!s.suspended).ok_or(AppError::InvalidSession)?;let motion=session.motion_session.as_mut().ok_or(AppError::InvalidParams)?;if desired.page_id!=session.active_page_id{return Ok(false);}let mut page_request=false;let accepted=match payload.kind.as_str(){
+ "motion-planned"=>motion.plan(&session.id,session.generation,sequence,&desired),
+ "motion-applied"=>motion.acknowledge(&session.id,session.generation,sequence,desired.clone()),
+ "motion-state"=>motion.calibrate_sample(sequence,payload.calibration_sequence.ok_or(AppError::InvalidParams)?,desired.clone()),
+ "motion-page-request"=>{let valid=motion.request_page(sequence,desired.clone());page_request=valid;valid},_=>false};if !accepted{return Ok(false);}if payload.kind!="motion-planned"{session.motion_state=motion.confirmed.clone();}(session.clone(),page_request)};
+ if payload.kind=="motion-planned"{let child=app.get_webview(&html_runtime_host_label(snapshot.item_id)).ok_or(AppError::InvalidSession)?;child.eval(&format!("window.__NUTBOOK_NATIVE_MOTION_APPLY__?.({},{});",serde_json::to_string(&desired).map_err(|_|AppError::InternalError)?,sequence)).map_err(|_|AppError::InternalError)?;return Ok(true);}
+ if page_request{let index=snapshot.pages.iter().position(|p|p.id==snapshot.active_page_id).ok_or(AppError::InvalidSession)?;if let Some(page)=snapshot.pages.get(index+1){navigate_native(app,state,NavigatePayload{session_id:snapshot.id.clone(),page_id:page.id.clone()})?;}else{notify_presenter(app,&snapshot);drain_motion_queue(app,state,&snapshot.id);}return Ok(true);}
+ if payload.kind=="motion-applied"{notify_presenter(app,&snapshot);notify_motion_state(app,&snapshot);drain_motion_queue(app,state,&snapshot.id);}else{notify_motion_state(app,&snapshot);}Ok(true)
 }

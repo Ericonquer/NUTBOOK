@@ -1,0 +1,10 @@
+// A page-local lower layer. Isolation keeps it above the author's background
+// and below semantic content without rewriting any author attributes.
+export function prepareFlowingGradient(element,effect,{low=false,preview=false}={}){
+ const rect=element.getBoundingClientRect();if(rect.width<1||rect.height<1)throw new Error('Background page is not visible');
+ const canvas=document.createElement('canvas'),style=document.createElement('style'),dpr=low?1:Math.min(2,devicePixelRatio||1);
+ canvas.dataset[preview?'nutbookTemplateBackground':'nutbookMotionBackground']=element.dataset.nutbookPageId;canvas.setAttribute('aria-hidden','true');canvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1';canvas.width=Math.ceil(rect.width*dpr);canvas.height=Math.ceil(rect.height*dpr);
+ const position=getComputedStyle(element).position;style.dataset[preview?'nutbookTemplateBackgroundStyle':'nutbookMotionBackgroundStyle']='';style.textContent=`[data-nutbook-page-id="${element.dataset.nutbookPageId}"]{isolation:isolate!important;${position==='static'?'position:relative!important;':''}}`;document.head.append(style);element.prepend(canvas);
+ const ctx=canvas.getContext('2d'),{durationMs,strength,hue,hue2,speed,scale}=effect.params,phase=(effect.seed%997)/997*Math.PI*2;
+ return {canvas,render(time){const t=((Math.max(0,time)*speed)%durationMs)/durationMs*Math.PI*2;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);for(let i=0;i<3;i++){const a=t+phase+i*Math.PI*2/3,cx=rect.width*(.5+.35*Math.sin(a)),cy=rect.height*(.5+.32*Math.cos(t+phase+i*1.7)),radius=Math.max(rect.width,rect.height)*(.45+.12*i)*scale,gradient=ctx.createRadialGradient(cx,cy,0,cx,cy,radius);const color=i===1?hue2:hue;gradient.addColorStop(0,`hsla(${color},75%,58%,${strength*(i===2?.55:.8)})`);gradient.addColorStop(1,`hsla(${color},75%,58%,0)`);ctx.fillStyle=gradient;ctx.fillRect(0,0,rect.width,rect.height);}},dispose(){canvas.remove();style.remove();}};
+}

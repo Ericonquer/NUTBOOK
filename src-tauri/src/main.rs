@@ -475,6 +475,8 @@ fn main() {
             commands::native_presentation::native_presentation_blackout,
             commands::native_presentation::recover_native_presentation,
             commands::native_presentation::native_presentation_navigate,
+            commands::native_presentation::native_presentation_advance,
+            commands::native_presentation::native_presentation_motion_control,
             commands::native_presentation::native_presentation_thumbnail,
             commands::native_presentation::native_presentation_live_preview,
             commands::native_presentation::native_presentation_report,

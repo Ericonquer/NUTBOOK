@@ -36,7 +36,7 @@ const harness = `
     window.probeCalls = (window.probeCalls || 0) + 1;
     if (window.testProbeDeferred) await new Promise(resolve => { window.releaseProbe = resolve; });
     if (window.testProbeFailure) return window.testProbeFailure;
-    return window.testProbe === null ? null : ({ pages: [{ id: "one", title: "开场" }, { id: "two", title: "后续" }], activePageId: window.testActivePage, notes: {} });
+    return window.testProbe === null ? null : ({ pages: [{ id: "one", title: "开场" }, { id: "two", title: "后续" }], activePageId: window.testActivePage, notes: {}, motion: {contract:"nutbook-motion/v1",supportsSteps:true} });
   };
   const invoke = async (command, args) => {
     if (command === "native_presentation_monitors") return window.testMonitors;
@@ -89,7 +89,15 @@ try {
     assert.equal(await panel.evaluate(node => getComputedStyle(node).backgroundColor), "rgb(243, 243, 245)", "use the shared paper surface");
     if (process.env.NUTBOOK_AUDIT_SHOTS) await page.screenshot({ path: `${process.env.NUTBOOK_AUDIT_SHOTS}/presentation-dialog-${scenario.monitors.length}.png` });
     assert.equal(await panel.locator("select").count(), 0, "native floating select menu should not be used");
+    const staticMotion = panel.locator('#nativePresentationStaticMotion');
+    assert.equal(await staticMotion.isChecked(),false,'each new presentation defaults to normal motion');
+    if(scenario.monitors.length===1)await staticMotion.check();
     const trigger = panel.locator(".native-monitor-trigger");
+    const optionBox = await panel.locator(".native-static-option").boundingBox();
+    const displayBox = await trigger.boundingBox();
+    const tipBox = await panel.locator(".native-tip").boundingBox();
+    assert.ok(optionBox.y - displayBox.y - displayBox.height >= 16, "static option needs space below the display selector");
+    assert.ok(tipBox.y - optionBox.y - optionBox.height >= 12, "static option needs space above the tip");
     if (scenario.monitors.length === 1) assert.equal(await trigger.locator("#nativePresentationMonitorLabel").textContent(), "主屏幕 · 2940×1912");
     const menu = panel.locator(".native-monitor-menu");
     assert.equal(await trigger.getAttribute("aria-expanded"), "false");
@@ -115,6 +123,7 @@ try {
       await panel.locator('button[data-native-action="start-first"]').click();
       assert.deepEqual(await page.evaluate(() => [window.startPayload.monitorId, window.startPayload.startPageId]), ["external", "one"]);
     }
+    assert.equal(await page.evaluate(()=>window.startPayload.staticMotion),scenario.monitors.length===1);
     assert.equal(await panel.count(), 0, "the setup dialog must leave the shared NUTBOOK audience window unobstructed");
     assert.equal(await page.evaluate(() => window.audienceMode()), true);
     if (scenario.monitors.length === 1) {
@@ -179,7 +188,7 @@ try {
   {
     const page = await browser.newPage({ viewport: { width: 1080, height: 680 } });
     const css = indexHtml.slice(indexHtml.indexOf("<style>") + 7, indexHtml.indexOf("</style>"));
-    await page.setContent('<div class="app-shell native-audience-rehearsal"><div class="native-audience-banner"><span>观众窗口 · 在线会议请共享此 NUTBOOK 窗口</span></div></div>');
+    await page.setContent('<div class="app-shell native-audience-mode native-audience-rehearsal"><div class="native-audience-banner"><span>观众窗口 · 在线会议请共享此 NUTBOOK 窗口</span></div></div>');
     await page.addStyleTag({ content: css });
     const banner = page.locator(".native-audience-banner");
     const text = banner.locator("span");

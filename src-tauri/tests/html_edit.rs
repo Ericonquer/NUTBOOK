@@ -2645,3 +2645,14 @@ fn formal_motion_commit_checks_identity_and_keeps_body_atomic() {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), variant, "{mutation} changed source");
     }
 }
+
+#[test]
+fn formal_presentation_step_source_rejects_false_identity() {
+    use nutbook_backend::core::html_edit::read_formal_motion_document;
+    let config = include_str!("../../tests/fixtures/motion/valid.json");
+    let source = format!(r#"<html data-nutbook-motion-contract="nutbook-motion/v1"><body><section data-nutbook-page-id="page-1"><h1 data-id="title-1" data-editable="text">标题</h1></section><script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">{config}</script></body></html>"#);
+    assert!(read_formal_motion_document(&source).unwrap().is_some());
+    assert!(read_formal_motion_document(&source.replace("title-1\" data-editable", "wrong-target\" data-editable")).is_err());
+    assert!(read_formal_motion_document(&source.replace("application/json", "text/javascript")).is_err());
+    assert!(read_formal_motion_document(&source.replace("nutbook-motion/v1\"", "other\"")).unwrap().is_none());
+}

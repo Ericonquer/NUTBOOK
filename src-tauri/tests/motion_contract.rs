@@ -65,3 +65,38 @@ fn official_motion_export_rejects_oversized_output() {
     let error=render_presentation_html(MarkdownHtmlExportInput{title:"Budget".into(),source_file:"sample.md".into(),source_path:"/tmp/sample.md".into(),markdown:"# Title\n\nBody".into(),generated_at:"2026-10-13".into(),template_html:template,preferences:Default::default()},PresentationHtmlExportPreferences{aspect_ratio:"16-9".into(),density:PresentationDensity::Balanced,output_kind:"motion-editable".into()}).unwrap_err();
     assert_eq!(error.code(),"MOTION_RESOURCE_BUDGET_EXCEEDED");
 }
+
+#[test]
+fn object_templates_share_entrance_slot_and_bound_each_parameter() {
+    let original:serde_json::Value=serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+    let mut doc=original.clone();
+    let mut gravity=doc["pages"][0]["actions"][0].clone();
+    gravity["id"]=serde_json::json!("gravity");gravity["templateId"]=serde_json::json!("entrance.gravity-impact");gravity["params"]=serde_json::json!({"durationMs":1800,"strength":1});
+    doc["pages"][0]["actions"].as_array_mut().unwrap().push(gravity.clone());assert!(validate(&doc.to_string()).is_err(),"text uses entrance slot");
+    doc["pages"][0]["actions"]=serde_json::json!([gravity.clone()]);validate(&doc.to_string()).unwrap();
+    let mut spotlight=gravity.clone();spotlight["id"]=serde_json::json!("spot");spotlight["templateId"]=serde_json::json!("emphasis.spotlight");doc["pages"][0]["actions"].as_array_mut().unwrap().push(spotlight);validate(&doc.to_string()).unwrap();
+    doc["pages"][0]["actions"][1]["params"]["density"]=serde_json::json!(100);assert!(validate(&doc.to_string()).is_err(),"unimplemented parameter rejected");
+    let mut exit=original["pages"][0]["actions"][0].clone();exit["templateId"]=serde_json::json!("exit.particle-dissolve");exit["params"]["density"]=serde_json::json!(2400);doc["pages"][0]["actions"]=serde_json::json!([exit]);validate(&doc.to_string()).unwrap();doc["pages"][0]["actions"][0]["params"]["density"]=serde_json::json!(2401);assert!(validate(&doc.to_string()).is_err());
+}
+
+#[test]
+fn background_slot_uses_strict_registry_schema_and_global_effect_ids() {
+    let mut doc:serde_json::Value=serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+    let registry:serde_json::Value=serde_json::from_str(include_str!("../../src/motion/registry.json")).unwrap();
+    let params=registry["templates"]["background.flowing-gradient"]["params"].as_object().unwrap().iter().map(|(key,rule)|(key.clone(),rule["default"].clone())).collect::<serde_json::Map<_,_>>();
+    let background=serde_json::json!({"id":"bg","templateId":"background.flowing-gradient","templateVersion":1,"params":params,"seed":42});
+    doc["pages"][0]["background"]=background.clone();validate(&doc.to_string()).unwrap();
+    for (key,value) in [("id",serde_json::json!("action-1")),("templateId",serde_json::json!("emphasis.spotlight")),("templateVersion",serde_json::json!(2)),("seed",serde_json::json!(-1))]{let mut bad=doc.clone();bad["pages"][0]["background"][key]=value;assert!(validate(&bad.to_string()).is_err(),"{key}");}
+    for(key,value)in [("hue",serde_json::json!(361)),("durationMs",serde_json::json!(5999)),("code",serde_json::json!("alert(1)"))]{let mut bad=doc.clone();bad["pages"][0]["background"]["params"][key]=value;assert!(validate(&bad.to_string()).is_err(),"{key}");}
+    let mut bad=doc.clone();bad["pages"][0]["background"]["url"]=serde_json::json!("https://example.com");assert!(validate(&bad.to_string()).is_err());
+}
+
+#[test]
+fn transition_slot_rejects_wrong_category_identity_and_shape() {
+    let mut doc:serde_json::Value=serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+    let registry:serde_json::Value=serde_json::from_str(include_str!("../../src/motion/registry.json")).unwrap();
+    let params=registry["templates"]["transition.curtain-reveal"]["params"].as_object().unwrap().iter().map(|(key,rule)|(key.clone(),rule["default"].clone())).collect::<serde_json::Map<_,_>>();
+    doc["pages"][0]["transition"]=serde_json::json!({"id":"curtain","templateId":"transition.curtain-reveal","templateVersion":1,"params":params,"seed":42});validate(&doc.to_string()).unwrap();
+    for(key,value)in [("durationMs",serde_json::json!(299)),("direction",serde_json::json!(4)),("shape",serde_json::json!(2)),("feather",serde_json::json!(0.31)),("code",serde_json::json!("alert(1)"))]{let mut bad=doc.clone();bad["pages"][0]["transition"]["params"][key]=value;assert!(validate(&bad.to_string()).is_err(),"{key}");}
+    for(key,value)in [("id",serde_json::json!("action-1")),("templateId",serde_json::json!("background.flowing-gradient")),("targetId",serde_json::json!("title-1"))]{let mut bad=doc.clone();bad["pages"][0]["transition"][key]=value;assert!(validate(&bad.to_string()).is_err(),"{key}");}
+}

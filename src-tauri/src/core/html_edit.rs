@@ -2025,3 +2025,14 @@ pub(crate) fn complete_motion_edit_targets(source: &str) -> Result<String, AppEr
     }
     let mut result=source.to_string();edits.sort_by_key(|(start,_,_)|std::cmp::Reverse(*start));for(start,end,tag)in edits{result.replace_range(start..end,&tag);}Ok(result)
 }
+
+/// Read the authoritative formal motion data without matching strings in JS.
+pub fn read_formal_motion_document(source:&str)->Result<Option<crate::core::motion::MotionDocument>,AppError>{
+ let root=find_unique_tag(source,"html")?;
+ if attribute_value(&source[root.open_start..root.open_end],"data-nutbook-motion-contract").as_deref()!=Some("nutbook-motion/v1"){return Ok(None);}
+ let target=find_unique_attribute(source,"id","nutbook-motion-config")?.ok_or(AppError::InvalidParams)?;
+ if target.name!="script"||attribute_value(&source[target.open_start..target.open_end],"type").as_deref()!=Some("application/json"){return Err(AppError::InvalidParams);}
+ let document=crate::core::motion::validate(&source[target.inner_start..target.inner_end])?;
+ validate_formal_motion_source(source,&source[target.inner_start..target.inner_end],&source[target.inner_start..target.inner_end])?;
+ Ok(Some(document))
+}

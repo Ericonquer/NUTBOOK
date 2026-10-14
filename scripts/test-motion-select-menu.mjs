@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {mkdtempSync,copyFileSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+const dir=mkdtempSync(join(tmpdir(),'nutbook-motion-select-')),file=join(dir,'index.html');copyFileSync('integrations/nbskill/templates/motion-presentation.html',file);copyFileSync('integrations/nbskill/templates/presentation-mark.svg',join(dir,'presentation-mark.svg'));
+const browser=await chromium.launch({headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ const open=async()=>{await page.goto(pathToFileURL(file).href);await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'select-test',generation:1,inlineToolbar:true,locale:'zh-CN'}));await page.evaluate(()=>window.__NUTBOOK_MOTION__.togglePanel());};
+ await open();const panel=page.locator('[data-nutbook-motion-panel]'),color=()=>panel.getByRole('button',{name:/^粒子颜色：/}),menu=panel.locator('[data-motion-select-menu]');
+ assert.equal(await color().isDisabled(),true);await panel.locator('[data-apply]').click();
+ assert.equal(await panel.locator('[data-color-mode]').isVisible(),false,'system select never opens');
+ await color().click();assert.equal(await menu.count(),1);assert.ok(Math.abs((await menu.boundingBox()).width-(await color().boundingBox()).width)<1,'color menu matches trigger width');await menu.getByRole('option',{name:'黑白',exact:true}).click();assert.match(await color().getAttribute('aria-label'),/黑白/);
+ await color().press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('Escape');assert.match(await color().getAttribute('aria-label'),/黑白/);assert.equal(await menu.count(),0,'escape cancels selection');
+ await color().press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('Enter');assert.match(await color().getAttribute('aria-label'),/彩色/);
+ await color().press('ArrowDown');await page.keyboard.press('End');await page.keyboard.press('Enter');assert.match(await color().getAttribute('aria-label'),/黑白/);
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.undoHistory());assert.match(await color().getAttribute('aria-label'),/彩色/);await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.redoHistory());
+ await color().click();await page.evaluate(()=>window.dispatchEvent(new Event('blur')));assert.equal(await menu.count(),0,'losing window focus closes menu');
+ await color().click();await panel.locator('[data-param=density]').click();assert.equal(await menu.count(),0,'outside click closes menu');
+ await panel.locator('[data-action-list] summary').click();await panel.locator('[data-action-select]').first().click();const trigger=()=>panel.getByRole('button',{name:/^动作开始方式：/});await trigger().click();assert.ok(Math.abs((await menu.boundingBox()).width-(await trigger().boundingBox()).width)<1,'trigger menu matches trigger width');assert.equal(await menu.locator('[role=option]>span').evaluateAll(labels=>labels.every(label=>label.getBoundingClientRect().height<=20)),true,'all trigger options fit on one line');await menu.getByRole('option',{name:'上一项完成后',exact:true}).click();assert.match(await trigger().getAttribute('aria-label'),/上一项完成后/);
+ await trigger().press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');assert.match(await trigger().getAttribute('aria-label'),/与上一项同时/);
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.undoHistory());assert.match(await trigger().getAttribute('aria-label'),/上一项完成后/);
+ await page.setViewportSize({width:640,height:360});await trigger().click();const rect=await menu.boundingBox();assert.ok(rect.x>=8&&rect.x+rect.width<=632&&rect.y>=8&&rect.y+rect.height<=260,'custom menu stays in visible viewport above toolbar');await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.equal(await menu.count(),1,'menu remains open after focus and scroll settle');assert.equal(await trigger().evaluate(button=>getComputedStyle(button.nextElementSibling).opacity),'0','open menus suppress their trigger tooltip');await page.screenshot({path:join(dir,'menu.png')});await page.keyboard.press('Escape');
+ const snapshot=await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot());writeFileSync(join(dir,'changes.json'),JSON.stringify(snapshot.changes));execFileSync('cargo',['run','--quiet','--manifest-path','src-tauri/Cargo.toml','--example','commit_motion_acceptance','--',file,join(dir,'changes.json')],{encoding:'utf8'});
+ await open();assert.match(await color().getAttribute('aria-label'),/黑白/);await panel.locator('[data-action-list] summary').click();await panel.locator('[data-action-select]').first().click();assert.match(await trigger().getAttribute('aria-label'),/上一项完成后/);
+ await trigger().click();await page.evaluate(()=>window.__NUTBOOK_MOTION__.togglePanel());assert.equal(await page.locator('[data-motion-select-menu]').count(),0,'closing panel disposes popup');
+ assert.deepEqual(errors,[]);console.log(`Custom motion menus mouse/keyboard/cancel/undo/viewport/Rust save/reopen passed: ${dir}`);
+}finally{await browser.close();}

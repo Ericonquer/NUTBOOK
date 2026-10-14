@@ -806,7 +806,7 @@
       }
 
       .native-audience-banner { display:none; }
-      .app-shell.native-audience-rehearsal:not(.native-audience-screenfill) .native-audience-banner {
+      .app-shell.native-audience-mode:not(.native-audience-screenfill) .native-audience-banner {
         position:fixed;
         inset:0 0 auto;
         z-index:100001;
@@ -21584,6 +21584,8 @@ if (!chipTipController) {
             .native-presentation-panel .native-close:hover { background:var(--surface-muted); color:var(--ink); }
             .native-presentation-panel .native-field-label { display:block; margin-bottom:8px; color:var(--ink-soft); font-size:12px; font-weight:600; letter-spacing:.02em; }
             .native-presentation-panel .native-monitor-picker { position:relative; }
+            .native-presentation-panel .native-static-option { margin:16px 0 4px; }
+            .native-presentation-panel .native-static-option label { display:flex; align-items:center; gap:10px; min-height:24px; line-height:1.5; cursor:pointer; }
             .native-presentation-panel .native-tip { display:flex; align-items:baseline; gap:10px; min-height:40px; margin:12px 0 0; color:var(--ink-soft); font-size:13px; line-height:1.5; }
             .native-presentation-panel .native-tip-label { flex:none; font-weight:600; }
             .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; margin-top:16px; }
@@ -21711,6 +21713,7 @@ if (!chipTipController) {
         panel.innerHTML = `
           <div class="native-heading"><h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2><span class="native-page-count">${nativePresentationText(`${probe.pages.length} 页`, `${probe.pages.length} slides`)}</span><button type="button" class="native-close" data-native-action="close" aria-label="${nativePresentationText("关闭演示模式", "Close presentation mode")}" title="${nativePresentationText("关闭演示模式", "Close presentation mode")}">×</button></div>
           <div class="native-field"><label class="native-field-label" for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label>${audienceDisplay}</div>
+          ${probe.motion?.supportsSteps ? `<div class="native-field native-static-option"><label title="${nativePresentationText("仅本次关闭动画，直接翻页；不会修改文件。", "Skip animations and advance slides directly for this session. The file stays unchanged.")}"><input type="checkbox" id="nativePresentationStaticMotion" style="accent-color:var(--accent);width:16px;height:16px;margin:0">${nativePresentationText("本次静态演示", "Static presentation this time")}</label></div>` : ""}
           <p class="native-tip"><span class="native-tip-label">${nativePresentationText("提示", "Tip")}</span><span id="nativePresentationTip" aria-live="off">${tips[tipIndex]}</span></p>
           <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button>${atFirstPage ? "" : `<button type="button" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first slide")}</button>`}<button type="button" class="primary" data-native-action="start-current">${atFirstPage ? nativePresentationText("开始演示", "Start presentation") : nativePresentationText("从当前页开始", "Start from current slide")}</button></div>
         `;
@@ -21773,6 +21776,8 @@ if (!chipTipController) {
                 itemId, monitorId, pages: probe.pages, notes: probe.notes || {}, expectedSourceHash: sourceRevision.revision,
                 startPageId: action === "start-first" ? probe.pages[0].id : (probe.activePageId || probe.pages[0].id),
                 rehearsal: monitors.length === 1,
+                motion: probe.motion || null,
+                staticMotion: Boolean(panel.querySelector("#nativePresentationStaticMotion")?.checked),
                 language: appState.language
               } });
               if (appState.nativePresentationItemId !== itemId) {
@@ -21781,6 +21786,7 @@ if (!chipTipController) {
               }
               nativePresentationSessionId = session.sessionId;
               els.appShell.classList.add("native-audience-mode");
+              document.getElementById("nativeAudienceBannerText").textContent = nativePresentationText("观众窗口 · 拖动此处移动窗口", "Audience window · Drag here to move");
               if (monitors.length === 1) {
                 els.appShell.classList.add("native-audience-rehearsal");
                 document.getElementById("nativeAudienceBannerText").textContent = nativePresentationText("观众窗口 · 在线会议请共享此 NUTBOOK 窗口", "Audience window · Share this NUTBOOK window in your meeting");

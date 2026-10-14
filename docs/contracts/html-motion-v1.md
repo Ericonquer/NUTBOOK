@@ -1,6 +1,6 @@
-# HTML Motion v1：P0 数据与保存合同
+# HTML Motion v1：数据、保存与运行合同
 
-状态：P0 底座已实现，产品闭环未验收。实施范围与退出条件以 `docs/plans/2026-10-12-html-motion-system-plan.md` 为准。本文不代表 P0 退出或模板交付。
+状态：P0 已获用户原生确认并收口；P1 功能自动基础已通过；界面对齐整改后正在验收，产品验收待集中人工确认。新增模板、背景、静态会话的原生/视觉与物理双屏验收集中保留。实施范围与退出条件以 `docs/plans/2026-10-12-html-motion-system-plan.md` 为准，不宣称原生/视觉验收或第一阶段完成。
 
 ## 文件与版本
 
@@ -16,11 +16,11 @@
 
 ## 页面、目标与动作
 
-每页包含 `id`、`capabilities`、`targets`、`actions`、`background`、`transition`。新文档 `actions:[]`，背景与转场为 null，默认静态。当前 registry 只有 `text.glyph-particles@1` 候选；已接通 Canvas2D 字形粒子渲染器与最小编辑面板，尚未通过原生 GUI 与视觉验收，不能计作合格模板。未来适配器未实现前，不接受对应配置。
+每页包含 `id`、`capabilities`、`targets`、`actions`、`background`、`transition`。新文档 `actions:[]`，背景与转场为 null，默认静态。当前 registry 含字形粒子、重力撞击、聚光强调、粒子消散、流动渐变及幕布揭示六个候选，已有编辑/保存/播放适配器。候选不代表视觉合格或发布；未实现的模板配置仍被拒绝。
 
-目标声明 `{id,kind}`，kind 为 text/image/group/video/embedded。页面 ID、目标 ID、动作 ID 各自唯一；目标 ID 跨页唯一。动作包含 `id,targetId,templateId,templateVersion,params,seed,trigger,delayMs`。目标须属于同页并兼容模板；同一目标同一类别只容许一个动作。seed 为 uint32，delayMs 在 0–60000 范围；trigger 为 click/withPrevious/afterPrevious。第一项相对本页开始解释，后续触发与点击步骤语义见正式计划 §5。
+目标声明 `{id,kind}`，kind 为 text/image/group/video/embedded。页面 ID、目标 ID、动作 ID 各自唯一；目标 ID 跨页唯一。动作包含 `id,targetId,templateId,templateVersion,params,seed,trigger,delayMs`。目标须属于同页并兼容模板；同一目标每个动作槽只容许一个动作；文字与进场共用 entrance 槽，强调和退场独立。seed 为 uint32，delayMs 在 0–60000 范围；trigger 为 click/withPrevious/afterPrevious。第一项相对本页开始解释，后续触发与点击步骤语义见正式计划 §5。
 
-能力包含 containsVideo/containsEmbeddedFrame/supportsDomTransition/supportsFilterTransition，以及 mediaTargetIds/embeddedTargetIds。媒体列表与相应目标声明必须完全匹配。有效存在性取声明与实测并集，支持能力取交集。运行时 DOM/资源探测及转场适配器尚未接入；不得把 schema 校验当作运行能力证明。
+能力包含 containsVideo/containsEmbeddedFrame/supportsDomTransition/supportsFilterTransition，以及 mediaTargetIds/embeddedTargetIds。媒体列表与相应目标声明必须完全匹配。有效存在性取声明与实测并集，支持能力取交集。转场运行时同时探测两页 DOM 与资源；媒体存在性取并集、支持能力取交集，不把 schema 校验当作运行能力证明。
 
 ## 保存边界
 
@@ -60,7 +60,7 @@ P0 仅一个文字粒子候选，代码、参数 registry 与运行模块全部�
 
 ## 准备、取消与本次渲染模式
 
-`src/motion/preparation.mjs` 为字体/资源准备提供200ms进度与2000ms截止时间。取消、取代与超时立即结束等待，不依赖底层资源 Promise 自己返回；晚到结果不得附着。同步构建无法抢占主线程，但返回后核对总准备时间，超时释放刚建的所有 adapter，不提交画面；部分构建失败也释放已建部分。当前仅文字粒子候选，页面超过三个前景动作保守拒绝并说明原因，不静默跳过。
+`src/motion/preparation.mjs` 为字体/资源准备提供200ms进度与2000ms截止时间。取消、取代与超时立即结束等待，不依赖底层资源 Promise 自己返回；晚到结果不得附着。同步构建无法抢占主线程，但返回后核对总准备时间，超时释放刚建的所有 adapter，不提交画面；部分构建失败也释放已建部分。当前六类候选共用准备与资源清理边界，编排后同时播放超过三个前景动作时拒绝并说明原因，不静默跳过。
 
 超时/失败保留语义正文。编辑时进度与失败提示合并在动效面板顶部，仅在准备中显示取消、失败后显示重新尝试/减少卡顿后重试/先看正文；日常调参不展示三个临时观看模式按钮。阅读时才使用右上角临时恢复提示，成功后自动收起。低负载将有效粒子数限制80、DPR限制1；标准DPR上限2；静态不准备动效。有效降载参数不进入动作JSON或编辑历史，退出并重开后恢复标准；显式重播按保存设置重新尝试。降载只从失败恢复入口触发，不能借标准原参数冒报标准测量结果。准备中转入后台取消旧结果，恢复后按原编辑/阅读状态重新准备；已有播放则继续使用时钟暂停/恢复。
 
@@ -68,13 +68,13 @@ P0 仅一个文字粒子候选，代码、参数 registry 与运行模块全部�
 
 独立真实样本 `docs/presentations/motion-gallery/performance.html` 可从资料库打开，运行3轮稳态、取消、复制或下载 JSON；环境记录与所选源文件 SHA-256 随结果输出。标准条件缺失、未知电源状态、非1280×720/DPR1、非标准参数/时长不会标为标准条件满足。Chromium 回归脚本另跑20次全新 runtime 首次套用及30次热调参。当前样本仅覆盖单个文字动作，不代表背景＋三个前景、转场、最大参数、双屏或原生平台性能通过。新增测量代码不自动注入用户已经编辑的旧样本。
 
-## 原生演示步骤兼容协议（P0 定义）
+## 原生演示步骤协议（P1 实施，原生验收待确认）
 
-probe 增加可选 `motion:{contract,supportsSteps}`，旧页面缺省为 None，继续现有页面导航。当前 runtime 声明 `supportsSteps:false`；Rust 不接受提前声明步骤支持。会话与 view 预留可选 `motionState`，当前为 None 且省略序列化，不把 pending 意图当作已执行状态。
+probe 增加可选 `motion:{contract,supportsSteps}`，旧页面缺省为 None，继续现有页面导航。新版 runtime 声明 `supportsSteps:true`；Rust 从磁盘校验正式 JSON、目标身份及页面列表后建立步骤会话。旧 runtime 的 false 能力继续页面导航。会话与 view 使用可选 `motionState`，不把 pending 意图当作已执行状态。
 
 `src-tauri/src/core/motion_protocol.rs` 定义 `MotionPlaybackState`：pageId、stepId、stepIndex、playbackStatus、logicalTimeMs、backgroundTimeMs、motionRevision。stepIndex=0 为页面初始态，stepId=null；1起的步骤必须有稳定 ID。时间为非负有限数值，步骤≤256。`type:"motion-applied"` ACK 与原页面 ACK 分开；pending 校验 session/generation/sequence/page/step/revision 的完全匹配，且 sequence 大于最后已确认序号。重复、乱序、旧 generation、跨页、旧 revision 均拒绝。
 
-目前仅接入兼容 probe/会话字段与数据校验测试，尚未接通原生 intent 串行路由、超时重试、250ms权威校准、重连回放和演讲者 current child 的 seek/render；因此不能宣称真实步骤同步可用。P1 启用 supportsSteps 前必须完成这些链路及单/双屏真实验收。
+已接入原生 intent 串行路由、同序号重试、250ms 观众状态校准、恢复最后确认状态和演讲者 current child 的 seek/render。浏览器运行 Rust 生成脚本并以真实 Rust 会话校验报告；这不是 Tauri IPC、WKWebView 或物理双屏验收，后者仍待确认。
 
 ## P0 收口与范围（2026-10-13）
 
@@ -92,4 +92,110 @@ probe 增加可选 `motion:{contract,supportsSteps}`，旧页面缺省为 None�
 
 P0 按当前用户确认范围收口：实验迁移/另存 UI 延后，保留所有原实验文件，不虚构迁移完成。当前继续 DOM/Canvas 候选，GSAP 未引入，许可适用性与候选技术探针留作后续引擎决策，不标为已通过。当前无数值文本草稿控件，无外部动效资产多文件事务；新增这些入口前需补相应合同与验证。
 
-P1 保留六类贯通、完整分类与编排面板、点击/延迟步骤及原生演讲者同步。当前 supportsSteps=false；原生 intent 串行路由、超时/校准/重连与双屏真实步骤验收仍须完成，不能把协议字段校验当作可用功能。导出选项后续按“静态/动态/自定义”统一命名与对应行为。33 个最终目标未缩减，最终离线安装包和跨平台验收归发布阶段。
+P1 保留六类贯通、完整分类与编排面板、点击/延迟步骤及原生演讲者同步。当前正式步骤链已实施，原生单屏/双屏真实步骤验收仍须完成。导出选项后续按“静态/动态/自定义”统一命名与对应行为。33 个最终目标未缩减，最终离线安装包和跨平台验收归发布阶段。
+
+## P1 selection and bulk editing — initial implementation
+
+P0 checkpoint: `9012432`. P1 branch: `codex/html-motion-p1`. Current implementation supports current-page object selection, compatible bulk edits, and all six candidate categories. Acceptance artifact: `docs/presentations/motion-gallery/p1-selection.html`, registered through nbskill. Fresh Markdown motion exports use the same runtime.
+
+The motion panel starts in object-selection mode. Click selects one declared object; Shift, Command or Control click toggles additional objects. Object clicks do not enter text editing. A separate temporary stylesheet draws selection outlines and is removed on close, exit and dispose. Text mode restores ordinary input; switching back to selection clears the text range and is blocked during IME composition.
+
+Mixed selection reports compatible text objects and skipped non-text objects. All-incompatible selection disables Apply without creating history. Apply/replacement, remove, parameter edits, color and reset use one existing document-history transaction per bulk action. Replacement preserves action ID/order/trigger/delay. Cross-page selection and arbitrary grouping are not supported.
+
+Controls display the first selected action; adjusting one parameter unifies that parameter on the selected actions. Mixed color/monochrome selection disables the hue/lightness slider until color mode is unified. All six candidate categories, action-list and step implementations are described below.
+
+Automated verification covers immutable mutation/compatibility/identity, actual Chromium mouse multi-selection, single-step undo/redo, text mode, mixed color units and real Rust disk save/reopen. The selection/bulk-edit slice has user native confirmation; the action-list/timing slice also has separate user native confirmation.
+
+## P1 action list and sequential preview
+
+Current-page actions can be reordered with SVG controls. Each row selects its target and edits trigger plus bounded 0..60000 ms delay. Delay uses a range control; there is no uncommitted numeric text draft. One completed drag/trigger change/reorder uses one existing document-history transaction. Keyed rows preserve the actual slider node and keyboard focus across commits and undo/redo. Expanded-list size changes constrain the panel above the editing toolbar.
+
+The pure timeline compiler resolves withPrevious against the preceding start and afterPrevious against the preceding end, plus delay. A first relative action starts relative to page entry. Click actions create stable groups; sequential preview places each new group after the preceding group's latest end. Step zero is the implicit initial group. Reordering recalculates timings without changing action IDs, targets or saved trigger/delay values. Dependencies are ordered and contain no arbitrary references, so cycles cannot be authored.
+
+Rendering uses compiled start times, hides future targets without drawing their first particle frame, and restores semantic text at completion. The foreground budget uses peak simultaneous actions (maximum three), rather than total action count. Timeline results are cached per config/page and exposed as a copy. Delay, order and trigger persist through the existing atomic source commit.
+
+Acceptance artifact: docs/presentations/motion-gallery/p1-actions.html. The first two text actions demonstrate page-entry title playback followed by a delayed paragraph. Older user-edited acceptance artifacts are retained unchanged. Preview deliberately runs all groups continuously. This action-list slice has user native confirmation. The following step slice requires separate native acceptance.
+
+
+## P1 formal step playback
+
+Acceptance artifact: `docs/presentations/motion-gallery/p1-steps.html`. Open in the current preview app, use the toolbar presentation entry (or S), then single-screen rehearsal. Editing-panel Replay remains a continuous preview; formal presentation starts at implicit step zero. A click, Space or forward key starts the next click group; an intent during playback completes the current group. Only a subsequent intent after the last group changes page. Backward navigation shows the destination page completed. Delays and relative starts remain within their click group. Reduced motion starts at the completed final group.
+
+The native coordinator reserves a sequence, obtains a source-valid planned state, then sends Apply. It confirms only the applied audience ACK. Repeated forward intents queue (bounded at 32); a pending page selection converges to the latest requested page. A 2.5-second timeout retries the same sequence once without replaying an already applied action; failure at five seconds suspends the audience and retains the last confirmed state for explicit recovery. Page-ACK timeout also suspends formal playback. Old generations and unknown page/step/revision states are rejected. Restored audience generations receive the last confirmed logical time and step. Presenter mirror applies only confirmed audience states and reports ready after its latest applied state; next-page preview stays static.
+
+Automated coverage: pure step transitions; Rust source identity and session/ACK validation; generated native audience and mirror scripts in Chromium; click/finish/page/back navigation; same-sequence retry without time reset; new-generation restoration; Rust validation of the recorded reports; presenter button labels and actions on the final slide. Existing 28-check P0 regression passed. IPC transport is mocked in the browser test. Native window lifecycle, actual IPC and physical dual-display synchronization remain user acceptance items; P1 automatic foundation is closed; native and visual product acceptance remains pending.
+
+
+## 本次静态演示
+
+演示准备入口对新版正式动效文档提供默认关闭的复选框。`staticMotion` 仅存于原生会话，不修改文档或保存 baseline。观众和当前页镜像在 runtime 启动前收到静态策略，不创建动效 projection；所有语义内容完整可见，不等待页内步骤，点击和按键直接翻页。原生恢复沿用该会话策略；结束后新会话默认正常动画。旧页面无此开关。当前页标识为静态预览。已自动验证准备入口、Rust 生成观众/mirror 脚本、直接导航、源配置不变及新会话恢复正常步骤；真实原生开关尚待用户验收。后续新增背景/转场/退场适配器必须继续遵守同一静态策略。
+
+## 引擎候选决策与投影组合
+
+2026-10-14 核查 [Webflow GSAP Software License §9](https://webflow.com/legal/product-terms)：条款明确限制部分可视化动画构建工具用途。Nutbook 的可视化套用/调参属于需要进一步确认适用性的产品形态；本工程决策暂不引入 GSAP，使用计划允许的自研 DOM/Canvas 适配路线，不宣称已获得 GSAP 分发授权或已通过 GSAP 产品 Gate。33 个模板目标不因此缩减。后续如取得明确适用许可，可在同一 prepare/render(time)/dispose 合同内重新评估，不增加独立时钟。
+
+`projection.mjs` 每个语义目标只使用一个临时 stylesheet；适配器各自持有 token。透明度取各 token 的最小值，transform 叠加在作者原始 computed transform 后；清空某个动作不会抹掉另一个动作的终态。最后一个 token dispose 删除整个临时样式。原作者 DOM/属性保持不变；静态、编辑退出和 dispose 清理所有 token。字形粒子已迁移到该组合器。重力撞击、聚光适配器已登记进可套用 registry 和产品面板，并有可操作样本；仍属待视觉确认的候选。
+
+## P1 对象类别贯通（候选，视觉/原生待验收）
+
+目前可套用四个候选：字形粒子、重力撞击、聚光强调、粒子消散。分类/模板使用软件 DOM 下拉；浏览和选择不改变文档，仅套用提交一条历史。参数按实际模板规则展示；混合模板先套用统一再调参，防止把无效参数写入另一模板。动作列表显示效果名和对象名，点击定位精确类别。
+
+文字和普通进场共用 entrance 槽，同槽替换保留 ID、顺序、触发和延迟；emphasis、exit 各自独立。JS、JSON Schema、Rust 与 nbskill 同步校验模板/参数，Rust 验证共槽冲突。编辑移除/调参/复位仅作用于当前类别；批量替换是一条历史。多适配器使用目标投影组合器，已完成进场不能复活已退场内容。静态与编辑清理投影后恢复完整语义正文。
+
+重力使用确定性落体、阻尼回弹及接触烟尘；聚光使用柔和径向暗场；退场由字形轮廓随横向阈值解离、漂移与衰减，独立于进场轨迹。均由统一时钟定位，不新增 rAF。连续编辑/阅读预览自然结束时清理投影返回完整正文；正式步骤播放保留动作完成态。验收样本 `p1-objects.html`，人工清单 `acceptance.md`。已验证分类控件、兼容过滤、槽替换、独立类别、撤销、终态组合、语义节点身份及真实 Rust 保存重开；视觉质量和真实原生新增模板尚待确认。背景与转场见后续章节；六类候选的自动基础已收口，原生/视觉品质仍待验收。
+
+## P1 页面背景与共享时钟
+
+页面 background 可为 null 或 `{id,templateId,templateVersion,params,seed}`，当前仅接收 background.flowing-gradient@1。ID 与动作/其他页效果全局不重复；未知字段、模板/版本、参数越界和伪造类别在 JS、Schema、Rust、nbskill 均拒绝。背景不接受 targetId/trigger/delay；每页仅一个槽，套用/替换/移除与复位均为一条既有文档历史。
+
+动效面板页面图标进入背景设置，也可从类别选择背景。参数为周期、浓度、两个色相、流速及尺度。背景使用页内下层 canvas 和临时 isolation stylesheet，保留作者属性、文字颜色与布局，不遮正文；静态会话及减少动态偏好不准备背景。后台、编辑进入、切页和 dispose 沿既有取消/资源清理路径。
+
+同一个权威时钟驱动前景和背景。步骤逻辑时间在当前组结束处钳住，等待下一次点击时背景继续；backgroundTimeMs 单独序列化并由观众每 250ms 校准。下一步骤保留当前背景时间；重新播放/换页从零开始。暂停是显式状态，即使前景已完成也不会因镜像校准而重新启动背景。原生校验只容许声明背景的页面使用非零背景时间，同页校准/计划/ACK 拒绝背景时间倒退；新代际恢复使用最后确认时间。镜像 seek/render 已确认的背景时间，无独立推进器。
+
+可打开样本 p1-background.html。已自动验证面板、参数、undo、Rust 原子保存/重开、布局与语义不变、确定性 seek、等待步骤/暂停/重建恢复、静态不准备背景，以及 Rust 生成控制脚本的背景校准和镜像延迟小于等于 500ms。浏览器 IPC 仍为模拟；物理双屏与真实 WKWebView 视觉/性能留待人工验收。
+
+## P1 幕布揭示与页面事务
+
+transition.curtain-reveal@1 提供时长、方向、直线/圆形及边缘柔化。编辑内预览保留源页编辑身份，调参在当前进度生效；重播完成、点击正文或取消恢复源页，不新增历史。转场参数仍通过统一历史与 Rust 保存。六类组合样本 p1-scenes.html。
+
+正式演示前向相邻页使用离开页转场；返回与跳页直接切换，同页不重置。源页背景及前景按当前像素冻结；目标初始步骤与零时刻背景准备完成后，由同一权威时钟揭幕。目标准备失败保留旧页和资源，提供重试、直接显示完整正文或取消。不兼容媒体本次直切并保留配置。本次静态演示不准备转场。快速导航最后目标收敛，后台与 resize 取消合成并释放快照。
+
+快照复制已解码图片和 canvas 像素，不重新请求图片 URL；清除执行脚本、事件、源身份，并重映射 SVG 引用。原生在转场完成前仍确认旧页；观众暂停状态冻结镜像，目标准备及切换完成后才确认新页。校准附递增样本序号，拒绝同一时间点乱序暂停/恢复。浏览器运行 Rust 生成脚本的测试不等于真实 WKWebView 或物理双屏验收。
+
+## 原生暂停、重播与时间定位
+
+演讲者底栏在正常动效会话显示暂停/继续 SVG、重播 SVG 与整页时间条，提供随状态更新的 tooltip/aria 名称；与演讲计时器独立。定位跨步骤采用页面绝对毫秒，共享边界选择后一组，定位后保持暂停；背景定位同一时刻。重播当前页从初始自动组与背景零时刻开始，仍保留之后的点击组。静态会话不显示这些控件。
+
+命令仅接受演讲者来源；忙于翻页/待确认时不接受控制。观众从实时钟生成计划，Rust 按 intent 校验允许的时间后退/归零，应用 ACK 后才更新确认状态；普通前进与校准仍要求单调时间。旧序号报告不能覆盖新位置。应用前暂停时钟保证精确定位；同序号重试不重新应用。旧支持步骤的 HTML 可经已有 timeline/state/apply API 使用控制，无需改写原文件。
+
+## 独立模板预览
+
+动效卡片聚焦后在卡片内试播独立示例，六类均使用实际 renderer。示例节点属于临时控件，不进入正式目标、保存快照、baseline 或历史；切换类别、关闭、取消准备和退出释放资源。复用页面唯一 clock，背景也不另建调度器；进场使用相同运动函数按预览区域高度取景。卡片失焦恢复静态示意。窄窗口停靠底部并可收起，恢复宽窗口自动展开。
+
+P1 自动基础汇总入口为 npm run check:motion:p1，包含既有 P0、数据/面板/历史/六类/正式导出/Rust 保存、原生生成脚本与 Rust ACK、静态六类、两类组合性能和未压缩资源预算。该入口不能证明 WKWebView、物理双屏和人工视觉品质；这些保留在集中验收清单。
+
+## 动效选择界面对齐（2026-10-14）
+
+恢复已确认 brainstorm v2 结构：元素效果/页面背景/页面转场三页签；元素进场（含文字效果）/强调/退场三个动作槽；搜索与效果卡片；独立参数区、预览与套用操作、底部播放顺序。点击卡片只读试播，套用才进入历史。现有分类和模板 select 只保留内部状态接口，不再展示为选择入口。本机默认参数仍属后续功能，界面不提供假成功入口。新版七份 P1 样本只升级内嵌 runtime，保留正文与配置；应用更新不意味着外部已有 HTML 的内嵌界面自动升级。
+
+动效面板选择交互修订：顶层沿用 Markdown 排版中心的透明背景/底部黑色指示线样式，元素动作槽采用独立按钮层级。效果卡片内持有真实 renderer 静态帧，统一示例 NUTBOOK；键盘或指针聚焦后由页面唯一 clock 原位播放，失焦恢复静态。卡片资源使用独立 UI 标记，与正文投影/背景清理分别识别；搜索/切类取消准备，关闭或退出释放全部卡片资源。播放和套用位于所有参数之前，不再展开额外示例区域。
+
+动作顺序中的每项默认收起，点击名称展开/收起开始方式与延迟；展开状态仅属于界面，不进入历史或保存。选择/文字编辑按钮同行的整页播放按钮（播放/暂停两态，暂停后继续原进度）连续预览整页已套用的对象动作及背景；套用同行的三角按钮仅预览当前选中对象在当前类别已套用的效果（多选同时从零播放），背景/转场类别则预览当前页对应效果。模板卡片聚焦试播独立示例，不借用整页播放按钮。元素播放、套用和移除同排；参数底部不再显示重复的重播和暂停控件。
+
+重力撞击的烟尘按文字 Range 实际边界定位，图片仍按对象边界定位；可选 dustSize 为 0–3，默认 1，兼容旧配置。聚光强调根据目标祖先合成背景明度选择模式：浅底保留目标中心并压暗周围，深底仅照亮目标区域并提升目标亮度；光区按实际文字边界形成柔边椭圆，结束清理 filter。面板关闭按钮默认透明，仅 hover/键盘 focus 出现灰底。
+
+背景与转场均提供三个错位方框的全部套用SVG；复制当前效果参数，转场跳过末页和不兼容页面，整批一次撤销。移除使用圆圈减号SVG。动效面板按钮统一软件tooltip，hover/focus可见，移除系统title避免双提示；播放文案为播放当前效果/播放整页动画/暂停整页动画。
+
+## 屏幕适配与验收边界
+
+每次开始或手动恢复演示重新枚举显示器。传输方式（AirPlay/物理线缆）不作为硬编码的屏幕定位条件。会话中的选择使用当次 monitor ID；运行中布局/分辨率改变时，以唯一屏幕名称匹配身份更新几何 ID，同名歧义不猜测，按失联处理并要求重新选择。监测器丢失时暂停并失效 pending 动作；恢复仍沿现有手动选屏入口并增加 generation。
+
+窗口恢复保存“原屏身份 + 相对原屏的逻辑坐标/尺寸”，不保存当前观众屏坐标作恢复值。退出时重新枚举：原屏仍在则按相对位置恢复并限制在可见范围；原屏已断开或身份歧义则回退当前主屏。macOS 再按 NSScreen.visibleFrame 排除菜单栏/Dock。非 macOS 的原生屏幕工作区与实际窗口行为仍需目标平台验收。
+
+macOS 定位在原生 UI 线程先完成 frame 设置并检查实际位置，再进入全屏。退出全屏通知之后跨主队列边界执行恢复，避免 Tao 样式/最大化恢复覆盖位置；不依赖固定延时或重试循环。操作 epoch 失效旧排队定位，防止旧会话恢复覆盖新开始/结束。无法确认目标位置时保留普通窗口和拖动条，并向演讲者提示失败。
+
+跨屏缩放变化同步 child bounds，并触发正文 resize，以当前 viewport/DPR 重建动效画布和回放可序列化时间状态。不同刷新率仍使用逻辑时间，不为追求表面帧率改保存参数、自动删减粒子或加独立动画时钟。
+
+已确认运行面为用户当前 AirPlay 扩展屏：自动放置和退出原主屏恢复通过。该环境观众 rAF 约33ms（约30fps），未判定渲染或无线链路根因；不作为物理直连性能通过。用户之后用自有小屏幕补物理直连，以及不同排列/缩放、断屏恢复。临时窗口日志及帧采样已移除。自动几何回归与浏览器协议测试不能替代真实拓扑/硬件验收。
+
+P1作为进入P2前的代码阶段检查点提交，25组自动回归及当前AirPlay放置/退出恢复通过；物理直连、真实断屏恢复和不同设备性能对照待补测，不将此提交标为全部硬件验收完成。

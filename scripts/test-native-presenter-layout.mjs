@@ -202,6 +202,30 @@ try {
   }));
   assert.equal(await page.locator("#pageCount").textContent(), "24 / 30", "a late ACK from an older navigation must not roll the presenter backward");
 
+  await page.evaluate(() => {
+    window.motionAdvances=0;
+    const motion={pageId:'page-30',stepId:'click-1',stepIndex:1,playbackStatus:'playing',logicalTimeMs:100,backgroundTimeMs:0,motionRevision:0};
+    const state={sessionId:'layout-check',language:'zh-CN',ready:true,pages:[{id:'page-30',title:'末页'}],activePageId:'page-30',sequence:3,notes:{},motionState:motion,motionStepCount:2};
+    window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(state);
+    const original=window.__TAURI_INTERNALS__.invoke;
+    window.__TAURI_INTERNALS__.invoke=async(command,args)=>{if(command!=='native_presentation_advance')return original(command,args);window.motionAdvances++;return {...state,sequence:4,motionState:{...motion,playbackStatus:'finished'}};};
+  });
+  assert.equal(await page.locator('#next').textContent(),'完成当前步');
+  assert.equal(await page.locator('#next').isEnabled(),true,'last slide still advances its actions');
+  await page.locator('#next').click();
+  assert.equal(await page.evaluate(()=>window.motionAdvances),1);
+  assert.equal(await page.locator('#next').textContent(),'下一步 →');
+  await page.evaluate(()=>{window.motionControls=[];const motion={pageId:'page-30',stepId:'click-1',stepIndex:1,playbackStatus:'playing',logicalTimeMs:100,backgroundTimeMs:100,motionRevision:0};let state={sessionId:'layout-check',language:'zh-CN',ready:true,pages:[{id:'page-30',title:'末页'}],activePageId:'page-30',sequence:5,notes:{},motionState:motion,motionStepCount:2,motionDurationMs:2000};window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(state);const original=window.__TAURI_INTERNALS__.invoke;window.__TAURI_INTERNALS__.invoke=async(command,args)=>{if(command!=='native_presentation_motion_control')return original(command,args);window.motionControls.push(args.payload);state={...state,sequence:state.sequence+1,motionState:{...state.motionState,playbackStatus:args.payload.action==='resume'?'playing':'paused',logicalTimeMs:args.payload.timeMs??state.motionState.logicalTimeMs}};return state;};});
+  assert.equal(await page.locator('#motionControls').isVisible(),true);
+  assert.equal(await page.locator('#motionPause svg').count(),1);
+  await page.locator('#motionPause').click();assert.equal(await page.locator('#motionPause').getAttribute('aria-label'),'继续动效');
+  await page.locator('#motionPause').click();assert.equal(await page.locator('#motionPause').getAttribute('aria-label'),'暂停动效');
+  await page.locator('#motionReplay').click();
+  await page.locator('#motionSeek').evaluate(el=>{el.value='900';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.deepEqual((await page.evaluate(()=>window.motionControls)).map(c=>[c.action,c.timeMs]),[['pause',undefined],['resume',undefined],['replay',undefined],['seek',900]]);
+  const overflow=await page.evaluate(()=>document.querySelector('footer').scrollWidth>innerWidth);assert.equal(overflow,false,'motion controls fit presenter action bar');
+
+
 } finally {
   await browser.close();
 }
