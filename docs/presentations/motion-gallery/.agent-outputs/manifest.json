@@ -152,6 +152,37 @@
       "kind": "presentation",
       "editContract": "nutbook-html/v1",
       "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p2-text",
+      "path": "p2-text.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p2-acceptance",
+      "path": "p2-acceptance.md",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "report"
+    },
+    {
+      "id": "motion-p2-text-review",
+      "path": "p2-text-review.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
     }
   ]
 }

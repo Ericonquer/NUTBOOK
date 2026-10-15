@@ -39,7 +39,8 @@
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:html-edit-i18n": "node scripts/test-html-edit-i18n.mjs",
     "test:presentation-layout": "playwright test tests/presentation-layout.spec.mjs",
-    "setup:presentation-layout": "playwright install chromium"
+    "setup:presentation-layout": "playwright install chromium",
+    "check:motion:p2": "node scripts/check-motion-p2.mjs"
   },
   "dependencies": {
     "@milkdown/kit": "^7.15.3",

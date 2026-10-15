@@ -1,3 +1,4 @@
+import {registry} from '../src/motion/contract.mjs';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {resolve} from 'node:path';
@@ -23,10 +24,10 @@ try{
  assert.equal(await reset.locator('svg').count(),1);
  assert.equal(await reset.getAttribute('aria-label'),'恢复默认参数');
  assert.equal(await reset.evaluate(el=>el.parentElement.className),'color-row');
- await reset.hover();assert.equal(await reset.locator('[role=tooltip]').evaluate(el=>getComputedStyle(el).opacity),'1');
- await page.mouse.move(0,0);await reset.focus();await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');assert.equal(await reset.locator('[role=tooltip]').evaluate(el=>getComputedStyle(el).opacity),'1');
+ await reset.hover();assert.equal(await panel.locator('[data-panel-tooltip]').textContent(),'恢复默认参数');assert.equal(await panel.locator('[data-panel-tooltip]').isVisible(),true);
+ await page.mouse.move(0,0);await reset.focus();await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');assert.equal(await panel.locator('[data-panel-tooltip]').textContent(),'恢复默认参数');assert.equal(await panel.locator('[data-panel-tooltip]').isVisible(),true);
 
- assert.equal(await panel.locator('[data-template-card]').count(),2,'aligned entrance catalog shows text and entrance cards');assert.ok((await panel.boundingBox()).y+(await panel.boundingBox()).height<=620,'catalog panel stays above the editing toolbar');
+ assert.equal(await panel.locator('[data-template-card]').count(),Object.values(registry.templates).filter(t=>t.catalog!==false&&['text','entrance'].includes(t.category)).length,'entrance catalog includes all registered text and entrance cards');assert.ok((await panel.boundingBox()).y+(await panel.boundingBox()).height<=620,'catalog panel stays above the editing toolbar');
  const before=await panel.boundingBox(),header=await handle.boundingBox();
  await page.mouse.move(header.x+header.width-56,header.y+12);await page.mouse.down();await page.mouse.move(header.x+header.width-156,header.y+42);await page.mouse.up();
  const after=await panel.boundingBox();assert.ok(after.x<before.x-50,'blank header area drags the panel');

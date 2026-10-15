@@ -131,7 +131,23 @@
                     "text.glyph-particles",
                     "entrance.gravity-impact",
                     "emphasis.spotlight",
-                    "exit.particle-dissolve"
+                    "exit.particle-dissolve",
+                    "text.character-stagger",
+                    "text.decode-reveal",
+                    "text.split-flip",
+                    "text.elastic-warp",
+                    "text.outline-write",
+                    "text.depth-text",
+                    "text.fold-unfold",
+                    "text.echo-trail",
+                    "text.light-sweep",
+                    "text.masked-heading",
+                    "text.blur-reveal",
+                    "text.typewriter",
+                    "text.pressure",
+                    "text.gradient",
+                    "text.true-focus",
+                    "text.count-up"
                   ]
                 },
                 "templateVersion": {
@@ -278,6 +294,16 @@
                             "type": "number",
                             "minimum": 0,
                             "maximum": 2
+                          },
+                          "radiusScale": {
+                            "type": "number",
+                            "minimum": 0.6,
+                            "maximum": 2
+                          },
+                          "direction": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
                           }
                         }
                       }
@@ -332,6 +358,775 @@
                             "type": "number",
                             "minimum": 0,
                             "maximum": 100
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.character-stagger"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "staggerMs",
+                          "order"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          },
+                          "order": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "preset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.decode-reveal"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "iterations",
+                          "charset",
+                          "staggerMs",
+                          "order"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "iterations": {
+                            "type": "integer",
+                            "minimum": 3,
+                            "maximum": 30
+                          },
+                          "charset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          },
+                          "order": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.split-flip"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "axis",
+                          "staggerMs"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "axis": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.elastic-warp"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "wavelength",
+                          "recovery"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "wavelength": {
+                            "type": "number",
+                            "minimum": 20,
+                            "maximum": 240
+                          },
+                          "recovery": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 6
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.outline-write"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strokeWidth",
+                          "fillAt",
+                          "staggerMs"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strokeWidth": {
+                            "type": "number",
+                            "minimum": 0.5,
+                            "maximum": 4
+                          },
+                          "fillAt": {
+                            "type": "number",
+                            "minimum": 0.3,
+                            "maximum": 0.85
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.depth-text"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "depth",
+                          "layers",
+                          "perspective",
+                          "staggerMs"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "depth": {
+                            "type": "number",
+                            "minimum": 4,
+                            "maximum": 60
+                          },
+                          "layers": {
+                            "type": "integer",
+                            "minimum": 3,
+                            "maximum": 16
+                          },
+                          "perspective": {
+                            "type": "number",
+                            "minimum": 50,
+                            "maximum": 400
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.fold-unfold"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "panels",
+                          "foldAngle",
+                          "staggerMs"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "panels": {
+                            "type": "integer",
+                            "minimum": 2,
+                            "maximum": 6
+                          },
+                          "foldAngle": {
+                            "type": "number",
+                            "minimum": 20,
+                            "maximum": 88
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.echo-trail"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "echoes",
+                          "spacing",
+                          "decay"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 2
+                          },
+                          "echoes": {
+                            "type": "integer",
+                            "minimum": 2,
+                            "maximum": 8
+                          },
+                          "spacing": {
+                            "type": "integer",
+                            "minimum": 15,
+                            "maximum": 150
+                          },
+                          "decay": {
+                            "type": "number",
+                            "minimum": 0.2,
+                            "maximum": 0.85
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.light-sweep"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "bandWidth",
+                          "brightness",
+                          "angle"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "bandWidth": {
+                            "type": "number",
+                            "minimum": 12,
+                            "maximum": 180
+                          },
+                          "brightness": {
+                            "type": "number",
+                            "minimum": 0.2,
+                            "maximum": 1
+                          },
+                          "angle": {
+                            "type": "number",
+                            "minimum": -60,
+                            "maximum": 60
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.masked-heading"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "hue",
+                          "hue2",
+                          "speed",
+                          "staggerMs"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "hue": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 360
+                          },
+                          "hue2": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 360
+                          },
+                          "speed": {
+                            "type": "number",
+                            "minimum": 0.2,
+                            "maximum": 3
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.blur-reveal"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "blur",
+                          "distance",
+                          "staggerMs",
+                          "preset"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "blur": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 24
+                          },
+                          "distance": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 60
+                          },
+                          "staggerMs": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 300
+                          },
+                          "preset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.typewriter"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "cursor",
+                          "cadence"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "cursor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "cadence": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.pressure"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "strength",
+                          "width",
+                          "direction"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "strength": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "width": {
+                            "type": "number",
+                            "minimum": 0.08,
+                            "maximum": 0.6
+                          },
+                          "direction": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.gradient"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "hue",
+                          "hue2",
+                          "speed",
+                          "mode"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "hue": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 360
+                          },
+                          "hue2": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 360
+                          },
+                          "speed": {
+                            "type": "number",
+                            "minimum": 0.2,
+                            "maximum": 3
+                          },
+                          "mode": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.true-focus"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "blur",
+                          "grouping",
+                          "frame"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "blur": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 12
+                          },
+                          "grouping": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "frame": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "mode": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "focusIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          },
+                          "focusStart": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 65535
+                          },
+                          "focusEnd": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 65535
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "templateId": {
+                        "const": "text.count-up"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "durationMs",
+                          "startRatio",
+                          "curve"
+                        ],
+                        "properties": {
+                          "durationMs": {
+                            "type": "number",
+                            "minimum": 500,
+                            "maximum": 6000
+                          },
+                          "startRatio": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "curve": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2
                           }
                         }
                       }

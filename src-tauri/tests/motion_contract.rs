@@ -100,3 +100,25 @@ fn transition_slot_rejects_wrong_category_identity_and_shape() {
     for(key,value)in [("durationMs",serde_json::json!(299)),("direction",serde_json::json!(4)),("shape",serde_json::json!(2)),("feather",serde_json::json!(0.31)),("code",serde_json::json!("alert(1)"))]{let mut bad=doc.clone();bad["pages"][0]["transition"]["params"][key]=value;assert!(validate(&bad.to_string()).is_err(),"{key}");}
     for(key,value)in [("id",serde_json::json!("action-1")),("templateId",serde_json::json!("background.flowing-gradient")),("targetId",serde_json::json!("title-1"))]{let mut bad=doc.clone();bad["pages"][0]["transition"][key]=value;assert!(validate(&bad.to_string()).is_err(),"{key}");}
 }
+
+#[test]
+fn p2_text_candidates_validate_each_parameter_and_reject_image_targets() {
+    let registry:serde_json::Value=serde_json::from_str(include_str!("../../src/motion/registry.json")).unwrap();
+    let fixture:serde_json::Value=serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+    let mut count=0;
+    for (id,template) in registry["templates"].as_object().unwrap(){
+        if !id.starts_with("text.")||id=="text.glyph-particles"{continue;}
+        count+=1;let rules=template["params"].as_object().unwrap();let params=rules.iter().map(|(key,rule)|(key.clone(),rule["default"].clone())).collect::<serde_json::Map<_,_>>();let mut doc=fixture.clone();doc["pages"][0]["actions"][0]["templateId"]=id.clone().into();doc["pages"][0]["actions"][0]["params"]=params.into();validate(&doc.to_string()).unwrap();
+        for (key,rule) in rules {let mut bad=doc.clone();bad["pages"][0]["actions"][0]["params"][key]=(rule["max"].as_f64().unwrap()+1.).into();assert!(validate(&bad.to_string()).is_err(),"{id} {key}");}
+        let target=doc["pages"][0]["actions"][0]["targetId"].as_str().unwrap().to_string();for item in doc["pages"][0]["targets"].as_array_mut().unwrap(){if item["id"]==target{item["kind"]="image".into();}}assert!(validate(&doc.to_string()).is_err(),"{id} image");
+    }
+    assert_eq!(count,16);
+}
+
+#[test]
+fn stage_spotlight_keeps_legacy_parameters_and_bounds_new_controls() {
+ let mut doc:serde_json::Value=serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+ let action=&mut doc["pages"][0]["actions"][0];action["templateId"]=serde_json::json!("emphasis.spotlight");action["params"]=serde_json::json!({"durationMs":1800,"strength":1});validate(&doc.to_string()).unwrap();
+ for direction in 0..4 {doc["pages"][0]["actions"][0]["params"]=serde_json::json!({"durationMs":2400,"strength":1.5,"direction":direction,"radiusScale":1.4});validate(&doc.to_string()).unwrap();}
+ for (key,value) in [("direction",4.0),("direction",1.5),("radiusScale",0.59),("radiusScale",2.01)] {let mut bad=doc.clone();bad["pages"][0]["actions"][0]["params"][key]=serde_json::json!(value);assert!(validate(&bad.to_string()).is_err(),"{key}");}
+}

@@ -46,7 +46,7 @@
           "optional": true
         }
       },
-      "label": "字形粒子"
+      "label": "粒子成字"
     },
     "entrance.gravity-impact": {
       "version": 1,
@@ -91,12 +91,47 @@
         "durationMs": {
           "min": 500,
           "max": 6000,
-          "default": 1800
+          "default": 1800,
+          "label": "时长（毫秒）"
         },
         "strength": {
           "min": 0,
           "max": 2,
-          "default": 1
+          "default": 1,
+          "label": "亮度"
+        },
+        "radiusScale": {
+          "min": 0.6,
+          "max": 2,
+          "default": 1,
+          "optional": true,
+          "label": "光圈大小"
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "optional": true,
+          "label": "入光方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "左上"
+            },
+            {
+              "value": 1,
+              "label": "右上"
+            },
+            {
+              "value": 2,
+              "label": "左下"
+            },
+            {
+              "value": 3,
+              "label": "右下"
+            }
+          ]
         }
       }
     },
@@ -271,6 +306,857 @@
           "default": 0.08,
           "label": "羽化",
           "step": 0.01
+        }
+      }
+    },
+    "text.character-stagger": {
+      "version": 1,
+      "label": "错落入场",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "strength": {
+          "min": 0,
+          "max": 2,
+          "default": 1,
+          "label": "幅度"
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "字间延迟（毫秒）",
+          "integer": true,
+          "step": 5
+        },
+        "order": {
+          "min": 0,
+          "max": 2,
+          "default": 0,
+          "label": "顺序",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "从前到后"
+            },
+            {
+              "value": 1,
+              "label": "从后到前"
+            },
+            {
+              "value": 2,
+              "label": "随机"
+            }
+          ]
+        },
+        "preset": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "播放预设",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "错落显现"
+            },
+            {
+              "value": 1,
+              "label": "轻盈浮升"
+            }
+          ],
+          "optional": true
+        }
+      }
+    },
+    "text.decode-reveal": {
+      "version": 1,
+      "label": "解码显字",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "iterations": {
+          "min": 3,
+          "max": 30,
+          "default": 12,
+          "label": "解码速度",
+          "integer": true
+        },
+        "charset": {
+          "min": 0,
+          "max": 2,
+          "default": 0,
+          "label": "替代字符",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "字母与数字"
+            },
+            {
+              "value": 1,
+              "label": "汉字"
+            },
+            {
+              "value": 2,
+              "label": "二进制"
+            }
+          ]
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "字间延迟（毫秒）",
+          "integer": true,
+          "step": 5
+        },
+        "order": {
+          "min": 0,
+          "max": 2,
+          "default": 0,
+          "label": "顺序",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "从前到后"
+            },
+            {
+              "value": 1,
+              "label": "从后到前"
+            },
+            {
+              "value": 2,
+              "label": "随机"
+            }
+          ]
+        }
+      }
+    },
+    "text.split-flip": {
+      "version": 1,
+      "label": "翻牌显字",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "axis": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "翻牌方向",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "向下翻牌"
+            },
+            {
+              "value": 1,
+              "label": "向右翻牌"
+            }
+          ]
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "字间延迟（毫秒）",
+          "integer": true,
+          "step": 5
+        }
+      }
+    },
+    "text.elastic-warp": {
+      "version": 1,
+      "label": "弹性扭曲",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "strength": {
+          "min": 0,
+          "max": 2,
+          "default": 1,
+          "label": "幅度"
+        },
+        "wavelength": {
+          "min": 20,
+          "max": 240,
+          "default": 90,
+          "label": "波长"
+        },
+        "recovery": {
+          "min": 1,
+          "max": 6,
+          "default": 3,
+          "label": "回弹次数",
+          "integer": true
+        }
+      },
+      "catalog": false
+    },
+    "text.outline-write": {
+      "version": 1,
+      "label": "勾勒成字",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "strokeWidth": {
+          "min": 0.5,
+          "max": 4,
+          "default": 1.5,
+          "label": "描边宽度"
+        },
+        "fillAt": {
+          "min": 0.3,
+          "max": 0.85,
+          "default": 0.6,
+          "label": "填充起点"
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "字间延迟（毫秒）",
+          "integer": true,
+          "step": 5
+        }
+      }
+    },
+    "text.depth-text": {
+      "version": 1,
+      "label": "深度文字",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "strength": {
+          "min": 0,
+          "max": 2,
+          "default": 1,
+          "label": "幅度"
+        },
+        "depth": {
+          "min": 4,
+          "max": 60,
+          "default": 24,
+          "label": "层深"
+        },
+        "layers": {
+          "min": 3,
+          "max": 16,
+          "default": 8,
+          "label": "层数",
+          "integer": true
+        },
+        "perspective": {
+          "min": 50,
+          "max": 400,
+          "default": 220,
+          "label": "透视深度"
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "字间延迟（毫秒）",
+          "integer": true,
+          "step": 5
+        }
+      },
+      "catalog": false
+    },
+    "text.fold-unfold": {
+      "version": 1,
+      "label": "折页显字",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "panels": {
+          "min": 2,
+          "max": 6,
+          "default": 4,
+          "label": "错落层次",
+          "integer": true
+        },
+        "foldAngle": {
+          "min": 20,
+          "max": 88,
+          "default": 78,
+          "label": "展开角度"
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "行间延迟（毫秒）",
+          "integer": true,
+          "step": 5
+        }
+      }
+    },
+    "text.echo-trail": {
+      "version": 1,
+      "label": "叠影归位",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "strength": {
+          "min": 0,
+          "max": 2,
+          "default": 1,
+          "label": "幅度"
+        },
+        "echoes": {
+          "min": 2,
+          "max": 8,
+          "default": 5,
+          "label": "叠影层数",
+          "integer": true
+        },
+        "spacing": {
+          "min": 15,
+          "max": 150,
+          "default": 60,
+          "label": "叠影间隔（毫秒）",
+          "integer": true
+        },
+        "decay": {
+          "min": 0.2,
+          "max": 0.85,
+          "default": 0.6,
+          "label": "叠影衰减"
+        }
+      }
+    },
+    "text.light-sweep": {
+      "version": 1,
+      "label": "掠光强调",
+      "category": "emphasis",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "bandWidth": {
+          "min": 12,
+          "max": 180,
+          "default": 65,
+          "label": "光带宽度"
+        },
+        "brightness": {
+          "min": 0.2,
+          "max": 1,
+          "default": 0.85,
+          "label": "光带亮度"
+        },
+        "angle": {
+          "min": -60,
+          "max": 60,
+          "default": 20,
+          "label": "光带角度"
+        }
+      }
+    },
+    "text.masked-heading": {
+      "version": 1,
+      "label": "流彩显字",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 155,
+          "label": "起始色相",
+          "integer": true
+        },
+        "hue2": {
+          "min": 0,
+          "max": 360,
+          "default": 225,
+          "label": "结束色相",
+          "integer": true
+        },
+        "speed": {
+          "min": 0.2,
+          "max": 3,
+          "default": 1,
+          "label": "流动速度"
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "间隔（毫秒）",
+          "integer": true,
+          "step": 5
+        }
+      }
+    },
+    "text.blur-reveal": {
+      "version": 1,
+      "label": "柔焦显现",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "blur": {
+          "min": 0,
+          "max": 24,
+          "default": 12,
+          "label": "起始模糊"
+        },
+        "distance": {
+          "min": 0,
+          "max": 60,
+          "default": 18,
+          "label": "浮升距离"
+        },
+        "staggerMs": {
+          "min": 0,
+          "max": 300,
+          "default": 45,
+          "label": "间隔（毫秒）",
+          "integer": true,
+          "step": 5
+        },
+        "preset": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "播放预设",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "逐字显现"
+            },
+            {
+              "value": 1,
+              "label": "逐段显现"
+            }
+          ]
+        }
+      }
+    },
+    "text.typewriter": {
+      "version": 1,
+      "label": "逐字打出",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "cursor": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "label": "打字光标",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "隐藏"
+            },
+            {
+              "value": 1,
+              "label": "显示"
+            }
+          ]
+        },
+        "cadence": {
+          "min": 0,
+          "max": 1,
+          "default": 0.35,
+          "label": "节奏起伏"
+        }
+      }
+    },
+    "text.pressure": {
+      "version": 1,
+      "label": "弹性字形",
+      "category": "emphasis",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "strength": {
+          "min": 0,
+          "max": 1,
+          "default": 0.35,
+          "label": "形变幅度"
+        },
+        "width": {
+          "min": 0.08,
+          "max": 0.6,
+          "default": 0.25,
+          "label": "压力范围"
+        },
+        "direction": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "扫过方向",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "从左到右"
+            },
+            {
+              "value": 1,
+              "label": "从右到左"
+            }
+          ]
+        }
+      }
+    },
+    "text.gradient": {
+      "version": 1,
+      "label": "流彩文字",
+      "category": "emphasis",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 155,
+          "label": "起始色相",
+          "integer": true
+        },
+        "hue2": {
+          "min": 0,
+          "max": 360,
+          "default": 225,
+          "label": "结束色相",
+          "integer": true
+        },
+        "speed": {
+          "min": 0.2,
+          "max": 3,
+          "default": 1,
+          "label": "流动速度"
+        },
+        "mode": {
+          "min": 0,
+          "max": 2,
+          "default": 0,
+          "label": "流彩方式",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "横向流动"
+            },
+            {
+              "value": 1,
+              "label": "网状流动"
+            },
+            {
+              "value": 2,
+              "label": "旋转流动"
+            }
+          ]
+        }
+      }
+    },
+    "text.true-focus": {
+      "version": 1,
+      "label": "逐词聚焦",
+      "category": "emphasis",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "blur": {
+          "min": 0,
+          "max": 12,
+          "default": 5,
+          "label": "周围模糊"
+        },
+        "grouping": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "聚焦单位",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "词组"
+            },
+            {
+              "value": 1,
+              "label": "单字"
+            }
+          ]
+        },
+        "frame": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "label": "焦点框",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "隐藏"
+            },
+            {
+              "value": 1,
+              "label": "显示"
+            }
+          ]
+        },
+        "mode": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "聚焦方式",
+          "integer": true,
+          "optional": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "指定文字"
+            },
+            {
+              "value": 1,
+              "label": "鼠标悬停"
+            }
+          ]
+        },
+        "focusIndex": {
+          "min": 0,
+          "max": 255,
+          "default": 0,
+          "label": "聚焦文字",
+          "integer": true,
+          "optional": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "第一项"
+            }
+          ]
+        },
+        "focusStart": {
+          "min": 0,
+          "max": 65535,
+          "default": 0,
+          "label": "选区起点",
+          "integer": true,
+          "optional": true
+        },
+        "focusEnd": {
+          "min": 0,
+          "max": 65535,
+          "default": 0,
+          "label": "选区终点",
+          "integer": true,
+          "optional": true
+        }
+      }
+    },
+    "text.count-up": {
+      "version": 1,
+      "label": "数字递增",
+      "category": "text",
+      "targets": [
+        "text"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "startRatio": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "label": "起始比例"
+        },
+        "curve": {
+          "min": 0,
+          "max": 2,
+          "default": 1,
+          "label": "增长节奏",
+          "integer": true,
+          "options": [
+            {
+              "value": 0,
+              "label": "匀速"
+            },
+            {
+              "value": 1,
+              "label": "先快后慢"
+            },
+            {
+              "value": 2,
+              "label": "先慢后快"
+            }
+          ]
         }
       }
     }

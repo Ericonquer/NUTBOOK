@@ -1,4 +1,5 @@
 import {createProjection} from './projection.mjs';
+import {textGlyphs} from './text-effects.mjs';
 const clamp=value=>Math.max(0,Math.min(1,value));
 const noise=(seed,index)=>{let value=(seed^Math.imul(index+1,2654435761))>>>0;value=Math.imul(value^(value>>>16),2246822507)>>>0;return (value^(value>>>13))>>>0;};
 export function effectBounds(element){
@@ -18,13 +19,20 @@ export function spotlightBackground(element){
  for(let node=element;node&&remaining>.001;node=node.parentElement){const values=getComputedStyle(node).backgroundColor.match(/[\d.]+/g)?.map(Number);if(!values||values.length<3)continue;const alpha=values[3]??1;for(let i=0;i<3;i++)color[i]+=values[i]*alpha*remaining;remaining*=1-alpha;}
  color=color.map(value=>value+255*remaining);return color[0]*.2126+color[1]*.7152+color[2]*.0722;
 }
+// Deterministic stage-light trajectory: travel, settle, then release to author styling.
+export function spotlightFrame(rect,params,time,width=innerWidth,height=innerHeight){
+ const p=clamp(time/params.durationMs),radius=Math.max(42,Math.hypot(rect.width,rect.height)/2+20)*(params.radiusScale??1),targetX=rect.left+rect.width/2,targetY=rect.top+rect.height/2,direction=params.direction??0;
+ const startX=direction%2?width+radius:-radius,startY=direction<2?-radius:height+radius,t=clamp(p/.7),ease=1-Math.pow(1-t,3),fadeIn=clamp(p/.12),fadeOut=clamp((1-p)/.1);
+ return {x:startX+(targetX-startX)*ease,y:startY+(targetY-startY)*ease,radius,alpha:Math.min(.88,params.strength*.7)*fadeIn*fadeOut};
+}
 export function prepareSpotlight(element,action){
- const projection=createProjection(element),rect=effectBounds(element),dark=spotlightBackground(element)<140,cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;
- const rx=Math.max(42,rect.width/2+Math.max(20,rect.height*.5)),ry=Math.max(36,rect.height*.85+12);
- return {hide(){projection.set({});},render(time,ctx){const p=clamp(time/action.params.durationMs),alpha=p<=0||p>=1?0:Math.pow(Math.sin(Math.PI*p),.65)*Math.min(.88,action.params.strength*.7);projection.set(dark&&alpha>0?{filter:`brightness(${1+alpha*.8})`}:{});if(alpha<=0)return;
- ctx.save();ctx.translate(cx,cy);ctx.scale(rx,ry);
- const gradient=ctx.createRadialGradient(0,0,0,0,0,1);
- if(dark){gradient.addColorStop(0,`rgba(255,255,255,${alpha*.52})`);gradient.addColorStop(.55,`rgba(255,255,255,${alpha*.48})`);gradient.addColorStop(.8,`rgba(255,255,255,${alpha*.26})`);gradient.addColorStop(1,'rgba(255,255,255,0)');}
- else{gradient.addColorStop(0,'rgba(0,0,0,0)');gradient.addColorStop(.65,'rgba(0,0,0,0)');gradient.addColorStop(1,`rgba(0,0,0,${alpha})`);}
- ctx.fillStyle=gradient;ctx.fillRect(-cx/rx,-cy/ry,innerWidth/rx,innerHeight/ry);ctx.restore();},dispose(){projection.dispose();}};
+ const projection=createProjection(element),rect=effectBounds(element),dark=spotlightBackground(element)<140,mask=dark&&element.textContent.trim()?textGlyphs(element):null;
+ return {hide(){projection.set({});},render(time,ctx){
+ const {x:cx,y:cy,radius,alpha}=spotlightFrame(rect,action.params,time),arrival=clamp(1-Math.hypot(cx-rect.left-rect.width/2,cy-rect.top-rect.height/2)/radius);
+ projection.set(dark&&alpha*arrival>0?{filter:`brightness(${1+alpha*arrival*.5}) drop-shadow(0 0 ${2+alpha*arrival*4}px rgba(255,255,255,${alpha*arrival*.35}))`}:{});if(alpha<=0)return;
+ ctx.save();const gradient=ctx.createRadialGradient(cx,cy,0,cx,cy,radius);gradient.addColorStop(0,'rgba(0,0,0,0)');gradient.addColorStop(.65,'rgba(0,0,0,0)');gradient.addColorStop(1,`rgba(0,0,0,${alpha*(dark?.9:1)})`);ctx.fillStyle=gradient;ctx.fillRect(0,0,innerWidth,innerHeight);
+ if(dark){const light=ctx.createRadialGradient(cx,cy,0,cx,cy,radius);light.addColorStop(0,`rgba(255,255,255,${alpha*.5})`);light.addColorStop(.6,`rgba(255,255,255,${alpha*.3})`);light.addColorStop(1,'rgba(255,255,255,0)');ctx.fillStyle=light;ctx.fillRect(cx-radius,cy-radius,radius*2,radius*2);}ctx.restore();
+ // Clear the light veil from glyphs as the beam reaches them, preserving sharp text.
+ if(mask){ctx.save();ctx.globalCompositeOperation='destination-out';for(const g of mask.glyphs){const r=g.rect;ctx.globalAlpha=clamp((radius-Math.hypot(r.left+r.width/2-cx,r.top+r.height/2-cy))/(radius*.25));ctx.drawImage(g.image,r.left,r.top,r.width,r.height);}ctx.restore();}
+ },dispose(){mask?.dispose();projection.dispose();}};
 }

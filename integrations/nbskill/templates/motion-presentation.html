@@ -99,6 +99,44 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
 <script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">{"contract":"nutbook-motion/v1","pages":[{"id":"opening","capabilities":{"containsVideo":false,"containsEmbeddedFrame":false,"supportsDomTransition":true,"supportsFilterTransition":true,"mediaTargetIds":[],"embeddedTargetIds":[]},"targets":[{"id":"opening-title","kind":"text"},{"id":"opening-copy","kind":"text"},{"id":"opening-image","kind":"image"}],"actions":[],"background":null,"transition":null},{"id":"evidence","capabilities":{"containsVideo":false,"containsEmbeddedFrame":false,"supportsDomTransition":true,"supportsFilterTransition":true,"mediaTargetIds":[],"embeddedTargetIds":[]},"targets":[{"id":"evidence-title","kind":"text"},{"id":"evidence-copy","kind":"text"}],"actions":[],"background":null,"transition":null},{"id":"finish","capabilities":{"containsVideo":false,"containsEmbeddedFrame":false,"supportsDomTransition":true,"supportsFilterTransition":true,"mediaTargetIds":[],"embeddedTargetIds":[]},"targets":[{"id":"finish-title","kind":"text"},{"id":"finish-copy","kind":"text"}],"actions":[],"background":null,"transition":null}]}</script>
 <script>
 (() => {
+  // src/motion/focus-selection.mjs
+  function focusSelectionOffsets(element, selection = window.getSelection()) {
+    if (!element || !selection?.rangeCount || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+    const prefix = document.createRange();
+    prefix.selectNodeContents(element);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    const start = prefix.toString().length;
+    prefix.setEnd(range.endContainer, range.endOffset);
+    const end = prefix.toString().length;
+    return end > start && end <= 65535 ? { start, end } : null;
+  }
+
+  // src/motion/target-labels.mjs
+  function motionTargetLabel(page, id2, resolve) {
+    const type = (target2) => target2.kind === "text" ? /^H[1-6]$/.test(resolve(target2.id)?.tagName || "") ? "\u6807\u9898" : "\u6587\u672C\u6846" : { image: "\u56FE\u7247", group: "\u7EC4\u5408", video: "\u89C6\u9891", embedded: "\u5D4C\u5165\u5185\u5BB9" }[target2.kind] || "\u5BF9\u8C61";
+    const target = page?.targets.find((target2) => target2.id === id2);
+    if (!target) return "\u5BF9\u8C61";
+    const name = type(target), peers = page.targets.filter((item) => type(item) === name);
+    return `${name} ${peers.findIndex((item) => item.id === id2) + 1}`;
+  }
+
+  // src/motion/text-library.mjs
+  var presentationTextIds = Object.freeze(["text.masked-heading", "text.glyph-particles", "text.split-flip", "text.outline-write", "text.fold-unfold", "text.echo-trail", "text.character-stagger", "text.blur-reveal", "text.typewriter", "text.pressure", "text.light-sweep", "text.gradient", "text.decode-reveal", "text.true-focus", "text.count-up"]);
+  function numericText(text) {
+    const match = text.match(/^(\s*[¥￥$€£]?\s*)([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(\s*(?:%|％|元|万元|亿元|万|亿|人|个|次|件|倍|年|天|小时|分钟|秒|km|kg|ms|GB|MB)?\s*)$/u);
+    if (!match) return null;
+    const [, prefix, sign, integer, fraction = "", suffix] = match, value = Number(sign + integer.replaceAll(",", "") + fraction);
+    if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER || fraction.length > 7) return null;
+    const decimals = Math.max(0, fraction.length - 1), grouped = integer.includes(",");
+    return { value, format(n) {
+      const fixed = Math.abs(n).toFixed(decimals), [whole, part] = fixed.split("."), digits = grouped ? whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : whole.padStart(integer.length, "0");
+      return prefix + (n < 0 ? "-" : sign === "+" ? "+" : "") + digits + (part === void 0 ? "" : "." + part) + suffix;
+    } };
+  }
+  var supportsTextEffect = (id2, element) => id2 !== "text.count-up" || Boolean(element && numericText(element.textContent));
+
   // src/motion/panel-tooltips.mjs
   function installPanelTooltips(root2) {
     const tip = document.createElement("div");
@@ -134,6 +172,10 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       tip.style.left = `${Math.max(8, Math.min(innerWidth - box.width - 8, rect.left))}px`;
       tip.style.top = `${rect.bottom + box.height + 12 < innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - box.height - 6)}px`;
     }
+    const reposition = () => {
+      if (active && (active.matches(":hover") || root2.activeElement === active)) show(active);
+      else hide();
+    };
     const enter = (e) => show(e.target.closest?.("button")), leave = (e) => {
       if (!active?.contains(e.relatedTarget)) hide();
     };
@@ -141,7 +183,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     root2.addEventListener("pointerout", leave);
     root2.addEventListener("focusin", enter);
     root2.addEventListener("focusout", leave);
-    root2.addEventListener("scroll", hide, true);
+    root2.addEventListener("scroll", reposition, true);
     root2.addEventListener("pointerdown", hide);
     normalize();
     const observer = new MutationObserver(() => {
@@ -160,7 +202,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       root2.removeEventListener("pointerout", leave);
       root2.removeEventListener("focusin", enter);
       root2.removeEventListener("focusout", leave);
-      root2.removeEventListener("scroll", hide, true);
+      root2.removeEventListener("scroll", reposition, true);
       root2.removeEventListener("pointerdown", hide);
     };
   }
@@ -215,7 +257,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
             optional: true
           }
         },
-        label: "\u5B57\u5F62\u7C92\u5B50"
+        label: "\u7C92\u5B50\u6210\u5B57"
       },
       "entrance.gravity-impact": {
         version: 1,
@@ -260,12 +302,47 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
           durationMs: {
             min: 500,
             max: 6e3,
-            default: 1800
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09"
           },
           strength: {
             min: 0,
             max: 2,
-            default: 1
+            default: 1,
+            label: "\u4EAE\u5EA6"
+          },
+          radiusScale: {
+            min: 0.6,
+            max: 2,
+            default: 1,
+            optional: true,
+            label: "\u5149\u5708\u5927\u5C0F"
+          },
+          direction: {
+            min: 0,
+            max: 3,
+            default: 0,
+            integer: true,
+            optional: true,
+            label: "\u5165\u5149\u65B9\u5411",
+            options: [
+              {
+                value: 0,
+                label: "\u5DE6\u4E0A"
+              },
+              {
+                value: 1,
+                label: "\u53F3\u4E0A"
+              },
+              {
+                value: 2,
+                label: "\u5DE6\u4E0B"
+              },
+              {
+                value: 3,
+                label: "\u53F3\u4E0B"
+              }
+            ]
           }
         }
       },
@@ -442,6 +519,857 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
             step: 0.01
           }
         }
+      },
+      "text.character-stagger": {
+        version: 1,
+        label: "\u9519\u843D\u5165\u573A",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          strength: {
+            min: 0,
+            max: 2,
+            default: 1,
+            label: "\u5E45\u5EA6"
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u5B57\u95F4\u5EF6\u8FDF\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          },
+          order: {
+            min: 0,
+            max: 2,
+            default: 0,
+            label: "\u987A\u5E8F",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u4ECE\u524D\u5230\u540E"
+              },
+              {
+                value: 1,
+                label: "\u4ECE\u540E\u5230\u524D"
+              },
+              {
+                value: 2,
+                label: "\u968F\u673A"
+              }
+            ]
+          },
+          preset: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u64AD\u653E\u9884\u8BBE",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u9519\u843D\u663E\u73B0"
+              },
+              {
+                value: 1,
+                label: "\u8F7B\u76C8\u6D6E\u5347"
+              }
+            ],
+            optional: true
+          }
+        }
+      },
+      "text.decode-reveal": {
+        version: 1,
+        label: "\u89E3\u7801\u663E\u5B57",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          iterations: {
+            min: 3,
+            max: 30,
+            default: 12,
+            label: "\u89E3\u7801\u901F\u5EA6",
+            integer: true
+          },
+          charset: {
+            min: 0,
+            max: 2,
+            default: 0,
+            label: "\u66FF\u4EE3\u5B57\u7B26",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u5B57\u6BCD\u4E0E\u6570\u5B57"
+              },
+              {
+                value: 1,
+                label: "\u6C49\u5B57"
+              },
+              {
+                value: 2,
+                label: "\u4E8C\u8FDB\u5236"
+              }
+            ]
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u5B57\u95F4\u5EF6\u8FDF\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          },
+          order: {
+            min: 0,
+            max: 2,
+            default: 0,
+            label: "\u987A\u5E8F",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u4ECE\u524D\u5230\u540E"
+              },
+              {
+                value: 1,
+                label: "\u4ECE\u540E\u5230\u524D"
+              },
+              {
+                value: 2,
+                label: "\u968F\u673A"
+              }
+            ]
+          }
+        }
+      },
+      "text.split-flip": {
+        version: 1,
+        label: "\u7FFB\u724C\u663E\u5B57",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          axis: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u7FFB\u724C\u65B9\u5411",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u5411\u4E0B\u7FFB\u724C"
+              },
+              {
+                value: 1,
+                label: "\u5411\u53F3\u7FFB\u724C"
+              }
+            ]
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u5B57\u95F4\u5EF6\u8FDF\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          }
+        }
+      },
+      "text.elastic-warp": {
+        version: 1,
+        label: "\u5F39\u6027\u626D\u66F2",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          strength: {
+            min: 0,
+            max: 2,
+            default: 1,
+            label: "\u5E45\u5EA6"
+          },
+          wavelength: {
+            min: 20,
+            max: 240,
+            default: 90,
+            label: "\u6CE2\u957F"
+          },
+          recovery: {
+            min: 1,
+            max: 6,
+            default: 3,
+            label: "\u56DE\u5F39\u6B21\u6570",
+            integer: true
+          }
+        },
+        catalog: false
+      },
+      "text.outline-write": {
+        version: 1,
+        label: "\u52FE\u52D2\u6210\u5B57",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          strokeWidth: {
+            min: 0.5,
+            max: 4,
+            default: 1.5,
+            label: "\u63CF\u8FB9\u5BBD\u5EA6"
+          },
+          fillAt: {
+            min: 0.3,
+            max: 0.85,
+            default: 0.6,
+            label: "\u586B\u5145\u8D77\u70B9"
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u5B57\u95F4\u5EF6\u8FDF\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          }
+        }
+      },
+      "text.depth-text": {
+        version: 1,
+        label: "\u6DF1\u5EA6\u6587\u5B57",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          strength: {
+            min: 0,
+            max: 2,
+            default: 1,
+            label: "\u5E45\u5EA6"
+          },
+          depth: {
+            min: 4,
+            max: 60,
+            default: 24,
+            label: "\u5C42\u6DF1"
+          },
+          layers: {
+            min: 3,
+            max: 16,
+            default: 8,
+            label: "\u5C42\u6570",
+            integer: true
+          },
+          perspective: {
+            min: 50,
+            max: 400,
+            default: 220,
+            label: "\u900F\u89C6\u6DF1\u5EA6"
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u5B57\u95F4\u5EF6\u8FDF\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          }
+        },
+        catalog: false
+      },
+      "text.fold-unfold": {
+        version: 1,
+        label: "\u6298\u9875\u663E\u5B57",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          panels: {
+            min: 2,
+            max: 6,
+            default: 4,
+            label: "\u9519\u843D\u5C42\u6B21",
+            integer: true
+          },
+          foldAngle: {
+            min: 20,
+            max: 88,
+            default: 78,
+            label: "\u5C55\u5F00\u89D2\u5EA6"
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u884C\u95F4\u5EF6\u8FDF\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          }
+        }
+      },
+      "text.echo-trail": {
+        version: 1,
+        label: "\u53E0\u5F71\u5F52\u4F4D",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          strength: {
+            min: 0,
+            max: 2,
+            default: 1,
+            label: "\u5E45\u5EA6"
+          },
+          echoes: {
+            min: 2,
+            max: 8,
+            default: 5,
+            label: "\u53E0\u5F71\u5C42\u6570",
+            integer: true
+          },
+          spacing: {
+            min: 15,
+            max: 150,
+            default: 60,
+            label: "\u53E0\u5F71\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09",
+            integer: true
+          },
+          decay: {
+            min: 0.2,
+            max: 0.85,
+            default: 0.6,
+            label: "\u53E0\u5F71\u8870\u51CF"
+          }
+        }
+      },
+      "text.light-sweep": {
+        version: 1,
+        label: "\u63A0\u5149\u5F3A\u8C03",
+        category: "emphasis",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          bandWidth: {
+            min: 12,
+            max: 180,
+            default: 65,
+            label: "\u5149\u5E26\u5BBD\u5EA6"
+          },
+          brightness: {
+            min: 0.2,
+            max: 1,
+            default: 0.85,
+            label: "\u5149\u5E26\u4EAE\u5EA6"
+          },
+          angle: {
+            min: -60,
+            max: 60,
+            default: 20,
+            label: "\u5149\u5E26\u89D2\u5EA6"
+          }
+        }
+      },
+      "text.masked-heading": {
+        version: 1,
+        label: "\u6D41\u5F69\u663E\u5B57",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          hue: {
+            min: 0,
+            max: 360,
+            default: 155,
+            label: "\u8D77\u59CB\u8272\u76F8",
+            integer: true
+          },
+          hue2: {
+            min: 0,
+            max: 360,
+            default: 225,
+            label: "\u7ED3\u675F\u8272\u76F8",
+            integer: true
+          },
+          speed: {
+            min: 0.2,
+            max: 3,
+            default: 1,
+            label: "\u6D41\u52A8\u901F\u5EA6"
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          }
+        }
+      },
+      "text.blur-reveal": {
+        version: 1,
+        label: "\u67D4\u7126\u663E\u73B0",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          blur: {
+            min: 0,
+            max: 24,
+            default: 12,
+            label: "\u8D77\u59CB\u6A21\u7CCA"
+          },
+          distance: {
+            min: 0,
+            max: 60,
+            default: 18,
+            label: "\u6D6E\u5347\u8DDD\u79BB"
+          },
+          staggerMs: {
+            min: 0,
+            max: 300,
+            default: 45,
+            label: "\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09",
+            integer: true,
+            step: 5
+          },
+          preset: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u64AD\u653E\u9884\u8BBE",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u9010\u5B57\u663E\u73B0"
+              },
+              {
+                value: 1,
+                label: "\u9010\u6BB5\u663E\u73B0"
+              }
+            ]
+          }
+        }
+      },
+      "text.typewriter": {
+        version: 1,
+        label: "\u9010\u5B57\u6253\u51FA",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          cursor: {
+            min: 0,
+            max: 1,
+            default: 1,
+            label: "\u6253\u5B57\u5149\u6807",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u9690\u85CF"
+              },
+              {
+                value: 1,
+                label: "\u663E\u793A"
+              }
+            ]
+          },
+          cadence: {
+            min: 0,
+            max: 1,
+            default: 0.35,
+            label: "\u8282\u594F\u8D77\u4F0F"
+          }
+        }
+      },
+      "text.pressure": {
+        version: 1,
+        label: "\u5F39\u6027\u5B57\u5F62",
+        category: "emphasis",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          strength: {
+            min: 0,
+            max: 1,
+            default: 0.35,
+            label: "\u5F62\u53D8\u5E45\u5EA6"
+          },
+          width: {
+            min: 0.08,
+            max: 0.6,
+            default: 0.25,
+            label: "\u538B\u529B\u8303\u56F4"
+          },
+          direction: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u626B\u8FC7\u65B9\u5411",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u4ECE\u5DE6\u5230\u53F3"
+              },
+              {
+                value: 1,
+                label: "\u4ECE\u53F3\u5230\u5DE6"
+              }
+            ]
+          }
+        }
+      },
+      "text.gradient": {
+        version: 1,
+        label: "\u6D41\u5F69\u6587\u5B57",
+        category: "emphasis",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          hue: {
+            min: 0,
+            max: 360,
+            default: 155,
+            label: "\u8D77\u59CB\u8272\u76F8",
+            integer: true
+          },
+          hue2: {
+            min: 0,
+            max: 360,
+            default: 225,
+            label: "\u7ED3\u675F\u8272\u76F8",
+            integer: true
+          },
+          speed: {
+            min: 0.2,
+            max: 3,
+            default: 1,
+            label: "\u6D41\u52A8\u901F\u5EA6"
+          },
+          mode: {
+            min: 0,
+            max: 2,
+            default: 0,
+            label: "\u6D41\u5F69\u65B9\u5F0F",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u6A2A\u5411\u6D41\u52A8"
+              },
+              {
+                value: 1,
+                label: "\u7F51\u72B6\u6D41\u52A8"
+              },
+              {
+                value: 2,
+                label: "\u65CB\u8F6C\u6D41\u52A8"
+              }
+            ]
+          }
+        }
+      },
+      "text.true-focus": {
+        version: 1,
+        label: "\u9010\u8BCD\u805A\u7126",
+        category: "emphasis",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          blur: {
+            min: 0,
+            max: 12,
+            default: 5,
+            label: "\u5468\u56F4\u6A21\u7CCA"
+          },
+          grouping: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u805A\u7126\u5355\u4F4D",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u8BCD\u7EC4"
+              },
+              {
+                value: 1,
+                label: "\u5355\u5B57"
+              }
+            ]
+          },
+          frame: {
+            min: 0,
+            max: 1,
+            default: 1,
+            label: "\u7126\u70B9\u6846",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u9690\u85CF"
+              },
+              {
+                value: 1,
+                label: "\u663E\u793A"
+              }
+            ]
+          },
+          mode: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u805A\u7126\u65B9\u5F0F",
+            integer: true,
+            optional: true,
+            options: [
+              {
+                value: 0,
+                label: "\u6307\u5B9A\u6587\u5B57"
+              },
+              {
+                value: 1,
+                label: "\u9F20\u6807\u60AC\u505C"
+              }
+            ]
+          },
+          focusIndex: {
+            min: 0,
+            max: 255,
+            default: 0,
+            label: "\u805A\u7126\u6587\u5B57",
+            integer: true,
+            optional: true,
+            options: [
+              {
+                value: 0,
+                label: "\u7B2C\u4E00\u9879"
+              }
+            ]
+          },
+          focusStart: {
+            min: 0,
+            max: 65535,
+            default: 0,
+            label: "\u9009\u533A\u8D77\u70B9",
+            integer: true,
+            optional: true
+          },
+          focusEnd: {
+            min: 0,
+            max: 65535,
+            default: 0,
+            label: "\u9009\u533A\u7EC8\u70B9",
+            integer: true,
+            optional: true
+          }
+        }
+      },
+      "text.count-up": {
+        version: 1,
+        label: "\u6570\u5B57\u9012\u589E",
+        category: "text",
+        targets: [
+          "text"
+        ],
+        quality: "candidate",
+        renderer: "canvas2d",
+        params: {
+          durationMs: {
+            min: 500,
+            max: 6e3,
+            default: 1800,
+            label: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09",
+            step: 100
+          },
+          startRatio: {
+            min: 0,
+            max: 1,
+            default: 0,
+            label: "\u8D77\u59CB\u6BD4\u4F8B"
+          },
+          curve: {
+            min: 0,
+            max: 2,
+            default: 1,
+            label: "\u589E\u957F\u8282\u594F",
+            integer: true,
+            options: [
+              {
+                value: 0,
+                label: "\u5300\u901F"
+              },
+              {
+                value: 1,
+                label: "\u5148\u5FEB\u540E\u6162"
+              },
+              {
+                value: 2,
+                label: "\u5148\u6162\u540E\u5FEB"
+              }
+            ]
+          }
+        }
       }
     }
   };
@@ -593,6 +1521,476 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     } };
   }
 
+  // src/motion/text-effects.mjs
+  var clamp = (n) => Math.max(0, Math.min(1, n));
+  var smooth = (n) => {
+    n = clamp(n);
+    return n * n * (3 - 2 * n);
+  };
+  var hash = (seed, index) => {
+    let n = (seed ^ Math.imul(index + 1, 2654435761)) >>> 0;
+    n = Math.imul(n ^ n >>> 16, 2246822507) >>> 0;
+    return (n ^ n >>> 13) >>> 0;
+  };
+  function textGlyphs(element) {
+    const nodes = [], walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node, text = "";
+    while (node = walker.nextNode()) {
+      nodes.push({ node, start: text.length, end: text.length + node.data.length });
+      text += node.data;
+    }
+    const textures = /* @__PURE__ */ new Map(), glyphs = [], dpr = Math.min(2, devicePixelRatio || 1);
+    for (const { segment, index } of new Intl.Segmenter(void 0, { granularity: "grapheme" }).segment(text)) {
+      if (!segment.trim()) continue;
+      const first = nodes.find((n) => n.end > index), last = nodes.find((n) => n.end >= index + segment.length);
+      if (!first || !last) continue;
+      const range = document.createRange();
+      range.setStart(first.node, index - first.start);
+      range.setEnd(last.node, index + segment.length - last.start);
+      const rect = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0).sort((a, b) => b.width * b.height - a.width * a.height)[0];
+      if (!rect) continue;
+      const style = getComputedStyle(first.node.parentElement), font = style.font || `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`, key = [segment, font, style.color, rect.width, rect.height].join("|");
+      let image = textures.get(key);
+      if (!image) {
+        image = document.createElement("canvas");
+        image.width = Math.max(1, Math.ceil(rect.width * dpr));
+        image.height = Math.max(1, Math.ceil(rect.height * dpr));
+        const ctx = image.getContext("2d");
+        ctx.scale(dpr, dpr);
+        ctx.font = font;
+        ctx.fillStyle = style.color;
+        ctx.textBaseline = "middle";
+        ctx.fillText(segment, 0, rect.height / 2);
+        textures.set(key, image);
+      }
+      glyphs.push({ segment, index, rect, image, font, color: style.color, fontSize: parseFloat(style.fontSize) });
+    }
+    if (!glyphs.length) throw Error("\u5F53\u524D\u6587\u5B57\u6CA1\u6709\u53EF\u89C1\u5B57\u5F62");
+    return { text, glyphs, dispose() {
+      for (const image of textures.values()) image.width = image.height = 0;
+      textures.clear();
+    } };
+  }
+  function progress(time, duration, index, count, stagger, order, ranks) {
+    const rank = order === 1 ? count - 1 - index : order === 2 ? ranks[index] : index, delay = Math.min(stagger, duration * 0.65 / Math.max(1, count - 1));
+    return clamp((time - rank * delay) / Math.max(1, duration - delay * (count - 1)));
+  }
+  function draw(ctx, g, dx = 0, dy = 0, alpha = 1, sx = 1, sy = 1) {
+    if (alpha <= 0) return;
+    const r = g.rect;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(r.left + r.width / 2 + dx, r.top + r.height / 2 + dy);
+    ctx.scale(sx, sy);
+    ctx.drawImage(g.image, -r.width / 2, -r.height / 2, r.width, r.height);
+    ctx.restore();
+  }
+  function lineGroups(glyphs) {
+    const lines = [];
+    for (const g of glyphs) {
+      let line = lines.find((l) => Math.abs(l.y - g.rect.top) < g.fontSize * 0.3);
+      if (!line) {
+        line = { y: g.rect.top, glyphs: [] };
+        lines.push(line);
+      }
+      line.glyphs.push(g);
+    }
+    return lines;
+  }
+  function wordGroups(text, glyphs) {
+    const parts = [...new Intl.Segmenter("zh", { granularity: "word" }).segment(text)].filter((p) => p.segment.trim());
+    return parts.map((part) => glyphs.filter((g) => g.index >= part.index && g.index < part.index + part.segment.length)).filter((g) => g.length);
+  }
+  var bounds = (glyphs) => ({ left: Math.min(...glyphs.map((g) => g.rect.left)), right: Math.max(...glyphs.map((g) => g.rect.right)), top: Math.min(...glyphs.map((g) => g.rect.top)), bottom: Math.max(...glyphs.map((g) => g.rect.bottom)) });
+  function contours(g) {
+    const w = g.image.width, h = g.image.height, data = g.image.getContext("2d").getImageData(0, 0, w, h).data, edges = /* @__PURE__ */ new Map();
+    const on = (x, y) => x >= 0 && y >= 0 && x < w && y < h && data[(y * w + x) * 4 + 3] >= 96;
+    const edge = (x, y, a, b) => {
+      const key = y * (w + 1) + x;
+      if (!edges.has(key)) edges.set(key, []);
+      edges.get(key).push([a, b]);
+    };
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) {
+      if (!on(x, y - 1)) edge(x, y, x + 1, y);
+      if (!on(x + 1, y)) edge(x + 1, y, x + 1, y + 1);
+      if (!on(x, y + 1)) edge(x + 1, y + 1, x, y + 1);
+      if (!on(x - 1, y)) edge(x, y + 1, x, y);
+    }
+    const paths = [];
+    let length = 0;
+    while (edges.size) {
+      let key = edges.keys().next().value;
+      const points = [[key % (w + 1), Math.floor(key / (w + 1))]];
+      while (edges.has(key)) {
+        const ends = edges.get(key), end = ends.pop();
+        if (!ends.length) edges.delete(key);
+        points.push(end);
+        length++;
+        key = end[1] * (w + 1) + end[0];
+      }
+      paths.push(points);
+    }
+    return { paths, length };
+  }
+  function strokeContour(ctx, g, outline, fraction, width) {
+    let left = outline.length * fraction;
+    ctx.save();
+    ctx.translate(g.rect.left, g.rect.top);
+    ctx.scale(g.rect.width / g.image.width, g.rect.height / g.image.height);
+    ctx.lineWidth = width * g.image.width / g.rect.width;
+    ctx.strokeStyle = g.color;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (const points of outline.paths) {
+      if (left <= 0) break;
+      ctx.moveTo(...points[0]);
+      for (let i = 1; i < points.length && left > 0; i++, left--) ctx.lineTo(...points[i]);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  function prepareLines(lines) {
+    return lines.map((line) => {
+      const r = bounds(line.glyphs), canvas = document.createElement("canvas"), dpr = Math.min(2, devicePixelRatio || 1);
+      canvas.width = Math.ceil((r.right - r.left) * dpr);
+      canvas.height = Math.ceil((r.bottom - r.top) * dpr);
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      for (const g of line.glyphs) ctx.drawImage(g.image, g.rect.left - r.left, g.rect.top - r.top, g.rect.width, g.rect.height);
+      return { r, canvas };
+    });
+  }
+  function foldLine(ctx, line, u, params) {
+    const { r, canvas } = line, w = r.right - r.left, h = r.bottom - r.top, angle = (1 - smooth(u)) * params.foldAngle * Math.PI / 180, slices = 96, perspective = Math.max(90, h * 2.5), project = (v) => {
+      const depth = (1 - v) * h * Math.sin(angle), scale = perspective / (perspective + depth);
+      return { y: r.bottom - (1 - v) * h * Math.cos(angle) * scale, scale };
+    };
+    for (let i = 0; i < slices; i++) {
+      const a = project(i / slices), b = project((i + 1) / slices), scale = (a.scale + b.scale) / 2;
+      ctx.save();
+      ctx.globalAlpha = smooth(u / 0.18);
+      ctx.drawImage(canvas, 0, canvas.height * i / slices, canvas.width, canvas.height / slices, r.left + w * (1 - scale) / 2, a.y, w * scale, Math.max(1e-3, b.y - a.y));
+      ctx.restore();
+    }
+  }
+  function flap(ctx, g, u, axis, seed, index, preview = false) {
+    const r = g.rect, cycles = 3, t = clamp(u) * cycles, cycle = Math.min(cycles - 1, Math.floor(t)), phase = t - cycle, settled = u > 0.96, final = cycle === cycles - 1, alphabet = [..."0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"], old = preview ? g.segment : alphabet[hash(seed + cycle, index) % alphabet.length];
+    const symbol = (s) => {
+      ctx.font = g.font;
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = g.color;
+      ctx.fillText(s, r.left, r.top + r.height / 2);
+    };
+    const board = (1 - smooth((u - 0.82) / 0.18)) * 0.9;
+    ctx.save();
+    ctx.fillStyle = `rgba(128,128,128,${board * 0.13})`;
+    ctx.beginPath();
+    ctx.roundRect(r.left - 1, r.top + 1, r.width + 2, r.height - 2, 3);
+    ctx.fill();
+    ctx.restore();
+    const half = (end, which, scale = 1, shade = 0) => {
+      ctx.save();
+      ctx.beginPath();
+      if (axis === 0) ctx.rect(r.left, r.top + which * r.height / 2, r.width, r.height / 2);
+      else ctx.rect(r.left + which * r.width / 2, r.top, r.width / 2, r.height);
+      ctx.clip();
+      if (scale !== 1) {
+        ctx.translate(r.left + r.width / 2, r.top + r.height / 2);
+        ctx.scale(axis === 1 ? scale : 1, axis === 0 ? scale : 1);
+        ctx.translate(-r.left - r.width / 2, -r.top - r.height / 2);
+      }
+      if (end) draw(ctx, g);
+      else symbol(old);
+      if (shade) {
+        ctx.fillStyle = `rgba(0,0,0,${shade})`;
+        ctx.fillRect(r.left, r.top, r.width, r.height);
+      }
+      ctx.restore();
+    };
+    if (settled) {
+      draw(ctx, g);
+      return;
+    }
+    half(final, 0);
+    half(false, 1);
+    if (phase < 0.5) half(false, 0, Math.cos(phase * Math.PI), 0.3 * Math.sin(phase * Math.PI));
+    else half(final, 1, Math.sin((phase - 0.5) * Math.PI), 0.3 * Math.cos((phase - 0.5) * Math.PI));
+    ctx.save();
+    ctx.strokeStyle = `rgba(128,128,128,${board * 0.4})`;
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    if (axis === 0) {
+      ctx.moveTo(r.left, r.top + r.height / 2);
+      ctx.lineTo(r.right, r.top + r.height / 2);
+    } else {
+      ctx.moveTo(r.left + r.width / 2, r.top);
+      ctx.lineTo(r.left + r.width / 2, r.bottom);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  function softGlyphs(glyphs, maximum) {
+    const cache = /* @__PURE__ */ new Map(), levels = 4;
+    for (const g of glyphs) if (!cache.has(g.image)) {
+      const dpr = g.image.width / g.rect.width, pad = Math.ceil(maximum * dpr * 3), images = [null];
+      for (let level = 1; level <= levels; level++) {
+        const canvas = document.createElement("canvas");
+        canvas.width = g.image.width + pad * 2;
+        canvas.height = g.image.height + pad * 2;
+        const ctx = canvas.getContext("2d");
+        ctx.shadowColor = g.color;
+        ctx.shadowBlur = maximum * dpr * level / levels;
+        ctx.shadowOffsetX = 1e4;
+        ctx.drawImage(g.image, pad - 1e4, pad);
+        images.push(canvas);
+      }
+      cache.set(g.image, { images, pad: pad / dpr, dpr });
+    }
+    return { draw(ctx, g, fraction, dy = 0, alpha = 1) {
+      const scaled = clamp(fraction) * levels, low = Math.floor(scaled), high = Math.min(levels, low + 1), mix = scaled - low, entry = cache.get(g.image);
+      for (const [level, weight] of [[low, 1 - mix], [high, mix]]) {
+        if (weight <= 0) continue;
+        if (level === 0) {
+          draw(ctx, g, 0, dy, alpha * weight);
+          continue;
+        }
+        ctx.save();
+        ctx.globalAlpha = alpha * weight;
+        const image = entry.images[level];
+        ctx.drawImage(image, g.rect.left - entry.pad, g.rect.top - entry.pad + dy, image.width / entry.dpr, image.height / entry.dpr);
+        ctx.restore();
+      }
+    }, dispose() {
+      for (const entry of cache.values()) for (const image of entry.images) if (image) image.width = image.height = 0;
+      cache.clear();
+    } };
+  }
+  function prepareTextEffect(element, action, { invalidate = () => {
+  }, preview = false } = {}) {
+    const prepared = textGlyphs(element), glyphs = prepared.glyphs, projection = createProjection(element), params = action.params, kind = action.templateId.slice(5), outlines = /* @__PURE__ */ new Map(), ranks = [], lines = lineGroups(glyphs), full = bounds(glyphs), groups = wordGroups(prepared.text, glyphs), groupIndex = /* @__PURE__ */ new Map();
+    groups.forEach((group, i) => group.forEach((g) => groupIndex.set(g, i)));
+    glyphs.map((_, i) => i).sort((a, b) => hash(action.seed, a) - hash(action.seed, b)).forEach((index, rank) => ranks[index] = rank);
+    const soft = ["blur-reveal", "true-focus"].includes(kind) && params.blur > 0 ? softGlyphs(glyphs, params.blur) : null;
+    const number = kind === "count-up" ? numericText(prepared.text) : null;
+    if (kind === "count-up" && !number) {
+      prepared.dispose();
+      projection.dispose();
+      throw Error("\u6570\u5B57\u9012\u589E\u53EA\u652F\u6301\u5355\u4E2A\u6570\u5B57\uFF0C\u53EF\u5E26\u5355\u4F4D\u3001\u5C0F\u6570\u548C\u5343\u4F4D\u5206\u9694\u7B26");
+    }
+    if (kind === "outline-write") {
+      for (const g of glyphs) if (!outlines.has(g.image)) outlines.set(g.image, contours(g));
+    }
+    const lineImages = kind === "fold-unfold" ? prepareLines(lines) : [], usesColor = ["light-sweep", "gradient", "masked-heading"].includes(kind), scratch = usesColor ? document.createElement("canvas") : null;
+    if (scratch) {
+      scratch.width = Math.max(...glyphs.map((g) => g.image.width));
+      scratch.height = Math.max(...glyphs.map((g) => g.image.height));
+    }
+    const lineIndex = /* @__PURE__ */ new Map();
+    lines.forEach((line, i) => line.glyphs.forEach((g) => lineIndex.set(g, i)));
+    const typeWeights = glyphs.map((g, i) => 1 + (hash(action.seed, i) % 100 / 100 - 0.5) * (params.cadence ?? 0)), weightSum = typeWeights.reduce((a, b) => a + b, 0);
+    let sum = 0;
+    const typeAt = typeWeights.map((w) => {
+      sum += w;
+      return sum / weightSum;
+    });
+    const emphasis = ["pressure", "light-sweep", "gradient", "true-focus"].includes(kind), focusUnits = (params.grouping === 1 ? glyphs.map((g) => [g]) : groups).slice(0, 256), focusRects = focusUnits.map(bounds);
+    let hovered = -1, active = false, disposed = false;
+    const chosenRange = params.focusEnd > params.focusStart ? glyphs.filter((g) => g.index < params.focusEnd && g.index + g.segment.length > params.focusStart) : [];
+    if (chosenRange.length && params.mode !== 1) {
+      focusUnits.push(chosenRange);
+      focusRects.push(bounds(chosenRange));
+    }
+    const focusedIndex = () => params.mode === 1 ? hovered : chosenRange.length ? focusUnits.length - 1 : Math.min(focusUnits.length - 1, params.focusIndex ?? 0);
+    const pointer = (event) => {
+      if (disposed || !active || params.mode !== 1) return;
+      const next = focusRects.findIndex((r) => event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom);
+      if (next !== hovered) {
+        hovered = next;
+        invalidate();
+      }
+    };
+    const leave = () => {
+      if (hovered !== -1) {
+        hovered = -1;
+        if (active && !disposed) invalidate();
+      }
+    };
+    const pointerOut = (event) => {
+      if (!event.relatedTarget) leave();
+    };
+    if (kind === "true-focus" && params.mode === 1) {
+      document.addEventListener("pointermove", pointer, { passive: true });
+      document.addEventListener("pointerout", pointerOut, { passive: true });
+      window.addEventListener("blur", leave);
+    }
+    return { persistent: kind === "true-focus", hide() {
+      active = false;
+      projection.set(emphasis ? {} : { opacity: 0 });
+    }, render(time, ctx) {
+      const p = clamp(time / params.durationMs);
+      if (p >= 1 && kind !== "true-focus") {
+        projection.set();
+        return;
+      }
+      active = true;
+      projection.set({ opacity: 0 });
+      ctx.save();
+      if (kind === "fold-unfold") {
+        lineImages.forEach((line, i) => foldLine(ctx, line, progress(time, params.durationMs, i, lines.length, params.staggerMs * params.panels, 0, []), params));
+        ctx.restore();
+        return;
+      }
+      if (kind === "count-up") {
+        const q = params.curve === 0 ? p : params.curve === 2 ? p * p * p : 1 - (1 - p) ** 3, current = number.value * (params.startRatio + (1 - params.startRatio) * q), g = glyphs[0];
+        ctx.font = g.font;
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = g.color;
+        ctx.fillText(number.format(current), full.left, g.rect.top + g.rect.height / 2);
+        ctx.restore();
+        return;
+      }
+      let typed = 0;
+      for (const [index, g] of glyphs.entries()) {
+        const r = g.rect, u = progress(time, params.durationMs, index, glyphs.length, params.staggerMs ?? 0, params.order ?? 0, ranks), e = 1 - (1 - u) ** 3, amplitude = g.fontSize * (params.strength ?? 1);
+        if (kind === "character-stagger") {
+          const start = params.preset === 1 ? 0.7 : 1;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(r.left - 2, r.top - 4, r.width + 4, r.height + 8);
+          ctx.clip();
+          draw(ctx, g, 0, (1 - e) * g.fontSize * 0.55, e, params.preset === 1 ? 1 - (1 - e) * 0.08 : 1, start + (1 - start) * e);
+          ctx.restore();
+        } else if (kind === "decode-reveal") {
+          if (u >= 0.72) draw(ctx, g);
+          else if (u > 0) {
+            const sets = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "\u5929\u5730\u7384\u9EC4\u5B87\u5B99\u6D2A\u8352\u5C71\u5DDD\u98CE\u96E8\u65E5\u6708\u661F\u8FB0", "01"], set = [...sets[params.charset] || sets[0]], symbol = set[hash(action.seed + Math.floor(time / 1e3 * params.iterations), index) % set.length];
+            ctx.save();
+            ctx.font = g.font;
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = g.color;
+            ctx.globalAlpha = 0.6 + 0.4 * clamp(u * 5);
+            const width = ctx.measureText(symbol).width;
+            ctx.fillText(symbol, r.left + (r.width - width) / 2, r.top + r.height / 2);
+            ctx.restore();
+          }
+        } else if (kind === "split-flip") flap(ctx, g, u, params.axis, action.seed, index, preview);
+        else if (kind === "outline-write") {
+          strokeContour(ctx, g, outlines.get(g.image), clamp(u / params.fillAt), params.strokeWidth * (1 - smooth((u - params.fillAt) / (1 - params.fillAt))));
+          draw(ctx, g, 0, 0, smooth((u - params.fillAt) / (1 - params.fillAt)));
+        } else if (kind === "echo-trail") {
+          const travel = (q) => -((1 - clamp(q)) ** 3) * g.fontSize * 0.7 * params.strength;
+          for (let layer = params.echoes; layer > 0; layer--) {
+            const delayed = clamp(u - layer * params.spacing / params.durationMs);
+            draw(ctx, g, travel(delayed), 0, Math.pow(params.decay, layer) * (1 - smooth(u)) * 0.45);
+          }
+          draw(ctx, g, travel(u), 0, smooth(u / 0.25));
+        } else if (kind === "blur-reveal") {
+          const q = params.preset === 1 ? progress(time, params.durationMs, lineIndex.get(g), lines.length, params.staggerMs * 3, 0, []) : u;
+          if (soft) soft.draw(ctx, g, 1 - smooth(q), (1 - smooth(q)) * params.distance, smooth(q / 0.45));
+          else draw(ctx, g, 0, (1 - smooth(q)) * params.distance, smooth(q / 0.45));
+        } else if (kind === "typewriter") {
+          if (p >= typeAt[index] * 0.9) {
+            draw(ctx, g);
+            typed = index + 1;
+          }
+        } else if (kind === "pressure") {
+          const x = (r.left - full.left) / Math.max(1, full.right - full.left), center = params.direction === 1 ? 1.25 - 1.5 * p : -0.25 + 1.5 * p, weight = Math.exp(-(((x - center) / params.width) ** 2)) * Math.sin(Math.PI * p) * params.strength;
+          draw(ctx, g, 0, 0, 1, 1 + weight * 0.25, 1 + weight * 0.5);
+        } else if (kind === "true-focus") {
+          const selected = focusedIndex(), focused = selected < 0 || focusUnits[selected].includes(g), amount = smooth(p);
+          if (soft) soft.draw(ctx, g, focused ? 0 : amount, 0, focused ? 1 : 1 - 0.2 * amount);
+          else draw(ctx, g, 0, 0, focused ? 1 : 1 - 0.2 * amount);
+        } else if (usesColor) {
+          const brush = scratch.getContext("2d");
+          brush.clearRect(0, 0, scratch.width, scratch.height);
+          brush.globalCompositeOperation = "source-over";
+          brush.drawImage(g.image, 0, 0);
+          brush.globalCompositeOperation = "source-atop";
+          if (kind === "light-sweep") {
+            const rgb = g.color.match(/[\d.]+/g)?.slice(0, 3).map(Number) || [0, 0, 0], luminance = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722, envelope = smooth(p / 0.1) * (1 - smooth((p - 0.86) / 0.14));
+            if (luminance > 180) {
+              brush.fillStyle = `rgba(0,0,0,${0.3 * envelope})`;
+              brush.fillRect(0, 0, scratch.width, scratch.height);
+            }
+            const center = full.left + (full.right - full.left + params.bandWidth * 2) * p - params.bandWidth, angle = params.angle * Math.PI / 180, local = (center - r.left - Math.tan(angle) * (r.top - full.top)) * g.image.width / r.width, w = params.bandWidth * g.image.width / r.width, gradient = brush.createLinearGradient(local - w, 0, local + w, Math.tan(angle) * g.image.height);
+            gradient.addColorStop(0, "rgba(255,255,255,0)");
+            gradient.addColorStop(0.4, `rgba(230,230,230,${params.brightness * 0.4})`);
+            gradient.addColorStop(0.5, `rgba(255,255,255,${params.brightness})`);
+            gradient.addColorStop(0.6, `rgba(230,230,230,${params.brightness * 0.4})`);
+            gradient.addColorStop(1, "rgba(255,255,255,0)");
+            brush.fillStyle = gradient;
+            brush.fillRect(0, 0, scratch.width, scratch.height);
+            ctx.save();
+            ctx.shadowColor = "rgba(255,255,255,.95)";
+            ctx.shadowBlur = g.fontSize * 0.09 * Math.exp(-(((r.left + r.width / 2 - center) / params.bandWidth) ** 2)) * params.brightness;
+            ctx.drawImage(scratch, 0, 0, g.image.width, g.image.height, r.left, r.top, r.width, r.height);
+            ctx.restore();
+          } else {
+            const shift = p * params.speed * Math.PI * 2, x = (r.left - full.left) / Math.max(1, full.right - full.left), y = (r.top - full.top) / Math.max(1, full.bottom - full.top), mode = params.mode ?? 1, hue = params.hue + (params.hue2 - params.hue) * (0.5 + 0.5 * Math.sin(shift + x * Math.PI * 2 + (mode === 1 ? Math.cos(y * 3 + shift) : mode === 2 ? y * 6 : 0))), gradient = brush.createLinearGradient(0, 0, g.image.width, g.image.height);
+            gradient.addColorStop(0, `hsl(${hue} 64% 50%)`);
+            gradient.addColorStop(1, `hsl(${hue + 25} 70% 62%)`);
+            brush.fillStyle = gradient;
+            brush.fillRect(0, 0, scratch.width, scratch.height);
+            ctx.save();
+            if (kind === "masked-heading") {
+              const q = progress(time, params.durationMs, groupIndex.get(g) ?? index, groups.length, params.staggerMs, 0, []), rise = (1 - smooth(q)) * r.height;
+              ctx.beginPath();
+              ctx.rect(r.left, r.top, r.width, r.height);
+              ctx.clip();
+              const release = smooth((p - 0.88) / 0.12);
+              draw(ctx, g, 0, rise, release);
+              ctx.globalAlpha = 1 - release;
+              ctx.drawImage(scratch, 0, 0, g.image.width, g.image.height, r.left, r.top + rise, r.width, r.height);
+            } else {
+              const release = smooth((p - 0.88) / 0.12);
+              draw(ctx, g);
+              ctx.globalAlpha = 1 - release;
+              ctx.drawImage(scratch, 0, 0, g.image.width, g.image.height, r.left, r.top, r.width, r.height);
+            }
+            ctx.restore();
+          }
+        } else if (kind === "elastic-warp") {
+          draw(ctx, g, 0, Math.sin(u * Math.PI * params.recovery) * Math.exp(-u * 4) * (1 - u) * amplitude * 0.3);
+        } else if (kind === "depth-text") {
+          const scale = 1 / (1 + (1 - e) * params.perspective / 500);
+          for (let layer = params.layers; layer > 0; layer--) draw(ctx, g, layer * (1 - e) * params.depth / params.layers, layer * (1 - e) * params.depth / params.layers, (1 - e) * 0.4, scale, scale);
+          draw(ctx, g, 0, 0, Math.min(1, u * 5), scale, scale);
+        }
+      }
+      if (kind === "typewriter" && params.cursor && p < 0.94 && Math.floor(time / 420) % 2 === 0) {
+        const g = glyphs[Math.max(0, typed - 1)], r = g.rect;
+        ctx.fillStyle = g.color;
+        ctx.fillRect(typed ? r.right + 2 : r.left, r.top + r.height * 0.16, Math.max(1, g.fontSize * 0.035), r.height * 0.7);
+      }
+      if (kind === "true-focus" && params.frame && focusedIndex() >= 0) {
+        const r = focusRects[focusedIndex()], fade = smooth(p), gap = 5, size = 7;
+        ctx.strokeStyle = `rgba(110,110,110,${fade})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (const [x, y, sx, sy] of [[r.left - gap, r.top - gap, 1, 1], [r.right + gap, r.top - gap, -1, 1], [r.left - gap, r.bottom + gap, 1, -1], [r.right + gap, r.bottom + gap, -1, -1]]) {
+          ctx.moveTo(x, y + sy * size);
+          ctx.lineTo(x, y);
+          ctx.lineTo(x + sx * size, y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }, dispose() {
+      disposed = true;
+      active = false;
+      document.removeEventListener("pointermove", pointer);
+      document.removeEventListener("pointerout", pointerOut);
+      window.removeEventListener("blur", leave);
+      projection.dispose();
+      soft?.dispose();
+      prepared.dispose();
+      outlines.clear();
+      for (const line of lineImages) line.canvas.width = line.canvas.height = 0;
+      if (scratch) scratch.width = scratch.height = 0;
+    } };
+  }
+
   // src/motion/glyph-particles.mjs
   var random = (seed) => {
     let n = seed >>> 0;
@@ -621,8 +2019,8 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         const range = document.createRange();
         range.setStart(node, index);
         range.setEnd(node, index + segment.length);
-        const bounds = range.getBoundingClientRect();
-        context.fillText(segment, bounds.left - rect.left, bounds.top - rect.top + bounds.height / 2);
+        const bounds2 = range.getBoundingClientRect();
+        context.fillText(segment, bounds2.left - rect.left, bounds2.top - rect.top + bounds2.height / 2);
       }
     }
     const pixels = context.getImageData(0, 0, mask.width, mask.height).data, candidates = [];
@@ -695,7 +2093,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
   }
 
   // src/motion/object-adapters.mjs
-  var clamp = (value) => Math.max(0, Math.min(1, value));
+  var clamp2 = (value) => Math.max(0, Math.min(1, value));
   var noise = (seed, index) => {
     let value = (seed ^ Math.imul(index + 1, 2654435761)) >>> 0;
     value = Math.imul(value ^ value >>> 16, 2246822507) >>> 0;
@@ -732,14 +2130,14 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     return { hide() {
       projection.set({ opacity: 0 });
     }, render(time, ctx) {
-      const p = clamp(time / durationMs), contact = 0.43, fall = clamp(p / contact), after = clamp((p - contact) / (1 - contact));
+      const p = clamp2(time / durationMs), contact = 0.43, fall = clamp2(p / contact), after = clamp2((p - contact) / (1 - contact));
       let y = -Math.min(viewportHeight * 0.42, 320) * strength * (1 - fall * fall);
       if (p > contact) y = -Math.abs(Math.sin(after * Math.PI * 3)) * Math.exp(-after * 6) * 26 * strength;
       projection.set(p >= 1 ? {} : { opacity: Math.min(1, fall * 5), transform: `translateY(${y}px) scale(${1 + 0.035 * strength * Math.exp(-after * 8) * Math.sin(after * Math.PI * 5)},${1 - 0.055 * strength * Math.exp(-after * 8) * Math.sin(after * Math.PI * 5)})` });
       if (p <= contact || p >= 1 || dustSize === 0) return;
       ctx.save();
       for (const point of dust) {
-        const t = clamp((after - point.delay) / (1 - point.delay));
+        const t = clamp2((after - point.delay) / (1 - point.delay));
         if (t <= 0) continue;
         const expansion = 1 - Math.exp(-t * 4), spread = (point.x - 0.5) * rect.width * 0.7 + Math.sign(point.x - 0.5) * point.speed * expansion * strength * dustSize, r = point.size * (0.4 + expansion * 1.6) * dustSize, cx = rect.left + rect.width / 2 + spread + Math.sin(t * 4 + point.phase) * 7 * t * dustSize, cy = rect.bottom - point.speed * (t * 0.22 + t * t * 0.18) * dustSize;
         ctx.globalAlpha = (1 - Math.exp(-t * 24)) * Math.pow(1 - t, 2) * 0.65;
@@ -765,39 +2163,53 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     color = color.map((value) => value + 255 * remaining);
     return color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
   }
+  function spotlightFrame(rect, params, time, width = innerWidth, height = innerHeight) {
+    const p = clamp2(time / params.durationMs), radius = Math.max(42, Math.hypot(rect.width, rect.height) / 2 + 20) * (params.radiusScale ?? 1), targetX = rect.left + rect.width / 2, targetY = rect.top + rect.height / 2, direction = params.direction ?? 0;
+    const startX = direction % 2 ? width + radius : -radius, startY = direction < 2 ? -radius : height + radius, t = clamp2(p / 0.7), ease = 1 - Math.pow(1 - t, 3), fadeIn = clamp2(p / 0.12), fadeOut = clamp2((1 - p) / 0.1);
+    return { x: startX + (targetX - startX) * ease, y: startY + (targetY - startY) * ease, radius, alpha: Math.min(0.88, params.strength * 0.7) * fadeIn * fadeOut };
+  }
   function prepareSpotlight(element, action) {
-    const projection = createProjection(element), rect = effectBounds(element), dark = spotlightBackground(element) < 140, cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-    const rx = Math.max(42, rect.width / 2 + Math.max(20, rect.height * 0.5)), ry = Math.max(36, rect.height * 0.85 + 12);
+    const projection = createProjection(element), rect = effectBounds(element), dark = spotlightBackground(element) < 140, mask = dark && element.textContent.trim() ? textGlyphs(element) : null;
     return { hide() {
       projection.set({});
     }, render(time, ctx) {
-      const p = clamp(time / action.params.durationMs), alpha = p <= 0 || p >= 1 ? 0 : Math.pow(Math.sin(Math.PI * p), 0.65) * Math.min(0.88, action.params.strength * 0.7);
-      projection.set(dark && alpha > 0 ? { filter: `brightness(${1 + alpha * 0.8})` } : {});
+      const { x: cx, y: cy, radius, alpha } = spotlightFrame(rect, action.params, time), arrival = clamp2(1 - Math.hypot(cx - rect.left - rect.width / 2, cy - rect.top - rect.height / 2) / radius);
+      projection.set(dark && alpha * arrival > 0 ? { filter: `brightness(${1 + alpha * arrival * 0.5}) drop-shadow(0 0 ${2 + alpha * arrival * 4}px rgba(255,255,255,${alpha * arrival * 0.35}))` } : {});
       if (alpha <= 0) return;
       ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(rx, ry);
-      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      if (dark) {
-        gradient.addColorStop(0, `rgba(255,255,255,${alpha * 0.52})`);
-        gradient.addColorStop(0.55, `rgba(255,255,255,${alpha * 0.48})`);
-        gradient.addColorStop(0.8, `rgba(255,255,255,${alpha * 0.26})`);
-        gradient.addColorStop(1, "rgba(255,255,255,0)");
-      } else {
-        gradient.addColorStop(0, "rgba(0,0,0,0)");
-        gradient.addColorStop(0.65, "rgba(0,0,0,0)");
-        gradient.addColorStop(1, `rgba(0,0,0,${alpha})`);
-      }
+      const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      gradient.addColorStop(0, "rgba(0,0,0,0)");
+      gradient.addColorStop(0.65, "rgba(0,0,0,0)");
+      gradient.addColorStop(1, `rgba(0,0,0,${alpha * (dark ? 0.9 : 1)})`);
       ctx.fillStyle = gradient;
-      ctx.fillRect(-cx / rx, -cy / ry, innerWidth / rx, innerHeight / ry);
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
+      if (dark) {
+        const light = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        light.addColorStop(0, `rgba(255,255,255,${alpha * 0.5})`);
+        light.addColorStop(0.6, `rgba(255,255,255,${alpha * 0.3})`);
+        light.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = light;
+        ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+      }
       ctx.restore();
+      if (mask) {
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        for (const g of mask.glyphs) {
+          const r = g.rect;
+          ctx.globalAlpha = clamp2((radius - Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy)) / (radius * 0.25));
+          ctx.drawImage(g.image, r.left, r.top, r.width, r.height);
+        }
+        ctx.restore();
+      }
     }, dispose() {
+      mask?.dispose();
       projection.dispose();
     } };
   }
 
   // src/motion/renderers.mjs
-  var renderers = Object.freeze({ "text.glyph-particles": prepareGlyphParticles, "entrance.gravity-impact": prepareGravityImpact, "emphasis.spotlight": prepareSpotlight, "exit.particle-dissolve": prepareParticleExit });
+  var renderers = Object.freeze({ "text.glyph-particles": prepareGlyphParticles, "text.masked-heading": prepareTextEffect, "text.blur-reveal": prepareTextEffect, "text.typewriter": prepareTextEffect, "text.pressure": prepareTextEffect, "text.gradient": prepareTextEffect, "text.true-focus": prepareTextEffect, "text.count-up": prepareTextEffect, "text.character-stagger": prepareTextEffect, "text.decode-reveal": prepareTextEffect, "text.split-flip": prepareTextEffect, "text.elastic-warp": prepareTextEffect, "text.outline-write": prepareTextEffect, "text.depth-text": prepareTextEffect, "text.fold-unfold": prepareTextEffect, "text.echo-trail": prepareTextEffect, "text.light-sweep": prepareTextEffect, "entrance.gravity-impact": prepareGravityImpact, "emphasis.spotlight": prepareSpotlight, "exit.particle-dissolve": prepareParticleExit });
 
   // src/motion/background.mjs
   function prepareFlowingGradient(element, effect, { low = false, preview = false } = {}) {
@@ -856,7 +2268,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     const root2 = element.parentElement?.classList.contains("deck") ? element.parentElement : element, activeId = element.dataset.nutbookPageId, prefix = `nutbook-transition-${++snapshotSequence}-`, ids = new Map([...root2.querySelectorAll("[id]")].map((node, index) => [node.id, `${prefix}${index}`]));
     if (root2.id) ids.set(root2.id, `${prefix}root`);
     const references = (value) => value.replace(/url\((['"]?)([^)]*)\1\)/g, (all, quote, url) => {
-      const hash = url.lastIndexOf("#"), key = hash < 0 ? "" : url.slice(hash + 1);
+      const hash2 = url.lastIndexOf("#"), key = hash2 < 0 ? "" : url.slice(hash2 + 1);
       return ids.has(key) ? `url(#${ids.get(key)})` : all;
     });
     function clone(node) {
@@ -908,8 +2320,8 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       layer.remove();
     } };
   }
-  function renderCurtain(layer, progress, params) {
-    const p = Math.max(0, Math.min(1, progress)), q = p * p * (3 - 2 * p);
+  function renderCurtain(layer, progress2, params) {
+    const p = Math.max(0, Math.min(1, progress2)), q = p * p * (3 - 2 * p);
     layer.style.opacity = p >= 1 ? "0" : "1";
     layer.style.clipPath = "none";
     layer.style.maskImage = "none";
@@ -992,7 +2404,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     surface.style.cssText = "position:relative;isolation:isolate;overflow:hidden;height:" + height + "px;margin:0;border-radius:0;background:#f3f3f5;color:#1a1c1d;pointer-events:none;";
     const target = document.createElement("p");
     target.dataset.id = key;
-    target.textContent = "NUTBOOK";
+    target.textContent = templateId === "text.count-up" ? "12,345.67%" : "NUTBOOK";
     target.style.cssText = "position:absolute;left:12px;right:12px;top:calc(50% - 14px);margin:0;text-align:center;font:700 17px/1.5 -apple-system,PingFang SC,sans-serif;color:#1a1c1d;";
     surface.append(target);
     const canvas = document.createElement("canvas");
@@ -1000,6 +2412,11 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     surface.append(canvas);
     host.append(surface);
     const params = Object.fromEntries(Object.entries(template.params).map(([key2, rule]) => [key2, rule.default])), action = { id: key, targetId: key, templateId, templateVersion: template.version, params, seed: 42 };
+    if (templateId === "text.true-focus") {
+      params.grouping = 1;
+      params.focusIndex = 3;
+      params.mode = 0;
+    }
     let adapter, curtain;
     const rect = surface.getBoundingClientRect(), ctx = canvas.getContext("2d"), dpr = Math.min(2, devicePixelRatio || 1);
     canvas.width = Math.ceil(rect.width * dpr);
@@ -1015,14 +2432,14 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         curtain.textContent = "NUTBOOK";
         curtain.style.cssText = "position:absolute;inset:0;display:grid;place-items:center;background:#f3f3f5;font:700 17px sans-serif;color:#1a1c1d;";
         surface.append(curtain);
-      } else adapter = renderers[templateId](target, action, { viewportHeight: rect.height });
+      } else adapter = renderers[templateId](target, action, { viewportHeight: rect.height, preview: true });
       return { templateId, duration: params.durationMs, render(time) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, rect.width, rect.height);
         ctx.save();
         ctx.translate(-rect.left, -rect.top);
         if (curtain) renderCurtain(curtain, Math.min(1, time / params.durationMs), params);
-        else adapter.render(time, ctx);
+        else adapter.render(templateId === "text.split-flip" ? time < params.durationMs * 0.24 ? params.durationMs : (time - params.durationMs * 0.24) / 0.76 : time, ctx);
         ctx.restore();
       }, dispose() {
         adapter?.dispose();
@@ -1053,7 +2470,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       resources.clear();
     };
     const chooseCategory = (category) => {
-      const id2 = Object.keys(registry_default.templates).find((id3) => registry_default.templates[id3].category === category);
+      const id2 = Object.keys(registry_default.templates).find((id3) => registry_default.templates[id3].catalog !== false && registry_default.templates[id3].category === category);
       select(id2);
     };
     for (const button of root2.querySelectorAll("[data-scope]")) {
@@ -1079,7 +2496,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       for (const button of root2.querySelectorAll("[data-slot]")) button.setAttribute("aria-pressed", String(button.dataset.slot === slot));
       const ids = Object.keys(registry_default.templates).filter((id2) => {
         const t = registry_default.templates[id2];
-        return (page ? t.category === category : slot === "entrance" ? ["text", "entrance"].includes(t.category) : t.category === category) && t.label.includes(search.value.trim());
+        return t.catalog !== false && (page ? t.category === category : slot === "entrance" ? ["text", "entrance"].includes(t.category) : t.category === category) && t.label.includes(search.value.trim());
       }), key = ids.join("|");
       if (key !== lastKey) {
         disposeFrames();
@@ -1164,17 +2581,19 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     root2.querySelector("[data-pause]").hidden = true;
     body.append(root2.querySelector("[data-action-list]"));
   }
-  function orderedParameterKeys(template) {
-    const order = template.category === "transition" ? ["shape", "direction", "durationMs", "feather"] : ["durationMs", "strength", "dustSize", "density", "hue", "hue2", "speed", "scale"];
-    return Object.keys(template.params).filter((key) => !["colorMode", "lightness"].includes(key)).sort((a, b) => {
-      const x = order.indexOf(a), y = order.indexOf(b);
-      return (x < 0 ? 100 : x) - (y < 0 ? 100 : y) || a.localeCompare(b);
+  function orderedParameterKeys(template, templateId) {
+    const specific = { "text.masked-heading": ["hue", "hue2", "speed", "staggerMs", "durationMs"], "text.blur-reveal": ["preset", "staggerMs", "blur", "distance", "durationMs"], "text.typewriter": ["cursor", "cadence", "durationMs"], "text.pressure": ["direction", "width", "strength", "durationMs"], "text.gradient": ["mode", "hue", "hue2", "speed", "durationMs"], "text.true-focus": ["mode", "grouping", "focusIndex", "frame", "blur", "durationMs"], "text.count-up": ["startRatio", "curve", "durationMs"], "text.character-stagger": ["preset", "order", "staggerMs", "durationMs", "strength"], "text.decode-reveal": ["charset", "order", "iterations", "staggerMs", "durationMs"], "text.split-flip": ["axis", "staggerMs", "durationMs"], "text.elastic-warp": ["wavelength", "recovery", "durationMs", "strength"], "text.outline-write": ["strokeWidth", "fillAt", "staggerMs", "durationMs"], "text.depth-text": ["layers", "depth", "perspective", "staggerMs", "durationMs", "strength"], "text.fold-unfold": ["panels", "foldAngle", "staggerMs", "durationMs"], "text.echo-trail": ["echoes", "spacing", "decay", "durationMs", "strength"], "text.light-sweep": ["bandWidth", "angle", "brightness", "durationMs"] };
+    const order = specific[templateId] || (template.category === "transition" ? ["shape", "direction", "durationMs", "feather"] : ["durationMs", "strength", "dustSize", "density", "hue", "hue2", "speed", "scale"]);
+    return Object.keys(template.params).filter((key) => !["colorMode", "lightness"].includes(key) && !(templateId === "text.true-focus" && ["focusIndex", "focusStart", "focusEnd"].includes(key))).sort((a, b) => {
+      const x = order.indexOf(a), y = order.indexOf(b), ra = template.params[a], rb = template.params[b], label = (key) => template.params[key].label || ({ strength: "\u529B\u5EA6", density: "\u7C92\u5B50\u6570\u91CF", hue: "\u7C92\u5B50\u8272\u76F8", dustSize: "\u70DF\u5C18\u5927\u5C0F", durationMs: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09" }[key] || key);
+      return Number(!ra.options) - Number(!rb.options) || [...label(a)].length - [...label(b)].length || (x < 0 ? 100 : x) - (y < 0 ? 100 : y) || a.localeCompare(b);
     });
   }
   var playbackLayoutStyles = `.catalog-actions{align-items:center}.catalog-actions [data-replay]{width:30px;height:30px;flex:none;display:inline-flex;align-items:center;justify-content:center}.catalog-actions [data-remove]{margin:0;padding:6px 8px;background:#eeeef0;color:#1a1c1d;flex:none}`;
   var closeHoverStyles = `[data-panel-close],[data-reset]{background:transparent}[data-panel-close]:hover,[data-panel-close]:focus-visible,[data-reset]:not(:disabled):hover,[data-reset]:focus-visible{background:#eeeef0}`;
   var applyAllStyles = `.catalog-actions [data-apply-all]{position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;flex:none;padding:5px}.catalog-actions [data-apply-all]:hover .action-tooltip,.catalog-actions [data-apply-all]:focus-visible .action-tooltip{opacity:1}`;
   var removeIconStyles = `.catalog-actions [data-remove]{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:5px}`;
+  var textLibraryStyles = `@keyframes focus-pick-hint{0%,48%,100%{box-shadow:0 0 0 0 #1a1c1d00,0 0 0 0 #1a1c1d00}24%{box-shadow:0 0 0 2px #1a1c1d55,0 0 9px 3px #1a1c1d12}72%{box-shadow:0 0 0 1.5px #1a1c1d33,0 0 7px 2px #1a1c1d0a}}.focus-pick-hint{animation:focus-pick-hint 2.4s cubic-bezier(.4,0,.2,1) 1}@media(prefers-reduced-motion:reduce){.focus-pick-hint{animation:none;outline:2px solid #666;outline-offset:2px}}.catalog-grid{max-height:220px;overflow:auto;scrollbar-width:thin;align-content:start}.catalog-card{min-height:80px;flex:none}`;
 
   // src/motion/input.mjs
   var interactiveSelector = 'button,a,input,textarea,select,[contenteditable],iframe,video,[role="button"],[data-nutbook-runtime-control],#nutbook-native-presentation-fullscreen-exit';
@@ -1356,30 +2775,30 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       get phase() {
         return operation ? { fromId: operation.fromId, targetId: operation.targetId, phase: operation.phase, progress: operation.progress } : null;
       },
-      async previewAt(progress, autoplay = false) {
+      async previewAt(progress2, autoplay = false) {
         const from = hooks.getConfig().pages.find((page) => page.id === (preview?.sourceId || bridge.activePageId)), index = hooks.getConfig().pages.indexOf(from), next = hooks.getConfig().pages[index + 1];
         if (!from?.transition || !next) {
           showNotice("\u5F53\u524D\u9875\u6CA1\u6709\u53EF\u9884\u89C8\u7684\u51FA\u9875\u8F6C\u573A\u6216\u4E0B\u4E00\u9875\u3002", [["\u5173\u95ED", clearNotice]]);
           return false;
         }
         if (preview) {
-          preview.progress = progress;
+          preview.progress = progress2;
           preview.autoplay = autoplay;
           if (operation?.phase === "preview-paused" || operation?.phase === "composing") {
             operation.phase = autoplay ? "composing" : "preview-paused";
             hooks.pauseComposition();
-            renderCurtain(operation.frozen.layer, progress, from.transition.params);
-            operation.progress = progress;
-            hooks.submitted(progress);
-            if (autoplay) hooks.playComposition(progress * from.transition.params.durationMs);
+            renderCurtain(operation.frozen.layer, progress2, from.transition.params);
+            operation.progress = progress2;
+            hooks.submitted(progress2);
+            if (autoplay) hooks.playComposition(progress2 * from.transition.params.durationMs);
           }
           return preview.ready;
         }
         let readyResolve;
         const ready = new Promise((resolve) => readyResolve = resolve);
-        preview = { sourceId: from.id, progress, autoplay, ready, readyResolve };
+        preview = { sourceId: from.id, progress: progress2, autoplay, ready, readyResolve };
         hooks.sync();
-        void coordinator.goTo(next.id, { preview: true, progress }).catch(() => readyResolve(false));
+        void coordinator.goTo(next.id, { preview: true, progress: progress2 }).catch(() => readyResolve(false));
         return ready;
       },
       cancel() {
@@ -2061,6 +3480,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     let presentationMode = Boolean(window.__NUTBOOK_STATIC_PRESENTATION__), stepMode = false, stepIndex = 0, stepApplyToken = 0, pendingStepState = null, resumeStepState = null, stepApplication = null, localQueue = Promise.resolve();
     let disposeTooltips = () => {
     };
+    let focusPicking = null, timingPreview = false;
     let catalogPreview = null, selectedPreview = false, previewDuration = null, pagePlayback = false;
     function syncPagePlayback() {
       const button = shadow?.querySelector("[data-preview-template]");
@@ -2177,6 +3597,12 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       if (time >= (stepMode ? timeline().steps[stepIndex].endMs : duration())) {
         if (!background || editing && !stepMode) clock.pause();
         preview = false;
+        if (previewAuto && !stepMode && adapters.some((item) => item.adapter.persistent)) {
+          previewAuto = false;
+          pagePlayback = false;
+          syncPagePlayback();
+          return;
+        }
         if (previewAuto && !stepMode) {
           const token = stepApplyToken;
           queueMicrotask(() => {
@@ -2287,7 +3713,9 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
           }
           for (const original of actions) {
             const action2 = renderMode === "low" && Object.hasOwn(original.params, "density") ? { ...original, params: { ...original.params, density: Math.min(80, original.params.density) } } : original;
-            built.push({ action: action2, startMs: starts.get(action2.id).startMs, actionStep: starts.get(action2.id).stepIndex, adapter: renderers[action2.templateId](byId(action2.targetId), action2) });
+            built.push({ action: action2, startMs: starts.get(action2.id).startMs, actionStep: starts.get(action2.id).stepIndex, adapter: renderers[action2.templateId](byId(action2.targetId), action2, { invalidate() {
+              if (token === generation && !clock.state().disposed) clock.seek(clock.state().logicalTimeMs);
+            } }) });
           }
           return built;
         } catch (error) {
@@ -2327,20 +3755,32 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       syncPagePlayback();
       return true;
     }
-    async function previewAt(progress) {
+    async function previewAt(progress2) {
+      if (editing) {
+        selectedPreview = !timingPreview;
+        pagePlayback = false;
+        stepMode = false;
+        syncPagePlayback();
+      }
       if (editing && selectedCategory === "transition") {
         preview = true;
-        previewProgress = progress;
-        return navigation?.previewAt(progress, false) ?? false;
+        previewProgress = progress2;
+        return navigation?.previewAt(progress2, false) ?? false;
       }
       navigation?.cancel();
       previewAuto = false;
       preview = true;
-      previewProgress = progress;
+      previewProgress = progress2;
       if (!await prepare()) return false;
-      return clock.seek(duration() * progress);
+      return clock.seek(duration() * progress2);
     }
     function staticView({ keepNavigation = false } = {}) {
+      timingPreview = false;
+      if (focusPicking) {
+        selectionMode = focusPicking.previousMode;
+        focusPicking = null;
+        window.getSelection()?.removeAllRanges();
+      }
       pagePlayback = false;
       selectedPreview = false;
       previewDuration = null;
@@ -2379,9 +3819,9 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     }
     function refresh() {
       if (clock.state().disposed) return false;
-      const preserve = editing && preview, progress = previewProgress;
+      const preserve = editing && preview, progress2 = previewProgress;
       config = validateConfig(JSON.parse(node.textContent));
-      if (preserve) void previewAt(progress);
+      if (preserve) void previewAt(progress2);
       else staticView();
       syncPanel();
     }
@@ -2501,7 +3941,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       return window.__NUTBOOK_HTML_EDIT__?.commitMotionChange(next) === true;
     }
     function syncParameters(a, disabled) {
-      const container = shadow.querySelector("[data-parameters]"), rules = template().params, labels = { durationMs: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09", strength: "\u529B\u5EA6", density: "\u7C92\u5B50\u6570\u91CF", dustSize: "\u70DF\u5C18\u5927\u5C0F", hue: "\u7C92\u5B50\u8272\u76F8" }, keys = orderedParameterKeys(template());
+      const container = shadow.querySelector("[data-parameters]"), rules = template().params, labels = { durationMs: "\u65F6\u957F\uFF08\u6BEB\u79D2\uFF09", strength: "\u529B\u5EA6", density: "\u7C92\u5B50\u6570\u91CF", dustSize: "\u70DF\u5C18\u5927\u5C0F", hue: "\u7C92\u5B50\u8272\u76F8" }, keys = orderedParameterKeys(template(), selectedTemplateId);
       for (const row of [...container.children]) if (!keys.includes(row.dataset.paramRow)) row.remove();
       for (const key of keys) {
         const rule = rules[key], tag = rule.options ? "SELECT" : "INPUT";
@@ -2531,6 +3971,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         input.max = rule.max;
         input.step = rule.step ?? (rule.integer ? 1 : key === "durationMs" ? 100 : 0.05);
         input.title = rule.label || labels[key] || key;
+        row.hidden = selectedTemplateId === "text.true-focus" && key === "grouping" && !a?.params.mode;
         row.firstChild.textContent = input.title;
         input.setAttribute("aria-label", input.title);
         input.disabled = disabled;
@@ -2538,6 +3979,33 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         if (rule.options) selects.sync(input);
         const index = keys.indexOf(key);
         if (container.children[index] !== row) container.insertBefore(row, container.children[index] || null);
+      }
+      if (selectedTemplateId === "text.true-focus" && !a?.params.mode) {
+        const row = document.createElement("label");
+        row.className = "parameter-select";
+        row.append(document.createTextNode("\u805A\u7126\u8303\u56F4"));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.pickFocus = "";
+        button.textContent = a?.params.focusEnd > a?.params.focusStart ? "\u91CD\u65B0\u9009\u5B57" : "\u5728\u6B63\u6587\u9009\u5B57";
+        button.disabled = disabled || selectedIds.size !== 1;
+        button.setAttribute("aria-label", "\u5728\u6B63\u6587\u62D6\u9009\u805A\u7126\u6587\u5B57");
+        button.title = button.getAttribute("aria-label");
+        button.onclick = () => {
+          if (flushPending({ endInteraction: true }) === false) return;
+          const selectedAction = action();
+          if (!selectedAction) return;
+          const previousMode = selectionMode;
+          staticView();
+          focusPicking = { targetId: selectedAction.targetId, previousMode };
+          selectionMode = false;
+          clearSelectionProjection();
+          window.getSelection()?.removeAllRanges();
+          syncPanel();
+          shadow.querySelector("[data-status]").textContent = "\u8BF7\u5728\u6240\u9009\u6587\u672C\u6846\u4E2D\u62D6\u9009\u8981\u805A\u7126\u7684\u6587\u5B57\uFF1B\u952E\u76D8\u9009\u533A\u6309 Enter \u786E\u8BA4\uFF0CEsc \u53D6\u6D88\u3002";
+        };
+        row.append(button);
+        container.insertBefore(row, [...container.children].find((child) => child.querySelector("input")) || null);
       }
       const color = shadow.querySelector("[data-color-mode]");
       color.closest("label").hidden = !rules.colorMode;
@@ -2577,10 +4045,14 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       if (!selectedIds.size && !selectionInitialized) {
         selected = page?.actions[0]?.targetId || page?.targets.find((t) => t.kind === "text")?.id || "";
         if (selected) selectedIds.add(selected);
+        if (!pageSlot() && page?.actions[0]) {
+          selectedTemplateId = page.actions[0].templateId;
+          selectedCategory = registry_default.templates[selectedTemplateId].category;
+        }
       }
       selectionInitialized = true;
-      const compatible = pageSlot() ? selectedCategory === "transition" && !transitionCompatible(page) ? [] : [{ id: page.id }] : compatibleTargets(page, selection(), template()), skipped = pageSlot() ? 0 : selectedIds.size - compatible.length, a = action(), actions = categoryActions(), mixed = actions.some((action2) => action2.templateId !== selectedTemplateId), enabled = Boolean(a) && !mixed && (selectedCategory !== "transition" || compatible.length > 0);
-      shadow.querySelector("[data-target]").textContent = pageSlot() ? "\u5F53\u524D\u9875" : selectedIds.size === 1 ? byId(selection()[0])?.textContent || byId(selection()[0])?.getAttribute("alt") || "\u5DF2\u9009\u62E9\u5BF9\u8C61" : `\u5DF2\u9009\u62E9 ${selectedIds.size} \u4E2A\u5BF9\u8C61`;
+      const compatible = pageSlot() ? selectedCategory === "transition" && !transitionCompatible(page) ? [] : [{ id: page.id }] : compatibleTargets(page, selection(), template()).filter((target) => supportsTextEffect(selectedTemplateId, byId(target.id))), skipped = pageSlot() ? 0 : selectedIds.size - compatible.length, a = action(), actions = categoryActions(), mixed = actions.some((action2) => action2.templateId !== selectedTemplateId), enabled = Boolean(a) && !mixed && (selectedCategory !== "transition" || compatible.length > 0);
+      shadow.querySelector("[data-target]").textContent = pageSlot() ? "\u5F53\u524D\u9875" : selectedIds.size === 1 ? motionTargetLabel(page, selection()[0], byId) : `\u5DF2\u9009\u62E9 ${selectedIds.size} \u4E2A\u5BF9\u8C61`;
       shadow.querySelector("[data-select-mode]").setAttribute("aria-pressed", String(selectionMode));
       shadow.querySelector("[data-text-mode]").setAttribute("aria-pressed", String(!selectionMode));
       shadow.querySelector("[data-selection-help]").textContent = pageSlot() ? "\u6B63\u5728\u8BBE\u7F6E\u5F53\u524D\u9875\u6548\u679C\uFF1B\u70B9\u51FB\u6B63\u6587\u5BF9\u8C61\u53EF\u8FD4\u56DE\u5BF9\u8C61\u52A8\u6548\u3002" : selectionMode ? "\u70B9\u51FB\u9009\u62E9\u5BF9\u8C61\uFF1BShift \u6216 \u2318 \u70B9\u51FB\u53EF\u591A\u9009\u3002" : "\u6B63\u5728\u7F16\u8F91\u6587\u5B57\uFF0C\u70B9\u51FB\u6B63\u6587\u53EF\u8F93\u5165\u3002";
@@ -2596,7 +4068,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       shadow.querySelector("[data-reset]").disabled = !enabled;
       shadow.querySelector("[data-replay]").disabled = !a;
       shadow.querySelector("[data-preview-template]").disabled = !page.actions.length && !page.background;
-      shadow.querySelector("[data-status]").textContent = (skipped ? `\u53EF\u5E94\u7528 ${compatible.length} \u4E2A\u5BF9\u8C61\uFF1B\u8DF3\u8FC7 ${skipped} \u4E2A\u4E0D\u517C\u5BB9\u5BF9\u8C61\u3002 ` : "") + (!compatible.length ? "\u5F53\u524D\u9009\u62E9\u6CA1\u6709\u517C\u5BB9\u5BF9\u8C61\u3002" : mixed ? "\u5F53\u524D\u6A21\u677F\u4E0E\u6240\u9009\u52A8\u6548\u4E0D\u540C\uFF1B\u70B9\u51FB\u5957\u7528\u4EE5\u66FF\u6362\u672C\u7C7B\u522B\u52A8\u6548\u3002" : a ? pageSlot() ? `\u8C03\u53C2\u5F71\u54CD\u5F53\u524D\u9875${categoryLabels[selectedCategory]}\uFF1B\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u3002` : `\u8C03\u53C2\u5F71\u54CD\u5DF2\u9009\u7684 ${actions.length} \u4E2A\u52A8\u6548\uFF1B\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u3002` : `\u5C1A\u672A\u5957\u7528${template().label}\uFF0C\u8BF7\u5148\u70B9\u51FB\u5957\u7528\u3002`);
+      shadow.querySelector("[data-status]").textContent = (selectedTemplateId === "text.count-up" && !compatible.length ? "\u8BF7\u9009\u62E9\u5355\u4E2A\u6570\u5B57\uFF0C\u53EF\u5E26\u5355\u4F4D\u3001\u5C0F\u6570\u548C\u5343\u4F4D\u5206\u9694\u7B26\u3002" : skipped ? `\u53EF\u5E94\u7528 ${compatible.length} \u4E2A\u5BF9\u8C61\uFF1B\u8DF3\u8FC7 ${skipped} \u4E2A\u4E0D\u517C\u5BB9\u5BF9\u8C61\u3002 ` : "") + (!compatible.length ? "\u5F53\u524D\u9009\u62E9\u6CA1\u6709\u517C\u5BB9\u5BF9\u8C61\u3002" : mixed ? "\u5F53\u524D\u6A21\u677F\u4E0E\u6240\u9009\u52A8\u6548\u4E0D\u540C\uFF1B\u70B9\u51FB\u5957\u7528\u4EE5\u66FF\u6362\u672C\u7C7B\u522B\u52A8\u6548\u3002" : a ? pageSlot() ? `\u8C03\u53C2\u5F71\u54CD\u5F53\u524D\u9875${categoryLabels[selectedCategory]}\uFF1B\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u3002` : `\u8C03\u53C2\u5F71\u54CD\u5DF2\u9009\u7684 ${actions.length} \u4E2A\u52A8\u6548\uFF1B\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u3002` : `\u5C1A\u672A\u5957\u7528${template().label}\uFF0C\u8BF7\u5148\u70B9\u51FB\u5957\u7528\u3002`);
       const categories = shadow.querySelector("[data-category]");
       categories.value = selectedCategory;
       selects?.sync(categories);
@@ -2621,7 +4093,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       panel.dataset.nutbookMotionPanel = "";
       panel.style.cssText = "position:fixed;right:20px;top:80px;z-index:2147483646;width:min(360px,calc(100vw - 24px))";
       shadow = panel.attachShadow({ mode: "open" });
-      shadow.innerHTML = `<style>${motionSelectStyles}${actionListStyles}${actionListPolishStyles}${actionFoldStyles}${catalogStyles}${compactCatalogStyles}${playbackLayoutStyles}${closeHoverStyles}${applyAllStyles}${removeIconStyles}${panelTooltipStyles}*{box-sizing:border-box}[hidden]{display:none!important}aside{background:#fff;color:#1a1c1d;border:1px solid #d9dadc;border-radius:12px;box-shadow:0 12px 36px #0002;font:13px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 120px)}header{flex:none;position:relative;cursor:grab;touch-action:none;user-select:none;padding:12px 14px 8px;border-bottom:1px solid #eee}header:active{cursor:grabbing}.grip{display:block;width:28px;height:4px;background:#b7b7bc;border-radius:4px;margin:0 auto 8px}h2{font-size:15px;margin:0}[data-collapse]{display:none;position:absolute;right:12px;bottom:5px;width:28px;height:28px;padding:4px} @media(max-width:640px){[data-collapse]{display:inline-flex;align-items:center;justify-content:center}header{cursor:default}aside{max-height:calc(100vh - 128px)}}.body{padding:8px 14px;overflow:auto;scrollbar-width:none}.body::-webkit-scrollbar{display:none}p{overflow-wrap:anywhere;margin:6px 0}button{background:#eeeef0;color:#1a1c1d;border:0;border-radius:8px;padding:7px;cursor:pointer;margin:3px 4px 3px 0}button:focus-visible,header:focus-visible{outline:2px solid #222;outline-offset:-2px}button:disabled{opacity:.4}label{display:block;margin:10px 0}input{width:100%;accent-color:#000}input[data-param=hue],input[data-param=hue2]{appearance:none;height:8px;border-radius:4px;background:linear-gradient(90deg,#f44,#ff4,#4f4,#4ff,#44f,#f4f,#f44)}.parameter-select{display:flex;align-items:center;justify-content:space-between}.template-pickers{display:flex;align-items:center;gap:8px}.template-picker{display:flex;align-items:center;gap:2px;margin:5px 0;font-size:11px;min-width:0}.template-picker .motion-select{min-width:0;margin-left:2px}[data-parameters] label{margin:7px 0}.color-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.color-row label{margin:10px 0}.color-row [data-reset]{position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0;margin-left:auto;flex:none}.reset-tooltip{position:absolute;right:0;top:calc(100% + 6px);z-index:2;background:#222;color:#fff;border-radius:5px;padding:5px 7px;white-space:nowrap;font-size:11px;line-height:1.2;pointer-events:none;opacity:0}[data-reset]:not(:disabled):hover .reset-tooltip,[data-reset]:focus-visible .reset-tooltip{opacity:1}.selection-modes{display:flex;gap:4px}.selection-modes button{position:relative;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px}.mode-tooltip{position:absolute;top:calc(100% + 5px);left:0;z-index:3;width:max-content;max-width:190px;padding:5px 7px;border-radius:5px;background:#222;color:#fff;font-size:11px;line-height:1.3;pointer-events:none;opacity:0}.selection-modes button:hover .mode-tooltip,.selection-modes button:focus-visible .mode-tooltip{opacity:1}button[aria-pressed=true]{background:#1a1c1d;color:#fff}[data-selection-help]{font-size:11px;color:#5e5e63}small{color:#5e5e63}[data-target]{max-height:36px;overflow:hidden}[data-motion-feedback]{padding:8px;background:#f7f7f8;border-radius:8px}</style><aside><header data-drag-handle tabindex="0" title="\u62D6\u52A8\u9876\u90E8\u79FB\u52A8\u52A8\u6548\u9762\u677F\uFF1B\u65B9\u5411\u952E\u4E5F\u53EF\u79FB\u52A8" aria-label="\u62D6\u52A8\u9876\u90E8\u79FB\u52A8\u52A8\u6548\u9762\u677F\uFF1B\u65B9\u5411\u952E\u4E5F\u53EF\u79FB\u52A8"><span class="grip" aria-hidden="true"></span><h2>\u52A8\u6548</h2><button data-panel-close title="\u6536\u8D77\u52A8\u6548\u9762\u677F" aria-label="\u6536\u8D77\u52A8\u6548\u9762\u677F"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button><button data-collapse title="\u6536\u8D77\u52A8\u6548\u9762\u677F" aria-label="\u6536\u8D77\u52A8\u6548\u9762\u677F" aria-expanded="true"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="m5 7 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button></header><div class="body">${feedbackMarkup()}<div class="selection-modes"><button data-select-mode title="\u9009\u62E9\u52A8\u6548\u5BF9\u8C61\uFF1B\u652F\u6301\u5F53\u524D\u9875\u591A\u9009" aria-label="\u9009\u62E9\u52A8\u6548\u5BF9\u8C61\uFF1B\u652F\u6301\u5F53\u524D\u9875\u591A\u9009" aria-pressed="true"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M6.5 10V5.5a1.25 1.25 0 0 1 2.5 0V9 3.75a1.25 1.25 0 0 1 2.5 0V9 5a1.25 1.25 0 0 1 2.5 0v4.75-2a1.25 1.25 0 0 1 2.5 0v4.5c0 3-1.75 5.25-4.5 5.25h-1c-1.75 0-3-.75-4-2.25L3.75 11.5a1.25 1.25 0 0 1 2-1.5l.75 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="mode-tooltip" role="tooltip">\u9009\u62E9\u52A8\u6548\u5BF9\u8C61\uFF1B\u652F\u6301\u5F53\u524D\u9875\u591A\u9009</span></button><button data-text-mode title="\u8FD4\u56DE\u6B63\u6587\u6587\u5B57\u7F16\u8F91" aria-label="\u8FD4\u56DE\u6B63\u6587\u6587\u5B57\u7F16\u8F91" aria-pressed="false"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M6 3h2c1.2 0 2 .8 2 2v10c0 1.2-.8 2-2 2H6M14 3h-2c-1.2 0-2 .8-2 2v10c0 1.2.8 2 2 2h2M7 10h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="mode-tooltip" role="tooltip">\u8FD4\u56DE\u6B63\u6587\u6587\u5B57\u7F16\u8F91</span></button><button data-page-target title="\u8BBE\u7F6E\u5F53\u524D\u9875\u80CC\u666F" aria-label="\u8BBE\u7F6E\u5F53\u524D\u9875\u80CC\u666F"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 13l4-4 3 3 3-5 4 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg><span class="mode-tooltip" role="tooltip">\u8BBE\u7F6E\u5F53\u524D\u9875\u80CC\u666F</span></button></div><p data-selection-help></p><p data-target></p>${catalogMarkup}<div class="template-pickers"><label class="template-picker">\u7C7B\u522B<select data-category aria-label="\u52A8\u6548\u7C7B\u522B">${Object.entries(categoryLabels).map(([id2, label]) => `<option value="${id2}">${label}</option>`).join("")}</select></label><label class="template-picker">\u6A21\u677F<select data-template aria-label="\u52A8\u6548\u6A21\u677F"><option value="text.glyph-particles">\u5B57\u5F62\u7C92\u5B50</option></select></label></div><button data-apply title="\u4E3A\u9009\u4E2D\u6587\u5B57\u5957\u7528\u5B57\u5F62\u7C92\u5B50" aria-label="\u4E3A\u9009\u4E2D\u6587\u5B57\u5957\u7528\u5B57\u5F62\u7C92\u5B50">\u5957\u7528\u5B57\u5F62\u7C92\u5B50</button><button data-preview-template title="\u64AD\u653E\u5F53\u524D\u9875\uFF1A\u8FDE\u7EED\u64AD\u653E\u5DF2\u5957\u7528\u7684\u52A8\u4F5C" aria-label="\u64AD\u653E\u5F53\u524D\u9875\uFF1A\u8FDE\u7EED\u64AD\u653E\u5DF2\u5957\u7528\u7684\u52A8\u4F5C"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m7 4 9 6-9 6Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-apply-all hidden title="\u5957\u7528\u5230\u5168\u90E8\u9875\u9762" aria-label="\u5957\u7528\u5230\u5168\u90E8\u9875\u9762"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4 7H2v11h11v-2M7 4H5v11h11v-2"/><rect x="8" y="2" width="10" height="10" rx="1"/></g></svg><span class="action-tooltip" role="tooltip">\u5957\u7528\u5230\u5168\u90E8\u9875\u9762</span></button><button data-remove title="\u79FB\u9664\u9009\u4E2D\u6587\u5B57\u7684\u52A8\u6548" aria-label="\u79FB\u9664\u5F53\u524D\u6548\u679C"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 10h7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><div class="color-row"><label>\u7C92\u5B50\u989C\u8272<select data-color-mode title="\u7C92\u5B50\u989C\u8272" aria-label="\u7C92\u5B50\u989C\u8272"><option value="0">\u5F69\u8272</option><option value="1">\u9ED1\u767D</option></select></label><button data-reset title="\u6062\u590D\u9ED8\u8BA4\u53C2\u6570" aria-label="\u6062\u590D\u9ED8\u8BA4\u53C2\u6570"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 8a6 6 0 1 1 0 4M4 3v5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="reset-tooltip" role="tooltip">\u6062\u590D\u9ED8\u8BA4\u53C2\u6570</span></button></div><div data-parameters></div>${actionListMarkup}<button data-replay title="\u64AD\u653E\u5F53\u524D\u6548\u679C" aria-label="\u64AD\u653E\u5F53\u524D\u6548\u679C"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m7 4 9 6-9 6Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-pause title="\u6682\u505C\u52A8\u6548\u9884\u89C8" aria-label="\u6682\u505C\u52A8\u6548\u9884\u89C8">\u6682\u505C</button><p data-status role="status">\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u52A8\u753B\u8BBE\u7F6E\u3002</p></div></aside>`;
+      shadow.innerHTML = `<style>${motionSelectStyles}${actionListStyles}${actionListPolishStyles}${actionFoldStyles}${catalogStyles}${compactCatalogStyles}${playbackLayoutStyles}${closeHoverStyles}${applyAllStyles}${removeIconStyles}${textLibraryStyles}${panelTooltipStyles}*{box-sizing:border-box}[hidden]{display:none!important}aside{background:#fff;color:#1a1c1d;border:1px solid #d9dadc;border-radius:12px;box-shadow:0 12px 36px #0002;font:13px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 120px)}header{flex:none;position:relative;cursor:grab;touch-action:none;user-select:none;padding:12px 14px 8px;border-bottom:1px solid #eee}header:active{cursor:grabbing}.grip{display:block;width:28px;height:4px;background:#b7b7bc;border-radius:4px;margin:0 auto 8px}h2{font-size:15px;margin:0}[data-collapse]{display:none;position:absolute;right:12px;bottom:5px;width:28px;height:28px;padding:4px} @media(max-width:640px){[data-collapse]{display:inline-flex;align-items:center;justify-content:center}header{cursor:default}aside{max-height:calc(100vh - 128px)}}.body{padding:8px 14px;overflow:auto;scrollbar-width:none}.body::-webkit-scrollbar{display:none}p{overflow-wrap:anywhere;margin:6px 0}button{background:#eeeef0;color:#1a1c1d;border:0;border-radius:8px;padding:7px;cursor:pointer;margin:3px 4px 3px 0}button:focus-visible,header:focus-visible{outline:2px solid #222;outline-offset:-2px}button:disabled{opacity:.4}label{display:block;margin:10px 0}input{width:100%;accent-color:#000}input[data-param=hue],input[data-param=hue2]{appearance:none;height:8px;border-radius:4px;background:linear-gradient(90deg,#f44,#ff4,#4f4,#4ff,#44f,#f4f,#f44)}.parameter-select{display:flex;align-items:center;justify-content:space-between}.template-pickers{display:flex;align-items:center;gap:8px}.template-picker{display:flex;align-items:center;gap:2px;margin:5px 0;font-size:11px;min-width:0}.template-picker .motion-select{min-width:0;margin-left:2px}[data-parameters] label{margin:7px 0}.color-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.color-row label{margin:10px 0}.color-row [data-reset]{position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0;margin-left:auto;flex:none}.reset-tooltip{position:absolute;right:0;top:calc(100% + 6px);z-index:2;background:#222;color:#fff;border-radius:5px;padding:5px 7px;white-space:nowrap;font-size:11px;line-height:1.2;pointer-events:none;opacity:0}[data-reset]:not(:disabled):hover .reset-tooltip,[data-reset]:focus-visible .reset-tooltip{opacity:1}.selection-modes{display:flex;gap:4px}.selection-modes button{position:relative;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px}.mode-tooltip{position:absolute;top:calc(100% + 5px);left:0;z-index:3;width:max-content;max-width:190px;padding:5px 7px;border-radius:5px;background:#222;color:#fff;font-size:11px;line-height:1.3;pointer-events:none;opacity:0}.selection-modes button:hover .mode-tooltip,.selection-modes button:focus-visible .mode-tooltip{opacity:1}button[aria-pressed=true]{background:#1a1c1d;color:#fff}[data-selection-help]{font-size:11px;color:#5e5e63}small{color:#5e5e63}[data-target]{max-height:36px;overflow:hidden}[data-motion-feedback]{padding:8px;background:#f7f7f8;border-radius:8px}</style><aside><header data-drag-handle tabindex="0" title="\u62D6\u52A8\u9876\u90E8\u79FB\u52A8\u52A8\u6548\u9762\u677F\uFF1B\u65B9\u5411\u952E\u4E5F\u53EF\u79FB\u52A8" aria-label="\u62D6\u52A8\u9876\u90E8\u79FB\u52A8\u52A8\u6548\u9762\u677F\uFF1B\u65B9\u5411\u952E\u4E5F\u53EF\u79FB\u52A8"><span class="grip" aria-hidden="true"></span><h2>\u52A8\u6548</h2><button data-panel-close title="\u6536\u8D77\u52A8\u6548\u9762\u677F" aria-label="\u6536\u8D77\u52A8\u6548\u9762\u677F"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button><button data-collapse title="\u6536\u8D77\u52A8\u6548\u9762\u677F" aria-label="\u6536\u8D77\u52A8\u6548\u9762\u677F" aria-expanded="true"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="m5 7 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button></header><div class="body">${feedbackMarkup()}<div class="selection-modes"><button data-select-mode title="\u9009\u62E9\u52A8\u6548\u5BF9\u8C61\uFF1B\u652F\u6301\u5F53\u524D\u9875\u591A\u9009" aria-label="\u9009\u62E9\u52A8\u6548\u5BF9\u8C61\uFF1B\u652F\u6301\u5F53\u524D\u9875\u591A\u9009" aria-pressed="true"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M6.5 10V5.5a1.25 1.25 0 0 1 2.5 0V9 3.75a1.25 1.25 0 0 1 2.5 0V9 5a1.25 1.25 0 0 1 2.5 0v4.75-2a1.25 1.25 0 0 1 2.5 0v4.5c0 3-1.75 5.25-4.5 5.25h-1c-1.75 0-3-.75-4-2.25L3.75 11.5a1.25 1.25 0 0 1 2-1.5l.75 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="mode-tooltip" role="tooltip">\u9009\u62E9\u52A8\u6548\u5BF9\u8C61\uFF1B\u652F\u6301\u5F53\u524D\u9875\u591A\u9009</span></button><button data-text-mode title="\u8FD4\u56DE\u6B63\u6587\u6587\u5B57\u7F16\u8F91" aria-label="\u8FD4\u56DE\u6B63\u6587\u6587\u5B57\u7F16\u8F91" aria-pressed="false"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M6 3h2c1.2 0 2 .8 2 2v10c0 1.2-.8 2-2 2H6M14 3h-2c-1.2 0-2 .8-2 2v10c0 1.2.8 2 2 2h2M7 10h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="mode-tooltip" role="tooltip">\u8FD4\u56DE\u6B63\u6587\u6587\u5B57\u7F16\u8F91</span></button><button data-page-target title="\u8BBE\u7F6E\u5F53\u524D\u9875\u80CC\u666F" aria-label="\u8BBE\u7F6E\u5F53\u524D\u9875\u80CC\u666F"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 13l4-4 3 3 3-5 4 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg><span class="mode-tooltip" role="tooltip">\u8BBE\u7F6E\u5F53\u524D\u9875\u80CC\u666F</span></button></div><p data-selection-help></p><p data-target></p>${catalogMarkup}<div class="template-pickers"><label class="template-picker">\u7C7B\u522B<select data-category aria-label="\u52A8\u6548\u7C7B\u522B">${Object.entries(categoryLabels).map(([id2, label]) => `<option value="${id2}">${label}</option>`).join("")}</select></label><label class="template-picker">\u6A21\u677F<select data-template aria-label="\u52A8\u6548\u6A21\u677F"><option value="text.glyph-particles">\u5B57\u5F62\u7C92\u5B50</option></select></label></div><button data-apply title="\u4E3A\u9009\u4E2D\u6587\u5B57\u5957\u7528\u5B57\u5F62\u7C92\u5B50" aria-label="\u4E3A\u9009\u4E2D\u6587\u5B57\u5957\u7528\u5B57\u5F62\u7C92\u5B50">\u5957\u7528\u5B57\u5F62\u7C92\u5B50</button><button data-preview-template title="\u64AD\u653E\u5F53\u524D\u9875\uFF1A\u8FDE\u7EED\u64AD\u653E\u5DF2\u5957\u7528\u7684\u52A8\u4F5C" aria-label="\u64AD\u653E\u5F53\u524D\u9875\uFF1A\u8FDE\u7EED\u64AD\u653E\u5DF2\u5957\u7528\u7684\u52A8\u4F5C"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m7 4 9 6-9 6Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-apply-all hidden title="\u5957\u7528\u5230\u5168\u90E8\u9875\u9762" aria-label="\u5957\u7528\u5230\u5168\u90E8\u9875\u9762"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4 7H2v11h11v-2M7 4H5v11h11v-2"/><rect x="8" y="2" width="10" height="10" rx="1"/></g></svg><span class="action-tooltip" role="tooltip">\u5957\u7528\u5230\u5168\u90E8\u9875\u9762</span></button><button data-remove title="\u79FB\u9664\u9009\u4E2D\u6587\u5B57\u7684\u52A8\u6548" aria-label="\u79FB\u9664\u5F53\u524D\u6548\u679C"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 10h7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><div class="color-row"><label>\u7C92\u5B50\u989C\u8272<select data-color-mode title="\u7C92\u5B50\u989C\u8272" aria-label="\u7C92\u5B50\u989C\u8272"><option value="0">\u5F69\u8272</option><option value="1">\u9ED1\u767D</option></select></label><button data-reset title="\u6062\u590D\u9ED8\u8BA4\u53C2\u6570" aria-label="\u6062\u590D\u9ED8\u8BA4\u53C2\u6570"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 8a6 6 0 1 1 0 4M4 3v5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="reset-tooltip" role="tooltip">\u6062\u590D\u9ED8\u8BA4\u53C2\u6570</span></button></div><div data-parameters></div>${actionListMarkup}<button data-replay title="\u64AD\u653E\u5F53\u524D\u6548\u679C" aria-label="\u64AD\u653E\u5F53\u524D\u6548\u679C"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m7 4 9 6-9 6Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-pause title="\u6682\u505C\u52A8\u6548\u9884\u89C8" aria-label="\u6682\u505C\u52A8\u6548\u9884\u89C8">\u6682\u505C</button><p data-status role="status">\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u52A8\u753B\u8BBE\u7F6E\u3002</p></div></aside>`;
       selects = createMotionSelects(shadow);
       for (const select2 of shadow.querySelectorAll("select")) selects.attach(select2);
       shadow.querySelector("[data-category]").onchange = (event) => {
@@ -2663,12 +4135,21 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       shadow.querySelector("[data-apply]").onclick = () => {
         if (flushPending({ endInteraction: true }) === false) return;
         const makeId = () => `motion-${Date.now().toString(36)}-${++actionSequence}`;
-        const result = pageSlot() ? applyPageTemplate(config, editablePage().id, selectedTemplateId, makeId) : applyTemplate(config, editablePage().id, selection(), selectedTemplateId, makeId);
+        const result = pageSlot() ? applyPageTemplate(config, editablePage().id, selectedTemplateId, makeId) : applyTemplate(config, editablePage().id, selection().filter((id2) => supportsTextEffect(selectedTemplateId, byId(id2))), selectedTemplateId, makeId);
         if (!result.applied) return;
+        timingPreview = false;
         revision++;
         preview = true;
         previewProgress = 0.45;
         commit(result.config);
+        if (selectedTemplateId === "text.true-focus") {
+          const a = action(), pick = shadow.querySelector("[data-pick-focus]");
+          if (pick && !pick.disabled && !(a?.params.focusEnd > a?.params.focusStart)) {
+            pick.classList.add("focus-pick-hint");
+            pick.addEventListener("animationend", () => pick.classList.remove("focus-pick-hint"), { once: true });
+            pick.scrollIntoView({ block: "nearest" });
+          }
+        }
       };
       shadow.querySelector("[data-apply-all]").onclick = () => {
         if (!pageSlot() || flushPending({ endInteraction: true }) === false) return;
@@ -2724,19 +4205,21 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         }
         return true;
       };
-      const previewDraft = (next) => {
+      const previewDraft = (next, { timing = false } = {}) => {
+        timingPreview = timing;
         revision++;
         draft = next;
-        const progress = preview ? previewProgress : 0.45;
+        const progress2 = preview ? previewProgress : 0.45;
         config = draft;
-        void previewAt(progress);
+        void previewAt(progress2);
       };
       const timingCommit = (next) => {
+        timingPreview = true;
         revision++;
         preview = true;
         commit(next);
       };
-      renderActionList = createActionList({ root: shadow, selectUI: selects, getPage: current, labelFor: (id2, action2) => `${registry_default.templates[action2.templateId].label} \xB7 ${byId(id2)?.textContent?.trim().slice(0, 60) || byId(id2)?.getAttribute("alt") || "\u5BF9\u8C61"}`, onSelect: (id2, actionId) => {
+      renderActionList = createActionList({ root: shadow, selectUI: selects, getPage: current, labelFor: (id2, action2) => `${registry_default.templates[action2.templateId].label} \xB7 ${motionTargetLabel(editablePage(), id2, byId)}`, onSelect: (id2, actionId) => {
         if (flushPending({ endInteraction: true }) === false) return;
         const chosen = editablePage().actions.find((a) => a.id === actionId);
         if (chosen) {
@@ -2760,7 +4243,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         ignoreDrag = false;
       }, onDelayInput: (id2, value) => {
         if (ignoreDrag || window.__NUTBOOK_HTML_EDIT__?.isComposing?.()) return false;
-        previewDraft(setActionTiming(config, editablePage().id, id2, { delayMs: value }));
+        previewDraft(setActionTiming(config, editablePage().id, id2, { delayMs: value }), { timing: true });
         return true;
       }, onDelayCommit: () => flushPending() }).render;
       shadow.querySelector("[data-action-list]").addEventListener("toggle", () => constrainPanel());
@@ -2776,6 +4259,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
           }
           previewDraft(updateSelected((a) => {
             a.params[input.dataset.param === "hue" && a.params.colorMode ? "lightness" : input.dataset.param] = Number(input.value);
+            if (a.templateId === "text.true-focus" && input.dataset.param === "grouping") a.params.focusIndex = 0;
           }));
         };
         input.onchange = () => {
@@ -2901,7 +4385,51 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       drawFeedback(shadow);
       place(panel.getBoundingClientRect().left, 80);
     }
+    function finishFocusSelection() {
+      if (!focusPicking || window.__NUTBOOK_HTML_EDIT__?.isComposing?.()) return;
+      const chosen = focusSelectionOffsets(byId(focusPicking.targetId));
+      if (!chosen) return;
+      const picking = focusPicking;
+      focusPicking = null;
+      selectionMode = picking.previousMode;
+      selectedIds = /* @__PURE__ */ new Set([picking.targetId]);
+      const next = updateSelected((a) => {
+        a.params.mode = 0;
+        a.params.focusStart = chosen.start;
+        a.params.focusEnd = chosen.end;
+      });
+      window.getSelection()?.removeAllRanges();
+      revision++;
+      preview = true;
+      commit(next);
+      void replay({ selectedOnly: true });
+    }
+    function cancelFocusSelection(event) {
+      if (!focusPicking || event.isComposing || window.__NUTBOOK_HTML_EDIT__?.isComposing?.()) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finishFocusSelection();
+        return;
+      }
+      if (event.key !== "Escape") return;
+      selectionMode = focusPicking.previousMode;
+      focusPicking = null;
+      window.getSelection()?.removeAllRanges();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      syncPanel();
+    }
+    document.addEventListener("pointerup", finishFocusSelection, true);
+    document.addEventListener("keydown", cancelFocusSelection, true);
     function select(event) {
+      if (focusPicking && editing) {
+        if (byId(focusPicking.targetId)?.contains(event.target)) return;
+        if (!event.composedPath().includes(panel)) {
+          selectionMode = focusPicking.previousMode;
+          focusPicking = null;
+        }
+      }
       if (navigation?.previewing && !event.composedPath().includes(panel)) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -3146,6 +4674,9 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         catalog = null;
         panel?.remove();
         canvas.remove();
+        focusPicking = null;
+        document.removeEventListener("pointerup", finishFocusSelection, true);
+        document.removeEventListener("keydown", cancelFocusSelection, true);
         document.removeEventListener("pointerdown", select, true);
         document.removeEventListener("visibilitychange", onVisibility);
         document.removeEventListener("keydown", presentationKey, true);
@@ -3257,9 +4788,9 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         staticPageId = id2;
       },
       playReady: () => window.__NUTBOOK_MOTION_MIRROR__ ? window.__NUTBOOK_LIVE_PREVIEW__?.reapply() : startPresentation(),
-      submitted(progress) {
-        if (Number.isFinite(progress) && editing) {
-          previewProgress = progress;
+      submitted(progress2) {
+        if (Number.isFinite(progress2) && editing) {
+          previewProgress = progress2;
           preview = true;
         }
         measurement.submitted(revision);

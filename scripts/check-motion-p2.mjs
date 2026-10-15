@@ -1,0 +1,10 @@
+import {spawnSync} from 'node:child_process';
+import {readFileSync,writeFileSync,mkdtempSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {createHash} from 'node:crypto';
+if(Number(process.versions.node.split('.')[0])!==22)throw Error('P2 checks require Node 22');
+const dir=mkdtempSync(join(tmpdir(),'nutbook-motion-p2-')),results=[];
+const p1Args=['scripts/check-motion-p1.mjs'];if(process.argv[2]==='--resume-p1'){if(!process.argv[3])throw Error('Missing P1 report');p1Args.push('--resume',process.argv[3]);}
+const checks=[['p1-regression',process.execPath,p1Args],['text-feedback-ui',process.execPath,['scripts/test-motion-text-feedback-ui.mjs']],['text-feedback',process.execPath,['scripts/test-motion-text-feedback.mjs']],['text-quality',process.execPath,['scripts/test-motion-text-quality.mjs']],['text-line-layout',process.execPath,['scripts/test-motion-text-line-layout.mjs']],['text-runtime',process.execPath,['scripts/test-motion-text-runtime.mjs']],['formal-text-export',process.execPath,['scripts/test-motion-text-export.mjs']],['text-contract','cargo',['test','--manifest-path','src-tauri/Cargo.toml','--test','motion_contract','p2_text_candidates']]];
+try{for(const [name,cmd,args]of checks){console.log(`P2 checking ${name}…`);const output=spawnSync(cmd,args,{encoding:'utf8',maxBuffer:32*1024*1024,env:process.env});const log=join(dir,name+'.log');writeFileSync(log,(output.stdout||'')+(output.stderr||''));results.push({name,passed:output.status===0,log});if(output.status!==0)throw Error(`${name} failed: ${log}`);}console.log(`P2 candidate foundation checks passed: ${dir}/summary.json; native/visual acceptance remains pending`);}finally{writeFileSync(join(dir,'summary.json'),JSON.stringify({passed:results.length===checks.length&&results.every(r=>r.passed),runtimeHash:createHash('sha256').update(readFileSync('src-tauri/resources/export-templates/motion-runtime.js')).digest('hex'),visualAcceptance:false,nativeAcceptance:false,results},null,2));}
