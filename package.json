@@ -23,7 +23,7 @@
     "check:motion:background": "node scripts/test-motion-background-runtime.mjs && node scripts/test-native-motion-runtime.mjs --background && node scripts/test-native-motion-static.mjs",
     "check:motion:categories": "node scripts/test-motion-editing.mjs && node scripts/test-motion-projection.mjs && node scripts/test-motion-categories-runtime.mjs",
     "check:motion:static": "node scripts/test-native-motion-static.mjs && node scripts/test-native-presentation-dialog.mjs",
-    "check:motion:steps": "node scripts/test-motion-steps.mjs && node scripts/test-native-motion-runtime.mjs",
+    "check:motion:steps": "node scripts/test-motion-steps.mjs && node scripts/test-native-motion-runtime.mjs && node scripts/test-motion-startup-resize.mjs && node scripts/test-native-motion-runtime.mjs --startup-resize",
     "check:motion:menus": "node scripts/test-motion-select-menu.mjs",
     "check:frontend": "node --check dist/assets/markdown-editor.js && node --check src-tauri/resources/export-templates/motion-runtime.js",
     "check:ci": "node scripts/check-ci.mjs quality",

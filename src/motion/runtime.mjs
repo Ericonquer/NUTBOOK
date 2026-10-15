@@ -19,7 +19,7 @@ const root=document.documentElement;
 if(root.dataset.nutbookMotionContract==='nutbook-motion/v1') boot();
 else if(root.dataset.nutbookMotionContract?.startsWith('nutbook-motion/')&&root.dataset.nutbookMotionContract!=='nutbook-motion/experimental-v1')showUnsupportedMotion('version');
 function boot(){
-  let presentationMode=Boolean(window.__NUTBOOK_STATIC_PRESENTATION__),stepMode=false,stepIndex=0,stepApplyToken=0,pendingStepState=null,resumeStepState=null,localQueue=Promise.resolve();
+  let presentationMode=Boolean(window.__NUTBOOK_STATIC_PRESENTATION__),stepMode=false,stepIndex=0,stepApplyToken=0,pendingStepState=null,resumeStepState=null,stepApplication=null,localQueue=Promise.resolve();
   let disposeTooltips=()=>{};
   let catalogPreview=null,selectedPreview=false,previewDuration=null,pagePlayback=false;
   function syncPagePlayback(){const button=shadow?.querySelector("[data-preview-template]");if(!button)return;const playing=pagePlayback&&clock.state().playing,label=playing?"暂停整页动画":"播放整页动画";if(button.getAttribute('aria-label')===label)return;button.setAttribute("aria-label",label);button.setAttribute("aria-pressed",String(playing));button.innerHTML=playing?'<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M7 4v12M13 4v12" fill="none" stroke="currentColor" stroke-width="2"/></svg>':'<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m7 4 9 6-9 6Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';}
@@ -81,7 +81,19 @@ function boot(){
   function validate(value){try{validateConfig(value);return true;}catch{return false;}}
   function refresh(){if(clock.state().disposed)return false;const preserve=editing&&preview,progress=previewProgress;config=validateConfig(JSON.parse(node.textContent));if(preserve)void previewAt(progress);else staticView();syncPanel();}
   function playbackState(){if(composition&&navigation?.initialState)return structuredClone(navigation.initialState);if(!stepMode)return null;const state=clock.state(),step=timeline().steps[stepIndex],time=Math.min(step.endMs,Math.max(step.startMs,state.logicalTimeMs));return {...stepState(timeline(),current().id,stepIndex,revision),logicalTimeMs:time,backgroundTimeMs:background?Math.max(0,state.logicalTimeMs+backgroundOffset):0,playbackStatus:presentationPaused?'paused':state.playing&&time<step.endMs?'playing':time>=step.endMs?'finished':'paused'};}
-  async function applyPlaybackState(state,{allowEditing=false}={}){if(editing&&!allowEditing||clock.state().disposed||!validStepState(state,timeline(),current()?.id,revision,Boolean(current()?.background)))return false;presentationMode=true;presentationPaused=state.playbackStatus==='paused';previewAuto=false;stepMode=true;stepIndex=state.stepIndex;const token=++stepApplyToken;pendingStepState=structuredClone(state);if((!adapters.length&&!background)||preparedRevision!==revision){if(!await prepare()||token!==stepApplyToken)return false;}if(token!==stepApplyToken)return false;pendingStepState=null;backgroundOffset=state.backgroundTimeMs-state.logicalTimeMs;clock.pause();clock.seek(state.logicalTimeMs);if(state.playbackStatus==='playing'&&(state.logicalTimeMs<timeline().steps[stepIndex].endMs||background)||background&&state.playbackStatus==='finished')clock.play();else clock.pause();return true;}
+  function applyPlaybackState(state,{allowEditing=false}={}){
+    if(editing&&!allowEditing||clock.state().disposed||!validStepState(state,timeline(),current()?.id,revision,Boolean(current()?.background)))return Promise.resolve(false);
+    presentationMode=true;presentationPaused=state.playbackStatus==='paused';previewAuto=false;stepMode=true;stepIndex=state.stepIndex;
+    const token=++stepApplyToken,requested=stableJson(state);pendingStepState=structuredClone(state);
+    const superseded=()=>stepApplication?.token>token&&stepApplication.requested===requested?stepApplication.promise:false;
+    const promise=(async()=>{
+      if((!adapters.length&&!background)||preparedRevision!==revision){if(!await prepare()||token!==stepApplyToken)return superseded();}
+      if(token!==stepApplyToken)return superseded();
+      pendingStepState=null;backgroundOffset=state.backgroundTimeMs-state.logicalTimeMs;clock.pause();clock.seek(state.logicalTimeMs);
+      if(state.playbackStatus==='playing'&&(state.logicalTimeMs<timeline().steps[stepIndex].endMs||background)||background&&state.playbackStatus==='finished')clock.play();else clock.pause();return true;
+    })();
+    stepApplication={token,requested,promise};return promise;
+  }
   async function startPresentation({completed=false}={}){if(editing||clock.state().disposed)return false;presentationMode=true;if(staticPageId===current().id){staticView();stepMode=true;stepIndex=timeline().steps.length-1;clock.seek(timeline().steps[stepIndex].endMs);clock.pause();return true;}const schedule=timeline();if(matchMedia('(prefers-reduced-motion: reduce)').matches)completed=true;return applyPlaybackState(stepState(schedule,current().id,completed?schedule.steps.length-1:0,revision,completed?'finished':'playing'));}
   async function localNavigate(direction){if(!presentationMode||editing)return;const pages=window.__NUTBOOK_PRESENTATION__?.pages||[],index=pages.findIndex(page=>page.id===current()?.id);if(direction==='next'){const planned=nextStepPlan(timeline(),playbackState());if(planned){await applyPlaybackState(planned);return;}}const target=pages[index+(direction==='next'?1:-1)];if(!target)return;if(await window.__NUTBOOK_PRESENTATION__.goTo(target.id)===false)return;await startPresentation({completed:direction==='previous'});}
   function queueLocal(direction){localQueue=localQueue.then(()=>localNavigate(direction)).catch(()=>{});}

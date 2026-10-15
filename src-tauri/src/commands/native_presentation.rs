@@ -903,7 +903,7 @@ pub fn audience_init_script(
       let pendingSequence = 0;
       const invoke = (type, extra = {{}}) => window.__TAURI_INTERNALS__?.invoke('native_presentation_report', {{
         payload: {{ sessionId, itemId, generation, type, ...extra }}
-      }}).catch(() => {{}});
+      }}).catch(error => {{ if(type === 'ready') throw error; }});
       const editableFocus = () => {{
         let active = document.activeElement;
         while(active?.shadowRoot?.activeElement)active=active.shadowRoot.activeElement;

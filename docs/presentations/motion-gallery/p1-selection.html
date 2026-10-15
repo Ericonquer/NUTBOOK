@@ -97,8 +97,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     })();
   </script>
 <script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">{"contract":"nutbook-motion/v1","pages":[{"actions":[],"background":null,"capabilities":{"containsEmbeddedFrame":false,"containsVideo":false,"embeddedTargetIds":[],"mediaTargetIds":[],"supportsDomTransition":true,"supportsFilterTransition":true},"id":"opening","targets":[{"id":"opening-title","kind":"text"},{"id":"opening-copy","kind":"text"},{"id":"opening-image","kind":"image"}],"transition":{"id":"motion-mv7r8j2o-1","params":{"direction":0,"durationMs":800,"feather":0.08,"shape":0},"seed":42,"templateId":"transition.curtain-reveal","templateVersion":1}},{"actions":[],"background":null,"capabilities":{"containsEmbeddedFrame":false,"containsVideo":false,"embeddedTargetIds":[],"mediaTargetIds":[],"supportsDomTransition":true,"supportsFilterTransition":true},"id":"evidence","targets":[{"id":"evidence-title","kind":"text"},{"id":"evidence-copy","kind":"text"}],"transition":{"id":"motion-mv7r8zvz-1","params":{"direction":0,"durationMs":800,"feather":0.08,"shape":0},"seed":42,"templateId":"transition.curtain-reveal","templateVersion":1}},{"actions":[],"background":null,"capabilities":{"containsEmbeddedFrame":false,"containsVideo":false,"embeddedTargetIds":[],"mediaTargetIds":[],"supportsDomTransition":true,"supportsFilterTransition":true},"id":"finish","targets":[{"id":"finish-title","kind":"text"},{"id":"finish-copy","kind":"text"}],"transition":null}]}</script>
-<script>
-(() => {
+<script>(() => {
   // src/motion/panel-tooltips.mjs
   function installPanelTooltips(root2) {
     const tip = document.createElement("div");
@@ -2058,7 +2057,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
   if (root.dataset.nutbookMotionContract === "nutbook-motion/v1") boot();
   else if (root.dataset.nutbookMotionContract?.startsWith("nutbook-motion/") && root.dataset.nutbookMotionContract !== "nutbook-motion/experimental-v1") showUnsupportedMotion("version");
   function boot() {
-    let presentationMode = Boolean(window.__NUTBOOK_STATIC_PRESENTATION__), stepMode = false, stepIndex = 0, stepApplyToken = 0, pendingStepState = null, resumeStepState = null, localQueue = Promise.resolve();
+    let presentationMode = Boolean(window.__NUTBOOK_STATIC_PRESENTATION__), stepMode = false, stepIndex = 0, stepApplyToken = 0, pendingStepState = null, resumeStepState = null, stepApplication = null, localQueue = Promise.resolve();
     let disposeTooltips = () => {
     };
     let catalogPreview = null, selectedPreview = false, previewDuration = null, pagePlayback = false;
@@ -2391,26 +2390,31 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
       const state = clock.state(), step = timeline().steps[stepIndex], time = Math.min(step.endMs, Math.max(step.startMs, state.logicalTimeMs));
       return { ...stepState(timeline(), current().id, stepIndex, revision), logicalTimeMs: time, backgroundTimeMs: background ? Math.max(0, state.logicalTimeMs + backgroundOffset) : 0, playbackStatus: presentationPaused ? "paused" : state.playing && time < step.endMs ? "playing" : time >= step.endMs ? "finished" : "paused" };
     }
-    async function applyPlaybackState(state, { allowEditing = false } = {}) {
-      if (editing && !allowEditing || clock.state().disposed || !validStepState(state, timeline(), current()?.id, revision, Boolean(current()?.background))) return false;
+    function applyPlaybackState(state, { allowEditing = false } = {}) {
+      if (editing && !allowEditing || clock.state().disposed || !validStepState(state, timeline(), current()?.id, revision, Boolean(current()?.background))) return Promise.resolve(false);
       presentationMode = true;
       presentationPaused = state.playbackStatus === "paused";
       previewAuto = false;
       stepMode = true;
       stepIndex = state.stepIndex;
-      const token = ++stepApplyToken;
+      const token = ++stepApplyToken, requested = stableJson(state);
       pendingStepState = structuredClone(state);
-      if (!adapters.length && !background || preparedRevision !== revision) {
-        if (!await prepare() || token !== stepApplyToken) return false;
-      }
-      if (token !== stepApplyToken) return false;
-      pendingStepState = null;
-      backgroundOffset = state.backgroundTimeMs - state.logicalTimeMs;
-      clock.pause();
-      clock.seek(state.logicalTimeMs);
-      if (state.playbackStatus === "playing" && (state.logicalTimeMs < timeline().steps[stepIndex].endMs || background) || background && state.playbackStatus === "finished") clock.play();
-      else clock.pause();
-      return true;
+      const superseded = () => stepApplication?.token > token && stepApplication.requested === requested ? stepApplication.promise : false;
+      const promise = (async () => {
+        if (!adapters.length && !background || preparedRevision !== revision) {
+          if (!await prepare() || token !== stepApplyToken) return superseded();
+        }
+        if (token !== stepApplyToken) return superseded();
+        pendingStepState = null;
+        backgroundOffset = state.backgroundTimeMs - state.logicalTimeMs;
+        clock.pause();
+        clock.seek(state.logicalTimeMs);
+        if (state.playbackStatus === "playing" && (state.logicalTimeMs < timeline().steps[stepIndex].endMs || background) || background && state.playbackStatus === "finished") clock.play();
+        else clock.pause();
+        return true;
+      })();
+      stepApplication = { token, requested, promise };
+      return promise;
     }
     async function startPresentation({ completed = false } = {}) {
       if (editing || clock.state().disposed) return false;
@@ -3270,7 +3274,6 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     window.addEventListener("pagehide", () => api.dispose(), { once: true });
   }
 })();
-
 </script>
 </body>
 </html>
