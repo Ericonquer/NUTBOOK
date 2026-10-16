@@ -2563,7 +2563,7 @@ fn html_edit_journal_recovers_after_source_replace_before_sidecar_cleanup() {
 fn motion_config_commit_is_data_only_atomic_and_preserves_source() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("motion.html");
-    let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/presentations/motion-lab/index.html")).unwrap();
+    let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/html-edit/motion-config.html")).unwrap();
     std::fs::write(&path, &source).unwrap();
     let lookup = HtmlEditPatchLookup { library_id: 1, item_id: 1, library_root: root.path().into(), file_path: path.clone(), title_hint: "Motion".into() };
     let opened = get_html_edit_patch_for_file(&lookup).unwrap();

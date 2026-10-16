@@ -62,7 +62,7 @@
       (() => {
         const params = new URLSearchParams(location.search);
         const locale = params.get("locale") === "en-US" ? "en-US" : "zh-CN";
-        const flow = ["agent", "markdown", "html"].includes(params.get("flow")) ? params.get("flow") : "agent";
+        const flow = ["agent", "markdown", "html", "export", "formatting", "home"].includes(params.get("flow")) ? params.get("flow") : "agent";
         document.documentElement.lang = locale;
         localStorage.setItem("nutbook.language", locale);
 
@@ -110,7 +110,7 @@
           await appSource(`updateInterfaceLanguage(${JSON.stringify(locale)})`);
           await wait(100);
 
-          const title = locale === "en-US" ? "AI in classroom collaboration" : "AI 如何改变课堂协作";
+          const title = flow === "formatting" ? (locale === "en-US" ? "AI in Class" : "AI课堂研究") : locale === "en-US" ? "AI in classroom collaboration" : "AI 如何改变课堂协作";
           const summaryHeading = locale === "en-US" ? "Research summary" : "研究摘要";
           const summary = locale === "en-US"
             ? "A useful research note keeps evidence and structure easy to refine after the Agent finishes the task."
@@ -215,7 +215,7 @@
             appState.activeTabId = 102;
             appState.activeHtmlRuntimeUrl = null;
             appState.htmlEditSession = null;
-            cleanupMarkdownEditor();
+            destroyAllMarkdownEditorSessions();
             setSidebarCollapsed(true);
             renderSettingsPanel();
             renderTabs();
@@ -360,7 +360,7 @@
         (async () => {
           await prepareProductData();
           if (flow === "agent") await prepareAgentFlow();
-          if (flow === "markdown") await prepareMarkdownFlow();
+          if (flow === "markdown" || flow === "export" || flow === "formatting" || flow === "home") await prepareMarkdownFlow();
           if (flow === "html") await prepareHtmlFlow();
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           window.__ready = true;

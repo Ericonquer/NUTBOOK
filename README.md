@@ -12,452 +12,141 @@
 
 <div align="center">
 
-**A local reading, management, and presentation tool for AI-generated content.**
+**A local tool for reading, managing, and presenting AI-generated content.**
 
 </div>
 
-[![CI](https://github.com/Ericonquer/NUTBOOK/actions/workflows/ci.yml/badge.svg)](https://github.com/Ericonquer/NUTBOOK/actions/workflows/ci.yml) · [Download latest release](https://github.com/Ericonquer/NUTBOOK/releases/latest) · [中文版](./README-CN.md)
+<div align="center">
 
-![NUTBOOK, NOT A BOOK.](./assets/readme-hero.svg)
+Turn generated files into useful materials you can find, refine, and reuse.
+
+</div>
+
+<div align="center">
+
+[Download](https://github.com/Ericonquer/NUTBOOK/releases/latest) · [中文版](./README-CN.md) · [User guide](./docs/guides/user-guide.md) · [Report an issue](https://github.com/Ericonquer/NUTBOOK/issues)
+
+</div>
+
+![NUTBOOK, beyond books](./assets/readme-hero.svg)
 
 <https://github.com/user-attachments/assets/45dcfef4-44c4-4ec1-888a-c47404995a72>
 
 ## What Is NUTBOOK?
 
-AI no longer stops at answering questions in a chat window. It now delivers real files: research reports, course materials, competitor analyses, client proposals, Markdown documents, HTML presentations, and project or task artifacts created by Agents.
+AI delivers research reports, teaching materials, and presentations, but the files often end up scattered across downloads, project folders, and Agent tasks. Finding them again takes work.
 
-Those files often end up scattered across Downloads, project folders, hidden directories, task histories, and Skill output folders. A result may be easy to find when it is first generated, but after more projects and conversations accumulate, it becomes difficult to remember which task created it, where it was saved, or which file is the final version.
+NUTBOOK brings Markdown and HTML outputs into a local library. Find content by its cover, tags, or source; read and refine it; then export, publish, or present it.
 
-NUTBOOK brings these scattered AI artifacts into one local library so they become:
+Your files stay on your computer without uploading them to a cloud service.
 
-* **Easier to find:** discover and connect useful work across Agents, projects, tasks, Skills, folders, and individual files.
+### Ways to Use It
 
-* **Better to read:** recognize content through thumbnails and dedicated Markdown / HTML reading surfaces.
+- **Teachers**: organize lesson plans, course materials, and presentations, then refine them for class.
+- **Researchers and students**: collect literature reviews, research notes, and reports for reference and ongoing revision.
+- **Consultants, planners, and business teams**: manage research, competitive analysis, and proposals for meetings and client presentations.
+- **People working with multiple Agents**: keep outputs from different projects and tasks together instead of searching through old conversations and folders.
 
-* **Ready to refine:** make lightweight Markdown edits and update text or images in supported HTML artifacts.
+## Core Features
 
-* **Ready to present:** preserve the original interaction of HTML pages and use them in meetings, proposals, classes, and reviews.
+### Find and Organize Materials
 
-* **Local by default:** the filesystem remains the source of truth; NUTBOOK does not turn your library into a cloud content platform.
+Add local files and folders, or connect outputs from Agents and Skills. Recognize each document by its thumbnail.
 
-In short, NUTBOOK **turns scattered AI files into a local library that is readable, manageable, presentable, and reusable.**
+- Search and filter by recent use, favorites, type, and source.
+- Add multiple custom tags, change their order, and organize documents in batches.
+- Rescan your library to pick up files added, changed, or deleted elsewhere.
 
-## If Agents Already Show Artifacts, Why Use NUTBOOK?
+![NUTBOOK library with covers, favorites, and sources](./assets/readme-demo/nutbook-home-en.png)
 
-Agent tools such as Codex can show artifacts beside the current task or conversation. That works well while you are still doing the work. But once tasks, projects, and Agents multiply, finding an older result still requires remembering which conversation produced it and searching through a long history.
+### Markdown: Refine While Reading, Export for Your Audience
 
-The two tools serve different stages:
+Edit text, adjust formatting, and insert images or tables while reading. Outline navigation, undo, and redo help you turn an initial draft into something ready to use.
 
-* **Agent tools organize the generation process:** understand a request, execute work, modify files, and deliver a result.
+![Markdown reading, editing, and images](./assets/readme-demo/nutbook-markdown-edit-en.gif)
 
-* **NUTBOOK organizes the resulting artifacts:** bring useful work from different conversations, tasks, projects, and Agents into one local library for later reading, editing, and presentation.
+Export Markdown as reading HTML, presentation HTML, PDF, or a PNG long image. You can also create separate WeChat, X Articles, or Weibo publishing drafts, adjust their layout, and preview before copying, while keeping the original document.
 
-NUTBOOK does not replace Agents or manage their execution. Agent projects and tasks are discovery scopes and sources. The items that enter the library are readable or presentable Markdown / HTML artifacts—not every file in a project.
+#### Watch export and publishing demos
 
-## Real Situations Where NUTBOOK Helps
+Choose the format that suits your delivery:
 
-### If You Are a Teacher
+![Markdown Export Center](./assets/readme-demo/nutbook-markdown-export-en.gif)
 
-You may ask an Agent to prepare course notes, classroom examples, or an HTML presentation. The Agent says the files are ready, but they may be buried in a nested project directory or an old task. NUTBOOK can surface those results and let you confirm what enters the library, so you can later read, edit, and present them without searching through conversations or hidden folders again.
+Adjust a separate publishing draft, switch themes, and compare it with the original:
 
-### If You Are a Researcher or Student
+![Markdown publishing workspace](./assets/readme-demo/nutbook-markdown-formatting-v2-en.gif)
 
-Paper analyses, literature reviews, experiment notes, and progress reports accumulate throughout a project. NUTBOOK gathers Markdown / HTML material from different tasks, then helps you find it again through thumbnails, tags, sources, and recent activity while continuing to refine it as you read.
 
-### If You Work in Business, Consulting, or Planning
+### HTML: Keep Editing, Add Motion
 
-Competitor research, market reports, client proposals, and HTML presentations rarely end when AI generates them. They still need fact checks, wording changes, image replacements, and a clear presentation. NUTBOOK supports that post-generation stage: refine, organize, and present the final material.
+Keep the page's original interactions while editing supported text, formatting, and images. Replace, crop, or reposition images when needed.
 
-### If You Use Several Agents and Content-Generating Skills
+![HTML text and image editing](./assets/readme-demo/nutbook-html-edit-en.gif)
 
-Codex, Claude Code, OpenClaw, Hermes, WorkBuddy, and different Skills may put their outputs in different places. NUTBOOK creates a local artifact layer across those sources, so you do not need to understand hidden folders, manifests, or internal project structures to keep useful results.
+Use the Motion Center to add entrances, emphasis, and exits to text and images, plus animated backgrounds and page transitions. Preview effects, adjust parameters and action order, favorite effects, and set your own defaults.
 
-## How NUTBOOK Handles an AI Artifact
+![Motion Center: select objects, preview effects, and add backgrounds and transitions](./assets/readme-demo/nutbook-motion-center-en.gif)
 
-**Discover and connect → Read and lightly edit → Organize → Present and reuse**
+Ordinary HTML can be opened as an editable copy; documents with the full editing contract support direct editing. HTML editing focuses on content adjustments rather than rebuilding arbitrary pages.
 
-1. Find useful results in Agent projects and tasks, Skill output folders, local folders, or individual files.
-2. Let the user confirm the exact intake scope instead of silently importing an entire project.
-3. Read Markdown or run interactive HTML in NUTBOOK, then make the necessary lightweight edits.
-4. Organize content through thumbnails, tags, favorites, sources, and recent activity.
-5. Reopen, present fullscreen, or reuse the artifact in a meeting, class, proposal, or review.
+### Present in Class and Meetings
 
-## Core Capabilities
+Open supported HTML decks fullscreen or in native presentation mode. Your audience sees the slides while you see the current slide, next-slide preview, per-slide notes, and timer.
 
-### 1. Multi-Source Artifact Access
+![Presenter view, slide notes, and navigation](./assets/readme-demo/nutbook-native-presenter-en.gif)
 
-NUTBOOK manages AI artifacts worth reading and presenting—not every file in a project.
+Save slide content, notes, and motion settings, then pick up where you left off next time.
 
-Current intake paths include:
+## Connect Your Agents
 
-* Add a local folder or one Markdown / HTML file.
+NUTBOOK supports **Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy**, bringing outputs from different projects, tasks, and Skills into one library.
 
-* Scan declared or commonly used output folders from content-generating Skills.
-
-* Discover Agent project and task artifacts from Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy.
-
-* Use an nbskill manifest to retain artifact identity, provenance, lifecycle, and supported HTML editing capabilities.
-
-* Enable explicitly confirmed Agent integrations so Agents can register artifacts through the shared protocol.
-
-* Use the Nutbook CLI to add or remove a file, folder, or Agent project whether the desktop app is running or closed.
-
-### 2. Markdown / HTML Reading and Lightweight Editing
-
-NUTBOOK is not a heavy authoring suite. It focuses on the edits that matter while you are reading generated content.
-
-* Markdown reading, outline, formatting tools, table operations, undo/redo, save, and recovery.
-
-* A Markdown export center for standalone reading or presentation HTML, PDF, and PNG long images.
-
-* A Markdown publishing workspace with separate drafts, previews, and copy actions for WeChat Official Accounts, X Articles, and Weibo Articles.
-
-* Pin frequently used actions from More to the toolbar, with separate Markdown / HTML preferences and up to three shortcut positions.
-
-* A dedicated HTML runtime that preserves JavaScript interaction instead of treating runnable HTML as a static document.
-
-* Text and rich-text editing plus image replacement, cropping, movement, and insertion in supported HTML.
-
-* Page navigation for editable presentations and supported vertical HTML artifacts.
-
-* A same-directory `.nutbook-editable.html` copy for ordinary HTML, preserving the original file.
-
-This walkthrough shows Markdown outline navigation, live editing, text formatting, image insertion, and alignment:
-
-![NUTBOOK Markdown outline, live editing, bold formatting, and image insertion](./assets/readme-demo/nutbook-markdown-edit-en.gif)
-
-#### Markdown Export and Publishing Drafts
-
-Choose reading HTML, presentation HTML, PDF, or a PNG long image in the Export Center:
-
-![Markdown Export Center (Chinese UI)](./assets/readme-demo/nutbook-markdown-export-cn.gif)
-
-Create a separate publishing draft, adjust its theme, compare it with the original, and preview before copying:
-
-![Markdown publishing workspace (Chinese UI)](./assets/readme-demo/nutbook-markdown-formatting-v2-cn.gif)
-
-### 3. Local Library Management
-
-* Recognize reports, presentations, and long documents through thumbnails.
-
-* Organize content with favorites, custom tags, Skill tags, and type tags.
-
-* Discover, edit, order, and batch-manage custom tags across documents.
-
-* Browse all files, recent items, favorites, content types, and sources.
-
-* Manage folder, single-file, and Agent-project sources separately.
-
-* Treat files on disk as the source of truth and synchronize external additions, changes, and deletions.
-
-### 4. HTML Presentation
-
-* Preserve the page's own JavaScript interaction and visual behavior.
-
-* Present HTML in window-level fullscreen.
-
-* Support page-owned keyboard navigation and playback controls.
-
-* Provide deterministic navigation for supported presentation and vertical HTML artifacts.
-
-* Open nbskill presentation HTML and Markdown presentation exports in NUTBOOK's native presentation mode, with editable slide text and per-page notes that persist after saving and reopening.
-
-The goal is not merely to open AI-generated HTML, but to make it useful for explaining, proposing, teaching, and reviewing ideas.
-
-This walkthrough shows native text editing, heading formatting, image-frame insertion, and saving in presentation HTML:
-
-![NUTBOOK native HTML editing, heading formatting, image-frame insertion, and saving](./assets/readme-demo/nutbook-html-edit-en.gif)
-
-#### Motion Center and Presenter View
-
-Open Motion while editing supported HTML to add element entrances, emphasis and exits, plus page backgrounds and transitions. Search or favorite effects and save local parameter defaults; saved motion documents remain editable and presentable.
-
-The presenter view combines a live current slide, a still preview of the next slide, per-slide notes, slide navigation, and timer controls:
-
-![NUTBOOK presenter view and slide notes (Chinese UI)](./assets/readme-demo/nutbook-native-presenter-cn.gif)
-
-These GIFs demonstrate the real frontend with isolated sample data. Save, copy, and multi-window host interfaces are simulated; the recordings are not evidence of disk, clipboard, or physical dual-display acceptance.
-
-## Current Support
-
-| Area             | Supported today                                                                                           | Boundary                                                                                 |
-| ---------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Artifact sources | Individual files, folders, Skill outputs, Agent projects and tasks, nbskill manifests, Nutbook CLI        | Connects readable and presentable artifacts, not every project file                      |
-| Agent scope      | Bounded project adapters for Codex, Claude Code, OpenClaw, Hermes, and WorkBuddy                          | Project discovery, Agent detection, and integration health are evaluated separately      |
-| File formats     | `.md`, `.markdown`, `.html`, `.htm`                                                                       | NUTBOOK is not a general-purpose file manager                                            |
-| Markdown         | Reading, outline, light editing, formatting, tables, history, save, recovery, and export                  | Milkdown is the primary experience with source-editing fallback retained                 |
-| Markdown export  | Reading and presentation HTML, PDF, and PNG long images                                                   | PDF and long-image export require a locally available Chromium engine                    |
-| HTML             | Interactive runtime, fullscreen, text/rich-text/image editing, supported page navigation                  | Native editing depends on artifact capabilities; ordinary HTML uses an editable copy     |
-| Library          | Thumbnails, favorites, tags, recent items, type filters, source management, external file synchronization | The filesystem is the source of truth; the database is an index and cache                |
-| Presentation     | HTML interaction, window-level fullscreen, and page-owned presentation shortcuts                          | NUTBOOK preserves page behavior where possible instead of rewriting arbitrary page logic |
-| Data location    | Local files, local index, local integrations                                                              | No cloud sync, online collaboration, or RAG knowledge base                               |
-
-## First-Time Setup
-
-This walkthrough starts from an empty library, enables an Agent integration, and discovers Agent projects and Skill output folders. Its scan results use isolated sample data and contain no real user content:
-
-![NUTBOOK first-time setup: Agent integration, project discovery, and Skill artifact access](./assets/readme-demo/nutbook-agent-access-en.gif)
-
-### 1. Download and Install
-
-1. Open [GitHub Releases](https://github.com/Ericonquer/NUTBOOK/releases/latest) and select the latest version.
-2. Choose the build for your Mac: Apple Silicon for M1 / M2 / M3 / M4 and later chips, or Intel for an Intel Mac.
-3. Download the DMG, open it, and drag `NUTBOOK` into `Applications`.
-
-### 2. Complete the First macOS Authorization
-
-Current GitHub builds use a complete ad-hoc signature because the project does not yet use a paid Apple Developer ID. On first launch, macOS may say it cannot verify the developer:
-
-1. Open System Settings.
-2. Go to Privacy & Security.
-3. Find the blocked NUTBOOK notice near the bottom.
-4. Choose Open Anyway / Allow.
-
-If macOS reports that NUTBOOK is “damaged” and provides no approval option, report the exact package name instead of removing its quarantine attribute.
-
-### 3. Open Artifact Access from an Empty Library
-
-The first launch opens the empty **All Files** tab. Click **Artifact Access** in the center of the page to open **Settings → Artifact Access**.
-
-The page contains two distinct areas:
-
-* The **Agent Integrations** banner in the upper-right manages, enables, or repairs reliably detected Agent integrations.
-
-* **Project Artifact Access** below discovers suggested, optional, and already connected artifacts from existing Agent projects and tasks.
-
-### 4. Enable an Agent Integration
-
-Select a detected Agent in the upper-right banner, click **Enable Agent Integrations**, and confirm the exact scope in the dialog.
-
-NUTBOOK changes only conservatively detected integrations explicitly selected by the user. It does not modify `PATH`, deploy through symlinks, overwrite files whose ownership cannot be proven, or silently downgrade a newer version.
-
-### 5. Add an Artifact with One Sentence
-
-Return to an integrated Agent and say:
+Enable a detected Agent integration in **Settings → Artifact Access**, then tell your Agent:
 
 > Add this artifact to NUTBOOK.
 
-The Agent can use nbskill to register artifact identity and editing capabilities, then use the Nutbook CLI when you explicitly ask it to connect the artifact. You do not need to find hidden folders, copy long paths, or understand manifests.
+You can also browse existing project and task outputs and choose what to add. Local files and folders work without Agent integrations.
 
-Artifacts with the complete NUTBOOK HTML editing protocol receive native light-editing capabilities. Ordinary HTML without the protocol can still be edited safely through a same-directory editable copy.
+#### Watch Agent integration and artifact access
 
-### You Can Also Use NUTBOOK Without Agent Integrations
+![Agent integration, project discovery, and Skill outputs](./assets/readme-demo/nutbook-agent-access-en.gif)
 
-* Discover existing Agent project and task artifacts in **Project Artifact Access**, then confirm them manually.
 
-* Add a local folder directly.
+## Quick Start
 
-* Add one Markdown / HTML file directly.
+1. Download an installer from [GitHub Releases](https://github.com/Ericonquer/NUTBOOK/releases/latest). Choose Apple Silicon or Intel for your Mac, or the Windows installer.
+2. Install NUTBOOK and add a Markdown / HTML file or folder.
+3. To keep receiving Agent outputs, enable an integration in **Settings → Artifact Access**.
+4. Open your materials to read, edit, export, or present them.
 
-* Manage output folders from content-generating Skills under **Skill Artifact Access**.
+See the [user guide](./docs/guides/user-guide.md) for first-launch authorization, shortcuts, thumbnail settings, and detailed instructions.
 
-## More Intake and Runtime Options
+## Latest Version
 
-### Nutbook CLI
+### 1.4.0 · Upgraded Tags and Motion Center
 
-NUTBOOK deploys its bundled CLI into the application data directory but intentionally does not add it to `PATH`:
-
-* macOS: `~/Library/Application Support/com.hayley.nutbook/cli/nutbook`
-
-* Windows: `%LOCALAPPDATA%\com.hayley.nutbook\cli\nutbook.exe`
-
-Each mutating command accepts exactly one path:
-
-```text
-nutbook add <path> [--json]
-nutbook remove <path> [--json]
-nutbook add-project <path> [--json]
-nutbook remove-project <path> [--json]
-nutbook doctor [--json]
-```
-
-`doctor` is read-only. File and folder operations support the same Markdown / HTML formats as NUTBOOK and never delete source files.
-
-### Build from Source
-
-For developers, testers, or anyone who wants a local build.
-
-| Dependency   | Recommended version  | Purpose                                                                   |
-| ------------ | -------------------- | ------------------------------------------------------------------------- |
-| Node.js      | 22.x                 | Install frontend dependencies and build Markdown editor / frontend assets |
-| npm          | Bundled with Node.js | Run frontend build scripts                                                |
-| Rust / Cargo | stable               | Compile and check the Tauri backend                                       |
-| Tauri CLI    | 2.x                  | Run or build the desktop app                                              |
-
-```bash
-git clone https://github.com/Ericonquer/NUTBOOK.git
-cd NUTBOOK
-npm install
-npm run build:frontend
-cargo check --manifest-path src-tauri/Cargo.toml
-```
-
-The Markdown editor build includes a compatibility patch. Do not skip `npm run build:frontend`.
-
-Before opening a PR or pushing a release tag, switch to Node 22 (`nvm use` after
-installing the version declared in `.nvmrc`) and run this once per clone:
-
-```bash
-npm run setup-hooks
-```
-
-The installed pre-push hook rejects a dirty checkout, checks the exact outgoing
-range for whitespace errors, then runs `npm run check:push`: a clean dependency
-install, Chromium runtime tests, frontend/i18n checks, regressions, and Rust
-checks/tests. Run that command directly when you want the same local gate without
-pushing. It cannot emulate the native Windows package-input path; that is the
-explicit release preflight below.
-
-Release builds are intentionally manual so creating a tag does not silently spend
-packaging minutes. After the PR is merged, run **Release preflight** from the
-intended `main` revision. It performs the native Windows `beforeBuild` CLI-resource
-check and a native macOS release compile. Only then create an immutable `vX.Y.Z`
-tag pointing at that exact commit and manually run **Build desktop app** with the
-tag. The build rejects tags without that exact successful preflight, uses cached
-dependencies and compile intermediates, clears cached installers before packaging,
-and uploads through one final release-writer job. Protect `v*` tags from force
-updates in repository settings.
-
-For a desktop development run, use the tracked entry point:
-
-```bash
-npm run dev
-```
-
-This invokes `cargo tauri dev` with `src-tauri/tauri.dev.conf.json`, which gives
-the development app the `com.hayley.nutbook.dev` identity, the `NUTBOOK Dev`
-display name, and no Markdown/HTML file associations. A bare `cargo tauri dev`
-cannot be transparently rewritten by a repository package script; it reads the
-release base config and can register the release identity with LaunchServices.
-Use `npm run dev` whenever running the debug app.
-
-### Thumbnail Engine
-
-When a usable thumbnail engine is available, NUTBOOK uses it to generate HTML / Markdown thumbnails. Otherwise the app displays placeholders and lets you detect available engines, explicitly enable system Chrome as a fallback, or follow the installation guidance for a screenshot engine. NUTBOOK does not invoke Chrome silently.
-
-## Keyboard Shortcuts
-
-Use `Cmd` on macOS and `Ctrl` on Windows / Linux.
-
-### General
-
-| Shortcut               | Action           | Context                                         |
-| ---------------------- | ---------------- | ----------------------------------------------- |
-| `Cmd/Ctrl + O`         | Add folder       | Connect a local directory to NUTBOOK            |
-| `Cmd/Ctrl + Shift + O` | Add one file     | Connect one Markdown / HTML file                |
-| `Cmd/Ctrl + R`         | Rescan library   | Synchronize additions, deletions, and changes   |
-| `Cmd/Ctrl + B`         | Toggle sidebar   | Expand or collapse the left navigation          |
-| `Cmd/Ctrl + 1`         | All Files        | Switch to the complete library                  |
-| `Cmd/Ctrl + 2`         | Recent           | Switch to recently used content                 |
-| `Cmd/Ctrl + 3`         | Favorites        | Switch to favorite content                      |
-| `Cmd/Ctrl + Shift + B` | Markdown outline | Show or hide the outline while reading Markdown |
-
-### Markdown Reading and Lightweight Editing
-
-| Shortcut               | Action                       | Notes                                        |
-| ---------------------- | ---------------------------- | -------------------------------------------- |
-| `Cmd/Ctrl + Z`         | Undo                         | Undo the latest Markdown edit                |
-| `Cmd/Ctrl + Shift + Z` | Redo                         | Restore the latest undone edit               |
-| `Cmd/Ctrl + Y`         | Redo                         | Common Windows / Linux habit                 |
-| `Cmd/Ctrl + X/C/V/A`   | Cut, copy, paste, select all | Use native text editing behavior             |
-| `Enter`                | Apply link                   | Confirm the current link input               |
-| `Esc`                  | Close link input             | Cancel link editing and return to the editor |
-
-Bold, italic, inline code, strikethrough, links, headings, and table operations are handled mainly through the floating toolbar in the reading area.
-
-### HTML Presentation
-
-| Shortcut  | Action                        | Notes                                                     |
-| --------- | ----------------------------- | --------------------------------------------------------- |
-| `F`       | Toggle fullscreen             | Enter or exit window-level fullscreen in the HTML runtime |
-| `S`       | Open presentation mode        | Open NUTBOOK native presentation preparation; requires the presentation protocol      |
-| `←` / `→` | Previous / next page          | Forwarded to the current HTML page                        |
-| `↑` / `↓` | Previous / next step          | Exact behavior is defined by the page                     |
-| `Space`   | Next step or playback control | For pages that support Space                              |
-
-F and S are handled by NUTBOOK; navigation and playback keys are forwarded to the current HTML page. While editing text, NUTBOOK protects input from bare F/S shortcuts.
-
-## Product Boundaries
-
-NUTBOOK remains deliberately focused:
-
-* Its core is local reading, management, and presentation of AI artifacts—not a heavy knowledge base.
-
-* It does not aim to provide complex collaboration, cloud sync, or RAG.
-
-* It does not replace AI tools; it receives and organizes the content they generate.
-
-* Agent projects and tasks are artifact sources, not execution workflows managed by NUTBOOK.
-
-* HTML editing is limited to content refinement, not arbitrary page building, responsive layout reconstruction, or general code editing.
-
-* It is best suited to personal local workflows and lightweight sharing or presentation in small teams.
-
-NUTBOOK is closer to an “AI artifact desk” and local presentation library than a team content platform or development IDE.
-
-## Release Highlights
-
-### 1.4.0: Upgraded Tags and Motion Center
-
-* Organize ordered custom tags with a shared editor, discovery, centralized management, and batch operations.
-* Add element entrances, emphasis and exits, page backgrounds, and eight page transitions in the HTML Motion Center, with search, favorites, and local parameter defaults.
-* Select objects, preview effects, and edit action order and parameters; saved documents retain their motion settings when reopened.
-* Keep a live current slide and a background-preserving still preview of the next slide, prioritize that preview, and reuse valid captures. Single-screen restoration and physical dual-display exit paths passed user acceptance.
-* Capture complete text, images, and frozen backgrounds without intermediate animation states or recovery panels. Fix library thumbnail rebuilding and pagination beyond 500 documents.
+- **Flexible organization**: ordered multi-tags, shared editing, tag discovery, and batch management.
+- **Richer presentations**: text and image effects, animated backgrounds, and eight page transitions.
+- **Your favorite effects at hand**: search, favorite effects, save local defaults, and retain motion settings in your documents.
 
 ### Earlier Releases
 
-* **1.3.0**: Added the Markdown publishing workspace, separate platform drafts, and a customizable toolbar.
-* **1.2.0**: Added native HTML presentation mode with audience / presenter windows and saved slide notes.
-* **1.1.0**: Added the Markdown Export Center for reading HTML, presentation HTML, PDF, and PNG long images.
-* **1.0.0**: First stable release, combining local intake, Markdown / HTML reading and light editing, and system file opening.
-* **0.8.0**: Added Agent project and task artifact discovery, nbskill integration, and the Nutbook CLI.
-* **0.6.0**: Added HTML text and image editing with save, close, and reopen recovery.
+- **1.3.0**: Markdown publishing workspace, separate platform drafts, and customizable toolbar.
+- **1.2.0**: Native HTML presentations, presenter view, and per-slide notes.
+- **1.1.0**: Markdown export to HTML, PDF, and PNG long images.
+- **1.0.0**: Local intake, Markdown / HTML reading and light editing, and system file opening.
+- **0.8.0**: Agent project and task discovery, nbskill integration, and Nutbook CLI.
+- **0.6.0**: HTML text and image editing with save and reopen support.
 
-## Development Progress and Roadmap
+## Documentation and Contributing
 
-| Status    | Direction                                  | Milestone or goal                                                                                                                   |
-| --------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Shipped   | **Markdown light editing**                 | Refine generated Markdown while reading, with formatting, tables, history, save, and recovery.                                      |
-| Shipped   | **HTML light editing**                     | Update supported text, rich text, and images while preserving the original artifact and page behavior.                              |
-| Shipped   | **Agent project and task artifact access** | Expand from files, folders, and Skill outputs to discovery, confirmation, and source management for Agent work.                     |
-| Shipped   | **Agent integrations**                     | Register artifact identity, lifecycle, and HTML editing protocols through nbskill while managing only verified Agent installations. |
-| Shipped   | **Nutbook CLI**                            | Add or remove files, folders, and Agent projects while the desktop app is running or closed, with a read-only health check.         |
-| Shipped   | **Markdown export center**                 | Export Markdown as reading or presentation HTML, PDF, and PNG long images.                                                           |
-| Shipped | **Upgraded tag management** | Ordered custom tags, shared editing, discovery, and batch organization. |
-| Shipped | **HTML Motion Center** | Element effects, page backgrounds, eight transitions, previews, favorites, local defaults, and saved settings. |
-| Shipped | **Native HTML presentation mode** | NUTBOOK-controlled navigation, a live presenter view, and saved per-slide notes. |
-| Shipped | **Markdown publishing workspace** | Separate drafts, platform previews, title/body copying, and image handling for WeChat, X Articles, and Weibo; local summary extraction is experimental. |
-| Later | **Presentation drawing tools** | Add temporary on-screen annotation for classes, meetings, proposals, and reviews. |
-| Exploring | **AI-assisted capabilities**               | Help users discover, understand, and refine content after local file safety and deterministic editing boundaries are clear.         |
+- [User guide](./docs/guides/user-guide.md): installation, intake, shortcuts, and common questions.
+- [Development guide](./docs/guides/development.md): source builds, checks, and Nutbook CLI.
+- [Release process](./docs/guides/releasing.md): PR checks, version tags, installers, and Releases.
+- [Issues and suggestions](https://github.com/Ericonquer/NUTBOOK/issues) · [Contribute](https://github.com/Ericonquer/NUTBOOK/pulls)
 
-Every stage supports one goal: make AI artifacts easier to find, understand, refine, explain, and use again—not merely generate once.
-
-## FAQ
-
-**Is NUTBOOK a knowledge base?**
-
-No. The current product focuses on discovering, reading, lightly editing, organizing, and presenting local AI artifacts.
-
-**Can it manage ordinary files?**
-
-You can connect local folders and individual files, but the supported formats and product focus remain Markdown / HTML artifacts generated by AI workflows.
-
-**Does enabling an Agent integration import the whole project?**
-
-No. An Agent project is a discovery scope. NUTBOOK only presents candidates within the artifact boundary and connects them after user confirmation.
-
-**Can every HTML page be edited directly?**
-
-Ordinary HTML can use an editable-copy path that preserves the original. Artifacts with the complete NUTBOOK editing protocol can be edited natively. NUTBOOK does not promise visual editing of arbitrary page layouts or scripts.
-
-**Is it ready for large-scale team collaboration?**
-
-Not currently. NUTBOOK is better suited to personal local workflows or lightweight use in small teams.
-
-**How does it relate to AI tools?**
-
-AI tools generate and modify content. NUTBOOK receives the resulting work so it can be discovered, connected, read, categorized, favorited, lightly edited, and presented.
+NUTBOOK focuses on reading, lightly editing, managing, and presenting personal local materials. Cloud sync, online collaboration, and RAG are not currently supported.
 
 ## License
 
