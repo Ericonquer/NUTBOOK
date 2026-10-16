@@ -47,7 +47,7 @@ pub const HTML_SCREENSHOT_HEIGHT: i32 = 720;
 // markdown-image-cover / placeholder；placeholder 永远不能作为目标 render
 // kind 的 ready 成品。
 //
-pub const HTML_CARD_TEMPLATE_VERSION: &str = "html-card-v1";
+pub const HTML_CARD_TEMPLATE_VERSION: &str = "html-card-v5-legacy-ready";
 pub const TITLE_PARSER_VERSION: &str = "title-parser-v1";
 /// B4 编辑出版式 hover 安全区修正后 bump：旧 default-cover-v1 居中浅灰缓存、
 /// default-cover-v2 书脊缓存、default-cover-v3 色场缓存与 default-cover-v4
@@ -636,7 +636,7 @@ pub fn generate_html_thumbnail_with_adapter(
             {
                 let request = ChromiumScreenshotInput {
                     chromium_path,
-                    url: source_url,
+                    url: static_capture_url(&source_url),
                     width: HTML_SCREENSHOT_WIDTH,
                     height: HTML_SCREENSHOT_HEIGHT,
                 };
@@ -651,13 +651,97 @@ pub fn generate_html_thumbnail_with_adapter(
     }
 }
 
+/// Capture-only request; the scoped server declares purpose before author scripts.
+/// Only cache self-contained decks whose local image dependencies can be verified.
+/// External styles/scripts, media and CSS URLs conservatively opt out.
+pub fn presentation_preview_revision(path: &Path, source: &[u8]) -> Option<String> {
+    use html5ever::{parse_document,tendril::TendrilSink};
+    use markup5ever_rcdom::{RcDom,Handle,NodeData};
+    fn visit(node:&Handle, refs:&mut Vec<String>) -> Option<()> {
+        if let NodeData::Element{name,attrs,..}=&node.data {
+            let tag=name.local.as_ref();let attrs=attrs.borrow();
+            if matches!(tag,"iframe"|"video"|"audio"|"canvas") {return None}
+            if tag=="style" && node.children.borrow().iter().any(|child|matches!(&child.data,NodeData::Text{contents} if contents.borrow().to_ascii_lowercase().contains("url(")||contents.borrow().to_ascii_lowercase().contains("@import"))) {return None}
+            for attr in attrs.iter(){let key=attr.name.local.as_ref();let value=attr.value.to_string();
+                if key=="srcset" || key=="style"&&value.to_ascii_lowercase().contains("url(") {return None}
+                if matches!(tag,"script"|"link")&&matches!(key,"src"|"href")&&!value.is_empty(){return None}
+                if matches!(tag,"img"|"image"|"source")&&matches!(key,"src"|"href"){refs.push(value)}
+            }
+        }
+        for child in node.children.borrow().iter(){visit(child,refs)?;}Some(())
+    }
+    let text=std::str::from_utf8(source).ok()?;
+    if !text.contains("nutbook-motion/v1"){return None}
+    let dom=parse_document(RcDom::default(),Default::default()).one(text);let mut refs=Vec::new();visit(&dom.document,&mut refs)?;
+    let canonical=path.canonicalize().ok()?;let base=url::Url::from_file_path(&canonical).ok()?;
+    let mut revision=canonical.to_string_lossy().to_string();revision.push_str(&crate::core::html_edit::content_hash_bytes(source));
+    refs.sort();refs.dedup();let mut asset_bytes=0u64;for reference in refs{
+        if reference.starts_with("data:")||reference.starts_with('#'){continue}
+        let asset=base.join(&reference).ok()?;if asset.scheme()!="file"{return None}
+        let path=asset.to_file_path().ok()?;
+        // A cache optimization must not widen the document's resource authority.
+        let root=canonical.parent()?;if !path.starts_with(root){return None}
+        let path=path.canonicalize().ok()?;if !path.starts_with(root){return None}
+        asset_bytes+=fs::metadata(&path).ok()?.len();if asset_bytes>16*1024*1024{return None}
+        let bytes=fs::read(path).ok()?;
+        revision.push_str(&asset.to_string());revision.push_str(&crate::core::html_edit::content_hash_bytes(&bytes));
+    }
+    Some(crate::core::html_edit::content_hash_bytes(revision.as_bytes()))
+}
+
+#[derive(Default)]
+pub struct PresentationPreviewCache { entries: std::collections::VecDeque<(String,String)>, bytes:usize }
+impl PresentationPreviewCache {
+    const LIMIT:usize=24*1024*1024;
+    pub fn get(&mut self,key:&str)->Option<String>{let at=self.entries.iter().position(|(k,_)|k==key)?;let entry=self.entries.remove(at)?;let value=entry.1.clone();self.entries.push_back(entry);Some(value)}
+    pub fn insert(&mut self,key:String,value:String){
+        if value.len()>Self::LIMIT{return}
+        if let Some(at)=self.entries.iter().position(|(k,_)|k==&key){self.bytes-=self.entries.remove(at).unwrap().1.len();}
+        while self.bytes+value.len()>Self::LIMIT || self.entries.len()>=32 {if let Some((_,v))=self.entries.pop_front(){self.bytes-=v.len()}else{break}}
+        self.bytes+=value.len();self.entries.push_back((key,value));
+    }
+}
+
+pub fn static_capture_url(value: &str) -> String {
+    let Ok(mut url) = url::Url::parse(value) else { return value.to_string(); };
+    if !url.query_pairs().any(|(k,v)|k=="nutbook-capture"&&v=="static") { url.query_pairs_mut().append_pair("nutbook-capture", "static"); }
+    url.to_string()
+}
+
+pub const STATIC_CAPTURE_INIT: &str = r#"window.__NUTBOOK_CAPTURE_PURPOSE__='static';window.__NUTBOOK_STATIC_PRESENTATION__=true;document.addEventListener('DOMContentLoaded',()=>{const style=document.createElement('style');style.textContent='.deck-controls,.presentation-controls,[data-nutbook-presentation-controls],[data-prev],[data-next]{display:none!important}';document.head.append(style)},{once:true});"#;
+
+fn static_capture_init_script() -> String {
+    format!("{}\n{}",STATIC_CAPTURE_INIT,include_str!("../../resources/export-templates/motion-static-capture.js"))
+}
+
+pub fn static_capture_html(source: &[u8]) -> Vec<u8> {
+    let text = std::str::from_utf8(source).unwrap_or("");
+    let lower = text.to_ascii_lowercase();
+    // Preserve doctype and author head attributes. Only the served copy changes.
+    let at = lower.find("<head").and_then(|start| lower[start..].find('>').map(|end|start+end+1))
+        .or_else(||lower.find("<!doctype").and_then(|start|lower[start..].find('>').map(|end|start+end+1))).unwrap_or(0);
+    let init=static_capture_init_script();
+    let bootstrap = format!("<script>{init}</script><style>.deck-controls,.presentation-controls,[data-nutbook-presentation-controls],[data-prev],[data-next]{{display:none!important}}</style>");
+    let mut result=Vec::with_capacity(source.len()+bootstrap.len());
+    result.extend_from_slice(&source[..at]);result.extend_from_slice(bootstrap.as_bytes());result.extend_from_slice(&source[at..]);result
+}
+
 pub fn capture_html_thumbnail_with_chromium(
-    input: ChromiumScreenshotInput,
+    mut input: ChromiumScreenshotInput,
 ) -> Result<GeneratedThumbnailAsset, String> {
     if !input.chromium_path.is_file() {
         return Err("chromium executable not found".to_string());
     }
+    input.url=static_capture_url(&input.url);
 
+    #[cfg(unix)]
+    {
+        let request=PresentationScreenshotInput { chromium_path:input.chromium_path, url:input.url, page_id:String::new(), width:input.width, height:input.height, pixel_ratio:1 };
+        let mut worker=PresentationThumbnailWorker::new(&request,"cover-static")?;
+        let result=worker.capture_cover();worker.close();return result;
+    }
+    #[cfg(not(unix))]
+    {
     let output_path = temp_screenshot_path();
     let profile_path = temp_chromium_profile_path();
     let _ = fs::create_dir_all(&profile_path);
@@ -704,6 +788,7 @@ pub fn capture_html_thumbnail_with_chromium(
     let _ = fs::remove_dir_all(&profile_path);
     let _ = fs::remove_file(&output_path);
     result
+    }
 }
 
 /// Capture one page of a Nutbook presentation through its public bridge.
@@ -806,7 +891,8 @@ impl PresentationThumbnailWorker {
             pipe.call("Emulation.setDeviceMetricsOverride", json!({
                 "width": input.width, "height": input.height, "deviceScaleFactor": input.pixel_ratio, "mobile": false,
             }), Some(&session_id))?;
-            pipe.call("Page.navigate", json!({ "url": input.url }), Some(&session_id))?;
+            pipe.call("Page.addScriptToEvaluateOnNewDocument", json!({ "source": static_capture_init_script() }), Some(&session_id))?;
+            pipe.call("Page.navigate", json!({ "url": static_capture_url(&input.url) }), Some(&session_id))?;
             pipe.wait_for_event("Page.loadEventFired", &session_id, Duration::from_secs(8))?;
             Ok(session_id)
         })();
@@ -826,11 +912,30 @@ impl PresentationThumbnailWorker {
             && self.pipe.is_running()
     }
 
+    fn capture_cover(&mut self) -> Result<GeneratedThumbnailAsset,String> {
+        let ready=self.pipe.call("Runtime.evaluate",json!({"expression":r#"(async()=>{
+            if(!document.body)throw Error('cover document unavailable');
+            await document.fonts.ready;
+            await Promise.all([...document.images].map(async image=>{try{await image.decode()}catch{} if(!image.complete||!image.naturalWidth)throw Error('cover image unavailable')}));
+            await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            await window.__NUTBOOK_STATIC_CAPTURE__?.render();
+            return true;
+        })()"#,"awaitPromise":true,"returnByValue":true}),Some(&self.session_id))?;
+        if ready.get("exceptionDetails").is_some()||ready.pointer("/result/value")!=Some(&Value::Bool(true)){return Err("static cover preparation failed".into())}
+        let captured=self.pipe.call("Page.captureScreenshot",json!({"format":"png","fromSurface":true}),Some(&self.session_id))?;
+        let bytes=BASE64.decode(captured.get("data").and_then(Value::as_str).ok_or("CDP cover missing")?).map_err(|e|e.to_string())?;
+        if !bytes.starts_with(b"\x89PNG\r\n\x1a\n"){return Err("CDP did not produce a PNG cover".into())}
+        Ok(GeneratedThumbnailAsset{backend:"screenshot-chromium",content_type:"image/png",file_extension:"png",bytes,svg:String::new(),width:self.width,height:self.height})
+    }
+
     fn capture(&mut self, page_id: &str) -> Result<GeneratedThumbnailAsset, String> {
         let setup = presentation_thumbnail_setup_script(page_id);
-        self.pipe.call("Runtime.evaluate", json!({
+        let ready = self.pipe.call("Runtime.evaluate", json!({
             "expression": setup, "awaitPromise": true, "returnByValue": true,
         }), Some(&self.session_id))?;
+        if ready.get("exceptionDetails").is_some() || ready.pointer("/result/value") != Some(&Value::Bool(true)) {
+            return Err("presentation static preview preparation failed".into());
+        }
         let captured = self.pipe.call("Page.captureScreenshot", json!({ "format": "png", "fromSurface": true }), Some(&self.session_id))?;
         let encoded = captured.get("data").and_then(Value::as_str).ok_or("CDP screenshot payload missing")?;
         let bytes = BASE64.decode(encoded).map_err(|error| format!("invalid CDP screenshot: {error}"))?;
@@ -875,7 +980,7 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       if(!stillFrameStyle){{
         stillFrameStyle=document.createElement("style");
         stillFrameStyle.id="nutbook-presentation-thumbnail-still-frame";
-        stillFrameStyle.textContent='html[data-nutbook-thumbnail-mode="1"] [data-nutbook-page-id], html[data-nutbook-thumbnail-mode="1"] [data-nutbook-page-id] * {{ animation:none!important; transition:none!important; }}';
+        stillFrameStyle.textContent='html[data-nutbook-thumbnail-mode="1"] [data-nutbook-page-id], html[data-nutbook-thumbnail-mode="1"] [data-nutbook-page-id] * {{ transition:none!important; }}';
         document.head.append(stillFrameStyle);
       }}
       // `hidden` alone loses to a deck's author rule such as `.slide {{display:flex}}`.
@@ -894,7 +999,8 @@ fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       window.__NUTBOOK_PREVIEW_ROOT_STYLES__=previousStyles;
       root.hidden=false; root.classList.add("is-active");
       document.querySelectorAll(".deck-controls,.presentation-controls,[data-nutbook-presentation-controls]").forEach((node)=>{{ node.style.setProperty("display","none","important"); }});
-      await Promise.all(Array.from(root.querySelectorAll("img")).map(async(image)=>{{ try {{ if(!image.complete) await new Promise((resolve)=>{{ image.addEventListener("load",resolve,{{once:true}}); image.addEventListener("error",resolve,{{once:true}}); }}); if(image.decode) await image.decode(); }} catch(_) {{}} }}));
+      await Promise.all(Array.from(root.querySelectorAll("img")).map(async(image)=>{{ try {{ if(!image.complete) await new Promise((resolve)=>{{ image.addEventListener("load",resolve,{{once:true}}); image.addEventListener("error",resolve,{{once:true}}); }}); if(image.decode) await image.decode(); }} catch(_) {{}} if(!image.complete || !image.naturalWidth) throw new Error("presentation preview image unavailable"); }}));
+      await window.__NUTBOOK_STATIC_CAPTURE__?.render(pageId);
       await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       return true;
     }})()"#)
@@ -1120,6 +1226,7 @@ fn chromium_app_bundle_path(chromium_path: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+#[cfg(not(unix))]
 fn launch_system_browser_screenshot_via_open(
     input: &ChromiumScreenshotInput,
     args: &[String],
@@ -1262,6 +1369,7 @@ fn chromium_base_args(profile_path: &Path) -> Vec<String> {
     ]
 }
 
+#[cfg(not(unix))]
 fn temp_screenshot_path() -> PathBuf {
     temp_thumbnail_path("png")
 }
@@ -1617,6 +1725,25 @@ mod tests {
         sync::{mpsc, Arc, Mutex},
         time::Duration,
     };
+
+    #[test]
+    fn preview_revision_tracks_source_and_local_images_and_rejects_external_dependencies(){
+        let root=std::env::temp_dir().join(format!("nutbook-preview-revision-{}",std::process::id()));fs::create_dir_all(&root).unwrap();let path=root.join("deck.html");let image=root.join("image.png");
+        let source=b"<!doctype html><html data-nutbook-motion-contract='nutbook-motion/v1'><img src='image.png'></html>";
+        fs::write(&path,source).unwrap();fs::write(&image,b"first").unwrap();let a=super::presentation_preview_revision(&path,source).unwrap();
+        assert_eq!(super::presentation_preview_revision(&path,source).unwrap(),a);
+        fs::write(&image,b"other").unwrap();assert_ne!(super::presentation_preview_revision(&path,source).unwrap(),a);
+        let outside=root.with_file_name(format!("nutbook-preview-outside-{}.png",std::process::id()));fs::write(&outside,b"private").unwrap();let escaped=format!("<html data-nutbook-motion-contract='nutbook-motion/v1'><img src='../{}'></html>",outside.file_name().unwrap().to_string_lossy());assert!(super::presentation_preview_revision(&path,escaped.as_bytes()).is_none());let _=fs::remove_file(outside);
+
+        let remote=b"<html data-nutbook-motion-contract='nutbook-motion/v1'><img src='https://example.invalid/x'></html>";assert!(super::presentation_preview_revision(&path,remote).is_none());
+        let css=b"<html data-nutbook-motion-contract='nutbook-motion/v1'><style>body{background:url(x)}</style></html>";assert!(super::presentation_preview_revision(&path,css).is_none());let _=fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn preview_image_cache_reuses_frames_and_bounds_memory(){
+        let mut cache=super::PresentationPreviewCache::default();cache.insert("same-source:next".into(),"png".into());assert_eq!(cache.get("same-source:next").as_deref(),Some("png"));assert!(cache.get("changed-source:next").is_none());
+        for i in 0..40{cache.insert(i.to_string(),"x".repeat(1024*1024));}assert!(cache.bytes<=24*1024*1024);assert!(cache.entries.len()<=32);assert!(cache.get("0").is_none());assert!(cache.get("39").is_some());
+    }
 
     #[test]
     fn placeholder_html_thumbnail_returns_static_svg_asset() {
@@ -2440,7 +2567,7 @@ mod tests {
         assert_eq!(captured.len(), 1, "capture adapter must be invoked exactly once");
         assert_eq!(captured[0].width, HTML_SCREENSHOT_WIDTH);
         assert_eq!(captured[0].height, HTML_SCREENSHOT_HEIGHT);
-        assert_eq!(captured[0].url, "file:///tmp/nutbook-controlled-sample.html");
+        assert_eq!(captured[0].url, "file:///tmp/nutbook-controlled-sample.html?nutbook-capture=static");
 
         std::env::remove_var("NUTBOOK_CHROME_PATH");
         let _ = fs::remove_file(&fake);

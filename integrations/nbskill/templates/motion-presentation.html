@@ -4454,9 +4454,9 @@ void main(){vec2 uv=gl_FragCoord.xy/resolution-.5;uv.x*=resolution.x/resolution.
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
       gl.useProgram(program);
-      const location = gl.getAttribLocation(program, "point");
-      gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
+      const location2 = gl.getAttribLocation(program, "point");
+      gl.enableVertexAttribArray(location2);
+      gl.vertexAttribPointer(location2, 2, gl.FLOAT, false, 0, 0);
       const names = ["resolution", "cycle", "richness", "phase", "lightMode", "lowColor", "midColor", "highColor", "controlA", "controlB", "controlC", "controlD"], uniform = Object.fromEntries(names.map((name) => [name, gl.getUniformLocation(program, name)])), light = lightPage(element), p = effect.params, seed = effect.seed % 997 / 997 * TAU;
       gl.viewport(0, 0, surface.width, surface.height);
       gl.uniform2f(uniform.resolution, surface.width, surface.height);
@@ -6236,7 +6236,12 @@ void main(){vec2 uv=gl_FragCoord.xy/resolution-.5;uv.x*=resolution.x/resolution.
 
   // src/motion/runtime.mjs
   var root = document.documentElement;
-  if (root.dataset.nutbookMotionContract === "nutbook-motion/v1") boot();
+  if (new URL(location.href).searchParams.get("nutbook-capture") === "static") {
+    window.__NUTBOOK_CAPTURE_PURPOSE__ = "static";
+    window.__NUTBOOK_STATIC_PRESENTATION__ = true;
+  }
+  if (window.__NUTBOOK_CAPTURE_PURPOSE__ === "static") {
+  } else if (root.dataset.nutbookMotionContract === "nutbook-motion/v1") boot();
   else if (root.dataset.nutbookMotionContract?.startsWith("nutbook-motion/") && root.dataset.nutbookMotionContract !== "nutbook-motion/experimental-v1") showUnsupportedMotion("version");
   function boot() {
     let presentationMode = Boolean(window.__NUTBOOK_STATIC_PRESENTATION__), stepMode = false, stepIndex = 0, stepApplyToken = 0, pendingStepState = null, resumeStepState = null, stepApplication = null, localQueue = Promise.resolve();

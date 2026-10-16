@@ -198,6 +198,9 @@
       }
       function requestPreview(page) {
         if (!page || !state || previews.has(page.id)) return;
+        const index = state.pages.findIndex(candidate => candidate.id === state.activePageId);
+        const next = state.pages[index + 1];
+        if (next && page.id !== next.id && (!previews.has(next.id) || previews.get(next.id)?.pending)) return;
         previews.set(page.id, { pending: true });
         const sessionId = state.sessionId;
         const stillVisible = () => state?.sessionId === sessionId && (() => {
@@ -270,8 +273,9 @@
         byId("status").classList.toggle("error", Boolean(state.error));
         byId("recover").hidden = !state.suspended;
         byId("pageCount").textContent = `${index + 1} / ${state.pages.length}`;
-        addPreview(byId("currentPreview"), state.pages[index]);
+        // The next slide is the actionable preview; capture it before the current fallback.
         addPreview(byId("nextPreview"), state.pages[index + 1]);
+        addPreview(byId("currentPreview"), state.pages[index]);
         scheduleLiveSync();
         requestPreview(state.pages[index - 1]);
         requestPreview(state.pages[index + 2]);

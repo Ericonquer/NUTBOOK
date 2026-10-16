@@ -31,3 +31,27 @@ export function prepareGpuBackground(element,effect,options={}){
  return {canvas,renderer:'webgl2',render(time){if(disposed)return;if(gl.isContextLost())throw Error('背景图形上下文已丢失，请重新预览');ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);if(p.strength===0)return;const t=p.motion===0?0:Math.max(0,time)*p.speed%p.durationMs/p.durationMs*TAU;gl.uniform1f(uniform.cycle,t);for(const [group,indices]of [[0,[1,-2,3,-4]],[1,[9,-8,7,-6]],[2,[5,2,5,-5]],[3,[-1,-3,8,9]]])gl.uniform4fv(uniform[['controlA','controlB','controlC','controlD'][group]],indices.map(i=>3*Math.sin(i+Math.sin(t)*Math.sin(i*.05)*2+(1-Math.cos(t))*Math.cos(i*.1)*.4+seed*.1)));gl.drawArrays(gl.TRIANGLES,0,3);ctx.drawImage(surface,0,0,canvas.width,canvas.height);},dispose(){if(disposed)return;disposed=true;release();}};
  }catch(error){release();throw error;}
 }
+
+// Deterministic CPU projection of the same height fields for capture-only use.
+// It never creates a GPU context or starts an animation clock.
+export function prepareStaticGpuBackground(element,effect){
+ const layer=createBackgroundLayer(element,{low:true}),{canvas,ctx}=layer,p=effect.params,light=lightPage(element),seed=effect.seed%997/997*TAU;
+ const width=Math.min(1280,canvas.width),height=Math.max(1,Math.round(canvas.height*width/canvas.width)),image=ctx.createImageData(width,height),richness=p.strength/.8;
+ const colors=[rgb(p.hue,light?(effect.templateId==='background.gradient-waves'?40:62):52),rgb((p.hue+44)%360,light?(effect.templateId==='background.gradient-waves'?65:74):80),light?[.98,.98,1]:[1,1,1]];
+ const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t)},mix=(a,b,t)=>a+(b-a)*t;
+ const controls=[[1,-2,3,-4],[9,-8,7,-6],[5,2,5,-5],[-1,-3,8,9]].map(group=>group.map(i=>3*Math.sin(i+seed*.1)));
+ const curve=(x,c)=>{const a=x*TAU;return .5*(c[0]*Math.sin(a)+c[1]*Math.cos(a)+c[2]*Math.sin(2*a)+c[3]*Math.cos(2*a))};
+ const elevation=(x,y)=>Math.hypot(curve(x,controls[0])-curve(y,controls[2]),curve(x,controls[1])-curve(y,controls[3]));
+ const topography=effect.templateId==='background.topography';let raster=null;
+ // Keep q.x for the second cosine, matching the shader's independent coordinates.
+ function heightAt(qx,qy){const x=qx+seed+35*Math.sin((qy+qx+seed)/20+1.23+seed),y=qy-seed+20*Math.cos(qx/23+1.41+seed);return (Math.sin(x*(.35+.5*richness)/7)+Math.sin(y*(.35+.5*richness)*.9/3))*(1.8+1.2*richness)+5.5;}
+ return {canvas,render(){if(p.strength===0){ctx.clearRect(0,0,canvas.width,canvas.height);return;}for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const u=(x+.5)/width,v=1-(y+.5)/height;let color,alpha;
+  if(topography){const e=elevation(u,v),f=e*(.8+3*richness),fraction=f-Math.floor(f),edge=Math.min(fraction,1-fraction),aa=Math.max(.00001,(Math.abs(elevation(u+1/width,v)-e)+Math.abs(elevation(u,v+1/height)-e))*(.8+3*richness));const core=1-smooth(.012-aa,.012+aa,edge),bloom=1-smooth(.012,.232+aa,edge),cover=Math.pow(Math.min(1,core+bloom*.55),3),h=Math.max(0,Math.min(1,e/7.5));color=colors[0].map((c,i)=>mix(mix(c,colors[1][i],smooth(0,.5,h)),colors[2][i],smooth(.5,1,h)));alpha=cover*(light?.48:.7);}
+  else{const qx=(u-.5)*width/height,qy=-(v-.5),radius=Math.hypot(qx,qy),angle=radius*1.366,ax=radius>.00001?qx/radius:1,ay=radius>.00001?qy/radius:0,rx=-ay*Math.sin(angle),ry=-ax*Math.sin(angle),rz=-Math.cos(angle),c=Math.cos(1.11),s=Math.sin(1.11),dx=c*rx-s*rz,dz=s*rx+c*rz;let distance=0;for(let i=0;i<24;i++){const gap=30+dz*distance-heightAt(dx*distance,ry*distance);if(Math.abs(gap)<.1)break;distance+=gap*.9;if(distance>120||distance<0){distance=120;break}}const z=30+dz*distance,fog=Math.max(0,Math.min(1,15/Math.max(distance,.001))),e=Math.max(0,Math.min(1,(z-5.5)/(4*(1.8+1.2*richness))+.5));color=colors[0].map((low,i)=>mix(low,mix(mix(low,colors[1][i],smooth(.12,.8,e)),colors[2][i],Math.pow(e,4)*.8),fog));alpha=fog*(1-smooth(90,120,distance))*.66*smooth(.35,.52,1-v);}
+  const at=(y*width+x)*4;for(let i=0;i<3;i++)image.data[at+i]=Math.round(color[i]*255);image.data[at+3]=Math.round(alpha*255);
+ }ctx.clearRect(0,0,canvas.width,canvas.height);
+ if(width===canvas.width&&height===canvas.height)ctx.putImageData(image,0,0);
+ else{raster=document.createElement('canvas');raster.width=width;raster.height=height;raster.getContext('2d').putImageData(image,0,0);ctx.drawImage(raster,0,0,canvas.width,canvas.height);}
+ },dispose(){layer.dispose();if(raster)raster.width=raster.height=0;}};
+}

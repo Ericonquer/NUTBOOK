@@ -20,7 +20,9 @@ import {createPreparationGate} from './preparation.mjs';
 import {showUnsupportedMotion} from './unsupported.mjs';
 import {createMotionMeasurement} from './measurement.mjs';
 const root=document.documentElement;
-if(root.dataset.nutbookMotionContract==='nutbook-motion/v1') boot();
+if(new URL(location.href).searchParams.get('nutbook-capture')==='static'){window.__NUTBOOK_CAPTURE_PURPOSE__='static';window.__NUTBOOK_STATIC_PRESENTATION__=true;}
+if(window.__NUTBOOK_CAPTURE_PURPOSE__==='static') { /* Capture keeps author content visible without preparing motion. */ }
+else if(root.dataset.nutbookMotionContract==='nutbook-motion/v1') boot();
 else if(root.dataset.nutbookMotionContract?.startsWith('nutbook-motion/')&&root.dataset.nutbookMotionContract!=='nutbook-motion/experimental-v1')showUnsupportedMotion('version');
 function boot(){
   let presentationMode=Boolean(window.__NUTBOOK_STATIC_PRESENTATION__),stepMode=false,stepIndex=0,stepApplyToken=0,pendingStepState=null,resumeStepState=null,stepApplication=null,localQueue=Promise.resolve();

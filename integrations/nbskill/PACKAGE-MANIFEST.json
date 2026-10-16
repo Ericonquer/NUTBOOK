@@ -94,8 +94,8 @@
     },
     {
       "path": "templates/motion-presentation.html",
-      "sha256": "1527abd87df9100fe11cd6b3e23b3629a1d3b88352ae517d63e3225a9091d476",
-      "bytes": 363172
+      "sha256": "f56cd38891442e13819f0f28990d7b68705b9d148ed25ade5317275acb921142",
+      "bytes": 363426
     },
     {
       "path": "templates/presentation-mark.svg",

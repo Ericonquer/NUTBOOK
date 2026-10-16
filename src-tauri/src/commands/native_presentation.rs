@@ -1801,6 +1801,8 @@ pub struct ThumbnailResult {
     pub data_url: String,
 }
 
+static PREVIEW_IMAGES: OnceLock<Mutex<crate::core::thumbnail::PresentationPreviewCache>>=OnceLock::new();
+
 #[tauri::command]
 pub async fn native_presentation_thumbnail(
     state: tauri::State<'_, AppState>,
@@ -1821,6 +1823,13 @@ pub async fn native_presentation_thumbnail(
     let source = fs::read(&item.summary.file_path).map_err(|_| AppError::IoError)?;
     if content_hash_bytes(&source) != session.source_hash {
         return Err(AppError::InvalidSession);
+    }
+    let cache_key=crate::core::thumbnail::presentation_preview_revision(Path::new(&item.summary.file_path),&source)
+        .map(|revision|format!("static-frame-v5:{revision}:{}:1024:576:2",payload.page_id));
+    if let Some(key)=&cache_key {
+        if let Some(data_url)=PREVIEW_IMAGES.get_or_init(Default::default).lock().map_err(|_|AppError::InternalError)?.get(key){
+            return Ok(ThumbnailResult{page_id:payload.page_id,data_url});
+        }
     }
     let chromium_path =
         find_local_chromium_executable().ok_or(AppError::ThumbnailGenerationFailed)?;
@@ -1857,7 +1866,9 @@ pub async fn native_presentation_thumbnail(
     })
     .await
     .map_err(|_| AppError::InternalError)?;
-    result.map_err(|_| AppError::ThumbnailGenerationFailed)
+    let result=result.map_err(|_|AppError::ThumbnailGenerationFailed)?;
+    if let Some(key)=cache_key { PREVIEW_IMAGES.get_or_init(Default::default).lock().map_err(|_|AppError::InternalError)?.insert(key,result.data_url.clone()); }
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

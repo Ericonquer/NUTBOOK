@@ -21,7 +21,7 @@ try {
     });
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
       if (command === "native_presentation_state") return initialState();
-      if (command === "native_presentation_thumbnail") { window.thumbnailRequests.push(args.payload.pageId); return { dataUrl: preview }; }
+      if (command === "native_presentation_thumbnail") { window.thumbnailRequests.push(args.payload.pageId); if(args.payload.pageId==="two"&&window.thumbnailRequests.length===1)await new Promise(resolve=>window.releaseFirstPreview=resolve); return { dataUrl: preview }; }
       if (command === "native_presentation_live_preview") { window.livePreviewRequests.push(args.payload); return true; }
       if (command === "native_presentation_toggle_fullscreen") { window.fullscreenRequests.push(args.sessionId); return true; }
       if (command === "native_presentation_timer") {
@@ -35,6 +35,9 @@ try {
     } };
   });
   await page.goto(pathToFileURL(path.resolve("dist/native-presenter.html")).href);
+  await page.waitForFunction(()=>typeof window.releaseFirstPreview==='function');
+  assert.deepEqual(await page.evaluate(()=>window.thumbnailRequests),["two"],"fallback and speculative previews must wait for the first next frame");
+  await page.evaluate(()=>window.releaseFirstPreview());
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
   await page.waitForFunction(() => window.livePreviewRequests.length > 0);
   const firstLiveRequest = await page.evaluate(() => window.livePreviewRequests[0]);
@@ -50,6 +53,7 @@ try {
   assert.equal(await page.locator(".card .caption").nth(0).textContent(), "当前页 · 动态预览");
   assert.equal(await page.locator(".card .caption").nth(2).textContent(), "下一页 · 静态预览");
   await page.waitForFunction(() => window.thumbnailRequests.includes("three"));
+  assert.equal(await page.evaluate(()=>window.thumbnailRequests[0]),"two","next preview must capture before current fallback");
   assert.equal(await page.locator("#reset").textContent(), "开始", "timer must wait for an explicit start or audience fullscreen");
   assert.equal(await page.locator("#pause").isDisabled(), true, "pause is unavailable before timing starts");
   await page.locator("#reset").click();
@@ -106,6 +110,8 @@ try {
   assert.equal(await page.locator("#status").textContent(), "观众画面已就绪", "dual-screen mode should keep its ready status");
   await page.evaluate(() => localStorage.setItem("nutbook-native-presenter-layout", JSON.stringify({ notesBottomPercent: 34, theme: "light" })));
   await page.reload();
+  await page.waitForFunction(()=>typeof window.releaseFirstPreview==="function");
+  await page.evaluate(()=>window.releaseFirstPreview());
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
   assert.equal(await page.locator("#previewDivider").getAttribute("aria-valuenow"), "25", "the former default split should migrate to a larger slide");
   const previewBeforeThemeChange = await page.locator("#currentPreview img").getAttribute("src");
@@ -118,6 +124,8 @@ try {
   assert.equal(await page.locator("#currentPreview img").getAttribute("src"), previewBeforeThemeChange, "theme must not alter the slide preview");
   assert.equal(await page.locator("#notes").textContent(), "当前页演讲备注");
   await page.reload();
+  await page.waitForFunction(()=>typeof window.releaseFirstPreview==="function");
+  await page.evaluate(()=>window.releaseFirstPreview());
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark", "presenter theme must persist across window reloads");
   if (process.env.NUTBOOK_AUDIT_SHOTS) await page.screenshot({ path: `${process.env.NUTBOOK_AUDIT_SHOTS}/presenter-dark.png` });
@@ -135,6 +143,8 @@ try {
   await page.keyboard.press("ArrowDown");
   assert.equal(Number(await page.locator("#previewDivider").getAttribute("aria-valuenow")), draggedHeight - 2, "keyboard resizing must not flip the slide");
   await page.reload();
+  await page.waitForFunction(()=>typeof window.releaseFirstPreview==="function");
+  await page.evaluate(()=>window.releaseFirstPreview());
   await page.waitForFunction(() => document.querySelectorAll(".preview-body img").length === 2);
   assert.equal(Number(await page.locator("#previewDivider").getAttribute("aria-valuenow")), draggedHeight - 2, "slide and notes split should persist");
 

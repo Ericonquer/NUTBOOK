@@ -23769,15 +23769,30 @@ if (!chipTipController) {
 
           setThumbnailSettingsFeedback(t("status.thumbnailRebuildPreparing"), "info");
           try {
-            const result = await invoke("list_items", {
-              libraryId: appState.activeLibraryId,
-              fileTypes: ["html", "markdown"],
-              page: 1,
-              pageSize: 500,
-              sortBy: "modified_at",
-              sortOrder: "desc"
-            });
-            const rebuildResult = await rebuildThumbnailsForItems((result.items || []).map(normalizeItemSummary), {
+            const libraryId = appState.activeLibraryId;
+            const items = [];
+            let page = 1;
+            while (true) {
+              const result = await invoke("list_items", {
+                libraryId,
+                fileTypes: ["html", "markdown"],
+                page,
+                pageSize: 500,
+                sortBy: "modifiedAt",
+                sortOrder: "desc"
+              });
+              if (appState.activeLibraryId !== libraryId) {
+                const canceled = { total: items.length, completed: 0, failed: 0, canceled: 1, reason: "canceled" };
+                const outcome = showThumbnailRebuildResult(canceled, t("status.thumbnailRebuildLibraryComplete"));
+                setStatus(outcome.message, outcome.tone);
+                return canceled;
+              }
+              items.push(...(result.items || []).map(normalizeItemSummary));
+              if (!result.hasMore) break;
+              if (!result.items?.length) throw new Error("Invalid paginated item response");
+              page += 1;
+            }
+            const rebuildResult = await rebuildThumbnailsForItems(items, {
               onProgress: ({ completed, failed, total }) => {
                 setThumbnailSettingsFeedback(thumbnailProgressMessage(completed + failed, total, t("status.thumbnailRebuildMode")), failed ? "error" : "info");
               }

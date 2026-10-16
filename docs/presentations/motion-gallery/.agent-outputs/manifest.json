@@ -840,6 +840,15 @@
           "role": "asset"
         }
       ]
+    },
+    {
+      "id": "motion-p5-acceptance",
+      "path": "P5-验收.md",
+      "state": "active",
+      "skill": {
+        "name": "nbskill"
+      },
+      "kind": "report"
     }
   ]
 }
