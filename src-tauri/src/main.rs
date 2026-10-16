@@ -455,6 +455,7 @@ fn main() {
             commands::preview::focus_html_runtime_host_command,
             commands::preview::focus_main_webview_command,
             commands::html_edit::get_html_edit_converter_script,
+            commands::motion_preferences::motion_preferences,
             commands::html_edit::generate_presentation_thumbnail,
             commands::html_edit::get_html_edit_patch,
             commands::html_edit::save_html_edit_patch,
@@ -475,6 +476,8 @@ fn main() {
             commands::native_presentation::native_presentation_blackout,
             commands::native_presentation::recover_native_presentation,
             commands::native_presentation::native_presentation_navigate,
+            commands::native_presentation::native_presentation_advance,
+            commands::native_presentation::native_presentation_motion_control,
             commands::native_presentation::native_presentation_thumbnail,
             commands::native_presentation::native_presentation_live_preview,
             commands::native_presentation::native_presentation_report,
@@ -683,6 +686,7 @@ fn webview_may_invoke(label: &str, command: &str) -> bool {
             "show_context_menu"
                 | "context_find_in_document"
                 | "html_edit_runtime_message_command"
+                | "motion_preferences"
                 | "write_editable_html_copy"
                 | "html_runtime_view_state_command"
                 // P2 / §6.2：外部阅读面没有常驻 view-state 脚本，promotion 前

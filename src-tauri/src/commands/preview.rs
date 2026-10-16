@@ -2592,6 +2592,7 @@ fn presentation_preferences(preferences: Option<&ExportMarkdownHtmlPreferences>)
     let output_kind = match preferences.and_then(|value| value.output_kind.as_deref()) {
         Some(PRESENTATION_OUTPUT_STATIC) | None => PRESENTATION_OUTPUT_STATIC.to_string(),
         Some(PRESENTATION_OUTPUT_DYNAMIC) => PRESENTATION_OUTPUT_DYNAMIC.to_string(),
+        Some("motion-editable") => "motion-editable".to_string(),
         Some(_) => return Err(AppError::InvalidParams),
     };
     let density = match preferences

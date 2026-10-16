@@ -53,6 +53,8 @@ pub enum AppError {
     ExportCancelled,
     #[error("long image is too tall")]
     ExportLongImageTooTall,
+    #[error("motion export exceeds its resource budget: {0}")]
+    MotionResourceBudgetExceeded(String),
     #[error("database error")]
     DatabaseError,
     #[error("io error")]
@@ -163,6 +165,7 @@ impl AppError {
             AppError::ExportEngineUnavailable => "EXPORT_ENGINE_UNAVAILABLE",
             AppError::ExportCancelled => "EXPORT_CANCELLED",
             AppError::ExportLongImageTooTall => "EXPORT_LONG_IMAGE_TOO_TALL",
+            AppError::MotionResourceBudgetExceeded(_) => "MOTION_RESOURCE_BUDGET_EXCEEDED",
             AppError::DatabaseError => "DATABASE_ERROR",
             AppError::IoError => "IO_ERROR",
             AppError::InternalError => "INTERNAL_ERROR",

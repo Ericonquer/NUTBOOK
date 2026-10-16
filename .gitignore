@@ -5,6 +5,9 @@
 # Local workspace helpers
 .claude/
 .superpowers/
+.brainstorm/
+# Local legacy motion experiments (retained for manual/reference scripts)
+docs/presentations/motion-lab/
 AGENTS.md
 MEMORY.md
 DESIGN.md

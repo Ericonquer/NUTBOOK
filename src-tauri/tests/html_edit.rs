@@ -2558,3 +2558,101 @@ fn html_edit_journal_recovers_after_source_replace_before_sidecar_cleanup() {
     assert!(load_html_edit_manifest(root.path()).expect("manifest").entries.is_empty());
     assert!(!journal_root.join("commit-pending.json").exists());
 }
+
+#[test]
+fn motion_config_commit_is_data_only_atomic_and_preserves_source() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("motion.html");
+    let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/html-edit/motion-config.html")).unwrap();
+    std::fs::write(&path, &source).unwrap();
+    let lookup = HtmlEditPatchLookup { library_id: 1, item_id: 1, library_root: root.path().into(), file_path: path.clone(), title_hint: "Motion".into() };
+    let opened = get_html_edit_patch_for_file(&lookup).unwrap();
+    let prefix = "<script type=\"application/json\" id=\"nutbook-motion-config\" data-id=\"nutbook-motion-config\">";
+    let original = source.split(prefix).nth(1).unwrap().split("</script>").next().unwrap();
+    let mut config: serde_json::Value = serde_json::from_str(original).unwrap();
+    config["entries"]["title"]["strength"] = serde_json::json!(1.7);
+    let change: HtmlEditChange = serde_json::from_value(serde_json::json!({"type":"motion-config","selector":"[data-id=\"nutbook-motion-config\"]","text": config.to_string()})).unwrap();
+    let commit = HtmlEditCommit { library_root: root.path().into(), file_path: path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("nutbook-motion-config".into(), change.clone())]), presentation_notes: None };
+    let saved = commit_html_edit_for_file(&commit).unwrap();
+    let result = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(result.split(prefix).next(), source.split(prefix).next());
+    assert_eq!(result.split(prefix).nth(1).unwrap().split_once("</script>").unwrap().1, source.split(prefix).nth(1).unwrap().split_once("</script>").unwrap().1);
+    let persisted: serde_json::Value = serde_json::from_str(result.split(prefix).nth(1).unwrap().split("</script>").next().unwrap()).unwrap();
+    assert_eq!(persisted["entries"]["title"]["strength"], 1.7);
+    assert_eq!(get_html_edit_patch_for_file(&lookup).unwrap().source_file_hash, saved.source_file_hash);
+    assert!(matches!(commit_html_edit_for_file(&commit), Err(AppError::EditConflict)), "old baseline cannot overwrite saved configuration");
+    let mut invalid = change.clone();
+    for bad in [serde_json::json!({"version":1,"entries":{}}), serde_json::json!({"version":1,"entries":{},"script":"alert(1)"})] {
+        invalid.text = Some(bad.to_string());
+        assert!(normalize_html_edit_change(root.path(), &opened.artifact_edit_id, "nutbook-motion-config", &invalid).is_err());
+    }
+    for (key, value) in [("effect", serde_json::json!("<script>")), ("duration", serde_json::json!(100)), ("count", serde_json::json!(100000)), ("x", serde_json::json!(-1))] {
+        let mut bad = config.clone(); bad["entries"]["title"][key] = value; invalid.text = Some(bad.to_string());
+        assert!(normalize_html_edit_change(root.path(), &opened.artifact_edit_id, "nutbook-motion-config", &invalid).is_err());
+    }
+    // Valid JSON cannot retarget another field, bypass opt-in, or write executable scripts.
+    for mutation in ["retarget", "marker", "script"] {
+        std::fs::write(&path, &source).unwrap();
+        let baseline = get_html_edit_patch_for_file(&lookup).unwrap();
+        let mut source_variant = source.clone(); let mut variant = change.clone();
+        if mutation == "retarget" { let mut bad = config.clone(); bad["entries"]["title"]["target"] = serde_json::json!("impact-image"); variant.text = Some(bad.to_string()); }
+        if mutation == "marker" { source_variant = source_variant.replace("nutbook-motion/experimental-v1", "unrecognized-motion/v1"); }
+        if mutation == "script" { source_variant = source_variant.replace(prefix, &prefix.replace("application/json", "text/javascript")); }
+        std::fs::write(&path, &source_variant).unwrap();
+        let fresh = get_html_edit_patch_for_file(&lookup).unwrap();
+        let attempt = HtmlEditCommit { artifact_edit_id: baseline.artifact_edit_id, expected_file_hash: fresh.source_file_hash, expected_modified_at: fresh.source_modified_at, changes: std::collections::BTreeMap::from([("nutbook-motion-config".into(), variant)]), ..commit.clone() };
+        assert!(commit_html_edit_for_file(&attempt).is_err(), "{mutation}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source_variant, "failed validation is atomic");
+    }
+}
+
+#[test]
+fn formal_motion_commit_checks_identity_and_keeps_body_atomic() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("formal.html");
+    let mut config: serde_json::Value = serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+    config["pages"][0]["actions"] = serde_json::json!([]);
+    let source = format!(r#"<!doctype html><html data-nutbook-edit-contract="nutbook-html/v1" data-nutbook-motion-contract="nutbook-motion/v1"><head><title>Formal</title></head><body><section data-nutbook-page-id="page-1"><h1 data-id="title-1" data-editable="text">原始中文</h1></section><script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">{}</script></body></html>"#, config);
+    std::fs::write(&path, &source).unwrap();
+    let lookup = HtmlEditPatchLookup { library_id: 1, item_id: 1, library_root: root.path().into(), file_path: path.clone(), title_hint: "Formal".into() };
+    let baseline = get_html_edit_patch_for_file(&lookup).unwrap();
+    let active: serde_json::Value = serde_json::from_str(include_str!("../../tests/fixtures/motion/valid.json")).unwrap();
+    let change: HtmlEditChange = serde_json::from_value(serde_json::json!({"type":"motion-config","selector":"[data-id=\"nutbook-motion-config\"]","text":active.to_string()})).unwrap();
+    let body: HtmlEditChange = serde_json::from_value(serde_json::json!({"type":"text","selector":"[data-id=\"title-1\"]","text":"保存中文👋"})).unwrap();
+    let commit = HtmlEditCommit { library_root: root.path().into(), file_path: path.clone(), artifact_edit_id: baseline.artifact_edit_id.clone(), expected_file_hash: baseline.source_file_hash, expected_modified_at: baseline.source_modified_at, changes: std::collections::BTreeMap::from([("nutbook-motion-config".into(), change.clone()), ("title-1".into(), body)]), presentation_notes: None };
+    commit_html_edit_for_file(&commit).unwrap();
+    let persisted = std::fs::read_to_string(&path).unwrap();
+    assert!(persisted.contains("保存中文👋"));
+    assert!(persisted.contains("text.glyph-particles"));
+    assert!(commit_html_edit_for_file(&commit).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), persisted);
+    for mutation in ["redeclare", "missing", "video", "version", "script-type", "duplicate-config"] {
+        let mut variant = source.clone(); let mut data = active.clone();
+        match mutation {
+            "redeclare" => data["pages"][0]["targets"][0]["id"] = serde_json::json!("other"),
+            "missing" => variant = variant.replace("data-id=\"title-1\"", "data-id=\"missing\""),
+            "video" => variant = variant.replace("</section>", "<video data-id=\"undeclared-video\"></video></section>"),
+            "version" => variant = variant.replace("nutbook-motion/v1", "nutbook-motion/v2"),
+            "script-type" => variant = variant.replace("application/json", "text/javascript"),
+            "duplicate-config" => variant = variant.replace("</body>", "<script id=\"nutbook-motion-config\" type=\"application/json\">{}</script></body>"),
+            _ => unreachable!(),
+        }
+        std::fs::write(&path, &variant).unwrap();
+        let fresh = get_html_edit_patch_for_file(&lookup).unwrap();
+        let mut bad = change.clone(); bad.text = Some(data.to_string());
+        let attempt = HtmlEditCommit { expected_file_hash: fresh.source_file_hash, expected_modified_at: fresh.source_modified_at, changes: std::collections::BTreeMap::from([("nutbook-motion-config".into(), bad)]), ..commit.clone() };
+        assert!(commit_html_edit_for_file(&attempt).is_err(), "{mutation}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), variant, "{mutation} changed source");
+    }
+}
+
+#[test]
+fn formal_presentation_step_source_rejects_false_identity() {
+    use nutbook_backend::core::html_edit::read_formal_motion_document;
+    let config = include_str!("../../tests/fixtures/motion/valid.json");
+    let source = format!(r#"<html data-nutbook-motion-contract="nutbook-motion/v1"><body><section data-nutbook-page-id="page-1"><h1 data-id="title-1" data-editable="text">标题</h1></section><script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">{config}</script></body></html>"#);
+    assert!(read_formal_motion_document(&source).unwrap().is_some());
+    assert!(read_formal_motion_document(&source.replace("title-1\" data-editable", "wrong-target\" data-editable")).is_err());
+    assert!(read_formal_motion_document(&source.replace("application/json", "text/javascript")).is_err());
+    assert!(read_formal_motion_document(&source.replace("nutbook-motion/v1\"", "other\"")).unwrap().is_none());
+}

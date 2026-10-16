@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {compileTimeline,moveAction,setActionTiming} from '../src/motion/timeline.mjs';
+const action=(id,trigger,delayMs,durationMs=1000)=>({id,targetId:id,trigger,delayMs,params:{durationMs}});
+const actions=[action('a','click',200),action('b','withPrevious',100,300),action('c','afterPrevious',50,400),action('d','click',500,800)];
+const original=JSON.stringify(actions),timeline=compileTimeline(actions);
+assert.deepEqual(timeline.entries.map(e=>[e.id,e.startMs,e.endMs]),[['a',200,1200],['b',300,600],['c',650,1050],['d',1700,2500]]);
+assert.equal(timeline.steps[0].index,0);assert.equal(timeline.steps[0].id,null);assert.equal(timeline.entries[0].stepIndex,1);assert.equal(timeline.durationMs,2500);assert.equal(timeline.steps.filter(step=>step.actionIds.length).length,2);assert.equal(timeline.peakConcurrency,2);assert.equal(JSON.stringify(actions),original);
+for(const trigger of ['withPrevious','afterPrevious'])assert.equal(compileTimeline([action('first',trigger,300)]).entries[0].startMs,300,'first relative trigger is page-enter');
+assert.equal(compileTimeline([action('a','click',0),action('b','click',0)]).peakConcurrency,1);
+assert.equal(compileTimeline([action('a','click',0),action('b','withPrevious',0)]).peakConcurrency,2);
+assert.equal(compileTimeline([]).durationMs,0);
+const config={pages:[{id:'page',actions}]},moved=moveAction(config,'page','d',-1);assert.deepEqual(moved.pages[0].actions.map(a=>a.id),['a','b','d','c']);assert.deepEqual(config.pages[0].actions.map(a=>a.id),['a','b','c','d']);assert.equal(moved.pages[0].actions[2].trigger,'click');
+assert.deepEqual(moveAction(config,'page','a',-1),config);
+const changed=setActionTiming(config,'page','a',{trigger:'afterPrevious',delayMs:60000});assert.equal(changed.pages[0].actions[0].delayMs,60000);assert.equal(actions[0].delayMs,200);
+for(const delayMs of [-1,60001,Infinity,NaN])assert.throws(()=>setActionTiming(config,'page','a',{delayMs}));assert.throws(()=>setActionTiming(config,'page','a',{trigger:'script'}));assert.throws(()=>moveAction(config,'page','missing',1));
+console.log('Timeline relative starts, click groups, concurrency, bounds and immutable reordering passed');

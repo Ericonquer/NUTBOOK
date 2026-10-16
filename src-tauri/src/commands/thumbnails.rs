@@ -365,6 +365,22 @@ mod tests {
     }
 
     #[test]
+    fn old_dynamic_html_cover_is_rejected_and_rebuilt_as_static() {
+        with_fake_chromium_env(|| {
+            let (database,source,db_path)=setup_html_item();
+            database.generate_thumbnail_with_adapter(1,&StubCaptureAdapter{response:Ok(sample_png(b"OLD"))}).unwrap();
+            let connection=Connection::open(&db_path).unwrap();
+            connection.execute("UPDATE thumbnail_cache SET desired_key=replace(desired_key,'html-card-v5-legacy-ready','html-card-v1'),generated_from_key=replace(generated_from_key,'html-card-v5-legacy-ready','html-card-v1') WHERE item_id=1",[]).unwrap();
+            assert!(database.get_thumbnail_info(1).unwrap().is_none());
+            assert!(database.list_items(&ListItemsQuery::default()).unwrap().items[0].thumbnail.is_none());
+            let fresh=database.generate_thumbnail_with_adapter(1,&StubCaptureAdapter{response:Ok(sample_png(b"STATIC"))}).unwrap();
+            assert!(fresh.expected_key.unwrap().ends_with(":html-card-v5-legacy-ready"));
+            assert!(database.get_thumbnail_info(1).unwrap().is_some());
+            let _=fs::remove_dir_all(source.parent().unwrap());let _=fs::remove_file(db_path);
+        });
+    }
+
+    #[test]
     fn generate_markdown_default_cover_commits_generation_keyed_svg_without_engine() {
         // B4：Markdown 封面由 Rust 直接生成确定性静态 SVG，不依赖 Chromium / adapter。
         // 传入必失败的 adapter——若生成路径误调用 adapter，测试即失败。

@@ -1032,6 +1032,7 @@ enum Resolved {
         content_type: &'static str,
         size: u64,
     },
+    CaptureHtml { body: Vec<u8> },
     Simple {
         status: &'static str,
         content_type: &'static str,
@@ -1112,6 +1113,12 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
     }
 
     let content_type = content_type_for_path(&canonical_candidate);
+    if content_type.starts_with("text/html") && raw_path.split_once('?').is_some_and(|(_,query)| query.split('&').any(|part| part == "nutbook-capture=static")) {
+        return match std::fs::read(&canonical_candidate) {
+            Ok(source) => Resolved::CaptureHtml { body: crate::core::thumbnail::static_capture_html(&source) },
+            Err(_) => not_found,
+        };
+    }
     Resolved::File {
         path: canonical_candidate,
         content_type,
@@ -1127,6 +1134,16 @@ fn write_response(
     shutdown: &AtomicBool,
 ) -> Result<(), AppError> {
     match resolved {
+        Resolved::CaptureHtml { body } => {
+            apply_timeouts(stream, deadline)?;
+            let header=format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",body.len());
+            stream.write_all(header.as_bytes()).map_err(|_|AppError::IoError)?;
+            if !head_only { for chunk in body.chunks(STREAM_CHUNK_BYTES) {
+                if shutdown.load(Ordering::SeqCst) { return Err(AppError::IoError); }
+                apply_timeouts(stream,deadline)?;stream.write_all(chunk).map_err(|_|AppError::IoError)?;
+            }}
+            Ok(())
+        }
         Resolved::Simple {
             status,
             content_type,
@@ -1276,6 +1293,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).expect("创建临时目录失败");
         base
+    }
+
+    #[test]
+    fn static_capture_changes_only_served_html_after_scope_checks() {
+        let base=temp_scope("static-capture");
+        let source=b"<!doctype html><html><head><script>window.author=true</script></head><body>Chinese text</body></html>";
+        std::fs::write(base.join("doc.html"),source).unwrap();
+        let server=ScopedContentServer::start(&base).unwrap();let shared=test_shared(&server);
+        assert!(matches!(resolve_request("/doc.html",&shared),Resolved::File{..}));
+        let Resolved::CaptureHtml{body}=resolve_request("/doc.html?nutbook-capture=static",&shared) else {panic!("missing static response")};
+        let text=String::from_utf8(body).unwrap();
+        assert!(text.starts_with("<!doctype html>"));
+        assert!(text.find("__NUTBOOK_STATIC_PRESENTATION__").unwrap()<text.find("window.author").unwrap());
+        assert_eq!(std::fs::read(base.join("doc.html")).unwrap(),source);
+        assert!(matches!(resolve_request("/../doc.html?nutbook-capture=static",&shared),Resolved::Simple{status:"403 Forbidden",..}));
     }
 
     #[test]

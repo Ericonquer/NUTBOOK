@@ -241,6 +241,7 @@ pub struct HtmlEditFieldApplyResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum HtmlEditChangeType {
+    MotionConfig,
     Text,
     Image,
     BackgroundImage,

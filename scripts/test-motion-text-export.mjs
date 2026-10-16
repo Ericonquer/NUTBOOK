@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+import {registry} from '../src/motion/contract.mjs';
+import {presentationTextIds} from '../src/motion/text-library.mjs';
+const dir=mkdtempSync(join(tmpdir(),'nutbook-p2-export-')),file=join(dir,'formal.html');execFileSync('cargo',['run','--quiet','--manifest-path','src-tauri/Cargo.toml','--example','generate_motion_acceptance','--',file],{encoding:'utf8'});const source=readFileSync(file,'utf8'),browser=await chromium.launch({headless:true});
+try{const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));const open=async()=>{await page.goto(pathToFileURL(file).href);await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});await page.evaluate(async()=>{await window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'p2-export',generation:1,inlineToolbar:true,locale:'zh-CN'});window.__NUTBOOK_MOTION__.togglePanel();});};const panel=page.locator('[data-nutbook-motion-panel]');
+ for(const [id,t]of presentationTextIds.map(id=>[id,registry.templates[id]])){
+  writeFileSync(file,source);await open();const target=await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig().pages[0].targets.find(t=>t.kind==='text').id);if(id==='text.count-up')await page.locator(`[data-id="${target}"]`).fill('12,345.67%');const text=await page.locator(`[data-id="${target}"]`).textContent();await page.locator(`[data-id="${target}"]`).click();await panel.locator(`[data-slot="${t.category==='emphasis'?'emphasis':'entrance'}"]`).click();await panel.locator('[data-effect-search]').fill(t.label);await panel.getByRole('option',{name:t.label,exact:true}).click();await panel.locator('[data-apply]').click();await panel.locator('[data-param=durationMs]').fill('2600');const snapshot=await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot());writeFileSync(join(dir,'changes.json'),JSON.stringify(snapshot.changes));execFileSync('cargo',['run','--quiet','--manifest-path','src-tauri/Cargo.toml','--example','commit_motion_acceptance','--',file,join(dir,'changes.json')],{encoding:'utf8'});await open();await page.evaluate(id=>window.p2ExpectedId=id,id);const action=await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig().pages[0].actions.find(a=>a.templateId===window.p2ExpectedId));assert.equal(action.templateId,id);assert.equal(action.params.durationMs,2600);assert.equal(await page.locator(`[data-id="${target}"]`).textContent(),text);await page.evaluate(()=>window.__NUTBOOK_MOTION__.seek(1300));assert.equal(await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot().dirty),false);}
+ assert.deepEqual(errors,[]);console.log(`Fifteen P2 candidates applied and saved/reopened through formal Markdown exporter: ${dir}`);
+}finally{await browser.close();}

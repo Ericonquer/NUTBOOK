@@ -806,7 +806,7 @@
       }
 
       .native-audience-banner { display:none; }
-      .app-shell.native-audience-rehearsal:not(.native-audience-screenfill) .native-audience-banner {
+      .app-shell.native-audience-mode:not(.native-audience-screenfill) .native-audience-banner {
         position:fixed;
         inset:0 0 auto;
         z-index:100001;
@@ -9440,7 +9440,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.3.0",
+          currentVersion: "1.4.0",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -10968,6 +10968,7 @@
         if (data.documentRevision === session.documentRevision && incomingKey !== session.documentStateKey) return false;
         session.documentRevision = data.documentRevision;
         session.documentStateKey = incomingKey;
+        session.composing = data.composing === true;
         session.dirty = data.dirty;
         session.changes = data.changes;
         if (Object.prototype.hasOwnProperty.call(data, "selectedDataId")) session.selectedDataId = data.selectedDataId || null;
@@ -12488,6 +12489,10 @@
         if (!refreshed && !htmlEditLeaveRequiresSave(session)) {
           logHtmlEditSaveCoordinator(session, "host-save-retry-needed");
           setStatus(htmlEditSaveNeedsRetryStatus(), "warn");
+          return htmlEditSaveResult();
+        }
+        if (session.composing) {
+          setStatus(nativePresentationText("请先完成中文输入", "Finish composing text first"), "warn");
           return htmlEditSaveResult();
         }
         if (!htmlEditLeaveRequiresSave(session)) {
@@ -15303,7 +15308,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.3.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.4.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -17572,8 +17577,8 @@
               <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.contentDensity"))}</div><div class="export-density-picker">
                 ${densityButton("master", "densityMaster", "densityMasterTip")}${densityButton("balanced", "densityBalanced", "densityBalancedTip")}${densityButton("report", "densityReport", "densityReportTip")}
               </div></div>
-              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid two">
-                ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid three">
+                ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"],["motion-editable","motionEditableHtml","motionEditableHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
               </div></div>
             </div>
           </aside>`;
@@ -17643,7 +17648,7 @@
               ${engineStatus}
             </aside>
           </section>`;
-        const canExportPresentation = isHtml && !isReading && ["static", "dynamic"].includes(presentationPreferences.outputKind);
+        const canExportPresentation = isHtml && !isReading && ["static", "dynamic", "motion-editable"].includes(presentationPreferences.outputKind);
         const canExport = (isHtml ? (isReading || canExportPresentation) : (isPdf || isImage)) && !appState.exportInProgress;
         const activePanel = isHtml ? htmlPanel : isPdf ? pdfPanel : imagePanel;
         const exportLabel = appState.exportInProgress
@@ -18445,7 +18450,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.3.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.4.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -18972,7 +18977,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.3.0",
+              currentVersion: "1.4.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -18983,8 +18988,8 @@
             };
           }
           return {
-            currentVersion: "1.3.0",
-            latestVersion: "1.3.0",
+            currentVersion: "1.4.0",
+            latestVersion: "1.4.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -21526,7 +21531,7 @@ if (!chipTipController) {
               notes[id]=paragraphs.map(p=>({runs:p.runs.map(r=>({text:r.text,bold:r.bold===true}))}));
             }
             for(const page of pages){if(notes[page.id])continue;const root=roots.find(node=>node.getAttribute('data-nutbook-page-id')===page.id);const legacy=root?.querySelector('.notes,aside.notes,.speaker-notes');if(!legacy)continue;const lines=legacy.innerText.split(/\\n+/).map(line=>line.trim()).filter(Boolean);notes[page.id]=lines.map(line=>({runs:[{text:line,bold:false}]}));}
-            await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:false,declared,pages,notes,activePageId}});
+            await window.__TAURI_INTERNALS__.invoke('native_presentation_probe_command',{payload:{itemId:${Number(itemId)},requestId:${JSON.stringify(requestId)},unsupported:false,declared,pages,notes,activePageId,motion:window.__NUTBOOK_MOTION__?.capabilities||null}});
           }catch(_){await report('bridge_error');}
         })();`;
       }
@@ -21579,6 +21584,8 @@ if (!chipTipController) {
             .native-presentation-panel .native-close:hover { background:var(--surface-muted); color:var(--ink); }
             .native-presentation-panel .native-field-label { display:block; margin-bottom:8px; color:var(--ink-soft); font-size:12px; font-weight:600; letter-spacing:.02em; }
             .native-presentation-panel .native-monitor-picker { position:relative; }
+            .native-presentation-panel .native-static-option { margin:16px 0 4px; }
+            .native-presentation-panel .native-static-option label { display:flex; align-items:center; gap:10px; min-height:24px; line-height:1.5; cursor:pointer; }
             .native-presentation-panel .native-tip { display:flex; align-items:baseline; gap:10px; min-height:40px; margin:12px 0 0; color:var(--ink-soft); font-size:13px; line-height:1.5; }
             .native-presentation-panel .native-tip-label { flex:none; font-weight:600; }
             .native-presentation-panel .native-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; margin-top:16px; }
@@ -21706,6 +21713,7 @@ if (!chipTipController) {
         panel.innerHTML = `
           <div class="native-heading"><h2 id="nativePresentationTitle">${nativePresentationText("演示模式", "Presentation mode")}</h2><span class="native-page-count">${nativePresentationText(`${probe.pages.length} 页`, `${probe.pages.length} slides`)}</span><button type="button" class="native-close" data-native-action="close" aria-label="${nativePresentationText("关闭演示模式", "Close presentation mode")}" title="${nativePresentationText("关闭演示模式", "Close presentation mode")}">×</button></div>
           <div class="native-field"><label class="native-field-label" for="nativePresentationMonitor">${nativePresentationText("观众屏幕", "Audience display")}</label>${audienceDisplay}</div>
+          ${probe.motion?.supportsSteps ? `<div class="native-field native-static-option"><label title="${nativePresentationText("仅本次关闭动画，直接翻页；不会修改文件。", "Skip animations and advance slides directly for this session. The file stays unchanged.")}"><input type="checkbox" id="nativePresentationStaticMotion" style="accent-color:var(--accent);width:16px;height:16px;margin:0">${nativePresentationText("本次静态演示", "Static presentation this time")}</label></div>` : ""}
           <p class="native-tip"><span class="native-tip-label">${nativePresentationText("提示", "Tip")}</span><span id="nativePresentationTip" aria-live="off">${tips[tipIndex]}</span></p>
           <div class="native-actions"><button type="button" data-native-action="cancel">${nativePresentationText("取消", "Cancel")}</button>${atFirstPage ? "" : `<button type="button" data-native-action="start-first">${nativePresentationText("从首页开始", "Start from first slide")}</button>`}<button type="button" class="primary" data-native-action="start-current">${atFirstPage ? nativePresentationText("开始演示", "Start presentation") : nativePresentationText("从当前页开始", "Start from current slide")}</button></div>
         `;
@@ -21768,6 +21776,8 @@ if (!chipTipController) {
                 itemId, monitorId, pages: probe.pages, notes: probe.notes || {}, expectedSourceHash: sourceRevision.revision,
                 startPageId: action === "start-first" ? probe.pages[0].id : (probe.activePageId || probe.pages[0].id),
                 rehearsal: monitors.length === 1,
+                motion: probe.motion || null,
+                staticMotion: Boolean(panel.querySelector("#nativePresentationStaticMotion")?.checked),
                 language: appState.language
               } });
               if (appState.nativePresentationItemId !== itemId) {
@@ -21776,6 +21786,7 @@ if (!chipTipController) {
               }
               nativePresentationSessionId = session.sessionId;
               els.appShell.classList.add("native-audience-mode");
+              document.getElementById("nativeAudienceBannerText").textContent = nativePresentationText("观众窗口 · 拖动此处移动窗口", "Audience window · Drag here to move");
               if (monitors.length === 1) {
                 els.appShell.classList.add("native-audience-rehearsal");
                 document.getElementById("nativeAudienceBannerText").textContent = nativePresentationText("观众窗口 · 在线会议请共享此 NUTBOOK 窗口", "Audience window · Share this NUTBOOK window in your meeting");
@@ -23758,15 +23769,30 @@ if (!chipTipController) {
 
           setThumbnailSettingsFeedback(t("status.thumbnailRebuildPreparing"), "info");
           try {
-            const result = await invoke("list_items", {
-              libraryId: appState.activeLibraryId,
-              fileTypes: ["html", "markdown"],
-              page: 1,
-              pageSize: 500,
-              sortBy: "modified_at",
-              sortOrder: "desc"
-            });
-            const rebuildResult = await rebuildThumbnailsForItems((result.items || []).map(normalizeItemSummary), {
+            const libraryId = appState.activeLibraryId;
+            const items = [];
+            let page = 1;
+            while (true) {
+              const result = await invoke("list_items", {
+                libraryId,
+                fileTypes: ["html", "markdown"],
+                page,
+                pageSize: 500,
+                sortBy: "modifiedAt",
+                sortOrder: "desc"
+              });
+              if (appState.activeLibraryId !== libraryId) {
+                const canceled = { total: items.length, completed: 0, failed: 0, canceled: 1, reason: "canceled" };
+                const outcome = showThumbnailRebuildResult(canceled, t("status.thumbnailRebuildLibraryComplete"));
+                setStatus(outcome.message, outcome.tone);
+                return canceled;
+              }
+              items.push(...(result.items || []).map(normalizeItemSummary));
+              if (!result.hasMore) break;
+              if (!result.items?.length) throw new Error("Invalid paginated item response");
+              page += 1;
+            }
+            const rebuildResult = await rebuildThumbnailsForItems(items, {
               onProgress: ({ completed, failed, total }) => {
                 setThumbnailSettingsFeedback(thumbnailProgressMessage(completed + failed, total, t("status.thumbnailRebuildMode")), failed ? "error" : "info");
               }
@@ -24610,7 +24636,7 @@ if (!chipTipController) {
             renderMarkdownExportDialog();
             return;
           }
-          const message = normalizeError(error);
+          const message = code === "MOTION_RESOURCE_BUDGET_EXCEEDED" ? t("markdown.exportMotionBudgetExceeded") : normalizeError(error);
           appState.exportErrorMessage = `${t("markdown.exportHtmlFailedPrefix")}${message}`;
           renderMarkdownExportDialog();
           setStatus(`${t("markdown.exportHtmlFailedPrefix")}${message}`, "error");

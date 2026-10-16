@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const source=readFileSync('dist/index.html','utf8');
+const save=source.match(/async function saveActiveHtmlEditPatch\(\) \{[\s\S]*?\n      \}/)[0];
+const accept=source.match(/function acceptHtmlEditDocumentSnapshot\(session, data\) \{[\s\S]*?\n      \}/)[0];
+const session={runtimeSessionId:'active',documentRevision:1,documentStateKey:'same',dirty:false},statuses=[];
+const context={appState:{htmlEditSession:session},isCompleteHtmlEditDocumentSnapshot:()=>true,htmlEditDocumentStateKey:()=> 'same',refreshHtmlEditRuntimeState:async current=>{current.composing=true;return true;},logHtmlEditSaveCoordinator:()=>{},htmlEditSaveResult:()=>({saved:false,canLeave:false}),nativePresentationText:zh=>zh,setStatus:(...args)=>statuses.push(args),htmlEditLeaveRequiresSave:()=>{throw new Error('must block before clean decision');},invoke:()=>{throw new Error('must not commit during composition');}};
+vm.createContext(context);vm.runInContext(accept+'\n'+save,context);
+assert.equal(context.acceptHtmlEditDocumentSnapshot(session,{documentRevision:1,composing:true,dirty:false,changes:{}}),true);
+assert.equal(session.composing,true);
+const result=await context.saveActiveHtmlEditPatch();assert.equal(result.saved,false);assert.equal(result.canLeave,false);assert.equal(statuses[0][0],'请先完成中文输入');
+console.log('Host snapshot accepts composition state and save blocks before clean/commit decisions');

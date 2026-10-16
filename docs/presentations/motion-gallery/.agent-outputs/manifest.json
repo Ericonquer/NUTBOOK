@@ -1,0 +1,854 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": ".",
+  "entries": [
+    {
+      "id": "motion-gallery-p0",
+      "path": "index.html",
+      "state": "superseded",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-gallery-p0-archived"
+    },
+    {
+      "id": "nbskill-motion-acceptance",
+      "path": "nbskill.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "nbskill 可选动效样板",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "nbskill-motion-acceptance-archived"
+    },
+    {
+      "id": "motion-performance-measurement",
+      "path": "performance.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "动效性能测量",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-performance-measurement-archived"
+    },
+    {
+      "id": "motion-recovery-acceptance",
+      "path": "recovery.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "动效准备与恢复验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-recovery-acceptance-archived"
+    },
+    {
+      "id": "motion-p1-selection",
+      "path": "p1-selection.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-selection-archived"
+    },
+    {
+      "id": "motion-p1-actions",
+      "path": "p1-actions.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-actions-archived"
+    },
+    {
+      "id": "motion-p1-steps",
+      "path": "p1-steps.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-steps-archived"
+    },
+    {
+      "id": "motion-p1-objects",
+      "path": "p1-objects.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-objects-archived"
+    },
+    {
+      "id": "motion-acceptance",
+      "path": "acceptance.md",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "report"
+    },
+    {
+      "id": "motion-p1-background",
+      "path": "p1-background.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-background-archived"
+    },
+    {
+      "id": "motion-p1-scenes",
+      "path": "p1-scenes.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-scenes-archived"
+    },
+    {
+      "id": "motion-p1-export-scenes",
+      "path": "p1-export-scenes.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p1-export-scenes-archived"
+    },
+    {
+      "id": "motion-p2-text",
+      "path": "p2-text.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p2-text-archived"
+    },
+    {
+      "id": "motion-p2-acceptance",
+      "path": "p2-acceptance.md",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "report"
+    },
+    {
+      "id": "motion-p2-text-review",
+      "path": "p2-text-review.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p2-text-review-archived"
+    },
+    {
+      "id": "motion-p3-fragment-pair",
+      "path": "p3-fragment-pair.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p3-fragment-pair-archived"
+    },
+    {
+      "id": "motion-p3-fold-close",
+      "path": "p3-fold-close.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "supersededBy": "motion-p3-fold-close-archived"
+    },
+    {
+      "id": "motion-p3-backgrounds",
+      "path": "p3-backgrounds.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "quiet-chart.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-backgrounds-archived"
+    },
+    {
+      "id": "motion-p3-quiet-backgrounds",
+      "path": "p3-quiet-backgrounds.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "quiet-chart.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-quiet-backgrounds-archived"
+    },
+    {
+      "id": "motion-p3-quiet-backgrounds-review",
+      "path": "p3-quiet-backgrounds-review.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "quiet-chart.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-quiet-backgrounds-review-archived"
+    },
+    {
+      "id": "motion-p3-lit-backgrounds",
+      "path": "p3-lit-backgrounds.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "quiet-chart.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-lit-backgrounds-archived"
+    },
+    {
+      "id": "motion-p3-gpu-backgrounds",
+      "path": "p3-gpu-backgrounds.html",
+      "state": "superseded",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "quiet-chart.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-gpu-backgrounds-archived"
+    },
+    {
+      "id": "motion-p3-transitions",
+      "path": "p3-transitions.html",
+      "state": "superseded",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "P3 页面转场",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-transitions-archived"
+    },
+    {
+      "id": "motion-p3-simple-exits",
+      "path": "p3-simple-exits.html",
+      "state": "superseded",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "三种实用退场",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-simple-exits-archived"
+    },
+    {
+      "id": "motion-p3-page-curl",
+      "path": "p3-page-curl.html",
+      "state": "superseded",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "图片卷页退场",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "p3-fragment-image.png",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-p3-page-curl-archived"
+    },
+    {
+      "id": "motion-unified-review",
+      "path": "动效验收.html",
+      "state": "superseded",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "动效统一验收入口",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ],
+      "supersededBy": "motion-phase-p3-review"
+    },
+    {
+      "id": "motion-gallery-p0-archived",
+      "path": "archive/index.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "归档 · index",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "nbskill-motion-acceptance-archived",
+      "path": "archive/nbskill.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · nbskill 可选动效样板",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-performance-measurement-archived",
+      "path": "archive/performance.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · 动效性能测量",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-recovery-acceptance-archived",
+      "path": "archive/recovery.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · 动效准备与恢复验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p1-selection-archived",
+      "path": "archive/p1-selection.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-selection",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-actions-archived",
+      "path": "archive/p1-actions.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-actions",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-steps-archived",
+      "path": "archive/p1-steps.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-steps",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-objects-archived",
+      "path": "archive/p1-objects.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-objects",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-background-archived",
+      "path": "archive/p1-background.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-background",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-scenes-archived",
+      "path": "archive/p1-scenes.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-scenes",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p1-export-scenes-archived",
+      "path": "archive/p1-export-scenes.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p1-export-scenes",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p2-text-archived",
+      "path": "archive/p2-text.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p2-text",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p2-text-review-archived",
+      "path": "archive/p2-text-review.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p2-text-review",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p3-fragment-pair-archived",
+      "path": "archive/p3-fragment-pair.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-fragment-pair",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p3-fold-close-archived",
+      "path": "archive/p3-fold-close.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-fold-close",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source"
+    },
+    {
+      "id": "motion-p3-backgrounds-archived",
+      "path": "archive/p3-backgrounds.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-backgrounds",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "archive/quiet-chart.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-quiet-backgrounds-archived",
+      "path": "archive/p3-quiet-backgrounds.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-quiet-backgrounds",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "archive/quiet-chart.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-quiet-backgrounds-review-archived",
+      "path": "archive/p3-quiet-backgrounds-review.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-quiet-backgrounds-review",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "archive/quiet-chart.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-lit-backgrounds-archived",
+      "path": "archive/p3-lit-backgrounds.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-lit-backgrounds",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "archive/quiet-chart.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-gpu-backgrounds-archived",
+      "path": "archive/p3-gpu-backgrounds.html",
+      "state": "active",
+      "skill": {
+        "name": "coding"
+      },
+      "kind": "presentation",
+      "title": "归档 · p3-gpu-backgrounds",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        },
+        {
+          "path": "archive/quiet-chart.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-transitions-archived",
+      "path": "archive/p3-transitions.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "归档 · P3 页面转场",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-simple-exits-archived",
+      "path": "archive/p3-simple-exits.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "归档 · 三种实用退场",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p3-page-curl-archived",
+      "path": "archive/p3-page-curl.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "归档 · 图片卷页退场",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "archive/p3-fragment-image.png",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-phase-p3-review",
+      "path": "P3-验收.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "P3 背景转场与退场验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-phase-p1-review",
+      "path": "P1-验收.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "P1 基础六类验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-phase-p2-review",
+      "path": "P2-验收.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "P2 文字效果验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-phase-p4-review",
+      "path": "P4-验收.html",
+      "state": "active",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "kind": "presentation",
+      "title": "P4 产品化验收",
+      "editContract": "nutbook-html/v1",
+      "savePolicy": "managed-source",
+      "relatedFiles": [
+        {
+          "path": "presentation-mark.svg",
+          "role": "asset"
+        }
+      ]
+    },
+    {
+      "id": "motion-p5-acceptance",
+      "path": "P5-验收.md",
+      "state": "active",
+      "skill": {
+        "name": "nbskill"
+      },
+      "kind": "report"
+    }
+  ]
+}

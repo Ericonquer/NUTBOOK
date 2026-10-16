@@ -2865,7 +2865,7 @@ dependencies = [
 
 [[package]]
 name = "nutbook-backend"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "ammonia",
  "base64 0.22.1",
@@ -2873,12 +2873,14 @@ dependencies = [
  "chrono",
  "comrak",
  "core-foundation",
+ "dispatch2",
  "html5ever 0.27.0",
  "image",
  "kamadak-exif",
  "libc",
  "markup5ever_rcdom",
  "notify",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-uniform-type-identifiers",

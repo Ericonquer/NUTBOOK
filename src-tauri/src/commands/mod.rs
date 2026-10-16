@@ -16,3 +16,5 @@ pub mod external;
 pub mod context_menu;
 
 pub mod formatting;
+
+pub mod motion_preferences;

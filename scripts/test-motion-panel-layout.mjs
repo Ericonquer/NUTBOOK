@@ -1,0 +1,48 @@
+import {registry} from '../src/motion/contract.mjs';
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const browser=await chromium.launch({headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1280,height:720}});
+ await page.addInitScript(()=>{const original=Element.prototype.attachShadow;Element.prototype.attachShadow=function(options){const result=original.call(this,options);if(this.id==='nutbook-html-edit-inline-toolbar')window.testToolbarRoot=result;return result;};});
+ await page.goto(pathToFileURL(resolve('integrations/nbskill/templates/motion-presentation.html')).href);
+ await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});
+ await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'layout-test',generation:1,inlineToolbar:true,locale:'zh-CN'}));
+ assert.equal(await page.locator('[data-nutbook-motion-panel]').count(),0,'editing starts with panel closed');
+ const toolbarClick=async()=>{const rect=await page.evaluate(()=>{const button=window.testToolbarRoot.querySelector('[data-intent="motion"]');const r=button.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};});await page.mouse.click(rect.x,rect.y);};
+ await toolbarClick();assert.equal(await page.locator('[data-nutbook-motion-panel]').count(),1);
+ await toolbarClick();assert.equal(await page.locator('[data-nutbook-motion-panel]').count(),0);
+ assert.equal(await page.evaluate(()=>window.testToolbarRoot.querySelector('[data-intent="motion"]').getAttribute('aria-expanded')),'false');
+ await toolbarClick();
+ const panel=page.locator('[data-nutbook-motion-panel]'),handle=panel.locator('[data-drag-handle]');
+ assert.equal(await panel.locator('[data-mode]').count(),0);
+ await panel.locator('[data-apply]').click();
+ const reset=panel.locator('[data-reset]');
+ assert.equal(await reset.locator('svg').count(),1);
+ assert.equal(await reset.getAttribute('aria-label'),'恢复默认参数');
+ assert.equal(await reset.evaluate(el=>el.parentElement.className),'color-row');
+ await reset.hover();assert.equal(await panel.locator('[data-panel-tooltip]').textContent(),'恢复默认参数');assert.equal(await panel.locator('[data-panel-tooltip]').isVisible(),true);
+ await page.mouse.move(0,0);await reset.focus();await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');assert.equal(await panel.locator('[data-panel-tooltip]').textContent(),'恢复默认参数');assert.equal(await panel.locator('[data-panel-tooltip]').isVisible(),true);
+
+ assert.equal(await panel.locator('[data-template-card]').count(),Object.values(registry.templates).filter(t=>t.catalog!==false&&['text','entrance'].includes(t.category)).length,'entrance catalog includes all registered text and entrance cards');assert.ok((await panel.boundingBox()).y+(await panel.boundingBox()).height<=620,'catalog panel stays above the editing toolbar');
+ const before=await panel.boundingBox(),header=await handle.boundingBox();
+ await page.mouse.move(header.x+header.width-56,header.y+12);await page.mouse.down();await page.mouse.move(header.x+header.width-156,header.y+42);await page.mouse.up();
+ const after=await panel.boundingBox();assert.ok(after.x<before.x-50,'blank header area drags the panel');
+ await handle.focus();await page.keyboard.press('ArrowLeft');assert.ok((await panel.boundingBox()).x<after.x);
+ assert.equal(await panel.evaluate(el=>getComputedStyle(el).zIndex),'2147483646');
+ await page.screenshot({path:'/tmp/nutbook-motion-panel-normal.png'});
+ await page.evaluate(()=>{window.motionResizeObserved=false;window.addEventListener('resize',()=>window.motionResizeObserved=true,{once:true});});
+ await page.setViewportSize({width:640,height:360});
+ await page.waitForFunction(()=>window.motionResizeObserved);
+ const resized=await panel.boundingBox();assert.ok(resized.x>=0&&resized.x+resized.width<=640,'resizing keeps dragged panel inside the viewport');
+ await handle.focus();await page.keyboard.press('ArrowUp');
+ assert.equal(await panel.locator('.body').evaluate(el=>el.scrollHeight>el.clientHeight),true,'small viewport can still reach all controls');
+ await panel.locator('.body').evaluate(el=>el.scrollTop=el.scrollHeight);
+ assert.equal(await panel.locator('[data-action-list] summary').isVisible(),true);await panel.locator('[data-action-list] summary').click({trial:true});
+ assert.ok((await handle.boundingBox()).y>=0,'drag handle remains outside scrolling content');
+ await page.screenshot({path:'/tmp/nutbook-motion-panel-compact.png'});
+ console.log('Motion panel full-header drag, keyboard movement, compact fit and small-window access passed');
+}finally{await browser.close();}

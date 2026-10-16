@@ -1,0 +1,9 @@
+import assert from 'node:assert/strict';
+import {createNavigationCoordinator} from '../src/motion/transition.mjs';
+import {registry,validateConfig} from '../src/motion/contract.mjs';
+import {readFileSync} from 'node:fs';
+const started=[],finish=new Map();const coordinator=createNavigationCoordinator((id,options,signal)=>new Promise(resolve=>{started.push(id);finish.set(id,resolve);signal.onCancel(()=>resolve(false));}));
+const first=coordinator.goTo('a');assert.equal(coordinator.goTo('a'),first);await Promise.resolve();const second=coordinator.goTo('b'),last=coordinator.goTo('c');assert.equal(await first,false);assert.equal(await second,false);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(started,['a','c']);finish.get('c')(true);assert.equal(await last,true);await new Promise(resolve=>setImmediate(resolve));const stopped=coordinator.goTo('d');await Promise.resolve();coordinator.dispose();assert.equal(await stopped,false);assert.equal(await coordinator.goTo('e'),false);
+const config=JSON.parse(readFileSync('tests/fixtures/motion/valid.json','utf8')),template=registry.templates['transition.curtain-reveal'];config.pages[0].transition={id:'curtain',templateId:'transition.curtain-reveal',templateVersion:1,params:Object.fromEntries(Object.entries(template.params).map(([key,rule])=>[key,rule.default])),seed:42};validateConfig(config);
+for(const patch of [effect=>effect.params.shape=2,effect=>effect.params.direction=4,effect=>effect.params.feather=.31,effect=>effect.params.durationMs=299,effect=>effect.id='action-1',effect=>effect.templateId='background.flowing-gradient',effect=>effect.targetId='title-1']){const copy=structuredClone(config);patch(copy.pages[0].transition);assert.throws(()=>validateConfig(copy));}
+console.log('Navigation convergence/cancellation and strict transition slot checks passed');

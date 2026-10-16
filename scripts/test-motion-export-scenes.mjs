@@ -1,0 +1,34 @@
+import {selectMotionCategory} from './motion-panel-test-helpers.mjs';
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+const dir=mkdtempSync(join(tmpdir(),'nutbook-motion-export-scenes-')),file=join(dir,'export.html');
+execFileSync('cargo',['run','--quiet','--manifest-path','src-tauri/Cargo.toml','--example','generate_motion_acceptance','--',file],{encoding:'utf8'});
+const original=readFileSync(file,'utf8'),browser=await chromium.launch({headless:true});
+try{
+ const page=await browser.newPage({viewport:{width:1280,height:900},reducedMotion:'no-preference'}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route(/^https?:/,route=>route.abort());
+ const open=async()=>{await page.goto(pathToFileURL(file).href);await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});await page.evaluate(async()=>{await window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'export-scenes',generation:1,inlineToolbar:true,locale:'zh-CN'});window.__NUTBOOK_MOTION__.togglePanel();});};
+ await open();const ids=await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig().pages[0].targets.filter(t=>t.kind==='text').map(t=>t.id)),panel=page.locator('[data-nutbook-motion-panel]');assert.ok(ids.length>=2);
+ const semantics=await page.evaluate(()=>Object.fromEntries(window.__NUTBOOK_MOTION__.getConfig().pages.flatMap(p=>p.targets).map(t=>[t.id,document.querySelector(`[data-id="${t.id}"]`).textContent])));
+ const category=async name=>selectMotionCategory(panel,name);
+ const select=async id=>{await page.locator(`[data-id="${id}"]`).click();};
+ await select(ids[0]);await panel.locator('[data-apply]').click();
+ await select(ids[1]);await category('进场');await panel.locator('[data-apply]').click();
+ await select(ids[0]);await category('强调');await panel.locator('[data-apply]').click();await category('退场');await panel.locator('[data-apply]').click();
+ await panel.locator('[data-scope=background]').click();await panel.locator('[data-apply]').click();await category('转场');await panel.locator('[data-apply]').click();await page.waitForFunction(()=>window.__NUTBOOK_MOTION__.state().transition?.phase==='preview-paused');
+ const config=await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig()),savedPage=config.pages[0];assert.equal(new Set([...savedPage.actions.map(a=>a.templateId),savedPage.background.templateId,savedPage.transition.templateId]).size,6);
+ await panel.locator('[data-param=feather]').fill('0.12');await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.undoHistory());assert.equal(await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig().pages[0].transition.params.feather),.08);await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.redoHistory());
+ const changes=await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot().changes);writeFileSync(join(dir,'changes.json'),JSON.stringify(changes));execFileSync('cargo',['run','--quiet','--manifest-path','src-tauri/Cargo.toml','--example','commit_motion_acceptance','--',file,join(dir,'changes.json')],{encoding:'utf8'});
+ const saved=readFileSync(file,'utf8');assert.notEqual(saved,original);assert.ok(!saved.includes('data-nutbook-motion-transition="'),'transient snapshot cannot be saved');
+ await open();const reopened=await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig());assert.deepEqual(reopened.pages[0].actions,savedPage.actions);assert.deepEqual(reopened.pages[0].background,savedPage.background);assert.equal(reopened.pages[0].transition.params.feather,.12);
+ assert.deepEqual(await page.evaluate(()=>Object.fromEntries(window.__NUTBOOK_MOTION__.getConfig().pages.flatMap(p=>p.targets).map(t=>[t.id,document.querySelector(`[data-id="${t.id}"]`).textContent]))),semantics,'all exported semantic text survives edit/save/reopen');
+ await page.setViewportSize({width:480,height:760});await panel.locator('[data-collapse]').click();assert.equal(await panel.locator('.body').isVisible(),false);assert.equal(await panel.locator('[data-collapse]').getAttribute('aria-label'),'展开动效面板');await panel.locator('[data-collapse]').click();assert.equal(await panel.locator('.body').isVisible(),true);const narrow=await panel.boundingBox();assert.ok(narrow.x>=0&&narrow.x+narrow.width<=480&&narrow.y>=0&&narrow.y+narrow.height<=660,'narrow panel docks above toolbar and fits viewport');assert.deepEqual(await page.evaluate(()=>window.__NUTBOOK_MOTION__.getConfig()),reopened,'collapse/resize do not alter saved motion');await page.setViewportSize({width:1280,height:900});
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.exit({runtimeSessionId:'export-scenes',discard:false}));await page.evaluate(()=>window.__NUTBOOK_MOTION__.startPresentation());
+ const from=reopened.pages[0].id,to=reopened.pages[1].id;await page.evaluate(id=>{window.exportNavigation=window.__NUTBOOK_PRESENTATION__.goTo(id);},to);await page.waitForFunction(()=>window.__NUTBOOK_MOTION__.state().transition?.phase==='composing');
+ const frozen=await page.evaluate(()=>({time:window.__NUTBOOK_MOTION__.playbackState().backgroundTimeMs,count:document.querySelectorAll('[data-nutbook-motion-transition]').length}));assert.equal(frozen.time,0);assert.equal(frozen.count,1);await page.screenshot({path:join(dir,'export-transition.png')});assert.equal(await page.evaluate(()=>window.exportNavigation),true);assert.equal(await page.locator('[data-nutbook-motion-transition]').count(),0);await page.evaluate(()=>window.__NUTBOOK_MOTION__.startPresentation());await page.evaluate(id=>window.__NUTBOOK_PRESENTATION__.goTo(id),from);assert.equal(await page.locator('[data-nutbook-motion-transition]').count(),0);
+ assert.deepEqual(errors,[]);writeFileSync(join(dir,'result.json'),JSON.stringify({passed:true,renderer:'formal Markdown presentation export',categories:6,rustSave:true,sourceSemanticsPreserved:true,nativeAcceptance:false},null,2));console.log(`Formal Markdown export, six-category UI, history/Rust save/reopen and curtain playback passed: ${dir}`);
+}finally{await browser.close();}
