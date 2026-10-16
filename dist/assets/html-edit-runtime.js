@@ -305,7 +305,7 @@
     STATE.itemId = Number(payload.itemId || 0); STATE.sessionId = payload.runtimeSessionId; STATE.generation = Number(payload.generation || 0); STATE.editing = true; STATE.dirty = false; STATE.selectedDataId = null; STATE.notesVisible = false; STATE.notesDirty = false;
     STATE.documentRevision = 0; STATE.lastCommittedChangesJson = "{}"; STATE.isMutatingDocument = false;
     STATE.inlineToolbarEnabled = Boolean(payload.inlineToolbar);
-    STATE.locale = payload.locale || document.documentElement.lang || navigator.language || "";
+    STATE.locale = payload.locale || document.documentElement.lang || navigator.language || "";window.__NUTBOOK_MOTION__?.setLocale?.(STATE.locale);window.__NUTBOOK_MOTION_SUPPORT__?.setLocale?.(STATE.locale);
     STATE.imageFrameLabels = normalizeImageFrameLabels(payload.imageFrameLabels || payload.labels);
     STATE.baseline.clear(); STATE.changes.clear(); STATE.sourceHashes.clear(); STATE.runtimeAssetUrls.clear(); STATE.pendingInlineMarks.clear(); STATE.insertedImages.clear(); STATE.insertedImageBaseline.clear(); STATE.insertedImageSessionCreatedIds.clear(); STATE.deletedInsertedImageIds.clear(); clearSavedSelection(); STATE.inlineToolbarDock = "bottom"; STATE.inlineToolbarDrag = null;
     motionBaseline = motionValue();
@@ -477,7 +477,7 @@
   function updateLocale(payload = {}) {
     const options = typeof payload === "string" ? { locale: payload } : (payload || {});
     if (options.runtimeSessionId && options.runtimeSessionId !== STATE.sessionId) return false;
-    if (options.locale) STATE.locale = String(options.locale);
+    if (options.locale) {STATE.locale = String(options.locale);window.__NUTBOOK_MOTION__?.setLocale?.(STATE.locale);window.__NUTBOOK_MOTION_SUPPORT__?.setLocale?.(STATE.locale);}
     if (Object.prototype.hasOwnProperty.call(options, "imageFrameLabels") || Object.prototype.hasOwnProperty.call(options, "labels")) {
       STATE.imageFrameLabels = normalizeImageFrameLabels(options.imageFrameLabels || options.labels);
     }
@@ -1184,5 +1184,10 @@
     if (!STATE._messageSeq) STATE._messageSeq = 0;
     document.title = `__NUTBOOK_HTML_EDIT_RUNTIME__:${JSON.stringify({ ...message, _s: ++STATE._messageSeq })}`;
   }
-  window.__NUTBOOK_HTML_EDIT__ = { commitMotionChange, scanEditableElements, isEditing: () => STATE.editing, isComposing: () => STATE.composing, enter, updateLocale, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, beginInsertedImageDraft, commitInsertedImageDraft, cancelInsertedImageDraft, applyInsertedImageAsset, requestInsertedImageReplacement, resumeInsertedImageDraft, resumeInsertedImageReplacement, beginInsertedImageCrop, deleteInsertedImage, undoHistory, redoHistory, goToPresentationPage, goToAdjacentPresentationPage, presentationSnapshot, goToSection, refreshSectionNavigation, sectionNavigationSnapshot, getSnapshot, reportState, setNotesState: state => { STATE.notesVisible = Boolean(state?.visible); STATE.notesDirty = Boolean(state?.dirty); syncInlineToolbar(); }, emitHostMessage };
+  window.__NUTBOOK_HTML_EDIT__ = { getLocale: () => STATE.locale, motionPreferences: async (operation, templateId, value) => {
+      if (!STATE.editing) throw new Error("编辑会话已结束");
+      const invoke = window.__TAURI_INTERNALS__?.invoke;
+      if (!invoke) throw new Error("本机偏好仅在 Nutbook 编辑中可用");
+      return invoke("motion_preferences", { payload: { itemId: STATE.itemId, runtimeSessionId: STATE.sessionId, generation: STATE.generation, operation, templateId: templateId || null, value: value ?? null } });
+    }, commitMotionChange, scanEditableElements, isEditing: () => STATE.editing, isComposing: () => STATE.composing, enter, updateLocale, exit, markSaved, rebaseSaved: markSaved, collectChanges, applyPatch, applyFormat, applyImportedAsset, beginInsertedImageDraft, commitInsertedImageDraft, cancelInsertedImageDraft, applyInsertedImageAsset, requestInsertedImageReplacement, resumeInsertedImageDraft, resumeInsertedImageReplacement, beginInsertedImageCrop, deleteInsertedImage, undoHistory, redoHistory, goToPresentationPage, goToAdjacentPresentationPage, presentationSnapshot, goToSection, refreshSectionNavigation, sectionNavigationSnapshot, getSnapshot, reportState, setNotesState: state => { STATE.notesVisible = Boolean(state?.visible); STATE.notesDirty = Boolean(state?.dirty); syncInlineToolbar(); }, emitHostMessage };
 })();

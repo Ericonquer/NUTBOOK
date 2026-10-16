@@ -8,7 +8,7 @@ import {createHash} from 'node:crypto';
 import {nearestRank} from '../src/motion/measurement.mjs';
 const dir=mkdtempSync(join(tmpdir(),'nutbook-motion-performance-')),file=join(dir,'performance.html');
 // Upgrade only the disposable test copy; keep authored benchmark and user files intact.
-const original=readFileSync('docs/presentations/motion-gallery/performance.html','utf8');
+const original=readFileSync('docs/presentations/motion-gallery/archive/performance.html','utf8');
 const marker='id="nutbook-motion-config"',runtimeStart=original.indexOf('<script>',original.indexOf('</script>',original.indexOf(marker)))+8,runtimeEnd=original.indexOf('</script>',runtimeStart);
 const source=Buffer.from(original.slice(0,runtimeStart)+'\n'+readFileSync('src-tauri/resources/export-templates/motion-runtime.js','utf8')+'\n'+original.slice(runtimeEnd));
 writeFileSync(file,source);copyFileSync('docs/presentations/motion-gallery/presentation-mark.svg',join(dir,'presentation-mark.svg'));

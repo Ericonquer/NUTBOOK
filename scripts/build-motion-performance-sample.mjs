@@ -1,7 +1,7 @@
 // A separate, explicitly animated benchmark artifact. Never regenerates user files.
 import {readFileSync,writeFileSync,copyFileSync,existsSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
-const output=resolve(process.argv[2] || 'docs/presentations/motion-gallery/performance.html');
+const output=resolve(process.argv[2] || 'docs/presentations/motion-gallery/archive/performance.html');
 let source=readFileSync('integrations/nbskill/templates/motion-presentation.html','utf8');
 const marker='<script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">';
 const start=source.indexOf(marker)+marker.length,end=source.indexOf('</script>',start);

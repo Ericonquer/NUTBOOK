@@ -7,6 +7,11 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "check:motion:p4-stress": "node scripts/test-motion-p4-stress.mjs",
+    "check:motion:ui-locale": "node scripts/test-motion-ui-locale.mjs",
+    "check:motion:layered-slices": "node scripts/test-motion-layered-slices.mjs",
+    "check:motion:paired-transitions": "node scripts/test-motion-paired-transitions.mjs",
+    "check:motion:preferences": "node scripts/test-motion-preferences.mjs",
     "dev": "cargo tauri dev --config src-tauri/tauri.dev.conf.json",
     "build:frontend": "vite build --config vite.config.mjs && node scripts/build-update-ui.mjs && node scripts/patch-markdown-editor-bundle.mjs && node scripts/build-markdown-document-title.mjs && node scripts/build-motion-runtime.mjs && node scripts/build-nbskill-package.mjs",
     "prepare:nutbook-cli": "node scripts/prepare-nutbook-cli.mjs",
@@ -40,7 +45,14 @@
     "check:html-edit-i18n": "node scripts/test-html-edit-i18n.mjs",
     "test:presentation-layout": "playwright test tests/presentation-layout.spec.mjs",
     "setup:presentation-layout": "playwright install chromium",
-    "check:motion:p2": "node scripts/check-motion-p2.mjs"
+    "check:motion:p2": "node scripts/check-motion-p2.mjs",
+    "check:motion:p3-exits": "node scripts/test-motion-fragments.mjs && node scripts/test-motion-fold-exit.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "check:motion:p3-backgrounds": "node scripts/test-motion-scene-backgrounds.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "check:motion:p3-quiet-backgrounds": "node scripts/test-motion-quiet-backgrounds.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "check:motion:p3-lit-backgrounds": "node scripts/test-motion-lit-backgrounds.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "check:motion:p3-transitions": "node scripts/test-motion-navigation.mjs && node scripts/test-motion-p3-transitions.mjs && node scripts/test-motion-grain-playback.mjs && node scripts/test-motion-transition-runtime.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "check:motion:p3-simple-exits": "node scripts/test-motion-simple-exits.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "check:motion:p3-page-curl": "node scripts/test-motion-page-curl.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract"
   },
   "dependencies": {
     "@milkdown/kit": "^7.15.3",

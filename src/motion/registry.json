@@ -203,7 +203,7 @@
           "min": 0,
           "max": 0.65,
           "default": 0.3,
-          "label": "背景浓度",
+          "label": "不透明度",
           "step": 0.01
         },
         "hue": {
@@ -224,7 +224,7 @@
           "min": 0.1,
           "max": 2,
           "default": 1,
-          "label": "流速",
+          "label": "速度",
           "step": 0.05
         },
         "scale": {
@@ -234,7 +234,13 @@
           "label": "尺度",
           "step": 0.05
         }
-      }
+      },
+      "panelParams": [
+        "hue",
+        "hue2",
+        "strength",
+        "speed"
+      ]
     },
     "transition.curtain-reveal": {
       "version": 1,
@@ -1157,6 +1163,1431 @@
               "label": "先慢后快"
             }
           ]
+        }
+      }
+    },
+    "entrance.fragment-assemble": {
+      "version": 1,
+      "label": "碎片拼合",
+      "category": "entrance",
+      "targets": [
+        "text",
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1600,
+          "label": "时长（毫秒）"
+        },
+        "pieces": {
+          "min": 8,
+          "max": 160,
+          "default": 48,
+          "integer": true,
+          "label": "碎片数量"
+        },
+        "strength": {
+          "min": 0.2,
+          "max": 2,
+          "default": 1,
+          "label": "幅度"
+        }
+      },
+      "catalog": false
+    },
+    "exit.fragment-fall": {
+      "version": 1,
+      "label": "玻璃破碎",
+      "category": "exit",
+      "targets": [
+        "text",
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1600,
+          "label": "时长（毫秒）"
+        },
+        "pieces": {
+          "min": 8,
+          "max": 160,
+          "default": 48,
+          "integer": true,
+          "label": "碎片数量"
+        },
+        "strength": {
+          "min": 0.2,
+          "max": 2,
+          "default": 1,
+          "label": "幅度"
+        }
+      }
+    },
+    "exit.fold-close": {
+      "version": 1,
+      "label": "折面收拢",
+      "category": "exit",
+      "targets": [
+        "text",
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 6000,
+          "default": 1400,
+          "label": "时长（毫秒）"
+        },
+        "axis": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "integer": true,
+          "label": "收拢方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "左右对折"
+            },
+            {
+              "value": 1,
+              "label": "上下对折"
+            }
+          ]
+        },
+        "perspective": {
+          "min": 0.6,
+          "max": 3,
+          "default": 1.6,
+          "label": "透视距离"
+        }
+      }
+    },
+    "background.aurora": {
+      "version": 1,
+      "label": "极光幕",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 12000,
+          "label": "周期（毫秒）",
+          "step": 1000
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.7,
+          "default": 0.4,
+          "label": "不透明度",
+          "step": 0.01
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 255,
+          "label": "主色相",
+          "step": 1
+        },
+        "hue2": {
+          "min": 0,
+          "max": 360,
+          "default": 112,
+          "label": "辅色相",
+          "step": 1
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "label": "速度",
+          "step": 0.05
+        },
+        "bandWidth": {
+          "min": 0.35,
+          "max": 1.4,
+          "default": 0.9,
+          "label": "光带宽度",
+          "step": 0.05
+        },
+        "layers": {
+          "min": 1,
+          "max": 5,
+          "default": 3,
+          "integer": true,
+          "label": "光幕层数"
+        }
+      },
+      "panelParams": [
+        "hue",
+        "hue2",
+        "strength",
+        "speed"
+      ]
+    },
+    "background.drifting-particles": {
+      "version": 1,
+      "label": "粒子漂浮",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 12000,
+          "label": "周期（毫秒）",
+          "step": 1000
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.65,
+          "default": 0.35,
+          "label": "不透明度",
+          "step": 0.01
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 175,
+          "label": "主色相",
+          "step": 1
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "label": "流速",
+          "step": 0.05
+        },
+        "density": {
+          "min": 20,
+          "max": 240,
+          "default": 100,
+          "integer": true,
+          "label": "粒子数量"
+        },
+        "size": {
+          "min": 1,
+          "max": 6,
+          "default": 3,
+          "label": "粒子大小",
+          "step": 0.1
+        },
+        "depth": {
+          "min": 0.2,
+          "max": 3,
+          "default": 1.4,
+          "label": "景深层次",
+          "step": 0.1
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "漂移方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "向上"
+            },
+            {
+              "value": 1,
+              "label": "向下"
+            },
+            {
+              "value": 2,
+              "label": "向左"
+            },
+            {
+              "value": 3,
+              "label": "向右"
+            }
+          ]
+        }
+      },
+      "catalog": false
+    },
+    "background.silk": {
+      "version": 1,
+      "label": "绢流",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "motion": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "integer": true,
+          "label": "状态",
+          "options": [
+            {
+              "value": 0,
+              "label": "静态"
+            },
+            {
+              "value": 1,
+              "label": "流动"
+            }
+          ]
+        },
+        "position": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "分布",
+          "options": [
+            {
+              "value": 0,
+              "label": "全幅"
+            },
+            {
+              "value": 1,
+              "label": "左侧"
+            },
+            {
+              "value": 2,
+              "label": "右侧"
+            },
+            {
+              "value": 3,
+              "label": "底部"
+            }
+          ]
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 275,
+          "step": 1,
+          "label": "色相"
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "速度"
+        },
+        "scale": {
+          "min": 0.5,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "尺度"
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.8,
+          "default": 0.55,
+          "step": 0.01,
+          "label": "浓度"
+        },
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 24000,
+          "step": 1000,
+          "label": "周期（毫秒）"
+        },
+        "detail": {
+          "min": 0,
+          "max": 1,
+          "default": 0.5,
+          "step": 0.05,
+          "label": "高光"
+        }
+      },
+      "panelParams": [
+        "motion",
+        "hue",
+        "strength",
+        "speed"
+      ]
+    },
+    "background.dark-veil": {
+      "version": 1,
+      "label": "暗幕流光",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "motion": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "integer": true,
+          "label": "状态",
+          "options": [
+            {
+              "value": 0,
+              "label": "静态"
+            },
+            {
+              "value": 1,
+              "label": "流动"
+            }
+          ]
+        },
+        "position": {
+          "min": 0,
+          "max": 3,
+          "default": 2,
+          "integer": true,
+          "label": "分布",
+          "options": [
+            {
+              "value": 0,
+              "label": "全幅"
+            },
+            {
+              "value": 1,
+              "label": "左侧"
+            },
+            {
+              "value": 2,
+              "label": "右侧"
+            },
+            {
+              "value": 3,
+              "label": "底部"
+            }
+          ]
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 265,
+          "step": 1,
+          "label": "色相"
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "速度"
+        },
+        "scale": {
+          "min": 0.5,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "尺度"
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.8,
+          "default": 0.55,
+          "step": 0.01,
+          "label": "浓度"
+        },
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 24000,
+          "step": 1000,
+          "label": "周期（毫秒）"
+        },
+        "detail": {
+          "min": 0,
+          "max": 1,
+          "default": 0.6,
+          "step": 0.05,
+          "label": "层次"
+        }
+      },
+      "panelParams": [
+        "motion",
+        "hue",
+        "strength",
+        "speed"
+      ]
+    },
+    "background.threads": {
+      "version": 1,
+      "label": "游丝",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "motion": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "integer": true,
+          "label": "状态",
+          "options": [
+            {
+              "value": 0,
+              "label": "静态"
+            },
+            {
+              "value": 1,
+              "label": "流动"
+            }
+          ]
+        },
+        "position": {
+          "min": 0,
+          "max": 3,
+          "default": 3,
+          "integer": true,
+          "label": "分布",
+          "options": [
+            {
+              "value": 0,
+              "label": "全幅"
+            },
+            {
+              "value": 1,
+              "label": "左侧"
+            },
+            {
+              "value": 2,
+              "label": "右侧"
+            },
+            {
+              "value": 3,
+              "label": "底部"
+            }
+          ]
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 175,
+          "step": 1,
+          "label": "色相"
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "速度"
+        },
+        "scale": {
+          "min": 0.5,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "尺度"
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.8,
+          "default": 0.55,
+          "step": 0.01,
+          "label": "浓度"
+        },
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 24000,
+          "step": 1000,
+          "label": "周期（毫秒）"
+        },
+        "detail": {
+          "min": 8,
+          "max": 64,
+          "default": 36,
+          "step": 1,
+          "label": "线条数量",
+          "integer": true
+        }
+      },
+      "panelParams": [
+        "motion",
+        "hue",
+        "strength",
+        "speed"
+      ]
+    },
+    "background.side-rays": {
+      "version": 1,
+      "label": "侧光",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "motion": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "integer": true,
+          "label": "状态",
+          "options": [
+            {
+              "value": 0,
+              "label": "静态"
+            },
+            {
+              "value": 1,
+              "label": "流动"
+            }
+          ]
+        },
+        "position": {
+          "min": 0,
+          "max": 3,
+          "default": 1,
+          "integer": true,
+          "label": "分布",
+          "options": [
+            {
+              "value": 0,
+              "label": "全幅"
+            },
+            {
+              "value": 1,
+              "label": "左侧"
+            },
+            {
+              "value": 2,
+              "label": "右侧"
+            },
+            {
+              "value": 3,
+              "label": "底部"
+            }
+          ]
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 42,
+          "step": 1,
+          "label": "色相"
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "速度"
+        },
+        "scale": {
+          "min": 0.5,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "尺度"
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.8,
+          "default": 0.55,
+          "step": 0.01,
+          "label": "浓度"
+        },
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 24000,
+          "step": 1000,
+          "label": "周期（毫秒）"
+        },
+        "detail": {
+          "min": 0,
+          "max": 1,
+          "default": 0.6,
+          "step": 0.05,
+          "label": "光束疏密"
+        }
+      },
+      "panelParams": [
+        "motion",
+        "hue",
+        "strength",
+        "speed"
+      ]
+    },
+    "background.topography": {
+      "version": 1,
+      "label": "等高线",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "motion": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "integer": true,
+          "label": "状态",
+          "options": [
+            {
+              "value": 0,
+              "label": "静态"
+            },
+            {
+              "value": 1,
+              "label": "流动"
+            }
+          ]
+        },
+        "position": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "分布",
+          "options": [
+            {
+              "value": 0,
+              "label": "全幅"
+            },
+            {
+              "value": 1,
+              "label": "左侧"
+            },
+            {
+              "value": 2,
+              "label": "右侧"
+            },
+            {
+              "value": 3,
+              "label": "底部"
+            }
+          ]
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 255,
+          "step": 1,
+          "label": "色相"
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "速度"
+        },
+        "scale": {
+          "min": 0.5,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "尺度"
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.8,
+          "default": 0.55,
+          "step": 0.01,
+          "label": "浓度"
+        },
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 24000,
+          "step": 1000,
+          "label": "周期（毫秒）"
+        },
+        "detail": {
+          "min": 6,
+          "max": 24,
+          "default": 14,
+          "step": 1,
+          "label": "轮廓数量",
+          "integer": true
+        }
+      },
+      "panelParams": [
+        "motion",
+        "hue",
+        "strength",
+        "speed"
+      ]
+    },
+    "background.gradient-waves": {
+      "version": 1,
+      "label": "渐层波澜",
+      "category": "background",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "motion": {
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "integer": true,
+          "label": "状态",
+          "options": [
+            {
+              "value": 0,
+              "label": "静态"
+            },
+            {
+              "value": 1,
+              "label": "流动"
+            }
+          ]
+        },
+        "position": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "分布",
+          "options": [
+            {
+              "value": 0,
+              "label": "全幅"
+            },
+            {
+              "value": 1,
+              "label": "左侧"
+            },
+            {
+              "value": 2,
+              "label": "右侧"
+            },
+            {
+              "value": 3,
+              "label": "底部"
+            }
+          ]
+        },
+        "hue": {
+          "min": 0,
+          "max": 360,
+          "default": 255,
+          "step": 1,
+          "label": "色相"
+        },
+        "speed": {
+          "min": 0.1,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "速度"
+        },
+        "scale": {
+          "min": 0.5,
+          "max": 2,
+          "default": 1,
+          "step": 0.05,
+          "label": "尺度"
+        },
+        "strength": {
+          "min": 0,
+          "max": 0.8,
+          "default": 0.55,
+          "step": 0.01,
+          "label": "浓度"
+        },
+        "durationMs": {
+          "min": 6000,
+          "max": 30000,
+          "default": 24000,
+          "step": 1000,
+          "label": "周期（毫秒）"
+        },
+        "detail": {
+          "min": 0,
+          "max": 1,
+          "default": 0.5,
+          "step": 0.05,
+          "label": "波面层次"
+        }
+      },
+      "panelParams": [
+        "motion",
+        "hue",
+        "strength",
+        "speed"
+      ]
+    },
+    "transition.parallax": {
+      "version": 1,
+      "label": "多层视差",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 2000,
+          "default": 800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "向左"
+            },
+            {
+              "value": 1,
+              "label": "向右"
+            },
+            {
+              "value": 2,
+              "label": "向上"
+            },
+            {
+              "value": 3,
+              "label": "向下"
+            }
+          ]
+        },
+        "depth": {
+          "min": 0.15,
+          "max": 1,
+          "default": 0.55,
+          "step": 0.05,
+          "label": "层间距离"
+        }
+      }
+    },
+    "transition.depth-travel": {
+      "version": 1,
+      "label": "景深穿越",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true,
+        "supportsFilterTransition": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 2000,
+          "default": 800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "integer": true,
+          "label": "镜头方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "推近"
+            },
+            {
+              "value": 1,
+              "label": "拉远"
+            }
+          ]
+        },
+        "depth": {
+          "min": 0.1,
+          "max": 1,
+          "default": 0.45,
+          "step": 0.05,
+          "label": "推进幅度"
+        },
+        "blur": {
+          "min": 0,
+          "max": 24,
+          "default": 10,
+          "step": 1,
+          "label": "虚化"
+        }
+      }
+    },
+    "transition.grain-dissolve": {
+      "version": 1,
+      "label": "颗粒溶解",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 2000,
+          "default": 800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "从左至右"
+            },
+            {
+              "value": 1,
+              "label": "从右至左"
+            },
+            {
+              "value": 2,
+              "label": "从上至下"
+            },
+            {
+              "value": 3,
+              "label": "从下至上"
+            }
+          ]
+        },
+        "grain": {
+          "min": 16,
+          "max": 128,
+          "default": 80,
+          "integer": true,
+          "step": 1,
+          "label": "颗粒密度"
+        }
+      }
+    },
+    "exit.blur-away": {
+      "version": 1,
+      "label": "柔焦隐去",
+      "category": "exit",
+      "targets": [
+        "text",
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 4000,
+          "default": 1000,
+          "step": 100,
+          "label": "时长（毫秒）"
+        },
+        "blur": {
+          "min": 0,
+          "max": 30,
+          "default": 12,
+          "step": 1,
+          "label": "虚化"
+        }
+      }
+    },
+    "exit.directional-wipe": {
+      "version": 1,
+      "label": "定向擦除",
+      "category": "exit",
+      "targets": [
+        "text",
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 4000,
+          "default": 1000,
+          "step": 100,
+          "label": "时长（毫秒）"
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "从左至右"
+            },
+            {
+              "value": 1,
+              "label": "从右至左"
+            },
+            {
+              "value": 2,
+              "label": "从上至下"
+            },
+            {
+              "value": 3,
+              "label": "从下至上"
+            }
+          ]
+        }
+      }
+    },
+    "exit.depth-away": {
+      "version": 1,
+      "label": "透视退远",
+      "category": "exit",
+      "targets": [
+        "text",
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 4000,
+          "default": 1000,
+          "step": 100,
+          "label": "时长（毫秒）"
+        },
+        "depth": {
+          "min": 200,
+          "max": 3000,
+          "default": 1200,
+          "step": 100,
+          "label": "退远距离"
+        }
+      }
+    },
+    "exit.page-curl": {
+      "version": 1,
+      "label": "卷页离场",
+      "category": "exit",
+      "targets": [
+        "image"
+      ],
+      "quality": "candidate",
+      "renderer": "canvas2d",
+      "params": {
+        "durationMs": {
+          "min": 500,
+          "max": 4000,
+          "default": 1600,
+          "step": 100,
+          "label": "时长（毫秒）"
+        },
+        "direction": {
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "integer": true,
+          "label": "卷起方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "从右侧卷起"
+            },
+            {
+              "value": 1,
+              "label": "从左侧卷起"
+            }
+          ]
+        },
+        "curl": {
+          "min": 0.04,
+          "max": 0.2,
+          "default": 0.1,
+          "step": 0.01,
+          "label": "卷曲半径"
+        }
+      }
+    },
+    "transition.smooth-push": {
+      "version": 1,
+      "label": "平滑推页",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 2000,
+          "default": 800,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "向左"
+            },
+            {
+              "value": 1,
+              "label": "向右"
+            },
+            {
+              "value": 2,
+              "label": "向上"
+            },
+            {
+              "value": 3,
+              "label": "向下"
+            }
+          ]
+        }
+      }
+    },
+    "transition.cube-rotate": {
+      "version": 1,
+      "label": "立方旋转",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 2000,
+          "default": 1000,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "向左"
+            },
+            {
+              "value": 1,
+              "label": "向右"
+            },
+            {
+              "value": 2,
+              "label": "向上"
+            },
+            {
+              "value": 3,
+              "label": "向下"
+            }
+          ]
+        },
+        "perspective": {
+          "min": 1.2,
+          "max": 4,
+          "default": 2.4,
+          "step": 0.1,
+          "label": "透视距离"
+        }
+      }
+    },
+    "transition.page-flip": {
+      "version": 1,
+      "label": "整页翻转",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 300,
+          "max": 2000,
+          "default": 1000,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "向左"
+            },
+            {
+              "value": 1,
+              "label": "向右"
+            },
+            {
+              "value": 2,
+              "label": "向上"
+            },
+            {
+              "value": 3,
+              "label": "向下"
+            }
+          ]
+        },
+        "perspective": {
+          "min": 1.2,
+          "max": 4,
+          "default": 2.4,
+          "step": 0.1,
+          "label": "透视距离"
+        }
+      }
+    },
+    "transition.layered-slices": {
+      "version": 1,
+      "label": "错层切片",
+      "category": "transition",
+      "targets": [
+        "page"
+      ],
+      "quality": "candidate",
+      "renderer": "dom",
+      "requires": {
+        "supportsDomTransition": true,
+        "excludesVideo": true,
+        "excludesEmbeddedFrame": true
+      },
+      "params": {
+        "durationMs": {
+          "min": 600,
+          "max": 2400,
+          "default": 1400,
+          "label": "时长（毫秒）",
+          "step": 100
+        },
+        "direction": {
+          "min": 0,
+          "max": 3,
+          "default": 0,
+          "integer": true,
+          "label": "方向",
+          "options": [
+            {
+              "value": 0,
+              "label": "向左"
+            },
+            {
+              "value": 1,
+              "label": "向右"
+            },
+            {
+              "value": 2,
+              "label": "向上"
+            },
+            {
+              "value": 3,
+              "label": "向下"
+            }
+          ]
+        },
+        "slices": {
+          "min": 3,
+          "max": 7,
+          "default": 5,
+          "integer": true,
+          "step": 1,
+          "label": "层数"
+        },
+        "stagger": {
+          "min": 0.04,
+          "max": 0.3,
+          "default": 0.18,
+          "step": 0.02,
+          "label": "错开节奏"
+        },
+        "offset": {
+          "min": 0.03,
+          "max": 0.2,
+          "default": 0.08,
+          "step": 0.01,
+          "label": "错位距离"
+        },
+        "feather": {
+          "min": 0.01,
+          "max": 0.08,
+          "default": 0.025,
+          "step": 0.005,
+          "label": "柔边"
         }
       }
     }

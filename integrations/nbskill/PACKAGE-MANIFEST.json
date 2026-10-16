@@ -29,8 +29,8 @@
     },
     {
       "path": "references/motion-schema.json",
-      "sha256": "69c555d6bdf43d3aa9cf6321707f056380e8f0a4a3d0b4ed3c0e817ac24a547b",
-      "bytes": 44209
+      "sha256": "99226b4c9ba7949280be53d67e1b699e2d0a2c8367fddc20905fbe2944762d65",
+      "bytes": 88550
     },
     {
       "path": "references/nutbook-html-edit-contract-v1.md",
@@ -59,8 +59,8 @@
     },
     {
       "path": "scripts/motion/registry.json",
-      "sha256": "0c2e3f632d7b49fe6e251d4347f02f7a6671aa130dd0de00bf0b6c388f0cc93a",
-      "bytes": 25478
+      "sha256": "7b31381f91c2a5e6a73240098edf47796c3194d59383e78fdc06ab7d5ea88b03",
+      "bytes": 56483
     },
     {
       "path": "scripts/register.mjs",
@@ -94,8 +94,8 @@
     },
     {
       "path": "templates/motion-presentation.html",
-      "sha256": "65ce0eaf530ed18f20a6fd446bae6354800019cee0be0b26c8b271555e786efb",
-      "bytes": 241042
+      "sha256": "1527abd87df9100fe11cd6b3e23b3629a1d3b88352ae517d63e3225a9091d476",
+      "bytes": 363172
     },
     {
       "path": "templates/presentation-mark.svg",

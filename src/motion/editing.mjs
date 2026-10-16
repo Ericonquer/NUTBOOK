@@ -20,8 +20,8 @@ export function changeSelectedActions(config,pageId,ids,change,category){
  return next;
 }
 
-export function applyPageTemplate(config,pageId,templateId,makeId){
+export function applyPageTemplate(config,pageId,templateId,makeId,rememberedParams){
  const template=registry.templates[templateId];if(!template||!['background','transition'].includes(template.category))throw new TypeError('Unsupported page template');
- const next=structuredClone(config),page=next.pages.find(page=>page.id===pageId),params=Object.fromEntries(Object.entries(template.params).map(([key,rule])=>[key,rule.default]));
+ const next=structuredClone(config),page=next.pages.find(page=>page.id===pageId),params=structuredClone(rememberedParams||Object.fromEntries(Object.entries(template.params).map(([key,rule])=>[key,rule.default])));
  page[template.category]={id:page[template.category]?.id||makeId(),templateId,templateVersion:template.version,params,seed:page[template.category]?.seed??42};return {config:next,applied:1,skipped:0};
 }

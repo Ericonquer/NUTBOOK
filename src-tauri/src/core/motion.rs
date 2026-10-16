@@ -40,7 +40,7 @@ pub struct Action {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PageEffect {pub id:String,pub template_id:String,pub template_version:u32,pub params:BTreeMap<String,f64>,pub seed:u32}
-fn validate_parameters(values:&BTreeMap<String,f64>,template:&serde_json::Value)->Result<(),AppError>{
+pub(crate) fn validate_parameters(values:&BTreeMap<String,f64>,template:&serde_json::Value)->Result<(),AppError>{
  let params=template["params"].as_object().ok_or(AppError::InvalidParams)?;
  if values.keys().any(|key|!params.contains_key(key)){return Err(AppError::InvalidParams);}
  for(key,rule)in params{let number=match values.get(key){Some(value)=>*value,None if rule["optional"].as_bool()==Some(true)=>rule["default"].as_f64().ok_or(AppError::InvalidParams)?,None=>return Err(AppError::InvalidParams)};if !number.is_finite()||number<rule["min"].as_f64().ok_or(AppError::InvalidParams)?||number>rule["max"].as_f64().ok_or(AppError::InvalidParams)?||(rule["integer"].as_bool()==Some(true)&&number.fract()!=0.0){return Err(AppError::InvalidParams);}}

@@ -1047,20 +1047,20 @@ fn set_audience_child_autoresizing(app: &tauri::AppHandle, enabled: bool) {
 #[derive(Clone, Copy, Debug)]
 struct AudienceWindowFrame { x:f64,y:f64,width:f64,height:f64,fullscreen:bool,maximized:bool }
 #[cfg(target_os = "macos")]
-static PENDING_AUDIENCE_FRAME: Mutex<Option<(u64,AudienceWindowFrame)>> = Mutex::new(None);
+static PENDING_AUDIENCE_FRAME: Mutex<Option<(u64,AudienceWindowFrame,bool)>> = Mutex::new(None);
 #[cfg(target_os = "macos")]
 static AUDIENCE_FRAME_EPOCH:AtomicU64=AtomicU64::new(0);
 #[cfg(target_os = "macos")]
-fn apply_native_audience_frame(window:&NSWindow, frame:AudienceWindowFrame)->bool {
+fn apply_native_audience_frame(window:&NSWindow, frame:AudienceWindowFrame, animated:bool)->bool {
     let Some(mtm)=MainThreadMarker::new() else{return false;};
     let screens=NSScreen::screens(mtm);let Some(primary)=screens.firstObject() else{return false;};
     let primary_height=primary.frame().size.height;
-    if window.isZoomed(){window.zoom(None);}
     let requested=Rect{x:frame.x,y:primary_height-frame.y-frame.height,width:frame.width,height:frame.height};
     let mut fitted=requested;
-    for index in 0..screens.count(){let screen=screens.objectAtIndex(index);let bounds=screen.frame();let cx=requested.x+requested.width/2.0;let cy=requested.y+requested.height/2.0;if cx>=bounds.origin.x&&cx<bounds.origin.x+bounds.size.width&&cy>=bounds.origin.y&&cy<bounds.origin.y+bounds.size.height{let visible=screen.visibleFrame();fitted=requested.fit(Rect{x:visible.origin.x,y:visible.origin.y,width:visible.size.width,height:visible.size.height});break;}}
-    window.setFrame_display(NSRect::new(NSPoint::new(fitted.x,fitted.y),NSSize::new(fitted.width,fitted.height)),true);
-    if frame.maximized {window.zoom(None);}
+    for index in 0..screens.count(){let screen=screens.objectAtIndex(index);let bounds=screen.frame();let cx=requested.x+requested.width/2.0;let cy=requested.y+requested.height/2.0;if cx>=bounds.origin.x&&cx<bounds.origin.x+bounds.size.width&&cy>=bounds.origin.y&&cy<bounds.origin.y+bounds.size.height{let visible=screen.visibleFrame();let available=Rect{x:visible.origin.x,y:visible.origin.y,width:visible.size.width,height:visible.size.height};fitted=if frame.maximized{available}else{requested.fit(available)};break;}}
+    // Called from the AppKit dispatch queue, outside Tao's event-handler lock.
+    // Explicit frames preserve zoomed geometry without NSWindow.zoom re-entry.
+    window.setFrame_display_animate(NSRect::new(NSPoint::new(fitted.x,fitted.y),NSSize::new(fitted.width,fitted.height)),animated,animated);
     let placed=window.frame();
     let confirmed=frame.maximized||((placed.origin.x-fitted.x).abs()<2.0&&(placed.origin.y-fitted.y).abs()<2.0);
     if frame.fullscreen&&confirmed {window.toggleFullScreen(None);}
@@ -1068,19 +1068,36 @@ fn apply_native_audience_frame(window:&NSWindow, frame:AudienceWindowFrame)->boo
 }
 #[cfg(target_os = "macos")]
 fn place_native_audience(app:&tauri::AppHandle,frame:AudienceWindowFrame)->Result<(),AppError>{
+    place_native_audience_impl(app,frame,false)
+}
+#[cfg(target_os = "macos")]
+fn place_native_audience_impl(app:&tauri::AppHandle,frame:AudienceWindowFrame,animated:bool)->Result<(),AppError>{
     let epoch=AUDIENCE_FRAME_EPOCH.fetch_add(1,Ordering::SeqCst)+1;
-    let host=app.get_webview("main").ok_or(AppError::InvalidSession)?;let view=host.clone();let app_for_placement=app.clone();
-    host.run_on_main_thread(move || {let _=view.with_webview(move |platform| unsafe{
-        if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)!=epoch{return;}
-        let window:&NSWindow=&*platform.ns_window().cast();
-        if window.styleMask().contains(objc2_app_kit::NSWindowStyleMask::FullScreen){
-            if let Ok(mut pending)=PENDING_AUDIENCE_FRAME.lock(){*pending=Some((epoch,frame));}
-            window.toggleFullScreen(None);
-        }else{if !apply_native_audience_frame(window,frame){
-            let snapshot=app_for_placement.try_state::<AppState>().and_then(|state|state.native_presentation.lock().ok().and_then(|mut guard|guard.as_mut().map(|session|{session.audience_fullscreen_requested=false;session.error=Some(if session.language=="en-US"{"Could not place the audience window. Drag its top bar, or end the presentation and select the display again."}else{"观众窗口未能移动到目标屏幕，请拖动顶部栏移动窗口，或结束后重新选择屏幕。"}.into());session.clone()})));
-            if let Some(session)=snapshot{notify_presenter(&app_for_placement,&session);}
-        }}
-    });}).map_err(|_|AppError::InternalError)
+    let host=app.get_webview("main").ok_or(AppError::InvalidSession)?;
+    let app_for_placement=app.clone();
+    host.with_webview(move |platform| unsafe {
+        let Some(mtm)=MainThreadMarker::new() else{return;};
+        let Some(window)=objc2::rc::Retained::retain(platform.ns_window().cast::<NSWindow>()) else{return;};
+        let window=dispatch2::MainThreadBound::new(window,mtm);
+        // run_on_main_thread may execute inline during Destroyed. Dispatch here
+        // instead, retaining the native window until the callback has returned.
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            let Some(mtm)=MainThreadMarker::new() else{return;};
+            if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)!=epoch{return;}
+            let window=window.get(mtm);
+            if window.styleMask().contains(objc2_app_kit::NSWindowStyleMask::FullScreen){
+                if let Ok(mut pending)=PENDING_AUDIENCE_FRAME.lock(){*pending=Some((epoch,frame,animated));}
+                window.toggleFullScreen(None);
+            }else {
+                let confirmed=apply_native_audience_frame(window,frame,animated);
+                if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)!=epoch{return;}
+                if !confirmed{
+                let snapshot=app_for_placement.try_state::<AppState>().and_then(|state|state.native_presentation.lock().ok().and_then(|mut guard|guard.as_mut().map(|session|{session.audience_fullscreen_requested=false;session.error=Some(if session.language=="en-US"{"Could not place the audience window. Drag its top bar, or end the presentation and select the display again."}else{"观众窗口未能移动到目标屏幕，请拖动顶部栏移动窗口，或结束后重新选择屏幕。"}.into());session.clone()})));
+                if let Some(session)=snapshot{notify_presenter(&app_for_placement,&session);}
+                }
+            }
+        });
+    }).map_err(|_|AppError::InternalError)
 }
 
 fn install_audience_resize_observer(app: &tauri::AppHandle) {
@@ -1120,11 +1137,11 @@ fn install_audience_fullscreen_observer(app: &tauri::AppHandle) {
                     let handler = RcBlock::new(move |_notification: std::ptr::NonNull<NSNotification>| {
                         if !entered {
                             let pending=PENDING_AUDIENCE_FRAME.lock().ok().and_then(|mut frame|frame.take());
-                            if let Some((epoch,frame))=pending {
+                            if let Some((epoch,frame,animated))=pending {
                                 // Tao queues style/maximize restoration from its exit delegate.
                                 // Cross a main-queue boundary before applying the saved desktop frame.
                                 let app_for_restore=app_for_event.clone();
-                                dispatch2::DispatchQueue::main().exec_async(move || {if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)==epoch{let _=place_native_audience(&app_for_restore,frame);}});
+                                dispatch2::DispatchQueue::main().exec_async(move || {if AUDIENCE_FRAME_EPOCH.load(Ordering::SeqCst)==epoch{let _=place_native_audience_impl(&app_for_restore,frame,animated);}});
                             }
                         }
                         let Some(state) = app_for_event.try_state::<AppState>() else { return; };
@@ -2498,7 +2515,7 @@ fn stop_session(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
     if let Some(main) = app.get_window("main") {
         if session.rehearsal { let _ = main.set_simple_fullscreen(false); }
         #[cfg(target_os = "macos")]
-        {if let Ok(displays)=display_layout(app){if let Some(rect)=session.main_window_snapshot.restore(&displays){let _=place_native_audience(app,AudienceWindowFrame{x:rect.x,y:rect.y,width:rect.width,height:rect.height,fullscreen:session.main_window_fullscreen,maximized:session.main_window_maximized});}}}
+        {if let Ok(displays)=display_layout(app){if let Some(rect)=session.main_window_snapshot.restore(&displays){let _=place_native_audience_impl(app,AudienceWindowFrame{x:rect.x,y:rect.y,width:rect.width,height:rect.height,fullscreen:session.main_window_fullscreen,maximized:session.main_window_maximized},true);}}}
         #[cfg(not(target_os = "macos"))]
         {let _ = main.set_fullscreen(false);let _ = main.unmaximize();if let Ok(displays)=display_layout(app){if let Some(rect)=session.main_window_snapshot.restore(&displays){let _=main.set_position(tauri::LogicalPosition::new(rect.x,rect.y));let _=main.set_size(tauri::LogicalSize::new(rect.width,rect.height));}}if session.main_window_maximized {let _=main.maximize();}let _=main.set_fullscreen(session.main_window_fullscreen);}
         let _ = main.set_title(&session.main_window_title);
@@ -2555,6 +2572,24 @@ mod tests {
         io::Write,
         process::{Command, Stdio},
     };
+
+    #[test]
+    fn phase_acceptance_documents_pass_presentation_preflight() {
+        for stage in ["P1", "P2", "P3", "P4"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../docs/presentations/motion-gallery/{}-验收.html", stage));
+            let html = std::fs::read_to_string(path).unwrap();
+            let document = crate::core::html_edit::read_formal_motion_document(&html).unwrap().unwrap();
+            let pages: Vec<PresentationPage> = document.pages.iter().map(|p| PresentationPage { id: p.id.clone(), title: p.id.clone() }).collect();
+            validate_pages(&pages, &pages[0].id).unwrap();
+            let notes = super::saved_notes_json_block(&html).unwrap();
+            validate_notes(&pages, &notes).unwrap();
+            assert_eq!(notes.len(), pages.len());
+            let mut stale = notes;
+            stale.insert("opening".into(), vec![]);
+            assert!(validate_notes(&pages, &stale).is_err());
+        }
+    }
 
     #[test]
     fn legacy_probe_omits_motion_extension() {

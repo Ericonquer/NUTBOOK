@@ -17577,7 +17577,7 @@
               <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.contentDensity"))}</div><div class="export-density-picker">
                 ${densityButton("master", "densityMaster", "densityMasterTip")}${densityButton("balanced", "densityBalanced", "densityBalancedTip")}${densityButton("report", "densityReport", "densityReportTip")}
               </div></div>
-              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid two">
+              <div class="export-preference-group"><div class="export-label">${escapeHtml(t("markdown.outputKind"))}</div><div class="export-segment-grid three">
                 ${[["static","staticHtml","staticHtmlTip"],["dynamic","dynamicHtml","dynamicHtmlTip"],["motion-editable","motionEditableHtml","motionEditableHtmlTip"]].map(([value, labelKey, tipKey]) => segmentButton(value, labelKey, tipKey, presentationPreferences.outputKind, "data-presentation-output")).join("")}
               </div></div>
             </div>
