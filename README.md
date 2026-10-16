@@ -126,11 +126,23 @@ This walkthrough shows Markdown outline navigation, live editing, text formattin
 
 ![NUTBOOK Markdown outline, live editing, bold formatting, and image insertion](./assets/readme-demo/nutbook-markdown-edit-en.gif)
 
+#### Markdown Export and Publishing Drafts
+
+Choose reading HTML, presentation HTML, PDF, or a PNG long image in the Export Center:
+
+![Markdown Export Center (Chinese UI)](./assets/readme-demo/nutbook-markdown-export-cn.gif)
+
+Create a separate publishing draft, adjust its theme, compare it with the original, and preview before copying:
+
+![Markdown publishing workspace (Chinese UI)](./assets/readme-demo/nutbook-markdown-formatting-v2-cn.gif)
+
 ### 3. Local Library Management
 
 * Recognize reports, presentations, and long documents through thumbnails.
 
 * Organize content with favorites, custom tags, Skill tags, and type tags.
+
+* Discover, edit, order, and batch-manage custom tags across documents.
 
 * Browse all files, recent items, favorites, content types, and sources.
 
@@ -155,6 +167,16 @@ The goal is not merely to open AI-generated HTML, but to make it useful for expl
 This walkthrough shows native text editing, heading formatting, image-frame insertion, and saving in presentation HTML:
 
 ![NUTBOOK native HTML editing, heading formatting, image-frame insertion, and saving](./assets/readme-demo/nutbook-html-edit-en.gif)
+
+#### Motion Center and Presenter View
+
+Open Motion while editing supported HTML to add element entrances, emphasis and exits, plus page backgrounds and transitions. Search or favorite effects and save local parameter defaults; saved motion documents remain editable and presentable.
+
+The presenter view combines a live current slide, a still preview of the next slide, per-slide notes, slide navigation, and timer controls:
+
+![NUTBOOK presenter view and slide notes (Chinese UI)](./assets/readme-demo/nutbook-native-presenter-cn.gif)
+
+These GIFs demonstrate the real frontend with isolated sample data. Save, copy, and multi-window host interfaces are simulated; the recordings are not evidence of disk, clipboard, or physical dual-display acceptance.
 
 ## Current Support
 
@@ -375,17 +397,18 @@ NUTBOOK is closer to an “AI artifact desk” and local presentation library th
 
 ## Release Highlights
 
-### 1.3.0: Markdown Publishing Workspace and Customizable Toolbar
+### 1.4.0: Upgraded Tags and Motion Center
 
-* Create, edit, save, and reopen separate publishing drafts for WeChat Official Accounts, X Articles, and Weibo Articles without changing the original Markdown.
-* Preview platform output and copy titles / bodies separately. WeChat supports themes and combined text/images; X keeps image placeholders with separate image copying; Weibo provides semantic text/image copying. Review formatting after pasting into the destination platform.
-* Edit and copy independent WeChat / Weibo summaries. Local automatic extraction is labeled experimental and requires review before adoption.
-* Pin or unpin frequently used actions in More, with up to three shortcuts that adapt to window width. Markdown and HTML retain separate preferences, while the path bar keeps the filename visible.
-* Distinguish presentation and fullscreen icons, shorten and reposition pin tooltips, and fix the brief white border when entering HTML fullscreen.
+* Organize ordered custom tags with a shared editor, discovery, centralized management, and batch operations.
+* Add element entrances, emphasis and exits, page backgrounds, and eight page transitions in the HTML Motion Center, with search, favorites, and local parameter defaults.
+* Select objects, preview effects, and edit action order and parameters; saved documents retain their motion settings when reopened.
+* Keep a live current slide and a background-preserving still preview of the next slide, prioritize that preview, and reuse valid captures. Single-screen restoration and physical dual-display exit paths passed user acceptance.
+* Capture complete text, images, and frozen backgrounds without intermediate animation states or recovery panels. Fix library thumbnail rebuilding and pagination beyond 500 documents.
 
 ### Earlier Releases
 
-* **1.2.0**: Added native HTML presentation mode with audience / presenter windows and saved slide notes; external-display validation remains pending.
+* **1.3.0**: Added the Markdown publishing workspace, separate platform drafts, and a customizable toolbar.
+* **1.2.0**: Added native HTML presentation mode with audience / presenter windows and saved slide notes.
 * **1.1.0**: Added the Markdown Export Center for reading HTML, presentation HTML, PDF, and PNG long images.
 * **1.0.0**: First stable release, combining local intake, Markdown / HTML reading and light editing, and system file opening.
 * **0.8.0**: Added Agent project and task artifact discovery, nbskill integration, and the Nutbook CLI.
@@ -401,7 +424,9 @@ NUTBOOK is closer to an “AI artifact desk” and local presentation library th
 | Shipped   | **Agent integrations**                     | Register artifact identity, lifecycle, and HTML editing protocols through nbskill while managing only verified Agent installations. |
 | Shipped   | **Nutbook CLI**                            | Add or remove files, folders, and Agent projects while the desktop app is running or closed, with a read-only health check.         |
 | Shipped   | **Markdown export center**                 | Export Markdown as reading or presentation HTML, PDF, and PNG long images.                                                           |
-| Shipped | **Native HTML presentation mode** | NUTBOOK-controlled navigation, a live presenter view, and saved per-slide notes; external-display validation remains pending. |
+| Shipped | **Upgraded tag management** | Ordered custom tags, shared editing, discovery, and batch organization. |
+| Shipped | **HTML Motion Center** | Element effects, page backgrounds, eight transitions, previews, favorites, local defaults, and saved settings. |
+| Shipped | **Native HTML presentation mode** | NUTBOOK-controlled navigation, a live presenter view, and saved per-slide notes. |
 | Shipped | **Markdown publishing workspace** | Separate drafts, platform previews, title/body copying, and image handling for WeChat, X Articles, and Weibo; local summary extraction is experimental. |
 | Later | **Presentation drawing tools** | Add temporary on-screen annotation for classes, meetings, proposals, and reviews. |
 | Exploring | **AI-assisted capabilities**               | Help users discover, understand, and refine content after local file safety and deterministic editing boundaries are clear.         |
