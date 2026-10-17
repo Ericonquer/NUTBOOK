@@ -2,7 +2,7 @@ use tauri::Emitter;
 use crate::{
     commands::window::open_downloaded_installer,
     core::update::{
-        build_update_response, download_and_verify_update, fetch_latest_github_release,
+        build_update_response, download_and_verify_update, fetch_latest_github_release, report_download_progress,
     },
     errors::AppError,
     models::{
@@ -98,6 +98,11 @@ pub async fn check_for_updates(
 }
 
 #[tauri::command]
+pub fn get_update_download_progress(state: tauri::State<'_, AppState>) -> Result<crate::models::UpdateDownloadProgress, AppError> {
+    state.update_download_progress()
+}
+
+#[tauri::command]
 pub async fn download_and_install_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -108,14 +113,19 @@ pub async fn download_and_install_update(
     let app_for_download = app.clone();
     let tag = payload.tag;
     let asset_key = payload.asset_key;
+    report_download_progress(&app, &tag, &asset_key, "metadata", 0, None, None);
+    let task_tag = tag.clone();
+    let task_key = asset_key.clone();
     let task = tauri::async_runtime::spawn_blocking(move || {
         let (cache_dir, installer_path) =
-            download_and_verify_update(&app_for_download, &current_version, &tag, &asset_key)?;
+            download_and_verify_update(&app_for_download, &current_version, &task_tag, &task_key)?;
         open_downloaded_installer(&cache_dir, &installer_path)
     })
     .await;
+    let result = task.map_err(|_| AppError::InternalError).and_then(|result| result);
+    let snapshot = state.update_download_progress().unwrap_or_default();
+    report_download_progress(&app, &tag, &asset_key, if result.is_ok() { "opened" } else { "error" }, snapshot.downloaded_bytes, snapshot.total_bytes, result.as_ref().err().map(|error| error.to_string()));
     state.finish_update_download();
-    let result = task.map_err(|_| AppError::InternalError)?;
     result?;
     Ok(true)
 }

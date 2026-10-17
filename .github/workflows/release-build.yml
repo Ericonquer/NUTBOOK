@@ -233,6 +233,7 @@ jobs:
           cleanup() { hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${dmg_files[0]}"
+          python3 scripts/verify-dmg-icons.py "$mount_dir"
           app_path="$mount_dir/NUTBOOK.app"
           binary_path="$app_path/Contents/MacOS/NUTBOOK"
           test -d "$app_path"

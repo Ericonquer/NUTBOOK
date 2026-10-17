@@ -55,6 +55,7 @@ pub struct AppState {
     thumbnail_settings_path: PathBuf,
     update_settings_path: PathBuf,
     update_download_in_progress: Mutex<bool>,
+    update_download_progress: Mutex<crate::models::UpdateDownloadProgress>,
     system_chrome_thumbnails_enabled: Mutex<bool>,
     // PR B：外部文件会话注册表与应用数据目录；inbox 为进程级全局单例
     //（见 core::external_open::global_inbox），不随 AppState 生命周期。
@@ -130,6 +131,7 @@ impl AppState {
             thumbnail_settings_path,
             update_settings_path,
             update_download_in_progress: Mutex::new(false),
+            update_download_progress: Mutex::new(Default::default()),
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
             external_sessions: crate::core::external_open::ExternalSessionRegistry::default(),
             app_data_dir,
@@ -323,6 +325,17 @@ impl AppState {
         }
         *in_progress = true;
         Ok(())
+    }
+
+    pub fn update_download_progress(&self) -> Result<crate::models::UpdateDownloadProgress, AppError> {
+        self.update_download_progress.lock().map(|value| value.clone()).map_err(|_| AppError::InternalError)
+    }
+
+    pub fn record_update_download_progress(&self, mut progress: crate::models::UpdateDownloadProgress) -> Result<crate::models::UpdateDownloadProgress, AppError> {
+        let mut stored = self.update_download_progress.lock().map_err(|_| AppError::InternalError)?;
+        progress.revision = stored.revision + 1;
+        *stored = progress.clone();
+        Ok(progress)
     }
 
     pub fn finish_update_download(&self) {
@@ -1047,5 +1060,33 @@ mod revoke_key_tests {
         assert!(!scoped_key_belongs_to_external("html-runtime:1:host", "ext-a"));
         assert!(!scoped_key_belongs_to_external("preview:1", "ext-a"));
         assert!(!scoped_key_belongs_to_external("html-edit:1", "ext-a"));
+    }
+}
+
+#[cfg(test)]
+mod update_download_tests {
+    use super::*;
+
+    #[test]
+    fn host_retains_progress_and_terminal_state_for_recreated_dialogs() {
+        let root = tempfile::tempdir().unwrap();
+        let database = Database::new(root.path().join("update-test.sqlite3")).unwrap();
+        let state = AppState::new(database, root.path().to_path_buf());
+        state.begin_update_download().unwrap();
+        assert!(state.begin_update_download().is_err(), "concurrent downloads must be rejected");
+        let progress = crate::models::UpdateDownloadProgress {
+            tag: "v1.4.0".into(), asset_key: "mac".into(), phase: "downloading".into(),
+            downloaded_bytes: 50, total_bytes: Some(100), ..Default::default()
+        };
+        let first = state.record_update_download_progress(progress).unwrap();
+        assert_eq!(state.update_download_progress().unwrap(), first);
+        let final_state = state.record_update_download_progress(crate::models::UpdateDownloadProgress {
+            phase: "opened".into(), downloaded_bytes: 100, ..first.clone()
+        }).unwrap();
+        state.finish_update_download();
+        assert!(final_state.revision > first.revision);
+        assert_eq!(state.update_download_progress().unwrap(), final_state);
+        state.begin_update_download().unwrap();
+        state.finish_update_download();
     }
 }
