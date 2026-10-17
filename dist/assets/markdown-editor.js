@@ -23480,7 +23480,7 @@ async function aI({ root: t, markdown: e = "", fileName: n = "", language: r = n
       handlePaste(p, g) {
         if (!u || L || Je || p.composing) return !1;
         const y = g.clipboardData, k = [...(y == null ? void 0 : y.items) || []].filter((V) => V.kind === "file" && V.type.startsWith("image/")).map((V) => V.getAsFile()).filter(Boolean), w = ((y == null ? void 0 : y.getData("text/plain")) || "").trim(), M = w.match(/^!\[([^\]\n]*)\]\((https?:\/\/[^\s]+)\)$/i);
-        let T = (M == null ? void 0 : M[2]) || (/^https?:\/\/\S+$/i.test(w) && /\.(png|jpe?g|webp)(?:[?#]|$)/i.test(w) ? w : null);
+        let T = (M == null ? void 0 : M[2]) || (/^https?:\/\/\S+$/i.test(w) && /\.(png|jpe?g|webp|gif)(?:[?#]|$)/i.test(w) ? w : null);
         if (!k.length && !T && !w) {
           const V = (y == null ? void 0 : y.getData("text/html")) || "";
           if (V) {

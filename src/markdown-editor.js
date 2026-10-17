@@ -1699,7 +1699,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
         const files = [...(clipboard?.items || [])].filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter(Boolean);
         const plain = (clipboard?.getData("text/plain") || "").trim();
         const md = plain.match(/^!\[([^\]\n]*)\]\((https?:\/\/[^\s]+)\)$/i);
-        let url = md?.[2] || (/^https?:\/\/\S+$/i.test(plain) && /\.(png|jpe?g|webp)(?:[?#]|$)/i.test(plain) ? plain : null);
+        let url = md?.[2] || (/^https?:\/\/\S+$/i.test(plain) && /\.(png|jpe?g|webp|gif)(?:[?#]|$)/i.test(plain) ? plain : null);
         if (!files.length && !url && !plain) {
           const html = clipboard?.getData("text/html") || "";
           if (html) {

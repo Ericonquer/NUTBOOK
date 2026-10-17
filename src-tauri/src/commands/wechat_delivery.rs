@@ -80,7 +80,7 @@ fn validate(job: &Value) -> Result<String, String> {
     let mut total = 0usize;
     for image in images {
         let mime = image["mime"].as_str().ok_or("Invalid image")?;
-        if !["image/png", "image/jpeg", "image/webp"].contains(&mime) {
+        if !["image/png", "image/jpeg", "image/webp", "image/gif"].contains(&mime) {
             return Err("Invalid image".into());
         }
         let data = image["base64"].as_str().ok_or("Invalid image")?;

@@ -315,7 +315,7 @@ fn complete_portable_html_tag(input: &str) -> Option<PortableHtmlTag> {
     (cursor == input.len()).then_some(tag)
 }
 
-fn aligned_text_html_candidate(lines: &[&str], start: usize) -> Option<(String, usize)> {
+pub(crate) fn aligned_text_html_candidate(lines: &[&str], start: usize) -> Option<(String, usize)> {
     let first = lines.get(start)?.trim();
     if !first.to_ascii_lowercase().starts_with("<div") {
         return None;
@@ -405,6 +405,13 @@ fn parse_aligned_text_html(input: &str) -> Option<(&'static str, AlignedTextInne
         return Some((alignment, AlignedTextInner::Paragraph(content.to_vec())));
     }
     None
+}
+
+// Reuse the portable Markdown contract without exposing arbitrary source HTML.
+pub(crate) fn aligned_text_markdown(input: &str) -> Option<(&'static str, String)> {
+    let (alignment, _) = parse_aligned_text_html(input)?;
+    let lines = input.lines().collect::<Vec<_>>();
+    Some((alignment, lines[2..lines.len() - 2].join("\n")))
 }
 
 fn render_aligned_text_html(input: &str) -> Option<(String, bool)> {

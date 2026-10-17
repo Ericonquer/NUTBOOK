@@ -1,8 +1,16 @@
 use comrak::{markdown_to_html, ComrakOptions};
 
-use crate::core::document::{portable_image_html_candidate, sanitize_portable_image_html};
+use crate::core::document::{aligned_text_html_candidate, aligned_text_markdown, portable_image_html_candidate, sanitize_portable_image_html};
 
 pub fn render_markdown_html(raw: &str) -> String {
+    render_markdown(raw, false)
+}
+
+pub fn render_formatting_html(raw: &str) -> String {
+    render_markdown(raw, true)
+}
+
+fn render_markdown(raw: &str, preserve_alignment: bool) -> String {
     let lines = raw.lines().collect::<Vec<_>>();
     let mut prepared = String::new();
     let mut replacements = Vec::new();
@@ -21,6 +29,18 @@ pub fn render_markdown_html(raw: &str) -> String {
             fence = Some((marker, marker_count));
         }
         if fence.is_none() && !line.starts_with("    ") && !line.starts_with('\t') {
+            if preserve_alignment {
+                if let Some((candidate, consumed)) = aligned_text_html_candidate(&lines, index) {
+                    if let Some((alignment, inner)) = aligned_text_markdown(&candidate) {
+                        let mut token = format!("NUTBOOKALIGNEDTEXTBLOCK{}END", replacements.len());
+                        while raw.contains(&token) { token.push('X'); }
+                        prepared.push_str(&format!("\n\n{token}\n\n"));
+                        replacements.push((token, format!("<div align=\"{alignment}\">{}</div>", render_markdown_html(&inner))));
+                        index += consumed;
+                        continue;
+                    }
+                }
+            }
             if let Some((candidate, consumed)) = portable_image_html_candidate(&lines, index) {
                 if let Some(html) = sanitize_portable_image_html(&candidate) {
                     let mut token = format!("NUTBOOKPORTABLEIMAGEBLOCK{}END", replacements.len());
@@ -88,5 +108,19 @@ mod tests {
         assert!(html.contains("&lt;img src=&quot;inside.png&quot;&gt;"));
         assert!(html.contains("&lt;img src=&quot;indented.png&quot;&gt;"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+}
+
+#[cfg(test)]
+mod alignment_tests {
+    use super::*;
+    #[test]
+    fn formatting_preserves_controlled_alignment_and_inline_marks() {
+        let source = "<div align=\"center\">\n\n*caption* and **bold**\n\n</div>";
+        let html = render_formatting_html(source);
+        assert!(html.contains("<div align=\"center\"><p><em>caption</em> and <strong>bold</strong></p>"));
+        assert!(render_markdown_html(source).contains("&lt;div"));
+        assert!(render_formatting_html(&format!("```html\n{source}\n```" )).contains("&lt;div"));
+        assert!(render_formatting_html("<div align=\"center\" onclick=\"bad()\">\n\ncaption\n\n</div>").contains("&lt;div"));
     }
 }

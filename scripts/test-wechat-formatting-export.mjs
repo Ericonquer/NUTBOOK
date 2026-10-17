@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {chromium} from 'playwright';
-import {waitForDraftEditor} from './wechat/delivery.mjs';
+import {waitForDraftEditor,validateJob} from './wechat/delivery.mjs';
 const browser=await chromium.launch({headless:true});
 try{
  const page=await browser.newPage();
@@ -141,6 +141,16 @@ try{
  assert.equal(await page.getByRole('button',{name:'Signed in, continue',exact:true}).isVisible(),true);
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  assert.equal(await page.evaluate(()=>fixture.deliveryState.running),true);
+ await page.evaluate(()=>NutbookFormatting.leave(1));
+ await page.evaluate(gif=>{fixture.png=gif;fixture.withImages=true;fixture.deliveryState={running:false,stage:'idle'};},'data:image/gif;base64,'+readFileSync('assets/readme-demo/nutbook-agent-access-cn.gif').toString('base64'));
+ await page.evaluate(()=>NutbookFormatting.open(bridge,{id:1,item:{fileName:'sample.md'},preview:{raw:fixture.raw}}));
+ assert.equal(await page.evaluate(()=>NutbookFormatting.save()),true);
+ for(const platform of ['wechat','weibo','x']){
+  const gifJob=await page.evaluate(platform=>NutbookFormatting.prepareWechatDelivery({id:'gif-'+platform,platform}),platform);
+  assert.equal(gifJob.images[0].mime,'image/gif');
+  assert.doesNotThrow(()=>validateJob(gifJob));
+  assert.equal(gifJob.images[0].base64,readFileSync('assets/readme-demo/nutbook-agent-access-cn.gif').toString('base64'),'GIF source bytes must survive platform export');
+ }
  await page.evaluate(()=>NutbookFormatting.leave(1));
  console.log('Modal close/background completion notification and saved baseline after Send passed.');
  console.log('Send entry saves a frozen draft, prevents duplicate clicks, defaults to no login storage, and cancels without changing input (browser harness).');

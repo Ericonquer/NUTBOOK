@@ -34,6 +34,7 @@ try {
       invoke: async (command, args) => {
         fixture.calls.push(command);
         if (command === 'load_formatting_draft') return { draft: structuredClone(fixture.saved), revision: fixture.revision };
+        if (command === 'render_formatting_markdown' && args.markdown === 'alignment fixture') return '<h1>Heading</h1><div align="center"><p><em>Centered caption</em></p></div>';
         if (command === 'render_formatting_markdown') return args.markdown.includes('missing') ? '<p>text</p><img src="missing.png">' : '<h1>Heading</h1>'+Array.from({length:70}, (_,i)=>`<p>Paragraph ${i} ${args.markdown}</p>`).join('');
         if (command === 'validate_formatting_image_data') return null;
         if (command === 'read_formatting_image') throw new Error('missing');
@@ -51,6 +52,11 @@ try {
   await page.evaluate(() => NutbookFormatting.open(bridge, tab));
   const input = page.locator('[data-fixture-editor]');
   assert.equal(await page.locator('.formatting-editor').isVisible(), true, 'host styles must not hide publishing editor');
+  await input.fill('alignment fixture');
+  await page.waitForFunction(() => document.querySelector('.formatting-preview p[align="center"]'));
+  assert.equal(await page.locator('.formatting-preview p[align="center"]').evaluate(n => getComputedStyle(n).textAlign), 'center');
+  assert.equal(await page.locator('.formatting-preview p[align="center"] em').textContent(), 'Centered caption');
+  assert.equal(await page.locator('.formatting-preview').innerText().then(v => v.includes('<div')), false);
   await input.fill('edited');
   await page.waitForTimeout(300);
   await page.evaluate(() => { document.querySelector('.formatting-preview').scrollTop = 800; });

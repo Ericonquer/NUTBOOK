@@ -10,7 +10,7 @@ export function validateJob(job) {
   const ids = new Set();
   for (const image of job.images) {
     if (!image || !/^[a-zA-Z0-9_-]{1,80}$/.test(image.id || '') || ids.has(image.id)) throw Error('INVALID_IMAGE_ID');
-    if (!['image/png','image/jpeg','image/webp'].includes(image.mime) || typeof image.base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(image.base64)) throw Error('INVALID_IMAGE');
+    if (!['image/png','image/jpeg','image/webp','image/gif'].includes(image.mime) || typeof image.base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(image.base64)) throw Error('INVALID_IMAGE');
     if (Buffer.from(image.base64, 'base64').length > 10 * 1024 * 1024) throw Error('IMAGE_TOO_LARGE');
     ids.add(image.id);
   }
