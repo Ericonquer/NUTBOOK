@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {validateWeiboResume,readWeiboUpload,captureWeiboJson} from './wechat/weibo-delivery.mjs';
+const digest='snapshot';
+validateWeiboResume({digest,stage:'verified',editUrl:'https://card.weibo.com/article/v5/editor#/draft/123'},digest);
+for(const editUrl of ['https://example.com/article/v5/editor#/draft/1','https://card.weibo.com/article/v5/editor#/publish/1','https://card.weibo.com/article/v5/editor#/draft/../1'])assert.throws(()=>validateWeiboResume({digest,stage:'saved',editUrl},digest),/INVALID_CHECKPOINT_URL/);
+assert.throws(()=>validateWeiboResume({digest,stage:'creating'},digest),/AMBIGUOUS_CREATE/);
+assert.throws(()=>validateWeiboResume({digest:'changed'},digest),/JOB_CONTENT_CHANGED/);
+assert.equal(readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:1,pid:'abc123'}}}}),'abc123');
+assert.throws(()=>readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:0,pid:'abc123'}}}}),/IMAGE_UPLOAD_REJECTED/);
+assert.throws(()=>readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:1,pid:'../../a'}}}}),/IMAGE_UPLOAD_REJECTED/);
+console.log('Weibo receipt identity, checkpoint destination and ambiguous creation guards passed.');
+
+let resolveResponse,started=false,evicted=false;
+const captured=captureWeiboJson({waitForResponse:()=>new Promise(resolve=>{resolveResponse=resolve;})},()=>true);
+resolveResponse({json:async()=>{started=true;if(evicted)throw Error('Resource evicted');return {id:123};}});
+await Promise.resolve();
+evicted=true;
+assert.equal(started,true,'body must be read when headers arrive, before click/navigation completes');
+assert.deepEqual(await captured,{id:123});
+const rejected=captureWeiboJson({waitForResponse:async()=>({json:async()=>{throw Error('Unreadable receipt');}})},()=>true);
+await new Promise(resolve=>setImmediate(resolve));
+await assert.rejects(rejected,/Unreadable receipt/);
+console.log('Early receipt consumption and delayed error handling passed.');

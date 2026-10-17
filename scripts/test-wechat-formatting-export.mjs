@@ -40,7 +40,7 @@ try{
    }};
  });
  await page.evaluate(()=>NutbookFormatting.open(bridge,{id:1,item:{fileName:'sample.md'},preview:{raw:fixture.raw}}));
- assert.equal(await page.locator('.formatting-header button[aria-haspopup=dialog]').count(),1);
+ assert.equal(await page.locator('.formatting-header button[aria-haspopup=dialog]').count(),2);
  assert.equal(await page.locator('.formatting-header').getByRole('button',{name:'Copy body',exact:true}).count(),0);
  assert.equal(await page.locator('.formatting-preview').getByRole('button',{name:'Copy body',exact:true}).count(),1);
  await checkCopyAlignment('wechat');
@@ -114,6 +114,17 @@ try{
  assert.equal(await page.evaluate(()=>fixture.notifications.filter(message=>message.startsWith('Draft saved')).length),count,'completion is notified only once after leaving the formatting workspace');
  assert.equal(await page.locator('.formatting-workspace').count(),0);
  await page.evaluate(()=>NutbookFormatting.open(bridge,{id:1,item:{fileName:'sample.md'},preview:{raw:fixture.raw}}));
+ await page.getByRole('button',{name:'Send to Weibo drafts',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'Weibo Articles',exact:true}).getAttribute('aria-selected'),'true');
+ await checkCopyAlignment('weibo');
+ await page.getByRole('button',{name:'Save and send draft',exact:true}).click();
+ await page.waitForFunction(()=>fixture.sent.platform==='weibo');
+ assert.match(await page.evaluate(()=>fixture.sent.job.id),/^weibo-1-/);
+ assert.equal(await page.evaluate(()=>fixture.sent.job.title),'Published title');
+ assert.equal(await page.getByRole('dialog',{name:'Send to Weibo drafts'}).isVisible(),true);
+ assert.equal(await page.getByLabel('Keep Weibo signed in on this device').isVisible(),true);
+ await page.getByRole('button',{name:'Cancel sending',exact:true}).click();
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.evaluate(()=>NutbookFormatting.leave(1));
  console.log('Modal close/background completion notification and saved baseline after Send passed.');
  console.log('Send entry saves a frozen draft, prevents duplicate clicks, defaults to no login storage, and cancels without changing input (browser harness).');

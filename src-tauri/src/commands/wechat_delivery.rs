@@ -128,8 +128,14 @@ pub async fn start_wechat_delivery(
     caller(&webview)?;
     let id = validate(&job)?;
     let destination = platform.unwrap_or_else(|| "wechat".into());
-    if destination != "wechat" {
+    if destination != "wechat" && destination != "weibo" {
         return Err("Invalid delivery platform".into());
+    }
+    if destination == "weibo"
+        && (job["title"].as_str().unwrap_or("").chars().count() > 32
+            || job["summary"].as_str().unwrap_or("").chars().count() > 44)
+    {
+        return Err("Weibo title or summary exceeds limit".into());
     }
     let data = state.app_data_dir.join(format!("{destination}-delivery"));
     let packaged = app
