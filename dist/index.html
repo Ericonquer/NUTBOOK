@@ -9868,14 +9868,15 @@
 
       let toastTimer = null;
 
-      function showToast(message) {
+      function showToast(message, options = {}) {
         if (!els.toast) return;
+        els.toast.style.top = options.topbar ? `${document.querySelector(".topbar")?.getBoundingClientRect().top + 22 || 50}px` : "50%";
         els.toast.textContent = message;
         els.toast.classList.add("open");
         if (toastTimer) clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => {
           els.toast.classList.remove("open");
-        }, 1400);
+        }, options.duration || 1400);
       }
 
       // B3：标题语义统一由 `window.NutbookDocumentTitle`（src/markdown-document-title.js
@@ -17193,6 +17194,8 @@
           try {
             await globalThis.NutbookFormatting.open({
               invoke, container: els.viewerBody, language: () => appState.language,
+              wechatDelivery: appState.isTauri,
+              notify: message => showToast(message, { duration:8000, topbar:true }),
               nativeClipboard: appState.isTauri && /Mac/i.test(navigator.platform),
               copyText: writeClipboardText,
               activeId: () => appState.activeTabId, editor: loadMarkdownEditorApi,

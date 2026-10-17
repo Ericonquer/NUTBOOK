@@ -4,8 +4,12 @@
     'zh-CN': { title: '排版发布', workspaceTitle: 'Markdown 排版中心', trial: '公众号', source: '原文', draft: '发布稿', undo: '撤销', preview: 'Nutbook 预览', save: '保存发布稿', back: '返回阅读', copy: '复制到公众号', copyX: '复制到 X Articles', copiedX: '正文已复制', copyXError: '文字复制失败，当前稿件仍保留。', copied: '已复制，请到公众号后台粘贴检查', busy: '正在处理…', dirty: '未保存', saved: '已保存', image: '插入图片', imageHelp: '可粘贴截图、图片文件、以 PNG/JPEG/WebP 结尾的图片地址，或 Markdown 图片语法；单张 ≤10 MB。普通网址保留为链接。', localOnly: '图片随发布稿缓存保存。', imageError: '图片无法转换，请检查路径、格式和大小：', copyError: '图文复制失败；稿件仍保留。', compose: '请先完成中文输入', fallback: '编辑器加载失败，已切换为 Markdown 源码编辑', changed: '原文件已变化，发布稿仍保留创建时快照。', gate: '公众号会再次处理样式和图片，请保存草稿后检查预览。X Articles 复制正文格式；标题和图片单独添加。微博尚未开放。', invalid: '发布稿格式不支持，未覆盖已有文件', conflict: '保存失败（可能存在版本冲突），当前稿件仍保留：', failedImages: '以下图片未能转换，已阻止图文复制。请修复后重试：', editor: '发布稿编辑区', theme: '主题与排版', themeUnavailable: 'X 不支持主题', moreThemes: '更多模板将陆续加入', simple: '白纸', reading: '长文', tech: '留白', newspaper: '报纸', fine: '细线', minimal: '简约', size: '正文字号', leading: '行距', radius: '图片圆角', reset: '恢复主题默认', close: '收起主题面板', retry: '重试失败图片', phone: '切换手机宽度预览', help: '图片与复制说明', importBusy: '正在处理图片…', sourceReadonly: '原文只读', tooLarge: '图片超出限制：单张 10 MB、总计 24 MB、边长 8192 像素。', insertHelp: '可直接粘贴图片，或在正文空行使用插图按钮。', saveError: '保存失败，当前稿件仍保留。', loading: '正在打开排版工作区…', references: '参考链接', linkNote: '普通外链能否点击以公众号后台为准；文末会保留网址。' },
     'en-US': { title: 'Format', workspaceTitle: 'Markdown Formatting Center', trial: 'WeChat', source: 'Original', draft: 'Publishing draft', undo: 'Undo', preview: 'Nutbook preview', save: 'Save publishing draft', back: 'Back to reading', copy: 'Copy to WeChat', copyX: 'Copy to X Articles', copiedX: 'Body copied', copyXError: 'Text copy failed. Your draft is retained.', copied: 'Copied. Paste into the WeChat editor and check.', busy: 'Processing…', dirty: 'Unsaved', saved: 'Saved', image: 'Insert image', imageHelp: 'Paste a screenshot, image file, PNG/JPEG/WebP URL, or Markdown image syntax. ≤10 MB each. Other URLs remain links.', localOnly: 'Images are cached with the publishing draft.', imageError: 'Cannot convert image; check path, format and size: ', copyError: 'Rich copy failed. Your draft is retained.', compose: 'Finish composing text first', fallback: 'Editor failed to load. Markdown source editing is available.', changed: 'The source file changed. The original draft snapshot is retained.', gate: 'WeChat processes styles and images again. Save your platform draft and check its preview. X Articles copies formatted text; add the title and images separately. Weibo is not available yet.', invalid: 'Unsupported draft format. The existing file was not overwritten.', conflict: 'Save failed (possible revision conflict). Your draft is retained: ', failedImages: 'Copy blocked because these images could not be converted. Fix them and retry:', editor: 'Publishing draft editor', theme: 'Theme and formatting', themeUnavailable: 'Themes are unavailable in X', moreThemes: 'More templates coming soon', simple: 'Paper', reading: 'Longform', tech: 'Whitespace', newspaper: 'Newspaper', fine: 'Fine lines', minimal: 'Minimal', size: 'Font size', leading: 'Line spacing', radius: 'Image corners', reset: 'Reset theme', close: 'Close theme panel', retry: 'Retry failed images', phone: 'Toggle phone preview width', help: 'Image and copy help', importBusy: 'Importing image…', sourceReadonly: 'Read-only source', tooLarge: 'Image limit exceeded: 10 MB each, 24 MB total, 8192 pixels per side.', insertHelp: 'Paste an image, or use the image button in an empty paragraph.', saveError: 'Save failed. Your draft is retained.', loading: 'Opening the formatting workspace…', references: 'References', linkNote: 'Clickable external links depend on the WeChat editor. URLs are also retained at the end.' }
   };
-  Object.assign(messages['zh-CN'], { experimental:'实验性', experimentalHelp:'自动提取仍在实验中，请检查并编辑结果。', wechatNoTitle:'未找到一级标题，请填写文章标题', summaryUnavailable:'X 不使用摘要 / 导语', summary:'摘要 / 导语', summaryWechat:'公众号摘要', summaryWeibo:'微博导语', extract:'提取候选', useSelection:'从选中文字填入', adopt:'采用', cancelCandidate:'取消', candidate:'提取候选（采用后替换）', copySummary:'复制摘要 / 导语', summaryCopied:'已复制', noCandidate:'未找到合适短句，请手动填写或选取正文。', noSelection:'请先在发布稿中选择文字。', summaryTooLong:'内容超出字数限制，请缩短后复制。', weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'图片可直接粘贴，单张 ≤10 MB。公众号、微博标题单独复制，正文粘贴后请保存检查。X 标题、图片单独添加，补图后删除占位；分隔线省略，代码和表格转为引用。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字；图片需单独复制到编号占位处，并删除占位文字。请保存 X 草稿后检查。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
-  Object.assign(messages['en-US'], { experimental:'Experimental', experimentalHelp:'Automatic extraction is experimental. Review and edit the result.', wechatNoTitle:'No H1 title found. Enter an article title.', summaryUnavailable:'Summary / lead is unavailable in X', summary:'Summary / Lead', summaryWechat:'WeChat summary', summaryWeibo:'Weibo lead', extract:'Extract candidate', useSelection:'Use selected text', adopt:'Use candidate', cancelCandidate:'Cancel candidate', candidate:'Candidate (apply to replace)', copySummary:'Copy summary / lead', summaryCopied:'Copied', noCandidate:'No suitable short sentence. Edit manually or select text.', noSelection:'Select text in the publishing draft first.', summaryTooLong:'Text exceeds the limit. Shorten it before copying.', weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Paste images directly (≤10 MB each). Copy WeChat and Weibo titles separately; check saved drafts after pasting the body. In X, add the title and images separately, then remove image placeholders. Dividers are omitted; code and tables become quotes.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. Copy each image to its numbered placeholder, then remove the placeholder. Check your saved X draft.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
+  Object.assign(messages['zh-CN'], { experimental:'实验性', experimentalHelp:'自动提取仍在实验中，请检查并编辑结果。', wechatNoTitle:'未找到一级标题，请填写文章标题', summaryUnavailable:'X 不使用摘要 / 导语', summary:'摘要 / 导语', summaryWechat:'公众号摘要', summaryWeibo:'微博导语', extract:'提取候选', useSelection:'从选中文字填入', adopt:'采用', cancelCandidate:'取消', candidate:'提取候选（采用后替换）', copySummary:'复制摘要 / 导语', summaryCopied:'已复制', noCandidate:'未找到合适短句，请手动填写或选取正文。', noSelection:'请先在发布稿中选择文字。', summaryTooLong:'内容超出字数限制，请缩短后复制。', weiboTab:'微博文章', weiboThemeUnavailable:'微博不支持主题', weiboNoTitle:'未找到一级标题，请在微博中填写标题', copyWeibo:'复制到微博文章', copiedWeibo:'已复制，请到微博文章粘贴检查', helpBrief:'点击顶栏平台图标发送草稿；手动投递可在预览顶部复制标题和正文。图片单张 ≤10 MB；手动复制到 X 时，图片需单独添加并删除占位。', xMode:'X Articles 预览', wechatMode:'公众号预览', xTab:'X Articles', wechatTab:'公众号', copyTitle:'复制文章标题', copiedTitle:'标题已复制', copyImage:'复制此图片', copiedImage:'图片已复制', imageCopyError:'图片复制失败，请重试', xImages:'图片（按正文顺序）', xImage:'图片', xNotice:'X 预览仅供参考。分隔线省略，代码和表格转为引用文字。手动复制时，请将图片添加到编号占位处，再删除占位文字。', noTitle:'未找到一级标题，请在 X 中填写标题', imagePosition:'插图位置', xCode:'代码', xTable:'表格', xPending:'{count} 张图片待添加', xPendingOne:'1 张图片待添加'  });
+  Object.assign(messages['en-US'], { experimental:'Experimental', experimentalHelp:'Automatic extraction is experimental. Review and edit the result.', wechatNoTitle:'No H1 title found. Enter an article title.', summaryUnavailable:'Summary / lead is unavailable in X', summary:'Summary / Lead', summaryWechat:'WeChat summary', summaryWeibo:'Weibo lead', extract:'Extract candidate', useSelection:'Use selected text', adopt:'Use candidate', cancelCandidate:'Cancel candidate', candidate:'Candidate (apply to replace)', copySummary:'Copy summary / lead', summaryCopied:'Copied', noCandidate:'No suitable short sentence. Edit manually or select text.', noSelection:'Select text in the publishing draft first.', summaryTooLong:'Text exceeds the limit. Shorten it before copying.', weiboTab:'Weibo Articles', weiboThemeUnavailable:'Themes are unavailable in Weibo', weiboNoTitle:'No H1 title found. Enter a title in Weibo.', copyWeibo:'Copy to Weibo Article', copiedWeibo:'Copied. Paste into Weibo Articles and check.', helpBrief:'Use the platform icons to send drafts. For manual posting, copy the title and body from the preview. Images allow 10 MB each; when copying to X manually, add images separately and remove placeholders.', xMode:'X Articles preview', wechatMode:'WeChat preview', xTab:'X Articles', wechatTab:'WeChat', copyTitle:'Copy article title', copiedTitle:'Title copied', copyImage:'Copy this image', copiedImage:'Image copied', imageCopyError:'Image copy failed. Please retry.', xImages:'Images (in body order)', xImage:'Image', xNotice:'X preview is approximate. Dividers are omitted; code and tables become quoted text. When copying manually, add each image at its numbered placeholder, then remove the placeholder.', noTitle:'No H1 title found. Enter a title in X.', imagePosition:'Image position', xCode:'Code', xTable:'Table', xPending:'{count} images to add', xPendingOne:'1 image to add'  });
+  Object.assign(messages['zh-CN'], { deliveryBusy:'另一个草稿正在发送，请完成后再试。', sendWeibo:'发送到微博草稿箱', deliveryWeiboIntro:'发送到微博长文章草稿箱，不会正式发布。默认使用正文首图作为封面。', rememberWeibo:'仅在本机保持微博登录', weiboDeliveryLimit:'微博标题最多32字，导语最多44字。', sendWechat:'发送到公众号', recreateDraft:'重新创建草稿', sendNow:'保存并发送草稿', deliveryIntro:'发送到公众号草稿箱，不会正式发布。默认使用正文首图作为封面。', rememberLogin:'仅在本机保持公众号登录', cancelDelivery:'取消发送', viewDraft:'查看草稿', deliverySave:'正在保存发布稿…', deliveryConnecting:'正在连接公众号…', deliveryScan:'请在打开的窗口扫码登录', deliveryUploading:'正在上传图片…', deliveryWriting:'正在填写图文…', deliveryCover:'正在设置封面…', deliverySaving:'正在保存公众号草稿…', deliveryVerifying:'正在重开核对草稿…', deliveryUnavailable:'公众号中的原草稿已不可用，可能已删除或发表。请先检查公众号草稿箱和发表记录。', deliveryLocked:'该稿件仍有发送任务占用，请稍后重试。', deliveryReuse:'正在核对已发送的草稿…', deliveryDone:'草稿已保存并核对，请查看排版。', deliveryCancelled:'已取消，公众号可能保留未完成的草稿。', deliveryFailed:'发送未完成；本地发布稿仍保留。', deliveryNoRuntime:'公众号投递运行环境不可用。', deliveryBackground:'离开此页面后发送仍会继续；可返回查看状态。' });
+  Object.assign(messages['en-US'], { deliveryBusy:'Another draft is being sent. Try again when it finishes.', sendWeibo:'Send to Weibo drafts', deliveryWeiboIntro:'Save a Weibo article draft without publishing. The first body image is used as the cover.', rememberWeibo:'Keep Weibo signed in on this device', weiboDeliveryLimit:'Weibo titles allow 32 characters and summaries 44.', sendWechat:'Send to WeChat', recreateDraft:'Create a new draft', sendNow:'Save and send draft', deliveryIntro:'Save to WeChat drafts without publishing. The first body image is used as the cover.', rememberLogin:'Keep WeChat signed in on this device', cancelDelivery:'Cancel sending', viewDraft:'View draft', deliverySave:'Saving publishing draft…', deliveryConnecting:'Connecting to WeChat…', deliveryScan:'Scan the QR code in the opened window', deliveryUploading:'Uploading images…', deliveryWriting:'Filling article…', deliveryCover:'Setting cover…', deliverySaving:'Saving WeChat draft…', deliveryVerifying:'Reopening and verifying draft…', deliveryUnavailable:'The original WeChat draft is unavailable. Check drafts and publication history.', deliveryLocked:'Another task is using this draft. Try again shortly.', deliveryReuse:'Verifying the existing draft…', deliveryDone:'Draft saved and verified. Check its formatting.', deliveryCancelled:'Cancelled. WeChat may retain an unfinished draft.', deliveryFailed:'Sending did not complete. Your local draft is retained.', deliveryNoRuntime:'WeChat delivery runtime is unavailable.', deliveryBackground:'Sending continues after leaving this page. Return to check its status.' });
+  Object.assign(messages['zh-CN'], {deliveryClose:'关闭发送窗口'});
+  Object.assign(messages['en-US'], {deliveryClose:'Close sending window'});
   let active = null;
   let openGeneration = 0;
   const styleMap = {
@@ -23,7 +27,11 @@
     li: 'margin:6px 0;line-height:28.8px;',
     a: 'color:#1a1c1d;text-decoration:underline;'
   };
+  Object.assign(messages['zh-CN'], {sendX:'发送到 X 草稿箱',deliveryXIntro:'将打开 Chrome 上传并保存 X 草稿，不会发布。首次需登录，发送期间请勿关闭浏览器。',rememberX:'仅在本机保持 X 登录',deliveryXLogin:'请在浏览器登录 X，完成后点击“已登录，继续”。',deliveryXContinue:'已登录，继续',xLoginIncomplete:'未检测到 X 登录完成。请先在浏览器进入 X 首页。',xBrowserClosed:'浏览器已关闭，请重新发送。',xChromeRequired:'请先安装 Google Chrome，再发送 X 草稿。'});
+  Object.assign(messages['en-US'], {sendX:'Send to X drafts',deliveryXIntro:'Chrome will upload and save your X draft without publishing. Sign in on first use and keep Chrome open while sending.',rememberX:'Keep X signed in on this device',deliveryXLogin:'Sign in to X in the browser, then click “Signed in, continue”.',deliveryXContinue:'Signed in, continue',xLoginIncomplete:'X sign-in is not complete. Open the X home page in the browser first.',xBrowserClosed:'The browser was closed. Send again to continue.',xChromeRequired:'Install Google Chrome to send X drafts.'});
   function text(key) { return (messages[active?.bridge.language() || active?.language] || messages['zh-CN'])[key]; }
+  Object.assign(messages['zh-CN'], {copyBody:'复制正文'});
+  Object.assign(messages['en-US'], {copyBody:'Copy body'});
   function labelKey(label) { return Object.entries(messages[active?.bridge.language() || active?.language] || messages['zh-CN']).find(([,value]) => value === label)?.[0]; }
   function element(tag, label, attrs = {}) {
     const node = document.createElement(tag);
@@ -38,6 +46,7 @@
     return node;
   }
   const icons = {summary:'M3 3h10M3 6h10M3 9h7M3 12h5', weibo: 'M11 3a3 3 0 0 1 3 3M11 1a5 5 0 0 1 5 5M12.5 8c1.3.7 1.5 1.5 1.1 2.5-.6 1.8-3.5 3.1-6.5 3.1S1.8 12.2 2 10.4c.1-1.4 1.9-3.7 3.6-4.6.8-.4 1.2-.1 1 .7l-.2.8c1.7-.7 3.5-1.1 4-.4.3.4 0 .9-.3 1.3M9.8 10.2c0 1.2-1.4 2.1-3.1 2.1s-2.9-.7-2.9-1.8 1.4-2 3.1-2 2.9.6 2.9 1.7ZM6 10.5h.01', plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
+  icons.send = 'M2 8 14 2l-4 12-3-5-5-1ZM7 9l7-7';
   function iconButton(key, label, action) {
     const node = button(label, action);
     node.className = 'formatting-icon';
@@ -330,6 +339,7 @@
   function updateState(s) { s.status.textContent = s.revision && serialized(s) === s.baseline ? text('saved') : text('dirty'); }
   function dispose(s) {
     clearTimeout(s.timer);
+    if (s.deliveryPanel?.open) s.deliveryPanel.close();
     for (const requestId of s.networkRequests) s.bridge.invoke('cancel_formatting_image', { requestId }).catch(() => {});
     s.generation++;
     s.editor?.destroy?.();
@@ -450,7 +460,7 @@
       const heading = result.section.querySelector(':scope > h1');
       const titleRow = element('div','',{class:'formatting-article-title'});
       titleRow.append(heading || element('h1',text('wechatNoTitle')),iconButton('copy',text('copyTitle'),()=>copyArticleTitle(s,'wechat')));
-      result.section.prepend(titleRow);
+      result.section.prepend(titleRow,bodyCopyTools(s,'wechat'));
       s.preview.replaceChildren(result.section);
       s.preview.scrollTop = top;
       s.retryButton.hidden = !result.errors.length;
@@ -595,7 +605,7 @@
   }
   async function copyX(s) {
     if (s.copying) return;
-    s.copying = true; s.copyXButton.disabled = true; s.copyWeiboButton.disabled = true; s.copyButton.disabled = true;
+    s.copying = true; s.bodyCopyButton && (s.bodyCopyButton.disabled = true);
     s.status.textContent = text('busy');
     try {
       const markdown = flush(s);
@@ -608,12 +618,12 @@
       await writeRich(s,prepared,xPlain);
       if (current(s)) s.status.textContent = text('copiedX') + (imageCount ? ` · ${(imageCount === 1 ? text('xPendingOne') : text('xPending').replace('{count}',imageCount))}` : '');
     } catch (error) { if (current(s)) s.errors.textContent = `${text('copyXError')} ${s.bridge.error(error)}`; }
-    finally { s.copying = false; s.copyXButton.disabled = false; s.copyWeiboButton.disabled = false; s.copyButton.disabled = false; }
+    finally { s.copying = false; s.bodyCopyButton && (s.bodyCopyButton.disabled = false); }
   }
   async function copyWeibo(s) {
     if (s.copying || s.composing) return;
     s.copying = true;
-    s.copyButton.disabled = s.copyXButton.disabled = s.copyWeiboButton.disabled = true;
+    s.bodyCopyButton && (s.bodyCopyButton.disabled = true);
     s.status.textContent = text('busy');
     try {
       const prepared = convert(s, flush(s), settings(s), 'weibo').then(result => {
@@ -624,7 +634,13 @@
       await writeRich(s, prepared);
       if (current(s)) s.status.textContent = text('copiedWeibo');
     } catch (error) { if (current(s)) s.errors.textContent = `${text('copyError')} ${s.bridge.error(error)}`; }
-    finally { s.copying = false; s.copyButton.disabled = s.copyXButton.disabled = s.copyWeiboButton.disabled = false; }
+    finally { s.copying = false; s.bodyCopyButton && (s.bodyCopyButton.disabled = false); }
+  }
+  function bodyCopyTools(s,platform){
+    const tools=element('div','',{class:'formatting-body-tools'});
+    const body=iconButton('copy',text('copyBody'),()=>platform==='x'?copyX(s):platform==='weibo'?copyWeibo(s):copy(s));
+    body.dataset.copyPlatform=platform;body.disabled=!!s.copying;s.bodyCopyButton=body;
+    tools.append(body);return tools;
   }
   async function copyArticleTitle(s, platform = 'x') {
     if (s.copying) return;
@@ -671,8 +687,8 @@
     const result = xArticle(html);
     const wrapper = element('section','',{class:'formatting-x-article'});
     const titleRow = element('div','',{class:'formatting-x-title'});
-    titleRow.append(element('h1',result.title || text('noTitle')),iconButton('copy',text('copyTitle'),()=>copyArticleTitle(s)));
-    wrapper.append(titleRow,result.section);
+    titleRow.append(element('h1',result.title || text('noTitle')),iconButton('copy',text('copyTitle'),()=>copyArticleTitle(s,'x')));
+    wrapper.append(titleRow,bodyCopyTools(s,'x'),result.section);
     const top = s.preview.scrollTop; s.preview.replaceChildren(wrapper); s.preview.scrollTop = top;
     s.retryButton.hidden = true; s.errors.textContent = '';
     if (!result.images.length) return;
@@ -700,9 +716,9 @@
     if (!current(s) || s.generation !== generation || s.data.markdown !== markdown || s.mode !== 'weibo') return;
     const wrapper = element('section', '', {class:'formatting-x-article formatting-weibo-article'});
     const titleRow = element('div', '', {class:'formatting-x-title'});
-    titleRow.append(element('h1', result.section.dataset.articleTitle || text('weiboNoTitle')), iconButton('copy', text('copyTitle'), () => copyArticleTitle(s, 'weibo')));
+    titleRow.append(element('h1', result.section.dataset.articleTitle || text('weiboNoTitle')), iconButton('copy',text('copyTitle'),()=>copyArticleTitle(s,'weibo')));
     result.section.removeAttribute('data-article-title');
-    wrapper.append(titleRow, result.section);
+    wrapper.append(titleRow,bodyCopyTools(s,'weibo'),result.section);
     const top = s.preview.scrollTop; s.preview.replaceChildren(wrapper); s.preview.scrollTop = top;
     s.retryButton.hidden = !result.errors.length;
     s.errors.textContent = result.errors.length ? `${text('failedImages')}\n${result.errors.join('\n')}` : '';
@@ -718,6 +734,24 @@
     tooltip.dataset.formattingLabel = key;
     tooltip.textContent = text(key);
   }
+  function deliveryError(error, bridge) {
+    const message=String(error?.message || error);
+    const keys={X_LOGIN_INCOMPLETE:'xLoginIncomplete',X_BROWSER_CLOSED:'xBrowserClosed',X_CHROME_REQUIRED:'xChromeRequired'};
+    const dictionary=messages[bridge.language()] || messages['zh-CN'];
+    const key=keys[message.split(':')[0]];
+    return key ? dictionary[key] : bridge.error(error);
+  }
+  function deliveryPlatform(s) { return s.mode === 'x' ? 'x' : s.mode === 'weibo' ? 'weibo' : 'wechat'; }
+  function updateDeliveryLabels(s) {
+    const weibo = deliveryPlatform(s) === 'weibo', x = deliveryPlatform(s) === 'x';
+    const label = text(x ? 'sendX' : weibo ? 'sendWeibo' : 'sendWechat');
+    s.deliveryButton=s.platformSendButtons[deliveryPlatform(s)];
+    for(const send of Object.values(s.platformSendButtons))send.setAttribute('aria-expanded',String(send===s.deliveryButton&&s.deliveryPanel.open));
+    s.deliveryHeading.textContent = label;
+    s.deliveryIntro.textContent = text(x ? 'deliveryXIntro' : weibo ? 'deliveryWeiboIntro' : 'deliveryIntro');
+    s.deliveryRememberLabel.textContent = text(x ? 'rememberX' : weibo ? 'rememberWeibo' : 'rememberLogin');
+    try{s.rememberLogin.checked=localStorage.getItem(`nutbook.${deliveryPlatform(s)}.rememberLogin`)==='true';}catch{}
+  }
   function setPreviewMode(s,mode) {
     s.mode = mode;
     for (const [node, value] of [[s.wechatMode,'wechat'],[s.xMode,'x'],[s.weiboMode,'weibo']]) {
@@ -727,6 +761,8 @@
     updateThemeAvailability(s);
     if (mode !== 'wechat') { s.settingsPanel.hidden = true; s.themeButton.setAttribute('aria-expanded','false'); }
     updateSummaryPanel(s);
+    updateDeliveryLabels(s);
+    if(s.deliveryState?.platform && s.deliveryState.platform!==deliveryPlatform(s))deliveryStatus(s,{running:false,stage:'idle'});
     preview(s);
   }
   function refreshLanguage() {
@@ -750,13 +786,15 @@
     if (s.data.source !== s.sourceAtOpen) s.hint.textContent += ` ${text('changed')}`;
     updateState(s);
     s.editor?.setLanguage?.(s.language);
+    if (s.deliveryState) deliveryStatus(s,s.deliveryState);
+    updateDeliveryLabels(s);
     schedule(s);
   }
   async function copy(s) {
     if (s.copying) return;
     clearTimeout(s.timer);
     s.copying = true;
-    s.copyButton.disabled = true; s.copyXButton.disabled = true; s.copyWeiboButton.disabled = true;
+    s.bodyCopyButton && (s.bodyCopyButton.disabled = true);
     s.status.textContent = text('busy');
     try {
       const markdown = flush(s);
@@ -784,7 +822,7 @@
       }
       if (current(s)) s.status.textContent = text('copied');
     } catch (error) { if (current(s)) s.errors.textContent = `${text('copyError')} ${s.bridge.error(error)}`; }
-    finally { s.copying = false; s.copyButton.disabled = false; s.copyXButton.disabled = false; s.copyWeiboButton.disabled = false; }
+    finally { s.copying = false; s.bodyCopyButton && (s.bodyCopyButton.disabled = false); }
   }
   async function importImage(s, file) {
     if (file.src) {
@@ -1001,14 +1039,22 @@
     const heading = element('strong', text('workspaceTitle')); heading.append(element('small', s.name, { class:'formatting-document-name' })); header.append(heading);
     s.status = element('span', '', { role: 'status', 'aria-live': 'polite' });
     s.saveButton = iconButton('save', text('save'), save);
-    s.copyButton = iconButton('wechat', text('copy'), () => copy(s));
-    s.copyXButton = iconButton('x', text('copyX'), () => copyX(s));
-    s.copyWeiboButton = iconButton('weibo', text('copyWeibo'), () => copyWeibo(s));
+    s.deliveryPanel = deliveryPanel(s);
+    s.platformSendButtons = {};
+    for(const [platform,icon,key] of [['wechat','wechat','sendWechat']]){
+      const send=iconButton(icon,text(key),()=>{
+        if(s.composing){s.status.textContent=text('compose');return;}
+        setPreviewMode(s,platform);setDeliveryDialog(s,true);pollDelivery(s);
+      });
+      send.hidden=!bridge.wechatDelivery;send.setAttribute('aria-haspopup','dialog');send.setAttribute('aria-expanded','false');
+      s.platformSendButtons[platform]=send;
+    }
+    s.deliveryButton=s.platformSendButtons.wechat;
     s.themeButton = iconButton('theme', text('theme'), () => { if (s.mode !== 'wechat') return; s.settingsPanel.hidden = !s.settingsPanel.hidden; s.themeButton.setAttribute('aria-expanded', String(!s.settingsPanel.hidden)); });
     s.themeButton.setAttribute('aria-expanded', 'false');
     s.undoButton = iconButton('undo', text('undo'), () => { if (s.summaryUndoHandled) { s.summaryUndoHandled = false; return; } if (!s.composing && !s.importing && !s.originalVisible) s.editor?.undo?.(); });
     s.undoButton.addEventListener('pointerdown', event => { if (document.activeElement === s.summaryInput) { event.preventDefault(); s.summaryUndo?.(false); s.summaryUndoHandled = true; } });
-    header.append(s.status, s.undoButton, iconButton('image', text('image'), async () => { if (!(await s.editor?.insertImageAsset?.()) && !s.errors.textContent) s.errors.textContent = text('insertHelp'); }), s.themeButton, s.saveButton, s.copyButton, s.copyXButton, s.copyWeiboButton, iconButton('back', text('back'), () => leave(s.id)));
+    header.append(s.status, s.undoButton, iconButton('image', text('image'), async () => { if (!(await s.editor?.insertImageAsset?.()) && !s.errors.textContent) s.errors.textContent = text('insertHelp'); }), s.themeButton, s.saveButton, ...Object.values(s.platformSendButtons), iconButton('back', text('back'), () => leave(s.id)));
     const body = element('div', '', { class: 'formatting-columns' });
     const left = element('section', '', { class: 'formatting-left' });
     const tabs = element('div', '', { class: 'formatting-tools' });
@@ -1129,7 +1175,164 @@
     }
     s.baseline = s.titleBaselineMarkdown == null ? serialized(s) : snapshotSerialized(s.titleBaselineMarkdown,settings(s),s.data.metadata);
     if (data.source !== raw) hint.textContent += ` ${text('changed')}`;
+    s.root.append(s.deliveryPanel);
+    if (s.bridge.wechatDelivery) pollDelivery(s);
     await preview(s);
   }
-  window.NutbookFormatting = { open, leave, save, refreshLanguage, activeId: () => active?.id ?? null, label: language => messages[language]?.title || messages['zh-CN'].title };
+  let deliveryMonitor = null;
+  function setDeliveryDialog(s, open) {
+    if (!current(s)) return;
+    if (open) {
+      const platform = deliveryPlatform(s);
+      if (s.deliveryState?.platform && s.deliveryState.platform !== platform) deliveryStatus(s,{running:false,stage:'idle'});
+      updateDeliveryLabels(s);
+      if (!s.deliveryPanel.isConnected) s.root.append(s.deliveryPanel);
+      if (!s.deliveryPanel.open) s.deliveryPanel.showModal();
+    } else if (s.deliveryPanel.open) s.deliveryPanel.close();
+    s.deliveryButton?.setAttribute('aria-expanded',String(open));
+  }
+  function deliveryStatus(s, status) {
+    if (!current(s)) return;
+    for(const [platform,send] of Object.entries(s.platformSendButtons))send.setAttribute('data-running',String(!!status.running&&!!status.jobId?.startsWith(`${platform}-${s.id}-`)));
+    if(status.jobId && !status.jobId.startsWith(`${deliveryPlatform(s)}-${s.id}-`))return;
+    s.deliveryState = status;
+    s.deliveryRunning = !!status.running;
+    const keys = {connecting:'deliveryConnecting',connected:'deliveryConnecting',waiting_for_scan:'deliveryScan',waiting_for_x_login:'deliveryXLogin',preparing:'deliveryWriting',uploading_images:'deliveryUploading',writing:'deliveryWriting',cover:'deliveryCover',saving:'deliverySaving',verifying:'deliveryVerifying',reusing:'deliveryReuse',verified:'deliveryDone',cancelled:'deliveryCancelled',failed:'deliveryFailed',interrupted:'deliveryFailed'};
+    s.deliveryMessage.textContent = keys[status.stage] ? text(keys[status.stage]) : '';
+    if(deliveryPlatform(s)==='weibo') s.deliveryMessage.textContent = s.deliveryMessage.textContent.replace(/公众号/g,'微博').replace(/WeChat/g,'Weibo');
+    if(deliveryPlatform(s)==='x') s.deliveryMessage.textContent=s.deliveryMessage.textContent.replace(/公众号/g,'X').replace(/WeChat/g,'X');
+    s.deliveryLogin.disabled=false;
+    s.deliveryLogin.hidden = status.stage !== 'waiting_for_x_login' || !status.running;
+    if (status.error) s.deliveryMessage.textContent += ` ${String(status.error).includes('WECHAT_RUNTIME') ? text('deliveryNoRuntime') : String(status.error).includes('DRAFT_UNAVAILABLE') ? text('deliveryUnavailable') : String(status.error).includes('JOB_LOCKED') ? text('deliveryLocked') : deliveryError(status.error,s.bridge)}`;
+    const completed = {connecting:0,connected:0,waiting_for_scan:0,preparing:1,uploading_images:deliveryPlatform(s)==='weibo'?2:1,writing:deliveryPlatform(s)==='weibo'?1:2,cover:3,saving:4,verifying:5,reusing:5,verified:6};
+    s.deliveryProgress.hidden = !status.running && status.stage !== 'verified';
+    s.deliveryProgress.value = completed[status.stage] || 0;
+    const event = status.history?.at(-1);
+    if (status.stage === 'uploading_images' && event?.stage === status.stage && event.total) s.deliveryMessage.textContent += ` (${event.current}/${event.total})`;
+    s.deliveryProgress.setAttribute('aria-label',s.deliveryMessage.textContent || text('sendWechat'));
+    s.deliveryRecreate = status.error === 'DRAFT_UNAVAILABLE';
+    const sendLabel = text(s.deliveryRecreate ? 'recreateDraft' : 'sendNow');
+    s.deliverySend.textContent = sendLabel;
+    s.deliverySend.setAttribute('aria-label',sendLabel);
+    s.deliverySend.setAttribute('title',sendLabel);
+    s.deliverySend.disabled = s.deliveryRunning || !!s.deliveryStarting;
+    s.deliveryCancel.hidden = !s.deliveryRunning;
+    s.deliveryView.hidden = !status.jobId || s.deliveryRunning;
+  }
+  function monitorDelivery(bridge) {
+    if (!deliveryMonitor) deliveryMonitor = {bridge,timer:null,pending:null,watched:new Set(),notified:new Set()};
+    deliveryMonitor.bridge = bridge;
+    return deliveryMonitor;
+  }
+  async function pollDeliveryBridge(bridge) {
+    if (!bridge.wechatDelivery) return;
+    const monitor = monitorDelivery(bridge);
+    clearTimeout(monitor.timer);
+    if (monitor.pending) return monitor.pending;
+    monitor.pending = (async () => {
+      try {
+        const status = await bridge.invoke('wechat_delivery_status');
+        const run = status.runId || status.jobId;
+        if (status.running && run) monitor.watched.add(run);
+        if (active?.bridge === bridge) deliveryStatus(active,status);
+        const terminal = ['verified','failed','interrupted','cancelled'].includes(status.stage);
+        const notificationId = `${run}:${status.stage}`;
+        if (terminal && monitor.watched.has(run) && !monitor.notified.has(notificationId)) {
+          monitor.notified.add(notificationId); monitor.watched.delete(run);
+          const dictionary = messages[bridge.language()] || messages['zh-CN'];
+          let notification = dictionary[status.stage === 'verified' ? 'deliveryDone' : status.stage === 'cancelled' ? 'deliveryCancelled' : 'deliveryFailed'] + (status.error ? ` ${String(status.error).includes('DRAFT_UNAVAILABLE') ? dictionary.deliveryUnavailable : String(status.error).includes('JOB_LOCKED') ? dictionary.deliveryLocked : deliveryError(status.error,bridge)}` : '');
+          if(status.platform==='weibo')notification=notification.replace(/公众号/g,'微博').replace(/WeChat/g,'Weibo');
+          if(status.platform==='x')notification=notification.replace(/公众号/g,'X').replace(/WeChat/g,'X');
+          bridge.notify?.(notification);
+        }
+        if (status.running) monitor.timer = setTimeout(() => pollDeliveryBridge(monitor.bridge),700);
+      } catch (error) {
+        if (active?.bridge === bridge) active.deliveryMessage.textContent = `${text('deliveryFailed')} ${bridge.error(error)}`;
+      } finally { monitor.pending = null; }
+    })();
+    return monitor.pending;
+  }
+  async function pollDelivery(s) { return pollDeliveryBridge(s.bridge); }
+  async function sendWechat(s) {
+    if (!current(s) || s.deliveryRunning || s.deliveryStarting) return;
+    const platform = deliveryPlatform(s);
+    s.deliveryStarting = true; s.deliveryRunning = true; s.deliverySend.disabled = true;
+    try {
+      s.deliveryMessage.textContent = text('deliverySave');
+      if (!(await save())) throw new Error(text('saveError'));
+      if (!current(s)) return;
+      const id = `${platform}-${s.id}-${s.revision.slice(0, 24)}`;
+      const job = await prepareWechatDelivery({id,platform});
+      const status = await s.bridge.invoke('start_wechat_delivery', {job, platform, rememberLogin:s.rememberLogin.checked, recreate:!!s.deliveryRecreate && s.deliveryState?.jobId === id});
+      const monitor = monitorDelivery(s.bridge);
+      monitor.watched.add(status.runId || status.jobId || id);
+      s.deliveryStarting = false;
+      if (current(s)) deliveryStatus(s,status);
+      await pollDeliveryBridge(s.bridge);
+    } catch (error) {
+      s.deliveryStarting = false;
+      if (current(s)) { s.deliveryRunning = false; s.deliverySend.disabled = false; s.deliveryMessage.textContent = `${text('deliveryFailed')} ${String(error).includes('WECHAT_RUNTIME') ? text('deliveryNoRuntime') : String(error).includes('DELIVERY_ALREADY_RUNNING') ? text('deliveryBusy') : deliveryError(error,s.bridge)}`; }
+    }
+  }
+  function deliveryPanel(s) {
+    const titleId = `formatting-delivery-title-${s.id}`;
+    const panel = element('dialog','',{class:'formatting-delivery','aria-labelledby':titleId});
+    const header = element('div','',{class:'formatting-delivery-heading'});
+    s.deliveryHeading = element('h2',text('sendWechat'),{id:titleId,tabindex:'-1',autofocus:''});
+    header.append(s.deliveryHeading,iconButton('close',text('deliveryClose'),()=>setDeliveryDialog(s,false)));
+    s.deliveryIntro=element('p',text('deliveryIntro'));panel.append(header,s.deliveryIntro);
+    const label = element('label',''); s.rememberLogin = element('input','',{type:'checkbox'});
+    try { s.rememberLogin.checked = localStorage.getItem('nutbook.wechat.rememberLogin') === 'true'; } catch { s.rememberLogin.checked = false; }
+    s.rememberLogin.addEventListener('change', () => { try { localStorage.setItem(`nutbook.${deliveryPlatform(s)}.rememberLogin`,String(s.rememberLogin.checked)); } catch {} });
+    s.deliveryRememberLabel=element('span',text('rememberLogin'));label.append(s.rememberLogin,s.deliveryRememberLabel); panel.append(label);
+    s.deliveryMessage = element('p','',{role:'status','aria-live':'polite'}); panel.append(s.deliveryMessage);
+    s.deliveryProgress = element('progress','',{max:'6',value:'0','aria-label':text('sendWechat')});s.deliveryProgress.hidden=true;panel.append(s.deliveryProgress);
+    const actions = element('div','',{class:'formatting-delivery-actions'});
+    s.deliverySend = button(text('sendNow'), () => sendWechat(s));
+    s.deliveryCancel = button(text('cancelDelivery'), async () => { try { await s.bridge.invoke('control_wechat_delivery',{action:'cancel'}); await pollDelivery(s); } catch (error) { if (current(s)) s.deliveryMessage.textContent=s.bridge.error(error); } }); s.deliveryCancel.hidden = true;
+    s.deliveryView = button(text('viewDraft'), async () => { try { await s.bridge.invoke('control_wechat_delivery',{action:'view'}); } catch (error) { if (current(s)) s.deliveryMessage.textContent=s.bridge.error(error); } }); s.deliveryView.hidden = true;
+    s.deliveryLogin=button(text('deliveryXContinue'),async()=>{try{await s.bridge.invoke('control_wechat_delivery',{action:'login'});s.deliveryLogin.disabled=true;}catch(error){s.deliveryMessage.textContent=s.bridge.error(error);}});s.deliveryLogin.hidden=true;
+    actions.append(s.deliverySend,s.deliveryLogin,s.deliveryCancel,s.deliveryView);
+    panel.append(actions,element('small',text('deliveryBackground')));
+    panel.addEventListener('close',()=>Object.values(s.platformSendButtons||{}).forEach(send=>send.setAttribute('aria-expanded','false')));
+    panel.addEventListener('click',event=>{
+      if(event.target!==panel)return;
+      const rect=panel.getBoundingClientRect();
+      if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)setDeliveryDialog(s,false);
+    });
+    return panel;
+  }
+  // Freeze the saved platform draft using the same conversion as WeChat clipboard export.
+  // This API prepares content only; it never opens a browser or sends a draft.
+  async function prepareWechatDelivery({ id, coverIndex = 0, platform = 'wechat' } = {}) {
+    const s = active;
+    if (!s || !current(s)) throw new Error('NO_FORMATTING_DRAFT');
+    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id || '')) throw new Error('INVALID_DELIVERY_ID');
+    const markdown = flush(s);
+    if (!s.revision || serialized(s) !== s.baseline || s.saving) throw new Error('SAVE_DRAFT_BEFORE_DELIVERY');
+    const pref = structuredClone(settings(s));
+    if (!['wechat','weibo','x'].includes(platform)) throw new Error('INVALID_PLATFORM');
+    const summary = platform==='x' ? '' : s.data.metadata?.[platform] || '';
+    const result = await convert(s, markdown, pref, platform);
+    if (!current(s)) throw new Error('superseded');
+    if (result.errors.length) throw new Error(`${text('failedImages')}\n${result.errors.join('\n')}`);
+    const heading = result.section.querySelector(':scope > h1');
+    const title = heading?.textContent.trim() || result.section.dataset.articleTitle || '';
+    if (platform === 'weibo' && ([...title].length > 32 || [...summary].length > 44)) throw new Error(text('weiboDeliveryLimit'));
+    if (!title) throw new Error(text('wechatNoTitle'));
+    heading?.remove();
+    delete result.section.dataset.articleTitle;
+    const images = [];
+    for (const img of result.section.querySelectorAll('img')) {
+      const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+=*)$/.exec(img.getAttribute('src') || '');
+      if (!match) throw new Error('INVALID_DELIVERY_IMAGE');
+      const imageId = `image-${images.length + 1}`;
+      images.push({ id:imageId, mime:match[1], base64:match[2] });
+      img.removeAttribute('src');
+      img.setAttribute('data-nutbook-image', imageId);
+    }
+    if (images.length && (!Number.isInteger(coverIndex) || coverIndex < 0 || coverIndex >= images.length)) throw new Error('INVALID_DELIVERY_COVER');
+    return { version:1, id, title, summary, html:result.section.outerHTML, images, ...(images.length ? {coverId:images[coverIndex].id} : {}) };
+  }
+  window.NutbookFormatting = { open, leave, save, prepareWechatDelivery, refreshLanguage, activeId: () => active?.id ?? null, label: language => messages[language]?.title || messages['zh-CN'].title };
 })();

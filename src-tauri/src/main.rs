@@ -484,6 +484,9 @@ fn main() {
             commands::native_presentation::native_presentation_toggle_fullscreen,
             commands::native_presentation::stop_native_presentation,
             commands::preview::save_markdown_content,
+            commands::wechat_delivery::start_wechat_delivery,
+            commands::wechat_delivery::wechat_delivery_status,
+            commands::wechat_delivery::control_wechat_delivery,
             commands::formatting::load_formatting_draft,
             commands::formatting::save_formatting_draft,
             commands::formatting::render_formatting_markdown,
@@ -583,6 +586,7 @@ fn main() {
                 request_html_edit_app_exit_decision(app);
             }
             tauri::RunEvent::Exit => {
+                commands::wechat_delivery::shutdown();
                 if let Ok(directory) = prepare_app_data_dir(app) {
                     nutbook_backend::core::cli::remove_cli_ipc_endpoint_for_pid(&directory, std::process::id());
                 }

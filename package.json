@@ -52,7 +52,10 @@
     "check:motion:p3-lit-backgrounds": "node scripts/test-motion-lit-backgrounds.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
     "check:motion:p3-transitions": "node scripts/test-motion-navigation.mjs && node scripts/test-motion-p3-transitions.mjs && node scripts/test-motion-grain-playback.mjs && node scripts/test-motion-transition-runtime.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
     "check:motion:p3-simple-exits": "node scripts/test-motion-simple-exits.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
-    "check:motion:p3-page-curl": "node scripts/test-motion-page-curl.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract"
+    "check:motion:p3-page-curl": "node scripts/test-motion-page-curl.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
+    "prepare:wechat-runtime": "node scripts/prepare-wechat-runtime.mjs",
+    "check:wechat": "node scripts/test-wechat-delivery.mjs && node scripts/test-wechat-browser-session.mjs && node scripts/test-wechat-formatting-export.mjs",
+    "check:wechat-runtime": "node scripts/test-wechat-runtime.mjs"
   },
   "dependencies": {
     "@milkdown/kit": "^7.15.3",

@@ -185,6 +185,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install browser for offline WeChat delivery runtime
+        run: npx playwright install chromium
+
       - name: Install exact Tauri CLI when absent
         shell: bash
         env:

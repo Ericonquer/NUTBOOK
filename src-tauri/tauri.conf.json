@@ -4,7 +4,7 @@
   "version": "1.4.0",
   "identifier": "com.hayley.nutbook",
   "build": {
-    "beforeBuildCommand": "npm run build:frontend && npm run prepare:nutbook-cli",
+    "beforeBuildCommand": "npm run build:frontend && npm run prepare:wechat-runtime && npm run prepare:nutbook-cli",
     "frontendDist": "../dist"
   },
   "app": {
@@ -37,14 +37,20 @@
     "targets": "all",
     "fileAssociations": [
       {
-        "ext": ["md", "markdown"],
+        "ext": [
+          "md",
+          "markdown"
+        ],
         "name": "NUTBOOK Markdown",
         "description": "在 NUTBOOK 中阅读、轻编辑和演示 Markdown 文档",
         "role": "Editor",
         "rank": "Alternate"
       },
       {
-        "ext": ["html", "htm"],
+        "ext": [
+          "html",
+          "htm"
+        ],
         "name": "NUTBOOK HTML",
         "description": "在 NUTBOOK 中以临时会话打开 HTML，并可加入资料库",
         "role": "Viewer",
@@ -54,7 +60,8 @@
     "resources": {
       "../integrations/nbskill/": "nbskill/",
       "generated-resources/nutbook-cli/": "nutbook-cli/",
-      "resources/export-templates/": "export-templates/"
+      "resources/export-templates/": "export-templates/",
+      "generated-resources/wechat-runtime/": "wechat-runtime/"
     },
     "macOS": {
       "signingIdentity": "-"
