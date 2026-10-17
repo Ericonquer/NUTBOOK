@@ -40,7 +40,7 @@ try{
    }};
  });
  await page.evaluate(()=>NutbookFormatting.open(bridge,{id:1,item:{fileName:'sample.md'},preview:{raw:fixture.raw}}));
- assert.equal(await page.locator('.formatting-header button[aria-haspopup=dialog]').count(),2);
+ assert.equal(await page.locator('.formatting-header button[aria-haspopup=dialog]').count(),3);
  assert.equal(await page.locator('.formatting-header').getByRole('button',{name:'Copy body',exact:true}).count(),0);
  assert.equal(await page.locator('.formatting-preview').getByRole('button',{name:'Copy body',exact:true}).count(),1);
  await checkCopyAlignment('wechat');
@@ -90,6 +90,7 @@ try{
  assert.equal(await page.getByRole('dialog',{name:'Send to WeChat'}).isVisible(),false,'polling must not reopen a dismissed dialog');
  await page.getByRole('tab',{name:'X Articles',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.formatting-header button[aria-label="Send to WeChat"]').dataset.running==='true');
+ assert.equal(await page.getByRole('button',{name:'Send to X drafts',exact:true}).getAttribute('data-running'),'false');
  await page.locator('[data-export-editor]').fill('new input while sending');
  assert.equal(await page.evaluate(()=>fixture.sent.job.title),'Published title');
  await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
@@ -125,6 +126,21 @@ try{
  assert.equal(await page.getByLabel('Keep Weibo signed in on this device').isVisible(),true);
  await page.getByRole('button',{name:'Cancel sending',exact:true}).click();
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.getByRole('button',{name:'Send to X drafts',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'X Articles',exact:true}).getAttribute('aria-selected'),'true');
+ await checkCopyAlignment('x');
+ assert.match(await page.locator('.formatting-delivery > p').first().textContent(),/Chrome/);
+ assert.equal(await page.getByLabel('Keep X signed in on this device').isVisible(),true);
+ await page.getByRole('button',{name:'Save and send draft',exact:true}).click();
+ await page.waitForFunction(()=>fixture.sent.platform==='x');
+ assert.match(await page.evaluate(()=>fixture.sent.job.id),/^x-1-/);
+ assert.equal(await page.evaluate(()=>fixture.sent.job.summary),'');
+ assert.equal(await page.evaluate(()=>fixture.sent.job.images.length),2);
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,platform:'x',stage:'waiting_for_x_login'};});
+ await page.waitForFunction(()=>!document.querySelector('.formatting-delivery-actions button:nth-child(2)').hidden);
+ assert.equal(await page.getByRole('button',{name:'Signed in, continue',exact:true}).isVisible(),true);
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ assert.equal(await page.evaluate(()=>fixture.deliveryState.running),true);
  await page.evaluate(()=>NutbookFormatting.leave(1));
  console.log('Modal close/background completion notification and saved baseline after Send passed.');
  console.log('Send entry saves a frozen draft, prevents duplicate clicks, defaults to no login storage, and cancels without changing input (browser harness).');

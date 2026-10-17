@@ -1041,7 +1041,7 @@
     s.saveButton = iconButton('save', text('save'), save);
     s.deliveryPanel = deliveryPanel(s);
     s.platformSendButtons = {};
-    for(const [platform,icon,key] of [['wechat','wechat','sendWechat'],['weibo','weibo','sendWeibo']]){
+    for(const [platform,icon,key] of [['wechat','wechat','sendWechat'],['x','x','sendX'],['weibo','weibo','sendWeibo']]){
       const send=iconButton(icon,text(key),()=>{
         if(s.composing){s.status.textContent=text('compose');return;}
         setPreviewMode(s,platform);setDeliveryDialog(s,true);pollDelivery(s);

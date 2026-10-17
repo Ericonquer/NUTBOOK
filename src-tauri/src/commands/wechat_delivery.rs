@@ -128,7 +128,7 @@ pub async fn start_wechat_delivery(
     caller(&webview)?;
     let id = validate(&job)?;
     let destination = platform.unwrap_or_else(|| "wechat".into());
-    if destination != "wechat" && destination != "weibo" {
+    if destination != "wechat" && destination != "weibo" && destination != "x" {
         return Err("Invalid delivery platform".into());
     }
     if destination == "weibo"
@@ -342,13 +342,20 @@ pub fn wechat_delivery_status(webview: tauri::Webview) -> Result<Value, String> 
 #[tauri::command]
 pub fn control_wechat_delivery(webview: tauri::Webview, action: String) -> Result<(), String> {
     caller(&webview)?;
-    if action != "cancel" && action != "view" {
+    if action != "cancel" && action != "view" && action != "login" {
         return Err("Invalid action".into());
     }
     let mut slot = tasks()
         .lock()
         .map_err(|_| "Delivery coordinator unavailable")?;
     let task = slot.as_mut().ok_or("No delivery task")?;
+    if action == "login"
+        && (task.status["platform"] != "x"
+            || task.status["stage"] != "waiting_for_x_login"
+            || task.status["running"] != true)
+    {
+        return Err("No pending X login".into());
+    }
     writeln!(
         task.child
             .stdin
