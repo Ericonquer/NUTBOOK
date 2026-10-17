@@ -16,7 +16,8 @@ pub fn raster_data(bytes: &[u8]) -> Result<String, String> {
         image::ImageFormat::Png => "image/png",
         image::ImageFormat::Jpeg => "image/jpeg",
         image::ImageFormat::WebP => "image/webp",
-        _ => return Err("仅支持 PNG / JPEG / WebP".into()),
+        image::ImageFormat::Gif => "image/gif",
+        _ => return Err("仅支持 PNG / JPEG / WebP / GIF".into()),
     };
     let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
     let mut limits = image::Limits::default();
@@ -125,7 +126,7 @@ fn public_request(u: &url::Url, deadline: Instant) -> Result<ureq::Response, Str
         .build();
     let response = agent
         .get(u.as_str())
-        .set("Accept", "image/png,image/jpeg,image/webp")
+        .set("Accept", "image/png,image/jpeg,image/webp,image/gif")
         .call()
         .map_err(|error| match error {
             ureq::Error::Status(code, _) => {
@@ -178,8 +179,11 @@ fn fetch_with_transport(
             .unwrap_or("")
             .trim()
             .to_ascii_lowercase();
-        if !matches!(mime.as_str(), "image/png" | "image/jpeg" | "image/webp") {
-            return Err("地址未返回 PNG / JPEG / WebP 图片".into());
+        if !matches!(
+            mime.as_str(),
+            "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+        ) {
+            return Err("地址未返回 PNG / JPEG / WebP / GIF 图片".into());
         }
         if response
             .header("Content-Length")
@@ -220,7 +224,10 @@ pub fn decode_raster_data(data: &str) -> Result<Vec<u8>, String> {
     let (header, encoded) = data.split_once(',').ok_or("Invalid image data")?;
     if !matches!(
         header,
-        "data:image/png;base64" | "data:image/jpeg;base64" | "data:image/webp;base64"
+        "data:image/png;base64"
+            | "data:image/jpeg;base64"
+            | "data:image/webp;base64"
+            | "data:image/gif;base64"
     ) {
         return Err("Unsupported image data".into());
     }
@@ -251,6 +258,7 @@ pub fn write_pasted_image(
     let ext = match header {
         "data:image/png;base64" => "png",
         "data:image/jpeg;base64" => "jpg",
+        "data:image/gif;base64" => "gif",
         _ => "webp",
     };
     let name = format!("pasted-{}.{}", uuid::Uuid::new_v4(), ext);
@@ -393,6 +401,45 @@ mod tests {
             assert!(write_pasted_image(&md, &data).is_err());
             assert_eq!(std::fs::read_dir(other.path()).unwrap().count(), 0);
         }
+    }
+    #[test]
+    fn animated_gif_roundtrip_preserves_frames_and_extension() {
+        use image::AnimationDecoder;
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+            encoder
+                .set_repeat(image::codecs::gif::Repeat::Infinite)
+                .unwrap();
+            for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+                encoder
+                    .encode_frame(image::Frame::from_parts(
+                        image::RgbaImage::from_pixel(2, 2, image::Rgba(color)),
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(100, 1),
+                    ))
+                    .unwrap();
+            }
+        }
+        let data = raster_data(&bytes).unwrap();
+        assert!(data.starts_with("data:image/gif;base64,"));
+        assert_eq!(decode_raster_data(&data).unwrap(), bytes);
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("animation.md");
+        std::fs::write(&source, "unchanged").unwrap();
+        let asset = write_pasted_image(&source, &data).unwrap();
+        assert!(asset.file_name.ends_with(".gif"));
+        let saved = std::fs::read(asset.asset_path).unwrap();
+        assert_eq!(saved, bytes);
+        let frames = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(saved))
+            .unwrap()
+            .into_frames()
+            .collect_frames()
+            .unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_ne!(frames[0].buffer(), frames[1].buffer());
+        assert_eq!(std::fs::read_to_string(source).unwrap(), "unchanged");
     }
     #[test]
     fn cancelled_download_never_connects() {

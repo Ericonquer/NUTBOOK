@@ -2,7 +2,7 @@
 use crate::{
     core::{
         document::content_hash, markdown_cover::parse_cover_metadata,
-        markdown_render::render_markdown_html,
+        markdown_render::render_formatting_html,
     },
     db::repositories::ItemRepository,
     errors::AppError,
@@ -126,7 +126,8 @@ pub fn render_formatting_markdown(markdown: String) -> Result<String, AppError> 
     };
     Ok(ammonia::Builder::default()
         .url_schemes(["http", "https", "data"].into_iter().collect())
-        .clean(&render_markdown_html(&published))
+        .add_tag_attributes("div", &["align"])
+        .clean(&render_formatting_html(&published))
         .to_string())
 }
 /// Only relative raster images inside the source's canonical parent are admitted.
@@ -176,6 +177,7 @@ fn read_local_image(source: &Path, src: &str) -> Result<String, AppError> {
         image::ImageFormat::Png => "image/png",
         image::ImageFormat::Jpeg => "image/jpeg",
         image::ImageFormat::WebP => "image/webp",
+        image::ImageFormat::Gif => "image/gif",
         _ => return Err(AppError::InvalidParams),
     };
     let mut reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
@@ -267,6 +269,14 @@ pub fn write_formatting_image_clipboard(
     let bytes = crate::core::image_import::decode_raster_data(&data)?;
     #[cfg(target_os = "macos")]
     {
+        if data.starts_with("data:image/gif;base64,") {
+            write_native_raster_clipboard(
+                &objc2_app_kit::NSPasteboard::generalPasteboard(),
+                &bytes,
+                objc2_foundation::ns_string!("com.compuserve.gif"),
+            )?;
+            return Ok(json!({"verified":true}));
+        }
         let raster = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
         let mut output = std::io::Cursor::new(Vec::new());
         raster
@@ -289,15 +299,22 @@ fn write_native_image_clipboard(
     board: &objc2_app_kit::NSPasteboard,
     bytes: &[u8],
 ) -> Result<(), String> {
-    use objc2_app_kit::NSPasteboardTypePNG;
+    write_native_raster_clipboard(board, bytes, unsafe { objc2_app_kit::NSPasteboardTypePNG })
+}
+#[cfg(target_os = "macos")]
+fn write_native_raster_clipboard(
+    board: &objc2_app_kit::NSPasteboard,
+    bytes: &[u8],
+    mime_type: &objc2_foundation::NSString,
+) -> Result<(), String> {
     use objc2_foundation::{NSArray, NSData};
     unsafe {
-        board.declareTypes_owner(&NSArray::from_slice(&[NSPasteboardTypePNG]), None);
-        if !board.setData_forType(Some(&NSData::with_bytes(bytes)), NSPasteboardTypePNG) {
+        board.declareTypes_owner(&NSArray::from_slice(&[mime_type]), None);
+        if !board.setData_forType(Some(&NSData::with_bytes(bytes)), mime_type) {
             return Err("Image clipboard write failed".into());
         }
         if board
-            .dataForType(NSPasteboardTypePNG)
+            .dataForType(mime_type)
             .map(|data| data.to_vec())
             .as_deref()
             != Some(bytes)
@@ -370,6 +387,12 @@ fn write_native_rich_clipboard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn publishing_renders_centered_caption_without_literal_wrapper() {
+        let html = render_formatting_markdown("<div align=\"center\">\n\n*Caption*\n\n</div>".into()).unwrap();
+        assert!(html.contains("<div align=\"center\"><p><em>Caption</em></p>"), "{html}");
+        assert!(!html.contains("&lt;div"));
+    }
     fn test_png_bytes() -> Vec<u8> {
         let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
             2,
@@ -414,6 +437,22 @@ mod tests {
                 .unwrap()
                 .to_vec();
             assert_eq!(image::load_from_memory(&data).unwrap().width(), 2);
+            board.clearContents();
+        }
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires native pasteboard access; run outside the sandbox"]
+    fn native_gif_clipboard_preserves_original_animation_bytes() {
+        let board = objc2_app_kit::NSPasteboard::pasteboardWithUniqueName();
+        let gif = include_bytes!("../../../assets/readme-demo/nutbook-agent-access-cn.gif");
+        let kind = objc2_foundation::ns_string!("com.compuserve.gif");
+        write_native_raster_clipboard(&board, gif, kind).unwrap();
+        unsafe {
+            assert_eq!(board.dataForType(kind).unwrap().to_vec(), gif);
+            assert!(board
+                .dataForType(objc2_app_kit::NSPasteboardTypePNG)
+                .is_none());
             board.clearContents();
         }
     }
@@ -493,6 +532,14 @@ mod tests {
         assert!(read_local_image(&source, "http://127.0.0.1/a.png").is_err());
         fs::write(inside.join("fake.png"), "not an image").unwrap();
         assert!(read_local_image(&source, "fake.png").is_err());
+        let gif = include_bytes!("../../../assets/readme-demo/nutbook-agent-access-cn.gif");
+        fs::write(inside.join("demo.gif"), gif).unwrap();
+        let loaded = read_local_image(&source, "demo.gif").unwrap();
+        assert!(loaded.starts_with("data:image/gif;base64,"));
+        assert_eq!(
+            crate::core::image_import::decode_raster_data(&loaded).unwrap(),
+            gif
+        );
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(dir.path().join("outside.png"), inside.join("escape.png"))

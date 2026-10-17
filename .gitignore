@@ -64,3 +64,7 @@ docs/html-edit-acceptance/README.md
 docs/html-edit-acceptance/.nutbook/html-edit/manifest.json
 docs/html-edit-acceptance/.nutbook/html-edit/patches/html-edit-a012c506-5707-4573-bd28-1cc752b2eced.json
 src-tauri/tests/fixtures/html-edit/.nutbook/
+
+# Generated, offline WeChat delivery runtime
+src-tauri/generated-resources/wechat-runtime/*
+!src-tauri/generated-resources/wechat-runtime/.gitkeep

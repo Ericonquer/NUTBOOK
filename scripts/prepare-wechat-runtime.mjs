@@ -1,0 +1,27 @@
+import {cp,mkdir,copyFile,writeFile,realpath,rm} from 'node:fs/promises';
+import {dirname,join,relative,resolve} from 'node:path';
+import {createRequire} from 'node:module';
+import {nodeDistribution} from './wechat/node-distribution.mjs';
+import {chromium} from 'playwright';
+const require=createRequire(import.meta.url);
+if(process.versions.node.split('.')[0]!=='22')throw Error('WeChat runtime packaging requires Node 22');
+const root=resolve('src-tauri/generated-resources/wechat-runtime');
+const executable=chromium.executablePath();
+const browserRoot=process.platform==='darwin'?resolve(dirname(executable),'../../..'):dirname(executable);
+const browserRelative=relative(browserRoot,executable);
+if(browserRelative.startsWith('..'))throw Error('Invalid browser bundle');
+await mkdir(root,{recursive:true});
+await mkdir(join(root,'node_modules'),{recursive:true});
+const nodeDestination=join(root,process.platform==='win32'?'node.exe':'node');
+await rm(nodeDestination,{force:true});
+const standalone=await nodeDistribution();
+await copyFile(standalone.binary,nodeDestination);
+const packageRoot=dirname(require.resolve('playwright-core/package.json'));
+await cp(packageRoot,join(root,'node_modules/playwright-core'),{recursive:true,force:true});
+// Avoid stale browser versions entering a release. Only this generated subtree is removed.
+await rm(join(root,'browser'),{recursive:true,force:true});
+await cp(browserRoot,join(root,'browser'),{recursive:true,dereference:false,verbatimSymlinks:true});
+await cp('scripts/wechat',join(root,'worker'),{recursive:true,force:true});
+await copyFile(standalone.license,join(root,'NODE-LICENSE.txt'));
+await writeFile(join(root,'runtime.json'),JSON.stringify({version:1,platform:process.platform,arch:process.arch,executable:join('browser',browserRelative),node:process.platform==='win32'?'node.exe':'node'}));
+console.log('Prepared offline WeChat runtime for',process.platform,process.arch);

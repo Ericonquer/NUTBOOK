@@ -4,6 +4,11 @@ import { chromium } from 'playwright';
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  async function copyBodyFor(platform){
+    const tab=page.getByRole('tab',{name:{wechat:'WeChat',x:'X Articles',weibo:'Weibo Articles'}[platform],exact:true});
+    if(await tab.getAttribute('aria-selected')!=='true')await tab.click();
+    await page.locator(`.formatting-preview [data-copy-platform="${platform}"]`).click();
+  }
   const uncheckedRequests = [];
   page.on('request', request => { if (request.url().startsWith('https://example.com/')) uncheckedRequests.push(request.url()); });
   await page.setContent('<div id="viewer" style="height:700px"></div>');
@@ -29,6 +34,7 @@ try {
       invoke: async (command, args) => {
         fixture.calls.push(command);
         if (command === 'load_formatting_draft') return { draft: structuredClone(fixture.saved), revision: fixture.revision };
+        if (command === 'render_formatting_markdown' && args.markdown === 'alignment fixture') return '<h1>Heading</h1><div align="center"><p><em>Centered caption</em></p></div>';
         if (command === 'render_formatting_markdown') return args.markdown.includes('missing') ? '<p>text</p><img src="missing.png">' : '<h1>Heading</h1>'+Array.from({length:70}, (_,i)=>`<p>Paragraph ${i} ${args.markdown}</p>`).join('');
         if (command === 'validate_formatting_image_data') return null;
         if (command === 'read_formatting_image') throw new Error('missing');
@@ -46,6 +52,11 @@ try {
   await page.evaluate(() => NutbookFormatting.open(bridge, tab));
   const input = page.locator('[data-fixture-editor]');
   assert.equal(await page.locator('.formatting-editor').isVisible(), true, 'host styles must not hide publishing editor');
+  await input.fill('alignment fixture');
+  await page.waitForFunction(() => document.querySelector('.formatting-preview p[align="center"]'));
+  assert.equal(await page.locator('.formatting-preview p[align="center"]').evaluate(n => getComputedStyle(n).textAlign), 'center');
+  assert.equal(await page.locator('.formatting-preview p[align="center"] em').textContent(), 'Centered caption');
+  assert.equal(await page.locator('.formatting-preview').innerText().then(v => v.includes('<div')), false);
   await input.fill('edited');
   await page.waitForTimeout(300);
   await page.evaluate(() => { document.querySelector('.formatting-preview').scrollTop = 800; });
@@ -67,7 +78,7 @@ try {
   await input.fill('new text during save');
   await page.evaluate(() => fixture.resolveSave());
   assert.equal(await page.evaluate(() => saving), true);
-  assert.equal(await page.locator('[role=status]').textContent(), 'Unsaved', 'late save must not clear newer edits');
+  assert.equal(await page.locator('.formatting-header [role=status]').textContent(), 'Unsaved', 'late save must not clear newer edits');
   assert.equal(await page.evaluate(() => fixture.saved.markdown), 'edited twice', 'saved revision is frozen');
   assert.equal(await page.evaluate(() => NutbookFormatting.leave(1)), false, 'continue keeps the session');
   await page.evaluate(() => { fixture.choice = 'discard'; });
@@ -110,6 +121,13 @@ try {
   await page.evaluate(async () => {
     bridge.invoke = fixture.originalInvoke;
     bridge.editor = async () => window.NutbookMarkdownEditor;
+    const ordinaryInvoke = bridge.invoke;
+    bridge.wechatDelivery = true;
+    bridge.invoke = async (command,args) => {
+      if(command === 'wechat_delivery_status') return fixture.realDeliveryState || {running:false,stage:'idle'};
+      if(command === 'start_wechat_delivery') {fixture.realSentJob=args.job;return fixture.realDeliveryState={jobId:args.job.id,running:false,stage:'verified'};}
+      return ordinaryInvoke(command,args);
+    };
     fixture.saved = null; fixture.revision = null;
     tab.preview.raw = '# Draft title\n\noriginal';
     await NutbookFormatting.open(bridge, tab);
@@ -129,7 +147,13 @@ try {
   assert.equal(await publishingTitle.textContent(),'Edited Draft title');
   assert.equal(await page.evaluate(() => NutbookFormatting.save()),true);
   assert.match(await page.evaluate(() => fixture.saved.markdown), /# Edited Draft title/);
-  assert.equal(await page.locator('[role=status]').textContent(),'Saved','successful save converges to normalized baseline');
+  assert.equal(await page.locator('.formatting-header [role=status]').textContent(),'Saved','successful save converges to normalized baseline');
+  await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+  await page.getByRole('button',{name:'Save and send draft',exact:true}).click();
+  await page.waitForFunction(()=>fixture.realSentJob);
+  assert.equal(await page.locator('.formatting-header [role=status]').textContent(),'Saved','real Milkdown remains Saved after save-and-send without new input');
+  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+  await page.evaluate(()=>{bridge.wechatDelivery=false;});
   await page.evaluate(() => { fixture.confirmCount = 0; fixture.beforeTitleConfirm = bridge.confirm; bridge.confirm = (...args) => { fixture.confirmCount++; return fixture.beforeTitleConfirm(...args); }; });
 
   await page.evaluate(async () => { await NutbookFormatting.leave(1); await NutbookFormatting.open(bridge,tab); });
@@ -163,10 +187,10 @@ try {
   assert.match(await page.locator('.formatting-header strong').textContent(), /Markdown 排版中心/);
   assert.equal(await page.getByRole('tab', { name:'发布稿', exact:true }).count(), 1);
   assert.equal(await page.locator('.markdown-insert-trigger').getAttribute('aria-label'), await page.evaluate(() => NutbookI18n.lookup('markdown.openInsertMenu','zh-CN')));
-  assert.equal(await page.getByRole('button', { name:'复制到公众号', exact:true }).locator('[role=tooltip]').textContent(), '复制到公众号');
+  assert.equal(await page.getByRole('button', { name:'复制正文', exact:true }).locator('[role=tooltip]').textContent(), '复制正文');
   await page.evaluate(() => { fixture.language = 'en-US'; NutbookFormatting.refreshLanguage(); });
   assert.match(await page.locator('.formatting-header strong').textContent(), /Markdown Formatting Center/);
-  assert.equal(await page.getByRole('button', { name:'Copy to X Articles', exact:true }).locator('[role=tooltip]').textContent(), 'Copy to X Articles');
+  assert.equal(await page.getByRole('button', { name:'Copy body', exact:true }).locator('[role=tooltip]').textContent(), 'Copy body');
   assert.equal(await page.locator('.markdown-insert-trigger').getAttribute('aria-label'), await page.evaluate(() => NutbookI18n.lookup('markdown.openInsertMenu','en-US')));
   assert.equal(await page.locator('.ProseMirror').textContent(), draftBeforeLocale, 'locale changes never translate document text');
   assert.equal(await page.locator('.formatting-workspace .ProseMirror').count(), 1, 'real Milkdown mounts');
@@ -194,7 +218,7 @@ try {
   await page.locator('.formatting-workspace .ProseMirror').click();
   await page.keyboard.press('End');
   await page.keyboard.type(' edit in Milkdown');
-  await page.getByRole('button', { name:'Copy to WeChat', exact:true }).click();
+  await copyBodyFor('wechat');
   await page.waitForFunction(() => fixture.clipboard);
   assert.doesNotMatch(await page.evaluate(() => fixture.clipboard.html), /<h1|formatting-article-title|Copy article title/, 'WeChat clipboard contains only the themed body');
   assert.match(await page.evaluate(() => fixture.clipboard.plain), /^Paragraph/);
@@ -237,7 +261,7 @@ try {
   assert.equal(await page.locator('.formatting-x-article .formatting-x-image').count(),1);
   await page.getByRole('button', { name:'Copy article title', exact:true }).click();
   await page.waitForFunction(() => fixture.xText === 'Article title');
-  await page.getByRole('button', { name:'Copy to X Articles', exact:true }).click();
+  await copyBodyFor('x');
   await page.waitForFunction(() => fixture.clipboard);
   const xPayload = await page.evaluate(() => fixture.clipboard);
   assert.match(xPayload.html,/<strong>bold<\/strong>/);
@@ -249,7 +273,7 @@ try {
   assert.match(xPayload.html,/<p>\[Image position 1: First image\]<\/p>/);
   assert.doesNotMatch(xPayload.html,/<hr|\[Divider\]|———/);
   assert.equal(await page.locator('.formatting-x-notice').count(),0,'help is outside article preview');
-  assert.equal(await page.locator('[role=status]').textContent(),'Body copied · 1 image to add');
+  assert.equal(await page.locator('.formatting-header [role=status]').textContent(),'Body copied · 1 image to add');
   assert.doesNotMatch(xPayload.html,/<section|<article/,'X clipboard must not wrap blocks in a container that flattens nested Draft blocks');
   assert.doesNotMatch(xPayload.html,/<img|<pre|<table|style=|class=|javascript:|Article title|References/);
   assert.match(xPayload.plain,/• one/);
@@ -261,15 +285,15 @@ try {
     fixture.xHtml = '<h1>Title</h1><p>before <strong><img src="a.png" alt="A">middle <img src="b.png" alt="B"> after</strong></p><hr><p>end</p>';
     fixture.clipboard = null;
   });
-  await page.getByRole('button',{name:'Copy to X Articles',exact:true}).click();
+  await copyBodyFor('x');
   await page.waitForFunction(() => fixture.clipboard);
   assert.deepEqual(await page.evaluate(() => {
     const doc = new DOMParser().parseFromString(fixture.clipboard.html,'text/html');
     return [...doc.body.children].map(node => [node.tagName,node.textContent.trim()]);
   }),[['P','before'],['P','[Image position 1: A]'],['P','middle'],['P','[Image position 2: B]'],['P','after'],['P','end']],'inline images split their paragraph without losing text or image order');
   await page.evaluate(() => { fixture.xHtml = '<h1>Title</h1><p>No images</p><hr>'; fixture.clipboard = null; });
-  await page.getByRole('button',{name:'Copy to X Articles',exact:true}).click();
-  await page.waitForFunction(() => fixture.clipboard && document.querySelector('[role=status]').textContent === 'Body copied');
+  await copyBodyFor('x');
+  await page.waitForFunction(() => fixture.clipboard && document.querySelector('.formatting-header [role=status]').textContent === 'Body copied');
   assert.doesNotMatch(await page.evaluate(() => fixture.clipboard.html),/<hr|Divider/);
   await page.evaluate(() => { fixture.xHtml = fixture.originalXHtml; });
   // Images use a distinct native PNG transport; failures cannot report success.
@@ -310,12 +334,12 @@ try {
   await page.getByRole('tab',{name:'Weibo Articles',exact:true}).click();
   await page.waitForFunction(() => document.querySelector('.formatting-weibo-article h1')?.textContent === 'Weibo title');
   assert.equal(await page.getByRole('tab',{name:'Weibo Articles',exact:true}).evaluate(node => getComputedStyle(node).borderBottomWidth),'2px');
-  assert.match(await page.locator('.formatting-hint').textContent(), /Weibo/);
+  assert.match(await page.locator('.formatting-hint').textContent(), /platform icons/);
   assert.equal((await phoneButton.boundingBox()).x,phoneBeforeX.x);
   assert.equal(await page.getByRole('button',{name:'Themes are unavailable in Weibo',exact:true}).getAttribute('aria-disabled'),'true');
   await page.getByRole('button',{name:'Copy article title',exact:true}).click();
   await page.waitForFunction(() => fixture.xText === 'Weibo title');
-  await page.getByRole('button',{name:'Copy to Weibo Article',exact:true}).click();
+  await copyBodyFor('weibo');
   await page.waitForFunction(() => fixture.clipboard);
   const weiboPayload = await page.evaluate(() => fixture.clipboard);
   assert.match(weiboPayload.html, /<a href="https:\/\/example.com">Link<\/a>/);
@@ -404,7 +428,7 @@ try {
   });
   assert.equal(await page.locator('.formatting-editor .ProseMirror h1').textContent(),'Fallback article');
   assert.match(await page.locator('.formatting-editor .ProseMirror').textContent(),/Existing subheading/);
-  assert.equal(await page.locator('[role=status]').textContent(),'Unsaved','generated filename title needs explicit save');
+  assert.equal(await page.locator('.formatting-header [role=status]').textContent(),'Unsaved','generated filename title needs explicit save');
   assert.equal(await page.evaluate(() => NutbookFormatting.save()),true);
   assert.match(await page.evaluate(() => fixture.saved.markdown),/# Fallback article/);
   await page.evaluate(() => { fixture.choice = 'continue'; });
@@ -422,7 +446,7 @@ try {
       return invoke(command, args);
     };
   });
-  await page.getByRole('button', { name:'Copy to WeChat', exact:true }).click();
+  await copyBodyFor('wechat');
   await page.waitForFunction(() => fixture.nativeClipboard);
   const nativeHtml = await page.evaluate(() => fixture.nativeClipboard.html);
   assert.match(nativeHtml, /src="data:image\/png;base64,aGVsbG8="/);
@@ -440,12 +464,12 @@ try {
   assert.deepEqual(referenceSizes.slice(0, 2), ['13px', '13px'], 'reference heading and URLs export compact font sizes');
   assert.notEqual(referenceSizes[2], '13px', 'ordinary body links keep their body sizing');
   await page.evaluate(() => { fixture.nativeClipboard = null; });
-  await page.getByRole('button',{name:'Copy to X Articles',exact:true}).click();
+  await copyBodyFor('x');
   await page.waitForFunction(() => fixture.nativeClipboard);
   assert.doesNotMatch(await page.evaluate(() => fixture.nativeClipboard.html),/<section|<article|<h1/,'native X payload is an unwrapped block fragment too');
   assert.match(await page.evaluate(() => fixture.nativeClipboard.html),/<p>\[Image position 1:/);
   await page.evaluate(() => { fixture.nativeReject = true; });
-  await page.getByRole('button', { name:'Copy to WeChat', exact:true }).click();
+  await copyBodyFor('wechat');
   await page.waitForFunction(() => document.querySelector('[role=alert]').textContent.includes('Rich copy failed'));
   assert.match(await page.locator('[role=alert]').textContent(), /Rich copy failed/, 'failed native readback never claims success');
   await page.evaluate(() => NutbookFormatting.leave(1));
@@ -499,7 +523,7 @@ try {
     assert.equal(await page.evaluate(() => NutbookFormatting.save()), true);
     assert.equal(await page.evaluate(() => fixture.saved.settings.theme), key);
     await page.evaluate(() => { fixture.clipboard = null; });
-    await page.getByRole('button', { name:'Copy to WeChat', exact:true }).click();
+    await copyBodyFor('wechat');
     await page.waitForFunction(() => fixture.clipboard);
     const output = await page.evaluate(() => {
       const template = document.createElement('template'); template.innerHTML = fixture.clipboard.html;
@@ -534,7 +558,7 @@ try {
   await page.evaluate(() => { fixture.language = 'zh-CN'; NutbookFormatting.refreshLanguage(); fixture.language = 'en-US'; NutbookFormatting.refreshLanguage(); });
   await page.getByRole('button', { name:'Undo', exact:true }).click();
   assert.equal(await page.locator('.ProseMirror img:not(.ProseMirror-separator)').count(), 0, 'toolbar undo uses editor image history');
-  assert.equal(await page.locator('[role=status]').textContent(), 'Saved', 'undoing an image restores the saved document baseline despite retained history assets');
+  assert.equal(await page.locator('.formatting-header [role=status]').textContent(), 'Saved', 'undoing an image restores the saved document baseline despite retained history assets');
   await page.keyboard.press('Control+Shift+z');
   // ProseMirror adds an empty separator img beside inline image cursors.
   assert.equal(await page.locator('.ProseMirror img:not(.ProseMirror-separator)').count(), 1);
