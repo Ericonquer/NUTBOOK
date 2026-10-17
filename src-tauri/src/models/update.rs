@@ -76,9 +76,12 @@ pub struct DownloadAndInstallUpdateRequest {
     pub asset_key: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateDownloadProgress {
+    pub revision: u64,
+    pub phase: String,
+    pub error: Option<String>,
     pub tag: String,
     pub asset_key: String,
     pub downloaded_bytes: u64,
@@ -103,6 +106,8 @@ pub struct GitHubRelease {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct GitHubReleaseAsset {
+    #[serde(default)]
+    pub id: u64,
     pub name: String,
     pub size: u64,
     pub browser_download_url: String,

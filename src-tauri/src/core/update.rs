@@ -374,12 +374,45 @@ fn checked_https_url(value: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn read_checksum(asset: &GitHubReleaseAsset) -> Result<String, AppError> {
+fn asset_download_url(asset: &GitHubReleaseAsset) -> Result<String, AppError> {
     checked_https_url(&asset.browser_download_url)?;
-    let response = github_agent()
-        .get(&asset.browser_download_url)
-        .call()
-        .map_err(|error| AppError::UpdateFailed(format!("cannot download checksum: {error}")))?;
+    if asset.id == 0 {
+        return Err(AppError::UpdateFailed("release asset is missing its GitHub ID".to_string()));
+    }
+    Ok(format!("https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/assets/{}", asset.id))
+}
+
+fn asset_request(agent: &ureq::Agent, url: &str) -> ureq::Request {
+    agent.get(url)
+        .set("Accept", "application/octet-stream")
+        .set("X-GitHub-Api-Version", "2022-11-28")
+        .set("User-Agent", "Nutbook Update Downloader")
+}
+
+fn retry_transient_request<T>(mut request: impl FnMut() -> Result<T, ureq::Error>, mut on_retry: impl FnMut()) -> Result<T, ureq::Error> {
+    let first = request();
+    let retryable = match &first {
+        Err(ureq::Error::Transport(error)) => matches!(error.kind(), ureq::ErrorKind::Dns | ureq::ErrorKind::ConnectionFailed | ureq::ErrorKind::Io | ureq::ErrorKind::ProxyConnect),
+        Err(ureq::Error::Status(status, _)) => matches!(*status, 408 | 500 | 502 | 503 | 504),
+        _ => false,
+    };
+    if retryable {
+        on_retry();
+        request()
+    } else {
+        first
+    }
+}
+
+fn read_checksum(asset: &GitHubReleaseAsset, on_retry: impl FnMut()) -> Result<String, AppError> {
+    let url = asset_download_url(asset)?;
+    // This file is tiny. Bound each complete attempt, including redirects, and
+    // retry only a transient transport/server failure once. Invalid hashes and
+    // permanent HTTP errors must never become successful update deliveries.
+    let response = retry_transient_request(|| {
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).build();
+        asset_request(&agent, &url).call()
+    }, on_retry).map_err(|error| AppError::UpdateFailed(format!("cannot download checksum: {error}")))?;
     let mut raw = String::new();
     response
         .into_reader()
@@ -397,6 +430,18 @@ fn read_checksum(asset: &GitHubReleaseAsset) -> Result<String, AppError> {
         ));
     }
     Ok(digest.to_string())
+}
+
+// The host owns the snapshot; events only notify live dialogs. Recreated dialogs
+// recover the same state without restarting or losing the download.
+pub fn report_download_progress(app: &AppHandle, tag: &str, asset_key: &str, phase: &str, downloaded_bytes: u64, total_bytes: Option<u64>, error: Option<String>) {
+    let progress = UpdateDownloadProgress {
+        revision: 0, tag: tag.to_string(), asset_key: asset_key.to_string(),
+        phase: phase.to_string(), downloaded_bytes, total_bytes, error,
+    };
+    if let Ok(progress) = app.state::<crate::state::AppState>().record_update_download_progress(progress) {
+        let _ = app.emit(UPDATE_EVENT, progress);
+    }
 }
 
 pub fn download_and_verify_update(
@@ -428,16 +473,20 @@ pub fn download_and_verify_update(
     let expected_name = expected_asset_name(tag, spec);
     let installer = checked_asset(&release, &expected_name)?;
     let checksum_asset = checked_asset(&release, &format!("{expected_name}.sha256"))?;
-    let checksum = read_checksum(checksum_asset)?;
-    checked_https_url(&installer.browser_download_url)?;
+    report_download_progress(app, tag, asset_key, "checksum", 0, Some(installer.size), None);
+    let checksum = read_checksum(checksum_asset, || {
+        report_download_progress(app, tag, asset_key, "checksum_retry", 0, Some(installer.size), None);
+    })?;
+    let installer_url = asset_download_url(installer)?;
 
     let cache_dir = update_cache_dir(app)?;
     cleanup_update_cache(app)?;
     let final_path = cache_dir.join(&expected_name);
     let temporary_path = cache_dir.join(format!(".{expected_name}.{}.part", Uuid::new_v4()));
     let result = (|| -> Result<(), AppError> {
-        let response = installer_agent(Duration::from_secs(30))
-            .get(&installer.browser_download_url)
+        report_download_progress(app, tag, asset_key, "connecting", 0, Some(installer.size), None);
+        let agent = installer_agent(Duration::from_secs(30));
+        let response = asset_request(&agent, &installer_url)
             .call()
             .map_err(|error| {
                 AppError::UpdateFailed(format!("cannot download installer: {error}"))
@@ -459,16 +508,9 @@ pub fn download_and_verify_update(
             .map_err(|_| AppError::IoError)?;
         let writer = std::io::BufWriter::new(file);
         copy_installer(reader, writer, installer.size, &checksum, |downloaded| {
-            let _ = app.emit(
-                UPDATE_EVENT,
-                UpdateDownloadProgress {
-                    tag: tag.to_string(),
-                    asset_key: asset_key.to_string(),
-                    downloaded_bytes: downloaded,
-                    total_bytes: Some(installer.size),
-                },
-            );
+            report_download_progress(app, tag, asset_key, "downloading", downloaded, Some(installer.size), None);
         })?;
+        report_download_progress(app, tag, asset_key, "opening", installer.size, Some(installer.size), None);
         fs::rename(&temporary_path, &final_path).map_err(|_| AppError::IoError)?;
         Ok(())
     })();
@@ -487,6 +529,63 @@ mod tests {
     };
     use crate::models::{GitHubRelease, GitHubReleaseAsset, UpdateSettings};
     use std::{cmp::Ordering, time::{SystemTime, UNIX_EPOCH}};
+
+    #[test]
+    fn update_asset_download_uses_fixed_official_api_endpoint() {
+        let mut asset: GitHubReleaseAsset = serde_json::from_str(r#"{"id":647973625,"name":"checksum","size":65,"browser_download_url":"https://github.com/Ericonquer/NUTBOOK/releases/download/v1.4.0/checksum"}"#).unwrap();
+        assert_eq!(super::asset_download_url(&asset).unwrap(), "https://api.github.com/repos/Ericonquer/NUTBOOK/releases/assets/647973625");
+        asset.id = 0;
+        assert!(super::asset_download_url(&asset).is_err());
+        asset.id = 1;
+        asset.browser_download_url = "https://example.com/untrusted".into();
+        assert!(super::asset_download_url(&asset).is_err());
+    }
+
+    #[test]
+    #[ignore = "explicit live GitHub download probe; requires network"]
+    fn live_update_api_download_verifies_installer() {
+        let release = super::fetch_github_release_by_tag("v1.4.0").unwrap();
+        let spec = super::platform_asset_spec().unwrap();
+        let name = super::expected_asset_name("v1.4.0", spec);
+        let installer = super::checked_asset(&release, &name).unwrap();
+        let checksum_asset = super::checked_asset(&release, &format!("{name}.sha256")).unwrap();
+        let checksum = super::read_checksum(checksum_asset, || println!("checksum retry")).unwrap();
+        let agent = super::installer_agent(std::time::Duration::from_secs(30));
+        let response = super::asset_request(&agent, &super::asset_download_url(installer).unwrap()).call().unwrap();
+        let file = tempfile::tempfile().unwrap();
+        let mut events = Vec::new();
+        super::copy_installer(response.into_reader(), file, installer.size, &checksum, |n| events.push(n)).unwrap();
+        assert!(events.len() > 1);
+        assert_eq!(events.last(), Some(&installer.size));
+        println!("Live GitHub API installer verified: {name}, {} bytes, {} progress events, SHA-256 {checksum}", installer.size, events.len());
+    }
+
+    #[test]
+    fn checksum_request_retries_transient_failure_once() {
+        let mut calls = 0;
+        let mut retries = 0;
+        let result = super::retry_transient_request(|| {
+            calls += 1;
+            if calls == 1 { Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "connect timed out").into()) }
+            else { Ok("checksum response") }
+        }, || retries += 1);
+        assert_eq!(result.unwrap(), "checksum response");
+        assert_eq!((calls, retries), (2, 1));
+        calls = 0;
+        let result: Result<(), ureq::Error> = super::retry_transient_request(|| {
+            calls += 1;
+            Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "connect timed out").into())
+        }, || {});
+        assert!(result.is_err());
+        assert_eq!(calls, 2, "persistent failures must stop");
+        calls = 0;
+        let result: Result<(), ureq::Error> = super::retry_transient_request(|| {
+            calls += 1;
+            Err(ureq::Response::new(404, "Not Found", "missing checksum").unwrap().into())
+        }, || panic!("permanent error must not retry"));
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
 
     #[test]
     fn installer_reports_small_download_and_rejects_corruption() {
@@ -588,6 +687,7 @@ mod tests {
             draft: false,
             prerelease: false,
             assets: vec![GitHubReleaseAsset {
+                id: 1,
                 name: "NUTBOOK_0.9.1_x64.dmg".to_string(),
                 size: 42,
                 browser_download_url: "https://github.com/example".to_string(),

@@ -4687,6 +4687,28 @@
       .update-modal-progress {
         width: 100%;
         margin-top: 8px;
+        height: 8px;
+        border: 0;
+        border-radius: 999px;
+        overflow: hidden;
+        appearance: none;
+        -webkit-appearance: none;
+        accent-color: #111;
+        background: #e5e5e5;
+      }
+      .update-modal-progress::-webkit-progress-bar { background: #e5e5e5; }
+      .update-modal-progress::-webkit-progress-value { background: #111; border-radius: 999px; }
+      .update-modal-progress::-moz-progress-bar { background: #111; border-radius: 999px; }
+      .update-modal-progress:indeterminate,
+      .update-modal-progress:indeterminate::-webkit-progress-bar {
+        background: linear-gradient(90deg, #e5e5e5 0 35%, #111 35% 60%, #e5e5e5 60% 100%);
+        background-size: 200% 100%;
+        animation: update-progress-wait 1.4s linear infinite alternate;
+      }
+      @keyframes update-progress-wait { from { background-position: 100% 0; } to { background-position: 0 0; } }
+      @media (prefers-reduced-motion: reduce) {
+        .update-modal-progress:indeterminate,
+        .update-modal-progress:indeterminate::-webkit-progress-bar { animation: none; }
       }
 
       .update-modal-actions {
@@ -15423,6 +15445,7 @@
         const candidate = update.candidate;
         const releaseNotes = update.releaseNotes || appState.updateSettings.lastKnownReleaseNotes;
         const downloading = appState.updateDownload.inProgress;
+        const installOpened = appState.updateDownload.installOpened;
         const latestVersion = update.latestVersion || appState.updateSettings.lastKnownLatestVersion;
         let title = t("settings.updateChecking");
         let description = t("settings.updateChecking");
@@ -15437,18 +15460,18 @@
           description = formatTranslation("settings.updateDialogAvailableDescription", { version: latestVersion || "" });
           if (candidate) {
             if (downloading) {
-              status = appState.updateDownload.totalBytes
+              status = appState.updateDownload.phase !== "opening" && appState.updateDownload.downloadedBytes > 0 && appState.updateDownload.totalBytes
                 ? `${formatUpdateBytes(appState.updateDownload.downloadedBytes)} / ${formatUpdateBytes(appState.updateDownload.totalBytes)}`
-                : t("settings.updateDownloading");
+                : t(`settings.${({ metadata: "updatePreparing", checksum: "updateChecksum", checksum_retry: "updateChecksumRetry", opening: "updateOpening" })[appState.updateDownload.phase] || "updateConnecting"}`);
             } else if (appState.updateDownload.error) {
               status = `${t("settings.updateInstallFailedPrefix")}${appState.updateDownload.error}`;
               statusRole = "alert";
             } else {
-              status = appState.updateCheckFeedback === t("settings.updateInstallOpened")
-                ? appState.updateCheckFeedback
+              status = installOpened
+                ? t("settings.updateInstallOpened")
                 : candidate.name;
             }
-            primary = `<button class="button button-primary" type="button" data-update-download-install="true" ${downloading ? "disabled" : ""}>${escapeHtml(downloading ? t("settings.updateDownloading") : t("settings.downloadAndInstall"))}</button>`;
+            primary = `<button class="button button-primary" type="button" data-update-download-install="true" ${downloading || installOpened ? "disabled" : ""}>${escapeHtml(downloading ? t("settings.updateDownloading") : installOpened ? t("settings.updateInstallerOpened") : t("settings.downloadAndInstall"))}</button>`;
           } else {
             status = update.error || t("settings.updateUnsupportedDevice");
             statusRole = "alert";
@@ -15467,7 +15490,7 @@
           <p class="update-modal-copy">${escapeHtml(description)}</p>
           ${update.status === "available" && releaseNotes ? `<section class="update-modal-notes" aria-label="${escapeAttribute(t("settings.updateNotes"))}"><h3 class="update-modal-notes-title">${escapeHtml(t("settings.updateNotes"))}</h3><div class="update-modal-notes-copy" data-i18n-skip>${window.NutbookUpdateUI.renderNotes(releaseNotes, currentLanguage())}</div></section>` : ""}
           <div class="update-modal-status" role="${statusRole}">${escapeHtml(status)}</div>
-          ${downloading ? `<progress class="update-modal-progress" max="${appState.updateDownload.totalBytes || ""}" value="${appState.updateDownload.totalBytes ? appState.updateDownload.downloadedBytes : ""}"></progress>` : ""}
+          ${downloading ? `<progress class="update-modal-progress" max="${appState.updateDownload.totalBytes || ""}" ${appState.updateDownload.downloadedBytes > 0 && appState.updateDownload.totalBytes ? `value="${appState.updateDownload.downloadedBytes}"` : ""}></progress>` : ""}
           <div class="update-modal-actions">
             ${update.releaseUrl ? `<button class="button button-secondary" type="button" data-update-open-release="true">${escapeHtml(t("settings.viewFullReleaseNotes"))}</button>` : ""}
             <button class="button button-secondary" type="button" data-update-close="true">${escapeHtml(t("settings.updateLater"))}</button>
@@ -15505,39 +15528,68 @@
         await checkForUpdates({ manual: true, force: true });
       }
 
+      function updateDownloadErrorMessage(error) {
+        const message = normalizeError(error);
+        return /cannot download checksum/i.test(message) && /timed out|timeout|Connection Failed|Dns|503|502|504/i.test(message)
+          ? t("settings.updateChecksumUnavailable") : message;
+      }
+
+      function applyUpdateDownloadProgress(progress) {
+        const candidate = appState.updateStatus?.candidate;
+        if (!candidate || progress.tag !== candidate.tag || progress.assetKey !== candidate.assetKey) return;
+        if (Number(progress.revision) <= (appState.updateDownload.revision || 0)) return;
+        appState.updateDownload = {
+          revision: Number(progress.revision),
+          phase: progress.phase,
+          inProgress: ["metadata", "checksum", "checksum_retry", "connecting", "downloading", "opening"].includes(progress.phase),
+          installOpened: progress.phase === "opened",
+          downloadedBytes: Number(progress.downloadedBytes) || 0,
+          totalBytes: progress.totalBytes == null ? null : Number(progress.totalBytes),
+          error: progress.phase === "error" ? updateDownloadErrorMessage(progress.error) : ""
+        };
+        renderSettingsPanel();
+        renderUpdateDialog();
+      }
+
       async function ensureUpdateDownloadProgressListener() {
-        if (appState.updateDownloadProgressListening || typeof listenRaw !== "function") return;
-        appState.updateDownloadProgressListening = true;
+        if (appState.updateDownloadProgressListening) return;
+        if (!appState.updateDownloadProgressListenerPending) {
+          appState.updateDownloadProgressListenerPending = listenRaw("update-download-progress", (event) => {
+            applyUpdateDownloadProgress(event?.payload || {});
+          }).then(() => { appState.updateDownloadProgressListening = true; })
+            .finally(() => { appState.updateDownloadProgressListenerPending = null; });
+        }
+        await appState.updateDownloadProgressListenerPending;
+      }
+
+      async function restoreUpdateDownloadProgress() {
+        if (!appState.isTauri) return;
         try {
-          await listenRaw("update-download-progress", (event) => {
-            const progress = event?.payload || {};
-            const candidate = appState.updateStatus?.candidate;
-            if (!appState.updateDownload.inProgress || !candidate || progress.tag !== candidate.tag || progress.assetKey !== candidate.assetKey) return;
-            appState.updateDownload.downloadedBytes = Number(progress.downloadedBytes) || 0;
-            appState.updateDownload.totalBytes = Number.isFinite(Number(progress.totalBytes)) ? Number(progress.totalBytes) : null;
-            renderSettingsPanel();
-            renderUpdateDialog();
-          });
-        } catch (_) {
-          appState.updateDownloadProgressListening = false;
+          await ensureUpdateDownloadProgressListener();
+          applyUpdateDownloadProgress(await invoke("get_update_download_progress"));
+        } catch (error) {
+          appState.updateDownload.error = updateDownloadErrorMessage(error);
+          renderUpdateDialog();
         }
       }
 
       async function downloadAndInstallUpdate() {
         const candidate = appState.updateStatus?.candidate;
-        if (!candidate || appState.updateDownload.inProgress) return;
-        appState.updateDownload = { inProgress: true, downloadedBytes: 0, totalBytes: candidate.size || null, error: "" };
-        await ensureUpdateDownloadProgressListener();
+        if (!candidate || appState.updateDownload.inProgress || appState.updateDownload.installOpened) return;
+        appState.updateDownload = { inProgress: true, downloadedBytes: 0, totalBytes: candidate.size || null, error: "", installOpened: false, revision: appState.updateDownload.revision || 0 };
         renderSettingsPanel();
         renderUpdateDialog();
         try {
+          await ensureUpdateDownloadProgressListener();
           await invoke("download_and_install_update", { payload: { tag: candidate.tag, assetKey: candidate.assetKey } });
           appState.updateDownload.inProgress = false;
+          appState.updateDownload.installOpened = true;
+          appState.updateDownload.error = "";
           appState.updateCheckFeedback = t("settings.updateInstallOpened");
           setStatus(t("settings.updateInstallOpened"), "ok");
         } catch (error) {
           appState.updateDownload.inProgress = false;
-          appState.updateDownload.error = normalizeError(error);
+          appState.updateDownload.error = updateDownloadErrorMessage(error);
           appState.updateCheckFeedback = `${t("settings.updateInstallFailedPrefix")}${appState.updateDownload.error}`;
         }
         renderSettingsPanel();
@@ -15600,7 +15652,12 @@
             force: Boolean(options.force || manual),
             checkedAt: new Date().toISOString()
           }));
+          const previousCandidate = appState.updateStatus?.candidate;
+          if (previousCandidate?.tag !== result.candidate?.tag || previousCandidate?.assetKey !== result.candidate?.assetKey) {
+            appState.updateDownload = { inProgress: false, downloadedBytes: 0, totalBytes: null, error: "" };
+          }
           appState.updateStatus = result;
+          await restoreUpdateDownloadProgress();
           mergeUpdateResultIntoSettings(result);
           appState.updateCheckFeedback = manual ? updateStatusMessage() : "";
           renderUpdateBadge();

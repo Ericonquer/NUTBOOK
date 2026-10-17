@@ -61,26 +61,32 @@ pub fn open_downloaded_installer(cache_dir: &Path, installer_path: &Path) -> Res
 
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
+        let status = Command::new("open")
             .arg(&canonical_installer)
-            .spawn()
+            .status()
             .map_err(|_| AppError::UpdateFailed("could not open the downloaded DMG".to_string()))?;
+        if !status.success() {
+            return Err(AppError::UpdateFailed("could not open the downloaded DMG".to_string()));
+        }
         return Ok(());
     }
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
+        let status = Command::new("cmd")
             .args([
                 "/c",
                 "start",
                 "",
                 canonical_installer.to_string_lossy().as_ref(),
             ])
-            .spawn()
+            .status()
             .map_err(|_| {
                 AppError::UpdateFailed("could not start the downloaded installer".to_string())
             })?;
+        if !status.success() {
+            return Err(AppError::UpdateFailed("could not start the downloaded installer".to_string()));
+        }
         return Ok(());
     }
 

@@ -1,0 +1,7 @@
+{
+  "identifier": "settings-event-listen",
+  "description": "允许本地设置弹窗订阅更新下载进度与设置变更；不授权 HTML 内容 WebView。",
+  "webviews": ["settings-overlay"],
+  "local": true,
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

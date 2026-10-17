@@ -49,3 +49,10 @@ assert.match(dmgSettings, /icon_size = 128[\s\S]*?appname: \(180, 170\),[\s\S]*?
 assert.match(dmgSettings, /intentionally has no background image/, "the DMG must use the native Finder canvas without a custom background or arrow");
 
 console.log("Release auto-update contract checks passed.");
+
+assert.match(updateCore, /api\.github\.com\/repos\/\{GITHUB_REPOSITORY\}\/releases\/assets\//, 'asset downloads use the fixed official repository API');
+assert.match(updateCore, /set\("Accept", "application\/octet-stream"\)/, 'asset API must request bytes instead of metadata');
+assert.doesNotMatch(updateCore, /\.get\(&installer\.browser_download_url\)|\.get\(&asset\.browser_download_url\)/, 'installer and checksum must not regress to the unreachable github.com browser-download route');
+
+assert.match(dmgSettings, /icon = os\.path\.join\(application, "Contents", "Resources", icon_name\)/, 'DMG must use the bundled app logo as its volume icon');
+assert.match(workflow, /python3 scripts\/verify-dmg-icons\.py "\$mount_dir"/, 'online release must verify the final mounted DMG icons');

@@ -5,9 +5,20 @@ canvas with only the application and Applications icons at a readable size.
 """
 
 import os
+import plistlib
 
 application = defines["app"]
 appname = os.path.basename(application)
+
+# The Finder window layout and mounted-volume icon are separate settings.
+# Use the bundled application's actual icon, so branding cannot drift.
+with open(os.path.join(application, "Contents", "Info.plist"), "rb") as plist_file:
+    icon_name = plistlib.load(plist_file)["CFBundleIconFile"]
+if not os.path.splitext(icon_name)[1]:
+    icon_name += ".icns"
+icon = os.path.join(application, "Contents", "Resources", icon_name)
+if not os.path.isfile(icon):
+    raise FileNotFoundError(f"Application icon is missing: {icon}")
 
 files = [application]
 symlinks = {"Applications": "/Applications"}
