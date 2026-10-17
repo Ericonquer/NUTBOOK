@@ -88,7 +88,6 @@ const PDF_DOCUMENT_TEMPLATE: &str = "document";
 const PDF_REPORT_TEMPLATE: &str = "report";
 const LONG_IMAGE_LIGHT_TEMPLATE: &str = "light";
 const LONG_IMAGE_DARK_TEMPLATE: &str = "dark";
-const LONG_IMAGE_MAX_HEIGHT: i32 = 15000;
 const LONG_IMAGE_STABLE_MAX_HEIGHT: i32 = 15000;
 #[cfg(test)]
 const LONG_IMAGE_SPLIT_MAX_PARTS: i32 = 8;
@@ -1501,7 +1500,7 @@ fn export_markdown_long_image_to_path(
         },
     )?;
     let estimated_height = estimate_long_image_height(&input.markdown, width);
-    if estimated_height > LONG_IMAGE_STABLE_MAX_HEIGHT {
+    if long_image_requires_split(estimated_height, payload.preferences.quality == "high") {
         return Err(AppError::ExportLongImageTooTall);
     }
     let Some(chromium_path) = chromium_path else {
@@ -1644,11 +1643,11 @@ fn preflight_markdown_long_image(
     }
     let width = normalize_long_image_width(payload.preferences.width);
     let estimated_height = estimate_long_image_height(&raw, width);
-    let requires_split = estimated_height > LONG_IMAGE_STABLE_MAX_HEIGHT;
+    let requires_split = long_image_requires_split(estimated_height, payload.preferences.quality == "high");
     Ok(ExportMarkdownLongImagePreflightResponse {
         item_id: payload.item_id,
         estimated_height,
-        max_height: LONG_IMAGE_STABLE_MAX_HEIGHT,
+        max_height: long_image_split_segment_height(payload.preferences.quality == "high"),
         ok: !requires_split,
         requires_split,
     })
@@ -2166,11 +2165,32 @@ fn escape_pdf_html_attr(value: &str) -> String {
 }
 
 fn decorate_long_image_html(html: &str, width: i32) -> String {
+    // Keep the same reading size on a phone regardless of output resolution.
+    // 90% content width / (width / 23) gives about 21 CJK characters per line.
+    let font_size = width as f64 / 23.0;
     let css = format!(
         r#"<style>
     html, body {{ width: {width}px; min-width: {width}px; overflow-x: hidden; }}
-    body {{ background: #f9f9fb; }}
-    .page {{ width: calc({width}px - 80px) !important; margin: 40px auto !important; }}
+    body {{ font-size: {font_size:.4}px; line-height: 1.75; }}
+    .page {{ width: 100% !important; min-height: 0 !important; margin: 0 !important;
+      padding: 1.4em 1.15em !important; border: 0; border-radius: 0; box-shadow: none; }}
+    .export-layout {{ display: block; }}
+    .export-outline {{ display: none; }}
+    header {{ font-size: 0.72em; margin-bottom: 2em; }}
+    header h1 {{ font-size: 2em; margin-bottom: 0.65em; }}
+    h1 {{ font-size: 1.65em; margin: 1.3em 0 0.65em; }}
+    h2 {{ font-size: 1.3em; margin: 1.5em 0 0.7em; }}
+    h3 {{ font-size: 1.15em; margin: 1.4em 0 0.65em; }}
+    h4, h5, h6 {{ font-size: 1em; margin: 1.3em 0 0.65em; }}
+    p, ul, ol, blockquote, pre, table {{ margin: 0 0 1.25em; }}
+    ul, ol {{ padding-left: 1.5em; }}
+    blockquote {{ padding: 0.65em 0.85em; }}
+    pre {{ padding: 0.8em; white-space: pre-wrap; overflow-wrap: anywhere; }}
+    th, td {{ min-width: 0; padding: 0.4em; overflow-wrap: anywhere; }}
+    table {{ table-layout: fixed; font-size: 0.85em; }}
+    img {{ border-radius: 0.25em; }}
+    footer {{ font-size: 0.65em; margin-top: 2em; padding-top: 1em; gap: 0.583333em; }}
+    footer .footer-logo {{ width: 6.166667em; height: auto; border-radius: 0; }}
   </style>"#
     );
     inject_before_head_end(html, &css)
@@ -2220,7 +2240,7 @@ fn normalize_long_image_width(value: i32) -> i32 {
 }
 
 fn estimate_long_image_height(markdown: &str, width: i32) -> i32 {
-    let line_chars = (width / 17).clamp(56, 96);
+    let line_chars = 20; // Matches the mobile long-image layout, independent of width.
     let mut text_chars = 0i32;
     let mut headings = 0i32;
     let mut code_lines = 0i32;
@@ -2254,17 +2274,24 @@ fn estimate_long_image_height(markdown: &str, width: i32) -> i32 {
             continue;
         }
         paragraphs += 1;
-        text_chars += trimmed.chars().count() as i32;
+        text_chars += ((trimmed.chars().count() as i32 + line_chars - 1) / line_chars) * line_chars;
     }
     let text_lines = (text_chars / line_chars).max(1) + paragraphs / 2;
     let content_height = 360
-        + headings * 52
-        + text_lines * 31
-        + paragraphs * 12
-        + code_lines * 21
-        + table_rows * 34
-        + images * 460;
-    ((content_height as f32 * 1.18) as i32 + 180).clamp(720, LONG_IMAGE_MAX_HEIGHT + 1)
+        + headings * 150
+        + text_lines * 61
+        + paragraphs * 44
+        + code_lines * 61
+        + table_rows * 75
+        + images * 800;
+    // Estimate at an 800px canvas, then scale with the typography. Keep the
+    // over-limit value so preflight can offer splitting instead of clipping.
+    ((content_height as f64 * 1.35 + 180.0) * width as f64 / 800.0)
+        .ceil().max(720.0).min(i32::MAX as f64) as i32
+}
+
+fn long_image_requires_split(height: i32, high_quality: bool) -> bool {
+    height > long_image_split_segment_height(high_quality)
 }
 
 fn long_image_split_segment_height(high_quality: bool) -> i32 {
@@ -2355,18 +2382,24 @@ fn crop_long_image_split_parts(source: &Path, target: &Path, max_part_height: u3
         return Err("empty long image screenshot".to_string());
     }
     let row_len = width * channels;
+    // Physical pixels: preserve ~83px top / 52px bottom at a 414px phone width.
+    // Reserve this space before planning cuts so even HiDPI parts stay in budget.
+    let top_padding = width / 5;
+    let bottom_padding = width / 8;
+    let content_budget = (max_part_height as usize).checked_sub(top_padding + bottom_padding)
+        .filter(|height| *height > 0).ok_or("split height too small for safe margins")?;
     let crop_height = meaningful_png_height(data, row_len, channels, width, height).max(1);
     let mut paths = Vec::new();
     let mut ranges = Vec::new();
     let mut y_start = 0usize;
     while y_start < crop_height {
         let remaining = crop_height - y_start;
-        let part_height = if remaining <= max_part_height as usize {
+        let part_height = if remaining <= content_budget {
             remaining
         } else {
-            smart_long_image_split_end(data, row_len, channels, width, y_start, max_part_height as usize)
+            smart_long_image_split_end(data, row_len, channels, width, y_start, content_budget)
                 .saturating_sub(y_start)
-                .clamp(1, max_part_height as usize)
+                .clamp(1, content_budget)
         };
         ranges.push((y_start, part_height));
         y_start += part_height;
@@ -2378,13 +2411,18 @@ fn crop_long_image_split_parts(source: &Path, target: &Path, max_part_height: u3
         } else {
             long_image_part_path(target, index as u32 + 1, part_count)
         };
-        let mut part_data = Vec::with_capacity(part_height * row_len);
+        let output_height = top_padding + part_height + bottom_padding;
+        let background = &data[y_start * row_len..y_start * row_len + channels];
+        let background_row = background.repeat(width);
+        let mut part_data = Vec::with_capacity(output_height * row_len);
+        for _ in 0..top_padding { part_data.extend_from_slice(&background_row); }
         let start = y_start * row_len;
         let end = start + part_height * row_len;
         part_data.extend_from_slice(&data[start..end]);
+        for _ in 0..bottom_padding { part_data.extend_from_slice(&background_row); }
         let mut output = Vec::new();
         {
-            let mut encoder = png::Encoder::new(&mut output, info.width, part_height as u32);
+            let mut encoder = png::Encoder::new(&mut output, info.width, output_height as u32);
             encoder.set_color(info.color_type);
             encoder.set_depth(info.bit_depth);
             let mut writer = encoder.write_header().map_err(|error| format!("failed to write png header: {error}"))?;
@@ -2423,7 +2461,7 @@ fn smart_long_image_split_end(
         max_part_height * 2 / 3
     };
     let search_floor = y_start + search_offset.clamp(1, max_part_height.saturating_sub(1));
-    let min_band = 32usize;
+    let min_band = (width / 100).max(2);
     let mut blank_run = 0usize;
     for y in (search_floor..hard_end).rev() {
         if row_is_soft_split_space(data, row_len, channels, width, y) {
@@ -2440,7 +2478,13 @@ fn smart_long_image_split_end(
 }
 
 fn row_is_soft_split_space(data: &[u8], row_len: usize, channels: usize, width: usize, y: usize) -> bool {
-    !row_has_visual_detail(data, row_len, channels, width, y)
+    // Compare against the page margin, including dark themes. A small glyph
+    // must not be mistaken for an empty row by the thumbnail-detail sampler.
+    let background = pixel_at(data, row_len, channels, y, 0);
+    (0..width).all(|x| {
+        let pixel = pixel_at(data, row_len, channels, y, x);
+        (0..3).all(|channel| pixel[channel].abs_diff(background[channel]) <= 8)
+    })
 }
 
 fn row_has_visual_detail(data: &[u8], row_len: usize, channels: usize, width: usize, y: usize) -> bool {
@@ -2475,9 +2519,8 @@ fn finalize_long_image_split_parts(target: &Path, paths: Vec<PathBuf>) -> Result
         return Err("long image split produced no visible content".to_string());
     }
 
-    if let Some(last_path) = kept_paths.last() {
-        trim_long_image_bottom_whitespace(last_path)?;
-    }
+    // crop_long_image_split_parts already trims the capture before adding safe
+    // margins. Trimming again here would remove the last part's bottom margin.
 
     let final_count = kept_paths.len() as u32;
     let mut final_paths = Vec::with_capacity(kept_paths.len());
@@ -4102,10 +4145,98 @@ mod tests {
     }
 
     #[test]
+    fn long_image_preflight_offers_split_only_for_high_quality_at_same_width() {
+        let root = temp_path("long-image-hidpi-preflight");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("sample.md");
+        let markdown = "Paragraph.\n\n".repeat(40);
+        fs::write(&path, &markdown).unwrap();
+        let database = Database::new(&root.join("library.sqlite3")).unwrap();
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &path, &markdown);
+        for quality in ["standard", "high"] {
+            let request = crate::models::ExportMarkdownLongImageRequest {
+                item_id: 1, template: "light".into(),
+                preferences: crate::models::ExportMarkdownLongImagePreferences { width: 1080, quality: quality.into() },
+                expected_file_hash: content_hash(&markdown), expected_modified_at: Some("1".into()),
+            };
+            let preflight = super::preflight_markdown_long_image(&state, &request).unwrap();
+            assert_eq!(preflight.requires_split, quality == "high");
+            assert_eq!(preflight.ok, quality != "high");
+            if quality == "high" {
+                let error = super::export_markdown_long_image_to_path(&state, request, &root.join("out.png"),
+                    crate::core::markdown_export::fallback_reading_light_template().into(), None).unwrap_err();
+                assert_eq!(error.code(), "EXPORT_LONG_IMAGE_TOO_TALL");
+            }
+        }
+        assert_eq!(fs::read_to_string(path).unwrap(), markdown);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn long_image_high_quality_preflight_uses_physical_pixel_budget() {
+        assert!(!super::long_image_requires_split(9000, false));
+        assert!(super::long_image_requires_split(9000, true));
+        for high in [false, true] {
+            let limit = super::long_image_split_segment_height(high);
+            assert!(!super::long_image_requires_split(limit, high));
+            assert!(super::long_image_requires_split(limit + 1, high));
+            assert!(!super::long_image_output_height_is_unstable((limit * if high { 2 } else { 1 }) as u32));
+        }
+        let paragraph = "手机阅读应该保持相同的字号和行宽。".repeat(100);
+        let h800 = super::estimate_long_image_height(&paragraph, 800);
+        let h1080 = super::estimate_long_image_height(&paragraph, 1080);
+        assert!((h1080 as f64 / h800 as f64 - 1.35).abs() < 0.01);
+    }
+
+    // Runs the production renderer and Chromium PNG exporter, not a mock.
+    // NUTBOOK_LONG_IMAGE_EVIDENCE points to an explicit output directory.
+    #[test]
+    #[ignore = "requires local Chromium and writes reviewable export artifacts"]
+    fn long_image_mobile_export_evidence() {
+        let root = std::path::PathBuf::from(std::env::var("NUTBOOK_LONG_IMAGE_EVIDENCE").expect("evidence directory"));
+        fs::create_dir_all(&root).unwrap();
+        let markdown = include_str!("../../../tests/fixtures/mobile-long-image/sample.md");
+        let path = root.join("sample.md");
+        fs::write(&path, markdown).unwrap();
+        fs::copy(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/mobile-long-image/illustration.svg"), root.join("illustration.svg")).unwrap();
+        let database = Database::new(&root.join("evidence.sqlite3")).unwrap();
+        let state = AppState::new(database, std::env::temp_dir());
+        insert_markdown_item(&state, &root, &path, markdown);
+        let chrome = super::find_local_chromium_executable().expect("Chromium");
+        for width in [800, 1080, 1440] {
+            for quality in ["standard", "high"] {
+                let request = crate::models::ExportMarkdownLongImageRequest {
+                    item_id: 1, template: "light".into(),
+                    preferences: crate::models::ExportMarkdownLongImagePreferences { width, quality: quality.into() },
+                    expected_file_hash: content_hash(markdown), expected_modified_at: Some("1".into()),
+                };
+                let mut input = super::markdown_export_input(&state, 1, &content_hash(markdown), Some("1"),
+                    crate::core::markdown_export::fallback_reading_light_template().into(),
+                    crate::core::markdown_export::MarkdownHtmlExportPreferences { embed_images: true, code_copy: false, outline: false, width: crate::core::markdown_export::ReadingWidth::Wide }).unwrap();
+                input.title = super::pdf_cover_title(&input.markdown, &input.title);
+                input.markdown = super::remove_first_markdown_h1(&input.markdown);
+                let rendered = crate::core::markdown_export::render_reading_html(input).unwrap();
+                fs::write(root.join(format!("layout-{width}.html")), super::decorate_long_image_html(&rendered.html, width)).unwrap();
+                let target = root.join(format!("mobile-{width}-{quality}.png"));
+                let preflight = super::preflight_markdown_long_image(&state, &request).unwrap();
+                let result = if preflight.requires_split {
+                    super::export_markdown_long_image_split_to_path(&state, request, &target,
+                        crate::core::markdown_export::fallback_reading_light_template().into(), Some(chrome.clone()))
+                } else {
+                    super::export_markdown_long_image_to_path(&state, request, &target,
+                        crate::core::markdown_export::fallback_reading_light_template().into(), Some(chrome.clone()))
+                };
+                assert!(result.unwrap().exported);
+            }
+        }
+    }
+
+    #[test]
     fn long_image_height_estimate_keeps_short_documents_tight() {
         let height = super::estimate_long_image_height("# Short\n\nOne paragraph.", 1080);
 
-        assert_eq!(height, 720);
+        assert!(height >= 720 && height < 1600);
     }
 
     #[test]
@@ -4235,6 +4366,39 @@ mod tests {
             super::long_image_split_capture_height(true),
             super::LONG_IMAGE_SPLIT_CAPTURE_MAX_HEIGHT / 2
         );
+    }
+
+    #[test]
+    fn long_image_split_keeps_safe_margins_and_all_source_rows_after_finalization() {
+        let decode = |path: &std::path::Path| {
+            let bytes = fs::read(path).unwrap();
+            let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().unwrap();
+            let mut buffer = vec![0; reader.output_buffer_size()];
+            let info = reader.next_frame(&mut buffer).unwrap();
+            buffer.truncate(info.buffer_size());
+            (info.width as usize, info.height as usize, buffer)
+        };
+        let source = temp_path("long-image-safe-source").with_extension("png");
+        let target = temp_path("long-image-safe-target").with_extension("png");
+        write_test_png_with_blank_band(&source, 80, 620, 360, 410).unwrap();
+        let (width, _, original) = decode(&source);
+        let top = width / 5;
+        let bottom = width / 8;
+        let row_len = width * 3;
+        let paths = super::crop_long_image_split_parts(&source, &target, 260).unwrap();
+        let paths = super::finalize_long_image_split_parts(&target, paths).unwrap();
+        assert!(paths.len() > 1);
+        let mut reconstructed = Vec::new();
+        for path in paths {
+            let (_, height, pixels) = decode(&path);
+            assert!(height <= 260);
+            assert!(pixels[..top * row_len].iter().all(|value| *value == 249));
+            assert!(pixels[(height - bottom) * row_len..].iter().all(|value| *value == 249));
+            reconstructed.extend_from_slice(&pixels[top * row_len..(height - bottom) * row_len]);
+            fs::remove_file(path).unwrap();
+        }
+        assert_eq!(reconstructed, original, "padding must not drop or repeat source rows");
+        fs::remove_file(source).unwrap();
     }
 
     #[test]
