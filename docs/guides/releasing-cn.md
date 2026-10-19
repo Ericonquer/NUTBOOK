@@ -23,6 +23,8 @@ tag，再以该 tag 手动运行 **Build desktop app**。构建会拒绝没有�
 
 ## Release 说明固定格式
 
+生产安装包仅携带锁定的 Playwright 驱动（约 13 MB 未压缩）、描述文件、检查/安装脚本和 worker；不得下载或打包 Node、Chromium。系统 Node.js 22 / 24 和浏览器优先复用，缺少浏览器时仅通过用户明确执行的命令安装到默认共享缓存。自动测试的浏览器准备与生产打包分开。核验最终资源包含 publishing-runtime 的驱动及脚本，不得有 wechat-runtime、Node 或浏览器树，并报告实际包体增量。
+
 沿用 1.3.0 的双语导航结构，不直接把自动生成的变更列表作为最终正文。
 
 1. 首行使用 `# NUTBOOK X.Y.Z`，紧接 `[中文](#user-content-zh) | [English](#user-content-en)`。

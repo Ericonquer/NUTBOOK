@@ -10,6 +10,23 @@
 
 On Windows, download the `x64-setup.exe` installer and follow its installation prompts.
 
+### Optional publishing tools
+
+The main installer includes no Node.js or browser, only the pinned Playwright driver and publishing scripts (about 13 MB uncompressed). **You can copy drafts into a platform without setup** using the title and body copy controls in the preview. Only automatic delivery needs these tools; thumbnail and PDF/PNG screenshot engines keep their existing setup paths.
+
+1. Open Markdown → **Format** → **Send to WeChat / Weibo / X drafts**. NUTBOOK checks system Node.js 22 or 24, then reads the executable and version of existing Chrome / Edge / Chromium without launching a browser, visiting a platform, signing in, or downloading. Available tools show sending controls directly. Results are shared for this session across platforms; X additionally requires Google Chrome. Check again forces a refresh, and the actual delivery checks browser connectivity.
+2. Missing tools show as ready, missing, or failed verification. Browser checks wait until Node is available. **Copy setup for agent** includes the actual checks, missing items, and size estimates. Existing programs are reused; downloads require your confirmation.
+3. For manual setup, select **Install manually**. Both methods share one bounded scroll area. Install system [Node.js](https://nodejs.org/en/download) 22 or 24 if needed, then run the copied command in macOS Terminal or Windows PowerShell. The script reuses Node instead of downloading a second copy.
+4. Only when no browser is found does the explicitly executed command download Chromium through the bundled Playwright into its default shared cache. An existing browser that fails validation needs an update or diagnosis first; setup does not install a duplicate. X requires system Google Chrome; setup asks you to install Chrome instead of replacing it or substituting Chromium.
+5. Return and select **Check again**. Successful validation hides setup and enables sending. Installation itself never signs in or sends drafts.
+
+Estimates depend on missing items: system Node needs about 30–60 MB download and 80–150 MB disk; Chromium alone about 150–250 MB download and 400–600 MB disk, plus temporary extraction space. Actual sizes depend on the installer. Existing compatible Node and browser require no additional download. Default shared Chromium caches are `~/Library/Caches/ms-playwright` on macOS, `%LOCALAPPDATA%/ms-playwright` on Windows, and `~/.cache/ms-playwright` on Linux. Setup does not change global PATH, the default browser or daily browser profiles. NUTBOOK login data remains separate in its app data directory. Previously downloaded NUTBOOK tools can be reused as fallback candidates and are not deleted automatically.
+
+On macOS, delivery launches a separate browser instance through the system application service while keeping login profiles separate from daily browsing. Only login and explicit View actions open visible windows; NUTBOOK does not require permission to modify other apps.
+
+Closing the panel retains your draft. Retry the command after a network failure; existing programs and login data are not replaced. If a browser update breaks validation, update or diagnose it and check again. After moving or reinstalling NUTBOOK, copy a fresh command from the current app.
+
+
 ### 2. Complete the First macOS Authorization
 
 Current GitHub builds use a complete ad-hoc signature because the project does not yet use a paid Apple Developer ID. On first launch, macOS may say it cannot verify the developer:

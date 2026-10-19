@@ -28,6 +28,8 @@ updates in repository settings.
 
 ## Required Release Notes Format
 
+Production bundles contain the pinned Playwright driver (about 13 MB uncompressed), descriptor, discovery/setup scripts and workers, with no Node or browser binaries. Reuse system Node.js 22 / 24 and validated browsers; only explicit setup installs missing Chromium into the default shared cache. Test browser preparation stays separate from packaging. Verify final resources contain the publishing-runtime driver/scripts, no wechat-runtime, Node or browser tree, and report measured installer growth.
+
 Follow the bilingual navigation used in 1.3.0. Automatically generated change lists are input, not the final release body.
 
 1. Start with `# NUTBOOK X.Y.Z`, followed by `[中文](#user-content-zh) | [English](#user-content-en)`.

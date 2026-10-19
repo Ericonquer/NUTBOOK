@@ -10,6 +10,8 @@
   Object.assign(messages['en-US'], { deliveryBusy:'Another draft is being sent. Try again when it finishes.', sendWeibo:'Send to Weibo drafts', deliveryWeiboIntro:'Save a Weibo article draft without publishing. The first body image is used as the cover.', rememberWeibo:'Keep Weibo signed in on this device', weiboDeliveryLimit:'Weibo titles allow 32 characters and summaries 44.', sendWechat:'Send to WeChat', recreateDraft:'Create a new draft', sendNow:'Save and send draft', deliveryIntro:'Save to WeChat drafts without publishing. The first body image is used as the cover.', rememberLogin:'Keep WeChat signed in on this device', cancelDelivery:'Cancel sending', viewDraft:'View draft', deliverySave:'Saving publishing draft…', deliveryConnecting:'Connecting to WeChat…', deliveryScan:'Scan the QR code in the opened window', deliveryUploading:'Uploading images…', deliveryWriting:'Filling article…', deliveryCover:'Setting cover…', deliverySaving:'Saving WeChat draft…', deliveryVerifying:'Reopening and verifying draft…', deliveryUnavailable:'The original WeChat draft is unavailable. Check drafts and publication history.', deliveryLocked:'Another task is using this draft. Try again shortly.', deliveryReuse:'Verifying the existing draft…', deliveryDone:'Draft saved and verified. Check its formatting.', deliveryCancelled:'Cancelled. WeChat may retain an unfinished draft.', deliveryFailed:'Sending did not complete. Your local draft is retained.', deliveryNoRuntime:'WeChat delivery runtime is unavailable.', deliveryBackground:'Sending continues after leaving this page. Return to check its status.' });
   Object.assign(messages['zh-CN'], {deliveryClose:'关闭发送窗口'});
   Object.assign(messages['en-US'], {deliveryClose:'Close sending window'});
+  Object.assign(messages["zh-CN"], {"runtimeTitle": "检查自动发送所需的工具", "runtimeHelp": "复制内容包含本次检查结果和安装命令，交给 Agent 即可。", "runtimeCopy": "复制安装命令", "runtimeAgent": "复制给 Agent 安装", "runtimeCheck": "重新检查", "runtimeChecking": "正在检查本机 Node.js 和浏览器…", "runtimeMissing": "部分工具尚不可用。", "runtimeCheckFailed": "检查未完成，请重试；不会自动安装。", "runtimeCopied": "已复制。完成后请重新检查。", "runtimeCopyFailed": "复制失败，请重试，或切换到手动安装后选择并复制命令。", "runtimeAgentPrompt": "以下检查结果由 NUTBOOK 提供，请先核对当前环境，不要重复安装 Node 或浏览器。缺少 Node 时安装系统 Node.js 22 或 24；浏览器验证失败时先诊断，不要另装一套。下载前告知预计流量和磁盘占用，经我确认后执行。不要修改项目文件、默认浏览器或登录资料，不要发送草稿。完成后提醒我回到 NUTBOOK 重新检查：", "runtimeAgentPreview": "请帮我配置 NUTBOOK 自动发送所需的工具。优先使用本机已有程序，只补缺失项；安装前请告知下载量和空间占用，等我确认后再执行。", "runtimeFootnote": "仅补缺失项；安装不会登录账号或发送草稿。", "runtimeManual": "手动安装", "runtimeManualHelp": "先按检查结果准备系统 Node.js 22 或 24。下方命令会复用已有程序，仅在缺少浏览器时补装共享 Chromium。", "runtimeAgentCopied": "已复制检查结果，粘贴给 Agent 即可。", "runtimeAgentTab": "交给 Agent", "runtimeMethod": "安装方式", "runtimeCopyHelp": "不安装也可在预览中复制草稿，手动粘贴到平台。", "runtimeNode": "Node.js", "runtimeBrowser": "浏览器", "runtimeReadyState": "可复用", "runtimeAvailableState":"已找到，发送时验证", "runtimeMissingState": "未找到", "runtimeIncompatibleState": "不兼容或验证失败", "runtimeUncheckedState": "待 Node 可用后检查", "runtimeNodeSize": "缺少兼容 Node：请安装系统 Node.js 22 或 24，预计下载 30–60 MB、占用 80–150 MB；浏览器用量检查后确定。", "runtimeBrowserSize": "浏览器：下载约 150–250 MB，占用约 400–600 MB（共享缓存）。", "runtimeRepair": "已有程序验证失败，请先更新或诊断；不会重复安装。", "runtimeXMissing": "X 需要 Google Chrome，请先安装系统 Chrome；不会另装 Chromium。体积以 Chrome 安装页为准。", "runtimeDriverInvalid": "发布驱动损坏，请重新安装 NUTBOOK。"});
+  Object.assign(messages["en-US"], {"runtimeTitle": "Check tools for automatic delivery", "runtimeHelp": "The copied instructions include these check results and the setup command. Paste them into your agent, then return to check again.", "runtimeCopy": "Copy install command", "runtimeAgent": "Copy setup for agent", "runtimeCheck": "Check again", "runtimeChecking": "Checking local Node.js and browser…", "runtimeMissing": "Some tools are not available yet.", "runtimeCheckFailed": "Check did not finish. Try again; nothing is installed automatically.", "runtimeCopied": "Copied. Check again when finished.", "runtimeCopyFailed": "Copy failed. Try again, or switch to manual setup to select and copy the command.", "runtimeAgentPrompt": "NUTBOOK provided the checks below. Verify the current environment before acting; do not install duplicate Node or browsers. If Node is missing, install system Node.js 22 or 24. Diagnose browser verification failures before adding another browser. With my confirmation, proceed only after explaining estimated download and disk usage. Do not modify project files, the default browser or login profiles, and do not send drafts. Remind me to return to NUTBOOK and check again:", "runtimeAgentPreview": "Please help me set up NUTBOOK for automatic delivery. Reuse existing tools and add only missing items. Explain download and disk usage, then wait for my confirmation before installing.", "runtimeFootnote": "Only missing items are installed; setup does not sign in or send drafts.", "runtimeManual": "Install manually", "runtimeManualHelp": "Use system Node.js 22 or 24 as indicated above. This command reuses existing tools and installs shared Chromium only when no browser is found.", "runtimeAgentCopied": "Checks copied. Paste them into your agent.", "runtimeAgentTab": "Ask your agent", "runtimeMethod": "Setup method", "runtimeCopyHelp": "You can also copy your draft from the preview and paste it into a platform without setup.", "runtimeNode": "Node.js", "runtimeBrowser": "Browser", "runtimeReadyState": "Ready to reuse", "runtimeAvailableState":"Found; checked when sending", "runtimeMissingState": "Not found", "runtimeIncompatibleState": "Incompatible or verification failed", "runtimeUncheckedState": "Check after Node is available", "runtimeNodeSize": "Compatible Node is missing: install system Node.js 22 or 24. Estimate: 30–60 MB download, 80–150 MB disk; browser requirements are checked afterward.", "runtimeBrowserSize": "Only the browser is missing. Estimate: 150–250 MB download, 400–600 MB disk in the shared cache.", "runtimeRepair": "An existing tool failed verification. Update or diagnose it first; no duplicate is installed.", "runtimeXMissing": "X needs system Google Chrome. Install Chrome first; a separate Chromium is not installed. See Chrome setup for its size.", "runtimeDriverInvalid": "The publishing driver is damaged. Reinstall NUTBOOK."});
   let active = null;
   let openGeneration = 0;
   const styleMap = {
@@ -801,6 +803,7 @@
     s.editor?.setLanguage?.(s.language);
     if (s.deliveryState) deliveryStatus(s,s.deliveryState);
     updateDeliveryLabels(s);
+    if (s.deliveryPanel?.open) checkDeliveryRuntime(s);
     schedule(s);
   }
   async function copy(s) {
@@ -1193,6 +1196,7 @@
     await preview(s);
   }
   let deliveryMonitor = null;
+  const runtimeResults = new WeakMap();
   function setDeliveryDialog(s, open) {
     if (!current(s)) return;
     if (open) {
@@ -1201,7 +1205,8 @@
       updateDeliveryLabels(s);
       if (!s.deliveryPanel.isConnected) s.root.append(s.deliveryPanel);
       if (!s.deliveryPanel.open) s.deliveryPanel.showModal();
-    } else if (s.deliveryPanel.open) s.deliveryPanel.close();
+      checkDeliveryRuntime(s,true);
+    } else if (s.deliveryPanel.open) { s.runtimeCheckToken = (s.runtimeCheckToken || 0) + 1; s.deliveryPanel.close(); }
     s.deliveryButton?.setAttribute('aria-expanded',String(open));
   }
   function deliveryStatus(s, status) {
@@ -1216,6 +1221,7 @@
     if(deliveryPlatform(s)==='x') s.deliveryMessage.textContent=s.deliveryMessage.textContent.replace(/公众号/g,'X').replace(/WeChat/g,'X');
     s.deliveryLogin.disabled=false;
     s.deliveryLogin.hidden = status.stage !== 'waiting_for_x_login' || !status.running;
+    if (status.error) runtimeResults.delete(s.bridge);
     if (status.error) s.deliveryMessage.textContent += ` ${String(status.error).includes('WECHAT_RUNTIME') ? text('deliveryNoRuntime') : String(status.error).includes('DRAFT_UNAVAILABLE') ? text('deliveryUnavailable') : String(status.error).includes('JOB_LOCKED') ? text('deliveryLocked') : deliveryError(status.error,s.bridge)}`;
     const completed = {connecting:0,connected:0,waiting_for_scan:0,preparing:1,uploading_images:deliveryPlatform(s)==='weibo'?2:1,writing:deliveryPlatform(s)==='weibo'?1:2,cover:3,saving:4,verifying:5,reusing:5,verified:6};
     s.deliveryProgress.hidden = !status.running && status.stage !== 'verified';
@@ -1228,9 +1234,16 @@
     s.deliverySend.textContent = sendLabel;
     s.deliverySend.setAttribute('aria-label',sendLabel);
     s.deliverySend.setAttribute('title',sendLabel);
-    s.deliverySend.disabled = s.deliveryRunning || !!s.deliveryStarting;
+    s.deliverySend.disabled = s.deliveryRunning || !!s.deliveryStarting || !!s.runtimeChecking || s.runtimeReady === false;
     s.deliveryCancel.hidden = !s.deliveryRunning;
     s.deliveryView.hidden = !status.jobId || s.deliveryRunning;
+    syncRuntimeDeliveryControls(s);
+  }
+  function syncRuntimeDeliveryControls(s) {
+    const setupOnly = s.runtimeReady === false && !s.deliveryRunning;
+    s.deliveryRememberContainer.hidden = setupOnly;
+    s.deliveryActions.hidden = setupOnly;
+    s.deliveryBackground.hidden = setupOnly;
   }
   function monitorDelivery(bridge) {
     if (!deliveryMonitor) deliveryMonitor = {bridge,timer:null,pending:null,watched:new Set(),notified:new Set()};
@@ -1266,8 +1279,80 @@
     return monitor.pending;
   }
   async function pollDelivery(s) { return pollDeliveryBridge(s.bridge); }
+  function runtimeSummary(status) {
+    const states={ready:'runtimeReadyState',missing:'runtimeMissingState',incompatible:'runtimeIncompatibleState',unchecked:'runtimeUncheckedState',available:'runtimeAvailableState'};
+    return [['runtimeNode',status.node],['runtimeBrowser',status.browser]].map(([label,component])=>`${text(label)}：${text(states[component?.state]||'runtimeUncheckedState')}${component?.version?' '+component.version:component?.versions?.length?' '+component.versions.join(', '):''}${component?.name?' ('+component.name+')':''}`).join('；');
+  }
+  function runtimeAdvice(status,platform) {
+    if(status.driver?.state==='invalid')return text('runtimeDriverInvalid');
+    if(status.node?.state==='incompatible')return text('runtimeNodeSize');
+    if(status.browser?.state==='incompatible')return text('runtimeRepair');
+    if(status.node?.state==='missing')return text('runtimeNodeSize');
+    if(status.browser?.state==='missing')return text(platform==='x'?'runtimeXMissing':'runtimeBrowserSize');
+    return text('runtimeFootnote');
+  }
+  function sharedRuntimeStatus(s) {
+    const known=runtimeResults.get(s.bridge);
+    if(!known || known.node?.state!=='ready')return null;
+    const platform=deliveryPlatform(s);
+    const browser=known.browsers?.find(item=>platform!=='x'||item.name==='Google Chrome') || (platform!=='x'||known.browser?.name==='Google Chrome'?known.browser:null);
+    if(!browser || !['ready','available'].includes(browser.state))return null;
+    return {...known,ready:true,browser,installCommand:known.installCommand?.replace(/ --platform (wechat|weibo|x)$/,' --platform '+platform)};
+  }
+  async function checkDeliveryRuntime(s, initial=false, force=false) {
+    if (!current(s)) return false;
+    const token = s.runtimeCheckToken = (s.runtimeCheckToken || 0) + 1;
+    const cached = initial && !force ? sharedRuntimeStatus(s) : null;
+    const keepSetup = !initial && !s.runtimeSetup.hidden;
+    s.runtimeChecking = true; s.runtimeReady = false; s.runtimeSetup.hidden = !keepSetup;
+    s.runtimePending.textContent = text('runtimeChecking');
+    s.runtimePending.hidden = keepSetup || !!s.deliveryRunning;
+    syncRuntimeDeliveryControls(s); s.deliverySend.disabled = true;
+    s.runtimeInstallCommand = '';s.runtimeCopy.disabled = s.runtimeAgent.disabled = true;
+    if (!keepSetup) s.runtimeComponents.textContent = '';
+    s.runtimeStatus.textContent = keepSetup ? text('runtimeChecking') : '';
+    try {
+      const status = cached || await s.bridge.invoke('publishing_runtime_status',{platform:deliveryPlatform(s),force});
+      if (!current(s) || token !== s.runtimeCheckToken || !s.deliveryPanel.open) return false;
+      s.runtimeReady = status.ready === true;
+      s.runtimeDiagnostics = status;
+      runtimeResults.set(s.bridge,status);
+      syncRuntimeDeliveryControls(s);
+      s.runtimeSetup.hidden = s.runtimeReady;
+      s.runtimeCommand.textContent = status.installCommand || '';
+      s.runtimeInstallCommand = status.installCommand || '';
+      s.runtimeCopy.disabled = s.runtimeAgent.disabled = !s.runtimeInstallCommand;
+      s.runtimeStatus.textContent = '';
+      s.runtimeComponents.textContent = runtimeSummary(status);
+      s.runtimeFootnote.textContent = runtimeAdvice(status,deliveryPlatform(s));
+      return s.runtimeReady;
+    } catch {
+      if (current(s) && token === s.runtimeCheckToken && s.deliveryPanel.open) {
+        s.runtimeReady = false; s.runtimeSetup.hidden = false;
+        syncRuntimeDeliveryControls(s);
+        s.runtimeStatus.textContent = text('runtimeCheckFailed');
+      }
+      return false;
+    } finally {
+      if (current(s) && token === s.runtimeCheckToken) {
+        s.runtimeChecking = false; s.runtimePending.hidden = true;
+        s.deliverySend.disabled = !!s.deliveryRunning || !!s.deliveryStarting || !s.runtimeReady;
+      }
+    }
+  }
+  async function copyRuntimeSetup(s, agent) {
+    if (!current(s) || !s.runtimeInstallCommand) return;
+    try {
+      const value = agent ? `${text('runtimeAgentPreview')}\n\n${text('runtimeAgentPrompt')}\n\n${runtimeSummary(s.runtimeDiagnostics||{})}\n${runtimeAdvice(s.runtimeDiagnostics||{},deliveryPlatform(s))}\n\n${s.runtimeInstallCommand}` : s.runtimeInstallCommand;
+      if (s.bridge.copyText) await s.bridge.copyText(value); else await navigator.clipboard.writeText(value);
+      if (current(s)) s.runtimeStatus.textContent = text(agent ? 'runtimeAgentCopied' : 'runtimeCopied');
+    } catch {
+      if (current(s)) s.runtimeStatus.textContent = text('runtimeCopyFailed');
+    }
+  }
   async function sendWechat(s) {
     if (!current(s) || s.deliveryRunning || s.deliveryStarting) return;
+    if (!(await checkDeliveryRuntime(s)) || !current(s)) return;
     const platform = deliveryPlatform(s);
     s.deliveryStarting = true; s.deliveryRunning = true; s.deliverySend.disabled = true;
     try {
@@ -1293,21 +1378,65 @@
     const header = element('div','',{class:'formatting-delivery-heading'});
     s.deliveryHeading = element('h2',text('sendWechat'),{id:titleId,tabindex:'-1',autofocus:''});
     header.append(s.deliveryHeading,iconButton('close',text('deliveryClose'),()=>setDeliveryDialog(s,false)));
-    s.deliveryIntro=element('p',text('deliveryIntro'));panel.append(header,s.deliveryIntro);
+    s.deliveryIntro=element('p',text('deliveryIntro'));
+    s.runtimePending=element('p',text('runtimeChecking'),{role:'status',hidden:''});
+    panel.append(header,s.deliveryIntro,s.runtimePending);
+    s.runtimeSetup = element('section','',{class:'formatting-runtime-setup',hidden:''});
+    s.runtimeSetup.append(element('h3',text('runtimeTitle')));
+    s.runtimeComponents=element('p','',{class:'formatting-runtime-components','aria-live':'polite'});s.runtimeSetup.append(s.runtimeComponents);
+    const methodTabs = element('div','',{class:'formatting-runtime-tabs',role:'tablist','aria-label':text('runtimeMethod')});
+    const methodContent = element('div','',{class:'formatting-runtime-method-content'});
+    const agentPane = element('div','',{role:'tabpanel',id:`runtime-agent-${s.id}`});
+    const manual = element('div','',{class:'formatting-runtime-manual',role:'tabpanel',id:`runtime-manual-${s.id}`,hidden:''});
+    const methods = [];
+    const selectMethod = (index,focus=false) => {
+      if(s.runtimeAgent)s.runtimeAgent.hidden=index!==0;
+      if(s.runtimeCopy)s.runtimeCopy.hidden=index!==1;
+      methods.forEach((method,i)=>{
+        method.tab.setAttribute('aria-selected',String(i===index));method.tab.tabIndex=i===index?0:-1;method.pane.hidden=i!==index;
+        if(focus&&i===index)method.tab.focus();
+      });
+    };
+    for (const [key,pane] of [['runtimeAgentTab',agentPane],['runtimeManual',manual]]) {
+      const index = methods.length;
+      const tab = button(text(key),()=>selectMethod(index));
+      tab.setAttribute('role','tab');tab.id=`runtime-method-${s.id}-${index}`;tab.setAttribute('aria-controls',pane.id);pane.setAttribute('aria-labelledby',tab.id);
+      tab.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();selectMethod(event.key==='Home'?0:event.key==='End'?1:1-index,true);}});
+      methods.push({tab,pane});methodTabs.append(tab);
+    }
+    selectMethod(0);
+    agentPane.append(element('p',text('runtimeHelp')),element('p',text('runtimeAgentPreview'),{class:'formatting-runtime-agent-preview'}));
+    s.runtimeStatus = element('p','',{'aria-live':'polite'});s.runtimeSetup.append(s.runtimeStatus);
+    const setupActions = element('div','',{class:'formatting-runtime-actions'});
+    s.runtimeCopy = button(text('runtimeCopy'),()=>copyRuntimeSetup(s,false));
+    s.runtimeAgent = button(text('runtimeAgent'),()=>copyRuntimeSetup(s,true));
+    s.runtimeAgent.className = 'formatting-runtime-primary';
+    s.runtimeCopy.disabled = s.runtimeAgent.disabled = true;
+    manual.append(element('p',text('runtimeManualHelp')));
+    s.runtimeCommand = element('pre','',{'data-i18n-skip':'true',tabindex:'0'});
+    manual.append(s.runtimeCommand);
+    methodContent.append(agentPane,manual);
+    setupActions.append(s.runtimeAgent,s.runtimeCopy,button(text('runtimeCheck'),()=>checkDeliveryRuntime(s,false,true)));
+    selectMethod(0);
+    s.runtimeFootnote=element('small',text('runtimeFootnote'));
+    s.runtimeSetup.append(methodTabs,methodContent,setupActions,s.runtimeFootnote,element('small',text('runtimeCopyHelp'),{class:'formatting-runtime-copy-note'}));panel.append(s.runtimeSetup);
     const label = element('label',''); s.rememberLogin = element('input','',{type:'checkbox'});
+    s.deliveryRememberContainer = label;
     try { s.rememberLogin.checked = localStorage.getItem('nutbook.wechat.rememberLogin') === 'true'; } catch { s.rememberLogin.checked = false; }
     s.rememberLogin.addEventListener('change', () => { try { localStorage.setItem(`nutbook.${deliveryPlatform(s)}.rememberLogin`,String(s.rememberLogin.checked)); } catch {} });
     s.deliveryRememberLabel=element('span',text('rememberLogin'));label.append(s.rememberLogin,s.deliveryRememberLabel); panel.append(label);
     s.deliveryMessage = element('p','',{role:'status','aria-live':'polite'}); panel.append(s.deliveryMessage);
     s.deliveryProgress = element('progress','',{max:'6',value:'0','aria-label':text('sendWechat')});s.deliveryProgress.hidden=true;panel.append(s.deliveryProgress);
     const actions = element('div','',{class:'formatting-delivery-actions'});
+    s.deliveryActions = actions;
     s.deliverySend = button(text('sendNow'), () => sendWechat(s));
     s.deliveryCancel = button(text('cancelDelivery'), async () => { try { await s.bridge.invoke('control_wechat_delivery',{action:'cancel'}); await pollDelivery(s); } catch (error) { if (current(s)) s.deliveryMessage.textContent=s.bridge.error(error); } }); s.deliveryCancel.hidden = true;
     s.deliveryView = button(text('viewDraft'), async () => { try { await s.bridge.invoke('control_wechat_delivery',{action:'view'}); } catch (error) { if (current(s)) s.deliveryMessage.textContent=s.bridge.error(error); } }); s.deliveryView.hidden = true;
     s.deliveryLogin=button(text('deliveryXContinue'),async()=>{try{await s.bridge.invoke('control_wechat_delivery',{action:'login'});s.deliveryLogin.disabled=true;}catch(error){s.deliveryMessage.textContent=s.bridge.error(error);}});s.deliveryLogin.hidden=true;
     actions.append(s.deliverySend,s.deliveryLogin,s.deliveryCancel,s.deliveryView);
-    panel.append(actions,element('small',text('deliveryBackground')));
-    panel.addEventListener('close',()=>Object.values(s.platformSendButtons||{}).forEach(send=>send.setAttribute('aria-expanded','false')));
+    s.deliveryBackground = element('small',text('deliveryBackground'));
+    panel.append(actions,s.deliveryBackground);
+    panel.addEventListener('close',()=>{s.runtimeCheckToken=(s.runtimeCheckToken||0)+1;Object.values(s.platformSendButtons||{}).forEach(send=>send.setAttribute('aria-expanded','false'));});
     panel.addEventListener('click',event=>{
       if(event.target!==panel)return;
       const rect=panel.getBoundingClientRect();

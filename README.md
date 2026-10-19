@@ -122,6 +122,8 @@ You can also browse existing project and task outputs and choose what to add. Lo
 
 See the [user guide](./docs/guides/user-guide.md) for first-launch authorization, shortcuts, thumbnail settings, and detailed instructions.
 
+The installer bundles no Node.js or browser, only the Playwright driver and publishing scripts (about 13 MB uncompressed). **You can copy drafts into your platform without installing anything.** Automatic delivery first checks system Node.js 22 / 24 and inspects an existing browser without launching it; compatible tools are reused. If tools are missing, **Ask your agent / Install manually** guides setup of only the missing items; nothing downloads automatically. Explicit setup can install missing Chromium into the shared cache. X needs system Google Chrome. Download and disk estimates depend on the missing items; login profiles stay separate and thumbnail setup is unchanged. See [optional publishing tools](./docs/guides/user-guide.md#optional-publishing-tools).
+
 ## Latest Version
 
 ### 1.4.0 · Upgraded Tags and Motion Center

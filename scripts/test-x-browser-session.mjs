@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createRequire} from 'node:module';
 import {createXBrowserSession,waitForXAuthentication} from './wechat/x-browser-session.mjs';
-const require=createRequire(new URL('../src-tauri/generated-resources/wechat-runtime/worker/run.mjs',import.meta.url));
+const require=createRequire(new URL('../src-tauri/generated-resources/publishing-runtime/worker/run.mjs',import.meta.url));
 const {chromium}=require('playwright-core');
 const directory=await mkdtemp(join(tmpdir(),'nutbook-x-session-test-'));
 let homes=0,gates=0,ready;let firstReady=new Promise(resolve=>{ready=resolve;});

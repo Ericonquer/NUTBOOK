@@ -8,7 +8,6 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{Mutex, OnceLock},
 };
-use tauri::Manager;
 
 struct Task {
     run: String,
@@ -138,20 +137,11 @@ pub async fn start_wechat_delivery(
         return Err("Weibo title or summary exceeds limit".into());
     }
     let data = state.app_data_dir.join(format!("{destination}-delivery"));
-    let packaged = app
-        .path()
-        .resource_dir()
-        .map_err(|_| "Runtime resources unavailable")?
-        .join("wechat-runtime");
-    #[cfg(debug_assertions)]
-    let packaged = if packaged.join("runtime.json").exists() {
-        packaged
-    } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("generated-resources/wechat-runtime")
-    };
+    let runtime_data = state.app_data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let runtime = super::publishing_runtime::resolve(&app, &runtime_data, &destination)?;
         start(
-            packaged,
+            runtime,
             data,
             id,
             job,
@@ -164,7 +154,7 @@ pub async fn start_wechat_delivery(
     .map_err(|_| "Delivery task failed".to_string())?
 }
 fn start(
-    runtime: PathBuf,
+    runtime: super::publishing_runtime::Runtime,
     data: PathBuf,
     id: String,
     job: Value,
@@ -198,38 +188,9 @@ fn start(
             stop_task(task);
         }
     }
-    let metadata: Value = serde_json::from_slice(
-        &fs::read(runtime.join("runtime.json")).map_err(|_| "WECHAT_RUNTIME_UNAVAILABLE")?,
-    )
-    .map_err(|_| "Invalid runtime manifest")?;
-    let platform = if cfg!(target_os = "macos") {
-        "darwin"
-    } else if cfg!(target_os = "windows") {
-        "win32"
-    } else {
-        "linux"
-    };
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else if cfg!(target_arch = "x86_64") {
-        "x64"
-    } else {
-        std::env::consts::ARCH
-    };
-    if metadata["platform"] != platform || metadata["arch"] != arch {
-        return Err("WECHAT_RUNTIME_WRONG_ARCHITECTURE".into());
-    }
-    let root = fs::canonicalize(&runtime).map_err(|_| "Runtime unavailable")?;
-    let resolve = |field: &str| -> Result<PathBuf, String> {
-        let relative = metadata[field].as_str().ok_or("Invalid runtime path")?;
-        let path = fs::canonicalize(root.join(relative)).map_err(|_| "Runtime incomplete")?;
-        if !path.starts_with(&root) {
-            return Err("Invalid runtime path".into());
-        }
-        Ok(path)
-    };
-    let node = resolve("node")?;
-    let browser = resolve("executable")?;
+    let node = runtime.node;
+    let browser = runtime.browser;
+    let root = runtime.source;
     private_dir(&data)?;
     let input = data.join(format!("{id}.input.json"));
     let raw = serde_json::to_vec(&job).map_err(|_| "Invalid job")?;
@@ -244,7 +205,10 @@ fn start(
         .arg(&input)
         .arg(&data)
         .arg(format!("--platform={destination}"))
-        .env("NUTBOOK_CHROMIUM_EXECUTABLE", browser)
+        .env("NUTBOOK_CHROMIUM_EXECUTABLE", &browser)
+        .env("NUTBOOK_X_CHROME_EXECUTABLE", &browser)
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -297,6 +261,7 @@ fn start(
                     task.status["result"] = message;
                 }
                 Some("error") => {
+                    if message["cancelled"] != true { super::publishing_runtime::invalidate(); }
                     task.status["running"] = json!(false);
                     task.status["stage"] = json!(if message["cancelled"] == true {
                         "cancelled"

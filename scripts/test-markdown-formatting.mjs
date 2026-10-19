@@ -125,6 +125,7 @@ try {
     bridge.wechatDelivery = true;
     bridge.invoke = async (command,args) => {
       if(command === 'wechat_delivery_status') return fixture.realDeliveryState || {running:false,stage:'idle'};
+      if(command === 'publishing_runtime_status') return {ready:true};
       if(command === 'start_wechat_delivery') {fixture.realSentJob=args.job;return fixture.realDeliveryState={jobId:args.job.id,running:false,stage:'verified'};}
       return ordinaryInvoke(command,args);
     };

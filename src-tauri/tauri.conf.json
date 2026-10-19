@@ -4,7 +4,8 @@
   "version": "1.4.0",
   "identifier": "com.hayley.nutbook",
   "build": {
-    "beforeBuildCommand": "npm run build:frontend && npm run prepare:wechat-runtime && npm run prepare:nutbook-cli",
+    "beforeDevCommand": "npm run prepare:publishing-runtime",
+    "beforeBuildCommand": "npm run build:frontend && npm run prepare:publishing-runtime && npm run prepare:nutbook-cli",
     "frontendDist": "../dist"
   },
   "app": {
@@ -55,7 +56,7 @@
       "../integrations/nbskill/": "nbskill/",
       "generated-resources/nutbook-cli/": "nutbook-cli/",
       "resources/export-templates/": "export-templates/",
-      "generated-resources/wechat-runtime/": "wechat-runtime/"
+      "generated-resources/publishing-runtime/": "publishing-runtime/"
     },
     "macOS": {
       "signingIdentity": "-"
