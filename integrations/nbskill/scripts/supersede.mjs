@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { entryFromOptions, parseArgs, readManifestForSupersede, required, resolveProjectRoot, validateEntryHtmlContract, withManifestLock, writeManifestAtomic } from "./manifest-lib.mjs";
+import { entryFromOptions, parseArgs, readManifestForSupersede, required, resolveProjectRoot, validateEntryHtmlContract, validateManifest, withManifestLock, writeManifestAtomic } from "./manifest-lib.mjs";
 
 const usage = "Usage: supersede.mjs --project-root <path> --old-id <id> --new-id <id> --path <relative.md|html> --skill <name> --kind <kind>";
 
@@ -13,9 +13,11 @@ try {
     const replacement = entryFromOptions(options, "new-id");
     if (oldId === replacement.id) throw new Error("--old-id and --new-id must differ");
     await withManifestLock(root, async () => {
+      validateManifest({ schemaVersion: 1, projectRoot: ".", entries: [replacement] }, root);
       validateEntryHtmlContract(replacement, root);
       // Read legacy entries structurally so an obsolete active HTML artifact can
-      // be atomically retired. The final write still performs full validation.
+      // be atomically retired. Missing historical references stay isolated;
+      // the replacement and its attachments still receive strict validation.
       const manifest = readManifestForSupersede(root, oldId);
       const oldEntry = manifest.entries.find((entry) => entry.id === oldId);
       const existingReplacement = manifest.entries.find((entry) => entry.id === replacement.id);
@@ -26,7 +28,7 @@ try {
       oldEntry.state = "superseded";
       oldEntry.supersededBy = replacement.id;
       manifest.entries.push(replacement);
-      writeManifestAtomic(root, manifest);
+      writeManifestAtomic(root, manifest, { allowMissingFiles: true, requiredFileIds: new Set([replacement.id]) });
     });
     console.log(`superseded ${oldId} with ${replacement.id}`);
   }

@@ -230,7 +230,7 @@ export function parseArgs(argv) {
     const token = argv[index];
     if (!token.startsWith("--")) throw new Error(`unexpected argument: ${token}`);
     const key = token.slice(2);
-    if (key === "help" || key === "self-test") {
+    if (key === "help" || key === "self-test" || key === "dry-run") {
       options[key] = true;
       continue;
     }
@@ -320,6 +320,11 @@ function validateSkill(skill, label) {
   if (skill.version !== undefined && (typeof skill.version !== "string" || !skill.version || skill.version.length > 64)) throw new Error(`${label}.version is invalid`);
 }
 
+export function validateRelocationPath(projectRoot, path, allowMissing = false) {
+  validateRelativePath(path, "relocation path");
+  assertContainedExistingFile(projectRoot, path, "relocation path", allowMissing);
+}
+
 export function validateManifest(manifest, projectRoot, options = {}) {
   const validateActiveHtml = options.validateActiveHtml === true;
   const canonicalProjectRoot = realpathSync(projectRoot);
@@ -333,6 +338,9 @@ export function validateManifest(manifest, projectRoot, options = {}) {
   for (const [index, entry] of manifest.entries.entries()) {
     const label = `manifest.entries[${index}]`;
     assertObject(entry, label);
+    // Registration checks the current delivery strictly, while preserving
+    // unrelated stale references without making filesystem drift a blocker.
+    const allowMissing = options.allowMissingFiles === true && !options.requiredFileIds?.has(entry.id);
     rejectUnknownKeys(entry, ENTRY_KEYS, label);
     if (typeof entry.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(entry.id)) throw new Error(`${label}.id is invalid`);
     if (ids.has(entry.id)) throw new Error(`duplicate entry id: ${entry.id}`);
@@ -348,9 +356,9 @@ export function validateManifest(manifest, projectRoot, options = {}) {
     if (entry.state === "active") {
       if (activePaths.has(entry.path)) throw new Error(`duplicate active path: ${entry.path}`);
       activePaths.add(entry.path);
-      assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`, entry.id === options.retiringId);
-    } else if (existsSync(join(projectRoot, ...entry.path.split("/")))) {
-      assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`);
+      assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`, allowMissing || entry.id === options.retiringId || options.relocatingPaths?.has(entry.path));
+    } else if (options.relocatingPaths?.has(entry.path) || existsSync(join(projectRoot, ...entry.path.split("/")))) {
+      assertContainedExistingFile(canonicalProjectRoot, entry.path, `${label}.path`, options.relocatingPaths?.has(entry.path));
     }
     const isHtml = HTML_EXTENSIONS.has(extension);
     if (entry.editContract !== undefined && entry.editContract !== "nutbook-html/v1") throw new Error(`${label}.editContract is invalid`);
@@ -382,7 +390,7 @@ export function validateManifest(manifest, projectRoot, options = {}) {
       if (!new Set(["asset", "data", "attachment"]).has(relatedFile.role)) throw new Error(`${relatedLabel}.role is invalid`);
       if (relatedFile.path === entry.path || relatedPaths.has(relatedFile.path)) throw new Error(`${relatedLabel}.path is duplicated`);
       relatedPaths.add(relatedFile.path);
-      assertContainedExistingFile(canonicalProjectRoot, relatedFile.path, `${relatedLabel}.path`);
+      assertContainedExistingFile(canonicalProjectRoot, relatedFile.path, `${relatedLabel}.path`, allowMissing || options.relocatingPaths?.has(relatedFile.path));
     }
   }
   for (const entry of manifest.entries) {
@@ -443,11 +451,11 @@ export function readManifestStrict(projectRoot) {
 }
 
 export function readManifestForSupersede(projectRoot, retiringId) {
-  return readManifest(projectRoot, { retiringId });
+  return readManifest(projectRoot, { retiringId, allowMissingFiles: true });
 }
 
-export function writeManifestAtomic(projectRoot, manifest) {
-  validateManifest(manifest, projectRoot);
+export function writeManifestAtomic(projectRoot, manifest, options = {}) {
+  validateManifest(manifest, projectRoot, options);
   const destination = manifestPath(projectRoot);
   const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
   if (existsSync(destination) && readFileSync(destination, "utf8") === serialized) return;
@@ -466,7 +474,7 @@ export function writeManifestAtomic(projectRoot, manifest) {
       fsyncSync(directoryFd);
       closeSync(directoryFd);
     } catch {}
-    readManifest(projectRoot);
+    readManifest(projectRoot, options);
   } finally {
     if (fd !== undefined) closeSync(fd);
     if (existsSync(temporary)) unlinkSync(temporary);

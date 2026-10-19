@@ -106,8 +106,9 @@ static validation only; a real browser and Nutbook still verify behavior.
 Manifest structure and current HTML-edit compatibility are separate checks. A
 legacy active HTML entry that needs repair must never make the manifest
 structurally unreadable or force manual JSON editing. New or updated HTML is
-validated strictly before it is written. Repair the reported source in place,
-or use `supersede.mjs` to retire it with a valid replacement.
+validated strictly before it is written. Historical missing paths and legacy
+HTML issues do not block registering the current delivery or require repair
+during unrelated content work.
 
 Keep an ID stable when updating metadata for the same path. When a new file
 replaces an old deliverable, use the supersede workflow instead of recycling
@@ -115,7 +116,7 @@ the old ID.
 
 An existing user-facing file that was accidentally delivered without an entry
 does not need to be moved or recreated. Register its current project-relative
-path with `register.mjs`, then validate normally.
+path with `register.mjs`; the command validates that delivery before writing.
 
 ## Supersede an artifact
 
@@ -135,30 +136,67 @@ legacy active HTML entry that no longer passes the current HTML validator. The
 replacement receives strict validation before the atomic structural write.
 Never repair that migration case by editing JSON.
 
-## Validate quietly
+## Complete quietly
 
-After the final registration batch, run once:
+Register and supersede validate the current primary file and its attachments
+before writing. Historical missing primary/related paths are preserved without
+warnings and do not block the current delivery. Unsafe paths, symlink escapes,
+invalid manifest structure, identity conflicts and invalid current files still
+fail validation.
 
-```bash
-node scripts/validate.mjs --project-root /absolute/confirmed/project
-```
+Do not run project-wide `validate.mjs` after ordinary generation or registration.
+It is an explicit maintenance diagnostic, not a delivery gate. Do not start
+historical-path repair, repeat old warnings, or ask the user to resolve unrelated
+entries while delivering new content. Run whole-project diagnostics or recovery
+only when the user asks to inspect or maintain the manifest.
 
 Successful registration is silent: do not announce registration, IDs, paths,
 counts, or validation results in commentary or the final answer unless asked.
-Report only failures that affect delivery or need user action. Keep the final
-answer focused on the requested artifact. If an older active
-HTML entry is incompatible, the validator lists it by ID and path without
-making the rest of the manifest unreadable. Fix that source or use the scripted
-supersede path; do not replace the manifest manually or weaken validation.
+Keep the final answer focused on the requested artifact. Fix errors in the
+current delivery when possible; report only unresolved failures affecting that
+delivery or requiring user action. Do not edit the manifest manually.
 
 Use `node scripts/validate.mjs --self-test` only to verify the installed package
 runtime; it writes solely to an operating-system temporary directory.
 
-### Recover a moved or deleted primary file
+### Explicit recovery of moved or deleted files
 
-If registration fails because an old active primary path no longer exists,
-use `supersede.mjs` with that entry's `--old-id` and a verified replacement
-path and new ID. This explicitly retires the missing primary and registers
-the replacement atomically. Repeat for each affected entry; unrelated missing
-entries still block writes. Do not guess replacement paths or edit JSON.
-Missing related files, unsafe paths, and symlink escapes remain errors.
+A missing historical path no longer requires recovery before new registration.
+When the user asks to maintain paths, use the batch relocation workflow below
+for path-only moves. Use `supersede.mjs` with the old ID, a verified replacement
+path and a new ID only when new content replaces an older deliverable. Never
+guess replacement paths or edit JSON. Unsafe paths and symlink escapes remain
+errors.
+
+### Recover multiple moved files and attachments
+
+For the same artifacts at new locations, preserve IDs, producer metadata and
+states with `scripts/relocate.mjs`. Inspect the confirmed project and verify
+each destination first. Create a separate moves JSON file (not a manifest):
+
+```json
+[
+  { "from": "output/old/report.md", "to": "output/archive/report.md" },
+  { "from": "output/old/cover.png", "to": "output/archive/cover.png" }
+]
+```
+
+```bash
+node scripts/relocate.mjs --project-root /absolute/confirmed/project --moves /absolute/moves.json --dry-run
+node scripts/relocate.mjs --project-root /absolute/confirmed/project --moves /absolute/moves.json
+```
+
+All exact matching primary and related references, including shared attachments
+on retired entries, are updated in one locked atomic write. This command does
+not move files, search for replacements, rewrite document links, withdraw an
+artifact, or change metadata. An archive folder name does not imply `removed`.
+Only explicitly mapped old references may be missing; all destinations and
+unmapped references must pass normal path checks. One invalid mapping blocks
+the whole batch. Sources and destinations must be unique; chained/cyclic moves
+are rejected. Primary file extensions must remain unchanged.
+
+Identical retries are safe when the destination is already referenced. Legacy
+HTML content compatibility is separate from this path-only operation: run
+`validate.mjs` after recovery and report any remaining HTML issues without
+rewriting content or weakening registration. Use `supersede.mjs` when new
+content actually replaces an old deliverable.
