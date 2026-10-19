@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { entryFromOptions, parseArgs, readManifest, resolveProjectRoot, upsertActiveEntry, validateEntryHtmlContract, withManifestLock, writeManifestAtomic } from "./manifest-lib.mjs";
+import { entryFromOptions, parseArgs, readManifest, resolveProjectRoot, upsertActiveEntry, validateEntryHtmlContract, validateManifest, withManifestLock, writeManifestAtomic } from "./manifest-lib.mjs";
 
 const usage = "Usage: register.mjs --project-root <path> --id <stable-id> --path <relative.md|html> --skill <name> --kind <document|report|presentation|interactive> [--related <path:role>]";
 
@@ -11,9 +11,10 @@ try {
     const root = resolveProjectRoot(options["project-root"] || "");
     const entry = entryFromOptions(options);
     await withManifestLock(root, async () => {
+      validateManifest({ schemaVersion: 1, projectRoot: ".", entries: [entry] }, root);
       validateEntryHtmlContract(entry, root);
-      const manifest = upsertActiveEntry(readManifest(root), entry);
-      writeManifestAtomic(root, manifest);
+      const manifest = upsertActiveEntry(readManifest(root, { allowMissingFiles: true }), entry);
+      writeManifestAtomic(root, manifest, { allowMissingFiles: true, requiredFileIds: new Set([entry.id]) });
     });
 
   }

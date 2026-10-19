@@ -184,13 +184,15 @@ const old = { id: "old", path: "gone/old.md", state: "active", skill: { name: "w
 const seedStale = (entries) => writeFileSync(staleFile, JSON.stringify({ schemaVersion: 1, projectRoot: ".", entries }));
 const recoveryArgs = ["--project-root", staleRoot, "--old-id", "old", "--new-id", "new", "--path", "new.md", "--skill", "writer", "--kind", "document"];
 seedStale([old]);
-await assert.rejects(runNode(register, ["--project-root", staleRoot, "--id", "new", "--path", "new.md", "--skill", "writer", "--kind", "document"]), /ENOENT/);
+const staleRegistration = await runNode(register, ["--project-root", staleRoot, "--id", "new", "--path", "new.md", "--skill", "writer", "--kind", "document"]);
+assert.equal(staleRegistration.stdout, "");
+assert.equal(staleRegistration.stderr, "");
+seedStale([old]); // independently exercise the explicit supersede recovery path
 await runNode(supersede, recoveryArgs);
 assert.equal(readManifest(staleRoot).entries[0].state, "superseded");
 await runNode(supersede, recoveryArgs); // idempotent retry
 await runNode(validate, ["--project-root", staleRoot]);
 for (const entries of [
-  [old, { ...old, id: "other", path: "also-missing.md" }],
   [{ ...old, path: "../outside.md" }],
   [old, { ...old }],
 ]) {
@@ -229,5 +231,8 @@ symlinkSync(outside, join(symlinkRoot, "docs", "linked.md"));
 mkdirSync(join(symlinkRoot, ".agent-outputs"));
 writeFileSync(join(symlinkRoot, ".agent-outputs", "manifest.json"), JSON.stringify({ schemaVersion: 1, projectRoot: ".", entries: [{ id: "outside", path: "docs/linked.md", state: "active", skill: { name: "nbskill" }, kind: "document" }] }));
 assert.throws(() => readManifest(symlinkRoot), /outside the project root/);
+
+await import("./test-relocate.mjs");
+await import("./test-registration-isolation.mjs");
 
 console.log("nbskill registrar, supersede, concurrency, corruption, and safety checks passed");

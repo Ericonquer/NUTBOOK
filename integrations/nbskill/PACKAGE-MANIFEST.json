@@ -1,6 +1,6 @@
 {
   "package": "nbskill",
-  "version": "1.4.2",
+  "version": "1.4.4",
   "files": [
     {
       "path": "evals/evals.json",
@@ -14,8 +14,8 @@
     },
     {
       "path": "references/agent-output-manifest-v1.md",
-      "sha256": "459fbdc9d1d57f345d5daf98a28f948bed66f997964fb6d9fc43a53f53517179",
-      "bytes": 4940
+      "sha256": "9002b6a381560cd0c68a0432cd34bf61ef65063735587cee9912e6177648e2cf",
+      "bytes": 6426
     },
     {
       "path": "references/manifest-schema.json",
@@ -49,8 +49,8 @@
     },
     {
       "path": "scripts/manifest-lib.mjs",
-      "sha256": "1738af836b127268d193a031a7bbdc47608c24a8057fa28b69b1ce30f18f9d29",
-      "bytes": 27448
+      "sha256": "20c0ceac1af556896673f6c33ea92b15e002c7418d8ccd27585c36ac3d62b09a",
+      "bytes": 28209
     },
     {
       "path": "scripts/motion/contract.mjs",
@@ -64,18 +64,33 @@
     },
     {
       "path": "scripts/register.mjs",
-      "sha256": "d9498ca7104addecf36671cc6bed38603deffb54fdec19514ca2f8dbbd82fc34",
-      "bytes": 954
+      "sha256": "ac5d2ecde19a6fcd940f3e0216eb2b674c7c6eed4a9b84f576deb14870e401d0",
+      "bytes": 1156
+    },
+    {
+      "path": "scripts/relocate.mjs",
+      "sha256": "c5c4fbc84410ef3146ba9cc9c1236833152037a4107135de6fbb3493fd2491cf",
+      "bytes": 3691
     },
     {
       "path": "scripts/supersede.mjs",
-      "sha256": "d4fca043256f9f075e1929e99f7e17260789dbc155b3a32bfabab7d20a5c925e",
-      "bytes": 2022
+      "sha256": "c8331fcb696fbcb8629033846b6622cd90e409aea53c963f07730d0597429811",
+      "bytes": 2282
+    },
+    {
+      "path": "scripts/test-registration-isolation.mjs",
+      "sha256": "2f5082a2703fae3e88b8033a2a015efba8b39cff6b86b730acd6e6eff9431277",
+      "bytes": 5153
+    },
+    {
+      "path": "scripts/test-relocate.mjs",
+      "sha256": "5f354a357e17b9118958f1ceecfd221a0ce92abb00b796e2d66bceed12d31eae",
+      "bytes": 5366
     },
     {
       "path": "scripts/test.mjs",
-      "sha256": "7bc1c218bd9b87a12bb1a5a51fdc96d6d23d80b92d1d4fbb65eeeaae04681e2c",
-      "bytes": 14798
+      "sha256": "bd895e662c1956e8b84fe8b49944b39093c32ead036177525adbb9bc7f0403a1",
+      "bytes": 14997
     },
     {
       "path": "scripts/validate.mjs",
@@ -84,8 +99,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "0477f81927410a11af89040d4e42d9c58739f68ce36520ef7f3fa02f60eb9253",
-      "bytes": 9078
+      "sha256": "7fcbbfd3ca24f673239dd09782a605b34d9ce9deb18af257c211998c827b991d",
+      "bytes": 11162
     },
     {
       "path": "templates/manifest.json",
@@ -114,7 +129,7 @@
     },
     {
       "path": "VERSION",
-      "sha256": "b99b4c7cdf236f59bc9f65d963deaecae3b16a7dad87939cacb9057f7664daee",
+      "sha256": "d03d8b268b4171328ac2458ce8ca82d69a1fde38469d4e4faae4f8fa8d8a5e35",
       "bytes": 6
     }
   ]
