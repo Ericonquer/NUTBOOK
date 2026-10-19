@@ -22,13 +22,15 @@ try{
  await page.addScriptTag({content:readFileSync('dist/markdown-formatting.js','utf8')});
  await page.evaluate(()=>{
   window.fixture={notifications:[],raw:'# Published title\n\nBody',saved:null,revision:null,png:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jO7sAAAAASUVORK5CYII='};
-  window.bridge={wechatDelivery:true,notify:message=>fixture.notifications.push(message),language:()=> 'en-US',activeId:()=>1,container:document.querySelector('#viewer'),suspend(){},restore(){},error:e=>e.message||String(e),resolveImage:s=>s,confirm:async()=> 'discard',
+  window.bridge={nativeClipboard:true,copyText:async value=>{if(fixture.copyFailure)throw Error('copy rejected');fixture.copied=value;},wechatDelivery:true,notify:message=>fixture.notifications.push(message),language:()=> fixture.language||'en-US',activeId:()=>1,container:document.querySelector('#viewer'),suspend(){},restore(){},error:e=>e.message||String(e),resolveImage:s=>s,confirm:async()=> 'discard',
    editor:async()=>({create:async options=>{
     const input=document.createElement('textarea');input.value=options.markdown;input.setAttribute('data-export-editor','');options.root.append(input);fixture.input=input;
     input.addEventListener('input',()=>options.onChange(input.value));
     return {getMarkdown:()=>input.value,destroy(){},focus(){}};
    }}),
    invoke:async(command,args)=>{
+    if(command==='publishing_runtime_status'){fixture.runtimeChecks=(fixture.runtimeChecks||0)+1;fixture.lastRuntimeArgs=args;if(fixture.runtimePending)return new Promise(resolve=>fixture.resolveRuntime=resolve);return {ready:fixture.runtimeReady!==false,node:fixture.runtimeNode||{state:'ready',version:'v22.22.2'},browser:fixture.runtimeBrowser||{state:'missing'},installCommand:"node '/Applications/NUTBOOK.app/Contents/Resources/publishing-runtime/install.mjs' --source '/Applications/NUTBOOK.app/Contents/Resources/publishing-runtime' --target '/Users/test/Library/Application Support/com.hayley.nutbook/publishing-runtime/8bbf0dddafd08ed64b0961e3959530405ed04fafdb417580f45ed7de46485f5f'"};}
+    if(command==='write_formatting_clipboard'){fixture.clipboard=structuredClone(args);return {verified:true};}
     if(command==='wechat_delivery_status')return fixture.deliveryState || {running:false,stage:'idle'};
     if(command==='start_wechat_delivery'){fixture.deliveryCalls=(fixture.deliveryCalls||0)+1;fixture.sent=structuredClone(args);fixture.deliveryState={jobId:args.job.id,runId:`run-${fixture.deliveryCalls}`,running:true,stage:'waiting_for_scan'};return fixture.deliveryState;}
     if(command==='control_wechat_delivery'){if(args.action==='cancel')fixture.deliveryState={...fixture.deliveryState,running:false,stage:'cancelled'};return null;}
@@ -63,6 +65,115 @@ try{
  assert.ok(illustrated.html.indexOf('Between images')<illustrated.html.indexOf('image-2'));
  await page.locator('[data-export-editor]').fill('changed after save');
  await assert.rejects(page.evaluate(()=>NutbookFormatting.prepareWechatDelivery({id:'job-2'})),/SAVE_DRAFT_BEFORE_DELIVERY/);
+ await page.evaluate(()=>{fixture.runtimeReady=false;});
+ await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+ await page.locator('.formatting-runtime-setup').waitFor({state:'visible'});
+ assert.equal(await page.getByRole('button',{name:'Save and send draft',exact:true,includeHidden:true}).isDisabled(),true);
+ assert.equal(await page.evaluate(()=>fixture.deliveryCalls||0),0);
+ assert.equal(await page.locator('.formatting-runtime-optional').count(),0);
+ assert.equal(await page.locator('.formatting-runtime-copy-note').count(),1);
+ assert.equal(await page.getByRole('tab',{name:'Ask your agent',exact:true}).getAttribute('aria-selected'),'true');
+ assert.equal(await page.locator('.formatting-runtime-actions button:not([hidden])').first().getAttribute('aria-label'),'Copy setup for agent');
+ assert.equal(await page.locator('.formatting-runtime-manual pre').isVisible(),false);
+ const copyAgent=await page.getByRole('button',{name:'Copy setup for agent',exact:true}).boundingBox();
+ const checkAgent=await page.getByRole('button',{name:'Check again',exact:true}).boundingBox();
+ assert.ok(Math.abs(copyAgent.y-checkAgent.y)<1,'agent copy and recheck share one row');
+
+ assert.match(await page.locator('.formatting-runtime-components').innerText(),/Node.js.*Ready to reuse.*Browser.*Not found/);
+ assert.equal(await page.evaluate(()=>fixture.lastRuntimeArgs.force),false);
+ assert.match(await page.locator('.formatting-runtime-setup>small').first().innerText(),/Only the browser.*150–250 MB/);
+ await page.evaluate(()=>{fixture.runtimeNode={state:'missing'};fixture.runtimeBrowser={state:'unchecked'};});
+ await page.getByRole('button',{name:'Check again',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-runtime-components').textContent.includes('Check after Node'));
+ assert.equal(await page.evaluate(()=>fixture.lastRuntimeArgs.force),true,'manual recheck forces discovery');
+ assert.match(await page.locator('.formatting-runtime-setup>small').first().innerText(),/30–60 MB/);
+ await page.evaluate(()=>{fixture.runtimeNode={state:'ready',version:'v22.22.2'};fixture.runtimeBrowser={state:'incompatible',name:'Google Chrome'};});
+ await page.getByRole('button',{name:'Check again',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-runtime-components').textContent.includes('verification failed'));
+ assert.match(await page.locator('.formatting-runtime-setup>small').first().innerText(),/no duplicate/);
+ await page.evaluate(()=>{fixture.runtimeBrowser={state:'missing'};});
+ await page.getByRole('button',{name:'Check again',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-runtime-components').textContent.includes('Not found'));
+ await page.evaluate(()=>{fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
+ await page.getByRole('button',{name:'复制给 Agent 安装',exact:true}).waitFor();
+ await page.screenshot({path:'/tmp/nutbook-publishing-setup-zh.png'});
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
+
+ const agentHeight=(await page.getByRole('dialog').boundingBox()).height;
+ await page.getByRole('tab',{name:'Install manually',exact:true}).click();
+ assert.equal((await page.getByRole('dialog').boundingBox()).height,agentHeight,'setup method switch must not grow the dialog');
+ const copyManual=await page.getByRole('button',{name:'Copy install command',exact:true}).boundingBox();
+ const checkManual=await page.getByRole('button',{name:'Check again',exact:true}).boundingBox();
+ assert.ok(Math.abs(copyManual.y-checkManual.y)<1,'manual copy and recheck share one row');
+
+ const manualScroll=await page.locator('.formatting-runtime-method-content').evaluate(el=>{
+  const pre=el.querySelector('pre');
+  const start=pre.getBoundingClientRect().top;
+  el.scrollTop=el.scrollHeight;
+  return {overflow:getComputedStyle(pre).overflowY,commandFits:pre.scrollHeight<=pre.clientHeight+1,scrolled:pre.getBoundingClientRect().top<start,scrollLeft:el.scrollWidth-el.clientWidth};
+ });
+ assert.equal(manualScroll.overflow,'visible','command must not create a nested scroll area');
+ assert.equal(manualScroll.commandFits,true,'full command stays in the single scroll area');
+ assert.equal(manualScroll.scrolled,true,'real installed paths can be reached through the content scroller');
+ assert.ok(manualScroll.scrollLeft<=1,'long installed paths wrap without horizontal scrolling');
+ await page.locator('.formatting-runtime-method-content').evaluate(el=>el.scrollTop=0);
+ await page.evaluate(()=>{fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
+ await page.getByRole('tab',{name:'手动安装',exact:true}).click();
+ await page.screenshot({path:'/tmp/nutbook-publishing-setup-manual-zh.png'});
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
+ await page.getByRole('tab',{name:'Install manually',exact:true}).click();
+
+ assert.ok((await page.getByRole('dialog').boundingBox()).height<=page.viewportSize().height-80);
+ await page.getByRole('button',{name:'Copy install command',exact:true}).click();
+ assert.match(await page.evaluate(()=>fixture.copied),/node.*install.mjs/);
+ await page.getByRole('tab',{name:'Ask your agent',exact:true}).click();
+ await page.getByRole('button',{name:'Copy setup for agent',exact:true}).click();
+ assert.match(await page.evaluate(()=>fixture.copied),/^Please help me set up NUTBOOK/);
+ assert.match(await page.evaluate(()=>fixture.copied),/With my confirmation/);
+ assert.match(await page.evaluate(()=>fixture.copied),/Node.js.*Ready to reuse.*Browser.*Not found/);
+ assert.match(await page.evaluate(()=>fixture.copied),/150–250 MB/);
+ await page.getByRole('tab',{name:'Ask your agent',exact:true}).press('ArrowRight');
+ assert.equal(await page.getByRole('tab',{name:'Install manually',exact:true}).getAttribute('aria-selected'),'true');
+ await page.evaluate(()=>{fixture.copyFailure=true;});
+ await page.getByRole('button',{name:'Copy install command',exact:true}).click();
+ assert.match(await page.locator('.formatting-runtime-setup').innerText(),/Copy failed/);
+ await page.evaluate(()=>{fixture.copyFailure=false;});
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ assert.equal(await page.getByRole('dialog').isVisible(),false);
+ await page.locator('.formatting-preview').getByRole('button',{name:'Copy body',exact:true}).click();
+ await page.waitForFunction(()=>fixture.clipboard?.html?.includes('Body'));
+ assert.equal(await page.evaluate(()=>fixture.deliveryCalls||0),0,'manual copy without runtime must never start delivery');
+ assert.equal(await page.locator('[data-export-editor]').inputValue(),'changed after save');
+
+ await page.evaluate(()=>{fixture.copyFailure=false;fixture.runtimePending=true;});
+ await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+ await page.waitForFunction(()=>fixture.resolveRuntime);
+ assert.equal(await page.locator('.formatting-runtime-setup').isVisible(),false,'initial check must not flash an installation guide');
+ assert.equal(await page.getByRole('tab',{name:'Install manually',exact:true}).isVisible(),false);
+ assert.equal(await page.getByRole('dialog').getByText('Checking local Node.js and browser…',{exact:true}).isVisible(),true);
+
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.evaluate(()=>{fixture.resolveRuntime({ready:true});fixture.runtimePending=false;});
+ assert.equal(await page.getByRole('dialog').isVisible(),false,'late setup response must not reopen a closed dialog');
+ await page.evaluate(()=>{fixture.runtimePending=true;fixture.resolveRuntime=null;});
+ await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+ await page.waitForFunction(()=>fixture.resolveRuntime);
+ assert.equal(await page.locator('.formatting-runtime-setup').isVisible(),false);
+ await page.evaluate(()=>{fixture.resolveRuntime({ready:true});fixture.runtimePending=false;});
+ await page.getByRole('button',{name:'Save and send draft',exact:true}).waitFor({state:'visible'});
+ assert.equal(await page.locator('.formatting-runtime-setup').isVisible(),false,'ready goes directly from checking to send controls');
+ assert.equal(await page.getByRole('dialog').getByText('Checking local Node.js and browser…',{exact:true}).isVisible(),false);
+ assert.equal(await page.evaluate(()=>fixture.deliveryCalls||0),0,'checking ready must not log in or send');
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+
+ await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+ await page.locator('.formatting-runtime-setup').waitFor({state:'visible'});
+ await page.evaluate(()=>{fixture.runtimeReady=true;});
+ await page.getByRole('button',{name:'Check again',exact:true}).click();
+ await page.locator('.formatting-runtime-setup').waitFor({state:'hidden'});
+ assert.equal(await page.getByRole('button',{name:'Save and send draft',exact:true}).isEnabled(),true);
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.evaluate(()=>{fixture.copyFailure=false;fixture.runtimeReady=true;});
  await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
  assert.equal(await page.getByLabel('Keep WeChat signed in on this device').isChecked(),false);
  assert.equal(await page.getByLabel('Keep WeChat signed in on this device').evaluate(el=>getComputedStyle(el).accentColor),'rgb(0, 0, 0)');
@@ -81,10 +192,10 @@ try{
  assert.ok(Math.abs(box.x+box.width/2-viewport.width/2)<2,'dialog must be centered');
  assert.equal(await page.locator('.formatting-delivery progress').getAttribute('max'),'6');
  await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,stage:'uploading_images',history:[{stage:'connecting'},{stage:'uploading_images',current:2,total:2}]};});
- await page.waitForFunction(()=>document.querySelector('.formatting-delivery [role=status]').textContent.includes('(2/2)'));
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.includes('(2/2)'));
  assert.equal(await page.locator('.formatting-delivery-history').count(),0);
  await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,stage:'writing'};});
- await page.waitForFunction(()=>document.querySelector('.formatting-delivery [role=status]').textContent==='Filling article…');
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent==='Filling article…');
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.waitForTimeout(900);
  assert.equal(await page.getByRole('dialog',{name:'Send to WeChat'}).isVisible(),false,'polling must not reopen a dismissed dialog');
@@ -95,7 +206,7 @@ try{
  assert.equal(await page.evaluate(()=>fixture.sent.job.title),'Published title');
  await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
  await page.getByRole('button',{name:'Cancel sending',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('.formatting-delivery [role=status]').textContent.startsWith('Cancelled'));
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.startsWith('Cancelled'));
  assert.equal(await page.evaluate(()=>fixture.deliveryCalls),1);
  assert.equal(await page.locator('[data-export-editor]').inputValue(),'new input while sending');
  await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,running:false,stage:'failed',error:'DRAFT_UNAVAILABLE'};});
@@ -151,6 +262,30 @@ try{
   assert.doesNotThrow(()=>validateJob(gifJob));
   assert.equal(gifJob.images[0].base64,readFileSync('assets/readme-demo/nutbook-agent-access-cn.gif').toString('base64'),'GIF source bytes must survive platform export');
  }
+ await page.evaluate(()=>{fixture.runtimeReady=false;fixture.withImages=false;fixture.clipboard=null;});
+ for(const platform of ['wechat','weibo','x']){
+  const name=platform==='wechat'?'Send to WeChat':platform==='weibo'?'Send to Weibo drafts':'Send to X drafts';
+  const calls=await page.evaluate(()=>fixture.deliveryCalls);
+  await page.getByRole('button',{name,exact:true}).click();
+  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+  await page.locator('.formatting-preview').getByRole('button',{name:'Copy article title',exact:true}).click();
+  assert.equal(await page.evaluate(()=>fixture.copied),'Published title');
+  await page.evaluate(()=>{fixture.clipboard=null;});
+  await page.locator('.formatting-preview').getByRole('button',{name:'Copy body',exact:true}).click();
+  await page.waitForFunction(()=>fixture.clipboard?.html?.includes('Body'));
+  assert.equal(await page.evaluate(()=>fixture.deliveryCalls),calls);
+ }
+ await page.evaluate(()=>NutbookFormatting.leave(1));
+
+ await page.evaluate(()=>{fixture.runtimeReady=true;fixture.runtimeBrowser={state:'available',name:'Google Chrome'};});
+ await page.evaluate(()=>NutbookFormatting.open(bridge,{id:1,item:{fileName:'sample.md'},preview:{raw:fixture.raw}}));
+ const beforeChecks=await page.evaluate(()=>fixture.runtimeChecks);
+ for(const name of ['Send to WeChat','Send to Weibo drafts','Send to X drafts']){
+  await page.getByRole('button',{name,exact:true}).click();
+  await page.getByRole('button',{name:'Save and send draft',exact:true}).waitFor({state:'visible'});
+  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ }
+ assert.equal(await page.evaluate(()=>fixture.runtimeChecks),beforeChecks+1,'ready tools are checked once across all platform buttons');
  await page.evaluate(()=>NutbookFormatting.leave(1));
  console.log('Modal close/background completion notification and saved baseline after Send passed.');
  console.log('Send entry saves a frozen draft, prevents duplicate clicks, defaults to no login storage, and cancels without changing input (browser harness).');

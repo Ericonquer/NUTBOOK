@@ -122,6 +122,8 @@ NUTBOOK 支持 **Codex、Claude Code、OpenClaw、Hermes 和 WorkBuddy**，把�
 
 首次安装授权、快捷键、缩略图设置和详细操作见 [使用指南](./docs/guides/user-guide-cn.md)。
 
+安装包不内置 Node.js 或浏览器，仅保留约 13 MB 的 Playwright 驱动及发布脚本（未压缩）。**不安装也支持复制草稿到平台**：关闭发送窗口，在预览中复制标题和正文。自动发送会先检查系统 Node.js 22 / 24 与浏览器并检查程序是否可用，已有环境直接复用；缺项时通过“交给 Agent / 手动安装”仅补缺失部分，不会自动下载。没有浏览器时可明确执行安装命令，将 Chromium 安装到共享缓存；X 需要系统 Google Chrome。界面按缺项展示下载量和空间估算，登录资料单独保存，缩略图入口不变。详见 [可选发布环境](./docs/guides/user-guide-cn.md#可选发布环境)。
+
 ## 最新版本
 
 ### 1.4.0 · 标签升级与动效中心

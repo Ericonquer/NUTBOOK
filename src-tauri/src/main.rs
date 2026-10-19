@@ -484,6 +484,7 @@ fn main() {
             commands::native_presentation::native_presentation_toggle_fullscreen,
             commands::native_presentation::stop_native_presentation,
             commands::preview::save_markdown_content,
+            commands::publishing_runtime::publishing_runtime_status,
             commands::wechat_delivery::start_wechat_delivery,
             commands::wechat_delivery::wechat_delivery_status,
             commands::wechat_delivery::control_wechat_delivery,
