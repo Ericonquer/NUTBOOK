@@ -234,5 +234,6 @@ assert.throws(() => readManifest(symlinkRoot), /outside the project root/);
 
 await import("./test-relocate.mjs");
 await import("./test-registration-isolation.mjs");
+await import("./test-lock-recovery.mjs");
 
 console.log("nbskill registrar, supersede, concurrency, corruption, and safety checks passed");

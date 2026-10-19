@@ -14,12 +14,9 @@
     h1 { margin: 0 0 .4em; font-size: clamp(38px, 6vw, 84px); line-height: 1.12; }
     p { margin: 0; font-size: clamp(20px, 2.5vw, 34px); line-height: 1.4; color: #d3d7e8; }
     img { width: 25vw; max-height: 45vh; object-fit: contain; }
-    .controls { position: fixed; right: 22px; bottom: 22px; display: flex; gap: 8px; }
-    .controls button { width: 38px; height: 38px; border: 1px solid #818ca4; border-radius: 50%; background: #252c43; color: #fff; cursor: pointer; }
-    .controls button:hover, .controls button:focus-visible { background: #394868; outline: 2px solid #fff; }
-    .controls [data-prev]::before { content: "←"; }
-    .controls [data-next]::before { content: "→"; }
-    html[data-nutbook-managed-presentation="true"] .controls { display: none; }
+    .page-count { position: fixed; right: 24px; bottom: 22px; font-size: 14px; opacity: .55; pointer-events: none; user-select: none; }
+    .page-count::before { content: attr(data-page-count); }
+    .page-count[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -33,10 +30,7 @@
   <section class="slide" data-nutbook-page-id="finish">
     <div class="copy"><h1 data-id="finish-title" data-editable="text">结论</h1><p data-id="finish-copy" data-editable="text">让观众带走清晰的下一步</p></div>
   </section>
-  <nav class="controls" aria-label="独立浏览器翻页">
-    <button type="button" data-prev aria-label="上一页" title="上一页"></button>
-    <button type="button" data-next aria-label="下一页" title="下一页"></button>
-  </nav>
+  <div class="page-count" role="status" aria-live="polite" data-page-count=""></div>
   <script type="application/json" id="nutbook-presentation-notes">{"version":1,"pages":{"opening":[{"type":"paragraph","runs":[{"text":"开场备注"}]}],"evidence":[{"type":"paragraph","runs":[{"text":"说明关键证据"}]}],"finish":[{"type":"paragraph","runs":[{"text":"结束语"}]}]}}</script>
   <script>
 // Embedded into each standalone presentation. Navigation remains owned by the deck.
@@ -64,16 +58,22 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
     (() => {
       const slides = [...document.querySelectorAll(".slide")];
       const subscribers = new Set();
-      const controls = document.querySelector(".controls");
+      const pageCount = document.querySelector(".page-count");
       let index = 0;
       let managed = false;
       let editing = false;
+      function updatePageCount() {
+        pageCount.dataset.pageCount = `${index + 1} / ${slides.length}`;
+        pageCount.setAttribute("aria-label", `第 ${index + 1} 页，共 ${slides.length} 页`);
+      }
+      updatePageCount();
       function goTo(id) {
         const next = slides.findIndex(slide => slide.dataset.nutbookPageId === id);
         if (next < 0) return false;
         if (next === index) return true;
         index = next;
         slides.forEach((slide, at) => slide.classList.toggle("active", at === index));
+        updatePageCount();
         subscribers.forEach(listener => listener(id));
         return true;
       }
@@ -82,11 +82,9 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
         activePageId: () => slides[index].dataset.nutbookPageId,
         goTo,
         subscribe(listener) { if (typeof listener !== "function") return () => {}; subscribers.add(listener); return () => subscribers.delete(listener); },
-        setManagedMode(enabled) { managed = enabled; document.documentElement.dataset.nutbookManagedPresentation = String(enabled); controls.hidden = enabled || editing; return true; },
-        setEditMode(enabled) { editing = enabled; controls.hidden = enabled || managed; return true; }
+        setManagedMode(enabled) { managed = enabled; document.documentElement.dataset.nutbookManagedPresentation = String(enabled); pageCount.hidden = enabled || editing; return true; },
+        setEditMode(enabled) { editing = enabled; pageCount.hidden = enabled || managed; return true; }
       });
-      document.querySelector("[data-prev]").addEventListener("click", () => goTo(slides[Math.max(0, index - 1)].dataset.nutbookPageId));
-      document.querySelector("[data-next]").addEventListener("click", () => goTo(slides[Math.min(slides.length - 1, index + 1)].dataset.nutbookPageId));
       window.addEventListener("keydown", event => {
         if (managed || editing || event.defaultPrevented || event.isComposing || event.target?.closest?.("input,textarea,select,[contenteditable='true']")) return;
         const next = ["ArrowRight", "PageDown", " "].includes(event.key) ? index + 1 : ["ArrowLeft", "PageUp"].includes(event.key) ? index - 1 : null;
@@ -450,7 +448,7 @@ window.createNutbookPresentationBridge = function createNutbookPresentationBridg
   // src/motion/ui-locale.mjs
   var locale = "zh-CN";
   var subscribers = /* @__PURE__ */ new Set();
-  var escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\</body>");
+  var escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   var terms = new RegExp(Object.keys(ui_en_default).sort((a, b) => b.length - a.length).map(escape).join("|"), "g");
   var motionUiText = (text) => locale.startsWith("en") ? String(text).replace(terms, (key) => ui_en_default[key]) : String(text);
   function setMotionUiLocale(value) {
