@@ -8,7 +8,7 @@ import {execFileSync} from 'node:child_process';
 const output=mkdtempSync(join(tmpdir(),'nutbook-motion-formal-'));
 const file=join(output,'index.html');
 // Start with a static config only in the temporary test copy; preserve user source.
-const input=process.argv[2] || 'integrations/nbskill/templates/motion-presentation.html';
+const input=process.argv[2] || 'integrations/nbskill/templates/presentation.html';
 const original=readFileSync(input,'utf8');
 copyFileSync(join(dirname(input),'presentation-mark.svg'),join(output,'presentation-mark.svg'));
 const marker='<script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">';
@@ -21,19 +21,23 @@ try{
  const open=async()=>{await page.goto(pathToFileURL(file).href);await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'formal-probe',generation:1,inlineToolbar:true,locale:'zh-CN'}));await page.evaluate(()=>window.__NUTBOOK_MOTION__.togglePanel());};
  if (process.argv[2]) {
   await page.goto(pathToFileURL(file).href);
-  assert.equal(await page.evaluate(()=>window.__NUTBOOK_MOTION__.state().playing),false,'optional template starts static');
+  assert.equal(await page.evaluate(()=>window.__NUTBOOK_MOTION__.state().playing),false,'default presentation starts static');
   assert.equal(await page.locator('img').evaluate(img=>img.complete && img.naturalWidth>0),true,'local asset survives clean directory copy');
   await page.evaluate(()=>{window.motionPageEvents=[];window.__NUTBOOK_PRESENTATION__.subscribe(id=>window.motionPageEvents.push(id));});
-  await page.locator('[data-next]').click();
+  assert.equal(await page.locator('[data-prev],[data-next]').count(),0,'default deck has no persistent navigation buttons');
+  assert.equal(await page.locator('[data-page-count]').getAttribute('data-page-count'),'1 / 3');
+  await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('.slide.active').getAttribute('data-nutbook-page-id'),'evidence');
   assert.deepEqual(await page.evaluate(()=>window.motionPageEvents),['evidence']);
   await page.evaluate(()=>window.__NUTBOOK_PRESENTATION__.setManagedMode(true));
-  assert.equal(await page.locator('.controls').isVisible(),false);
+  assert.equal(await page.locator('[data-page-count]').getAttribute('data-page-count'),'2 / 3');
+  assert.equal(await page.locator('.page-count').isVisible(),false);
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.evaluate(()=>window.__NUTBOOK_PRESENTATION__.activePageId),'evidence');
   assert.equal(await page.evaluate(()=>window.__NUTBOOK_PRESENTATION__.goTo('missing')),false);
   await page.evaluate(()=>window.__NUTBOOK_PRESENTATION__.setManagedMode(false));
-  await page.locator('[data-prev]').click();
+  assert.equal(await page.locator('.page-count').isVisible(),true);
+  await page.keyboard.press('PageUp');
   assert.equal(await page.locator('.slide.active').getAttribute('data-nutbook-page-id'),'opening');
  }
  await open();assert.equal(await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot().dirty),false);

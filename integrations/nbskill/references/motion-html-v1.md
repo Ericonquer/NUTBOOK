@@ -1,15 +1,53 @@
-# Optional motion-editable presentation
+# Motion-editable presentations
 
-Use this only when the user requests motion editing. Ordinary HTML and the ordinary presentation template keep their current workflow. The P0 template supports one candidate, `text.glyph-particles@1`; it does not promise a complete effects library, transitions, or presenter click-step synchronization.
+Every newly authored presentation supports NUTBOOK's motion center by default.
+Use `templates/presentation.html`; `templates/motion-presentation.html` is a
+compatible alias. Ordinary non-presentation HTML keeps its existing workflow.
+Existing decks are not rewritten merely to register them or edit their text.
 
-Copy `templates/motion-presentation.html` and the local `templates/presentation-mark.svg` into the output directory. The HTML contains its runtime, with no CDN or build service dependency. Replace sample content and notes using the presentation and HTML edit contracts. New pages start with `actions:[]`, `background:null`, and `transition:null`; remove any independent CSS entrance animation. Do not automatically animate all headings.
+The template embeds the current motion runtime with no CDN or build service.
+It adds about 356 KB to each standalone HTML. Do not replace it with remote
+scripts or add installation dependencies. Keep the embedded runtime when
+adapting the sample's content and visual design.
 
-Keep `data-nutbook-motion-contract="nutbook-motion/v1"` on the HTML root and exactly one `script#nutbook-motion-config[type="application/json"][data-id="nutbook-motion-config"]`. Its JSON uses `references/motion-schema.json`; parameter versions and bounds come from `scripts/motion/registry.json`. The package validator includes the same data validator as the application. Config is data only: no code, URLs, CSS, selectors, or unknown fields. Reject unknown versions instead of silently upgrading.
+## Support first, effects by choice
 
-When authoring a new document, keep page IDs, bridge pages, notes keys, and config pages in the same DOM order. Every declared target belongs to its page, with a stable unique `data-id`. Text targets must be editable text/rich-text; images must be editable `img`. A group requires `data-nutbook-motion-group="true"`; video/iframe targets require their actual elements. Declare every video/iframe in the page capability lists and set the corresponding flags. Support flags describe actual adapter support, not a requested effect. After delivery, normal motion editing must preserve page/target/capability declarations; adding or restructuring pages is a new authoring operation.
+New pages start with `actions:[]`, `background:null`, and `transition:null`.
+Remove independent CSS entrance animations; opening the deck must show its
+content immediately without playing an effect. The user chooses effects in the
+motion center. An explicit request for initial effects can populate only the
+requested actions; do not animate every heading by default.
 
-An explicitly requested initial action has fields `id`, `targetId`, `templateId`, `templateVersion`, `params`, `seed`, `trigger`, `delayMs`. For this candidate, params are `durationMs` (500–6000), `strength` (0–2), integer `density` (12–400), and optional `hue` (0–360, default 210). Use a uint32 seed. The data contract reserves click/withPrevious/afterPrevious, but current P0 playback starts the whole page; do not claim click sequencing works. Background and transition must remain null until their adapters are shipped.
+Keep `data-nutbook-motion-contract="nutbook-motion/v1"` on the HTML root and
+exactly one `script#nutbook-motion-config[type="application/json"]` with
+`data-id="nutbook-motion-config"`. Its JSON follows `motion-schema.json`;
+current effect versions, parameters and bounds are in
+`../scripts/motion/registry.json`. Use these shipped definitions rather than
+inventing parameters or copying an older effect list. Config is data only: no
+code, URLs, CSS, selectors or unknown fields.
 
-Register using the normal bundled registrar with `--kind presentation`, listing local images as related assets. Motion-marked files additionally receive strict data and static DOM validation. Validation cannot prove runtime behavior. Before delivery, test the final file offline in a browser: no action means no animation, next/previous changes the visible page and notifies subscribers, managed mode disables standalone controls/keyboard, and text stays selectable/editable.
+When replacing sample pages, keep page IDs, bridge pages, notes keys and config
+pages in the same DOM order. Every editable text/image target belongs to its
+page and has a stable unique `data-id`; declare text/rich-text fields as motion
+`text`, and editable `img` as `image`. A group needs
+`data-nutbook-motion-group="true"`; video/iframe targets need their actual
+elements. Declare all video/iframe IDs and flags in page capabilities. Support
+flags describe the adapters the document actually supports. Preserve existing
+page/target/capability declarations during normal content and motion editing.
 
-Then verify the real NUTBOOK path: add/open the output → toolbar **编辑** → select text → apply 字形粒子 → drag duration/density/strength/hue → save/finish → close/reopen. Dragging must change the current preview without restarting playback. Saved actions must replay on reopen, and undo/discard must restore both content and motion. Report browser checks, real runtime checks, and user confirmation separately. Do not overwrite an already edited sample when refreshing a runtime or generating another example.
+## Verify the finished file
+
+Register normally with `--kind presentation` and local assets as related files.
+Registration validates motion data and DOM consistency; it does not prove
+runtime behavior. In an offline browser verify that the initial configuration
+is empty and no effects play, forward/back navigation updates the actual page
+and subscribers, and managed mode hides standalone controls and stops its
+keyboard navigation. Verify that text remains editable and motion-center
+selection can apply and undo an effect without changing the saved source.
+
+For native acceptance, open the file in NUTBOOK → **编辑** → **动效中心** →
+select text → choose and apply an effect → save/finish → close/reopen. Confirm
+that the chosen effect persists, and that undo/discard restores content and
+motion together. Distinguish browser tests, native runtime checks and user
+confirmation. Do not overwrite a user's configured effects when refreshing a
+template or runtime.

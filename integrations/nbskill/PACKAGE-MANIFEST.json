@@ -1,6 +1,6 @@
 {
   "package": "nbskill",
-  "version": "1.4.4",
+  "version": "1.4.8",
   "files": [
     {
       "path": "evals/evals.json",
@@ -14,8 +14,8 @@
     },
     {
       "path": "references/agent-output-manifest-v1.md",
-      "sha256": "9002b6a381560cd0c68a0432cd34bf61ef65063735587cee9912e6177648e2cf",
-      "bytes": 6426
+      "sha256": "83e536fd7be68221ceee710fd65b68d316aa09f01daf157e4297e55b5260114c",
+      "bytes": 7465
     },
     {
       "path": "references/manifest-schema.json",
@@ -24,8 +24,8 @@
     },
     {
       "path": "references/motion-html-v1.md",
-      "sha256": "1be086953b4e15bca20f61e26252ef8eea7ea0a707df807da9ee897cabd5f940",
-      "bytes": 3502
+      "sha256": "8beab7616b32e96ced6f53b5e86eacb1abc24f175c6f92ea7bb63aa044775ee9",
+      "bytes": 3091
     },
     {
       "path": "references/motion-schema.json",
@@ -39,8 +39,8 @@
     },
     {
       "path": "references/presentation-html-v1.md",
-      "sha256": "fb8ca1e693983a02380274f1e8faa6f844e904a207753006caf1be1a4b75f047",
-      "bytes": 2266
+      "sha256": "e3b63c6ff1513fe9e7b775817438ee05611ac82c465c31f7eb4cb5d8915ca19f",
+      "bytes": 2767
     },
     {
       "path": "scripts/install.mjs",
@@ -49,8 +49,8 @@
     },
     {
       "path": "scripts/manifest-lib.mjs",
-      "sha256": "20c0ceac1af556896673f6c33ea92b15e002c7418d8ccd27585c36ac3d62b09a",
-      "bytes": 28209
+      "sha256": "2b9769b5460bdc78af697109f1363b71d22241aedf46a7a2f607abaababb21a3",
+      "bytes": 31534
     },
     {
       "path": "scripts/motion/contract.mjs",
@@ -78,6 +78,11 @@
       "bytes": 2282
     },
     {
+      "path": "scripts/test-lock-recovery.mjs",
+      "sha256": "fe1c72e32736dbb84fe3e98ab603f49e6fb19cad7e29dd65284c424e7956daa8",
+      "bytes": 7461
+    },
+    {
       "path": "scripts/test-registration-isolation.mjs",
       "sha256": "2f5082a2703fae3e88b8033a2a015efba8b39cff6b86b730acd6e6eff9431277",
       "bytes": 5153
@@ -89,8 +94,8 @@
     },
     {
       "path": "scripts/test.mjs",
-      "sha256": "bd895e662c1956e8b84fe8b49944b39093c32ead036177525adbb9bc7f0403a1",
-      "bytes": 14997
+      "sha256": "3e912b9442bd4f6a01302a8ef292c42167db249748f00e872d8ab1524761ab25",
+      "bytes": 15039
     },
     {
       "path": "scripts/validate.mjs",
@@ -99,8 +104,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "7fcbbfd3ca24f673239dd09782a605b34d9ce9deb18af257c211998c827b991d",
-      "bytes": 11162
+      "sha256": "0cf802d4103ca9b30323fdc7f08cbe7dab5f19fbab4d04b7ba42287aad9af5fe",
+      "bytes": 12177
     },
     {
       "path": "templates/manifest.json",
@@ -109,8 +114,8 @@
     },
     {
       "path": "templates/motion-presentation.html",
-      "sha256": "f56cd38891442e13819f0f28990d7b68705b9d148ed25ade5317275acb921142",
-      "bytes": 363426
+      "sha256": "54231ca1380a488fe7170c34c87bc405413a4af414d8a804221d6efc941e3e02",
+      "bytes": 363697
     },
     {
       "path": "templates/presentation-mark.svg",
@@ -119,17 +124,17 @@
     },
     {
       "path": "templates/presentation.html",
-      "sha256": "708659ce2374dcdd00bc82da8fc57e058f02af9c857d3c90a1b1a157cb074a4d",
-      "bytes": 6298
+      "sha256": "54231ca1380a488fe7170c34c87bc405413a4af414d8a804221d6efc941e3e02",
+      "bytes": 363697
     },
     {
       "path": "templates/presentation.source.html",
-      "sha256": "980cde2820c09bd0287494d55f317282c3c36dec099b32bc01bbe2c4655f8e8a",
-      "bytes": 5328
+      "sha256": "10c99450575f447a6895235c5e940c24b32a343024d04bc2e048320b75362702",
+      "bytes": 4855
     },
     {
       "path": "VERSION",
-      "sha256": "d03d8b268b4171328ac2458ce8ca82d69a1fde38469d4e4faae4f8fa8d8a5e35",
+      "sha256": "7df3598542760c06a06a832d7cbc12bd20b3fd1beae5c8c0399e9642f7073717",
       "bytes": 6
     }
   ]

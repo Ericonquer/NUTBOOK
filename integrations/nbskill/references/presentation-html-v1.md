@@ -1,10 +1,12 @@
 # Standalone HTML presentation for NUTBOOK
 
-Use this contract only when the user requests a presentation or slide deck HTML. Start from `templates/presentation.html` in this installed nbskill directory, copy `templates/presentation-mark.svg` beside the output HTML (or replace it with another local image), then replace the three example pages and notes with the user's content. Ordinary HTML keeps the existing HTML edit contract.
+Use this contract only when the user requests a presentation or slide deck HTML. Start from `templates/presentation.html` in this installed nbskill directory, copy `templates/presentation-mark.svg` beside the output HTML (or replace it with another local image), then replace the three example pages and notes with the user's content. Read `motion-html-v1.md`: new presentations support the motion center by default, with no effects applied. Keep page IDs, notes, bridge and motion declarations aligned when replacing sample content. Ordinary HTML keeps the existing HTML edit contract.
 
 Keep `data-nutbook-artifact-kind="presentation"` on `<html>` for a precise failure message. Each page needs one stable, non-empty, unique `data-nutbook-page-id`; the bridge `pages` array and `activePageId` must describe the actual DOM and active page. `goTo` must use the deck's real navigation and notify `subscribe` after a change; reject unknown IDs. The embedded shared bridge publishes `version: 1`, `capabilities.managedPresenter`, and the required methods. Do not replace actual navigation with a stub.
 
-`setManagedMode(true)` must hide the deck's own controls and notes UI and stop its keyboard navigation while leaving page animation and media running. `setManagedMode(false)` restores standalone behavior. Keep it independent of `setEditMode`. Check Arrow, PageUp/PageDown, Space, F, editing focus, and IME before delivery.
+The default template uses Arrow/PageUp/PageDown/Space navigation and a quiet, noninteractive page count. Do not add persistent floating previous/next buttons by default. Visible navigation buttons are optional, only when the user or actual delivery context calls for them.
+
+`setManagedMode(true)` must hide any standalone navigation/page count and notes UI and stop its keyboard navigation while leaving any user-configured animation and media running. `setManagedMode(false)` restores standalone behavior. Keep it independent of `setEditMode`. Check Arrow, PageUp/PageDown, Space, F, editing focus, and IME before delivery.
 
 The `nutbook-presentation-notes` JSON block is required even when empty: `{"version":1,"pages":{}}`. Notes keys are page IDs. Paragraphs contain text runs and optional `bold`; never inject notes as HTML. Mark every visible content text and image with a stable `data-id` and supported `data-editable` target, following `nutbook-html-edit-contract-v1.md`. The page container, script, styles and controls are structural, not editable content.
 

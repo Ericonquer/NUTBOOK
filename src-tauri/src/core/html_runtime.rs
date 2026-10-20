@@ -2105,7 +2105,7 @@ pub fn external_html_find_action_script(
         .unwrap_or_else(|_| "\"\"".to_string());
     let backwards = action == "prev";
     Ok(format!(
-        r#";(()=>{{const q={query_json},cs={case_sensitive},action={action_json},itemId={item_json};let style=document.getElementById('nutbook-html-find-selection');if(!style){{style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{{background:rgba(255,159,67,.68)!important;color:inherit!important}}::-moz-selection{{background:rgba(255,159,67,.68)!important;color:inherit!important}}';document.head.append(style);}}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0,at=0;while(needle&&(at=source.indexOf(needle,at))>=0){{total++;at+=Math.max(1,needle.length);}}let deferred=false;const report=(current=1)=>{{document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({{itemId,total,changed:0,current}});}};const revealSelection=()=>{{const selection=window.getSelection?.();if(!selection?.rangeCount)return;const node=selection.getRangeAt(0).commonAncestorContainer;const anchor=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;anchor?.scrollIntoView?.({{block:'nearest',inline:'nearest'}});}};const find=()=>{{const handled=window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__?.({{query:q,caseSensitive:cs,backwards:{backwards},action,done:report}});if(handled){{deferred=true;return false;}}const matched=window.find(q,cs,{backwards},true,false,false,false);if(matched)revealSelection();return matched;}};find();if(!deferred)report();}})();"#
+        r#";(()=>{{const q={query_json},cs={case_sensitive},action={action_json},itemId={item_json};let style=document.getElementById('nutbook-html-find-selection');if(!style){{style=document.createElement('style');style.id='nutbook-html-find-selection';style.textContent='::selection{{background:rgba(255,159,67,.68)!important;color:inherit!important}}::-moz-selection{{background:rgba(255,159,67,.68)!important;color:inherit!important}}';document.head.append(style);}}const text=String(document.body?.innerText||"");const source=cs?text:text.toLocaleLowerCase();const needle=cs?q:q.toLocaleLowerCase();let total=0,at=0;while(needle&&(at=source.indexOf(needle,at))>=0){{total++;at+=Math.max(1,needle.length);}}let deferred=false;const report=(current=1,matchTotal=total)=>{{total=matchTotal;document.title='__NUTBOOK_HTML_FIND_RESULT__:'+JSON.stringify({{itemId,total,changed:0,current}});}};const revealSelection=()=>{{const selection=window.getSelection?.();if(!selection?.rangeCount)return;const node=selection.getRangeAt(0).commonAncestorContainer;const anchor=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;anchor?.scrollIntoView?.({{block:'nearest',inline:'nearest'}});}};const find=()=>{{const handled=window.__NUTBOOK_FIND_ACROSS_PRESENTATION_PAGES__?.({{query:q,caseSensitive:cs,backwards:{backwards},action,done:report}});if(handled){{deferred=true;return false;}}const matched=window.find(q,cs,{backwards},true,false,false,false);if(matched)revealSelection();return matched;}};find();if(!deferred)report();}})();"#
     ))
 }
 
@@ -2213,6 +2213,11 @@ fn presentation_preview_init_script(
     const base = document.createElement("base"); base.href = document.baseURI;
     const visiblePage = pages.find((page) => getComputedStyle(page).display !== "none") || pages[0];
     const activeDisplay = ["block", "flex", "grid"].includes(getComputedStyle(visiblePage).display) ? getComputedStyle(visiblePage).display : "block";
+    // Fixed-size author canvases must not inherit the narrow rail's scale.
+    // Responsive decks retain the established 1024x576 desktop viewport.
+    const fixedCanvas = visiblePage.offsetWidth > 1024;
+    const previewWidth = fixedCanvas ? visiblePage.offsetWidth : 1024;
+    const previewHeight = fixedCanvas ? Math.max(1, visiblePage.offsetHeight) : 576;
     const root = document.createElement("main");
     root.id = "nutbook-presentation-preview-root";
     root.setAttribute("aria-label", "演示页面缩略图");
@@ -2252,14 +2257,19 @@ fn presentation_preview_init_script(
       clone.querySelectorAll("script,iframe").forEach((node) => node.remove());
       let content = clone;
       for (let parent = source.parentElement; parent && parent !== document.body; parent = parent.parentElement) {{
-        const wrapper = parent.cloneNode(false); wrapper.style.removeProperty("display"); wrapper.replaceChildren(content); content = wrapper;
+        const wrapper = parent.cloneNode(false); wrapper.style.removeProperty("display");
+        for (const [property,value] of Object.entries({{position:"absolute",inset:"0",left:"0",top:"0",width:`${{previewWidth}}px`,height:`${{previewHeight}}px`,margin:"0",transform:"none","transform-origin":"0 0"}})) wrapper.style.setProperty(property,value,"important");
+        wrapper.replaceChildren(content); content = wrapper;
       }}
       const snapshot = document.documentElement.cloneNode(false);
       const head = document.createElement("head");
-      head.innerHTML = `<meta charset="utf-8">${{base.outerHTML}}${{sourceStyles}}<style>html,body{{margin:0!important;width:1024px!important;height:576px!important;overflow:hidden!important}}[data-nutbook-page-id]{{display:${{activeDisplay}}!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;width:1024px!important;height:576px!important}}</style>`;
+      head.innerHTML = `<meta charset="utf-8">${{base.outerHTML}}${{sourceStyles}}<style>html,body{{margin:0!important;width:${{previewWidth}}px!important;height:${{previewHeight}}px!important;overflow:hidden!important}}[data-nutbook-page-id]{{display:${{activeDisplay}}!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;width:${{previewWidth}}px!important;height:${{previewHeight}}px!important}}</style>`;
       const body = document.body.cloneNode(false); body.style.removeProperty("display"); body.replaceChildren(content);
       snapshot.replaceChildren(head, body);
       const frame = document.createElement("iframe"); frame.setAttribute("sandbox", ""); frame.setAttribute("aria-hidden", "true"); frame.tabIndex = -1;
+      frame.style.width = `${{previewWidth}}px`; frame.style.height = `${{previewHeight}}px`;
+      frame.style.transformOrigin = "top left";
+      frame.style.transform = `scale(${{Math.min(1024 / previewWidth,576 / previewHeight)}})`;
       frame.srcdoc = `<!doctype html>${{snapshot.outerHTML}}`;
       canvas.append(frame); stage.replaceChildren(canvas);
       const fit = () => {{ canvas.style.transform = `scale(${{stage.clientWidth / 1024}})`; }};
@@ -3285,57 +3295,73 @@ pub fn html_runtime_compatibility_script() -> &'static str {
   // window.find cannot move that state machine, so it only selects text on
   // the visible slide. Prefer a public presentation bridge; otherwise replay
   // the deck's own Arrow key handler rather than assuming a hash convention.
-  const findAcrossPresentationPages = ({ query, caseSensitive, backwards, action, done }) => {
-    const slides = Array.from(document.querySelectorAll('.slide'));
-    if (slides.length < 2) return false;
-    const needle = String(query || '');
-    if (!needle) return false;
-    const normalize = (value) => caseSensitive ? String(value || '') : String(value || '').toLocaleLowerCase();
-    const sourceNeedle = normalize(needle);
+  let presentationFindRequest = 0;
+  const findAcrossPresentationPages = ({ query, caseSensitive, backwards, action, replacement = '', done }) => {
+    const slides = Array.from(document.querySelectorAll('[data-nutbook-page-id], .slide')).filter(node => !node.parentElement?.closest('[data-nutbook-page-id], .slide'));
+    if (slides.length < 2 || !query) return false;
+    const request = ++presentationFindRequest;
     const matches = [];
+    const expression = new RegExp(String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseSensitive ? 'gu' : 'giu');
     slides.forEach((slide, pageIndex) => {
-      const text = normalize(slide.innerText || slide.textContent || '');
-      let offset = 0;
-      while (sourceNeedle && (offset = text.indexOf(sourceNeedle, offset)) >= 0) {
-        matches.push(pageIndex);
-        offset += Math.max(1, sourceNeedle.length);
+      const groups = new Map(), walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script,style,noscript,template,textarea,input,select,button,[data-nutbook-motion-panel],.nutbook-html-edit-image-actions')) continue;
+        let hidden = false;
+        for (let ancestor = parent; ancestor && ancestor !== slide; ancestor = ancestor.parentElement) {
+          if (ancestor.hidden || getComputedStyle(ancestor).display === 'none') { hidden = true; break; }
+        }
+        if (hidden) continue;
+        const group = parent.closest('[data-editable],p,h1,h2,h3,h4,h5,h6,li,td,th,figcaption,blockquote') || slide;
+        if (!groups.has(group)) groups.set(group, { text: '', nodes: [] });
+        const entry = groups.get(group);
+        entry.nodes.push({ node, start: entry.text.length, end: entry.text.length + node.length });
+        entry.text += node.data;
+      }
+      for (const entry of groups.values()) {
+        expression.lastIndex = 0;
+        for (const match of entry.text.matchAll(expression)) {
+          const start = match.index, end = start + match[0].length;
+          const first = entry.nodes.find(part => part.end > start), last = entry.nodes.find(part => part.end >= end);
+          if (!first || !last) continue;
+          const range = document.createRange();
+          range.setStart(first.node, start - first.start); range.setEnd(last.node, end - last.start);
+          matches.push({ pageIndex, range });
+        }
       }
     });
-    if (!matches.length) return false;
-    const state = window.__NUTBOOK_PRESENTATION_FIND_STATE__ || {};
-    const key = `${caseSensitive ? '1' : '0'}:${needle}`;
-    let cursor;
-    if (state.key !== key || action === 'query') {
-      const activePage = Math.max(0, slides.findIndex((slide) => slide.classList.contains('is-active')));
-      cursor = matches.findIndex((pageIndex) => pageIndex >= activePage);
-      if (cursor < 0) cursor = 0;
-    } else {
-      cursor = Number(state.cursor || 0) + (backwards ? -1 : 1);
-      cursor = (cursor + matches.length) % matches.length;
+    const bridge = window.__NUTBOOK_PRESENTATION__;
+    const activePage = Math.max(0, slides.findIndex(slide => slide.dataset.nutbookPageId === bridge?.activePageId || slide.classList.contains('is-active') || slide.classList.contains('active')));
+    const key = `${caseSensitive ? '1' : '0'}:${query}`, state = window.__NUTBOOK_PRESENTATION_FIND_STATE__ || {};
+    let cursor = state.key === key && action !== 'query' ? Number(state.cursor || 0) + (action === 'next' ? 1 : action === 'prev' ? -1 : 0) : matches.findIndex(match => match.pageIndex >= activePage);
+    cursor = matches.length ? ((cursor < 0 ? matches.length - 1 : cursor) % matches.length) : -1;
+    if (!matches.length) { done?.(0, 0, 0); return true; }
+    if (action === 'replace' || action === 'replace_all') {
+      const edit = window.__NUTBOOK_HTML_EDIT__;
+      const changed = edit?.replaceTextMatches?.(action === 'replace_all' ? matches : [matches[cursor]], replacement) || 0;
+      window.__NUTBOOK_PRESENTATION_FIND_STATE__ = {};
+      findAcrossPresentationPages({query, caseSensitive, backwards: false, action: 'query', done: (current, total) => done?.(current, total, changed)});
+      return true;
     }
     window.__NUTBOOK_PRESENTATION_FIND_STATE__ = { key, cursor };
-    const targetPage = matches[cursor];
-    const selectOnTargetPage = () => {
-      window.find(needle, Boolean(caseSensitive), Boolean(backwards), true, false, false, false);
-      revealFindSelection();
-      done?.(cursor + 1);
+    const target = matches[cursor], targetPageId = slides[target.pageIndex].dataset.nutbookPageId;
+    const select = () => {
+      if (request !== presentationFindRequest || !target.range.startContainer.isConnected) return;
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(target.range);
+      revealFindSelection(); done?.(cursor + 1, matches.length, 0);
     };
-    const activePage = Math.max(0, slides.findIndex((slide) => slide.classList.contains('is-active')));
-    if (targetPage === activePage) {
-      selectOnTargetPage();
+    if (target.pageIndex === activePage) { select(); return true; }
+    if (bridge?.version === 1 && targetPageId) {
+      const edit = window.__NUTBOOK_HTML_EDIT__;
+      Promise.resolve(edit?.isEditing?.() ? edit.goToPresentationPage(targetPageId) : bridge.goTo(targetPageId)).then(result => {
+        if (result !== false && request === presentationFindRequest) requestAnimationFrame(select);
+      }).catch(() => { if (request === presentationFindRequest) done?.(0, matches.length, 0); });
       return true;
     }
-    const bridge = window.__NUTBOOK_PRESENTATION__;
-    const targetPageId = slides[targetPage]?.dataset?.nutbookPageId;
-    if (bridge?.version === 1 && targetPageId && bridge.goTo?.(targetPageId) !== false) {
-      requestAnimationFrame(selectOnTargetPage);
-      return true;
-    }
-    const direction = targetPage > activePage ? 'ArrowRight' : 'ArrowLeft';
-    for (let step = 0; step < Math.abs(targetPage - activePage); step += 1) {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: direction, code: direction, bubbles: true }));
-    }
-    requestAnimationFrame(() => requestAnimationFrame(selectOnTargetPage));
+    const direction = target.pageIndex > activePage ? 'ArrowRight' : 'ArrowLeft';
+    for (let step = 0; step < Math.abs(target.pageIndex - activePage); step++) document.dispatchEvent(new KeyboardEvent('keydown', { key: direction, code: direction, bubbles: true }));
+    requestAnimationFrame(() => requestAnimationFrame(select));
     return true;
   };
 

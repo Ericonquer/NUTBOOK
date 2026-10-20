@@ -28,7 +28,9 @@ export function freezePage(element,foregroundCanvas){
   }else if(node instanceof HTMLCanvasElement){copy.width=node.width;copy.height=node.height;if(node.width&&node.height)copy.getContext('2d').drawImage(node,0,0);}else{for(const child of node.childNodes){const cloned=clone(child);if(cloned)copy.append(cloned);}}
   return copy;
  }
- const copied=clone(root),rect=root.getBoundingClientRect();for(const [key,value]of Object.entries({position:'absolute',inset:'auto',left:`${rect.left}px`,top:`${rect.top}px`,width:`${rect.width}px`,height:`${rect.height}px`,margin:'0',transform:'none',opacity:'1'}))copied.style.setProperty(key,value,'important');layer.append(copied);
+ // Keep layout in author pixels and carry the axis-aligned canvas scale into
+ // the viewport projection, including scale inherited from an unnamed ancestor.
+ const copied=clone(root),rect=root.getBoundingClientRect();for(const [key,value]of Object.entries({position:'absolute',inset:'auto',left:`${rect.left}px`,top:`${rect.top}px`,width:`${root.offsetWidth}px`,height:`${root.offsetHeight}px`,'box-sizing':'border-box',margin:'0','transform-origin':'0 0',transform:`scale(${rect.width/root.offsetWidth},${rect.height/root.offsetHeight})`,opacity:'1'}))copied.style.setProperty(key,value,'important');layer.append(copied);
  if(foregroundCanvas){const canvas=document.createElement('canvas');canvas.width=foregroundCanvas.width;canvas.height=foregroundCanvas.height;canvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';canvas.getContext('2d').drawImage(foregroundCanvas,0,0);canvas.dataset.nutbookTransitionDepth='';layer.append(canvas);}
  // Fixed DOM projections live outside the authored page; freeze their complete
  // surfaces too, then suspend originals until rollback renders or disposal.

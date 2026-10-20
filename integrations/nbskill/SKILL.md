@@ -15,13 +15,18 @@ an Agent project into a general file browser.
 - Read [references/nutbook-html-edit-contract-v1.md](references/nutbook-html-edit-contract-v1.md)
   before creating, updating, registering, or superseding any HTML artifact.
 - For `kind: presentation` HTML, read [references/presentation-html-v1.md](references/presentation-html-v1.md)
-  and start from the bundled [standalone template](templates/presentation.html).
+  and [references/motion-html-v1.md](references/motion-html-v1.md), then start
+  from the bundled [standalone template](templates/presentation.html).
+  New presentations support NUTBOOK's motion center by default, with empty
+  actions, backgrounds and transitions. Supporting motion editing does not
+  authorize choosing or playing effects for the user.
+  Default navigation is keyboard-based with a quiet page count; do not copy
+  floating previous/next buttons into every deck.
   Run the independent browser behavior check described there before delivery.
-- When the user explicitly requests motion editing, also read
-  [references/motion-html-v1.md](references/motion-html-v1.md) and start from
-  [the optional motion template](templates/motion-presentation.html).
-  New motion documents start static. Do not add this contract to arbitrary HTML
-  or change an existing document's IDs and capability declarations during editing.
+- Ordinary non-presentation HTML keeps the HTML edit contract. Preserve an
+  existing document's IDs, capabilities and chosen effects during edits; do not
+  retrofit or reset it just to register it. Add motion support to an older deck
+  when the user requests that adaptation, preserving its content and design.
 - Treat registration as part of completing a user-facing Markdown or HTML
   deliverable. Before the final response, register every primary `.md` and
   `.html` file created or updated for the user; do not wait for a separate
@@ -155,6 +160,16 @@ counts, or validation results in commentary or the final answer unless asked.
 Keep the final answer focused on the requested artifact. Fix errors in the
 current delivery when possible; report only unresolved failures affecting that
 delivery or requiring user action. Do not edit the manifest manually.
+
+The writer automatically recovers empty locks and locks whose local owner has
+exited. On POSIX, an empty `.manifest.lock` is a reusable container, not a
+busy lock; normal release does not delete this directory. Identical metadata
+is a validated no-op, so unchanged manifest mtime does not indicate failure.
+Do not delete lock directories or ask the user to remove them. A live
+owner is never displaced just because its lock is old. If the sandbox denies
+project writes, request permission for the registrar itself and retry that
+command once after permission is granted; do not use a separate shell cleanup
+command or describe a permission denial as invalid document content.
 
 Use `node scripts/validate.mjs --self-test` only to verify the installed package
 runtime; it writes solely to an operating-system temporary directory.

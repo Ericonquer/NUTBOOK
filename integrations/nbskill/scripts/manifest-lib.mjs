@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmdirSync,
@@ -15,6 +16,7 @@ import {
 } from "node:fs";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { validateConfig } from "./motion/contract.mjs";
 
 const ROOT_KEYS = new Set(["schemaVersion", "projectRoot", "entries"]);
@@ -485,25 +487,80 @@ export async function withManifestLock(projectRoot, operation) {
   const outputDirectory = join(projectRoot, ".agent-outputs");
   mkdirSync(outputDirectory, { recursive: true });
   const lockPath = join(outputDirectory, ".manifest.lock");
+  const token = randomUUID();
+  const ownerName = `owner-${token}.json`;
+  const prepared = join(outputDirectory, `.manifest-lock-${token}`);
   const deadline = Date.now() + 10_000;
-  while (true) {
-    try {
-      mkdirSync(lockPath, { mode: 0o700 });
-      writeFileSync(join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`, { mode: 0o600 });
-      break;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      if (Date.now() >= deadline) throw new Error("timed out waiting for the manifest lock");
-      await new Promise((resolveWait) => setTimeout(resolveWait, 25 + Math.floor(Math.random() * 50)));
+  let acquired = false;
+  let operationError;
+  let completed = false;
+  try {
+    // Publish an already populated directory atomically. A denied owner write
+    // or process exit during preparation cannot strand the shared lock path.
+    mkdirSync(prepared, { mode: 0o700 });
+    writeFileSync(join(prepared, ownerName), `${JSON.stringify({ pid: process.pid, hostname: hostname(), token, createdAt: new Date().toISOString() })}\n`, { flag: "wx", mode: 0o600 });
+    while (!acquired) {
+      try {
+        renameSync(prepared, lockPath);
+        acquired = true;
+      } catch (error) {
+        const collision = ["EEXIST", "ENOTEMPTY"].includes(error.code)
+          || (process.platform === "win32" && ["EPERM", "EACCES"].includes(error.code) && existsSync(lockPath));
+        if (!collision) throw error;
+        recoverAbandonedManifestLock(lockPath);
+        if (Date.now() >= deadline) throw new Error("manifest is busy in another process; retry registration after it finishes");
+        await new Promise((resolveWait) => setTimeout(resolveWait, 25 + Math.floor(Math.random() * 50)));
+      }
+    }
+    const result = await operation();
+    completed = true;
+    return result;
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    // On POSIX rename atomically replaces the empty directory on the next
+    // acquisition. Keep that reusable container; normal release needs no rmdir.
+    const directory = acquired ? lockPath : prepared;
+    const cleanupErrors = [];
+    try { unlinkSync(join(directory, ownerName)); } catch (error) { if (error.code !== "ENOENT") cleanupErrors.push(error); }
+    if (!acquired || process.platform === "win32") {
+      try { rmdirSync(directory); } catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) cleanupErrors.push(error); }
+    }
+    if (cleanupErrors.length) {
+      const detail = `manifest lock cleanup failed: ${cleanupErrors.map(error => error.message).join("; ")}`;
+      if (operationError) operationError.message += `; additionally, ${detail}`;
+      else throw new Error(`${completed ? "registration operation completed; " : ""}${detail}`, { cause: cleanupErrors[0] });
     }
   }
+}
+
+function recoverAbandonedManifestLock(lockPath) {
   try {
-    return await operation();
-  } finally {
-    const owner = join(lockPath, "owner.json");
-    if (existsSync(owner)) unlinkSync(owner);
-    if (existsSync(lockPath) && lstatSync(lockPath).isDirectory()) rmdirSync(lockPath);
-  }
+    const directory = lstatSync(lockPath);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("manifest lock must be a real directory");
+    for (const name of readdirSync(lockPath)) {
+      // Recognize legacy locks too; unknown contents are never removed.
+      if (name !== "owner.json" && !/^owner-[0-9a-f-]{36}\.json$/u.test(name)) continue;
+      const path = join(lockPath, name);
+      let owner;
+      try {
+        if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) continue;
+        owner = JSON.parse(readFileSync(path, "utf8"));
+      } catch (error) { if (error.code === "ENOENT" || error instanceof SyntaxError) continue; throw error; }
+      if (!owner || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || (owner.hostname && owner.hostname !== hostname())) continue;
+      try { process.kill(owner.pid, 0); continue; } catch (error) { if (error.code !== "ESRCH") continue; }
+      // New owners have unique filenames and published locks are nonempty.
+      // Concurrent recovery cannot unlink a replacement owner's marker, and
+      // rmdir cannot remove a replacement lock while its owner is present.
+      const current = lstatSync(lockPath);
+      if (current.dev !== directory.dev || current.ino !== directory.ino) return;
+      try { unlinkSync(path); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
+    if (process.platform === "win32") {
+      try { rmdirSync(lockPath); } catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) throw error; }
+    }
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
 export function entryFromOptions(options, idKey = "id") {

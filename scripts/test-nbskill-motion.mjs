@@ -9,6 +9,17 @@ const source=readFileSync('integrations/nbskill/templates/motion-presentation.ht
 validateEditableHtmlContract(source);
 validatePresentationHtmlContract(source);
 validateMotionHtmlContract(source);
+const defaultSource=readFileSync('integrations/nbskill/templates/presentation.html','utf8');
+validateEditableHtmlContract(defaultSource);
+validatePresentationHtmlContract(defaultSource);
+validateMotionHtmlContract(defaultSource);
+assert.match(defaultSource, /<html\b[^>]*data-nutbook-motion-contract="nutbook-motion\/v1"/);
+const shippedRuntime=readFileSync('src-tauri/resources/export-templates/motion-runtime.js','utf8');
+for (const html of [source, defaultSource]) {
+  assert.ok(html.includes(shippedRuntime), 'embedded runtime must preserve literal JS bytes, including replacement tokens');
+  const data=JSON.parse(html.match(/<script\b[^>]*id="nutbook-motion-config"[^>]*>([\s\S]*?)<\/script>/)[1]);
+  assert.ok(data.pages.every(page=>!page.actions.length && page.background===null && page.transition===null));
+}
 assert.ok(!source.includes('@keyframes rise'), 'new motion documents start static');
 const marker='<script type="application/json" id="nutbook-motion-config" data-id="nutbook-motion-config">';
 const start=source.indexOf(marker)+marker.length, end=source.indexOf('</script>',start);

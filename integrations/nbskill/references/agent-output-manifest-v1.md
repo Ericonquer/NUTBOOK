@@ -104,6 +104,21 @@ active HTML compatibility failure remains visible to `validate.mjs` but cannot
 make the manifest structure unreadable or block its scripted supersede path.
 Git merges and direct Agent-authored JSON are not concurrency control.
 
+Lock ownership is prepared in a private sibling directory before atomic
+publication, so a failed owner write cannot leave a shared half-created lock.
+Writers automatically recover empty legacy lock directories and locks owned by
+an exited local process. Age alone never permits stealing a live lock. Recovery
+only removes recognized dead-owner records. On POSIX the empty directory is a
+reusable container, not an active lock: the next writer replaces it atomically
+without a directory-delete operation. Windows removes empty directories using
+its ordinary supported path. Unknown
+contents, symbolic links and owners on other hosts remain untouched. A real
+project write denial still requires host permission, not manual lock cleanup.
+Cleanup failures preserve the original operation error. If the operation has
+already completed, the error explicitly identifies release failure rather than
+claiming the registration write failed. Re-registering identical metadata is a
+validated no-op and need not change the manifest modification time.
+
 Register and supersede always enforce manifest structure, path syntax and
 canonical containment. During their locked read/merge/write, missing historical
 primary/related files are allowed, while the current delivery remains strict.

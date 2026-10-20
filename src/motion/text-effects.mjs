@@ -6,14 +6,18 @@ const hash=(seed,index)=>{let n=(seed^Math.imul(index+1,2654435761))>>>0;n=Math.
 // Visible fragments exclude a preceding line's empty caret. Never split author nodes.
 export function textGlyphs(element){
  const nodes=[],walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);let node,text='';while((node=walker.nextNode())){nodes.push({node,start:text.length,end:text.length+node.data.length});text+=node.data;}
+ // Range rectangles are viewport pixels; computed fonts remain author pixels.
+ // Carry ancestor transforms into raster typography before drawing outside the deck.
+ let matrix=new DOMMatrix();for(let node=element;node;node=node.parentElement){const style=getComputedStyle(node);matrix=new DOMMatrix(style.transform==='none'?undefined:style.transform).multiply(matrix);const zoom=parseFloat(style.zoom);if(Number.isFinite(zoom)&&zoom>0&&zoom!==1)matrix=new DOMMatrix().scale(zoom).multiply(matrix);}
+ const scaleX=Math.hypot(matrix.a,matrix.b)||1,scaleY=Math.hypot(matrix.c,matrix.d)||1;
  const textures=new Map(),glyphs=[],dpr=Math.min(2,devicePixelRatio||1);
  for(const {segment,index}of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)){
   if(!segment.trim())continue;const first=nodes.find(n=>n.end>index),last=nodes.find(n=>n.end>=index+segment.length);if(!first||!last)continue;
   const range=document.createRange();range.setStart(first.node,index-first.start);range.setEnd(last.node,index+segment.length-last.start);
   const rect=[...range.getClientRects()].filter(r=>r.width>0&&r.height>0).sort((a,b)=>b.width*b.height-a.width*a.height)[0];if(!rect)continue;
-  const style=getComputedStyle(first.node.parentElement),font=style.font||`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`,key=[segment,font,style.color,rect.width,rect.height].join('|');let image=textures.get(key);
-  if(!image){image=document.createElement('canvas');image.width=Math.max(1,Math.ceil(rect.width*dpr));image.height=Math.max(1,Math.ceil(rect.height*dpr));const ctx=image.getContext('2d');ctx.scale(dpr,dpr);ctx.font=font;ctx.fillStyle=style.color;ctx.textBaseline='middle';ctx.fillText(segment,0,rect.height/2);textures.set(key,image);}
-  glyphs.push({segment,index,rect,image,font,color:style.color,fontSize:parseFloat(style.fontSize)});
+  const style=getComputedStyle(first.node.parentElement),font=(style.font||`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`).replace(/([\d.]+)px/,(_,size)=>`${Number(size)*scaleY}px`),key=[segment,font,style.color,rect.width,rect.height].join('|');let image=textures.get(key);
+  if(!image){image=document.createElement('canvas');image.width=Math.max(1,Math.ceil(rect.width*dpr));image.height=Math.max(1,Math.ceil(rect.height*dpr));const ctx=image.getContext('2d');ctx.scale(dpr*scaleX/scaleY,dpr);ctx.font=font;ctx.fillStyle=style.color;ctx.textBaseline='middle';ctx.fillText(segment,0,rect.height/2);textures.set(key,image);}
+  glyphs.push({segment,index,rect,image,font,color:style.color,fontSize:parseFloat(style.fontSize)*scaleY});
  }
  if(!glyphs.length)throw Error('当前文字没有可见字形');
  return {text,glyphs,dispose(){for(const image of textures.values())image.width=image.height=0;textures.clear();}};
