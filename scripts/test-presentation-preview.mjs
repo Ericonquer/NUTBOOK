@@ -34,12 +34,24 @@ try {
       viewportWidth: document.documentElement.clientWidth,
       pageDisplay: getComputedStyle(heading.closest("[data-nutbook-page-id]")).display,
       fontSize: parseFloat(getComputedStyle(heading).fontSize),
-      width: heading.getBoundingClientRect().width
+      width: heading.getBoundingClientRect().width,
+      layoutWidth: heading.offsetWidth,
+      pageWidth: heading.closest("[data-nutbook-page-id]").getBoundingClientRect().width
     }));
     assert.equal(metrics.viewportWidth, 1024, `slide ${index + 1} keeps desktop viewport`);
     assert.notEqual(metrics.pageDisplay, "none", `slide ${index + 1} is visible`);
     assert.ok(metrics.fontSize >= 60, `slide ${index + 1} uses desktop typography`);
-    assert.ok(metrics.width >= 500, `slide ${index + 1} has full slide layout`);
+    assert.equal(metrics.pageWidth, 1024, `slide ${index + 1} fills the layout viewport`);
+    assert.ok(metrics.layoutWidth > 0, `slide ${index + 1} has measurable text layout`);
+    assert.ok(Math.abs(metrics.width - metrics.layoutWidth) < 1, `slide ${index + 1} has no extra transform scaling: ${JSON.stringify(metrics)}`);
+    // A short title may be narrower than 500px with a different system font.
+    // Prove that legitimate narrow content does not look like canvas shrinkage.
+    const narrow = await frame.locator("h1").evaluate(heading => {
+      heading.style.width = "420px";
+      return { width: heading.getBoundingClientRect().width, layoutWidth: heading.offsetWidth };
+    });
+    assert.equal(narrow.layoutWidth, 420);
+    assert.ok(Math.abs(narrow.width - narrow.layoutWidth) < 1);
   }
   const dir=mkdtempSync(join(tmpdir(),'nutbook-fixed-preview-')),file=join(dir,'index.html');
   const bridge=readFileSync('src-tauri/resources/export-templates/presentation-bridge.js','utf8');
