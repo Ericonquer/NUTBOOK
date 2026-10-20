@@ -2213,6 +2213,11 @@ fn presentation_preview_init_script(
     const base = document.createElement("base"); base.href = document.baseURI;
     const visiblePage = pages.find((page) => getComputedStyle(page).display !== "none") || pages[0];
     const activeDisplay = ["block", "flex", "grid"].includes(getComputedStyle(visiblePage).display) ? getComputedStyle(visiblePage).display : "block";
+    // Fixed-size author canvases must not inherit the narrow rail's scale.
+    // Responsive decks retain the established 1024x576 desktop viewport.
+    const fixedCanvas = visiblePage.offsetWidth > 1024;
+    const previewWidth = fixedCanvas ? visiblePage.offsetWidth : 1024;
+    const previewHeight = fixedCanvas ? Math.max(1, visiblePage.offsetHeight) : 576;
     const root = document.createElement("main");
     root.id = "nutbook-presentation-preview-root";
     root.setAttribute("aria-label", "演示页面缩略图");
@@ -2252,14 +2257,19 @@ fn presentation_preview_init_script(
       clone.querySelectorAll("script,iframe").forEach((node) => node.remove());
       let content = clone;
       for (let parent = source.parentElement; parent && parent !== document.body; parent = parent.parentElement) {{
-        const wrapper = parent.cloneNode(false); wrapper.style.removeProperty("display"); wrapper.replaceChildren(content); content = wrapper;
+        const wrapper = parent.cloneNode(false); wrapper.style.removeProperty("display");
+        for (const [property,value] of Object.entries({{position:"absolute",inset:"0",left:"0",top:"0",width:`${{previewWidth}}px`,height:`${{previewHeight}}px`,margin:"0",transform:"none","transform-origin":"0 0"}})) wrapper.style.setProperty(property,value,"important");
+        wrapper.replaceChildren(content); content = wrapper;
       }}
       const snapshot = document.documentElement.cloneNode(false);
       const head = document.createElement("head");
-      head.innerHTML = `<meta charset="utf-8">${{base.outerHTML}}${{sourceStyles}}<style>html,body{{margin:0!important;width:1024px!important;height:576px!important;overflow:hidden!important}}[data-nutbook-page-id]{{display:${{activeDisplay}}!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;width:1024px!important;height:576px!important}}</style>`;
+      head.innerHTML = `<meta charset="utf-8">${{base.outerHTML}}${{sourceStyles}}<style>html,body{{margin:0!important;width:${{previewWidth}}px!important;height:${{previewHeight}}px!important;overflow:hidden!important}}[data-nutbook-page-id]{{display:${{activeDisplay}}!important;visibility:visible!important;opacity:1!important;transform:none!important;transition:none!important;animation:none!important;width:${{previewWidth}}px!important;height:${{previewHeight}}px!important}}</style>`;
       const body = document.body.cloneNode(false); body.style.removeProperty("display"); body.replaceChildren(content);
       snapshot.replaceChildren(head, body);
       const frame = document.createElement("iframe"); frame.setAttribute("sandbox", ""); frame.setAttribute("aria-hidden", "true"); frame.tabIndex = -1;
+      frame.style.width = `${{previewWidth}}px`; frame.style.height = `${{previewHeight}}px`;
+      frame.style.transformOrigin = "top left";
+      frame.style.transform = `scale(${{Math.min(1024 / previewWidth,576 / previewHeight)}})`;
       frame.srcdoc = `<!doctype html>${{snapshot.outerHTML}}`;
       canvas.append(frame); stage.replaceChildren(canvas);
       const fit = () => {{ canvas.style.transform = `scale(${{stage.clientWidth / 1024}})`; }};
