@@ -47,7 +47,7 @@ try {
   // Exact user symptom: empty directory left by a denied owner write.
   const empty = fixture(); mkdirSync(lock(empty));
   await quietRegister(empty);
-  assert.equal(existsSync(lock(empty)), false);
+  assert.ok(!existsSync(lock(empty)) || readdirSync(lock(empty)).length === 0);
 
   // Actual process death, including legacy owner.json and current unique owner.
   const killed = fixture();
@@ -55,7 +55,7 @@ try {
   const deadPid = holder.pid;
   const deadExit = once(holder, 'exit'); holder.kill('SIGKILL'); await deadExit;
   await quietRegister(killed);
-  assert.equal(existsSync(lock(killed)), false);
+  assert.ok(!existsSync(lock(killed)) || readdirSync(lock(killed)).length === 0);
   const legacy = fixture(); mkdirSync(lock(legacy));
   writeFileSync(join(lock(legacy), 'owner.json'), JSON.stringify({ pid: deadPid, createdAt: new Date().toISOString() }));
   await quietRegister(legacy);
@@ -67,7 +67,7 @@ try {
   for (const id of ids) writeFileSync(join(concurrent, `${id}.md`), `# ${id}\n`);
   await Promise.all(ids.map(id => quietRegister(concurrent, id, `${id}.md`)));
   assert.deepEqual(JSON.parse(readFileSync(manifest(concurrent))).entries.map(e => e.id).sort(), ids.sort());
-  assert.deepEqual(readdirSync(join(concurrent, '.agent-outputs')), ['manifest.json']);
+  assert.deepEqual(readdirSync(join(concurrent, '.agent-outputs')), (process.platform === 'win32' ? ['manifest.json'] : ['.manifest.lock', 'manifest.json']));
 
   // A live owner is protected even when its timestamp looks ancient.
   const live = fixture(); const liveHolder = await heldLock(live);
@@ -101,8 +101,27 @@ try {
   // Validation failure also releases only the owned lock; a subsequent retry succeeds.
   const invalid = fixture();
   await assert.rejects(quietRegister(invalid, 'report', 'missing.md'));
-  assert.deepEqual(readdirSync(join(invalid, '.agent-outputs')), []);
+  assert.deepEqual(readdirSync(join(invalid, '.agent-outputs')), process.platform === 'win32' ? [] : ['.manifest.lock']);
   await quietRegister(invalid);
+
+  // WorkBuddy-shaped broker: directory removal is denied, ordinary unlink/rename
+  // are permitted. Successful and no-op registrations must stay quiet and retry.
+  if (process.platform !== 'win32') {
+    const broker = fixture();
+    await run(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
+      fs.rmdirSync=()=>{throw Object.assign(new Error('broker denied rmdir'),{code:'EACCES'});};
+      syncBuiltinESMExports();
+      const {withManifestLock}=await import(${JSON.stringify(library)});
+      for(let i=0;i<3;i++) await withManifestLock(${JSON.stringify(broker)},()=>{});
+      try { await withManifestLock(${JSON.stringify(broker)},()=>{throw Error('original validation error');}); }
+      catch(e){if(!e.message.includes('original validation error'))throw e;}
+      fs.unlinkSync=()=>{throw Object.assign(new Error('broker denied unlink'),{code:'EACCES'});};
+      syncBuiltinESMExports();
+      try { await withManifestLock(${JSON.stringify(broker)},()=>{throw Error('original write error');}); throw Error('expected failure'); }
+      catch(e){if(!e.message.includes('original write error')||!e.message.includes('cleanup failed'))throw e;}
+    `]);
+  }
 
   if (process.platform !== 'win32') {
     const unsafe = fixture(); const outside = fixture();

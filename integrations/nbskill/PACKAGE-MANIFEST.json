@@ -1,6 +1,6 @@
 {
   "package": "nbskill",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "files": [
     {
       "path": "evals/evals.json",
@@ -14,8 +14,8 @@
     },
     {
       "path": "references/agent-output-manifest-v1.md",
-      "sha256": "a6ac5feb6f4e835047496c34b67853d0b75975372e82ad83d5497f325c82cf3d",
-      "bytes": 6964
+      "sha256": "83e536fd7be68221ceee710fd65b68d316aa09f01daf157e4297e55b5260114c",
+      "bytes": 7465
     },
     {
       "path": "references/manifest-schema.json",
@@ -49,8 +49,8 @@
     },
     {
       "path": "scripts/manifest-lib.mjs",
-      "sha256": "e40b84c4d68109db368fbe7d9495b3be8ce45fe703b89ee07dfead4e0e0cae0b",
-      "bytes": 30774
+      "sha256": "2b9769b5460bdc78af697109f1363b71d22241aedf46a7a2f607abaababb21a3",
+      "bytes": 31534
     },
     {
       "path": "scripts/motion/contract.mjs",
@@ -79,8 +79,8 @@
     },
     {
       "path": "scripts/test-lock-recovery.mjs",
-      "sha256": "de2c007474f042ab60101d151d95068298a651d01ec6fabdee3f52b9916b9b37",
-      "bytes": 6022
+      "sha256": "fe1c72e32736dbb84fe3e98ab603f49e6fb19cad7e29dd65284c424e7956daa8",
+      "bytes": 7461
     },
     {
       "path": "scripts/test-registration-isolation.mjs",
@@ -104,8 +104,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "a30122d565a15b0b4d69e08c812abd08c2c3e651ba8c4c5aea9da518a628e23e",
-      "bytes": 11956
+      "sha256": "0cf802d4103ca9b30323fdc7f08cbe7dab5f19fbab4d04b7ba42287aad9af5fe",
+      "bytes": 12177
     },
     {
       "path": "templates/manifest.json",
@@ -114,8 +114,8 @@
     },
     {
       "path": "templates/motion-presentation.html",
-      "sha256": "9490d0c3da775904030988115f2f7090c0278ef7503424c369c594c8ea93aeb5",
-      "bytes": 362948
+      "sha256": "54231ca1380a488fe7170c34c87bc405413a4af414d8a804221d6efc941e3e02",
+      "bytes": 363697
     },
     {
       "path": "templates/presentation-mark.svg",
@@ -124,8 +124,8 @@
     },
     {
       "path": "templates/presentation.html",
-      "sha256": "9490d0c3da775904030988115f2f7090c0278ef7503424c369c594c8ea93aeb5",
-      "bytes": 362948
+      "sha256": "54231ca1380a488fe7170c34c87bc405413a4af414d8a804221d6efc941e3e02",
+      "bytes": 363697
     },
     {
       "path": "templates/presentation.source.html",
@@ -134,7 +134,7 @@
     },
     {
       "path": "VERSION",
-      "sha256": "794d9bfd2d064be2041cba080923b3e39ba3bec84c35794780482852b5f4007e",
+      "sha256": "7df3598542760c06a06a832d7cbc12bd20b3fd1beae5c8c0399e9642f7073717",
       "bytes": 6
     }
   ]

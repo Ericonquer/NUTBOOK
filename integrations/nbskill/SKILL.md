@@ -162,7 +162,10 @@ current delivery when possible; report only unresolved failures affecting that
 delivery or requiring user action. Do not edit the manifest manually.
 
 The writer automatically recovers empty locks and locks whose local owner has
-exited. Do not delete lock directories or ask the user to remove them. A live
+exited. On POSIX, an empty `.manifest.lock` is a reusable container, not a
+busy lock; normal release does not delete this directory. Identical metadata
+is a validated no-op, so unchanged manifest mtime does not indicate failure.
+Do not delete lock directories or ask the user to remove them. A live
 owner is never displaced just because its lock is old. If the sandbox denies
 project writes, request permission for the registrar itself and retry that
 command once after permission is granted; do not use a separate shell cleanup

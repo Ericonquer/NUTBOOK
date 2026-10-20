@@ -492,6 +492,8 @@ export async function withManifestLock(projectRoot, operation) {
   const prepared = join(outputDirectory, `.manifest-lock-${token}`);
   const deadline = Date.now() + 10_000;
   let acquired = false;
+  let operationError;
+  let completed = false;
   try {
     // Publish an already populated directory atomically. A denied owner write
     // or process exit during preparation cannot strand the shared lock path.
@@ -510,12 +512,26 @@ export async function withManifestLock(projectRoot, operation) {
         await new Promise((resolveWait) => setTimeout(resolveWait, 25 + Math.floor(Math.random() * 50)));
       }
     }
-    return await operation();
+    const result = await operation();
+    completed = true;
+    return result;
+  } catch (error) {
+    operationError = error;
+    throw error;
   } finally {
-    // Only remove this attempt's unique marker, never another writer's owner.
+    // On POSIX rename atomically replaces the empty directory on the next
+    // acquisition. Keep that reusable container; normal release needs no rmdir.
     const directory = acquired ? lockPath : prepared;
-    try { unlinkSync(join(directory, ownerName)); } catch (error) { if (error.code !== "ENOENT") throw error; }
-    try { rmdirSync(directory); } catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) throw error; }
+    const cleanupErrors = [];
+    try { unlinkSync(join(directory, ownerName)); } catch (error) { if (error.code !== "ENOENT") cleanupErrors.push(error); }
+    if (!acquired || process.platform === "win32") {
+      try { rmdirSync(directory); } catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) cleanupErrors.push(error); }
+    }
+    if (cleanupErrors.length) {
+      const detail = `manifest lock cleanup failed: ${cleanupErrors.map(error => error.message).join("; ")}`;
+      if (operationError) operationError.message += `; additionally, ${detail}`;
+      else throw new Error(`${completed ? "registration operation completed; " : ""}${detail}`, { cause: cleanupErrors[0] });
+    }
   }
 }
 
@@ -541,7 +557,9 @@ function recoverAbandonedManifestLock(lockPath) {
       if (current.dev !== directory.dev || current.ino !== directory.ino) return;
       try { unlinkSync(path); } catch (error) { if (error.code !== "ENOENT") throw error; }
     }
-    try { rmdirSync(lockPath); } catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) throw error; }
+    if (process.platform === "win32") {
+      try { rmdirSync(lockPath); } catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code)) throw error; }
+    }
   } catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 

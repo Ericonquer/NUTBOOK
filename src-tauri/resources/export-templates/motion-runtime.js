@@ -3308,6 +3308,14 @@
       nodes.push({ node, start: text.length, end: text.length + node.data.length });
       text += node.data;
     }
+    let matrix = new DOMMatrix();
+    for (let node2 = element; node2; node2 = node2.parentElement) {
+      const style = getComputedStyle(node2);
+      matrix = new DOMMatrix(style.transform === "none" ? void 0 : style.transform).multiply(matrix);
+      const zoom = parseFloat(style.zoom);
+      if (Number.isFinite(zoom) && zoom > 0 && zoom !== 1) matrix = new DOMMatrix().scale(zoom).multiply(matrix);
+    }
+    const scaleX = Math.hypot(matrix.a, matrix.b) || 1, scaleY = Math.hypot(matrix.c, matrix.d) || 1;
     const textures = /* @__PURE__ */ new Map(), glyphs = [], dpr = Math.min(2, devicePixelRatio || 1);
     for (const { segment, index } of new Intl.Segmenter(void 0, { granularity: "grapheme" }).segment(text)) {
       if (!segment.trim()) continue;
@@ -3318,21 +3326,21 @@
       range.setEnd(last.node, index + segment.length - last.start);
       const rect = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0).sort((a, b) => b.width * b.height - a.width * a.height)[0];
       if (!rect) continue;
-      const style = getComputedStyle(first.node.parentElement), font = style.font || `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`, key = [segment, font, style.color, rect.width, rect.height].join("|");
+      const style = getComputedStyle(first.node.parentElement), font = (style.font || `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`).replace(/([\d.]+)px/, (_, size) => `${Number(size) * scaleY}px`), key = [segment, font, style.color, rect.width, rect.height].join("|");
       let image = textures.get(key);
       if (!image) {
         image = document.createElement("canvas");
         image.width = Math.max(1, Math.ceil(rect.width * dpr));
         image.height = Math.max(1, Math.ceil(rect.height * dpr));
         const ctx = image.getContext("2d");
-        ctx.scale(dpr, dpr);
+        ctx.scale(dpr * scaleX / scaleY, dpr);
         ctx.font = font;
         ctx.fillStyle = style.color;
         ctx.textBaseline = "middle";
         ctx.fillText(segment, 0, rect.height / 2);
         textures.set(key, image);
       }
-      glyphs.push({ segment, index, rect, image, font, color: style.color, fontSize: parseFloat(style.fontSize) });
+      glyphs.push({ segment, index, rect, image, font, color: style.color, fontSize: parseFloat(style.fontSize) * scaleY });
     }
     if (!glyphs.length) throw Error("\u5F53\u524D\u6587\u5B57\u6CA1\u6709\u53EF\u89C1\u5B57\u5F62");
     return { text, glyphs, dispose() {
@@ -4796,7 +4804,7 @@ void main(){vec2 uv=gl_FragCoord.xy/resolution-.5;uv.x*=resolution.x/resolution.
       return copy;
     }
     const copied = clone(root2), rect = root2.getBoundingClientRect();
-    for (const [key, value] of Object.entries({ position: "absolute", inset: "auto", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, margin: "0", transform: "none", opacity: "1" })) copied.style.setProperty(key, value, "important");
+    for (const [key, value] of Object.entries({ position: "absolute", inset: "auto", left: `${rect.left}px`, top: `${rect.top}px`, width: `${root2.offsetWidth}px`, height: `${root2.offsetHeight}px`, "box-sizing": "border-box", margin: "0", "transform-origin": "0 0", transform: `scale(${rect.width / root2.offsetWidth},${rect.height / root2.offsetHeight})`, opacity: "1" })) copied.style.setProperty(key, value, "important");
     layer.append(copied);
     if (foregroundCanvas) {
       const canvas = document.createElement("canvas");
