@@ -13772,13 +13772,17 @@
         if (!tab?.item?.filePath || !src || !appState.isTauri) return false;
         if (/^https?:\/\//i.test(String(src).trim())) return true;
         try {
-          const result = await invoke("validate_markdown_cover_asset", {
-            payload: {
-              itemId: tab.id,
-              markdownFilePath: tab.item.filePath,
-              src
-            }
-          });
+          const result = tab.external?.sessionId
+            ? await invoke("external_session_validate_cover_asset", {
+              payload: { sessionId: tab.external.sessionId, generation: tab.external.generation, src }
+            })
+            : await invoke("validate_markdown_cover_asset", {
+              payload: {
+                itemId: tab.id,
+                markdownFilePath: tab.item.filePath,
+                src
+              }
+            });
           if (result?.valid) return true;
           const reason = result?.reason || t("markdown.coverAspectHint");
           // 状态栏 = 详细技术原因（比例 / MIME / SVG 安全规则）；toast = 口语总结。
@@ -13843,21 +13847,6 @@
           match = imgPattern.exec(markdown);
         }
         return srcs;
-      }
-
-      async function deleteMarkdownImageAssetForTab(tab, imageSrc) {
-        if (!tab?.item?.filePath || !imageSrc || !appState.isTauri) return false;
-        try {
-          return await invoke("delete_markdown_image_asset", {
-            payload: {
-              markdownFilePath: tab.item.filePath,
-              imageSrc
-            }
-          });
-        } catch (error) {
-          console.warn("Markdown image asset delete failed", error);
-          return false;
-        }
       }
 
       async function mountMarkdownEditor(tab) {
@@ -13947,9 +13936,6 @@
                 setStatus(message, "warn");
                 showToast(message);
               }
-            },
-            onRemoveImageAsset(src) {
-              return deleteMarkdownImageAssetForTab(tab, src);
             },
             onImageSizeError() {
               setStatus(t("markdown.imageSizeReadFailed"), "warn");

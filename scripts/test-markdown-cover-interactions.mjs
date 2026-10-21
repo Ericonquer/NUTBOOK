@@ -16,6 +16,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
+import vm from "node:vm";
 
 const bundle = readFileSync("dist/assets/markdown-editor.js", "utf8");
 const fixtureDir = "src-tauri/tests/fixtures/card-revisions";
@@ -40,6 +41,29 @@ const toolbarCss = toolbarCssMatch ? toolbarCssMatch[0] : "";
 const PLAIN = fixture("markdown-cover-plain.md");
 const DUPLICATE = fixture("markdown-duplicate-cover.md");
 const REMOTE = fixture("markdown-remote-cover.md");
+
+// Execute the production host callback: external IDs must never reach the i64 command.
+const validationSource = hostHtml.slice(
+  hostHtml.indexOf('      async function validateMarkdownCoverAssetForTab'),
+  hostHtml.indexOf('      // 放弃 / 关闭 / 复制晚到时释放 staged lease')
+);
+const validationCalls = [];
+const validationContext = vm.createContext({
+  appState: { isTauri: true },
+  invoke: async (command, args) => { validationCalls.push({ command, args }); return { valid: true }; }
+});
+vm.runInContext(validationSource + ';globalThis.validate = validateMarkdownCoverAssetForTab;', validationContext);
+await validationContext.validate({ id: 'external:ext-test', item: { filePath: '/tmp/doc.md' }, external: { sessionId: 'ext-test', generation: 3 } }, './assets/image.png');
+assert.equal(validationCalls[0].command, 'external_session_validate_cover_asset');
+assert.equal(validationCalls[0].args.payload.sessionId, 'ext-test');
+assert.equal(validationCalls[0].args.payload.generation, 3);
+assert.equal('itemId' in validationCalls[0].args.payload, false);
+await validationContext.validate({ id: 42, item: { filePath: '/tmp/doc.md' } }, './assets/image.png');
+assert.equal(validationCalls[1].command, 'validate_markdown_cover_asset');
+assert.equal(validationCalls[1].args.payload.itemId, 42);
+await validationContext.validate({ id: 'external:ext-test', item: { filePath: '/tmp/doc.md' } }, 'https://example.com/cover.png');
+assert.equal(validationCalls.length, 2, 'remote covers do not enter local file validation');
+assert.doesNotMatch(hostHtml, /onRemoveImageAsset\s*\(/, 'host must never wire reversible editor removal to disk deletion');
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
@@ -395,6 +419,33 @@ try {
   assert.equal(state.hasCover, false, "validation failure must NOT change cover identity");
   markdown = await getMarkdown();
   assert.doesNotMatch(markdown, /<!-- nutbook-cover -->/, "validation failure must leave the doc untouched");
+
+  // Cut/paste must preserve resources even after the former 360ms cleanup window.
+  await mountEditor("![move](./assets/move.png)\n\nDestination");
+  await page.locator('#editor .ProseMirror').click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.evaluate(() => {
+    window.__cutData = new DataTransfer();
+    document.querySelector('#editor .ProseMirror').dispatchEvent(new ClipboardEvent('cut', {
+      bubbles: true, cancelable: true, clipboardData: window.__cutData
+    }));
+  });
+  await page.waitForTimeout(650);
+  assert.doesNotMatch(await getMarkdown(), /move.png/, "cut must actually remove the image from the document");
+  assert.equal(await removedSources(), "[]", "cut must never delete the backing image file");
+  await page.evaluate(() => {
+    document.querySelector('#editor .ProseMirror').dispatchEvent(new ClipboardEvent('paste', {
+      bubbles: true, cancelable: true, clipboardData: window.__cutData
+    }));
+  });
+  await page.waitForTimeout(650);
+  assert.match(await getMarkdown(), /move.png/, "paste must restore the cut image reference");
+  assert.equal(await removedSources(), "[]", "paste must leave the backing image intact");
+  await undo();
+  await page.waitForTimeout(650);
+  assert.equal(await removedSources(), "[]", "undo must preserve backing assets for redo");
+  await redo();
+  assert.match(await getMarkdown(), /move.png/, "redo must restore the image reference");
 
   // ------------------------------------------------ 复制晚到（picker 已销毁）
   const lateState = await page.evaluate(async () => {

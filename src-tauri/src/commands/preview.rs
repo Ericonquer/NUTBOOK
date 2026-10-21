@@ -3125,11 +3125,18 @@ pub fn validate_markdown_cover_asset_impl(
     if requested_markdown != indexed_markdown {
         return Err(AppError::InvalidParams);
     }
-    let Some(resolved) = resolve_markdown_local_src(&payload.markdown_file_path, &payload.src)
+    validate_markdown_cover_asset_for_path(&payload.markdown_file_path, &payload.src)
+}
+
+pub(crate) fn validate_markdown_cover_asset_for_path(
+    markdown_file_path: &str,
+    src: &str,
+) -> Result<ValidateMarkdownCoverAssetResponse, AppError> {
+    let Some(resolved) = resolve_markdown_local_src(markdown_file_path, src)
     else {
         return Ok(ValidateMarkdownCoverAssetResponse {
             valid: false,
-            reason: Some(format!("cover src `{}` escapes the document directory", payload.src)),
+            reason: Some(format!("cover src `{}` escapes the document directory", src)),
             natural_width: None,
             natural_height: None,
         });

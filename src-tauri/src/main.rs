@@ -539,6 +539,7 @@ fn main() {
             commands::external::external_session_save_as,
             commands::external::external_session_attach_watch,
             commands::external::external_session_copy_image,
+            commands::external::external_session_validate_cover_asset,
             commands::external::external_session_reload,
             commands::external::open_default_apps_panel,
             commands::external::external_default_app_guide_status,

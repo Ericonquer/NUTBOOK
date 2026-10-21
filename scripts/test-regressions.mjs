@@ -3270,7 +3270,7 @@ for (const command of [
   "copy_markdown_cover_asset",
   "validate_markdown_cover_asset",
   "release_markdown_cover_lease",
-  "delete_markdown_image_asset"
+  "external_session_validate_cover_asset"
 ]) {
   assert.match(
     indexHtml,
