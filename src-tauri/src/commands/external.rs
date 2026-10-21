@@ -1066,3 +1066,59 @@ pub fn external_session_paste_image(
     }
     crate::core::image_import::write_pasted_image(std::path::Path::new(&session.raw_path), &data)
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalSessionValidateCoverRequest {
+    pub session_id: String,
+    pub generation: u64,
+    pub src: String,
+}
+
+#[tauri::command]
+pub fn external_session_validate_cover_asset(
+    state: tauri::State<'_, AppState>,
+    payload: ExternalSessionValidateCoverRequest,
+) -> Result<crate::models::ValidateMarkdownCoverAssetResponse, AppError> {
+    validate_external_cover_asset(&state.external_sessions, payload)
+}
+
+fn validate_external_cover_asset(
+    sessions: &external_open::ExternalSessionRegistry,
+    payload: ExternalSessionValidateCoverRequest,
+) -> Result<crate::models::ValidateMarkdownCoverAssetResponse, AppError> {
+    let session = sessions.get(&payload.session_id).ok_or(AppError::InvalidSession)?;
+    if session.generation != payload.generation {
+        return Err(AppError::InvalidSession);
+    }
+    crate::commands::preview::validate_markdown_cover_asset_for_path(&session.raw_path, &payload.src)
+}
+
+#[cfg(test)]
+mod cover_session_tests {
+    use super::*;
+
+    #[test]
+    fn external_cover_validation_requires_live_generation_and_document_scope() {
+        let root = std::env::temp_dir().join(format!("nutbook-cover-session-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("doc/assets")).unwrap();
+        let doc = root.join("doc/source.md");
+        std::fs::write(&doc, "![cover](./assets/cover.png)").unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/card-revisions/assets/cover-landscape.png");
+        std::fs::copy(&fixture, root.join("doc/assets/cover.png")).unwrap();
+        std::fs::copy(&fixture, root.join("outside.png")).unwrap();
+        let sessions = external_open::ExternalSessionRegistry::default();
+        let paths = external_open::read_file_baseline(&doc).unwrap();
+        let session = sessions.create_session(doc.to_str().unwrap(), paths.identity, paths.baseline, external_open::ExternalResolution::OutsideLibrary);
+        let request = |generation, src: &str| ExternalSessionValidateCoverRequest {
+            session_id: session.session_id.clone(), generation, src: src.to_string(),
+        };
+        assert!(validate_external_cover_asset(&sessions, request(session.generation, "./assets/cover.png")).unwrap().valid);
+        assert!(!validate_external_cover_asset(&sessions, request(session.generation, "../outside.png")).unwrap().valid);
+        assert!(matches!(validate_external_cover_asset(&sessions, request(session.generation + 1, "./assets/cover.png")), Err(AppError::InvalidSession)));
+        sessions.close_session(&session.session_id);
+        assert!(matches!(validate_external_cover_asset(&sessions, request(session.generation, "./assets/cover.png")), Err(AppError::InvalidSession)));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

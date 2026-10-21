@@ -1323,59 +1323,7 @@ function pastePlainTextWhenLeavingList() {
   });
 }
 
-function collectImageSources(doc) {
-  const sources = new Set();
-  doc?.descendants?.((node) => {
-    if (["image", PORTABLE_IMAGE_NODE_NAME].includes(node.type?.name) && node.attrs?.src) {
-      sources.add(String(node.attrs.src));
-    }
-    // 封面 wrapper 是 atom，src 只存在于 attrs；封面身份变化（包裹/解包/
-    // A→B 转移）不得触发资源删除回调。
-    if (node.type?.name === MARKDOWN_COVER_IMAGE_NODE_NAME && node.attrs?.src) {
-      sources.add(String(node.attrs.src));
-    }
-    return true;
-  });
-  return sources;
-}
-
-function markdownImageAssetRemovalPlugin(onRemoveImageAsset) {
-  if (typeof onRemoveImageAsset !== "function") return null;
-  return new Plugin({
-    view(view) {
-      let knownSources = collectImageSources(view.state.doc);
-      let scanTimer = null;
-      const scanForRemovedAssets = () => {
-        scanTimer = null;
-        const nextSources = collectImageSources(view.state.doc);
-        knownSources.forEach((src) => {
-          if (!nextSources.has(src)) {
-            queueMicrotask(() => onRemoveImageAsset(src));
-          }
-        });
-        knownSources = nextSources;
-      };
-      const scheduleScan = () => {
-        if (scanTimer) clearTimeout(scanTimer);
-        scanTimer = window.setTimeout(scanForRemovedAssets, 360);
-      };
-      return {
-        update(nextView, oldState) {
-          if (oldState.doc.eq(nextView.state.doc)) return;
-          view = nextView;
-          scheduleScan();
-        },
-        destroy() {
-          if (scanTimer) {
-            clearTimeout(scanTimer);
-            scanTimer = null;
-          }
-        }
-      };
-    }
-  });
-}
-
+// Editing removal is reversible (cut/paste, undo, discard). Never delete disk assets here.
 function localImageSrcPlugin(resolveImageSrc, isolateImages = false) {
   const normalizeImage = (image) => {
     const originalSrc = image.dataset.nutbookOriginalSrc || image.getAttribute("src") || "";
@@ -1556,7 +1504,7 @@ function alignedTextSelectionState(state, selection = state?.selection) {
   return { supported: true, targets, alignment };
 }
 
-async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, isolateImages = false, onInsertImageAsset = null, onPasteImageAsset = null, onImagePasteStatus = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onRemoveImageAsset = null, onImageSizeError = null, onCoverChange = null, readOnly = false }) {
+async function createMilkdownEditor({ root, markdown = "", fileName = "", language = null, onChange = null, onEdit = null, tableToolsEnabled = true, resolveImageSrc = null, isolateImages = false, onInsertImageAsset = null, onPasteImageAsset = null, onImagePasteStatus = null, onInsertCoverAsset = null, onReleaseCoverAsset = null, onValidateCoverAsset = null, onImageSizeError = null, onCoverChange = null, readOnly = false }) {
   if (!root) {
     throw new Error("Milkdown root is required");
   }
@@ -1865,7 +1813,6 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
           }),
           imagePastePlugin,
           pastePlainTextWhenLeavingList(),
-          markdownImageAssetRemovalPlugin(onRemoveImageAsset),
           localImageSrcPlugin(resolveImageSrc, isolateImages),
           markdownOutlineDecorationPlugin(),
           findPlugin,

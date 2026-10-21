@@ -1,11 +1,34 @@
 /** Weibo article draft adapter. No publishing action is exposed. */
 import {validateJob} from './delivery.mjs';
-export function captureWeiboJson(page,predicate,options){
- const pending=page.waitForResponse(predicate,options).then(response=>response.json());
- // A click may still be awaiting navigation when response parsing fails.
- // Attach a handler immediately; the original promise still throws when consumed.
- pending.catch(()=>{});
- return pending;
+// Read the body through the intercepted request before the page can navigate.
+// Never retry a POST: an uncertain create must remain uncertain.
+export async function captureWeiboJson(page,predicate,action,{timeout=20000}={}){
+ let resolve,reject,timer,claimed=false;
+ const receipt=new Promise((yes,no)=>{resolve=yes;reject=no;});
+ receipt.catch(()=>{});
+ const match=url=>url.protocol==='https:'&&(
+  url.hostname==='card.weibo.com'&&/^\/article\/v5\/aj\/editor\/draft\/(create|load|save)$/.test(url.pathname)||
+  url.hostname==='picupload.weibo.com'&&url.pathname==='/interface/pic_upload.php');
+ const handler=async route=>{
+  const request=route.request();
+  if(claimed||!predicate({url:()=>request.url(),request:()=>request}))return route.fallback();
+  claimed=true;
+  let response;
+  try{
+   response=await route.fetch({timeout,maxRedirects:0,maxRetries:0});
+   const body=await response.body();
+   // Forward the exact bytes even if the receipt is not valid JSON.
+   await route.fulfill({response,body});
+   resolve(JSON.parse(body.toString('utf8')));
+  }catch(error){
+   reject(Error(`WEIBO_RECEIPT_${new URL(request.url()).pathname.split('/').at(-1).toUpperCase()}: ${error.message}`));
+   await route.abort().catch(()=>{});
+  }finally{await response?.dispose().catch(()=>{});}
+ };
+ await page.route(match,handler);
+ timer=setTimeout(()=>reject(Error('WEIBO_RECEIPT_TIMEOUT')),timeout);
+ try{const [,value]=await Promise.all([action(),receipt]);return value;}
+ finally{clearTimeout(timer);await page.unroute(match,handler);}
 }
 export const WEIBO_HOME='https://card.weibo.com/article/v5/editor';
 const bodySelector='.tiptap[contenteditable=true]';
@@ -30,10 +53,10 @@ export async function waitForWeiboAuthentication(page){
  await page.waitForFunction(()=>location.origin==='https://card.weibo.com'&&[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='写文章') || location.hostname==='weibo.com'&&location.pathname!=='/newlogin'&&!!document.querySelector('button[title="发微博"]'),null,{timeout:600000});
 }
 export async function loadWeiboDraft(page,url){
- const receipt=captureWeiboJson(page,r=>new URL(r.url()).pathname==='/article/v5/aj/editor/draft/load');
- if(page.url()===url)await page.reload({waitUntil:'domcontentloaded'});
- else await page.goto(url,{waitUntil:'domcontentloaded'});
- const value=await receipt;
+ const value=await captureWeiboJson(page,r=>new URL(r.url()).pathname==='/article/v5/aj/editor/draft/load',async()=>{
+  if(page.url()===url)await page.reload({waitUntil:'domcontentloaded'});
+  else await page.goto(url,{waitUntil:'domcontentloaded'});
+ });
  if(value.code!==100000||!value.data?.id||String(value.data.id)!==new URL(url).hash.split('/').at(-1))throw Error('DRAFT_UNAVAILABLE');
  await page.getByPlaceholder('请输入标题',{exact:true}).waitFor();
  await page.waitForFunction(expected=>document.querySelector('textarea')?.value===expected,value.data.title||'');
@@ -41,9 +64,8 @@ export async function loadWeiboDraft(page,url){
  return value.data;
 }
 async function saveDraft(page){
- const receipt=captureWeiboJson(page,r=>new URL(r.url()).pathname==='/article/v5/aj/editor/draft/save'&&r.request().method()==='POST');
- await page.getByRole('button',{name:'保存草稿',exact:true}).click();
- const saved=await receipt;if(saved.code!==100000)throw Error('SAVE_REJECTED');
+ const saved=await captureWeiboJson(page,r=>new URL(r.url()).pathname==='/article/v5/aj/editor/draft/save'&&r.request().method()==='POST',()=>page.getByRole('button',{name:'保存草稿',exact:true}).click());
+ if(saved.code!==100000)throw Error('SAVE_REJECTED');
 }
 async function verify(page,job,html,urls){
  await page.waitForFunction(({selector,count})=>{const imgs=[...document.querySelectorAll(selector+' figure img[src]')];return imgs.length===count&&imgs.every(e=>e.complete&&e.naturalWidth>0);},{selector:bodySelector,count:urls.length},{timeout:30000});
@@ -74,14 +96,13 @@ export async function deliverWeiboDraft({context,job,journal,checkpoint,progress
   report('preparing');await page.goto(WEIBO_HOME,{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:'写文章',exact:true}).waitFor();
   await checkpoint({digest,stage:'creating'});
-  const createdReceipt=captureWeiboJson(page,r=>new URL(r.url()).pathname==='/article/v5/aj/editor/draft/create'&&r.request().method()==='POST');
-  await page.getByRole('button',{name:'写文章',exact:true}).click();
-  const created=await createdReceipt;
+  const created=await captureWeiboJson(page,r=>new URL(r.url()).pathname==='/article/v5/aj/editor/draft/create'&&r.request().method()==='POST',()=>page.getByRole('button',{name:'写文章',exact:true}).click({noWaitAfter:true}));
   if(created.code!==100000||!/^\d+$/.test(String(created.data?.id||'')))throw Error('CREATE_REJECTED');
-  await page.waitForURL(url=>url.hash===`#/draft/${created.data.id}`);
-  // Reload the known identity and wait for its load receipt before filling hydrated fields.
-  const editUrl=page.url();await loadWeiboDraft(page,editUrl);
+  const editUrl=`${WEIBO_HOME}#/draft/${created.data.id}`;
   state={digest,stage:'editing',editUrl};await checkpoint(state);
+  // Identity is durable before any navigation/hydration can fail.
+  await page.waitForURL(url=>url.hash===`#/draft/${created.data.id}`);
+  await loadWeiboDraft(page,editUrl);
  }
  const title=page.getByPlaceholder('请输入标题',{exact:true}),summary=page.getByPlaceholder('导语（选填）',{exact:true});
  report('writing');await title.fill('');await title.pressSequentially(job.title);await summary.fill('');if(job.summary)await summary.pressSequentially(job.summary);
@@ -96,9 +117,10 @@ export async function deliverWeiboDraft({context,job,journal,checkpoint,progress
   await page.keyboard.press('Backspace');await page.locator(imageTool).click();
   const dialog=page.getByRole('dialog').filter({hasText:'图片库'});
   const chooser=page.waitForEvent('filechooser');await dialog.getByText('上传',{exact:true}).click();
-  const receipt=captureWeiboJson(page,r=>new URL(r.url()).hostname==='picupload.weibo.com'&&new URL(r.url()).pathname==='/interface/pic_upload.php'&&r.request().method()==='POST',{timeout:60000});
-  await(await chooser).setFiles({name:`${image.id}.${image.mime.split('/')[1]}`,mimeType:image.mime,buffer:Buffer.from(image.base64,'base64')});
-  const pid=readWeiboUpload(await receipt);
+  const uploaded=await captureWeiboJson(page,r=>new URL(r.url()).hostname==='picupload.weibo.com'&&new URL(r.url()).pathname==='/interface/pic_upload.php'&&r.request().method()==='POST',async()=>{
+   await(await chooser).setFiles({name:`${image.id}.${image.mime.split('/')[1]}`,mimeType:image.mime,buffer:Buffer.from(image.base64,'base64')});
+  },{timeout:60000});
+  const pid=readWeiboUpload(uploaded);
   const card=dialog.locator('.image-item').filter({has:page.locator(`img[src*="/${pid}."]`)});
   await card.waitFor();const url=await card.locator('img').getAttribute('src');
   if(!/^https:\/\/[^/]+\.sinaimg\.cn\//.test(url||''))throw Error('INVALID_UPLOADED_IMAGE_URL');
