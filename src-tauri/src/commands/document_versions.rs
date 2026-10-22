@@ -1,0 +1,241 @@
+use crate::db::repositories::ItemRepository;
+use crate::{
+    core::document_versions::{digest, file_identity, DocumentHead, PreviewInfo},
+    errors::AppError,
+    state::AppState,
+};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryTarget {
+    pub item_id: Option<i64>,
+    pub session_id: Option<String>,
+    pub generation: Option<u64>,
+}
+fn trusted(webview: &tauri::Webview) -> Result<(), AppError> {
+    if webview.label() == "main" {
+        Ok(())
+    } else {
+        Err(AppError::InvalidSession)
+    }
+}
+fn target(state: &AppState, value: &HistoryTarget) -> Result<(PathBuf, PathBuf), AppError> {
+    if let Some(id) = value.item_id {
+        let item = state.get_item_detail(id)?;
+        if item.summary.file_type != "markdown" {
+            return Err(AppError::UnsupportedFileType);
+        }
+        Ok((
+            PathBuf::from(&item.summary.file_path),
+            state.authorization_root_for_item(&item)?,
+        ))
+    } else if let Some(id) = &value.session_id {
+        let session = state
+            .external_sessions
+            .get(id)
+            .ok_or(AppError::InvalidSession)?;
+        if Some(session.generation) != value.generation {
+            return Err(AppError::InvalidSession);
+        }
+        let path = PathBuf::from(session.raw_path);
+        let root = path.parent().ok_or(AppError::InvalidParams)?.to_owned();
+        Ok((path, root))
+    } else {
+        Err(AppError::InvalidParams)
+    }
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryList {
+    documents: Vec<DocumentHead>,
+    document_bytes: std::collections::BTreeMap<String,u64>,
+    active_document_id: Option<String>,
+    used_bytes: u64,
+    storage_path: PathBuf,
+    limit_bytes: u64,
+    availability:std::collections::BTreeMap<String,bool>,
+}
+#[tauri::command]
+pub fn list_document_versions(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: HistoryTarget,
+) -> Result<HistoryList, AppError> {
+    trusted(&webview)?;
+    let store = state.document_history()?;
+    let documents = store.documents()?;
+    let active_document_id = target(&state, &payload).ok().and_then(|(path, _)| {
+        let path = path.canonicalize().ok()?;
+        let identity = file_identity(&path).ok()?;
+        documents
+            .iter()
+            .find(|h| h.canonical_path == path && h.file_identity == identity)
+            .map(|h| h.id.clone())
+    });
+    let availability=documents.iter().map(|head|(head.id.clone(),file_identity(&head.canonical_path).is_ok_and(|identity|identity==head.file_identity))).collect();
+    let document_bytes=documents.iter().map(|head|Ok((head.id.clone(),store.document_usage_bytes(head)?))).collect::<Result<_,crate::core::document_versions::HistoryError>>()?;
+    let settings = store.settings()?;
+    Ok(HistoryList {
+        documents,
+        document_bytes,
+        active_document_id,
+        used_bytes: store.usage_bytes()?,
+        storage_path: store.storage_path().to_owned(),
+        limit_bytes: settings.limit_bytes,
+        availability,
+    })
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionSelection {
+    pub document_id: String,
+    pub version_id: String,
+    pub generation: u64,
+}
+#[tauri::command]
+pub fn get_document_version_preview(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: VersionSelection,
+) -> Result<PreviewInfo, AppError> {
+    trusted(&webview)?;
+    let result=state.document_history()?.begin_markdown_preview(
+        &payload.document_id,
+        &payload.version_id,
+        payload.generation,
+    )?;
+    Ok(result)
+}
+#[tauri::command]
+pub fn close_document_version_preview(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<(), AppError> {
+    trusted(&webview)?;
+    Ok(state.document_history()?.close_preview(&session_id)?)
+}
+#[tauri::command]
+pub fn set_version_history_limit(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    megabytes: u64,
+) -> Result<(), AppError> {
+    trusted(&webview)?;
+    state.document_history()?.set_limit_mb(megabytes)?;
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteHistory {
+    document_id: String,
+    version_id: Option<String>,
+    confirmed: bool,
+}
+#[tauri::command]
+pub fn delete_document_versions(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: DeleteHistory,
+) -> Result<(), AppError> {
+    trusted(&webview)?;
+    if !payload.confirmed {
+        return Err(AppError::InvalidParams);
+    }
+    let store = state.document_history()?;
+    store.delete_versions(&payload.document_id, payload.version_id.as_deref())?;
+    store.collect_unreferenced_objects()?;
+    state.synchronize_history_index();
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreHistory {
+    document_id: String,
+    version_id: String,
+    target: HistoryTarget,
+    expected_hash: String,
+    allow_incomplete: bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    source: String,
+    file_hash: String,
+    index_synchronized: bool,
+    resource_directories: Vec<PathBuf>,
+    baseline: crate::core::external_open::ExternalBaseline,
+}
+#[tauri::command]
+pub fn restore_document_version(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: RestoreHistory,
+) -> Result<RestoreResult, AppError> {
+    trusted(&webview)?;
+    let (path, root) = target(&state, &payload.target)?;
+    let store = state.document_history()?;
+    let head = store.document(&payload.document_id)?;
+    if path.canonicalize().map_err(|_| AppError::IoError)? != head.canonical_path {
+        return Err(AppError::InvalidSession);
+    }
+    store.restore_markdown(
+        &payload.document_id,
+        &payload.version_id,
+        &root,
+        &payload.expected_hash,
+        payload.allow_incomplete,
+    )?;
+    let source = std::fs::read_to_string(&path).map_err(|_| AppError::IoError)?;
+    let hash = digest(source.as_bytes());
+    if let Some(id) = payload.target.session_id {
+        let baseline = crate::core::external_open::read_file_baseline(&path)?.baseline;
+        state.external_sessions.update_baseline(&id, baseline);
+    }
+    let mut index_synchronized = state.synchronize_history_index();
+    if let Some(id) = payload.target.item_id {
+        // Source is already durable; never report a second save failure here.
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+        let modified = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| crate::core::document::file_modified_at_string(&m).ok())
+            .unwrap_or_default();
+        index_synchronized &= state
+            .update_markdown_item_content(
+                id,
+                &crate::core::document::markdown_summary(&source),
+                &modified,
+                &hash,
+                &source,
+                &source,
+                &crate::core::document::render_markdown_as_html_for_file(&source, &file_name),
+            )
+            .is_ok();
+    }
+    Ok(RestoreResult {
+        source,
+        file_hash: hash,
+        index_synchronized,
+        baseline: crate::core::external_open::read_file_baseline(&path)?.baseline,
+        resource_directories: store
+            .document(&payload.document_id)?
+            .restored_directories
+            .into_iter()
+            .map(|r| r.path)
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub fn open_document_history_location(webview:tauri::Webview,state:tauri::State<'_,AppState>)->Result<(),AppError>{
+    trusted(&webview)?;
+    let store=state.document_history()?;
+    #[cfg(target_os="macos")]
+    let result=std::process::Command::new("open").arg(store.storage_path()).status();
+    #[cfg(target_os="windows")]
+    let result=std::process::Command::new("explorer.exe").arg(store.storage_path()).status();
+    #[cfg(not(any(target_os="macos",target_os="windows")))]
+    let result=std::process::Command::new("xdg-open").arg(store.storage_path()).status();
+    if result.map_err(|_|AppError::IoError)?.success(){Ok(())}else{Err(AppError::IoError)}
+}

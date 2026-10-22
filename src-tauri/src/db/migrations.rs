@@ -7,7 +7,7 @@ use rusqlite::{backup::Backup, Connection, OptionalExtension, Transaction};
 
 use crate::errors::AppError;
 
-pub const LATEST_SCHEMA_VERSION: i64 = 9;
+pub const LATEST_SCHEMA_VERSION: i64 = 10;
 const MIGRATION_0002_SQL: &str =
     include_str!("../../migrations/0002_agent_artifact_sources.sql");
 const MIGRATION_0003_SQL: &str =
@@ -67,6 +67,7 @@ const MIGRATIONS: &[Migration] = &[
         sql: MIGRATION_0008_SQL,
     },
     Migration { version: 9, name: "custom_tag_order", sql: include_str!("../../migrations/0009_custom_tag_order.sql") },
+    Migration { version: 10, name: "document_version_index", sql: include_str!("../../migrations/0010_document_version_index.sql") },
 ];
 
 pub fn ensure_migration_registry(connection: &Connection) -> Result<(), AppError> {

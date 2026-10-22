@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN" data-nutbook-edit-contract="nutbook-html/v1" data-nutbook-artifact-kind="presentation">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>演示稿示例</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; background: #171b2b; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+    body { overflow: hidden; }
+    .slide { display: none; width: 100vw; height: 100vh; padding: 8vw; align-items: center; gap: 5vw; }
+    .slide.active { display: flex; }
+    .copy { max-width: 64vw; }
+    h1 { margin: 0 0 .4em; font-size: clamp(38px, 6vw, 84px); line-height: 1.12; }
+    p { margin: 0; font-size: clamp(20px, 2.5vw, 34px); line-height: 1.4; color: #d3d7e8; }
+    img { width: 25vw; max-height: 45vh; object-fit: contain; }
+    .slide.active .rise { animation: rise .7s ease both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(36px); } to { opacity: 1; transform: none; } }
+    .controls { position: fixed; right: 22px; bottom: 22px; display: flex; gap: 8px; }
+    .controls button { width: 38px; height: 38px; border: 1px solid #818ca4; border-radius: 50%; background: #252c43; color: #fff; cursor: pointer; }
+    .controls button:hover, .controls button:focus-visible { background: #394868; outline: 2px solid #fff; }
+    .controls [data-prev]::before { content: "←"; }
+    .controls [data-next]::before { content: "→"; }
+    html[data-nutbook-managed-presentation="true"] .controls { display: none; }
+  </style>
+</head>
+<body>
+  <section class="slide active" data-nutbook-page-id="opening">
+    <div class="copy rise"><h1 data-id="opening-title" data-editable="text">演示稿标题</h1><p data-id="opening-copy" data-editable="text">简述核心观点</p></div>
+    <img data-id="opening-image" data-editable="image" src="./presentation-mark.svg" alt="演示插图">
+  </section>
+  <section class="slide" data-nutbook-page-id="opening">
+    <div class="copy rise"><h1 data-id="evidence-title" data-editable="text">关键证据</h1><p data-id="evidence-copy" data-editable="text">一页只讲一个重点</p></div>
+  </section>
+  <section class="slide" data-nutbook-page-id="finish">
+    <div class="copy rise"><h1 data-id="finish-title" data-editable="text">结论</h1><p data-id="finish-copy" data-editable="text">让观众带走清晰的下一步</p></div>
+  </section>
+  <nav class="controls" aria-label="独立浏览器翻页">
+    <button type="button" data-prev aria-label="上一页" title="上一页"></button>
+    <button type="button" data-next aria-label="下一页" title="下一页"></button>
+  </nav>
+  <script type="application/json" id="nutbook-presentation-notes">{"version":1,"pages":{"opening":[{"type":"paragraph","runs":[{"text":"开场备注"}]}],"evidence":[{"type":"paragraph","runs":[{"text":"说明关键证据"}]}],"finish":[{"type":"paragraph","runs":[{"text":"结束语"}]}]}}</script>
+  <script>
+// Embedded into each standalone presentation. Navigation remains owned by the deck.
+window.createNutbookPresentationBridge = function createNutbookPresentationBridge(adapter) {
+  const pages = adapter.pages.map((page, index) => ({ ...page, index: index + 1 }));
+  const ids = new Set(pages.map((page) => page.id));
+  if (!pages.length || ids.size !== pages.length || pages.some((page) => !page.id)) {
+    throw new Error("Presentation pages need unique, non-empty IDs");
+  }
+  return {
+    version: 1,
+    capabilities: { managedPresenter: true },
+    pages,
+    get activePageId() { return adapter.activePageId(); },
+    whenReady() { return Promise.resolve(adapter.whenReady?.() ?? true); },
+    goTo(id) { return ids.has(id) ? adapter.goTo(id) : false; },
+    subscribe(listener) { return adapter.subscribe(listener); },
+    setManagedMode(enabled) { return adapter.setManagedMode(Boolean(enabled)); },
+    setEditMode(enabled) { return adapter.setEditMode?.(Boolean(enabled)) ?? true; }
+  };
+};
+
+  </script>
+  <script>
+    (() => {
+      const slides = [...document.querySelectorAll(".slide")];
+      const subscribers = new Set();
+      const controls = document.querySelector(".controls");
+      let index = 0;
+      let managed = false;
+      let editing = false;
+      function goTo(id) {
+        const next = slides.findIndex(slide => slide.dataset.nutbookPageId === id);
+        if (next < 0) return false;
+        if (next === index) return true;
+        index = next;
+        slides.forEach((slide, at) => slide.classList.toggle("active", at === index));
+        subscribers.forEach(listener => listener(id));
+        return true;
+      }
+      window.__NUTBOOK_PRESENTATION__ = window.createNutbookPresentationBridge({
+        pages: slides.map(slide => ({ id: slide.dataset.nutbookPageId, title: slide.querySelector("h1")?.textContent || "" })),
+        activePageId: () => slides[index].dataset.nutbookPageId,
+        goTo,
+        subscribe(listener) { if (typeof listener !== "function") return () => {}; subscribers.add(listener); return () => subscribers.delete(listener); },
+        setManagedMode(enabled) { managed = enabled; document.documentElement.dataset.nutbookManagedPresentation = String(enabled); controls.hidden = enabled || editing; return true; },
+        setEditMode(enabled) { editing = enabled; controls.hidden = enabled || managed; return true; }
+      });
+      document.querySelector("[data-prev]").addEventListener("click", () => goTo(slides[Math.max(0, index - 1)].dataset.nutbookPageId));
+      document.querySelector("[data-next]").addEventListener("click", () => goTo(slides[Math.min(slides.length - 1, index + 1)].dataset.nutbookPageId));
+      window.addEventListener("keydown", event => {
+        if (managed || editing || event.defaultPrevented || event.isComposing || event.target?.closest?.("input,textarea,select,[contenteditable='true']")) return;
+        const next = ["ArrowRight", "PageDown", " "].includes(event.key) ? index + 1 : ["ArrowLeft", "PageUp"].includes(event.key) ? index - 1 : null;
+        if (next == null) return;
+        event.preventDefault();
+        goTo(slides[Math.max(0, Math.min(slides.length - 1, next))].dataset.nutbookPageId);
+      });
+    })();
+  </script>
+</body>
+</html>

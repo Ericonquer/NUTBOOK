@@ -1281,8 +1281,12 @@ pub(crate) fn save_markdown_content_impl(
         }
     }
 
-    std::fs::write(&item.summary.file_path, &payload.content).map_err(|_| AppError::MarkdownSaveFailed)?;
-    let written_raw = std::fs::read_to_string(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    let history=state.document_history()?;
+    let root=state.authorization_root_for_item(&item)?;
+    let commit=history.save_markdown(std::path::Path::new(&item.summary.file_path),&root,&payload.expected_file_hash,payload.content.as_bytes(),None)?;
+    // The acknowledged bytes are durable; a later read/index failure must not
+    // be misreported as an unsaved file.
+    let written_raw = payload.content;
     let new_hash = content_hash(&written_raw);
     let rendered_html = render_markdown_as_html_for_file(&written_raw, &item.summary.file_name);
     let summary = markdown_summary(&written_raw);
@@ -1291,7 +1295,7 @@ pub(crate) fn save_markdown_content_impl(
         .and_then(|metadata| file_modified_at_string(&metadata).ok())
         .unwrap_or_else(|| item.summary.modified_at.clone());
 
-    state.update_markdown_item_content(
+    let index_synchronized=state.update_markdown_item_content(
         payload.item_id,
         &summary,
         &modified_at,
@@ -1299,8 +1303,14 @@ pub(crate) fn save_markdown_content_impl(
         &written_raw,
         &written_raw,
         &rendered_html,
-    )?;
-
+    ).is_ok();
+    if !index_synchronized {
+        // Missing mtime deliberately takes the existing reconciliation-marker
+        // branch; it must replay actual body/index content on restart.
+        state.database.sync_item_revision_after_durable_save(payload.item_id,&item.summary.file_path,&new_hash,None,written_raw.len() as i64);
+    }
+    let history_index_synchronized=state.synchronize_history_index();
+    let version_incomplete=history.document(&commit.document_id).ok().and_then(|h|h.versions.last().cloned()).is_some_and(|v|v.snapshot.dependencies.values().any(|d|!matches!(d,crate::core::document_versions::Dependency::Captured{..})));
     Ok(SaveMarkdownContentResponse {
         item_id: payload.item_id,
         modified_at,
@@ -1308,6 +1318,8 @@ pub(crate) fn save_markdown_content_impl(
         summary: Some(summary),
         rendered_html: Some(rendered_html),
         saved: true,
+        index_synchronized:index_synchronized&&history_index_synchronized&&!commit.pending_finalize,
+        version_incomplete,
     })
 }
 

@@ -1043,6 +1043,10 @@ pub struct SaveMarkdownContentResponse {
     pub summary: Option<String>,
     pub rendered_html: Option<String>,
     pub saved: bool,
+    #[serde(default)]
+    pub index_synchronized: bool,
+    #[serde(default)]
+    pub version_incomplete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

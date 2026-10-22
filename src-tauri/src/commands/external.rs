@@ -432,6 +432,7 @@ pub struct ExternalSessionSaveResponse {
     pub status: String,
     pub baseline: Option<ExternalSessionBaselineDto>,
     pub content: Option<String>,
+    pub version_incomplete: bool,
 }
 
 #[tauri::command]
@@ -450,6 +451,7 @@ pub fn external_session_save(
             status: "saved".to_string(),
             baseline: Some(baseline_dto(baseline)),
             content: None,
+            version_incomplete: history_warning(&state,&payload.session_id),
         },
         SaveOutcome::Conflict { current } => {
             let path = state
@@ -461,14 +463,23 @@ pub fn external_session_save(
                 status: "conflict".to_string(),
                 baseline: Some(baseline_dto(current)),
                 content: std::fs::read_to_string(path).ok(),
+                version_incomplete: history_warning(&state,&payload.session_id),
             }
         }
         SaveOutcome::Missing => ExternalSessionSaveResponse {
             status: "missing".to_string(),
             baseline: None,
             content: None,
+            version_incomplete: history_warning(&state,&payload.session_id),
         },
     })
+}
+
+fn history_warning(state:&AppState,session_id:&str)->bool {
+    let Some(session)=state.external_sessions.get(session_id)else{return false;};
+    let Ok(path)=PathBuf::from(session.raw_path).canonicalize()else{return false;};
+    let Ok(identity)=crate::core::document_versions::file_identity(&path)else{return false;};
+    state.document_history().ok().and_then(|store|store.documents().ok()).and_then(|heads|heads.into_iter().find(|h|h.canonical_path==path&&h.file_identity==identity)).and_then(|head|head.versions.last().cloned()).is_some_and(|version|version.snapshot.dependencies.values().any(|d|!matches!(d,crate::core::document_versions::Dependency::Captured{..})))
 }
 
 #[derive(Debug, Deserialize)]
@@ -497,9 +508,12 @@ pub fn external_session_overwrite(
             status: "missing".to_string(),
             baseline: None,
             content: None,
+            version_incomplete: history_warning(&state,&payload.session_id),
         });
     }
-    external_open::write_text_atomically(&path, &payload.content)?;
+    let expected=crate::core::document_versions::digest(&std::fs::read(&path).map_err(|_|AppError::IoError)?);
+    state.document_history()?.save_markdown(&path,path.parent().ok_or(AppError::InvalidParams)?,&expected,payload.content.as_bytes(),None)?;
+    state.synchronize_history_index();
     let baseline = external_open::read_file_baseline(&path)?.baseline;
     state
         .external_sessions
@@ -525,6 +539,7 @@ pub fn external_session_overwrite(
         status: "saved".to_string(),
         baseline: Some(baseline_dto(baseline)),
         content: None,
+            version_incomplete: history_warning(&state,&payload.session_id),
     })
 }
 

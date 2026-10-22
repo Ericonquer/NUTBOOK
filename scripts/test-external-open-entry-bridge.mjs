@@ -1032,16 +1032,28 @@ assert.match(
 );
 // 2) external 保存成功必须推进 markdownBaseline（isMarkdownTabDirty 取
 //    markdownBaseline ?? preview.raw，只更新 preview.raw 会让关闭仍提示未保存）。
-assert.match(
-  INDEX_HTML,
-  /response\?\.status === "saved"[\s\S]{0,400}?tab\.markdownBaseline = content;\s*tab\.isDirty = false;/,
-  "GUI-r5: a successful external save must advance markdownBaseline (isMarkdownTabDirty prefers markdownBaseline over preview.raw)"
-);
-assert.match(
-  INDEX_HTML,
-  /overwriteResponse\?\.status === "saved"[\s\S]{0,200}?tab\.markdownBaseline = content;/,
-  "GUI-r5: the overwrite branch must advance markdownBaseline too"
-);
+const externalSaveFunction=extractFunctionSource(INDEX_HTML,"async function saveExternalMarkdownTab(tab, { renderAfter = true } = {}) {");
+for(const overwrite of [false,true])for(const lateInput of [false,true]){
+  let latest="saved content",finish;
+  const context={
+    markdownContentForTab:()=>latest,setStatus:()=>{},t:key=>key,
+    applyExternalBaseline:(tab,baseline)=>{tab.detail.fileHash=baseline.hash;},
+    refreshExternalSaveUi:()=>{},showExternalConflictDialog:async()=>"overwrite",
+    invoke:(command)=>command==="external_session_save"&&overwrite?Promise.resolve({status:"conflict"}):new Promise(resolve=>{finish=resolve;})
+  };
+  const save=vm.runInNewContext(`(${externalSaveFunction})`,context);
+  const tab={sourceMode:"external",preview:{fileType:"markdown",raw:"old"},detail:{fileHash:"old"},external:{sessionId:"session",generation:1},markdownBaseline:"old",isDirty:true};
+  const pending=save(tab);
+  for(let i=0;i<8&&!finish;i++)await Promise.resolve();
+  assert.ok(finish,"save must reach its durable acknowledgement");
+  if(lateInput)latest="saved content plus newer input";
+  finish({status:"saved",baseline:{hash:"saved-hash"}});
+  assert.equal(await pending,true);
+  assert.equal(tab.markdownBaseline,"saved content","successful save advances only the persisted baseline");
+  assert.equal(tab.draft,latest,"save acknowledgement preserves newer typing");
+  assert.equal(tab.isDirty,lateInput,"only unchanged content becomes clean after save");
+  assert.equal(tab.preview.raw,"saved content");
+}
 // 3) 拖放投递权单一归属 Rust 原生层：前端不再有 drag-drop 订阅/诊断探针
 //（顶部与 6b/6g 的 doesNotMatch 断言已覆盖，这里不再重复旧 wireExternalDragDrop 锚点）。
 

@@ -61,6 +61,7 @@ pub struct AppState {
     //（见 core::external_open::global_inbox），不随 AppState 生命周期。
     pub external_sessions: crate::core::external_open::ExternalSessionRegistry,
     pub app_data_dir: PathBuf,
+    document_history: Mutex<Option<Arc<crate::core::document_versions::HistoryStore>>>,
 }
 
 impl AppState {
@@ -135,7 +136,24 @@ impl AppState {
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
             external_sessions: crate::core::external_open::ExternalSessionRegistry::default(),
             app_data_dir,
+            document_history: Mutex::new(None),
         }
+    }
+
+    pub fn document_history(&self)->Result<Arc<crate::core::document_versions::HistoryStore>,AppError>{
+        let mut guard=self.document_history.lock().map_err(|_|AppError::InternalError)?;
+        if let Some(store)=guard.as_ref(){let store=store.clone();drop(guard);store.recover()?;return Ok(store);}
+        // Database migration failure must prevent enabling this writer.
+        let connection=rusqlite::Connection::open(self.database.path()).map_err(|_|AppError::DatabaseError)?;
+        connection.prepare("SELECT document_id FROM history_documents LIMIT 0").map_err(|_|AppError::DatabaseError)?;
+        let store=Arc::new(crate::core::document_versions::HistoryStore::open(&self.app_data_dir)?);
+        store.recover()?;
+        *guard=Some(store.clone());Ok(store)
+    }
+    pub fn synchronize_history_index(&self)->bool {
+        let Ok(store)=self.document_history() else{return false;};
+        let Ok(mut connection)=rusqlite::Connection::open(self.database.path()) else{return false;};
+        store.rebuild_index(&mut connection).is_ok()
     }
 
     /// PR C Phase 1：缩略图缓存资源 URL 前缀（R11-a 后即 origin 本身）与

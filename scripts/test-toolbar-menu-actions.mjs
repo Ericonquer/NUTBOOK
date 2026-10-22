@@ -917,7 +917,7 @@ try {
   const mainUi = await mainPage.evaluate(async () => {
     appState.isSettingsOpen = true;
     renderSettingsPanel();
-    const settings = ["skills", "libraries", "tags", "preferences", "thumbnails"].map((tab) => {
+    const settings = ["skills", "libraries", "tags", "preferences", "thumbnails", "versions"].map((tab) => {
       appState.settingsTab = tab;
       renderSettingsPanel();
       return [...document.querySelectorAll(".settings-section")]
@@ -955,11 +955,11 @@ try {
   });
   assert.deepEqual(mainUi.settings, [
     ["settingsSkillsSection"], ["settingsLibrariesSection"], ["settingsTagsSection"],
-    ["settingsPreferencesSection"], ["settingsThumbnailsSection"]
+    ["settingsPreferencesSection"], ["settingsThumbnailsSection"], ["settingsVersionsSection"]
   ], "each settings page must be the only visible section");
   assert.ok(mainUi.settingsWidth >= 700, "settings modal must retain its intended layout");
   assert.deepEqual(mainUi.menu.map((entry) => [entry.action, entry.label]), [
-    ["format-markdown", "排版发布"], ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"],
+    ["format-markdown", "排版发布"], ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"], ["document-versions", "版本历史"],
     ["remove-from-nutbook", "移除文件"]
   ]);
   assert.notEqual(mainUi.menu[1].icon, mainUi.menu[2].icon, "export center and save-as need distinct icons");

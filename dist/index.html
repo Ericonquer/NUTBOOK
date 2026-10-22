@@ -4951,6 +4951,18 @@
         background: #f3f3f5;
         color: #6f6f75;
         font-size: 11px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+        max-width: 100%;
+        line-height: 1.5;
+      }
+
+      .confirm-detail-value {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        user-select: text;
       }
 
       .export-modal {
@@ -4991,6 +5003,7 @@
 
       .confirm-detail-label {
         color: var(--ink-soft);
+        white-space: nowrap;
       }
 
       .export-close {
@@ -8709,6 +8722,8 @@
     <link rel="stylesheet" href="./tag-editor.css" />
     <link rel="stylesheet" href="./tag-discovery.css" />
     <link rel="stylesheet" href="./tag-management.css" />
+    <link rel="stylesheet" href="./document-versions.css" />
+    <link rel="stylesheet" href="./settings-file-management.css" />
 </head>
   <body>
     <div id="appShell" class="app-shell">
@@ -8981,7 +8996,8 @@
           <button id="settingsTabLibraries" class="settings-tab" type="button" role="tab" aria-controls="settingsLibrariesSection" aria-selected="false" tabindex="-1" data-settings-tab="libraries">文件管理</button>
           <button id="settingsTabTags" class="settings-tab" type="button" role="tab" aria-controls="settingsTagsSection" aria-selected="false" tabindex="-1" data-settings-tab="tags">标签管理</button>
           <button id="settingsTabPreferences" class="settings-tab" type="button" role="tab" aria-controls="settingsPreferencesSection" aria-selected="false" tabindex="-1" data-settings-tab="preferences">偏好设定</button>
-          <button id="settingsTabThumbnails" class="settings-tab" type="button" role="tab" aria-controls="settingsThumbnailsSection" aria-selected="false" tabindex="-1" data-settings-tab="thumbnails">缩略图</button>
+          <button id="settingsTabThumbnails" class="settings-tab" type="button" role="tab" aria-controls="settingsThumbnailsSection" aria-selected="false" tabindex="-1" data-settings-tab="thumbnails">缩略头图</button>
+          <button id="settingsTabVersions" class="settings-tab" type="button" role="tab" aria-controls="settingsVersionsSection" aria-selected="false" tabindex="-1" data-settings-tab="versions" data-i18n-key="settings.versionHistory">版本历史</button>
         </div>
           <section id="settingsSkillsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabSkills">
             <div class="artifact-access-switchbar">
@@ -9090,6 +9106,7 @@
             </div>
             <div id="settingsPreferenceList" class="preference-list"></div>
           </section>
+          <section id="settingsVersionsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabVersions" data-i18n-skip hidden></section>
           <section id="settingsThumbnailsSection" class="settings-section" role="tabpanel" aria-labelledby="settingsTabThumbnails" hidden>
             <div class="settings-header">
               <div class="thumbnail-title-row">
@@ -9151,6 +9168,7 @@
     <script src="./tag-management.js"></script>
   <script src="./document-toolbar.js"></script>
     <script src="./markdown-formatting.js"></script>
+    <script src="./document-versions.js"></script>
     <script src="./assets/update-ui.js"></script>
     <script src="./i18n.js?v=20260525-update-check"></script>
     <script src="./assets/markdown-document-title.js?v=20260821-b3"></script>
@@ -10686,7 +10704,7 @@
               <h3 id="appConfirmTitle" class="confirm-title">${escapeHtml(title)}</h3>
               <p id="appConfirmMessage" class="confirm-message">${escapeHtml(message)}</p>
               ${note ? `<p class="confirm-note">${escapeHtml(note)}</p>` : ""}
-              ${detail ? `<div class="confirm-detail"><span class="confirm-detail-label">${escapeHtml(t("settings.originalFilePath"))}</span>${escapeHtml(detail)}</div>` : ""}
+              ${detail ? `<div class="confirm-detail"><span class="confirm-detail-label">${escapeHtml(t("settings.originalFilePath"))}</span><span class="confirm-detail-value" data-i18n-skip>${escapeHtml(detail)}</span></div>` : ""}
               <div class="confirm-actions">
                 <button class="button button-secondary" type="button" data-confirm-cancel>${escapeHtml(cancelText)}</button>
                 <button class="button ${danger ? "button-danger" : "button-primary"}" type="button" data-confirm-ok>${escapeHtml(confirmText)}</button>
@@ -15758,7 +15776,8 @@
           { tab: "libraries", label: t("settings.libraries"), icon: SETTINGS_ICON_SVG.fileManagement },
           { tab: "tags", label: t("settings.tags"), icon: SETTINGS_ICON_SVG.tagManagement },
           { tab: "preferences", label: t("settings.preferences"), icon: SETTINGS_ICON_SVG.preferences },
-          { tab: "thumbnails", label: t("settings.thumbnails"), icon: SETTINGS_ICON_SVG.thumbnails }
+          { tab: "thumbnails", label: t("settings.thumbnails"), icon: SETTINGS_ICON_SVG.thumbnails },
+          { tab: "versions", label: t("settings.versionHistory"), icon: SETTINGS_ICON_SVG.fileManagement }
         ];
         els.settingsMenu.innerHTML = items.map((item) => `
           <button class="popover-option menu-option" type="button" data-open-settings-tab="${item.tab}">
@@ -17191,7 +17210,42 @@
             }
           ];
         }
+        if (isMarkdown) options.splice(options.findIndex(option => option.action === "remove-from-nutbook"), 0, { action: "document-versions", label: appState.language === "en-US" ? "Version history" : "版本历史", icon: MENU_ICON_SVG.exportFile, disabled: false });
         return options;
+      }
+
+      async function openDocumentVersions(settingsOnly = false) {
+        const tab = getActiveTab();
+        if (tab?.preview?.fileType === "html") { showToast(appState.language === "en-US" ? "Open history from the home screen for now" : "当前请从首页打开版本历史"); return; }
+        if (settingsOnly) return openSettingsTab("versions");
+        const target = tab?.preview?.fileType === "markdown"
+          ? (tab.sourceMode === "external" ? { sessionId: tab.external.sessionId, generation: tab.external.generation } : { itemId: tab.id }) : {};
+        const focus = document.activeElement;
+        captureActiveMarkdownDraft();
+        await NutbookVersions.open({
+          invoke, target, language: () => appState.language, error: normalizeError,
+          canRestore: doc => Boolean(Object.keys(target).length && doc && (doc.canonical_path === (tab?.detail?.filePath || tab?.item?.filePath || tab?.external?.path))),
+          dirty: () => { captureActiveMarkdownDraft(); return tab ? isMarkdownTabDirty(tab) : false; },
+          save: () => saveActiveMarkdown(),
+          expectedHash: async () => tab.sourceMode === "external" ? (tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "")) : (tab.detail.fileHash || await sha256Hex(tab.preview.raw || "")),
+          applied: async result => {
+            if (getActiveTab() !== tab) return;
+            destroyMarkdownEditorSession(tab.id);
+            tab.draft = result.source; tab.markdownBaseline = result.source; tab.isDirty = false;
+            if (tab.sourceMode === "external") {
+              applyExternalBaseline(tab, result.baseline);
+              tab.preview.raw = result.source;
+              tab.preview.html = "";
+              refreshExternalSaveUi(tab, result.source);
+            } else {
+              const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId: tab.id }));
+              const preview = normalizePreview(await invoke("get_item_preview", { itemId: tab.id }));
+              tab.detail = detail; tab.preview = preview; tab.item = normalizeItemSummary(detail);
+              await loadItems(); renderViewer(); renderTabs();
+            }
+          },
+          restoreFocus: () => focus?.isConnected && focus.focus()
+        });
       }
 
       function renderDocumentMoreMenu() {
@@ -17227,6 +17281,7 @@
         const option = documentActionOptions().find(option => option.action === action);
         if (!option || option.disabled) return;
         closeDocumentMoreMenu({ restoreFocus: true });
+        if (action === "document-versions") { await openDocumentVersions(false); return; }
         if (action === "save-markdown") {
           await saveActiveMarkdown();
           return;
@@ -18117,10 +18172,27 @@
         renderMarkdownExportDialog();
       }
 
+      // Display-only paths; all actions continue to use library IDs and full paths.
+      function settingsSourcePathLabel(path) {
+        const normalized=String(path||"").replace(/\\/g,"/").replace(/\/+$/,"");
+        const key=value=>/^[A-Za-z]:/.test(value)?value.toLowerCase():value;
+        const folders=appState.libraries.filter(library=>library.sourceKind==="folder").map(library=>({library,root:String(library.rootPath||"").replace(/\\/g,"/").replace(/\/+$/,"")})).filter(({root})=>root&&key(normalized).startsWith(key(root)+"/")).sort((a,b)=>b.root.length-a.root.length);
+        if(folders.length){const {library,root}=folders[0];const relative=normalized.slice(root.length+1).split("/").slice(0,-1);return [library.name,...relative].filter(Boolean).join(" / ");}
+        return normalized.split("/").filter(Boolean).slice(0,-1).slice(-2).join(" / ");
+      }
+      function settingsSourceGlyph(kind, path = "") {
+        const htmlFile=kind==="file"&&/\.html?$/i.test(String(path));
+        return `<span class="source-manager-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">${kind==="file"?(htmlFile?'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M10 12l-3 3 3 3M14 12l3 3-3 3"/>':'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 12h8M8 16h6"/>'):'<path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/>'}</svg></span>`;
+      }
       function renderSettingsPanel() {
         els.settingsScrim.classList.toggle("open", appState.isSettingsOpen);
         els.settingsScrim.setAttribute("aria-hidden", appState.isSettingsOpen ? "false" : "true");
-        if (!appState.isSettingsOpen) return;
+        if (!appState.isSettingsOpen) { NutbookVersions.closeEmbedded(); return; }
+        if(appState.settingsTab!=="versions") NutbookVersions.closeEmbedded();
+        const historySection=document.getElementById("settingsVersionsSection");
+        historySection.hidden=appState.settingsTab!=="versions";
+        document.getElementById("settingsTabVersions").textContent=t("settings.versionHistory");
+        if(appState.settingsTab==="versions"&&(!historySection.childElementCount||historySection.dataset.historyLanguage!==appState.language)){historySection.dataset.historyLanguage=appState.language;NutbookVersions.mountLibrary(historySection,{invoke,language:()=>appState.language,error:normalizeError,isActive:()=>appState.isSettingsOpen&&appState.settingsTab==="versions"}).catch(error=>{historySection.textContent=normalizeError(error);});}
         bindSettingsSectionSwitchesOnce();
         bindSettingsSearchFieldsOnce();
         renderNbskillAgentToolbar();
@@ -18224,26 +18296,21 @@
           }
         });
 
-        const renderLibraryRows = (libraries) => libraries.length
-          ? libraries.map((library) => `
-              <div class="settings-row">
-                <div class="settings-row-copy">
-                  <div class="settings-row-copy-top">
-                    <div class="settings-row-title">${escapeHtml(library.name)}</div>
-                    <span class="source-kind-badge">${library.sourceKind === "agent_project" ? t("settings.sourceProjects") : (library.sourceKind === "file" ? t("settings.singleFile") : t("settings.folder"))}</span>
-                    ${library.skillBinding ? `<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>` : ""}
-                    ${library.pathState === "missing" ? `<span class="source-kind-badge">${t("settings.pathMissing")}</span>` : ""}
-                  </div>
-                  <div class="settings-row-meta settings-row-path">${escapeHtml(library.rootPath)}</div>
+        const sourceListHeader=`<div class="source-manager-head" role="row"><span role="columnheader">${t("settings.sourceListName")}</span><span role="columnheader">${t("settings.sourceListStatus")}</span><span role="columnheader">${t("settings.sourceListActions")}</span></div>`;
+        const renderLibraryRows = libraries => libraries.length
+          ? `<div class="source-manager-table" role="table">${sourceListHeader}${libraries.map(library=>`
+              <div class="settings-row source-manager-row" role="row">
+                <div class="source-manager-file" role="cell">${settingsSourceGlyph(library.sourceKind, library.rootPath)}<div class="settings-row-copy">
+                  <div class="settings-row-copy-top"><div class="settings-row-title" title="${escapeAttribute(library.name)}">${escapeHtml(library.name)}</div>${library.skillBinding?`<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>`:""}</div>
+                  <div class="settings-row-meta settings-row-path" data-i18n-skip title="${escapeAttribute(library.rootPath)}">${escapeHtml(settingsSourcePathLabel(library.rootPath))}</div>
+                </div></div>
+                <div class="source-manager-state" role="cell">${library.pathState==="missing"?t("settings.pathMissing"):t("actions.connected")}</div>
+                <div class="button-row" role="cell">${library.sourceKind==="agent_project"
+                    ? `<button class="button button-secondary" type="button" data-settings-open-artifact-access="projects" title="${t("actions.viewArtifactAccess")}">${t("actions.viewArtifactAccess")}</button>`
+                    : `<button class="button button-secondary" type="button" data-settings-scan-library="${library.id}" title="${library.pathState==="missing"?t("actions.repairPath"):(library.sourceKind==="file"?t("actions.index"):t("actions.scan"))}">${library.pathState==="missing"?t("actions.repairPath"):(library.sourceKind==="file"?t("actions.index"):t("actions.scan"))}</button>`}
+                  <button class="button button-ghost" type="button" data-settings-delete-library="${library.id}" title="${t("actions.remove")}">${t("actions.remove")}</button>
                 </div>
-                <div class="button-row">
-                  ${library.sourceKind === "agent_project"
-                    ? `<button class="button button-secondary" type="button" data-settings-open-artifact-access="projects">${t("actions.viewArtifactAccess")}</button>`
-                    : `<button class="button button-secondary" type="button" data-settings-scan-library="${library.id}">${library.pathState === "missing" ? t("actions.repairPath") : (library.sourceKind === "file" ? t("actions.index") : t("actions.scan"))}</button>`}
-                  <button class="button button-ghost" type="button" data-settings-delete-library="${library.id}">${t("actions.remove")}</button>
-                </div>
-              </div>
-            `).join("")
+              </div>`).join("")}</div>`
           : `<div class="settings-empty">${t("settings.noGroupContent")}</div>`;
 
         const libraryGroups = {
@@ -18297,22 +18364,14 @@
                 </div>
               </div>
               <div class="settings-list-viewport">
-              ${filteredIgnoredItems.map((item) => `
-              <div class="settings-row">
-                <div class="settings-row-copy">
-                  <div class="settings-row-copy-top">
-                    <input type="checkbox" data-settings-ignored-select="${item.itemId}" ${appState.settingsIgnoredSelection.has(item.itemId) ? "checked" : ""} />
-                    <div class="settings-row-title">${escapeHtml(item.fileName)}</div>
-                    <span class="source-kind-badge">${t("settings.removed")}</span>
-                  </div>
-                  <div class="settings-row-meta settings-row-path">${escapeHtml(item.filePath)}</div>
-                  <div class="settings-row-meta">${t("settings.sourcePrefix")}${escapeHtml(item.libraryName)}</div>
-                </div>
-                <div class="button-row">
-                  <button class="button button-secondary" type="button" data-settings-restore-ignored="${item.itemId}">${t("actions.restore")}</button>
-                </div>
+              <div class="source-manager-table" role="table">${sourceListHeader}
+              ${filteredIgnoredItems.map(item=>`
+                <div class="settings-row source-manager-row" role="row">
+                  <div class="source-manager-file" role="cell"><input type="checkbox" data-settings-ignored-select="${item.itemId}" ${appState.settingsIgnoredSelection.has(item.itemId)?"checked":""} aria-label="${escapeAttribute(item.fileName)}"/>${settingsSourceGlyph("file", item.filePath)}<div class="settings-row-copy"><div class="settings-row-title" title="${escapeAttribute(item.fileName)}">${escapeHtml(item.fileName)}</div><div class="settings-row-meta settings-row-path" data-i18n-skip title="${escapeAttribute(item.filePath)}">${escapeHtml(settingsSourcePathLabel(item.filePath))}</div></div></div>
+                  <div class="source-manager-state" role="cell">${t("settings.removed")}</div>
+                  <div class="button-row" role="cell"><button class="button button-secondary" type="button" data-settings-restore-ignored="${item.itemId}" title="${t("actions.restore")}">${t("actions.restore")}</button></div>
+                </div>`).join("")}
               </div>
-            `).join("")}
               </div>
             `
           : `<div class="settings-header">
@@ -24484,30 +24543,38 @@ if (!chipTipController) {
         try {
           setStatus(t("markdown.saving"), "warn");
           const expectedFileHash = tab.detail.fileHash || await sha256Hex(tab.preview.raw || "");
-          await invoke("save_markdown_content", {
+          const savedResponse = await invoke("save_markdown_content", {
             itemId: tab.id,
             content,
             expectedFileHash,
             expectedModifiedAt: tab.detail.modifiedAt || tab.item.modifiedAt
           });
 
-          const [freshDetailRaw, freshPreviewRaw] = await Promise.all([
-            invoke("get_item_detail", { itemId: tab.id }),
-            invoke("get_item_preview", { itemId: tab.id })
-          ]);
-          const freshDetail = normalizeItemDetail(freshDetailRaw);
-          const freshPreview = normalizePreview(freshPreviewRaw);
-
+          let freshDetail, freshPreview;
+          try {
+            const [freshDetailRaw, freshPreviewRaw] = await Promise.all([
+              invoke("get_item_detail", { itemId: tab.id }),
+              invoke("get_item_preview", { itemId: tab.id })
+            ]);
+            freshDetail = normalizeItemDetail(freshDetailRaw);
+            freshPreview = normalizePreview(freshPreviewRaw);
+          } catch (error) {
+            if (!savedResponse?.saved) throw error;
+            freshDetail = { ...tab.detail, fileHash: savedResponse.fileHash, modifiedAt: savedResponse.modifiedAt, summary: savedResponse.summary };
+            freshPreview = { ...tab.preview, raw: content, html: savedResponse.renderedHtml };
+          }
+          const latestContent = markdownContentForTab(tab);
+          const changedWhileSaving = latestContent !== content;
           tab.detail = freshDetail;
           tab.preview = freshPreview;
-          tab.draft = freshPreview?.raw || content;
-          tab.markdownBaseline = tab.draft;
-          tab.isDirty = false;
+          tab.markdownBaseline = freshPreview?.raw ?? content;
+          tab.draft = changedWhileSaving ? latestContent : tab.markdownBaseline;
+          tab.isDirty = tab.draft !== tab.markdownBaseline;
           tab.item = normalizeItemSummary(freshDetail);
           // durable save 成功后首页持久 item 状态必须收敛，无论 renderAfter
           // true/false（save-and-close / 关闭全部标签后 appState.items 不得
           // 仍是旧标题——P1）。loadItems 只调用一次（B3 复审 P2 已删除重复）。
-          await loadItems();
+          await loadItems().catch(() => {});
           // PR C / C2：保存成功后本次 staged cover lease 转为 committed 语义——
           // 释放 lease（被最终 Markdown 引用的 staged 文件保留，未引用的清理）。
           if (typeof releaseMarkdownCoverLeaseForTab === "function") {
@@ -24542,8 +24609,9 @@ if (!chipTipController) {
               previewEl.innerHTML = freshPreview.html;
             }
             renderTabs();
-            setStatus(markdownSavedStatus(tab.item.fileName), "ok");
-            showToast("保存成功");
+            const warning = savedResponse?.indexSynchronized === false || savedResponse?.versionIncomplete;
+            setStatus(savedResponse?.indexSynchronized === false ? t("htmlEdit.savedIndexPending") : savedResponse?.versionIncomplete ? (appState.language === "en-US" ? "Saved; some images are missing from history (see Version history)" : "已保存，部分图片未存入历史（详情见版本历史）") : markdownSavedStatus(tab.item.fileName), warning ? "warn" : "ok");
+            showToast(savedResponse?.versionIncomplete ? (appState.language === "en-US" ? "Saved; some images are missing from history (see Version history)" : "已保存，部分图片未存入历史（详情见版本历史）") : (appState.language === "en-US" ? "Saved" : "保存成功"));
           }
           return true;
         } catch (error) {
@@ -27094,6 +27162,7 @@ if (!chipTipController) {
       function wireEvents() {
         setupWindowDragRegions();
         document.addEventListener("keydown", async (event) => {
+          if (globalThis.NutbookVersions?.isOpen()) return;
           if (event.isComposing || event.keyCode === 229 || !(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "k") return;
           const target = event.target;
           const tag = target?.tagName;
@@ -28246,16 +28315,18 @@ if (!chipTipController) {
           const response = await invoke("external_session_save", { payload: { sessionId, generation, content } });
           if (response?.status === "saved") {
             applyExternalBaseline(tab, response.baseline);
-            tab.draft = content;
+            const latestContent = markdownContentForTab(tab);
+            tab.draft = latestContent;
             // GUI-r5 问题 2：baseline 必须同步到保存后的正文。isMarkdownTabDirty
             // 取 markdownBaseline ?? preview.raw，只更新 preview.raw 的话旧
             // baseline 仍生效——保存成功后关闭仍提示「未保存修改」。
             tab.markdownBaseline = content;
-            tab.isDirty = false;
+            tab.isDirty = latestContent !== content;
             tab.external.conflict = false;
             if (tab.external.deleted) tab.external.deleted = false;
             tab.preview.raw = content;
-            if (renderAfter) refreshExternalSaveUi(tab, content);
+            if (renderAfter) refreshExternalSaveUi(tab, tab.draft);
+            if (response.versionIncomplete) setStatus(appState.language === "en-US" ? "Saved; some images are missing from history (see Version history)" : "已保存，部分图片未存入历史（详情见版本历史）", "warn");
             return true;
           }
           if (response?.status === "conflict") {
@@ -28269,12 +28340,14 @@ if (!chipTipController) {
               const overwriteResponse = await invoke("external_session_overwrite", { payload: { sessionId, generation, content } });
               if (overwriteResponse?.status === "saved") {
                 applyExternalBaseline(tab, overwriteResponse.baseline);
-                tab.draft = content;
+                const latestContent = markdownContentForTab(tab);
+                tab.draft = latestContent;
                 tab.markdownBaseline = content;
-                tab.isDirty = false;
+                tab.isDirty = latestContent !== content;
                 tab.external.conflict = false;
                 tab.preview.raw = content;
-                if (renderAfter) refreshExternalSaveUi(tab, content);
+                if (renderAfter) refreshExternalSaveUi(tab, tab.draft);
+                if (overwriteResponse.versionIncomplete) setStatus(appState.language === "en-US" ? "Saved; some images are missing from history (see Version history)" : "已保存，部分图片未存入历史（详情见版本历史）", "warn");
                 return true;
               }
               setStatus(t("external.overwriteFailedStatus"), "error");

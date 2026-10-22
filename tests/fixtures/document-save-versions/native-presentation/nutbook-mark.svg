@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" role="img" aria-label="NUTBOOK">
+  <rect width="300" height="300" rx="60" fill="#243f59"/>
+  <path d="M68 83h74c32 0 47 14 47 39v100h-77c-26 0-44-11-44-35V83Zm164 0h-34v139h34V83Z" fill="#7cdbbb"/>
+  <path d="M86 112h80M86 137h80M86 162h80" stroke="#243f59" stroke-width="8"/>
+</svg>

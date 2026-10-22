@@ -34,6 +34,10 @@ pub enum AppError {
     EditConflict,
     #[error("markdown save failed")]
     MarkdownSaveFailed,
+    #[error("version history full: {0}")]
+    VersionHistoryFull(String),
+    #[error("version history failed: {0}")]
+    VersionHistoryFailed(String),
     #[error("thumbnail generation failed")]
     ThumbnailGenerationFailed,
     #[error("update failed: {0}")]
@@ -153,6 +157,8 @@ impl AppError {
             AppError::PreviewLoadFailed => "PREVIEW_LOAD_FAILED",
             AppError::EditConflict => "EDIT_CONFLICT",
             AppError::MarkdownSaveFailed => "MARKDOWN_SAVE_FAILED",
+            AppError::VersionHistoryFull(_) => "VERSION_HISTORY_FULL",
+            AppError::VersionHistoryFailed(_) => "VERSION_HISTORY_FAILED",
             AppError::ThumbnailGenerationFailed => "THUMBNAIL_GENERATION_FAILED",
             AppError::UpdateFailed(_) => "UPDATE_FAILED",
             AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
@@ -207,5 +213,12 @@ mod tests {
     #[test]
     fn export_cancelled_has_a_distinct_error_code() {
         assert_eq!(AppError::ExportCancelled.code(), "EXPORT_CANCELLED");
+    }
+}
+
+impl From<crate::core::document_versions::HistoryError> for AppError {
+    fn from(error:crate::core::document_versions::HistoryError)->Self {
+        use crate::core::document_versions::HistoryError;
+        match error {HistoryError::Conflict=>Self::EditConflict,HistoryError::Quota{..}=>Self::VersionHistoryFull(error.to_string()),HistoryError::Invalid(ref message) if message=="capture budget exceeded"=>Self::VersionHistoryFull(error.to_string()),_=>Self::VersionHistoryFailed(error.to_string())}
     }
 }
