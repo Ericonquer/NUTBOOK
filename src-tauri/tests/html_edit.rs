@@ -2742,6 +2742,10 @@ fn conflict_copy_has_own_history_without_overwriting_the_external_source() {
  let bytes=std::fs::read(&copy).unwrap();assert!(String::from_utf8(bytes.clone()).unwrap().contains("Draft copy"));
  let head=history.document(&id).unwrap();assert_eq!(head.canonical_path,copy.canonicalize().unwrap());
  assert_eq!(head.versions.len(),1);assert_eq!(history.object(&head.versions[0].snapshot.body).unwrap(),bytes);
- assert!(save_html_edit_conflict_copy_with_history_for_file(&commit,&history).is_err(),"a same-name copy is never clobbered");
+ // Generated names include wall-clock seconds. A second UI call may legitimately
+ // create another name; exercise the exact existing target to test no-clobber.
+ assert!(history.publish_new_html_from(&copy,root.path(),b"<h1>Must not replace</h1>",None).is_err(),"a same-name copy is never clobbered");
+ assert_eq!(std::fs::read(&copy).unwrap(),bytes);
+ assert_eq!(history.document(&id).unwrap().versions.len(),1);
  assert_eq!(std::fs::read(&path).unwrap(),external);
 }
