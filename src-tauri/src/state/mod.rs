@@ -145,6 +145,11 @@ impl AppState {
         if let Some(store)=guard.as_ref(){let store=store.clone();drop(guard);store.recover()?;return Ok(store);}
         // Database migration failure must prevent enabling this writer.
         let connection=rusqlite::Connection::open(self.database.path()).map_err(|_|AppError::DatabaseError)?;
+        let migrated:bool=connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=10 AND name='document_version_index')",
+            [],|row|row.get(0),
+        ).map_err(|_|AppError::DatabaseError)?;
+        if !migrated { return Err(AppError::DatabaseError); }
         connection.prepare("SELECT document_id FROM history_documents LIMIT 0").map_err(|_|AppError::DatabaseError)?;
         let store=Arc::new(crate::core::document_versions::HistoryStore::open(&self.app_data_dir)?);
         store.recover()?;

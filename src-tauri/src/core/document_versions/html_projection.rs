@@ -99,13 +99,12 @@ fn render(
                 return Ok(());
             }
             if matches!(tag, "html" | "head" | "body") {
-                // The trusted wrapper owns head/CSP; keep body classes for styles.
-                if tag != "body" {
-                    for child in node.children.borrow().iter() {
-                        render(child, refs, css, out, depth + 1)?;
-                    }
-                    return Ok(());
+                // Root attributes are projected once onto the real roots below;
+                // changing body into a div breaks body selectors and sizing.
+                for child in node.children.borrow().iter() {
+                    render(child, refs, css, out, depth + 1)?;
                 }
+                return Ok(());
             }
             out.push('<');
             out.push_str(if tag == "body" { "div" } else { tag });
@@ -167,6 +166,27 @@ fn render(
         }
     }
     Ok(())
+}
+
+fn root_attributes(node: &Handle, tag: &str, refs: &BTreeMap<String, String>) -> String {
+    if let NodeData::Element { name, attrs, .. } = &node.data {
+        if name.local.as_ref() == tag {
+            let mut result = String::new();
+            for attribute in attrs.borrow().iter() {
+                let key = attribute.name.local.as_ref();
+                if !matches!(key, "class" | "id" | "style" | "lang" | "dir") && !key.starts_with("data-") { continue; }
+                let value = attribute.value.to_string();
+                let value = if key == "style" { rewrite_css(&value, refs) } else { value };
+                result.push_str(&format!(" {key}=\"{}\"", escape(&value)));
+            }
+            return result;
+        }
+    }
+    for child in node.children.borrow().iter() {
+        let result = root_attributes(child, tag, refs);
+        if !result.is_empty() { return result; }
+    }
+    String::new()
 }
 
 pub(super) fn project(
@@ -266,23 +286,29 @@ pub(super) fn project(
         }
     }
     let dom: RcDom = parse_document(RcDom::default(), Default::default()).one(source.as_str());
-    let mut rendered = String::new();
-    render(
-        &dom.document,
-        &refs_for(&graph.document_path),
-        &styles,
-        &mut rendered,
-        0,
-    )?;
-    // A second allowlist strips unknown namespaces/tags and exotic URL attributes.
-    let clean = ammonia::Builder::default()
-        .add_tags(["style", "section", "main"])
-        .rm_clean_content_tags(["style"])
-        .add_generic_attributes(["class", "id", "style"])
-        .add_tag_attributes("img", ["width", "height"])
-        .clean(&rendered)
-        .to_string();
-    let page = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; connect-src 'none'; img-src {origin}; font-src data:; style-src 'unsafe-inline' {origin}; base-uri 'none'; form-action 'none'; object-src 'none'\"></head><body style=\"margin:0!important;padding:24px!important;box-sizing:border-box!important;max-width:100%!important\">{clean}</body></html>");
+    fn root(node: &Handle, tag: &str) -> Option<Handle> {
+        if matches!(&node.data, NodeData::Element { name, .. } if name.local.as_ref() == tag) { return Some(node.clone()); }
+        node.children.borrow().iter().find_map(|child| root(child, tag))
+    }
+    let clean_root = |tag: &str| -> Result<String> {
+        let mut rendered = String::new();
+        if let Some(node) = root(&dom.document, tag) {
+            render(&node, &refs_for(&graph.document_path), &styles, &mut rendered, 0)?;
+        }
+        Ok(ammonia::Builder::default()
+            .add_tags(["style", "section", "main"])
+            .rm_clean_content_tags(["style"])
+            .add_generic_attributes(["class", "id", "style"])
+            .generic_attribute_prefixes(std::collections::HashSet::from(["data-"]))
+            .add_tag_attributes("img", ["width", "height"])
+            .clean(&rendered).to_string())
+    };
+    let clean_head = clean_root("head")?;
+    let clean = clean_root("body")?;
+    let html_attrs = root_attributes(&dom.document, "html", &refs_for(&graph.document_path));
+    let body_attrs = root_attributes(&dom.document, "body", &refs_for(&graph.document_path));
+    // Reading inset belongs to the trusted frame host, not the author's body.
+    let page = format!("<!doctype html><html{html_attrs}><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; connect-src 'none'; img-src {origin}; font-src data:; style-src 'unsafe-inline' {origin}; base-uri 'none'; form-action 'none'; object-src 'none'\">{clean_head}</head><body{body_attrs}>{clean}</body></html>");
     Ok(HtmlProjection {
         page,
         source,
@@ -295,6 +321,28 @@ pub(super) fn project(
 mod tests {
     use super::*;
     use std::fs;
+    #[test]
+    fn ordinary_html_keeps_author_body_geometry_inside_fitted_preview() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
+            .join("tests/fixtures/document-save-versions");
+        let path = root.join("ordinary.html");
+        let source = fs::read_to_string(&path).unwrap().replace("<body>", "<body class=\"report\" data-layout=\"reading\" style=\"border:0\">");
+        let source = source.replace("</head>", "<style>body.report > h1:first-child { border-left: 3px solid red; }</style></head>")
+            .replace("</body>", "<div id=\"history-tail\" style=\"margin-top:1800px\">FULL TEXT END</div></body>");
+        let capture = super::super::capture_html(&path, &root, source.as_bytes(), 2_000_000).unwrap();
+        let projection = project(&capture.document.snapshot,&capture.document.objects,"http://127.0.0.1:18439").unwrap();
+        assert!(projection.page.contains("<body class=\"report\" data-layout=\"reading\" style=\"border:0\">"));
+        assert!(!projection.page.contains("max-width:100%!important"));
+        if let Ok(script) = std::env::var("NUTBOOK_HTML_BODY_PREVIEW_BROWSER_SCRIPT") {
+            let raw_files = capture.document.snapshot.dependencies.iter().filter_map(|(path,dep)| {
+                if let Dependency::Captured{object,..}=dep {Some((path.clone(),capture.document.objects[object].clone()))}else{None}
+            }).collect::<BTreeMap<_,_>>();
+            let input=std::env::temp_dir().join(format!("nutbook-body-projection-{}.json",uuid::Uuid::new_v4()));
+            fs::write(&input,serde_json::to_vec(&serde_json::json!({"html":projection.page,"source":source,"files":projection.files,"rawFiles":raw_files})).unwrap()).unwrap();
+            let status=std::process::Command::new("node").arg(script).arg(&input).status().unwrap();
+            let _=fs::remove_file(input);assert!(status.success());
+        }
+    }
     #[test]
     fn presentation_layout_containers_survive_static_sanitization() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

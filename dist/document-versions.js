@@ -1,6 +1,53 @@
-/* Local Markdown history UI. Owns no editor state and never edits content DOM. */
+/* Local document history UI. Owns no editor state and never edits content DOM. */
 (() => {
   let current = null;
+  function fitHtmlPreview(host, frame) {
+    host.classList.add('vh-html-preview');
+    frame.classList.add('vh-html-view');
+    const fit = () => {
+      const width = host.clientWidth - 48, height = host.clientHeight - 48;
+      if (width <= 0 || height <= 0) return;
+      const viewport = Math.max(800, width), scale = width / viewport;
+      frame.style.width = `${viewport}px`;
+      frame.style.height = `${height / scale}px`;
+      frame.style.transform = `scale(${scale})`;
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(host); fit();
+    return () => { observer.disconnect(); host.classList.remove('vh-html-preview'); };
+  }
+  // Parse only the backend's inert projection. The sandbox never runs scripts.
+  function htmlPages(html) {
+    const dom = new DOMParser().parseFromString(html, 'text/html');
+    let pages = [...dom.querySelectorAll('[data-nutbook-page-id]')];
+    if (!pages.length) {
+      for (const selector of ['section.slide', 'section.page', '.slides > section']) {
+        const candidates = [...dom.querySelectorAll(selector)];
+        if (candidates.length > 1) { pages = candidates; break; }
+      }
+    }
+    for (const [index, page] of pages.entries()) {
+      page.setAttribute('data-vh-page', String(index));
+    }
+    return { dom, pages };
+  }
+  function pageHtml(model, index) {
+    const copy = model.dom.cloneNode(true);
+    const selector = '[data-vh-page]';
+    for (const page of copy.querySelectorAll(selector)) {
+      const selected = Number(page.getAttribute('data-vh-page')) === index;
+      page.classList.toggle('active', selected);
+      page.classList.toggle('present', selected);
+      page.hidden = !selected;
+      if (!selected) page.style.setProperty('display', 'none', 'important');
+      else if (page.style.display === 'none') page.style.removeProperty('display');
+      if (selected) { page.style.setProperty('visibility', 'visible', 'important'); page.style.setProperty('opacity', '1', 'important'); }
+    }
+    const style = copy.createElement('style');
+    style.textContent = '*{animation:none!important;transition:none!important} [data-vh-page][hidden]{display:none!important}';
+    copy.head.append(style);
+    return '<!doctype html>' + copy.documentElement.outerHTML;
+  }
   let preferenceMenuId=0;
   const words = {
     'zh-CN': {title:'版本历史',close:'关闭版本历史',empty:'还没有保存版本',source:'只读源码',preview:'静态预览',restore:'恢复此版本',remove:'删除此版本',clear:'清空此文档历史',limit:'容量上限（MB，十进制）',apply:'保存额度',used:'历史用量',incomplete:'依赖不完整；预览只使用历史中保存的资源',missing:'原文件不可用，历史仍保留',confirmDelete:'删除历史不会删除原文件。共享对象仍被引用时不会释放其空间。',confirmRestore:'恢复前的当前内容也会保留为版本。是否继续？',dirty:'当前有未保存内容，请选择如何继续恢复。',saveRestore:'保存并恢复',discardRestore:'放弃并恢复',cancel:'取消',confirm:'确认',restored:'已恢复此版本。',initial:'原始版',save:'保存版',restoredKind:'恢复版',choose:'选择一个版本',capacityNote:'降低额度不删除历史；进行中的保存可能使新额度暂时超限。',confirmIncomplete:'该版本缺少部分依赖。仅恢复已保存的内容？',error:'操作失败，草稿保留：'},
@@ -39,16 +86,16 @@
     if(current) await current.close();
     const w=words[ctx.language()]||words['zh-CN'];
     const dialog=document.createElement(ctx.container?'div':'dialog');dialog.className='nutbook-history'+(ctx.container?' vh-embedded':'');dialog.setAttribute('aria-label',w.title);dialog.dataset.i18nSkip='true';
-    dialog.innerHTML=`<header><div><h2>${w.title}</h2></div><button type="button" data-close title="${w.close}" aria-label="${w.close}">×</button></header><div class="vh-prompt" data-prompt hidden></div><div class="vh-layout"><nav data-list aria-label="${w.title}"></nav><section class="vh-main"><div class="vh-toolbar"><div class="vh-actions vh-tabs"><button data-mode="preview" aria-pressed="true">${w.preview}</button><button data-mode="source" aria-pressed="false">${w.source}</button></div><details data-warning class="vh-dependency" hidden></details></div><div class="vh-preview" data-frame-host></div><textarea class="vh-view" data-source readonly spellcheck="false" aria-label="${w.source}" hidden></textarea></section></div><footer class="vh-actions"><button data-restore class="vh-primary" disabled>${w.restore}</button><button data-save-as disabled></button><button data-delete disabled>${w.remove}</button><button data-clear class="vh-danger" disabled>${w.clear}</button></footer><p class="vh-status" data-status role="status" aria-live="polite"></p>`;
+    dialog.innerHTML=`<header><div><h2>${w.title}</h2></div><button type="button" data-close title="${w.close}" aria-label="${w.close}">×</button></header><div class="vh-prompt" data-prompt hidden></div><div class="vh-layout"><nav data-list aria-label="${w.title}"></nav><section class="vh-main"><div class="vh-toolbar"><div class="vh-actions vh-tabs"><button data-mode="preview" aria-pressed="true">${w.preview}</button><button data-mode="source" aria-pressed="false">${w.source}</button></div><div class="vh-pager" data-pages hidden><button type="button" data-page-prev><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><input data-page type="text" inputmode="numeric" autocomplete="off" spellcheck="false"><span data-page-count></span><button type="button" data-page-next><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div><details data-warning class="vh-dependency" hidden></details></div><p class="vh-page-title" data-page-title hidden></p><div class="vh-preview" data-frame-host></div><textarea class="vh-view" data-source readonly spellcheck="false" aria-label="${w.source}" hidden></textarea></section></div><footer class="vh-actions"><button data-restore class="vh-primary" disabled>${w.restore}</button><button data-save-as disabled></button><button data-delete disabled>${w.remove}</button><button data-clear class="vh-danger" disabled>${w.clear}</button></footer><p class="vh-status" data-status role="status" aria-live="polite"></p>`;
     if(ctx.onBack){const back=dialog.querySelector('[data-close]');const label=ctx.language()==='en-US'?'Back to files':'返回文件列表';back.classList.add('vh-return');back.title=label;back.setAttribute('aria-label',label);back.innerHTML=`<span aria-hidden="true">←</span> ${ctx.language()==='en-US'?'Back':'返回'}`;}
     const saveAsButton=dialog.querySelector('[data-save-as]');saveAsButton.textContent=ctx.language()==='en-US'?'Save version as…':'另存此版本…';saveAsButton.hidden=!ctx.readOnly&&!ctx.allowSaveAs;
     if(ctx.readOnly)dialog.querySelector('[data-restore]').hidden=true;
     (ctx.container||document.body).append(dialog);if(!ctx.container){const heading=dialog.querySelector('h2');heading.tabIndex=-1;dialog.showModal();heading.focus({preventScroll:true});}
-    let disposed=false,generation=0,session=null,data=null,doc=null,version=null,busy=false,promptFocus=null,pendingPrompt=null;
+    let disposed=false,generation=0,session=null,data=null,doc=null,version=null,busy=false,promptFocus=null,pendingPrompt=null,fitCleanup=null,pageModel=null,pageIndex=0,pageId=null,syncPager=()=>{};
     const $=s=>dialog.querySelector(s),status=s=>$('[data-status]').textContent=s;
     const buttonTitles=()=>dialog.querySelectorAll('button').forEach(b=>{if(!b.title)b.title=b.textContent;if(!b.getAttribute('aria-label'))b.setAttribute('aria-label',b.textContent);});buttonTitles();
-    const revoke=async()=>{generation++;$('[data-frame-host]').replaceChildren();if(session){const id=session;session=null;await ctx.invoke('close_document_version_preview',{sessionId:id});}};
-    const run=async(fn)=>{if(busy||disposed)return;promptFocus=document.activeElement;busy=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn();}catch(e){status(w.error+ctx.error(e));}finally{busy=false;if(!disposed){dialog.querySelectorAll('button').forEach(b=>b.disabled=false);$('[data-restore]').disabled=!version||!(doc?.id===data?.activeDocumentId&&data?.restoreAllowed!==false&&ctx.canRestore(doc));$('[data-save-as]').disabled=!version;$('[data-delete]').disabled=!version;$('[data-clear]').disabled=!doc?.versions?.length;promptFocus?.focus();promptFocus=null;}}};
+    const revoke=async()=>{pageModel=null;syncPager=()=>{};$('[data-pages]').hidden=true;$('[data-page-title]').hidden=true;generation++;fitCleanup?.();fitCleanup=null;$('[data-frame-host]').replaceChildren();if(session){const id=session;session=null;await ctx.invoke('close_document_version_preview',{sessionId:id});}};
+    const run=async(fn)=>{if(busy||disposed)return;promptFocus=document.activeElement;busy=true;$('[data-page]').disabled=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn();}catch(e){status(w.error+ctx.error(e));}finally{busy=false;if(!disposed){dialog.querySelectorAll('button').forEach(b=>b.disabled=false);$('[data-restore]').disabled=!version||!(doc?.id===data?.activeDocumentId&&data?.restoreAllowed!==false&&ctx.canRestore(doc));$('[data-save-as]').disabled=!version;$('[data-delete]').disabled=!version;$('[data-clear]').disabled=!doc?.versions?.length;syncPager();promptFocus?.focus();promptFocus=null;}}};
     const prompt=async(message,choices)=>new Promise(resolve=>{
       const p=$('[data-prompt]'),previous=promptFocus||document.activeElement,id='vh-confirm-'+(++preferenceMenuId);
       const siblings=[...dialog.children].filter(node=>node!==p).map(node=>[node,node.inert]);
@@ -59,13 +106,30 @@
       p.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();finish(choices[0][0]);}else if(e.key==='Tab'){const buttons=[...p.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);e.preventDefault();buttons[(index+(e.shiftKey?-1:1)+buttons.length)%buttons.length].focus();}};
       p.querySelector('button')?.focus();
     });
-    const select=async(d,v)=>{await revoke();doc=d;version=v;renderList();if(!v)return;const seq=++generation;const response=await ctx.invoke('get_document_version_preview',{payload:{documentId:d.id,versionId:v.id,generation:seq}});if(disposed||generation!==seq){await ctx.invoke('close_document_version_preview',{sessionId:response.sessionId});return;}session=response.sessionId;if(!response.html)throw new Error(ctx.language()==='en-US'?'Archived preview unavailable':'历史预览内容不可用');const frame=document.createElement('iframe');frame.className='vh-view';frame.dataset.frame='';frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.title=w.preview;frame.addEventListener('load',()=>{if(!disposed&&generation===seq&&frame.isConnected){status('');}});frame.addEventListener('error',()=>{if(generation===seq&&frame.isConnected){status(ctx.language()==='en-US'?'Preview could not load.':'预览未能加载。');}});frame.srcdoc=response.html;$('[data-frame-host]').replaceChildren(frame);$('[data-source]').value=response.source;renderDependencyInfo($('[data-warning]'),v.snapshot,response.incomplete,ctx.language()==='en-US');};
+    const select=async(d,v)=>{await revoke();doc=d;version=v;renderList();if(!v)return;const seq=++generation;const response=await ctx.invoke('get_document_version_preview',{payload:{documentId:d.id,versionId:v.id,generation:seq}});if(disposed||generation!==seq){await ctx.invoke('close_document_version_preview',{sessionId:response.sessionId});return;}session=response.sessionId;if(!response.html)throw new Error(ctx.language()==='en-US'?'Archived preview unavailable':'历史预览内容不可用');const frame=document.createElement('iframe');frame.className='vh-view';frame.dataset.frame='';frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.title=w.preview;frame.addEventListener('load',()=>{if(!disposed&&generation===seq&&frame.isConnected){status('');}});frame.addEventListener('error',()=>{if(generation===seq&&frame.isConnected){status(ctx.language()==='en-US'?'Preview could not load.':'预览未能加载。');}});pageModel=v.snapshot.html?htmlPages(response.html):null;
+      const picker=$('[data-page]'),previous=$('[data-page-prev]'),next=$('[data-page-next]'),en=ctx.language()==='en-US';
+      previous.title=en?'Previous page':'上一页';next.title=en?'Next page':'下一页';previous.setAttribute('aria-label',previous.title);next.setAttribute('aria-label',next.title);
+      picker.title=en?'Page number · Enter to jump':'页码 · 按 Enter 跳转';picker.setAttribute('aria-label',picker.title);
+      const showPager=()=>{const hidden=!pageModel?.pages.length||$('[data-mode="source"]').getAttribute('aria-pressed')==='true';$('[data-pages]').hidden=hidden;$('[data-page-title]').hidden=hidden;};showPager();
+      syncPager=()=>{};
+      if(pageModel?.pages.length){
+        const matched=pageModel.pages.findIndex(p=>(p.getAttribute('data-nutbook-page-id')||p.id)===pageId);
+        pageIndex=matched>=0?matched:Math.min(pageIndex,pageModel.pages.length-1);
+        const sizePageInput=()=>{const digits=Math.max(3,Math.min(16,Math.max(picker.value.length,String(pageModel.pages.length).length)));picker.style.width=`calc(${digits}ch + 20px)`;};
+        picker.oninput=sizePageInput;
+        syncPager=()=>{picker.value=String(pageIndex+1);sizePageInput();picker.disabled=busy;picker.removeAttribute('aria-invalid');previous.disabled=busy||pageIndex===0;next.disabled=busy||pageIndex===pageModel.pages.length-1;$('[data-page-count]').textContent='/ '+pageModel.pages.length;const title=pageModel.pages[pageIndex].querySelector('h1,h2,h3')?.textContent.trim().replace(/\s+/g,' ')||'';$('[data-page-title]').textContent=title;$('[data-page-title]').title=title;pageId=pageModel.pages[pageIndex].getAttribute('data-nutbook-page-id')||pageModel.pages[pageIndex].id||null;};syncPager();
+        const go=index=>{if(busy||disposed||index<0||index>=pageModel.pages.length)return;pageIndex=index;syncPager();status('');frame.srcdoc=pageHtml(pageModel,pageIndex);};
+        previous.onclick=()=>go(pageIndex-1);next.onclick=()=>go(pageIndex+1);
+        picker.onkeydown=event=>{event.stopPropagation();if(event.isComposing)return;if(event.key==='Enter'){event.preventDefault();const value=picker.value.trim();if(!/^[1-9]\d*$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)>pageModel.pages.length){picker.setAttribute('aria-invalid','true');status(en?`Enter a page from 1 to ${pageModel.pages.length}.`:`请输入 1–${pageModel.pages.length} 之间的页码。`);return;}go(Number(value)-1);}else if(event.key==='Escape'){event.preventDefault();syncPager();status('');}};
+        picker.onblur=()=>{if(picker.getAttribute('aria-invalid')==='true')status('');syncPager();};
+        frame.srcdoc=pageHtml(pageModel,pageIndex);
+      }else{picker.oninput=null;picker.onkeydown=null;picker.onblur=null;previous.onclick=null;next.onclick=null;frame.srcdoc=response.html;}$('[data-frame-host]').replaceChildren(frame);if(v.snapshot.html)fitCleanup=fitHtmlPreview($('[data-frame-host]'),frame);$('[data-source]').value=response.source;renderDependencyInfo($('[data-warning]'),v.snapshot,response.incomplete,ctx.language()==='en-US');};
     function renderList(){const nav=$('[data-list]');nav.replaceChildren();for(const d of (data?.documents||[]).filter(d=>d.id===(ctx.documentId||data.activeDocumentId))){const heading=document.createElement('p');heading.textContent=d.canonical_path.split(/[\\/]/).pop()+(data.availability?.[d.id]===false?' · '+w.missing:'');heading.title=d.canonical_path;heading.className='vh-document';nav.append(heading);for(const v of [...d.versions].reverse()){const b=document.createElement('button');b.type='button';const kind=v.kind==='initial'?w.initial:v.kind==='restore'?w.restoredKind:w.save;const date=new Date(v.saved_at).toLocaleString(ctx.language(),{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});b.innerHTML=`<span class="vh-kind">${esc(kind)}</span><time>${esc(date)}</time>`;b.setAttribute('aria-current',String(version?.id===v.id));b.title=b.textContent;b.onclick=()=>run(()=>select(d,v));nav.append(b);}}if(!nav.children.length)nav.textContent=w.empty;}
     const refresh=async()=>{data=await ctx.invoke('list_document_versions',{payload:ctx.target||{}});if(disposed)return;const selected=data.documents.find(d=>d.id===(doc?.id||data.activeDocumentId));doc=selected||null;version=doc?.versions.find(v=>v.id===version?.id)||null;renderList();};
     const close=async()=>{if(disposed)return;disposed=true;pendingPrompt?.();current=null;window.removeEventListener('keydown',keys,true);if(ctx.container)dialog.remove();await revoke().catch(()=>{});if(!ctx.container)dialog.close();dialog.remove();ctx.restoreFocus?.();};current={close,embedded:Boolean(ctx.container)};
     const exitPreview=async()=>{if(busy||disposed)return;await close();if(ctx.onBack&&(!ctx.isActive||ctx.isActive()))await ctx.onBack();};
     $('[data-close]').onclick=exitPreview;dialog.addEventListener('cancel',e=>{e.preventDefault();void exitPreview();});
-    dialog.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{const source=b.dataset.mode==='source';dialog.querySelectorAll('[data-mode]').forEach(tab=>tab.setAttribute('aria-pressed',String(tab===b)));$('[data-frame-host]').hidden=source;$('[data-source]').hidden=!source;});
+    dialog.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{const source=b.dataset.mode==='source';dialog.querySelectorAll('[data-mode]').forEach(tab=>tab.setAttribute('aria-pressed',String(tab===b)));$('[data-frame-host]').hidden=source;$('[data-source]').hidden=!source;$('[data-pages]').hidden=source||!pageModel?.pages.length;$('[data-page-title]').hidden=source||!pageModel?.pages.length;});
     $('[data-delete]').onclick=()=>run(async()=>{if(await prompt(w.confirmDelete,[[false,w.cancel],[true,w.confirm]])){await revoke();await ctx.invoke('delete_document_versions',{payload:{documentId:doc.id,versionId:version.id,confirmed:true}});version=null;await refresh();}});
     $('[data-clear]').onclick=()=>run(async()=>{if(await prompt(w.confirmDelete,[[false,w.cancel],[true,w.confirm]])){await revoke();await ctx.invoke('delete_document_versions',{payload:{documentId:doc.id,versionId:null,confirmed:true}});version=null;await refresh();}});
     $('[data-save-as]').onclick=()=>run(async()=>{

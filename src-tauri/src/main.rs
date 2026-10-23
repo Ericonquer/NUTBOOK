@@ -308,6 +308,15 @@ fn main() {
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
             app.manage(AppState::new(database, app_data_dir.clone()));
+            // Recover history owners/projections and rebuild the disposable
+            // index off the UI thread. Commands share the same store mutex and
+            // retry/report errors normally if startup recovery cannot finish.
+            let history_app = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Err(error) = history_app.state::<AppState>().document_history() {
+                    eprintln!("Nutbook history startup recovery could not finish: {error}");
+                }
+            });
             if let Err(error) = nutbook_backend::core::update::cleanup_update_cache(app.handle()) {
                 eprintln!("Nutbook update-cache cleanup skipped: {error}");
             }

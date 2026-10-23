@@ -1953,8 +1953,8 @@ impl HistoryStore {
                 }
             }
         }
-        // Preview leases must join the pin set before this primitive is used by
-        // UI integration. There are no preview sessions in this first slice.
+        // Preview journals pin resources even when the owning UI process is not
+        // this instance; dead-owner recovery retires those leases before GC.
         let mut removed = 0;
         for entry in fs::read_dir(self.root.join("objects"))? {
             let entry = entry?;
@@ -2141,6 +2141,17 @@ mod tests {
         let root=PathBuf::from(root);
         let store=HistoryStore::open(&root.join("app")).unwrap();
         let path=root.join(format!("{name}.md"));
+        if mode=="preview" {
+            let saved=commit(&store,&path,b"A",b"B",Some(b"archived image"),None).unwrap();
+            let head=store.document(&saved.document_id).unwrap();
+            let preview=store.begin_markdown_preview(&head.id,&head.versions[0].id,1).unwrap();
+            fs::write(root.join("preview.json"),serde_json::to_vec(&serde_json::json!({
+                "owner":store.owner,"session":preview.session_id,"document":head.id
+            })).unwrap()).unwrap();
+            fs::write(root.join("crash.ready"),b"ready").unwrap();
+            for _ in 0..3000 {std::thread::sleep(std::time::Duration::from_millis(10));}
+            panic!("parent failed to terminate preview worker");
+        }
         if mode=="compete" {
             fs::write(root.join(format!("{name}.ready")),b"ready").unwrap();
             for _ in 0..1000 { if root.join("go").exists(){break;} std::thread::sleep(std::time::Duration::from_millis(10)); }
@@ -2208,6 +2219,31 @@ mod tests {
                 assert_eq!(observer.document(&retried.document_id).unwrap().versions.len(),2);
             }
         }
+    }
+    #[test]
+    fn killed_preview_owner_is_cleaned_once_without_touching_source_or_history() {
+        let dir=tempfile::tempdir().unwrap();let root=dir.path().canonicalize().unwrap();
+        let path=root.join("a.md");fs::write(&path,b"A").unwrap();
+        let mut child=history_child(&root,"preview","a");
+        wait_history_worker(&mut child,&root.join("crash.ready"));
+        let record:serde_json::Value=serde_json::from_slice(&fs::read(root.join("preview.json")).unwrap()).unwrap();
+        let observer=HistoryStore::open(&root.join("app")).unwrap();
+        let projection=observer.root.join("preview-projections").join(record["owner"].as_str().unwrap()).join(record["session"].as_str().unwrap());
+        let document=record["document"].as_str().unwrap();
+        observer.recover().unwrap();
+        assert!(projection.exists(),"live OS owner lock protects its preview");
+        assert!(observer.delete_versions(document,None).is_err(),"foreign live preview remains leased");
+        child.0.kill().unwrap();child.0.wait().unwrap();
+        observer.recover().unwrap();observer.recover().unwrap();
+        assert!(!projection.exists());
+        assert!(observer.preview_records().unwrap().is_empty());
+        assert_eq!(fs::read(path).unwrap(),b"B");
+        assert_eq!(observer.document(document).unwrap().versions.len(),2);
+        assert_eq!(observer.object(&digest(b"archived image")).unwrap(),b"archived image");
+        observer.delete_versions(document,None).unwrap();
+        assert!(observer.collect_unreferenced_objects().unwrap()>0,"unleased history objects can be reclaimed after deletion");
+        assert_eq!(observer.collect_unreferenced_objects().unwrap(),0,"collection is idempotent");
+        assert_eq!(fs::read(root.join("a.md")).unwrap(),b"B");
     }
     #[test]
     fn finalize_and_abort_keep_gc_retry_until_cleanup_succeeds() {

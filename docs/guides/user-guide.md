@@ -78,6 +78,24 @@ Artifacts with the complete NUTBOOK HTML editing protocol receive native light-e
 
 When a usable thumbnail engine is available, NUTBOOK uses it to generate HTML / Markdown thumbnails. Otherwise the app displays placeholders and lets you detect available engines, explicitly enable system Chrome as a fallback, or follow the installation guidance for a screenshot engine. NUTBOOK does not invoke Chrome silently.
 
+## File Version History
+
+Use **More → Version history** to view saved versions of the current Markdown / HTML file. **Settings → Version history** lists history across files, with storage limits, cleanup actions, and a shortcut to the history folder.
+
+- The first changed save keeps the original version. Later explicit saves record changes to the content or captured resources, retaining up to the latest 10 versions per file. Saving unchanged content does not add a version.
+- Select a version for static preview, read-only source, restore, or **Save this version as…**. A new file starts its own history rather than inheriting the original file's full history. Restore still handles current unsaved changes first.
+- The default total limit is 500 MB in decimal units. Choose 500 MB, 1 GB, 2 GB, or a custom limit. Lowering it does not delete existing history. If storage is full, increase the limit or clear history before retrying.
+- Removing a source or deleting the original in Finder does not automatically delete its history. If the original is missing, choose a new destination with **Save this version as…**. Cancel writes nothing; NUTBOOK does not recreate the old path automatically.
+- Clearing history does not delete the current document or images still needed after a restore. The app handles recovered resources; users do not need to manage internal resource directories.
+
+Ordinary HTML keeps full-body scrolling. Recognized presentations provide previous/next arrows and an editable page number (press Enter to jump) in the preview toolbar. Switching versions retains the same page identity where available, or falls back to the nearest valid page number.
+
+HTML history previews do not execute scripts. **Script resources not verified** means static analysis cannot prove every runtime dependency; it does not mean a file is missing. Actual missing images or resources are reported separately. A snapshot uses only resources captured at save time, never a later file with the same name.
+
+### Adjust Notes While Presenting
+
+Click the pencil in the presenter's notes area to edit the current slide's notes. The same button becomes a save icon. Saving writes the notes to the file and records a version while audience playback continues. `Esc` cancels the current note edit. Changing slides or ending with unsaved notes offers save, discard, or keep editing. A− / A+ changes only the note text size in the presenter window.
+
 ## Keyboard Shortcuts
 
 Use `Cmd` on macOS and `Ctrl` on Windows / Linux.

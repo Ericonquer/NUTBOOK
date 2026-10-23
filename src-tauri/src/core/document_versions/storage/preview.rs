@@ -264,6 +264,11 @@ impl HistoryStore {
         let mut records = Vec::new();
         for entry in fs::read_dir(self.root.join("preview-journals"))? {
             let entry = entry?;
+            // Atomic writes publish only .json journals. A killed writer may
+            // leave a partial .tmp; it is not a lease or cleanup authority.
+            if entry.path().extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
             if !entry.file_type()?.is_file() {
                 return Err(invalid("preview journal type"));
             }
@@ -346,7 +351,16 @@ impl HistoryStore {
                 .join("preview-projections")
                 .join(&record.owner)
                 .join(&record.session);
-            if projection.exists() {
+            validate_projection_ancestors(&projection)?;
+            let exists = match fs::symlink_metadata(&projection) {
+                Ok(metadata) => {
+                    if !metadata.file_type().is_dir() { return Err(invalid("projection root is not a directory")); }
+                    true
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => return Err(error.into()),
+            };
+            if exists {
                 if projection.join("owner.json").exists() {
                     let marker: PreviewRecord = read_json(&projection.join("owner.json"))?;
                     if json_bytes(&marker)? != json_bytes(&record)? {
@@ -366,13 +380,47 @@ impl HistoryStore {
     }
 }
 fn remove_owned_projection(path: &Path) -> Result<()> {
+    validate_projection_ancestors(path)?;
+    validate_projection_tree(path)?;
+    remove_validated_projection(path)
+}
+fn validate_projection_ancestors(path: &Path) -> Result<()> {
+    // Both the per-owner directory and projection registry must be physical
+    // directories. Checking only the session's final component misses aliases.
+    for ancestor in path.ancestors().skip(1).take(2) {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_dir() => {},
+            Ok(_) => return Err(invalid("symlink in projection ancestry")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+fn validate_projection_tree(path: &Path) -> Result<()> {
+    if !fs::symlink_metadata(path)?.file_type().is_dir() {
+        return Err(invalid("projection root is not a directory"));
+    }
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            validate_projection_tree(&entry.path())?;
+        } else if !kind.is_file() {
+            return Err(invalid("unexpected symlink in preview projection"));
+        }
+    }
+    Ok(())
+}
+fn remove_validated_projection(path: &Path) -> Result<()> {
+    // Recheck during mutation as well; never follow a substituted symlink.
     if !fs::symlink_metadata(path)?.file_type().is_dir() {
         return Err(invalid("projection root is not a directory"));
     }
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
-            remove_owned_projection(&entry.path())?;
+            remove_validated_projection(&entry.path())?;
         } else if entry.file_type()?.is_file() {
             fs::remove_file(entry.path())?;
         } else {
@@ -386,6 +434,57 @@ fn remove_owned_projection(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unpublished_preview_journal_does_not_block_recovery_or_gc() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = HistoryStore::open(&dir.path().join("app")).unwrap();
+        let temp = store.root.join("preview-journals/.nutbook-version-interrupted.tmp");
+        fs::write(&temp, b"{partial atomic journal").unwrap();
+        assert!(store.recover().unwrap().is_empty());
+        assert!(store.preview_hashes().unwrap().is_empty());
+        store.collect_unreferenced_objects().unwrap();
+        assert!(temp.exists(), "unpublished material is not authority to delete unknown files");
+        let malformed = store.root.join("preview-journals").join(format!("{}.json",Uuid::new_v4()));
+        fs::write(malformed,b"{invalid published journal").unwrap();
+        assert!(store.recover().is_err(), "a corrupt published journal must still fail closed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn projection_cleanup_rejects_symlink_before_removing_any_material() {
+        let dir = tempfile::tempdir().unwrap();
+        let projection = dir.path().join("projection");
+        fs::create_dir(&projection).unwrap();
+        fs::write(projection.join("owner.json"), b"ownership marker").unwrap();
+        fs::create_dir(projection.join("content")).unwrap();
+        fs::write(projection.join("content/keep.html"), b"projection").unwrap();
+        let external = dir.path().join("external");
+        fs::create_dir(&external).unwrap();
+        fs::write(external.join("keep.txt"),b"user material").unwrap();
+        std::os::unix::fs::symlink(&external,projection.join("content/link")).unwrap();
+        assert!(remove_owned_projection(&projection).is_err());
+        assert_eq!(fs::read(projection.join("owner.json")).unwrap(),b"ownership marker");
+        assert_eq!(fs::read(projection.join("content/keep.html")).unwrap(),b"projection");
+        assert_eq!(fs::read(external.join("keep.txt")).unwrap(),b"user material");
+        fs::remove_file(projection.join("content/link")).unwrap();
+        remove_owned_projection(&projection).unwrap();
+        assert_eq!(fs::read(external.join("keep.txt")).unwrap(),b"user material");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn projection_cleanup_does_not_follow_a_symlinked_owner_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let external = dir.path().join("external");
+        let session = external.join("session");
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("owner.json"),b"keep").unwrap();
+        let registry = dir.path().join("registry");
+        fs::create_dir(&registry).unwrap();
+        std::os::unix::fs::symlink(&external,registry.join("owner")).unwrap();
+        assert!(remove_owned_projection(&registry.join("owner/session")).is_err());
+        assert_eq!(fs::read(session.join("owner.json")).unwrap(),b"keep");
+    }
     #[test]
     fn metadata_hidden_only_in_projection_not_code_or_archived_source(){
         let source="# Title\n\n<!-- nutbook-cover -->\n![cover](image.svg)\n\n`<!-- nutbook-cover -->`\n\n```html\n<!-- nutbook-cover -->\n```\n";
