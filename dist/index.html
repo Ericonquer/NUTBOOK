@@ -9480,7 +9480,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.4.0",
+          currentVersion: "1.5.0",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -15335,7 +15335,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.4.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.5.0",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -18593,7 +18593,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.4.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.5.0")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -19120,7 +19120,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.4.0",
+              currentVersion: "1.5.0",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -19131,8 +19131,8 @@
             };
           }
           return {
-            currentVersion: "1.4.0",
-            latestVersion: "1.4.0",
+            currentVersion: "1.5.0",
+            latestVersion: "1.5.0",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
