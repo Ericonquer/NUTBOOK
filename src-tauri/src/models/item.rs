@@ -973,6 +973,8 @@ pub struct AttachSettingsOverlayRequest {
     pub bounds: RuntimeHostBounds,
     pub tab: Option<String>,
     pub mode: Option<String>,
+    #[serde(default)]
+    pub history_item_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1043,6 +1045,10 @@ pub struct SaveMarkdownContentResponse {
     pub summary: Option<String>,
     pub rendered_html: Option<String>,
     pub saved: bool,
+    #[serde(default)]
+    pub index_synchronized: bool,
+    #[serde(default)]
+    pub version_incomplete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

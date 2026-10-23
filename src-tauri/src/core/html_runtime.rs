@@ -1365,6 +1365,7 @@ pub fn attach_settings_overlay(
     bounds: RuntimeHostBounds,
     tab: Option<String>,
     mode: Option<String>,
+    history_item_id: Option<i64>,
 ) -> Result<bool, AppError> {
     let label = settings_overlay_label();
     let bounds = settings_overlay_bounds(window, bounds, mode.as_deref());
@@ -1372,13 +1373,13 @@ pub fn attach_settings_overlay(
         webview
             .set_bounds(runtime_host_rect(bounds.clone()))
             .map_err(|_| AppError::InternalError)?;
-        let _ = webview.eval(&settings_overlay_open_script(tab, mode));
+        let _ = webview.eval(&settings_overlay_open_script(tab, mode, history_item_id));
         let _ = webview.show();
         let _ = webview.set_focus();
         return Ok(true);
     }
 
-    let builder = build_settings_overlay_builder(app, &label, tab, mode)?;
+    let builder = build_settings_overlay_builder(app, &label, tab, mode, history_item_id)?;
     let webview = window
         .add_child(
             builder,
@@ -1398,7 +1399,7 @@ fn settings_overlay_bounds(
     bounds: RuntimeHostBounds,
     mode: Option<&str>,
 ) -> RuntimeHostBounds {
-    if !matches!(mode, Some("panel") | Some("update")) {
+    if !matches!(mode, Some("panel") | Some("update") | Some("history")) {
         return bounds;
     }
 
@@ -2466,11 +2467,12 @@ fn build_settings_overlay_builder<R: tauri::Runtime>(
     label: &str,
     tab: Option<String>,
     mode: Option<String>,
+    history_item_id: Option<i64>,
 ) -> Result<WebviewBuilder<R>, AppError> {
     let overlay_url = tauri::WebviewUrl::App(PathBuf::from("index.html"));
     Ok(
         WebviewBuilder::new(label, overlay_url)
-            .initialization_script(&settings_overlay_init_script(tab, mode))
+            .initialization_script(&settings_overlay_init_script(tab, mode, history_item_id))
             .background_color(tauri::webview::Color(0, 0, 0, 0))
             .transparent(true)
             .focused(true)
@@ -3574,22 +3576,24 @@ pub fn html_edit_toolbar_update_script(
     format!("window.__NUTBOOK_HTML_EDIT_TOOLBAR_UPDATE__?.({payload});")
 }
 
-fn settings_overlay_init_script(tab: Option<String>, mode: Option<String>) -> String {
+fn settings_overlay_init_script(tab: Option<String>, mode: Option<String>, history_item_id: Option<i64>) -> String {
+    let history_json = serde_json::to_string(&history_item_id).unwrap_or_else(|_| "null".into());
     let tab_json = serde_json::to_string(&tab.unwrap_or_else(|| "skills".to_string()))
         .unwrap_or_else(|_| "\"skills\"".to_string());
     let mode_json = serde_json::to_string(&mode.unwrap_or_else(|| "menu".to_string()))
         .unwrap_or_else(|_| "\"menu\"".to_string());
     format!(
-        "document.documentElement.dataset.nutbookSettingsOverlay = 'true'; const nutbookSettingsOverlayBootStyle = document.createElement('style'); nutbookSettingsOverlayBootStyle.textContent = 'html[data-nutbook-settings-overlay],html[data-nutbook-settings-overlay] body{{background:transparent!important}}html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .app-shell,html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .footer-bar{{visibility:hidden!important}}'; (document.head || document.documentElement).appendChild(nutbookSettingsOverlayBootStyle); window.__NUTBOOK_SETTINGS_OVERLAY__ = true; window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ = {tab_json}; window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ = {mode_json};"
+        "document.documentElement.dataset.nutbookSettingsOverlay = 'true'; const nutbookSettingsOverlayBootStyle = document.createElement('style'); nutbookSettingsOverlayBootStyle.textContent = 'html[data-nutbook-settings-overlay],html[data-nutbook-settings-overlay] body{{background:transparent!important}}html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .app-shell,html[data-nutbook-settings-overlay] body:not(.settings-overlay-mode) .footer-bar{{visibility:hidden!important}}'; (document.head || document.documentElement).appendChild(nutbookSettingsOverlayBootStyle); window.__NUTBOOK_SETTINGS_OVERLAY__ = true; window.__NUTBOOK_SETTINGS_OVERLAY_TAB__ = {tab_json}; window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ = {mode_json}; window.__NUTBOOK_HISTORY_ITEM_ID__ = {history_json};"
     )
 }
 
-fn settings_overlay_open_script(tab: Option<String>, mode: Option<String>) -> String {
+fn settings_overlay_open_script(tab: Option<String>, mode: Option<String>, history_item_id: Option<i64>) -> String {
+    let history_json = serde_json::to_string(&history_item_id).unwrap_or_else(|_| "null".into());
     let tab_json = serde_json::to_string(&tab.unwrap_or_else(|| "skills".to_string()))
         .unwrap_or_else(|_| "\"skills\"".to_string());
     let mode_json = serde_json::to_string(&mode.unwrap_or_else(|| "menu".to_string()))
         .unwrap_or_else(|_| "\"menu\"".to_string());
-    format!("window.__NUTBOOK_OPEN_SETTINGS_OVERLAY__?.({tab_json}, {mode_json});")
+    format!("window.__NUTBOOK_OPEN_SETTINGS_OVERLAY__?.({tab_json}, {mode_json}, {history_json});")
 }
 
 fn html_runtime_controls_overlay_update_script(
@@ -3649,6 +3653,17 @@ fn html_find_overlay_init_script(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn single_file_history_context_reaches_cold_and_reused_overlay() {
+        let initial = super::settings_overlay_init_script(Some("versions".into()),Some("history".into()),Some(41));
+        assert!(initial.contains("__NUTBOOK_HISTORY_ITEM_ID__ = 41"));
+        assert!(initial.contains("__NUTBOOK_SETTINGS_OVERLAY_MODE__ = \"history\""));
+        let reused = super::settings_overlay_open_script(Some("versions".into()),Some("history".into()),Some(42));
+        assert!(reused.contains("(\"versions\", \"history\", 42)"));
+        let ordinary = super::settings_overlay_open_script(Some("versions".into()),Some("panel".into()),None);
+        assert!(ordinary.contains("(\"versions\", \"panel\", null)"));
+    }
+
     #[test]
     fn controls_tag_draft_survives_native_title_bridge() {
         let value = serde_json::json!({ "itemId": 7, "action": "save-tags", "selections": [{"id": 3}, {"name": "标签验收青松"}], "primaryIndex": 1, "requestId": "7:42", "tagSession": "2:5" });

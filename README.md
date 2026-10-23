@@ -65,7 +65,7 @@ Edit text, adjust formatting, and insert images or tables while reading. Outline
 
 ![Markdown reading, editing, and images](./assets/readme-demo/nutbook-markdown-edit-en.gif)
 
-Export Markdown as reading HTML, presentation HTML, PDF, or a PNG long image. You can also create separate WeChat, X Articles, or Weibo publishing drafts, adjust their layout, and preview before copying, while keeping the original document.
+Export Markdown as reading HTML, presentation HTML, PDF, or a PNG long image. You can also create separate WeChat, X Articles, or Weibo publishing drafts, adjust their layout, then preview, copy, or send them directly to the platform’s draft box while keeping the original document.
 
 #### Watch export and publishing demos
 
@@ -73,9 +73,9 @@ Choose the format that suits your delivery:
 
 ![Markdown Export Center](./assets/readme-demo/nutbook-markdown-export-en.gif)
 
-Adjust a separate publishing draft, switch themes, and compare it with the original:
+Adjust a separate publishing draft, switch themes, and send it directly to WeChat drafts:
 
-![Markdown publishing workspace](./assets/readme-demo/nutbook-markdown-formatting-v2-en.gif)
+![Markdown formatting and automatic WeChat draft delivery demo](./assets/readme-demo/nutbook-markdown-formatting-v3-en.gif)
 
 
 ### HTML: Keep Editing, Add Motion
@@ -89,6 +89,12 @@ Use the Motion Center to add entrances, emphasis, and exits to text and images, 
 ![Motion Center: select objects, preview effects, and add backgrounds and transitions](./assets/readme-demo/nutbook-motion-center-en.gif)
 
 Ordinary HTML can be opened as an editable copy; documents with the full editing contract support direct editing. HTML editing focuses on content adjustments rather than rebuilding arbitrary pages.
+
+### Version History for Markdown and HTML
+
+Keep saved versions of your files, preview earlier content, restore it, or save a version as a new file. Markdown supports full-document scrolling. HTML provides static previews; presentations support page navigation, direct page-number entry, and keeping the same page selected across versions for comparison.
+
+Open **More → Version history** for the current file, or manage files together in **Settings → Version history**. Keep up to 10 recent versions per file with an adjustable total storage limit. Retained history can be saved to a new location even after the original file is deleted. HTML history previews do not execute scripts or play dynamic interactions.
 
 ### Present in Class and Meetings
 
@@ -126,14 +132,17 @@ The installer bundles no Node.js or browser, only the Playwright driver and publ
 
 ## Latest Version
 
-### 1.4.0 · Upgraded Tags and Motion Center
+### 1.5.0 · File Version History and Direct Draft Delivery
 
-- **Flexible organization**: ordered multi-tags, shared editing, tag discovery, and batch management.
-- **Richer presentations**: text and image effects, animated backgrounds, and eight page transitions.
-- **Your favorite effects at hand**: search, favorite effects, save local defaults, and retain motion settings in your documents.
+- **Major addition: Markdown / HTML version history**. Capture versions when saving, with preview, restore, Save As, and centralized cleanup. Keep up to 10 recent versions per file with an adjustable total storage limit.
+- **Previews for both formats**: scroll through Markdown documents; inspect static HTML, browse presentation pages, jump by page number, and compare the same page across versions.
+- **Send directly to draft boxes**: deliver formatted Markdown drafts to WeChat Official Accounts, Weibo, and X. Reuse compatible system Node.js and browsers, with setup for missing publishing tools as needed.
+- **Adjust notes while presenting**: edit and save the current slide’s notes in the presenter window, with changes included in file history.
+- **Fixes and reliability**: fix nbskill artifact intake and other existing issues, and improve file saving, recovery, update delivery, and previews.
 
 ### Earlier Releases
 
+- **1.4.0**: Ordered multi-tags, Motion Center, animated backgrounds, and page transitions.
 - **1.3.0**: Markdown publishing workspace, separate platform drafts, and customizable toolbar.
 - **1.2.0**: Native HTML presentations, presenter view, and per-slide notes.
 - **1.1.0**: Markdown export to HTML, PDF, and PNG long images.

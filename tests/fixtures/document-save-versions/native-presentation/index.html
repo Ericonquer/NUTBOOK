@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NUTBOOK 原生演示验收样本</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #111a2d; color: #fff; overflow: hidden; }
+    .page { display: none; box-sizing: border-box; width: 100vw; height: 100vh; padding: 8vw; align-items: center; gap: 6vw; }
+    .page.active { display: flex; }
+    .copy { max-width: 60vw; }
+    h1 { font-size: clamp(42px, 7vw, 106px); line-height: 1.08; margin: 0 0 0.3em; }
+    p { font-size: clamp(23px, 2.8vw, 42px); line-height: 1.4; color: #c9d5ea; }
+    img { width: 23vw; max-width: 360px; height: auto; }
+    .accent { color: #7cdbbb; }
+    .page.active .rise { animation: rise .7s both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(36px); } to { opacity: 1; transform: none; } }
+    .hint { position: fixed; right: 2rem; bottom: 1.4rem; color: #aebed6; font-size: 1rem; }
+    html[data-nutbook-managed-presentation="true"] .hint { display: none; }
+  </style>
+</head>
+<body>
+  <section class="page active" data-nutbook-page-id="opening"><div class="copy rise"><h1>一个文件，<br><span class="accent">一场演示</span></h1><p data-editable="text" data-id="opening-subtitle">这份三页样本用于验证原生双窗口、翻页与备注。</p></div><img src="./nutbook-mark.svg" alt="NUTBOOK 图形"></section>
+  <section class="page" data-nutbook-page-id="workflow"><div class="copy rise"><h1>准备 · 放映 · 返回</h1><p data-editable="text" data-id="workflow-subtitle">观众看到动态 HTML；演讲者看到逐页备注与控制。</p></div></section>
+  <section class="page" data-nutbook-page-id="finish"><div class="copy rise"><h1>结束后仍是<br><span class="accent">你的文件</span></h1><p data-editable="text" data-id="finish-subtitle">保存的备注按稳定页面 ID 绑定，重开后不会错位。</p></div></section>
+  <div class="hint">← / → 翻页</div>
+  <script type="application/json" id="nutbook-presentation-notes">{"pages":{"finish":[{"runs":[{"text":"结束演示，返回 NUTBOOK 文档阅读。"}],"type":"paragraph"}],"opening":[{"runs":[{"bold":false,"text":"欢迎。先确认观众屏仅显示当前幻灯片。测试添加"}],"type":"paragraph"}],"workflow":[{"runs":[{"bold":true,"text":"演讲者备注："},{"text":"翻到第二页后，检查计时器和下一页静态预览。"}],"type":"paragraph"}]},"version":1}</script>
+  <script>
+    (() => {
+      const pages = [
+        { id: "opening", title: "开场", index: 1 },
+        { id: "workflow", title: "演示流程", index: 2 },
+        { id: "finish", title: "结束", index: 3 }
+      ];
+      const listeners = new Set();
+      let activePageId = "opening";
+      let managed = false;
+      function goTo(id) {
+        if (!pages.some(page => page.id === id)) return false;
+        if (activePageId === id) return true;
+        activePageId = id;
+        document.querySelectorAll("[data-nutbook-page-id]").forEach(page => {
+          page.classList.toggle("active", page.getAttribute("data-nutbook-page-id") === id);
+        });
+        listeners.forEach(listener => listener(id));
+        return true;
+      }
+      window.__NUTBOOK_PRESENTATION__ = {
+        version: 1,
+        capabilities: { managedPresenter: true },
+        pages,
+        get activePageId() { return activePageId; },
+        async whenReady() { return true; },
+        async goTo(id) { return goTo(id); },
+        subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+        async setManagedMode(enabled) { managed = Boolean(enabled); document.documentElement.dataset.nutbookManagedPresentation = String(managed); return true; },
+        async setEditMode() { return true; }
+      };
+      document.addEventListener("keydown", event => {
+        if (managed || event.defaultPrevented || event.isComposing) return;
+        const index = pages.findIndex(page => page.id === activePageId);
+        const next = event.key === "ArrowRight" ? pages[index + 1] : event.key === "ArrowLeft" ? pages[index - 1] : null;
+        if (next) { event.preventDefault(); goTo(next.id); }
+      });
+    })();
+  </script>
+</body>
+</html>

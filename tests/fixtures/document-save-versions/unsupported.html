@@ -1,0 +1,1 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>依赖能力边界反例</title></head><body><h1>边界样本</h1><p>远程与动态引用应标识未捕获；历史预览不得发出请求。</p><img src="https://example.invalid/image.png" alt="远程反例"><script>const name = location.hash.slice(1); if (name) import('./'+name+'.js');</script></body></html>

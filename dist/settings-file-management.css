@@ -1,0 +1,21 @@
+#settingsLibrariesSection .source-manager-table{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper)}
+#settingsLibrariesSection .source-manager-head,#settingsLibrariesSection .source-manager-row{display:grid;grid-template-columns:minmax(0,1fr) 94px 176px;align-items:center;gap:16px}
+#settingsLibrariesSection .source-manager-head{padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-soft)}
+#settingsLibrariesSection .source-manager-head>span:last-child{text-align:right;min-width:124px}
+#settingsLibrariesSection .source-manager-row{padding:14px 16px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:var(--paper);margin:0}
+#settingsLibrariesSection .source-manager-row:last-child{border-bottom:0}#settingsLibrariesSection .source-manager-row:hover{background:var(--surface)}
+#settingsLibrariesSection .source-manager-file{display:flex;align-items:center;gap:12px;min-width:0}#settingsLibrariesSection .source-manager-symbol{display:flex;align-items:center;justify-content:center;width:34px;height:40px;flex-shrink:0;border:1px solid var(--line);border-radius:6px;background:var(--surface-variant);color:var(--ink-soft)}#settingsLibrariesSection .source-manager-symbol svg{width:20px;height:20px}
+#settingsLibrariesSection .source-manager-row .settings-row-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#settingsLibrariesSection .source-manager-row .settings-row-path{font-size:12px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+#settingsLibrariesSection .source-manager-state{font-size:12px;color:var(--ink-soft)}#settingsLibrariesSection .source-manager-row .button-row{justify-content:flex-end;gap:6px;min-width:124px}#settingsLibrariesSection .source-manager-row .button{min-height:28px;padding:5px 9px;font-size:12px;border-radius:6px;white-space:nowrap}#settingsLibrariesSection .source-manager-row .button-ghost{background:transparent;color:var(--ink-soft)}#settingsLibrariesSection .source-manager-row .button-ghost:hover{color:var(--danger);background:var(--surface-muted)}
+@media(max-width:700px){#settingsLibrariesSection .source-manager-head,#settingsLibrariesSection .source-manager-row{grid-template-columns:minmax(0,1fr) 76px 124px;gap:10px;padding:12px 10px}#settingsLibrariesSection .source-manager-symbol{display:none}#settingsLibrariesSection .source-manager-row .button-row,#settingsLibrariesSection .source-manager-head>span:last-child{min-width:100px}#settingsLibrariesSection .source-manager-row .button{padding:5px 6px}}
+
+#settingsLibrariesSection .settings-subsection-card{padding:0;border:0;background:transparent}#settingsLibrariesSection .source-manager-row .button{font-weight:500}
+/* Keep the table at content height; the existing bounded viewport owns scrolling. */
+#settingsLibraryList>.settings-list-viewport,#settingsIgnoredList>.settings-list-viewport{display:block}
+#settingsLibrariesSection{--source-scrollbar-size:6px;--source-scrollbar-gap:6px}
+#settingsLibraryList>.settings-list-viewport,#settingsIgnoredList>.settings-list-viewport{overflow-y:scroll;scrollbar-gutter:stable;padding-right:var(--source-scrollbar-gap)}
+#settingsLibraryList>.settings-list-viewport::-webkit-scrollbar,#settingsIgnoredList>.settings-list-viewport::-webkit-scrollbar{width:var(--source-scrollbar-size)}
+#settingsLibraryList>.settings-list-viewport::-webkit-scrollbar-track,#settingsIgnoredList>.settings-list-viewport::-webkit-scrollbar-track{background:transparent}
+#settingsLibraryList>.settings-list-viewport::-webkit-scrollbar-thumb,#settingsIgnoredList>.settings-list-viewport::-webkit-scrollbar-thumb{background:rgba(94,94,99,.35);border-radius:999px}
+#settingsLibraryList>.settings-list-viewport::-webkit-scrollbar-thumb:hover,#settingsIgnoredList>.settings-list-viewport::-webkit-scrollbar-thumb:hover{background:rgba(94,94,99,.55)}
+#settingsLibraryList>.settings-header,#settingsIgnoredList>.settings-header{padding-right:calc(var(--source-scrollbar-size) + var(--source-scrollbar-gap))}

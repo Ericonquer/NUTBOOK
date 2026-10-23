@@ -524,7 +524,7 @@ assert.equal(tagControlsBounds.width, defaultControlsBounds.width, "Custom Tag m
 assert.equal(moreControlsBounds.x, defaultControlsBounds.x, "More must share the same stable controls x coordinate");
 assert.equal(moreControlsBounds.width, defaultControlsBounds.width, "More must share the same stable controls width");
 assert.equal(defaultControlsBounds.height, 40, "closed controls keep their compact height");
-assert.equal(moreControlsBounds.height, 180, "More may change only the controls height");
+assert.equal(moreControlsBounds.height, 220, "More may change only the controls height");
 assert.equal(tagControlsBounds.height, 360, "Custom Tag may change only the controls height");
 
 const controlsInvocations = [];
@@ -917,7 +917,7 @@ try {
   const mainUi = await mainPage.evaluate(async () => {
     appState.isSettingsOpen = true;
     renderSettingsPanel();
-    const settings = ["skills", "libraries", "tags", "preferences", "thumbnails"].map((tab) => {
+    const settings = ["skills", "libraries", "tags", "preferences", "thumbnails", "versions"].map((tab) => {
       appState.settingsTab = tab;
       renderSettingsPanel();
       return [...document.querySelectorAll(".settings-section")]
@@ -955,11 +955,11 @@ try {
   });
   assert.deepEqual(mainUi.settings, [
     ["settingsSkillsSection"], ["settingsLibrariesSection"], ["settingsTagsSection"],
-    ["settingsPreferencesSection"], ["settingsThumbnailsSection"]
+    ["settingsPreferencesSection"], ["settingsThumbnailsSection"], ["settingsVersionsSection"]
   ], "each settings page must be the only visible section");
   assert.ok(mainUi.settingsWidth >= 700, "settings modal must retain its intended layout");
   assert.deepEqual(mainUi.menu.map((entry) => [entry.action, entry.label]), [
-    ["format-markdown", "排版发布"], ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"],
+    ["format-markdown", "排版发布"], ["export-markdown-center", "导出中心"], ["export-markdown", "另存文件"], ["document-versions", "版本历史"],
     ["remove-from-nutbook", "移除文件"]
   ]);
   assert.notEqual(mainUi.menu[1].icon, mainUi.menu[2].icon, "export center and save-as need distinct icons");
@@ -1075,6 +1075,9 @@ try {
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.classList.contains("toolbar-pin")), true);
   await runtimePage.keyboard.press("ArrowDown");
+  assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "historyOption");
+  assert.equal(await runtimePage.locator('#historyOption').getAttribute('title'), '版本历史');
+  await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "removeOption");
   await runtimePage.keyboard.press("Escape");
   assert.equal(await runtimePage.locator("#moreButton").getAttribute("aria-expanded"), "false");
@@ -1093,7 +1096,7 @@ try {
   await runtimePage.locator("#moreButton").click();
   await runtimePage.waitForFunction(() => document.getElementById("menu")?.classList.contains("open"));
   const nativeMenuBottom = await runtimePage.locator("#menu").evaluate(node => node.getBoundingClientRect().bottom);
-  assert.ok(nativeMenuBottom <= 180, `three-option HTML menu must fit its ${180}px host overlay, got ${nativeMenuBottom}`);
+  assert.ok(nativeMenuBottom <= 220, `four-option HTML menu must fit its ${220}px host overlay, got ${nativeMenuBottom}`);
   await runtimePage.locator("#nativePresentationOption").dispatchEvent("pointerdown");
   assert.equal(await runtimePage.locator("#nativePresentationProgress").isVisible(), true, "probing must show feedback in the native controls surface immediately");
   assert.match(await runtimePage.locator("#nativePresentationProgress").textContent(), /正在检查演示/);

@@ -65,6 +65,8 @@ pub struct HtmlEditCommit {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HtmlEditCommitResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_document_id: Option<String>,
     pub source_file_hash: String,
     pub source_modified_at: i64,
     pub source_size: u64,
@@ -758,6 +760,21 @@ pub fn save_html_edit_patch_replacing_changes_for_file(
 pub fn commit_html_edit_for_file(
     commit: &HtmlEditCommit,
 ) -> Result<HtmlEditCommitResponse, AppError> {
+    commit_html_edit_with_publisher(commit, None)
+}
+
+/// Preserve patch normalization, source conflict checks and the existing HTML
+/// cleanup journal while the history publisher atomically owns source bytes.
+pub fn commit_html_edit_with_history_for_file(
+    commit: &HtmlEditCommit,
+    history: &crate::core::document_versions::HistoryStore,
+) -> Result<HtmlEditCommitResponse, AppError> {
+    commit_html_edit_with_publisher(commit, Some(history))
+}
+fn commit_html_edit_with_publisher(
+    commit: &HtmlEditCommit,
+    history: Option<&crate::core::document_versions::HistoryStore>,
+) -> Result<HtmlEditCommitResponse, AppError> {
     validate_artifact_edit_id(&commit.artifact_edit_id)?;
     recover_html_edit_commit_journal(&commit.library_root)?;
     let source_relative_path = library_relative_path(&commit.library_root, &commit.file_path)?;
@@ -791,10 +808,16 @@ pub fn commit_html_edit_for_file(
         new_hash: new_hash.clone(),
     };
     save_html_edit_commit_journal(&commit.library_root, &journal)?;
-    atomic_replace_html_file(&commit.file_path, rewritten.as_bytes(), &metadata)?;
+    let history_document_id = if let Some(history) = history {
+        Some(history.save_html(&commit.file_path, &commit.library_root, &commit.expected_file_hash, rewritten.as_bytes(), None)?.document_id)
+    } else {
+        atomic_replace_html_file(&commit.file_path, rewritten.as_bytes(), &metadata)?;
+        None
+    };
     finish_html_edit_commit_cleanup(&commit.library_root, &journal)?;
     let saved_metadata = fs::metadata(&commit.file_path).map_err(|_| AppError::IoError)?;
     Ok(HtmlEditCommitResponse {
+        history_document_id,
         source_file_hash: new_hash,
         source_modified_at: metadata_modified_at(&saved_metadata)?,
         source_size: saved_metadata.len(),
@@ -802,10 +825,44 @@ pub fn commit_html_edit_for_file(
     })
 }
 
+/// Bind history publication to the existing HTML patch-cleanup journal. A
+/// crash before publication keeps the patch; after publication it retires it.
+pub fn restore_html_history_for_file(
+    history: &crate::core::document_versions::HistoryStore,
+    library_root: &Path, path: &Path, document: &str, version: &str,
+    expected: &str, allow_incomplete: bool,
+) -> Result<crate::core::document_versions::CommitResult, AppError> {
+    recover_html_edit_commit_journal(library_root)?;
+    let relative = library_relative_path(library_root,path)?;
+    let manifest = load_html_edit_manifest(library_root)?;
+    let artifact = manifest.entries.get(&relative).map(|entry| entry.artifact_edit_id.clone()).unwrap_or_else(new_artifact_edit_id);
+    let prepare = |new_hash: &str| {
+        save_html_edit_commit_journal(library_root,&HtmlEditCommitJournal {
+            version:1,source_relative_path:relative.clone(),artifact_edit_id:artifact.clone(),
+            old_hash:expected.into(),new_hash:new_hash.into(),
+        }).map_err(|_| crate::core::document_versions::HistoryError::Invalid("cannot prepare HTML restore cleanup".into()))
+    };
+    let result = history.restore_html_with_publication_guard(document,version,library_root,expected,allow_incomplete,Some(&prepare))?;
+    if !result.changed { prepare(expected)?; }
+    {
+        // Source is durable. A cleanup error must not report an unsaved restore;
+        // its durable journal is replayed by the next existing HTML entry.
+        if recover_html_edit_commit_journal(library_root).is_err() { eprintln!("Nutbook: HTML restore patch cleanup pending"); }
+    }
+    Ok(result)
+}
+
 /// Conflict copies never overwrite the externally modified source. They still
 /// require schema, asset and unique-target validation, but intentionally do
 /// not require its old field hashes: the copy is the user's recovery branch.
 pub fn save_html_edit_conflict_copy_for_file(commit: &HtmlEditCommit) -> Result<PathBuf, AppError> {
+    save_html_edit_conflict_copy_with_publisher(commit,None).map(|(path,_)|path)
+}
+pub fn save_html_edit_conflict_copy_with_history_for_file(commit: &HtmlEditCommit, history: &crate::core::document_versions::HistoryStore) -> Result<(PathBuf,String),AppError> {
+    let (path,id) = save_html_edit_conflict_copy_with_publisher(commit,Some(history))?;
+    Ok((path,id.ok_or(AppError::InternalError)?))
+}
+fn save_html_edit_conflict_copy_with_publisher(commit: &HtmlEditCommit, history: Option<&crate::core::document_versions::HistoryStore>) -> Result<(PathBuf,Option<String>),AppError> {
     validate_artifact_edit_id(&commit.artifact_edit_id)?;
     let source = String::from_utf8(fs::read(&commit.file_path).map_err(|_| AppError::IoError)?).map_err(|_| AppError::InvalidParams)?;
     let normalized = commit.changes.iter().map(|(id, change)| normalize_html_edit_change(&commit.library_root, &commit.artifact_edit_id, id, change).map(|value| (id.clone(), value))).collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -819,8 +876,10 @@ pub fn save_html_edit_conflict_copy_for_file(commit: &HtmlEditCommit) -> Result<
     let timestamp = Local::now().format("%Y%m%d-%H%M%S");
     let target = parent.join(format!("{stem}.nutbook-conflict-{timestamp}.html"));
     if target.exists() { return Err(AppError::EditConflict); }
-    atomic_replace_new_html_file(&target, rewritten.as_bytes())?;
-    Ok(target)
+    let id = if let Some(history) = history {
+        Some(history.publish_new_html_from(&target,&commit.library_root,rewritten.as_bytes(),None)?.document_id)
+    } else { atomic_replace_new_html_file(&target,rewritten.as_bytes())?; None };
+    Ok((target,id))
 }
 
 fn finish_html_edit_commit_cleanup(library_root: &Path, journal: &HtmlEditCommitJournal) -> Result<(), AppError> {
@@ -1160,6 +1219,46 @@ fn find_unique_tag(source: &str, name: &str) -> Result<HtmlElementSpan, AppError
 fn find_unique_attribute(source: &str, attribute: &str, value: &str) -> Result<Option<HtmlElementSpan>, AppError> {
     let values = html_open_elements(source)?.into_iter().filter(|span| attribute_value(&source[span.open_start..span.open_end], attribute).as_deref() == Some(value)).collect::<Vec<_>>();
     if values.len() > 1 { Err(AppError::EditConflict) } else { Ok(values.into_iter().next()) }
+}
+
+/// Lossless resource-token projection for an archived HTML entry document.
+/// Existing editor scanner excludes comments and script/style lookalikes.
+pub(crate) fn relocate_archived_html_entry(
+    source: &str,
+    replacements: &BTreeMap<String, String>,
+) -> Result<String, AppError> {
+    let mut edits = Vec::new();
+    for span in html_open_elements(source)? {
+        let original = &source[span.open_start..span.open_end];
+        let mut tag = original.to_owned();
+        for attr in ["src", "href", "poster"] {
+            if let Some(value) = attribute_value(original, attr) {
+                if let Some(target) = replacements.get(&value) { tag = set_html_attribute(&tag, attr, target); }
+            }
+        }
+        if let Some(style) = attribute_value(original, "style") {
+            let rewritten = crate::core::document_versions::relocate_html_css(&style, replacements)
+                .map_err(|_| AppError::InvalidParams)?;
+            if style != rewritten { tag = set_html_attribute(&tag, "style", &rewritten); }
+        }
+        if tag != original { edits.push((span.open_start, span.open_end, tag)); }
+        let script_type = attribute_value(original, "type").unwrap_or_default();
+        let executable_script = span.name == "script" && (script_type.is_empty() || script_type == "module" || script_type.contains("javascript"));
+        if span.name == "style" || executable_script {
+            let content = &source[span.inner_start..span.inner_end];
+            let rewritten = if span.name == "style" {
+                crate::core::document_versions::relocate_html_css(content, replacements)
+            } else {
+                crate::core::document_versions::relocate_html_modules(content, replacements)
+            }.map_err(|_| AppError::InvalidParams)?;
+            if content != rewritten { edits.push((span.inner_start, span.inner_end, rewritten)); }
+        }
+    }
+    edits.sort_by_key(|edit| edit.0);
+    if edits.windows(2).any(|pair| pair[0].1 > pair[1].0) { return Err(AppError::InvalidParams); }
+    let mut output = source.to_owned();
+    for (start, end, value) in edits.into_iter().rev() { output.replace_range(start..end, &value); }
+    Ok(output)
 }
 
 fn html_open_elements(source: &str) -> Result<Vec<HtmlElementSpan>, AppError> {

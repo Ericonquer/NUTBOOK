@@ -10,6 +10,7 @@ use crate::{
 };
 
 fn is_supported_file(path: &Path) -> bool {
+    if super::traversal::is_history_resource_path(path) { return false; }
     path.extension()
         .and_then(|value| value.to_str())
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "md" | "markdown" | "html" | "htm"))
@@ -104,7 +105,7 @@ pub fn scan_library_files(
     now: &str,
 ) -> Result<Vec<IndexedItemRecord>, AppError> {
     let root = Path::new(root_path);
-    if !root.exists() || !root.is_dir() {
+    if super::traversal::is_history_resource_path(root) || !root.exists() || !root.is_dir() {
         return Err(AppError::InvalidParams);
     }
 

@@ -3,6 +3,7 @@ pub mod agent_output_manifest;
 pub mod artifact_discovery;
 pub mod cli;
 pub mod document;
+pub mod document_versions;
 pub mod document_title;
 pub mod folder_ingest;
 pub mod html_edit;
@@ -36,3 +37,5 @@ pub mod motion_protocol;
 pub mod motion_session;
 
 pub mod display_layout;
+
+pub mod markdown_save_as;

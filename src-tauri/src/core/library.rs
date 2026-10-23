@@ -41,6 +41,7 @@ pub fn select_or_create_library(
         return Err(AppError::InvalidParams);
     }
 
+    if super::traversal::is_history_resource_path(Path::new(candidate_root)) { return Err(AppError::InvalidParams); }
     let normalized_candidate = normalized_path_string(Path::new(candidate_root));
 
     if let Some(existing) = existing_libraries

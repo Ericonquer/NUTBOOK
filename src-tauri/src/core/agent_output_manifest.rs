@@ -86,6 +86,7 @@ fn validate_raw_manifest(
         contract(valid_id(&entry.id), "entry id is invalid")?;
         contract(ids.insert(entry.id.clone()), "entry ids must be unique")?;
         validate_relative_path(&entry.path)?;
+        contract(!super::traversal::is_history_resource_path(&project_root.join(&entry.path)), "recovery resources cannot be primary artifacts")?;
         contract(matches!(entry.state.as_str(), "active" | "superseded" | "removed"), "entry state is invalid")?;
         contract(matches!(entry.kind.as_str(), "document" | "report" | "presentation" | "interactive"), "entry kind is invalid")?;
         contract(valid_skill_name(&entry.skill.name), "skill name is invalid")?;

@@ -308,6 +308,15 @@ fn main() {
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
             app.manage(AppState::new(database, app_data_dir.clone()));
+            // Recover history owners/projections and rebuild the disposable
+            // index off the UI thread. Commands share the same store mutex and
+            // retry/report errors normally if startup recovery cannot finish.
+            let history_app = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Err(error) = history_app.state::<AppState>().document_history() {
+                    eprintln!("Nutbook history startup recovery could not finish: {error}");
+                }
+            });
             if let Err(error) = nutbook_backend::core::update::cleanup_update_cache(app.handle()) {
                 eprintln!("Nutbook update-cache cleanup skipped: {error}");
             }
@@ -471,6 +480,8 @@ fn main() {
             commands::native_presentation::native_presentation_probe_command,
             commands::native_presentation::start_native_presentation,
             commands::native_presentation::save_native_presentation_notes,
+            commands::native_presentation::native_presentation_notes_edit,
+            commands::native_presentation::native_presentation_notes_save,
             commands::native_presentation::native_presentation_state,
             commands::native_presentation::native_presentation_timer,
             commands::native_presentation::native_presentation_blackout,
@@ -484,6 +495,14 @@ fn main() {
             commands::native_presentation::native_presentation_toggle_fullscreen,
             commands::native_presentation::stop_native_presentation,
             commands::preview::save_markdown_content,
+            commands::document_versions::list_document_versions,
+            commands::document_versions::get_document_version_preview,
+            commands::document_versions::close_document_version_preview,
+            commands::document_versions::restore_document_version,
+            commands::document_versions::save_document_version_as,
+            commands::document_versions::delete_document_versions,
+            commands::document_versions::set_version_history_limit,
+            commands::document_versions::open_document_history_location,
             commands::publishing_runtime::publishing_runtime_status,
             commands::wechat_delivery::start_wechat_delivery,
             commands::wechat_delivery::wechat_delivery_status,

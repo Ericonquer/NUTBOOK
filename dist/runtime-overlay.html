@@ -542,6 +542,10 @@
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 16.5h4"/><path d="M10 13v3.5"/></svg></span>
         <span id="presentationLabel" class="menu-option-label">全屏查看</span>
       </button>
+      <button id="historyOption" class="menu-option" type="button" role="menuitem" aria-label="版本历史" title="版本历史">
+        <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a7 7 0 1 1 1.5 5M3 4v5h5M10 6v4l3 2"/></svg></span>
+        <span id="historyLabel" class="menu-option-label">版本历史</span>
+      </button>
       <button id="removeOption" class="menu-option danger-option" type="button" role="menuitem" aria-label="移除文件">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 5.5h11"/><path d="M7.5 5.5V4a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 12.5 4v1.5"/><path d="M6 5.5l.8 10a1.5 1.5 0 0 0 1.5 1.4h3.4a1.5 1.5 0 0 0 1.5-1.4l.8-10"/></svg></span>
         <span class="menu-option-label">移除文件</span>
@@ -1031,6 +1035,11 @@
       els.presentationOption.setAttribute("aria-label", presentationLabel);
       els.presentationOption.title = presentationLabel;
       els.presentationOption.disabled = state.isEditing;
+      const historyLabel = state.language === "en-US" ? "Version history" : "版本历史";
+      const historyOption = document.getElementById('historyOption');
+      historyOption.setAttribute('aria-label', historyLabel); historyOption.title = historyLabel;
+      historyOption.disabled = state.isPrimaryBusy;
+      document.getElementById('historyLabel').textContent = historyLabel;
       refreshPinnedActions();
       updateTagChips();
       if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");
@@ -1142,6 +1151,10 @@
       clearMenuAutoClose();
       // 确认弹窗由宿主独立 child-webview overlay 完成，本 controls overlay 只发起请求。
       emit({ action: "request-remove" });
+    });
+    document.getElementById('historyOption').addEventListener('click', function() {
+      state.menuOpen = false; refresh(); clearMenuAutoClose(); emitLayout();
+      emit({action:'open-version-history'});
     });
     els.moreButton.addEventListener("click", function() {
       clearMenuOpenTimer();

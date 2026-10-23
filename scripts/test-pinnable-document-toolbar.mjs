@@ -33,7 +33,8 @@ try {
   }
   assert.equal(await page.locator('[data-pinned-action]').count(), 3);
   assert.equal(await page.locator('[data-pin-action="remove-from-nutbook"]').count(), 0);
-  assert.equal(await page.locator('[data-document-action]').count(), 4);
+  assert.equal(await page.locator('[data-document-action]').count(), 5);
+  assert.deepEqual(await page.locator('[data-document-action]').evaluateAll(nodes=>nodes.slice(-2).map(node=>node.dataset.documentAction)),['document-versions','remove-from-nutbook']);
   await page.keyboard.press('Escape');
   await page.locator('[data-pinned-action="export-markdown-center"]').click();
   assert.equal(await page.locator('#exportScrim').evaluate(node => node.classList.contains('open')), true);

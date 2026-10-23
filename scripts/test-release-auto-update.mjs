@@ -36,7 +36,7 @@ assert.doesNotMatch(windowCommands, /#\[tauri::command\][\s\S]{0,160}open_downlo
 
 assert.match(indexHtml, /openSettingsOverlay\("preferences", "update"\)/, "the update badge must open the host-layer update dialog");
 assert.match(indexHtml, /settingsOverlayMode === "update"/, "the update dialog must have a child-webview-safe overlay mode");
-assert.match(runtimeCore, /matches!\(mode, Some\("panel"\) \| Some\("update"\)\)/, "the host overlay must size the update dialog above an HTML runtime");
+assert.match(runtimeCore, /matches!\(mode, Some\("panel"\) \| Some\("update"\) \| Some\("history"\)\)/, "the host overlay must size the update dialog above an HTML runtime");
 assert.match(indexHtml, /download_and_install_update", \{ payload: \{ tag: candidate\.tag, assetKey: candidate\.assetKey \} \}/, "frontend must not pass a URL, hash, or local path to the installer command");
 assert.match(indexHtml, /function scheduleAutomaticUpdateCheck\(\)[\s\S]*?updateStartupCheckScheduled/, "automatic update checks must have one startup coordinator");
 assert.doesNotMatch(indexHtml, /function maybeCheckUpdatesForPreferences/, "opening preferences must not force a separate update check");

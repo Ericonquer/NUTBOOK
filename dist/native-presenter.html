@@ -37,13 +37,32 @@
     .next .preview-body { aspect-ratio: 16 / 9; flex: none; }
     .side { display: grid; grid-template-rows: max-content minmax(0, 1fr); gap: 18px; min-height: 0; }
     .notes { min-height: 0; }
-    #notes { overflow-y: auto; padding: 18px 20px; line-height: 1.55; font-size: 21px; }
+    #notes { flex:1; min-height:0; outline:none; overflow-y: auto; padding: 18px 20px; line-height: 1.55; font-size: 21px; }
+    #notes { --notes-scrollbar:#c1c1c6; scrollbar-width:thin; scrollbar-color:var(--notes-scrollbar) transparent; }
+    :root[data-theme="dark"] #notes { --notes-scrollbar:#51565a; }
+    #notes::-webkit-scrollbar { width:6px; height:6px; }
+    #notes::-webkit-scrollbar-track { background:transparent; }
+    #notes::-webkit-scrollbar-thumb { background:var(--notes-scrollbar); border-radius:999px; }
+    #notes::-webkit-scrollbar-thumb:hover { background:var(--muted); }
+    #notes[contenteditable="true"] { box-shadow:inset 0 0 0 1px var(--muted); border-radius:0 0 8px 8px; }
+    #notesError { margin:0; padding:6px 12px; color:#ba1a1a; font-size:13px; }
+    #notesAction svg { width:18px; height:18px; }
+    #notesLeaveDialog { border:1px solid var(--line); border-radius:16px; background:var(--card); color:var(--ink); padding:24px; max-width:430px; }
+    #notesLeaveDialog::backdrop { background:rgb(0 0 0 / .22); }
+    #notesLeaveDialog h2 { margin:0 0 12px; font-size:20px; }
+    #notesLeaveDialog p { color:var(--muted); line-height:1.5; }
+    #notesLeaveDialog .primary { background:var(--strong); color:var(--on-strong); }
+    #notesLeaveDialog h2:focus { outline:none; }
+    #notesLeaveDialog .recover-actions button { border-radius:999px; padding:9px 16px; white-space:nowrap; }
     #notes p { margin: 0 0 1em; }
     #notes .empty { color: var(--muted); }
     .pages { min-height: 0; }
     .caption.tools { display:flex;align-items:center;gap:8px; }
     .caption.tools span { margin-right:auto; }
-    .caption.tools button { background:var(--control);border:0;border-radius:7px;color:var(--ink);padding:2px 7px; }
+    .caption.tools button { display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:28px;background:var(--control);border:0;border-radius:8px;color:var(--ink);padding:0;font-size:12px;font-weight:600;line-height:1; }
+    .caption.tools button:hover:not(:disabled) { background:var(--control-hover); }
+    #notesTooltip { position:fixed;z-index:100;padding:6px 9px;border-radius:7px;background:var(--ink);color:var(--card);font-size:12px;line-height:1.4;white-space:nowrap;box-shadow:0 3px 12px #0002;pointer-events:none; }
+    #notesTooltip[hidden] { display:none; }
     #pages { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: grid; grid-auto-rows: max-content; align-content: start; gap: 6px; }
     #pages button { border: 0; background: transparent; color: var(--caption); text-align: left; padding: 8px 11px; border-radius: 8px; }
     #pages button:hover { background: var(--control); }
@@ -70,7 +89,7 @@
     <div class="previews">
       <section class="card"><div class="caption">当前页 · 动态预览</div><div class="preview-body" id="currentPreview"><div><strong>等待演示开始</strong></div></div></section>
       <div id="previewDivider" class="preview-divider" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="调整当前页与备注高度" aria-valuemin="20" aria-valuemax="50" aria-valuenow="25" title="拖动调整当前页与备注高度"></div>
-      <section class="card notes"><div class="caption tools"><span>逐页备注 · 只读</span><button id="smallerNotes" type="button" aria-label="缩小备注字号" title="缩小备注字号">A−</button><button id="largerNotes" type="button" aria-label="放大备注字号" title="放大备注字号">A+</button></div><div id="notes"></div></section>
+      <section class="card notes"><div class="caption tools"><span>逐页备注</span><button id="notesAction" type="button" aria-label="编辑备注" title="编辑备注" disabled></button><button id="smallerNotes" type="button" aria-label="缩小备注字号" title="缩小备注字号">A−</button><button id="largerNotes" type="button" aria-label="放大备注字号" title="放大备注字号">A+</button></div><p id="notesError" role="alert" hidden></p><div id="notes" role="textbox" aria-multiline="true" aria-label="逐页备注" contenteditable="false"></div></section>
     </div>
     <div class="side">
       <section class="card next"><div class="caption">下一页 · 静态预览</div><div class="preview-body" id="nextPreview"><div><strong>—</strong></div></div></section>
@@ -79,18 +98,169 @@
   </main>
   <footer><div id="pageCount">— / —</div><button id="previous" type="button" aria-label="上一页" title="上一页">← 上一页</button><button id="next" type="button" aria-label="下一页" title="下一页">下一页 →</button><div id="motionControls" hidden style="display:none;align-items:center;gap:6px"><button id="motionPause" type="button" title="暂停动效" aria-label="暂停动效"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg></button><button id="motionReplay" type="button" title="重播当前页动效" aria-label="重播当前页动效"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 10a9 9 0 1 1 1 8M3 4v6h6"/></svg></button><input id="motionSeek" type="range" min="0" max="0" step="1" value="0" title="当前页动效时间" aria-label="当前页动效时间" style="width:100px;accent-color:var(--strong)"><output id="motionTime" style="font-size:12px;font-variant-numeric:tabular-nums">0.0s</output></div><button id="black" type="button" aria-label="临时黑屏" title="临时黑屏">临时黑屏</button><button id="end" type="button" aria-label="结束演示" title="结束演示">结束演示</button></footer>
   <dialog id="recoverDialog"><h2>恢复观众画面</h2><p>选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。</p><select id="recoverMonitor" aria-label="观众屏幕"></select><p id="recoverError" role="alert"></p><div class="recover-actions"><button id="recoverCancel" type="button">取消</button><button id="recoverConfirm" type="button">恢复</button></div></dialog>
+  <dialog id="notesLeaveDialog" aria-labelledby="notesLeaveTitle"><h2 id="notesLeaveTitle" tabindex="-1"></h2><p id="notesLeaveDescription"></p><div class="recover-actions"><button id="notesKeepEditing" type="button"></button><button id="notesDiscard" type="button"></button><button id="notesSaveLeave" class="primary" type="button"></button></div></dialog>
+  <div id="notesTooltip" role="tooltip" hidden></div>
   <script>
     (() => {
       const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args);
       const byId = id => document.getElementById(id);
       const COPY = {
-        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众画面就绪…", ready: "观众画面已就绪", shareWindow: "在线会议中请共享 NUTBOOK 窗口", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", start: "开始", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 动态预览", nextPreview: "下一页 · 静态预览", currentStatic: "当前页 · 静态预览", notes: "逐页备注 · 只读", resizePreview: "调整当前页与备注高度", dragPreview: "拖动调整当前页与备注高度", pages: "页面", previous: "← 上一页", next: "下一页 →", motionPause:"暂停动效",motionResume:"继续动效",motionReplay:"重播当前页动效",motionSeek:"当前页动效时间",nextStep:"下一步 →", finishStep:"完成当前步", syncingMotion:"正在同步动作…", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在准备预览…", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众画面", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏", primaryDisplay: "主屏幕", display: "显示器" },
-        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience view…", ready: "Audience view ready", shareWindow: "In online meetings, share the NUTBOOK window", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", start: "Start", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · live preview", nextPreview: "Next · static preview", currentStatic: "Current · static preview", notes: "Slide notes · read only", resizePreview: "Resize slide and notes", dragPreview: "Drag to resize slide and notes", pages: "Slides", previous: "← Previous", next: "Next →", motionPause:"Pause animation",motionResume:"Resume animation",motionReplay:"Replay slide animation",motionSeek:"Slide animation time",nextStep:"Next step →", finishStep:"Finish step", syncingMotion:"Syncing animation…", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Preparing preview…", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience view", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary", primaryDisplay: "Primary display", display: "Display" }
+        "zh-CN": { brand: "NUTBOOK · 演讲者", waiting: "等待观众画面就绪…", ready: "观众画面已就绪", shareWindow: "在线会议中请共享 NUTBOOK 窗口", navigating: "正在翻页…", target: "目标分钟", pause: "暂停", resume: "继续", start: "开始", reset: "重置", lightTheme: "浅色", darkTheme: "深色", switchToLight: "切换到浅色外观", switchToDark: "切换到深色外观", current: "当前页 · 动态预览", nextPreview: "下一页 · 静态预览", currentStatic: "当前页 · 静态预览", notes: "逐页备注", smallerNotes:"缩小备注字号",largerNotes:"放大备注字号",editNotes:"编辑备注", saveNotes:"保存备注", savingNotes:"正在保存备注…", notesSaved:"备注已保存", notesFailed:"备注保存失败，修改已保留。请重试。", notesConflict:"文件已在外部修改，未覆盖文件；请保留当前备注并结束后重新打开。", notesLeave:"保存备注修改？", notesLeaveDescription:"当前页备注尚未保存。", keepEditing:"继续编辑", discardNotes:"放弃修改", saveLeave:"保存并继续", resizePreview: "调整当前页与备注高度", dragPreview: "拖动调整当前页与备注高度", pages: "页面", previous: "← 上一页", next: "下一页 →", motionPause:"暂停动效",motionResume:"继续动效",motionReplay:"重播当前页动效",motionSeek:"当前页动效时间",nextStep:"下一步 →", finishStep:"完成当前步", syncingMotion:"正在同步动作…", black: "临时黑屏", restore: "恢复画面", end: "结束演示", noNotes: "本页没有备注", previewLoading: "正在准备预览…", previewFailed: "图片预览不可用，观众播放不受影响", previewRetry: "重试预览", lastPage: "已到末页", recover: "选择屏幕并恢复", recoverTitle: "恢复观众画面", recoverDescription: "选择当前可用的观众屏幕；恢复后将从最后确认的页面继续。", cancel: "取消", noDisplay: "没有可用显示器", changedDisplay: "屏幕已变化，请重新选择", primary: "主屏", primaryDisplay: "主屏幕", display: "显示器" },
+        "en-US": { brand: "NUTBOOK · Presenter", waiting: "Waiting for audience view…", ready: "Audience view ready", shareWindow: "In online meetings, share the NUTBOOK window", navigating: "Changing slide…", target: "Target min", pause: "Pause", resume: "Resume", start: "Start", reset: "Reset", lightTheme: "Light", darkTheme: "Dark", switchToLight: "Switch to light appearance", switchToDark: "Switch to dark appearance", current: "Current · live preview", nextPreview: "Next · static preview", currentStatic: "Current · static preview", notes: "Slide notes", smallerNotes:"Smaller notes text",largerNotes:"Larger notes text",editNotes:"Edit notes", saveNotes:"Save notes", savingNotes:"Saving notes…", notesSaved:"Notes saved", notesFailed:"Could not save notes. Your changes are retained; retry saving.", notesConflict:"The file changed externally and was not overwritten. Keep a copy of your notes and reopen after ending the presentation.", notesLeave:"Save note changes?", notesLeaveDescription:"The current slide has unsaved notes.", keepEditing:"Keep editing", discardNotes:"Discard changes", saveLeave:"Save and continue", resizePreview: "Resize slide and notes", dragPreview: "Drag to resize slide and notes", pages: "Slides", previous: "← Previous", next: "Next →", motionPause:"Pause animation",motionResume:"Resume animation",motionReplay:"Replay slide animation",motionSeek:"Slide animation time",nextStep:"Next step →", finishStep:"Finish step", syncingMotion:"Syncing animation…", black: "Black screen", restore: "Restore screen", end: "End presentation", noNotes: "No notes for this slide", previewLoading: "Preparing preview…", previewFailed: "Image preview unavailable; audience playback continues", previewRetry: "Retry preview", lastPage: "Last slide", recover: "Choose display and resume", recoverTitle: "Restore audience view", recoverDescription: "Choose an available display. Playback resumes from the last confirmed slide.", cancel: "Cancel", noDisplay: "No displays available", changedDisplay: "Display changed; choose again", primary: "Primary", primaryDisplay: "Primary display", display: "Display" }
       };
       let language = "zh-CN";
       const t = key => COPY[language][key] || COPY["zh-CN"][key];
       let state = null, startedAt = 0, elapsed = 0, paused = false, busy = false;
       const previews = new Map();
+      let notesEdit = null, notesBusy = false, notesComposing = false, notesOperation = null, pendingNotesLeave = false;
+      let notesMessage = "", notesIntentBusy = false;
+      let notesTooltipButton = null;
+      function hideNotesTooltip() {
+        notesTooltipButton?.removeAttribute("aria-describedby");
+        notesTooltipButton = null; byId("notesTooltip").hidden = true;
+      }
+      function showNotesTooltip(button) {
+        if (button.disabled) { hideNotesTooltip(); return; }
+        notesTooltipButton?.removeAttribute("aria-describedby"); notesTooltipButton = button;
+        const tooltip = byId("notesTooltip"), rect = button.getBoundingClientRect();
+        tooltip.textContent = button.getAttribute("aria-label"); tooltip.hidden = false;
+        button.setAttribute("aria-describedby", "notesTooltip");
+        tooltip.style.left = `${Math.max(8,Math.min(innerWidth-tooltip.offsetWidth-8,rect.left+(rect.width-tooltip.offsetWidth)/2))}px`;
+        tooltip.style.top = `${rect.bottom+6+tooltip.offsetHeight <= innerHeight-8 ? rect.bottom+6 : rect.top-tooltip.offsetHeight-6}px`;
+      }
+      const editNotesIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 16.5-1 4 4-1L20 7a2.12 2.12 0 0 0-3-3Z"/><path d="m15.5 5.5 3 3m-14 8 3 3"/></svg>';
+      const saveNotesIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+      function syncNotesAction() {
+        const button = byId("notesAction"), label = t(notesBusy ? "savingNotes" : notesEdit ? "saveNotes" : "editNotes");
+        button.innerHTML = notesEdit ? saveNotesIcon : editNotesIcon;
+        button.dataset.tooltip = label; button.removeAttribute("title"); button.setAttribute("aria-label", label);
+        if (notesTooltipButton === button) showNotesTooltip(button);
+        button.dataset.editing = String(Boolean(notesEdit));
+        button.disabled = notesBusy || !state?.ready || Boolean(state.pendingPageId) || Boolean(state.pendingMotion);
+        byId("notes").setAttribute("contenteditable", String(Boolean(notesEdit && !notesBusy)));
+        byId("notes").setAttribute("aria-label", t("notes"));
+        byId("notes").setAttribute("aria-readonly", String(!notesEdit || notesBusy));
+        byId("notesError").textContent = notesMessage;
+        byId("notesError").hidden = !notesMessage;
+      }
+      function noteParagraphsFromEditor(editor) {
+        const paragraphs = []; let runs = [];
+        const append = (text, bold) => {
+          if (!text) return;
+          const last = runs[runs.length - 1];
+          if (last?.bold === bold) last.text += text; else runs.push({ text, bold });
+        };
+        const flush = () => { if (runs.length) { paragraphs.push({ type: "paragraph", runs }); runs = []; } };
+        const walk = (node, bold = false) => {
+          if (node.nodeType === Node.TEXT_NODE) { append(node.nodeValue || "", bold); return; }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          if (node.tagName === "BR") { flush(); return; }
+          const block = node.tagName === "P" || node.tagName === "DIV";
+          if (block) flush();
+          for (const child of node.childNodes) walk(child, bold || node.tagName === "B" || node.tagName === "STRONG");
+          if (block) flush();
+        };
+        for (const child of editor.childNodes) walk(child);
+        flush(); return paragraphs;
+      }
+      async function beginNotesEdit() {
+        if (!state?.ready || notesBusy || notesEdit) return;
+        notesBusy = true; syncNotesAction();
+        try {
+          const sessionId = state.sessionId, pageId = state.activePageId;
+          const next = await invoke("native_presentation_notes_edit", { payload: { sessionId, editing:true } });
+          if (state?.sessionId !== sessionId) return;
+          window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(next);
+          const root = byId("notes"); root.querySelector(".empty")?.remove();
+          notesEdit = { sessionId, pageId, baseline:JSON.stringify(noteParagraphsFromEditor(root)) };
+          notesMessage = "";
+        } catch (_) { notesMessage = t("notesFailed"); }
+        finally { notesBusy = false; syncNotesAction(); if (notesEdit) byId("notes").focus(); }
+      }
+      async function cancelNotesEdit() {
+        if (!notesEdit || notesBusy) return !notesEdit;
+        notesBusy = true; syncNotesAction();
+        try {
+          await invoke("native_presentation_notes_edit", { payload: { sessionId:notesEdit.sessionId, editing:false } });
+          notesEdit = null; notesMessage = ""; renderNotes(state.activePageId);
+          return true;
+        } catch (_) { notesMessage = t("notesFailed"); return false; }
+        finally { notesBusy = false; syncNotesAction(); }
+      }
+      function saveNotesEdit() {
+        if (notesOperation) return notesOperation;
+        if (!notesEdit || notesBusy || notesComposing) return Promise.resolve(false);
+        notesOperation = (async () => {
+          notesBusy = true; syncNotesAction();
+          try {
+            const next = await invoke("native_presentation_notes_save", { payload: {
+              sessionId:notesEdit.sessionId, pageId:notesEdit.pageId, paragraphs:noteParagraphsFromEditor(byId("notes"))
+            } });
+            notesEdit = null; notesMessage = "";
+            window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(next);
+            return true;
+          } catch (error) { notesMessage = t(error?.code === "EDIT_CONFLICT" ? "notesConflict" : "notesFailed"); return false; }
+          finally { notesBusy = false; notesOperation = null; syncNotesAction(); }
+        })();
+        return notesOperation;
+      }
+      async function leaveNotes() {
+        if (notesOperation) return await notesOperation;
+        if (notesBusy || notesComposing) return false;
+        if (!notesEdit) return true;
+        if (JSON.stringify(noteParagraphsFromEditor(byId("notes"))) === notesEdit.baseline) return cancelNotesEdit();
+        if (pendingNotesLeave) return false;
+        pendingNotesLeave = true;
+        try {
+          await invoke("native_presentation_notes_edit", { payload:{ sessionId:state.sessionId, editing:true, promptOpen:true } });
+        } catch (_) { pendingNotesLeave = false; notesMessage = t("notesFailed"); syncNotesAction(); return false; }
+        const dialog = byId("notesLeaveDialog");
+        byId("notesLeaveTitle").textContent = t("notesLeave");
+        byId("notesLeaveDescription").textContent = t("notesLeaveDescription");
+        byId("notesKeepEditing").textContent = t("keepEditing");
+        byId("notesDiscard").textContent = t("discardNotes");
+        byId("notesSaveLeave").textContent = t("saveLeave");
+        return new Promise(resolve => {
+          let deciding = false;
+          const finish = async value => {
+            dialog.close();
+            try { await invoke("native_presentation_notes_edit", { payload:{ sessionId:state.sessionId, editing:Boolean(notesEdit), promptOpen:false } }); }
+            catch (_) { value = false; notesMessage = t("notesFailed"); }
+            pendingNotesLeave = false; lastLiveKey = ""; liveReady = false;
+            syncNotesAction(); scheduleLiveSync(); resolve(value);
+            if (!value) byId("notes").focus();
+          };
+          const decide = async save => {
+            if (deciding) return; deciding = true;
+            dialog.querySelectorAll("button").forEach(button => button.disabled = true);
+            const allowed = await (save ? saveNotesEdit() : cancelNotesEdit());
+            dialog.querySelectorAll("button").forEach(button => button.disabled = false);
+            finish(allowed);
+          };
+          byId("notesKeepEditing").onclick = () => { if (!deciding) finish(false); };
+          byId("notesDiscard").onclick = () => void decide(false);
+          byId("notesSaveLeave").onclick = () => void decide(true);
+          dialog.oncancel = event => { event.preventDefault(); if (!deciding) finish(false); };
+          dialog.showModal(); byId("notesLeaveTitle").focus();
+        });
+      }
+      async function afterNotesDecision(action) {
+        if (notesIntentBusy) return;
+        notesIntentBusy = true;
+        try { if (await leaveNotes()) return await action(); }
+        finally { notesIntentBusy = false; }
+      }
+      async function endPresentation() {
+        if (state) await afterNotesDecision(() => invoke("stop_native_presentation", { sessionId:state.sessionId }));
+      }
+      window.__NUTBOOK_PRESENTER_INTENT__ = message => {
+        if (!state || message.sessionId !== state.sessionId) return;
+        const intent = message.intent;
+        if (intent.kind === "end") void endPresentation();
+        else if (intent.kind === "navigate") void navigate(intent.pageId);
+        else if (intent.kind === "advance") void advance();
+      };
+
       let liveUnavailable = false, liveFailures = 0, liveSyncBusy = false, liveSyncRequested = false, liveSyncScheduled = false, lastLiveKey = "";
       let liveReady = false, liveTimedOut = false, liveTimer = null;
       function liveCaption() {
@@ -110,12 +280,12 @@
         return { x: Math.round(box.left + (box.width - width) / 2), y: Math.round(box.top + (box.height - height) / 2), width: Math.round(width), height: Math.round(height) };
       }
       function scheduleLiveSync() {
-        if (liveUnavailable || liveSyncScheduled || !state?.ready || state.suspended) return;
+        if (pendingNotesLeave || liveUnavailable || liveSyncScheduled || !state?.ready || state.suspended) return;
         liveSyncScheduled = true;
         requestAnimationFrame(() => { liveSyncScheduled = false; void syncLivePreviews(); });
       }
       async function syncLivePreviews() {
-        if (liveUnavailable || !state?.ready || state.suspended) return;
+        if (pendingNotesLeave || liveUnavailable || !state?.ready || state.suspended) return;
         if (liveSyncBusy) { liveSyncRequested = true; return; }
         const current = fittedPreviewBounds(byId("currentPreview"));
         if (Math.min(current.width, current.height) < 32) return;
@@ -180,6 +350,10 @@
           byId(id).title = t(key); byId(id).setAttribute("aria-label", t(key));
         }
         byId("target").title = t("target"); byId("target").setAttribute("aria-label", t("target"));
+        for (const id of ["smallerNotes", "largerNotes"]) {
+          byId(id).dataset.tooltip = t(id); byId(id).removeAttribute("title"); byId(id).setAttribute("aria-label", t(id));
+        }
+        syncNotesAction();
         applyTheme();
       }
       function renderTimer() {
@@ -239,6 +413,7 @@
         }
       }
       function renderNotes(pageId) {
+        if (notesEdit) return;
         const root = byId("notes"); root.replaceChildren();
         const paragraphs = state.notes?.[pageId] || [];
         if (!paragraphs.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = t("noNotes"); root.append(empty); return; }
@@ -253,12 +428,14 @@
       }
       async function navigate(pageId) {
         if (!state?.ready || busy || state.pendingPageId || state.pendingMotion) return;
+        return afterNotesDecision(async () => {
         busy = true; render();
         try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_navigate", { payload: { sessionId: state.sessionId, pageId } })); }
         catch (error) { byId("status").textContent = String(error); byId("status").classList.add("error"); }
         finally { busy = false; render(); }
+        });
       }
-      async function advance(){if(!state?.ready)return;try{window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_advance",{payload:{sessionId:state.sessionId}}));}catch(error){byId("status").textContent=String(error);}}
+      async function advance(){if(!state?.ready)return;return afterNotesDecision(async()=>{try{window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_advance",{payload:{sessionId:state.sessionId}}));}catch(error){byId("status").textContent=String(error);}});}
       let motionSeeking=false;
       async function controlMotion(action,timeMs){if(!state?.ready||state.pendingMotion||state.pendingPageId)return;try{window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_motion_control",{payload:{sessionId:state.sessionId,action,...(timeMs===undefined?{}:{timeMs})}}));}catch(error){byId("status").textContent=String(error);}}
       function renderMotion(){if(!state)return;const index=state.pages.findIndex(page=>page.id===state.activePageId),motion=state.motionState,hasStep=motion&&motion.stepIndex<state.motionStepCount,playing=motion?.playbackStatus==='playing';const controls=byId("motionControls");controls.hidden=!motion;controls.style.display=motion?"flex":"none";if(motion){const disabled=!state.ready||busy||Boolean(state.pendingPageId)||Boolean(state.pendingMotion);for(const id of ["motionPause","motionReplay","motionSeek"])byId(id).disabled=disabled;const pauseLabel=t(motion.playbackStatus==='paused'?"motionResume":"motionPause");byId("motionPause").title=pauseLabel;byId("motionPause").setAttribute("aria-label",pauseLabel);byId("motionPause").querySelector("path").setAttribute("d",motion.playbackStatus==='paused'?"M8 5l11 7-11 7Z":"M9 5v14M15 5v14");byId("motionReplay").title=t("motionReplay");byId("motionReplay").setAttribute("aria-label",t("motionReplay"));const seek=byId("motionSeek");seek.title=t("motionSeek");seek.setAttribute("aria-label",t("motionSeek"));seek.max=String(state.motionDurationMs||0);if(!motionSeeking)seek.value=String(motion.logicalTimeMs);byId("motionTime").textContent=`${(Number(seek.value)/1000).toFixed(1)}s`;seek.setAttribute("aria-valuetext",byId("motionTime").textContent);}const label=playing?t("finishStep"):hasStep?t("nextStep"):t("next");byId("next").textContent=label;byId("next").title=label;byId("next").setAttribute("aria-label",label);byId("previous").disabled=!state.ready||busy||Boolean(state.pendingPageId)||Boolean(state.pendingMotion)||index===0;byId("next").disabled=!state.ready||busy||Boolean(state.pendingPageId)||(!hasStep&&!playing&&index>=state.pages.length-1);if(state.pendingMotion&&!state.error)byId("status").textContent=t("syncingMotion");else if(motion&&!state.error&&!state.pendingPageId)byId("status").textContent=`${language==='en-US'?'Step':'步骤'} ${motion.stepIndex}/${state.motionStepCount}`;}
@@ -280,6 +457,7 @@
         requestPreview(state.pages[index - 1]);
         requestPreview(state.pages[index + 2]);
         renderNotes(state.activePageId);
+        syncNotesAction();
         byId("previous").disabled = !state.ready || busy || Boolean(state.pendingPageId) || index === 0;
         byId("next").disabled = !state.ready || busy || Boolean(state.pendingPageId) || index >= state.pages.length - 1;
         byId("black").disabled = !state.ready;
@@ -313,6 +491,9 @@
         } else if (state?.suspended && !next.suspended) {
           liveUnavailable = false; liveFailures = 0; lastLiveKey = "";
         }
+        if (state && Number(next.notesRevision || 0) < Number(state.notesRevision || 0)) {
+          next = { ...next, notes:state.notes, notesRevision:state.notesRevision };
+        }
         state = next; language = next.language === "en-US" ? "en-US" : "zh-CN"; applyLanguage(); elapsed = next.timerElapsedMs || 0;
         startedAt = next.timerRunning ? Date.now() : 0; paused = !next.timerRunning;
         if (document.activeElement !== byId("target")) byId("target").value = next.targetMinutes || "";
@@ -324,7 +505,7 @@
       byId("motionSeek").addEventListener("input",()=>{motionSeeking=true;byId("motionTime").textContent=`${(Number(byId("motionSeek").value)/1000).toFixed(1)}s`;});
       byId("motionSeek").addEventListener("change",()=>{motionSeeking=false;void controlMotion("seek",Number(byId("motionSeek").value));});
       byId("next").addEventListener("click", () => { const i = state.pages.findIndex(page => page.id === state.activePageId); if (state.motionState) void advance(); else if (i >= 0 && i + 1 < state.pages.length) navigate(state.pages[i + 1].id); });
-      byId("end").addEventListener("click", async () => { if (state) await invoke("stop_native_presentation", { sessionId: state.sessionId }); });
+      byId("end").addEventListener("click", () => void endPresentation());
       byId("black").addEventListener("click", async () => { if (!state?.ready) return; try { window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(await invoke("native_presentation_blackout", { payload: { sessionId: state.sessionId, black: !state.black } })); } catch (error) { byId("status").textContent = String(error); byId("status").classList.add("error"); } });
       byId("recover").addEventListener("click", async () => {
         if (!state?.suspended) return;
@@ -380,10 +561,49 @@
         notesHeight = Math.max(20, Math.min(50, notesHeight + (event.key === "ArrowUp" ? 2 : -2)));
         applyLayout();
       });
+      for (const id of ["notesAction", "smallerNotes", "largerNotes"]) {
+        const button = byId(id);
+        button.addEventListener("pointerenter", () => showNotesTooltip(button));
+        button.addEventListener("focus", () => showNotesTooltip(button));
+        button.addEventListener("pointerleave", () => { if (!button.matches(":focus-visible")) hideNotesTooltip(); });
+        button.addEventListener("blur", hideNotesTooltip);
+        button.addEventListener("keydown", event => { if (event.key === "Escape" && notesTooltipButton) { event.preventDefault(); event.stopPropagation(); hideNotesTooltip(); } });
+      }
+      window.addEventListener("resize", hideNotesTooltip);
+      window.addEventListener("blur", hideNotesTooltip);
       byId("smallerNotes").addEventListener("click", () => { notesFontSize = Math.max(16, notesFontSize - 1); applyLayout(); });
       byId("largerNotes").addEventListener("click", () => { notesFontSize = Math.min(32, notesFontSize + 1); applyLayout(); });
       byId("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
+      byId("notesAction").onclick = () => { if (notesEdit) void saveNotesEdit(); else void beginNotesEdit(); };
+      byId("notes").addEventListener("compositionstart", () => notesComposing = true);
+      byId("notes").addEventListener("compositionend", () => notesComposing = false);
+      // WKWebView can emit insertText after an arrow at a caret boundary.
+      // Keep the browser's caret movement, but never treat that key as text.
+      let notesNavigationKey = "";
+      byId("notes").addEventListener("keydown", event => {
+        notesNavigationKey = notesEdit && !event.isComposing && !notesComposing
+          && !event.metaKey && !event.ctrlKey && !event.altKey
+          && ["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key) ? event.key : "";
+      });
+      byId("notes").addEventListener("beforeinput", event => {
+        if (notesNavigationKey && notesEdit && !notesComposing && !event.isComposing && event.inputType === "insertText") {
+          event.preventDefault(); notesNavigationKey = "";
+        }
+      });
+      for (const type of ["keyup", "pointerdown", "blur", "compositionstart"]) {
+        byId("notes").addEventListener(type, () => notesNavigationKey = "");
+      }
+      byId("notes").addEventListener("paste", event => {
+        if (!notesEdit) return;
+        event.preventDefault(); document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+      });
       document.addEventListener("keydown", event => {
+        if (notesEdit && !pendingNotesLeave) {
+          if (event.isComposing || notesComposing) return;
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveNotesEdit(); return; }
+          if (event.key === "Escape") { event.preventDefault(); void cancelNotesEdit(); return; }
+        }
+        if (event.target?.isContentEditable || byId("notesLeaveDialog").open) return;
         if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName || "")) return;
         if ((event.code === "KeyF" || event.key?.toLowerCase() === "f") && state) {
           event.preventDefault();
@@ -394,7 +614,7 @@
         const i = state?.pages.findIndex(page => page.id === state.activePageId) ?? -1;
         if (["ArrowRight", "PageDown", " "].includes(event.key) && !event.repeat) { event.preventDefault(); if(state?.motionState)void advance();else if(i+1<(state?.pages.length||0))navigate(state.pages[i + 1].id); }
         if (["ArrowLeft", "PageUp"].includes(event.key) && i > 0) { event.preventDefault(); navigate(state.pages[i - 1].id); }
-        if (event.key === "Escape" && state) { event.preventDefault(); invoke("stop_native_presentation", { sessionId: state.sessionId }); }
+        if (event.key === "Escape" && state) { event.preventDefault(); void endPresentation(); }
       });
       invoke("native_presentation_state").then(current => { if (current) window.__NUTBOOK_NATIVE_PRESENTATION_STATE__(current); });
       new ResizeObserver(scheduleLiveSync).observe(byId("currentPreview"));

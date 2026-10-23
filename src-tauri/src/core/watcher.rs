@@ -403,6 +403,7 @@ pub(crate) fn path_is_candidate(
     resolved_root: &Path,
     path: &Path,
 ) -> bool {
+    if super::traversal::is_history_resource_path(path) { return false; }
     let relative = match path.strip_prefix(resolved_root) {
         Ok(relative) => relative,
         Err(_) => match path.strip_prefix(Path::new(&library.root_path)) {
@@ -431,6 +432,7 @@ fn build_record(
     metadata: &fs::Metadata,
     now: &str,
 ) -> Result<IndexedItemRecord, AppError> {
+    if super::traversal::is_history_resource_path(path) { return Err(AppError::InvalidParams); }
     let extension = path
         .extension()
         .and_then(|value| value.to_str())

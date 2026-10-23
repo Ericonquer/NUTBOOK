@@ -1,0 +1,142 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { chromium } from 'playwright';
+const browser=await chromium.launch({headless:true});
+try{
+ const page=await browser.newPage();
+ const host=readFileSync('dist/index.html','utf8');
+ const styles=host.slice(host.indexOf('<style>')+7,host.indexOf('</style>'));
+ await page.setContent('<style>'+styles+readFileSync('dist/document-versions.css','utf8')+'</style><textarea id="editor">unsaved draft</textarea>');
+ await page.addScriptTag({content:readFileSync('dist/document-versions.js','utf8')});
+ await page.evaluate(()=>{
+  const dep={state:'captured',object:'hash',bytes:1};
+  window.f={calls:[],dirty:false,saveOk:false,restored:0,limit:500000000,source:'unsaved draft',preview:0,documents:[{id:'doc',canonical_path:'/sample.md',restored_directories:[],versions:[{id:'a',saved_at:'2026-10-22T10:00:00Z',kind:'initial',snapshot:{dependencies:{image:dep}}},{id:'b',saved_at:'2026-10-22T10:00:01Z',kind:'save',snapshot:{dependencies:{image:dep}}}]}]};
+  window.ctx={language:()=>f.language||'en-US',target:{itemId:1},error:e=>e.message||String(e),canRestore:()=>true,dirty:()=>f.dirty,save:async()=>f.saveOk,expectedHash:async()=> 'baseline',applied:async result=>{f.restored++;f.source=result.source;f.dirty=false;},invoke:async(command,args)=>{
+   f.calls.push([command,args]);
+   if(command==='list_document_versions')return {documents:structuredClone(f.documents),activeDocumentId:'doc',usedBytes:1500,limitBytes:f.limit,documentBytes:{doc:900,other:600},availability:{doc:true,other:false}};
+   if(command==='get_document_version_preview'){f.preview++;if(f.pausePreview)await new Promise(resolve=>{f.resolvePreview=resolve;});return {sessionId:'session-'+f.preview,url:'http://127.0.0.1:12345/preview.html',html:'<p>Archived '+args.payload.versionId+'</p><script>parent.__historyLeaked=true</script>',source:args.payload.versionId==='a'?'original A':'saved B',incomplete:Boolean(f.incomplete)};}
+   if(command==='close_document_version_preview'||command==='diagnose_document_version_preview')return;
+   if(command==='open_document_history_location')return;
+   if(command==='set_version_history_limit'){f.limit=args.megabytes*1000000;return;}
+   if(command==='delete_document_versions'){const doc=f.documents.find(d=>d.id===args.payload.documentId);doc.versions=doc.versions.filter(v=>args.payload.versionId&&v.id!==args.payload.versionId);return;}
+   if(command==='save_document_version_as'){if(f.saveAsError)throw new Error('target changed');return f.saveAsPath||null;}
+   if(command==='restore_document_version')return {source:'restored A',resourceDirectories:['/restored'],indexSynchronized:false};
+   throw new Error(command);
+  }};
+ });
+ await page.evaluate(()=>NutbookVersions.open(ctx));
+ assert.equal(await page.locator('.nutbook-history h2').evaluate(n=>n===document.activeElement),true,'initial focus belongs to the title, not Close');
+ await page.keyboard.press('Tab');
+ assert.equal(await page.locator('[data-close]').evaluate(n=>n===document.activeElement),true,'Close remains reachable by keyboard');
+ assert.equal(await page.locator('[data-close]').evaluate(n=>n.matches(':focus-visible')),true,'keyboard Close retains a visible focus indication');
+
+ assert.equal(await page.locator('[data-source]').inputValue(),'saved B');
+ assert.equal(await page.locator('iframe').getAttribute('sandbox'),'');
+ assert.equal(await page.evaluate(()=>window.__historyLeaked),undefined);
+ assert.equal(await page.locator('#editor').inputValue(),'unsaved draft','opening history cannot replace an editor draft');
+ for(let i=0;i<8;i++){
+  const previous=await page.locator('iframe').elementHandle();
+  const index=i%2;await page.locator('nav button').nth(index).click();
+  await page.frameLocator('iframe').getByText(index===0?'Archived b':'Archived a',{exact:true}).waitFor();
+  assert.equal(await previous.evaluate(node=>node.isConnected),false,'each preview owns a separate frame; an old navigation cannot overwrite it');
+  await previous.dispose();
+ }
+
+ await page.locator('nav button').last().click();
+ await page.waitForFunction(()=>f.calls.some(([c])=>c==='close_document_version_preview'));
+ await page.locator('[data-mode="source"]').click();assert.equal(await page.locator('[data-source]').isVisible(),true);
+ assert.equal(await page.locator('.vh-storage').count(),0,'storage controls belong in Preferences');
+ await page.evaluate(async()=>{const settings=document.createElement('div');settings.id='historyPreferences';document.body.append(settings);await NutbookVersions.mountStorageSettings(settings,ctx);});
+ await page.evaluate(()=>NutbookVersions.close());
+ await page.locator('#historyPreferences .preference-row').screenshot({path:'/tmp/nutbook-history-preferences-compact.png'});assert.equal(await page.locator('#historyPreferences .preference-row').count(),1);assert.equal(await page.locator('.preference-copy [data-history-open]').count(),1,'location link belongs beside the left retention note');assert.equal(await page.locator('.history-preference-control [data-history-open]').count(),0);assert.ok((await page.locator('[data-history-preset]').boundingBox()).width<90,'capacity field fits its content');assert.equal(await page.locator('[data-history-location]').count(),0);await page.locator('[data-history-open]').click();assert.equal(await page.evaluate(()=>f.calls.some(([c])=>c==='open_document_history_location')),true);
+ assert.equal(await page.locator('[data-history-apply]').isDisabled(),true,'unchanged quota is disabled');assert.equal(await page.locator('#historyPreferences select').count(),0,'history presets must use the app menu, never a native select');await page.locator('[data-history-preset]').focus();await page.keyboard.press('ArrowDown');assert.equal(await page.locator('[data-history-options]').isVisible(),true);await page.keyboard.press('Escape');assert.equal(await page.locator('[data-history-options]').isVisible(),false);await page.locator('[data-history-preset]').click();await page.locator('[data-history-options]').screenshot({path:'/tmp/nutbook-history-capacity-app-menu.png'});await page.getByRole('option',{name:'1 GB',exact:true}).click();assert.equal(await page.locator('[data-history-apply]').isEnabled(),true,'changed quota enables saving');assert.equal(await page.locator('[data-history-apply]').evaluate(node=>getComputedStyle(node).backgroundColor), 'rgb(26, 28, 29)','changed quota uses primary action styling');await page.locator('[data-history-apply]').click();await page.waitForFunction(()=>f.limit===1000000000);await page.waitForFunction(()=>document.querySelector('[data-history-apply]').disabled);
+ await page.locator('[data-history-preset]').click();await page.getByRole('option',{name:'2 GB',exact:true}).click();await page.locator('[data-history-apply]').click();await page.waitForFunction(()=>f.limit===2000000000);
+ await page.locator('[data-history-preset]').click();await page.getByRole('option',{name:'Custom',exact:true}).click();await page.locator('[data-history-limit]').fill('1');await page.locator('[data-history-apply]').click();await page.waitForFunction(()=>f.limit===1000000);
+ assert.equal(await page.evaluate(()=>f.documents[0].versions.length),2,'changing quota must not delete history');
+ await page.evaluate(()=>document.querySelector('#historyPreferences').remove());await page.evaluate(()=>NutbookVersions.open(ctx));
+ await page.locator('nav button').last().click();await page.locator('[data-mode="source"]').click();
+ await page.screenshot({path:'/tmp/nutbook-history-desktop.png'});
+ await page.evaluate(()=>f.dirty=true);
+ await page.locator('[data-restore]').click();await page.getByRole('button',{name:'Save and restore',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('[data-status]').textContent.includes('Save did not complete'));
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='restore_document_version').length),0);
+ assert.equal(await page.evaluate(()=>f.source),'unsaved draft');
+ await page.locator('[data-restore]').click();await page.getByRole('button',{name:'Discard and restore',exact:true}).click();
+ await page.waitForFunction(()=>f.restored===1);
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='restore_document_version').length),1);
+ await page.locator('[data-delete]').click();await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.equal(await page.evaluate(()=>f.documents[0].versions.length),2);
+ await page.locator('[data-delete]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
+ await page.waitForFunction(()=>f.documents[0].versions.length===1);
+ const order=await page.evaluate(()=>f.calls.map(([c])=>c));assert.ok(order.lastIndexOf('close_document_version_preview')<order.lastIndexOf('delete_document_versions'));
+
+ await page.evaluate(()=>{f.incomplete=true;for(const v of f.documents[0].versions)v.snapshot.dependencies['shared/missing.png']={state:'missing-at-save',reason:'not found'};});
+ await page.evaluate(()=>NutbookVersions.close());await page.evaluate(()=>NutbookVersions.open(ctx));
+ assert.equal(await page.locator('.vh-warning').count(),0,'missing resources must not create a persistent banner');
+ const hostBefore=await page.locator('[data-frame-host]').boundingBox();
+ await page.locator('[data-warning] summary').click();
+ assert.match(await page.locator('[data-warning] > div').textContent(),/shared\/missing.png/);
+ assert.deepEqual(await page.locator('[data-frame-host]').boundingBox(),hostBefore,'expanding resource details cannot shift preview');
+ assert.doesNotMatch(await page.locator('[data-status]').textContent(),/Loading preview|正在加载/);
+ await page.locator('[data-close]').click();await page.waitForFunction(()=>!NutbookVersions.isOpen());
+ await page.evaluate(()=>{f.language='zh-CN';f.pausePreview=true;window.pending=NutbookVersions.open(ctx);});
+ await page.waitForFunction(()=>Boolean(f.resolvePreview));await page.evaluate(()=>NutbookVersions.close());
+ await page.evaluate(()=>f.resolvePreview());await page.evaluate(()=>pending);
+ assert.equal(await page.locator('dialog').count(),0);
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c!=='diagnose_document_version_preview').at(-1)[0]),'close_document_version_preview','late preview must revoke its newly issued session');
+ await page.evaluate(()=>{f.pausePreview=false;f.language='en-US';f.documents.push({id:'other',canonical_path:'/unavailable/old.md',restored_directories:[],versions:[{id:'old-version',kind:'initial',saved_at:'2026-10-21T10:00:00Z',snapshot:{dependencies:{}}}]});});
+ await page.evaluate(async()=>{const section=document.createElement('section');section.id='settingsVersionsSection';document.body.append(section);await NutbookVersions.mountLibrary(section,ctx);});
+ assert.equal(await page.locator('[data-library-list] tr').count(),2,'settings shows a file inventory, not the single-file preview');assert.equal(await page.locator('#settingsVersionsSection [data-history-preset]').count(),1,'capacity belongs in the history tab');assert.equal(await page.locator('#settingsVersionsSection .vh-library-heading [data-history-open]').count(),1,'location opens from the header');assert.equal(await page.locator('[data-library-storage] [data-history-open]').count(),0);assert.equal(await page.locator('.vh-library-heading [data-history-open]').evaluate(node=>getComputedStyle(node).borderRadius),'999px','open history uses the settings pill style');assert.equal(await page.locator('.vh-library-heading [data-history-open]').evaluate(node=>getComputedStyle(node).textDecorationLine),'none');assert.equal(await page.locator('[data-history-progress]').evaluate(node=>node.value),1500);assert.equal(await page.locator('[data-history-progress]').evaluate(node=>node.max),1000000);
+ assert.equal(await page.locator('dialog').count(),0,'global history is embedded in Settings, not a separate window');assert.equal(await page.locator('.vh-library iframe').count(),0);await page.locator('#settingsVersionsSection').evaluate(node=>(node.style.maxWidth='800px',node.style.height='540px'));await page.locator('.vh-library').screenshot({path:'/tmp/nutbook-history-global-library.png'});await page.setViewportSize({width:600,height:800});await page.locator('.vh-library').screenshot({path:'/tmp/nutbook-history-global-library-small.png'});await page.setViewportSize({width:1280,height:720});
+ assert.match(await page.locator('[data-library-list] tr').last().textContent(),/old.md.*600|old.md.*0.6/s);
+ assert.match(await page.locator('[data-library-list] tr').last().textContent(),/Source unavailable/);
+ await page.locator('[data-library-list] tr').last().getByRole('button',{name:'View',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('[data-source]')?.value);
+ const sectionBox=await page.locator('#settingsVersionsSection').boundingBox(),previewBox=await page.locator('[data-frame-host]').boundingBox(),footerBox=await page.locator('#settingsVersionsSection footer').boundingBox();assert.ok(previewBox.height>sectionBox.height*.5,'preview must use the available Settings height');assert.ok(Math.abs(footerBox.y+footerBox.height-sectionBox.y-sectionBox.height)<3,'actions belong at the bottom of the tab');await page.locator('#settingsVersionsSection').screenshot({path:'/tmp/nutbook-history-preview-height.png'});
+ assert.equal(await page.locator('nav button').count(),1,'global View scopes the preview to the chosen file');
+ assert.equal(await page.locator('[data-restore]').isVisible(),false,'global history must not target the active editor for restore');
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='get_document_version_preview').at(-1)[1].payload.documentId),'other');
+ assert.equal(await page.locator('[data-save-as]').isVisible(),true,'global version can be explicitly saved elsewhere');
+ await page.locator('[data-save-as]').click();
+ assert.equal(await page.locator('[data-status]').textContent(),'','picker cancel must not report failure or success');
+ await page.evaluate(()=>{f.saveAsPath='/chosen/recovered.md';});
+ await page.locator('[data-save-as]').click();
+ assert.ok((await page.locator('[data-status]').textContent()).includes('/chosen/recovered.md'));
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='save_document_version_as').at(-1)[1].payload.documentId),'other');
+ assert.equal(await page.locator('#editor').inputValue(),'unsaved draft','save elsewhere never replaces active draft');
+ await page.evaluate(()=>{f.saveAsError=true;});await page.locator('[data-save-as]').click();
+ assert.ok((await page.locator('[data-status]').textContent()).includes('target changed'));
+ await page.evaluate(()=>{f.saveAsError=false;});
+ await page.locator('[data-close]').click();
+ await page.waitForFunction(()=>document.querySelectorAll('[data-library-list] tr').length===2);
+ assert.equal(await page.locator('#settingsVersionsSection').isVisible(),true,'closing preview returns to the file list instead of emptying the tab');
+ await page.locator('[data-library-list] tr').last().getByRole('button',{name:'View',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('[data-source]')?.value);
+ await page.getByRole('button',{name:'Back to files',exact:true}).click();
+ await page.locator('[data-library-list] tr').last().getByRole('button',{name:'Clear',exact:true}).click();await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.equal(await page.evaluate(()=>f.documents[1].versions.length),1);
+ await page.locator('[data-library-list] tr').last().getByRole('button',{name:'Clear',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
+ await page.waitForFunction(()=>f.documents[1].versions.length===0);
+ assert.ok(await page.evaluate(()=>f.documents[0].versions.length>0),'clearing one file cannot clear other histories');
+ await page.evaluate(()=>NutbookVersions.close());
+ await page.evaluate(async()=>{f.incomplete=true;f.documents[0].versions.at(-1).snapshot.dependencies={missing:{state:'missing-at-save',reason:'missing'}};await NutbookVersions.open({...ctx,readOnly:true,documentId:'doc'});});
+ const previewBefore=await page.locator('[data-frame-host]').boundingBox();
+ const saveCalls=await page.evaluate(()=>f.calls.filter(([c])=>c==='save_document_version_as').length);
+ await page.locator('[data-save-as]').click();
+ const confirmation=page.getByRole('alertdialog');await confirmation.waitFor();
+ const continueButton=confirmation.getByRole('button',{name:'Continue saving',exact:true});
+ assert.equal(await continueButton.isEnabled(),true);
+ assert.notEqual(await continueButton.evaluate(b=>getComputedStyle(b).backgroundColor),await confirmation.getByRole('button',{name:'Cancel',exact:true}).evaluate(b=>getComputedStyle(b).backgroundColor),'confirm must have prominent primary styling');
+ const previewDuring=await page.locator('[data-frame-host]').boundingBox();assert.deepEqual(previewDuring,previewBefore,'confirmation must not displace preview');
+ assert.equal(await page.locator('.nutbook-history header').evaluate(n=>n.inert),true);
+ await page.screenshot({path:'/tmp/nutbook-history-confirm.png'});
+ await page.keyboard.press('Escape');await confirmation.waitFor({state:'hidden'});
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='save_document_version_as').length),saveCalls);
+ assert.equal(await page.locator('[data-save-as]').isEnabled(),true);
+ assert.equal(await page.locator('[data-save-as]').evaluate(n=>n===document.activeElement),true);
+ await page.locator('[data-save-as]').click();await page.getByRole('button',{name:'Continue saving',exact:true}).click();
+ await page.waitForFunction(count=>f.calls.filter(([c])=>c==='save_document_version_as').length===count+1,saveCalls);
+ await page.evaluate(()=>NutbookVersions.close());
+ assert.equal(await page.locator('[data-restored-panel]').count(),0,'internal restore directories are not a user-facing management task');
+ console.log('document history frontend mock tests passed (not native GUI evidence)');
+}finally{await browser.close();}

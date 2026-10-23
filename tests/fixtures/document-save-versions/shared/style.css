@@ -1,0 +1,5 @@
+@import "../nested/inner.css";
+body { font: 18px system-ui; max-width: 760px; margin: 48px auto; }
+.sample-image { width: 240px; }
+
+@font-face { font-family: version-sample-symbols; src: url("symbols.ttf") format("truetype"); }

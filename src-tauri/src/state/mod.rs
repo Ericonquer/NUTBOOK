@@ -61,6 +61,7 @@ pub struct AppState {
     //（见 core::external_open::global_inbox），不随 AppState 生命周期。
     pub external_sessions: crate::core::external_open::ExternalSessionRegistry,
     pub app_data_dir: PathBuf,
+    document_history: Mutex<Option<Arc<crate::core::document_versions::HistoryStore>>>,
 }
 
 impl AppState {
@@ -135,7 +136,33 @@ impl AppState {
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
             external_sessions: crate::core::external_open::ExternalSessionRegistry::default(),
             app_data_dir,
+            document_history: Mutex::new(None),
         }
+    }
+
+    pub fn document_history(&self)->Result<Arc<crate::core::document_versions::HistoryStore>,AppError>{
+        let mut guard=self.document_history.lock().map_err(|_|AppError::InternalError)?;
+        if let Some(store)=guard.as_ref(){let store=store.clone();drop(guard);store.recover()?;return Ok(store);}
+        // Database migration failure must prevent enabling this writer.
+        let connection=rusqlite::Connection::open(self.database.path()).map_err(|_|AppError::DatabaseError)?;
+        let migrated:bool=connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=10 AND name='document_version_index')",
+            [],|row|row.get(0),
+        ).map_err(|_|AppError::DatabaseError)?;
+        if !migrated { return Err(AppError::DatabaseError); }
+        connection.prepare("SELECT document_id FROM history_documents LIMIT 0").map_err(|_|AppError::DatabaseError)?;
+        let store=Arc::new(crate::core::document_versions::HistoryStore::open(&self.app_data_dir)?);
+        store.recover()?;
+        // Full repair is a one-time open path, never the per-save hot path.
+        let mut connection=connection;
+        let _=store.rebuild_index(&mut connection);
+        *guard=Some(store.clone());Ok(store)
+    }
+    pub fn synchronize_history_index(&self, document_id:&str)->bool {
+        let Ok(store)=self.document_history() else{return false;};
+        if store.mark_index_pending(document_id).is_err(){return false;}
+        let Ok(mut connection)=rusqlite::Connection::open(self.database.path()) else{return false;};
+        store.synchronize_document_index(&mut connection, document_id).is_ok()
     }
 
     /// PR C Phase 1：缩略图缓存资源 URL 前缀（R11-a 后即 origin 本身）与
@@ -559,6 +586,14 @@ impl AppState {
             .register(item_id, runtime_session_id, generation);
         *self.active_html_edit_item.lock().map_err(|_| AppError::InternalError)? = Some(item_id);
         Ok(())
+    }
+
+    /// Hold registration out of the publication interval. Only one HTML edit
+    /// session is active in the host; aliases must not bypass the restore gate.
+    pub fn with_no_html_edit_session<T>(&self, action: impl FnOnce() -> Result<T,AppError>) -> Result<T,AppError> {
+        let leases = self.html_edit_session_leases.lock().map_err(|_| AppError::InternalError)?;
+        if !leases.by_item.is_empty() { return Err(AppError::EditConflict); }
+        action()
     }
 
     pub fn html_edit_session_lease_matches(

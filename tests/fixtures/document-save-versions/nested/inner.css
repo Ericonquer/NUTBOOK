@@ -1,0 +1,3 @@
+/* Cycle is deliberate: collectors must use visited identities. */
+@import "../shared/style.css";
+.card { background: #f1f5f9 url("../shared/image.svg?cover=1#image") no-repeat right top; padding: 24px; }
