@@ -73,9 +73,9 @@ Choose the format that suits your delivery:
 
 ![Markdown Export Center](./assets/readme-demo/nutbook-markdown-export-en.gif)
 
-Adjust a separate publishing draft, switch themes, and compare it with the original:
+Adjust a separate publishing draft, switch themes, and send it directly to WeChat drafts:
 
-![Markdown publishing workspace](./assets/readme-demo/nutbook-markdown-formatting-v2-en.gif)
+![Markdown formatting and automatic WeChat draft delivery demo](./assets/readme-demo/nutbook-markdown-formatting-v3-en.gif)
 
 
 ### HTML: Keep Editing, Add Motion

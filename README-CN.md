@@ -73,9 +73,9 @@ NUTBOOK 把这些 Markdown 和 HTML 成果汇集到本地资料库。你可以�
 
 ![Markdown 导出中心](./assets/readme-demo/nutbook-markdown-export-cn.gif)
 
-单独调整发布稿、切换主题并对照原文：
+单独调整发布稿、切换主题，再自动发送到公众号草稿箱：
 
-![Markdown 排版中心](./assets/readme-demo/nutbook-markdown-formatting-v2-cn.gif)
+![Markdown 排版与自动发送公众号草稿演示](./assets/readme-demo/nutbook-markdown-formatting-v3-cn.gif)
 
 
 ### HTML：继续修改，也能加上动效

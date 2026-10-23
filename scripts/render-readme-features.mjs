@@ -347,8 +347,13 @@ async function renderFormattingFlow(page, product, recorder, locale) {
  const added=en?' Check the evidence before publishing.':' 发布前再核对一次证据。';
  await product.evaluate(()=>{
   const original=NutbookFormatting.open;
-  window.__formatRecord={saved:null,copied:null};
-  NutbookFormatting.open=(bridge,tab)=>original({...bridge,nativeClipboard:true,invoke:async(command,args)=>{
+  window.__formatRecord={saved:null,copied:null,delivery:{running:false,stage:"idle"},job:null};
+  NutbookFormatting.open=(bridge,tab)=>original({...bridge,nativeClipboard:true,wechatDelivery:true,invoke:async(command,args)=>{
+   // Recording-only mock: render production delivery UI without browser/account access.
+   if(command==='publishing_runtime_status')return {ready:true,node:{state:'ready',version:'22'},browser:{state:'ready',name:'Google Chrome'},driver:{state:'ready'}};
+   if(command==='wechat_delivery_status')return structuredClone(window.__formatRecord.delivery);
+   if(command==='start_wechat_delivery'){window.__formatRecord.job=structuredClone(args.job);window.__formatRecord.delivery={running:true,stage:'connecting',platform:'wechat',jobId:args.job.id,runId:'readme-demo'};return structuredClone(window.__formatRecord.delivery);}
+   if(command==='control_wechat_delivery')throw Error('Recording must stop at the success dialog');
    if(command==='load_formatting_draft')return {source:tab.preview.raw,draft:null,revision:null};
    if(command==='render_formatting_markdown'){
     const esc=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
@@ -366,19 +371,30 @@ async function renderFormattingFlow(page, product, recorder, locale) {
  await recorder.hold(1);
  const paragraph=product.locator('.formatting-editor .ProseMirror p').filter({hasText:en?'The observation notes are still being refined.':'课堂观察记录仍在持续补充'}).first();
  await recorder.click(paragraph);
- const editor=product.locator('.formatting-editor .ProseMirror');await editor.focus();await editor.press('ControlOrMeta+End');
+ const editor=product.locator('.formatting-editor .ProseMirror');await editor.focus();
+ await paragraph.evaluate(el=>{const range=document.createRange();range.selectNodeContents(el);range.collapse(false);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);});
  await page.keyboard.insertText(added);await recorder.hold(.8);
  await recorder.click(product.getByRole('button',{name:en?'Theme and formatting':'主题与排版',exact:true}));
  await recorder.click(product.locator('[data-theme="newspaper"]'));await recorder.hold(1.1);
  await recorder.click(product.locator('[data-theme="tech"]'));await recorder.hold(1.1);
  await recorder.click(product.getByRole('button',{name:en?'Close theme panel':'收起主题面板',exact:true}));
  await recorder.click(product.getByRole('button',{name:en?'Save publishing draft':'保存发布稿',exact:true}));await recorder.hold(.7);
- await recorder.click(product.getByRole('tab',{name:en?'Original':'原文',exact:true}));await recorder.hold(.9);
- await recorder.click(product.getByRole('tab',{name:en?'Publishing draft':'发布稿',exact:true}));await recorder.hold(.7);
- await recorder.click(product.getByRole('button',{name:en?'Toggle phone preview width':'切换手机宽度预览',exact:true}));await recorder.hold(.9);
- await recorder.click(product.getByRole('button',{name:en?'Copy to WeChat':'复制到公众号',exact:true}));await recorder.hold(1);
- const result=await product.evaluate(()=>({saved:window.__formatRecord.saved?.markdown,copied:window.__formatRecord.copied?.html,source:mockData.previews[101].raw}));
- if(!result.saved?.includes(added.trim())||!result.copied?.includes(added.trim())||result.source.includes(added.trim()))throw new Error('Draft/copy/source isolation assertion failed');
+ await recorder.click(product.getByRole('button',{name:en?'Send to WeChat':'发送到公众号',exact:true}));
+ const delivery=product.locator('dialog.formatting-delivery');await delivery.waitFor({state:'visible'});
+ await delivery.getByRole('button',{name:en?'Save and send draft':'保存并发送草稿',exact:true}).waitFor({state:'visible'});
+ await recorder.hold(1.2);
+ await recorder.click(delivery.getByRole('button',{name:en?'Save and send draft':'保存并发送草稿',exact:true}));
+ await product.waitForFunction(()=>!!window.__formatRecord.job);
+ await recorder.hold(.7);
+ for(const [stage,cn,english] of [['uploading_images','正在上传图片','Uploading images'],['writing','正在填写图文','Filling article'],['cover','正在设置封面','Setting cover'],['saving','正在保存公众号草稿','Saving WeChat draft'],['verifying','正在重开核对草稿','Reopening and verifying draft'],['verified','草稿已保存并核对','Draft saved and verified']]){
+  await product.evaluate(stage=>{Object.assign(window.__formatRecord.delivery,{stage,running:stage!=='verified'});},stage);
+  await delivery.locator('[role="status"]').filter({hasText:en?english:cn}).waitFor({state:'visible'});
+  await recorder.hold(stage==='verified'?2:.65);
+ }
+ const result=await product.evaluate(()=>({saved:window.__formatRecord.saved?.markdown,job:window.__formatRecord.job,source:mockData.previews[101].raw,stage:window.__formatRecord.delivery.stage}));
+ if(!result.saved?.includes(added.trim())||!result.job?.html.includes(added.trim())||result.source.includes(added.trim())||result.stage!=='verified')throw new Error('Draft/delivery/source isolation assertion failed');
+ await recorder.checkpoint();
+
 }
 
 async function renderExportFlow(page, product, recorder) {
@@ -534,7 +550,7 @@ async function renderOne(browser, origin, locale, flow) {
   }
 
   const palettePath = path.join(tempRoot, "palette.png");
-  const gifPath = path.join(outputDir, `nutbook-${flow === "agent" ? "agent-access" : flow === "markdown" ? "markdown-edit" : flow === "export" ? "markdown-export" : flow === "formatting" ? "markdown-formatting-v2" : "html-edit"}-${locale.slug}.gif`);
+  const gifPath = path.join(outputDir, `nutbook-${flow === "agent" ? "agent-access" : flow === "markdown" ? "markdown-edit" : flow === "export" ? "markdown-export" : flow === "formatting" ? "markdown-formatting-v3" : "html-edit"}-${locale.slug}.gif`);
   const inputPattern = path.join(framesDir, "frame-%04d.png");
   const baseFilter = `fps=${fps},scale=${gifWidth}:-1:flags=lanczos`;
   run("ffmpeg", [
