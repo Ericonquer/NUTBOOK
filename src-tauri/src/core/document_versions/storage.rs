@@ -402,6 +402,8 @@ impl HistoryStore {
             "preview-projections",
             "preview-journals",
             "restore-journals",
+            "index-pending",
+            "gc-pending",
         ] {
             let path = root.join(name);
             fs::create_dir_all(&path)?;
@@ -803,6 +805,12 @@ impl HistoryStore {
                     Err(e) => return Err(e.into()),
                 }
                 sync_directory(&self.root.join("objects"))?;
+                #[cfg(test)]
+                if fail_at==Some("during-staging") {
+                    fs::write(path.parent().unwrap().join("crash.ready"),b"ready")?;
+                    for _ in 0..3000 {std::thread::sleep(std::time::Duration::from_millis(10));}
+                    return Err(invalid("crash test worker was not terminated"));
+                }
                 fs::remove_file(temporary)?;
             }
             for version in &journal.after.versions {
@@ -896,7 +904,7 @@ impl HistoryStore {
         let document_id = journal.after.id.clone();
         let pending_finalize = self.finalize(&mut journal).is_err();
         if !pending_finalize {
-            let _ = self.collect_unreferenced_objects();
+            let _ = self.recover_pending_gc();
         }
         Ok(CommitResult {
             document_id,
@@ -1035,13 +1043,14 @@ impl HistoryStore {
     fn abort_prepublication(&self, journal: &Journal) -> Result<()> {
         {
             let _quota = self.quota_lock()?;
+            atomic_bytes(&self.root.join("gc-pending").join(format!("{}.pending",journal.id)),b"",false)?;
             self.remove_staging(&journal.id)?;
             fs::remove_file(self.journal_path(&journal.id))?;
             sync_directory(&self.root.join("journals"))?;
         }
         // Object GC is best effort; an interrupted cleanup consumes actual
         // disk space, never a fictional reservation or another document's data.
-        let _ = self.collect_unreferenced_objects();
+        let _ = self.recover_pending_gc();
         Ok(())
     }
     fn verify_manifest(&self, document: &str, version: &Version) -> Result<()> {
@@ -1085,6 +1094,7 @@ impl HistoryStore {
             false,
         )?;
         let _quota = self.quota_lock()?;
+        atomic_bytes(&self.root.join("gc-pending").join(format!("{}.pending",journal.id)),b"",false)?;
         fs::remove_file(self.journal_path(&journal.id))?;
         sync_directory(&self.root.join("journals"))?;
         Ok(())
@@ -1147,16 +1157,22 @@ impl HistoryStore {
             let current = fs::read(&journal.before.canonical_path).map(|bytes| digest(&bytes));
             match current {
                 Ok(hash) if hash == journal.new_hash && journal.state != "reserved" => {
+                    {
+                        let _quota=self.quota_lock()?;
+                        atomic_bytes(&self.root.join("gc-pending").join(format!("{}.pending",journal.id)),b"",false)?;
+                    }
                     self.finalize(&mut journal)?;
                 }
                 Err(ref e) if journal.new_target && e.kind() == io::ErrorKind::NotFound => {
                     let _quota = self.quota_lock()?;
+                    atomic_bytes(&self.root.join("gc-pending").join(format!("{}.pending",journal.id)),b"",false)?;
                     self.remove_staging(&journal.id)?;
                     fs::remove_file(self.journal_path(&journal.id))?;
                     sync_directory(&self.root.join("journals"))?;
                 }
                 Ok(hash) if hash == journal.old_hash => {
                     let _quota = self.quota_lock()?;
+                    atomic_bytes(&self.root.join("gc-pending").join(format!("{}.pending",journal.id)),b"",false)?;
                     self.remove_staging(&journal.id)?;
                     fs::remove_file(self.journal_path(&journal.id))?;
                     sync_directory(&self.root.join("journals"))?;
@@ -1176,7 +1192,31 @@ impl HistoryStore {
                 }
             }
         }
+        self.recover_pending_gc()?;
         Ok(conflicts)
+    }
+    fn recover_pending_gc(&self)->Result<()> {
+        let markers={
+            let _quota=self.quota_lock()?;
+            let mut paths=Vec::new();
+            for entry in fs::read_dir(self.root.join("gc-pending"))? {
+                let entry=entry?;
+                if entry.path().extension().and_then(|s|s.to_str())!=Some("pending"){continue;}
+                let id=entry.path().file_stem().and_then(|s|s.to_str()).unwrap_or("").to_owned();check_id(&id)?;
+                if !entry.file_type()?.is_file(){return Err(invalid("non-file GC marker"));}
+                paths.push(entry.path());
+            }
+            paths
+        };
+        if markers.is_empty(){return Ok(());}
+        // GC already pins every durable head, pending journal and preview.
+        // Only markers observed before this pass may be acknowledged.
+        self.collect_unreferenced_objects()?;
+        let _quota=self.quota_lock()?;
+        for path in markers {
+            match fs::remove_file(path){Ok(())=>{},Err(e) if e.kind()==io::ErrorKind::NotFound=>{},Err(e)=>return Err(e.into())}
+        }
+        sync_directory(&self.root.join("gc-pending"))
     }
     /// A crashed restore may have projected resources before publishing source.
     /// Recover the durable register only; never infer permission to restore the
@@ -1371,6 +1411,9 @@ impl HistoryStore {
         root: &Path,
         content: &[u8],
     ) -> Result<CommitResult> {
+        self.publish_new_markdown_from(path, root, content, None)
+    }
+    pub fn publish_new_markdown_from(&self, path: &Path, root: &Path, content: &[u8], restored_from: Option<String>) -> Result<CommitResult> {
         let path = path
             .parent()
             .ok_or_else(|| invalid("target parent"))?
@@ -1394,7 +1437,7 @@ impl HistoryStore {
             old,
             after.snapshot.clone(),
             objects,
-            None,
+            restored_from,
             None,
             Some(&guard),
             true,
@@ -1614,58 +1657,112 @@ impl HistoryStore {
         let tx = connection.transaction().map_err(db_error)?;
         tx.execute_batch("DELETE FROM history_object_refs; DELETE FROM history_versions; DELETE FROM history_documents;").map_err(db_error)?;
         for head in heads {
-            let available =
-                file_identity(&head.canonical_path).is_ok_and(|id| id == head.file_identity);
-            tx.execute(
-                "INSERT INTO history_documents VALUES (?1,?2,?3,?4,?5,?6)",
-                rusqlite::params![
-                    head.id,
-                    head.canonical_path.to_string_lossy(),
-                    head.file_identity,
-                    head.binding_revision,
-                    head.file_type,
-                    available
-                ],
-            )
-            .map_err(db_error)?;
-            for version in head.versions {
-                self.verify_manifest(&head.id, &version)?;
-                for hash in version.snapshot.hashes() {
-                    self.object(hash)?;
-                }
-                let incomplete = version
-                    .snapshot
-                    .dependencies
-                    .values()
-                    .any(|d| !matches!(d, Dependency::Captured { .. }));
-                tx.execute(
-                    "INSERT INTO history_versions VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                    rusqlite::params![
-                        version.id,
-                        head.id,
-                        version.sequence,
-                        version.saved_at,
-                        version.kind,
-                        version.snapshot.body,
-                        incomplete
-                    ],
-                )
-                .map_err(db_error)?;
-                for hash in version.snapshot.hashes().collect::<BTreeSet<_>>() {
-                    tx.execute(
-                        "INSERT INTO history_object_refs VALUES (?1,?2)",
-                        rusqlite::params![version.id, hash],
-                    )
-                    .map_err(db_error)?;
-                }
-            }
+            self.project_index_document(&tx, &head)?;
         }
         tx.execute(
             "INSERT OR REPLACE INTO history_settings VALUES (1,?1,?2,?3)",
             rusqlite::params![settings.revision, settings.limit_bytes, used],
         )
         .map_err(db_error)?;
-        tx.commit().map_err(db_error)
+        tx.commit().map_err(db_error)?;
+        for id in self.pending_index_documents_unlocked()? { fs::remove_file(self.root.join("index-pending").join(format!("{id}.pending")))?; }
+        sync_directory(&self.root.join("index-pending"))?;
+        Ok(())
+    }
+    /// Reconcile one document only. Pending marker survives SQLite failure;
+    /// headers/manifests remain the authority and source publication is final.
+    pub fn synchronize_document_index(&self, connection: &mut rusqlite::Connection, document_id: &str) -> Result<()> {
+        check_id(document_id)?;
+        let _quota = self.quota_lock()?;
+        let marker = self.root.join("index-pending").join(format!("{document_id}.pending"));
+        atomic_bytes(&marker, b"", false)?;
+        let head = self.document(document_id)?;
+        let settings = self.settings()?;
+        let used = self.usage_bytes()?;
+        let db_error = |e: rusqlite::Error| invalid(format!("history index: {e}"));
+        let tx = connection.transaction().map_err(db_error)?;
+        // Explicit order also supports callers with SQLite foreign keys off.
+        tx.execute("DELETE FROM history_object_refs WHERE version_id IN (SELECT version_id FROM history_versions WHERE document_id=?1)", [document_id]).map_err(db_error)?;
+        tx.execute("DELETE FROM history_versions WHERE document_id=?1", [document_id]).map_err(db_error)?;
+        tx.execute("DELETE FROM history_documents WHERE document_id=?1", [document_id]).map_err(db_error)?;
+        self.project_index_document(&tx, &head)?;
+        tx.execute("INSERT OR REPLACE INTO history_settings VALUES (1,?1,?2,?3)", rusqlite::params![settings.revision, settings.limit_bytes, used]).map_err(db_error)?;
+        tx.commit().map_err(db_error)?;
+        fs::remove_file(marker)?;
+        sync_directory(&self.root.join("index-pending"))?;
+        Ok(())
+    }
+    pub fn mark_index_pending(&self, document_id: &str) -> Result<()> {
+        check_id(document_id)?;
+        let _quota = self.quota_lock()?;
+        atomic_bytes(&self.root.join("index-pending").join(format!("{document_id}.pending")), b"", false)
+    }
+    pub fn pending_index_documents(&self) -> Result<Vec<String>> {
+        let _quota = self.quota_lock()?;
+        self.pending_index_documents_unlocked()
+    }
+    fn pending_index_documents_unlocked(&self) -> Result<Vec<String>> {
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(self.root.join("index-pending"))? {
+            let entry = entry?;
+            // A crash may leave an unpublished atomic-write temporary file.
+            if entry.path().extension().and_then(|s|s.to_str()) != Some("pending") { continue; }
+            let id = entry.path().file_stem().and_then(|s|s.to_str()).unwrap_or("").to_owned();
+            check_id(&id)?;
+            if !entry.file_type()?.is_file() { return Err(invalid("non-file history index marker")); }
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+    fn project_index_document(&self, tx: &rusqlite::Transaction<'_>, head: &DocumentHead) -> Result<()> {
+        let db_error = |e: rusqlite::Error| invalid(format!("history index: {e}"));
+        let available =
+            file_identity(&head.canonical_path).is_ok_and(|id| id == head.file_identity);
+        tx.execute(
+            "INSERT INTO history_documents VALUES (?1,?2,?3,?4,?5,?6)",
+            rusqlite::params![
+                head.id,
+                head.canonical_path.to_string_lossy(),
+                head.file_identity,
+                head.binding_revision,
+                head.file_type,
+                available
+            ],
+        )
+        .map_err(db_error)?;
+        let mut verified = BTreeSet::new();
+        for version in &head.versions {
+            self.verify_manifest(&head.id, version)?;
+            for hash in version.snapshot.hashes() {
+                if verified.insert(hash) { self.object(hash)?; }
+            }
+            let incomplete = version
+                .snapshot
+                .dependencies
+                .values()
+                .any(|d| !matches!(d, Dependency::Captured { .. }));
+            tx.execute(
+                "INSERT INTO history_versions VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                rusqlite::params![
+                    version.id,
+                    head.id,
+                    version.sequence,
+                    version.saved_at,
+                    version.kind,
+                    version.snapshot.body,
+                    incomplete
+                ],
+            )
+            .map_err(db_error)?;
+            for hash in version.snapshot.hashes().collect::<BTreeSet<_>>() {
+                tx.execute(
+                    "INSERT INTO history_object_refs VALUES (?1,?2)",
+                    rusqlite::params![version.id, hash],
+                )
+                .map_err(db_error)?;
+            }
+        }
+        Ok(())
     }
     pub fn collect_unreferenced_objects(&self) -> Result<u64> {
         let _quota = self.quota_lock()?;
@@ -1858,6 +1955,140 @@ mod tests {
         fs::write(store.object_path(&digest(&large)).unwrap(), b"corrupt").unwrap();
         assert!(commit(&store, &path, &large, b"C", None, None).is_err());
         assert_eq!(fs::read(&path).unwrap(), large);
+    }
+    // Real process termination: owner locks must be released by the OS, not
+    // by Rust Drop. The worker is a no-op in ordinary full test runs.
+    #[test]
+    fn history_process_worker() {
+        let Ok(root)=std::env::var("NUTBOOK_HISTORY_PROCESS_ROOT") else{return;};
+        let mode=std::env::var("NUTBOOK_HISTORY_PROCESS_MODE").unwrap();
+        let name=std::env::var("NUTBOOK_HISTORY_PROCESS_ITEM").unwrap_or_else(|_|"a".into());
+        let root=PathBuf::from(root);
+        let store=HistoryStore::open(&root.join("app")).unwrap();
+        let path=root.join(format!("{name}.md"));
+        if mode=="compete" {
+            fs::write(root.join(format!("{name}.ready")),b"ready").unwrap();
+            for _ in 0..1000 { if root.join("go").exists(){break;} std::thread::sleep(std::time::Duration::from_millis(10)); }
+            assert!(root.join("go").exists(),"parent did not release worker");
+            let body=vec![name.as_bytes()[0];600_000];
+            let result=match commit(&store,&path,b"A",&body,None,None) {
+                Ok(_)=>"saved",
+                Err(HistoryError::Quota{..})=>"quota",
+                Err(error)=>panic!("unexpected process save failure: {error}"),
+            };
+            fs::write(root.join(format!("{name}.result")),result).unwrap();
+            return;
+        }
+        let result=commit(&store,&path,b"A",b"B",Some(b"archived image"),Some(&mode));
+        if mode=="source-published" { assert!(result.unwrap().pending_finalize); } else { assert!(result.is_err()); }
+        fs::write(root.join("crash.ready"),b"ready").unwrap();
+        for _ in 0..3000 {std::thread::sleep(std::time::Duration::from_millis(10));}
+        panic!("parent failed to terminate crash worker");
+    }
+    struct HistoryChild(std::process::Child);
+    impl Drop for HistoryChild {
+        fn drop(&mut self){let _=self.0.kill();let _=self.0.wait();}
+    }
+    fn history_child(root:&Path,mode:&str,item:&str)->HistoryChild {
+        HistoryChild(std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact","core::document_versions::storage::tests::history_process_worker","--nocapture","--test-threads=1"])
+            .env("NUTBOOK_HISTORY_PROCESS_ROOT",root)
+            .env("NUTBOOK_HISTORY_PROCESS_MODE",mode)
+            .env("NUTBOOK_HISTORY_PROCESS_ITEM",item)
+            .stdout(std::process::Stdio::null()).spawn().unwrap())
+    }
+    fn wait_history_worker(child:&mut HistoryChild,path:&Path) {
+        for _ in 0..1000 {
+            if path.exists(){return;}
+            if let Some(status)=child.0.try_wait().unwrap(){panic!("worker exited before ready: {status}");}
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("worker readiness timed out");
+    }
+    #[test]
+    fn killed_process_recovery_preserves_source_images_and_retry_identity() {
+        for stage in ["reserved","during-staging","durable-ready","source-published"] {
+            let dir=tempfile::tempdir().unwrap();let root=dir.path().canonicalize().unwrap();
+            let path=root.join("a.md");fs::write(&path,b"A").unwrap();
+            let mut child=history_child(&root,stage,"a");
+            wait_history_worker(&mut child,&root.join("crash.ready"));
+            let observer=HistoryStore::open(&root.join("app")).unwrap();
+            observer.recover().unwrap();
+            assert_eq!(observer.pending().unwrap().len(),1,"a live process owns its prepared journal");
+            child.0.kill().unwrap();let status=child.0.wait().unwrap();assert!(!status.success());
+            assert!(observer.recover().unwrap().is_empty());assert!(observer.recover().unwrap().is_empty());
+            assert!(observer.pending().unwrap().is_empty());
+            if stage=="source-published" {
+                assert_eq!(fs::read(&path).unwrap(),b"B");
+                assert_eq!(observer.object(&digest(b"archived image")).unwrap(),b"archived image");
+                let head=observer.documents().unwrap().remove(0);assert_eq!(head.versions.len(),2);
+                let retried=commit(&observer,&path,b"B",b"B",Some(b"archived image"),None).unwrap();
+                assert!(!retried.changed);assert_eq!(retried.document_id,head.id);
+                assert_eq!(observer.document(&head.id).unwrap().versions.len(),2);
+            } else {
+                assert_eq!(fs::read(&path).unwrap(),b"A");assert!(observer.documents().unwrap().is_empty());
+                assert!(observer.object(&digest(b"archived image")).is_err(),"aborted prepared objects must be reclaimed during recovery");
+                assert_eq!(fs::read_dir(observer.root.join("gc-pending")).unwrap().count(),0);
+                let retried=commit(&observer,&path,b"A",b"B",Some(b"archived image"),None).unwrap();
+                assert_eq!(observer.document(&retried.document_id).unwrap().versions.len(),2);
+            }
+        }
+    }
+    #[test]
+    fn finalize_and_abort_keep_gc_retry_until_cleanup_succeeds() {
+        for published in [true,false] {
+            let dir=tempfile::tempdir().unwrap();let root=dir.path().canonicalize().unwrap();
+            let store=HistoryStore::open(&root.join("app")).unwrap();
+            let source=root.join("a.md");fs::write(&source,b"A").unwrap();
+            let stage=if published{"source-published"}else{"durable-ready"};
+            let result=commit(&store,&source,b"A",b"B",Some(b"image"),Some(stage));
+            assert_eq!(result.is_ok(),published);
+            let mut journal=store.pending().unwrap().remove(0);
+            let blocker=store.root.join("objects").join("unexpected-directory");fs::create_dir(&blocker).unwrap();
+            if published {store.finalize(&mut journal).unwrap();assert!(store.recover_pending_gc().is_err());}else{store.abort_prepublication(&journal).unwrap();}
+            assert_eq!(fs::read(&source).unwrap(),if published{b"B"}else{b"A"});
+            assert!(fs::read_dir(store.root.join("gc-pending")).unwrap().count()>0,"best-effort cleanup failure stays retryable");
+            fs::remove_dir(&blocker).unwrap();
+            store.recover().unwrap();store.recover().unwrap();
+            assert_eq!(fs::read_dir(store.root.join("gc-pending")).unwrap().count(),0);
+            if published{assert_eq!(store.object(&digest(b"image")).unwrap(),b"image");assert_eq!(store.documents().unwrap()[0].versions.len(),2);}else{assert!(store.object(&digest(b"image")).is_err());assert!(store.documents().unwrap().is_empty());}
+        }
+    }
+    #[test]
+    fn interrupted_gc_is_retryable_and_keeps_live_prepared_images() {
+        let dir=tempfile::tempdir().unwrap();let root=dir.path().canonicalize().unwrap();
+        let store=HistoryStore::open(&root.join("app")).unwrap();
+        let marker=store.root.join("gc-pending").join(format!("{}.pending",Uuid::new_v4()));
+        let orphan=b"orphaned prepared bytes";
+        atomic_bytes(&store.object_path(&digest(orphan)).unwrap(),orphan,false).unwrap();
+        atomic_bytes(&marker,b"",false).unwrap();
+        let source=root.join("a.md");fs::write(&source,b"A").unwrap();
+        assert!(commit(&store,&source,b"A",b"B",Some(b"still live image"),Some("durable-ready")).is_err());
+        let observer=HistoryStore::open(&root.join("app")).unwrap();observer.recover().unwrap();
+        assert!(observer.object(&digest(orphan)).is_err());
+        assert_eq!(observer.object(&digest(b"still live image")).unwrap(),b"still live image","another active save pins its images");
+        assert!(!marker.exists());
+        drop(store);
+        observer.recover().unwrap();observer.recover().unwrap();
+        assert!(observer.object(&digest(b"still live image")).is_err());
+        assert_eq!(fs::read(&source).unwrap(),b"A");
+    }
+    #[test]
+    fn separate_processes_cannot_overbook_shared_history_quota() {
+        let dir=tempfile::tempdir().unwrap();let root=dir.path().canonicalize().unwrap();
+        for name in ["a","b"] {fs::write(root.join(format!("{name}.md")),b"A").unwrap();}
+        let store=HistoryStore::open(&root.join("app")).unwrap();store.set_limit_mb(1).unwrap();
+        let mut a=history_child(&root,"compete","a");let mut b=history_child(&root,"compete","b");
+        wait_history_worker(&mut a,&root.join("a.ready"));wait_history_worker(&mut b,&root.join("b.ready"));
+        fs::write(root.join("go"),b"go").unwrap();
+        wait_history_worker(&mut a,&root.join("a.result"));wait_history_worker(&mut b,&root.join("b.result"));
+        assert!(a.0.wait().unwrap().success());assert!(b.0.wait().unwrap().success());
+        let mut results=[fs::read_to_string(root.join("a.result")).unwrap(),fs::read_to_string(root.join("b.result")).unwrap()];results.sort();
+        assert_eq!(results,["quota","saved"]);
+        assert_eq!(store.documents().unwrap().len(),1);assert!(store.pending().unwrap().is_empty());
+        assert!(store.usage_bytes().unwrap()<=1_000_000);
+        let lengths=[fs::metadata(root.join("a.md")).unwrap().len(),fs::metadata(root.join("b.md")).unwrap().len()];
+        assert_eq!(lengths.iter().filter(|&&n|n==1).count(),1,"losing document stays untouched");
     }
     #[test]
     fn recover_reserved_ready_published_and_external_conflict_idempotently() {
@@ -2056,7 +2287,8 @@ mod tests {
         drop(store);
         let recovered = HistoryStore::open(&app).unwrap();
         recovered.recover().unwrap();
-        assert!(recovered.collect_unreferenced_objects().unwrap() > 0);
+        assert!(recovered.object(&digest(b"shared")).is_err(), "recovery already reclaims orphaned images");
+        assert_eq!(recovered.collect_unreferenced_objects().unwrap(), 0, "repeat cleanup is idempotent");
         assert_eq!(fs::read(&path).unwrap(), b"A");
     }
     #[test]
@@ -2122,6 +2354,45 @@ mod tests {
             .unwrap()
             .versions
             .is_empty());
+    }
+    #[test]
+    fn document_index_isolated_atomic_and_retryable() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = HistoryStore::open(&dir.path().join("app")).unwrap();
+        let a = dir.path().join("a.md"); let b = dir.path().join("b.md");
+        fs::write(&a, b"A0").unwrap(); fs::write(&b, b"B0").unwrap();
+        let first = commit(&store, &a, b"A0", b"A1", None, None).unwrap();
+        let other = commit(&store, &b, b"B0", b"B1", None, None).unwrap();
+        let mut db = rusqlite::Connection::open_in_memory().unwrap();
+        // Explicit deletion order must work even when foreign_keys is off.
+        db.execute_batch(include_str!("../../../migrations/0010_document_version_index.sql")).unwrap();
+        store.rebuild_index(&mut db).unwrap();
+        let next = commit(&store, &a, b"A1", b"A2", None, None).unwrap();
+        let corrupt_other = store.object_path(&digest(b"B1")).unwrap();
+        fs::write(&corrupt_other, b"XX").unwrap();
+        store.synchronize_document_index(&mut db, &next.document_id).unwrap();
+        assert_eq!(db.query_row("SELECT count(*) FROM history_versions WHERE document_id=?1", [&first.document_id], |r|r.get::<_,i64>(0)).unwrap(), 3);
+        assert_eq!(db.query_row("SELECT count(*) FROM history_versions WHERE document_id=?1", [&other.document_id], |r|r.get::<_,i64>(0)).unwrap(), 2);
+        assert!(store.pending_index_documents().unwrap().is_empty());
+        fs::write(store.root.join("index-pending").join(".nutbook-version-orphan.tmp"), b"").unwrap();
+        assert!(store.pending_index_documents().unwrap().is_empty(), "unpublished temp cannot break pending replay");
+        // A damaged unrelated object is not read by this document's sync.
+        assert!(store.rebuild_index(&mut db).is_err());
+        let own_object = store.object_path(&digest(b"A2")).unwrap();
+        fs::write(&own_object, b"XX").unwrap();
+        assert!(store.synchronize_document_index(&mut db, &next.document_id).is_err());
+        assert_eq!(store.pending_index_documents().unwrap(), vec![next.document_id.clone()]);
+        assert_eq!(db.query_row("SELECT count(*) FROM history_versions WHERE document_id=?1", [&first.document_id], |r|r.get::<_,i64>(0)).unwrap(), 3, "failed sync rolls back deletion");
+        fs::write(&own_object, b"A2").unwrap();
+        fs::remove_file(&a).unwrap();
+        store.delete_versions(&first.document_id, None).unwrap();
+        store.synchronize_document_index(&mut db, &first.document_id).unwrap();
+        assert!(store.pending_index_documents().unwrap().is_empty());
+        assert_eq!(db.query_row("SELECT count(*) FROM history_versions WHERE document_id=?1", [&first.document_id], |r|r.get::<_,i64>(0)).unwrap(), 0);
+        assert_eq!(db.query_row("SELECT source_available FROM history_documents WHERE document_id=?1", [&first.document_id], |r|r.get::<_,i64>(0)).unwrap(), 0);
+        assert_eq!(db.query_row("SELECT count(*) FROM history_object_refs WHERE version_id NOT IN (SELECT version_id FROM history_versions)", [], |r|r.get::<_,i64>(0)).unwrap(), 0);
+        fs::write(&corrupt_other, b"B1").unwrap();
+        store.rebuild_index(&mut db).unwrap();
     }
     #[test]
     fn index_rebuild_missing_source_and_durable_deletion_do_not_create_items() {

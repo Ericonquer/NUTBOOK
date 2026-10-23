@@ -1184,8 +1184,8 @@ pub fn save_external_session(
         return Ok(SaveOutcome::Conflict { current });
     }
     let root=path.parent().ok_or(AppError::InvalidParams)?;
-    state.document_history()?.save_markdown(&path,root,&session.baseline.hash,content.as_bytes(),None)?;
-    state.synchronize_history_index();
+    let commit=state.document_history()?.save_markdown(&path,root,&session.baseline.hash,content.as_bytes(),None)?;
+    state.synchronize_history_index(&commit.document_id);
     let baseline = read_file_baseline(&path)?.baseline;
     state
         .external_sessions
@@ -1295,8 +1295,8 @@ pub fn save_copy_external_session(
     if !same_directory(&source_dir, &target_dir) {
         copy_referenced_local_resources(&source_dir, &target_dir, content, history_resource_paths, &mut lease)?;
     }
-    state.document_history()?.publish_new_markdown(Path::new(target),&target_dir,content.as_bytes())?;
-    state.synchronize_history_index();
+    let commit=state.document_history()?.publish_new_markdown(Path::new(target),&target_dir,content.as_bytes())?;
+    state.synchronize_history_index(&commit.document_id);
     lease.release();
     Ok(read_file_baseline(Path::new(target))?.baseline)
 }
@@ -1365,8 +1365,8 @@ pub fn save_as_external_session_inner(
     }
 
     // 资源确认可用后，Markdown 最后以 no-clobber 新建方式持久化。
-    state.document_history()?.publish_new_markdown(Path::new(target),&target_dir,content.as_bytes())?;
-    state.synchronize_history_index();
+    let commit=state.document_history()?.publish_new_markdown(Path::new(target),&target_dir,content.as_bytes())?;
+    state.synchronize_history_index(&commit.document_id);
     lease.release();
     // 正文已 durable：此后任何后置步骤失败不再作为 Err 传播——会话保留
     // 原路径，按「已写出副本（待绑定）」恢复（Codex review R2-3 / 5.3.1）。

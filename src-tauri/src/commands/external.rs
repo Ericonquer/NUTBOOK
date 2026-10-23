@@ -512,8 +512,8 @@ pub fn external_session_overwrite(
         });
     }
     let expected=crate::core::document_versions::digest(&std::fs::read(&path).map_err(|_|AppError::IoError)?);
-    state.document_history()?.save_markdown(&path,path.parent().ok_or(AppError::InvalidParams)?,&expected,payload.content.as_bytes(),None)?;
-    state.synchronize_history_index();
+    let commit=state.document_history()?.save_markdown(&path,path.parent().ok_or(AppError::InvalidParams)?,&expected,payload.content.as_bytes(),None)?;
+    state.synchronize_history_index(&commit.document_id);
     let baseline = external_open::read_file_baseline(&path)?.baseline;
     state
         .external_sessions

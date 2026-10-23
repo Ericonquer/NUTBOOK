@@ -488,6 +488,7 @@ fn main() {
             commands::document_versions::get_document_version_preview,
             commands::document_versions::close_document_version_preview,
             commands::document_versions::restore_document_version,
+            commands::document_versions::save_document_version_as,
             commands::document_versions::delete_document_versions,
             commands::document_versions::set_version_history_limit,
             commands::document_versions::open_document_history_location,

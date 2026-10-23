@@ -19,11 +19,17 @@ try{
    if(command==='open_document_history_location')return;
    if(command==='set_version_history_limit'){f.limit=args.megabytes*1000000;return;}
    if(command==='delete_document_versions'){const doc=f.documents.find(d=>d.id===args.payload.documentId);doc.versions=doc.versions.filter(v=>args.payload.versionId&&v.id!==args.payload.versionId);return;}
+   if(command==='save_document_version_as'){if(f.saveAsError)throw new Error('target changed');return f.saveAsPath||null;}
    if(command==='restore_document_version')return {source:'restored A',resourceDirectories:['/restored'],indexSynchronized:false};
    throw new Error(command);
   }};
  });
  await page.evaluate(()=>NutbookVersions.open(ctx));
+ assert.equal(await page.locator('.nutbook-history h2').evaluate(n=>n===document.activeElement),true,'initial focus belongs to the title, not Close');
+ await page.keyboard.press('Tab');
+ assert.equal(await page.locator('[data-close]').evaluate(n=>n===document.activeElement),true,'Close remains reachable by keyboard');
+ assert.equal(await page.locator('[data-close]').evaluate(n=>n.matches(':focus-visible')),true,'keyboard Close retains a visible focus indication');
+
  assert.equal(await page.locator('[data-source]').inputValue(),'saved B');
  assert.equal(await page.locator('iframe').getAttribute('sandbox'),'');
  assert.equal(await page.evaluate(()=>window.__historyLeaked),undefined);
@@ -90,6 +96,17 @@ try{
  assert.equal(await page.locator('nav button').count(),1,'global View scopes the preview to the chosen file');
  assert.equal(await page.locator('[data-restore]').isVisible(),false,'global history must not target the active editor for restore');
  assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='get_document_version_preview').at(-1)[1].payload.documentId),'other');
+ assert.equal(await page.locator('[data-save-as]').isVisible(),true,'global version can be explicitly saved elsewhere');
+ await page.locator('[data-save-as]').click();
+ assert.equal(await page.locator('[data-status]').textContent(),'','picker cancel must not report failure or success');
+ await page.evaluate(()=>{f.saveAsPath='/chosen/recovered.md';});
+ await page.locator('[data-save-as]').click();
+ assert.ok((await page.locator('[data-status]').textContent()).includes('/chosen/recovered.md'));
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='save_document_version_as').at(-1)[1].payload.documentId),'other');
+ assert.equal(await page.locator('#editor').inputValue(),'unsaved draft','save elsewhere never replaces active draft');
+ await page.evaluate(()=>{f.saveAsError=true;});await page.locator('[data-save-as]').click();
+ assert.ok((await page.locator('[data-status]').textContent()).includes('target changed'));
+ await page.evaluate(()=>{f.saveAsError=false;});
  await page.locator('[data-close]').click();
  await page.waitForFunction(()=>document.querySelectorAll('[data-library-list] tr').length===2);
  assert.equal(await page.locator('#settingsVersionsSection').isVisible(),true,'closing preview returns to the file list instead of emptying the tab');
@@ -102,5 +119,24 @@ try{
  await page.waitForFunction(()=>f.documents[1].versions.length===0);
  assert.ok(await page.evaluate(()=>f.documents[0].versions.length>0),'clearing one file cannot clear other histories');
  await page.evaluate(()=>NutbookVersions.close());
+ await page.evaluate(async()=>{f.incomplete=true;f.documents[0].versions.at(-1).snapshot.dependencies={missing:{state:'missing-at-save',reason:'missing'}};await NutbookVersions.open({...ctx,readOnly:true,documentId:'doc'});});
+ const previewBefore=await page.locator('[data-frame-host]').boundingBox();
+ const saveCalls=await page.evaluate(()=>f.calls.filter(([c])=>c==='save_document_version_as').length);
+ await page.locator('[data-save-as]').click();
+ const confirmation=page.getByRole('alertdialog');await confirmation.waitFor();
+ const continueButton=confirmation.getByRole('button',{name:'Continue saving',exact:true});
+ assert.equal(await continueButton.isEnabled(),true);
+ assert.notEqual(await continueButton.evaluate(b=>getComputedStyle(b).backgroundColor),await confirmation.getByRole('button',{name:'Cancel',exact:true}).evaluate(b=>getComputedStyle(b).backgroundColor),'confirm must have prominent primary styling');
+ const previewDuring=await page.locator('[data-frame-host]').boundingBox();assert.deepEqual(previewDuring,previewBefore,'confirmation must not displace preview');
+ assert.equal(await page.locator('.nutbook-history header').evaluate(n=>n.inert),true);
+ await page.screenshot({path:'/tmp/nutbook-history-confirm.png'});
+ await page.keyboard.press('Escape');await confirmation.waitFor({state:'hidden'});
+ assert.equal(await page.evaluate(()=>f.calls.filter(([c])=>c==='save_document_version_as').length),saveCalls);
+ assert.equal(await page.locator('[data-save-as]').isEnabled(),true);
+ assert.equal(await page.locator('[data-save-as]').evaluate(n=>n===document.activeElement),true);
+ await page.locator('[data-save-as]').click();await page.getByRole('button',{name:'Continue saving',exact:true}).click();
+ await page.waitForFunction(count=>f.calls.filter(([c])=>c==='save_document_version_as').length===count+1,saveCalls);
+ await page.evaluate(()=>NutbookVersions.close());
+ assert.equal(await page.locator('[data-restored-panel]').count(),0,'internal restore directories are not a user-facing management task');
  console.log('document history frontend mock tests passed (not native GUI evidence)');
 }finally{await browser.close();}

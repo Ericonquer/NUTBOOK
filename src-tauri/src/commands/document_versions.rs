@@ -64,6 +64,7 @@ pub fn list_document_versions(
 ) -> Result<HistoryList, AppError> {
     trusted(&webview)?;
     let store = state.document_history()?;
+    for id in store.pending_index_documents()? { let _=state.synchronize_history_index(&id); }
     let documents = store.documents()?;
     let active_document_id = target(&state, &payload).ok().and_then(|(path, _)| {
         let path = path.canonicalize().ok()?;
@@ -146,7 +147,7 @@ pub fn delete_document_versions(
     let store = state.document_history()?;
     store.delete_versions(&payload.document_id, payload.version_id.as_deref())?;
     store.collect_unreferenced_objects()?;
-    state.synchronize_history_index();
+    state.synchronize_history_index(&payload.document_id);
     Ok(())
 }
 #[derive(Deserialize)]
@@ -193,7 +194,7 @@ pub fn restore_document_version(
         let baseline = crate::core::external_open::read_file_baseline(&path)?.baseline;
         state.external_sessions.update_baseline(&id, baseline);
     }
-    let mut index_synchronized = state.synchronize_history_index();
+    let mut index_synchronized = state.synchronize_history_index(&payload.document_id);
     if let Some(id) = payload.target.item_id {
         // Source is already durable; never report a second save failure here.
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -238,4 +239,28 @@ pub fn open_document_history_location(webview:tauri::Webview,state:tauri::State<
     #[cfg(not(any(target_os="macos",target_os="windows")))]
     let result=std::process::Command::new("xdg-open").arg(store.storage_path()).status();
     if result.map_err(|_|AppError::IoError)?.success(){Ok(())}else{Err(AppError::IoError)}
+}
+
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveVersionAs { document_id: String, version_id: String, allow_incomplete: bool }
+
+#[tauri::command]
+pub fn save_document_version_as(webview: tauri::Webview, state: tauri::State<'_, AppState>, payload: SaveVersionAs) -> Result<Option<PathBuf>, AppError> {
+    trusted(&webview)?;
+    let store = state.document_history()?;
+    let head = store.document(&payload.document_id)?;
+    if !head.versions.iter().any(|v| v.id == payload.version_id) { return Err(AppError::InvalidParams); }
+    let name = head.canonical_path.file_name().and_then(|s| s.to_str()).unwrap_or("restored.md");
+    let Some(path) = rfd::FileDialog::new().set_file_name(name).add_filter("Markdown", &["md", "markdown"]).save_file() else { return Ok(None); };
+    let expected = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => Some(digest(&std::fs::read(&path).map_err(|_| AppError::IoError)?)),
+        Ok(_) => return Err(AppError::InvalidParams),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(AppError::IoError),
+    };
+    let commit=crate::core::markdown_save_as::publish_archived(&store, &payload.document_id, &payload.version_id, &path, expected.as_deref(), payload.allow_incomplete)?;
+    state.synchronize_history_index(&commit.document_id);
+    Ok(Some(path))
 }

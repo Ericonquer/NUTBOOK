@@ -87,13 +87,9 @@ mod tests {
     static HOOK_TEST_GUARD: Mutex<()> = Mutex::new(());
 
     fn temp_dir() -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("nutbook-b1-{nanos}"));
-        fs::create_dir_all(&dir).expect("temp dir");
-        dir
+        // Parallel tests must reserve a directory, not guess uniqueness from
+        // wall-clock resolution and silently reuse create_dir_all's result.
+        tempfile::Builder::new().prefix("nutbook-b1-").tempdir().expect("temp dir").keep()
     }
 
     fn library(id: i64, name: &str, root: &str, source_kind: &str) -> Library {

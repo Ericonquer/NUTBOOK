@@ -148,12 +148,16 @@ impl AppState {
         connection.prepare("SELECT document_id FROM history_documents LIMIT 0").map_err(|_|AppError::DatabaseError)?;
         let store=Arc::new(crate::core::document_versions::HistoryStore::open(&self.app_data_dir)?);
         store.recover()?;
+        // Full repair is a one-time open path, never the per-save hot path.
+        let mut connection=connection;
+        let _=store.rebuild_index(&mut connection);
         *guard=Some(store.clone());Ok(store)
     }
-    pub fn synchronize_history_index(&self)->bool {
+    pub fn synchronize_history_index(&self, document_id:&str)->bool {
         let Ok(store)=self.document_history() else{return false;};
+        if store.mark_index_pending(document_id).is_err(){return false;}
         let Ok(mut connection)=rusqlite::Connection::open(self.database.path()) else{return false;};
-        store.rebuild_index(&mut connection).is_ok()
+        store.synchronize_document_index(&mut connection, document_id).is_ok()
     }
 
     /// PR C Phase 1：缩略图缓存资源 URL 前缀（R11-a 后即 origin 本身）与

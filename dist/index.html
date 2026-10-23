@@ -15777,7 +15777,7 @@
           { tab: "tags", label: t("settings.tags"), icon: SETTINGS_ICON_SVG.tagManagement },
           { tab: "preferences", label: t("settings.preferences"), icon: SETTINGS_ICON_SVG.preferences },
           { tab: "thumbnails", label: t("settings.thumbnails"), icon: SETTINGS_ICON_SVG.thumbnails },
-          { tab: "versions", label: t("settings.versionHistory"), icon: SETTINGS_ICON_SVG.fileManagement }
+          { tab: "versions", label: t("settings.versionHistory"), icon: SETTINGS_ICON_SVG.versionHistory }
         ];
         els.settingsMenu.innerHTML = items.map((item) => `
           <button class="popover-option menu-option" type="button" data-open-settings-tab="${item.tab}">
@@ -17210,7 +17210,7 @@
             }
           ];
         }
-        if (isMarkdown) options.splice(options.findIndex(option => option.action === "remove-from-nutbook"), 0, { action: "document-versions", label: appState.language === "en-US" ? "Version history" : "版本历史", icon: MENU_ICON_SVG.exportFile, disabled: false });
+        if (isMarkdown) options.splice(options.findIndex(option => option.action === "remove-from-nutbook"), 0, { action: "document-versions", label: appState.language === "en-US" ? "Version history" : "版本历史", icon: MENU_ICON_SVG.versionHistory, disabled: false });
         return options;
       }
 
@@ -17224,7 +17224,9 @@
         captureActiveMarkdownDraft();
         await NutbookVersions.open({
           invoke, target, language: () => appState.language, error: normalizeError,
-          canRestore: doc => Boolean(Object.keys(target).length && doc && (doc.canonical_path === (tab?.detail?.filePath || tab?.item?.filePath || tab?.external?.path))),
+          // The history UI also requires the backend-verified activeDocumentId.
+          // Raw /var and canonical /private/var spellings may identify one file.
+          canRestore: doc => Boolean(Object.keys(target).length && doc),
           dirty: () => { captureActiveMarkdownDraft(); return tab ? isMarkdownTabDirty(tab) : false; },
           save: () => saveActiveMarkdown(),
           expectedHash: async () => tab.sourceMode === "external" ? (tab.detail?.fileHash || await sha256Hex(tab.preview.raw || "")) : (tab.detail.fileHash || await sha256Hex(tab.preview.raw || "")),
@@ -21387,6 +21389,7 @@ if (!chipTipController) {
         htmlEditDone: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
         formatting: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 3h10M3 6h7M3 9h10M3 12h7"/></svg>',
         exportCenter: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2.5M5.5 5 8 2.5 10.5 5"/><path d="M2.75 9.5v2.75c0 .69.56 1.25 1.25 1.25h8c.69 0 1.25-.56 1.25-1.25V9.5"/></svg>',
+        versionHistory: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7a6 6 0 1 1 1.5 5M2 3.5V7h3.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>',
         exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5h6.5A1.5 1.5 0 0 1 13 4v7.5"/><rect x="2.5" y="4.5" width="8.5" height="9" rx="1.5"/></svg>',
         removeFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5h9"/><path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5"/><path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8"/></svg>',
         presentation: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="7" rx="1"/><path d="M6.5 12.5h3"/><path d="M8 10.5v2"/></svg>'
@@ -21405,6 +21408,7 @@ if (!chipTipController) {
       // 设置菜单图标（16×16，currentColor，约 1.5 描边，线性）。图标 aria-hidden，
       // 菜单项可访问名称仍来自文字。
       const SETTINGS_ICON_SVG = {
+        versionHistory: MENU_ICON_SVG.versionHistory,
         artifactAccess: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.75" y="3.25" width="10.5" height="9.5" rx="1.7"/><path d="M2.75 6.25h10.5M6.25 8.85h3.5"/></svg>',
         fileManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg>',
         tagManagement: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.1 2.75H4.2A1.45 1.45 0 0 0 2.75 4.2v3.9c0 .38.15.75.43 1.02l5.7 5.7a1.45 1.45 0 0 0 2.05 0l3.19-3.19a1.45 1.45 0 0 0 0-2.05l-5-5a1.45 1.45 0 0 0-1.02-.43z"/><circle cx="5.55" cy="5.55" r=".9"/></svg>',
@@ -24653,7 +24657,8 @@ if (!chipTipController) {
 
         if (!await ensureMarkdownSavedBeforeContinue(tab)) return;
         try {
-          await invoke("export_markdown_file", { itemId: tab.id });
+          const exported = await invoke("export_markdown_file", { itemId: tab.id });
+          if (!exported) return;
           setStatus(markdownExportedStatus(tab.item.fileName), "ok");
           showToast("导出成功");
         } catch (error) {

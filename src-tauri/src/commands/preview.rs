@@ -1309,7 +1309,7 @@ pub(crate) fn save_markdown_content_impl(
         // branch; it must replay actual body/index content on restart.
         state.database.sync_item_revision_after_durable_save(payload.item_id,&item.summary.file_path,&new_hash,None,written_raw.len() as i64);
     }
-    let history_index_synchronized=state.synchronize_history_index();
+    let history_index_synchronized=state.synchronize_history_index(&commit.document_id);
     let version_incomplete=history.document(&commit.document_id).ok().and_then(|h|h.versions.last().cloned()).is_some_and(|v|v.snapshot.dependencies.values().any(|d|!matches!(d,crate::core::document_versions::Dependency::Captured{..})));
     Ok(SaveMarkdownContentResponse {
         item_id: payload.item_id,
@@ -1341,21 +1341,35 @@ pub fn export_markdown_file(
         return Err(AppError::UnsupportedFileType);
     }
 
-    let content = item
-        .source_text
-        .clone()
-        .unwrap_or_else(|| std::fs::read_to_string(&item.summary.file_path).unwrap_or_default());
+    // The UI has converged/saved its draft. Disk is authoritative; never
+    // silently export stale cached source_text or an empty read fallback.
+    let source = Path::new(&item.summary.file_path);
+    let content = fs::read_to_string(source).map_err(|_| AppError::IoError)?;
     let default_name = markdown_export_default_file_name(
         &DocumentTitle::parse(&content, &item.summary.file_name).display_text,
         &item.summary.file_name,
     );
-    let target = rfd::FileDialog::new()
+    let Some(target) = rfd::FileDialog::new()
         .set_file_name(&default_name)
         .add_filter("Markdown", &["md", "markdown"])
-        .save_file()
-        .ok_or(AppError::InvalidParams)?;
-
-    std::fs::write(target, content).map_err(|_| AppError::IoError)?;
+        .save_file() else { return Ok(false); };
+    let expected = match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            Some(crate::core::document_versions::digest(&fs::read(&target).map_err(|_| AppError::IoError)?))
+        }
+        Ok(_) => return Err(AppError::InvalidParams),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(AppError::IoError),
+    };
+    // A picker may remain open while another process edits the source. In
+    // particular selecting that same source must never overwrite newer bytes.
+    if fs::read(source).map_err(|_| AppError::IoError)? != content.as_bytes() {
+        return Err(AppError::EditConflict);
+    }
+    let commit=crate::core::markdown_save_as::publish(
+        state.document_history()?.as_ref(), source, &content, &target, expected.as_deref(),
+    )?;
+    state.synchronize_history_index(&commit.document_id);
     Ok(true)
 }
 
