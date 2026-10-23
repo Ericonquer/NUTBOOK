@@ -117,6 +117,7 @@ pub struct NativePresentationView {
     pub item_id: i64,
     pub pages: Vec<PresentationPage>,
     pub notes: PresentationNotes,
+    pub notes_revision: u64,
     pub active_page_id: String,
     pub ready: bool,
     pub pending_page_id: Option<String>,
@@ -145,6 +146,9 @@ pub struct NativePresentationSession {
     pub source_hash: String,
     pub pages: Vec<PresentationPage>,
     pub notes: PresentationNotes,
+    pub notes_revision: u64,
+    pub notes_editing: bool,
+    pub notes_prompt_open: bool,
     pub active_page_id: String,
     pub ready: bool,
     pub pending_page_id: Option<String>,
@@ -182,6 +186,7 @@ impl NativePresentationSession {
             item_id: self.item_id,
             pages: self.pages.clone(),
             notes: self.notes.clone(),
+            notes_revision: self.notes_revision,
             active_page_id: self.active_page_id.clone(),
             ready: self.ready,
             pending_page_id: self.pending_page_id.clone(),
@@ -781,43 +786,132 @@ pub fn save_native_presentation_notes(
     }
     let html = String::from_utf8(source).map_err(|_| AppError::InvalidParams)?;
     let updated = replace_notes_json_block(&html, &payload.notes)?;
-    let temp = path.with_file_name(format!(
-        ".nutbook-presentation-notes-{}.tmp",
-        uuid::Uuid::new_v4()
-    ));
-    let write_result = (|| -> Result<(), AppError> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-            .map_err(|_| AppError::IoError)?;
-        file.set_permissions(
-            fs::metadata(&path)
-                .map_err(|_| AppError::IoError)?
-                .permissions(),
-        )
-        .map_err(|_| AppError::IoError)?;
-        file.write_all(updated.as_bytes())
-            .map_err(|_| AppError::IoError)?;
-        file.sync_all().map_err(|_| AppError::IoError)?;
-        if content_hash_bytes(&fs::read(&path).map_err(|_| AppError::IoError)?)
-            != payload.expected_source_hash
-        {
-            return Err(AppError::EditConflict);
-        }
-        fs::rename(&temp, &path).map_err(|_| AppError::IoError)?;
-        if let Some(parent) = path.parent() {
-            let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
-        }
-        Ok(())
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    write_result?;
+    let history = state.document_history()?;
+    let root = state.authorization_root_for_item(&item)?;
+    let committed = history.save_html(&path, &root, &payload.expected_source_hash, updated.as_bytes(), None)?;
+    state.synchronize_history_index(&committed.document_id);
+    let modified = fs::metadata(&path).ok().and_then(|m| crate::core::document::file_modified_at_string(&m).ok());
+    state.database.sync_item_revision_after_durable_save(item.summary.id,&item.summary.file_path,&content_hash_bytes(updated.as_bytes()),modified.as_deref(),updated.len() as i64);
     Ok(SaveNotesResult {
         source_hash: content_hash_bytes(updated.as_bytes()),
     })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PresenterNotesPayload {
+    pub session_id: String,
+    pub editing: bool,
+    #[serde(default)]
+    pub prompt_open: bool,
+}
+
+#[tauri::command]
+pub fn native_presentation_notes_edit(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: PresenterNotesPayload,
+) -> Result<NativePresentationView, AppError> {
+    if webview.label() != PRESENTER_LABEL { return Err(AppError::InvalidSession); }
+    let mut guard = state.native_presentation.lock().map_err(|_| AppError::InternalError)?;
+    let session = guard.as_mut().filter(|s| s.id == payload.session_id).ok_or(AppError::InvalidSession)?;
+    if payload.editing && !session.notes_editing && (!session.ready || session.pending_page_id.is_some()
+        || session.motion_session.as_ref().is_some_and(|m| m.planning.is_some())) {
+        return Err(AppError::InvalidSession);
+    }
+    session.notes_editing = payload.editing;
+    session.notes_prompt_open = payload.prompt_open;
+    // A DOM dialog cannot cover a native live-preview child. Retire that child
+    // for the prompt; normal bounds sync recreates it after the decision.
+    if session.notes_prompt_open {
+        if let Some(preview) = app.get_webview(LIVE_CURRENT_LABEL) { let _ = preview.close(); }
+    }
+    Ok(session.view())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PresenterNotesSavePayload {
+    pub session_id: String,
+    pub page_id: String,
+    pub paragraphs: Vec<NoteParagraph>,
+}
+
+/// Only the bundled presenter may save its current slide. Keep the session's
+/// revision in step with durable publication without reloading the audience.
+#[tauri::command]
+pub fn native_presentation_notes_save(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: PresenterNotesSavePayload,
+) -> Result<NativePresentationView, AppError> {
+    if webview.label() != PRESENTER_LABEL { return Err(AppError::InvalidSession); }
+    let item_id = state.native_presentation.lock().map_err(|_| AppError::InternalError)?
+        .as_ref().filter(|s| s.id == payload.session_id).ok_or(AppError::InvalidSession)?.item_id;
+    let item = state.get_item_detail(item_id)?;
+    let path = Path::new(&item.summary.file_path).canonicalize().map_err(|_| AppError::IoError)?;
+    let lock = state.html_edit_path_lock(&path)?;
+    let _path_guard = lock.lock().map_err(|_| AppError::InternalError)?;
+    let snapshot = {
+        let mut guard = state.native_presentation.lock().map_err(|_| AppError::InternalError)?;
+        let session = guard.as_mut().filter(|s| s.id == payload.session_id && s.item_id == item_id
+            && s.notes_editing && s.active_page_id == payload.page_id).ok_or(AppError::InvalidSession)?;
+        let patch = HashMap::from([(payload.page_id.clone(), payload.paragraphs)]);
+        let mut merged = session.notes.clone();
+        merged.extend(patch.clone());
+        validate_notes(&session.pages, &merged)?;
+        let source = fs::read(&path).map_err(|_| AppError::IoError)?;
+        if content_hash_bytes(&source) != session.source_hash { return Err(AppError::EditConflict); }
+        let root = state.authorization_root_for_item(&item)?;
+        let history = state.document_history()?;
+        let (committed, updated) = publish_presenter_notes(&history, &path, &root, &session.source_hash, &patch)?;
+        session.source_hash = content_hash_bytes(updated.as_bytes());
+        session.notes.extend(patch);
+        session.notes_revision += 1;
+        session.notes_editing = false;
+        state.synchronize_history_index(&committed.document_id);
+        let modified = fs::metadata(&path).ok().and_then(|m| crate::core::document::file_modified_at_string(&m).ok());
+        state.database.sync_item_revision_after_durable_save(item_id, &item.summary.file_path,
+            &session.source_hash, modified.as_deref(), updated.len() as i64);
+        session.clone()
+    };
+    notify_presenter(&app, &snapshot);
+    Ok(snapshot.view())
+}
+
+fn publish_presenter_notes(
+    history: &crate::core::document_versions::HistoryStore,
+    path: &Path,
+    root: &Path,
+    expected_hash: &str,
+    patch: &PresentationNotes,
+) -> Result<(crate::core::document_versions::CommitResult, String), AppError> {
+    let source = fs::read(path).map_err(|_| AppError::IoError)?;
+    if content_hash_bytes(&source) != expected_hash { return Err(AppError::EditConflict); }
+    let html = String::from_utf8(source).map_err(|_| AppError::InvalidParams)?;
+    let updated = replace_notes_json_block(&html, patch)?;
+    let committed = history.save_html(path, root, expected_hash, updated.as_bytes(), None)?;
+    Ok((committed, updated))
+}
+
+fn request_presenter_intent(app: &tauri::AppHandle, session: &NativePresentationSession, intent: serde_json::Value) {
+    if let Some(presenter) = app.get_webview(PRESENTER_LABEL) {
+        let wire = serde_json::json!({ "sessionId": session.id, "intent": intent });
+        let _ = presenter.eval(&format!("window.__NUTBOOK_PRESENTER_INTENT__?.({wire});"));
+        if let Some(window) = app.get_window(PRESENTER_LABEL) { let _ = window.set_focus(); }
+        let _ = presenter.set_focus();
+    }
+}
+
+fn request_notes_leave_if_editing(app: &tauri::AppHandle, state: &AppState, id: &str) -> bool {
+    let snapshot = state.native_presentation.lock().ok().and_then(|guard|
+        guard.as_ref().filter(|s| s.id == id && s.notes_editing).cloned());
+    if let Some(session) = snapshot {
+        request_presenter_intent(app, &session, serde_json::json!({"kind":"end"}));
+        true
+    } else { false }
 }
 
 pub fn audience_init_script(
@@ -1551,6 +1645,9 @@ pub fn start_native_presentation(
         id: session_id.clone(),
         item_id: payload.item_id,
         source_hash,
+        notes_revision: 0,
+        notes_editing: false,
+        notes_prompt_open: false,
         pages: payload.pages,
         notes,
         active_page_id: payload.start_page_id.clone(),
@@ -1644,6 +1741,10 @@ pub fn start_native_presentation(
         let app_handle = app.clone();
         let id = session_id.clone();
         window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = app_handle.state::<AppState>();
+                if request_notes_leave_if_editing(&app_handle, &state, &id) { api.prevent_close(); }
+            }
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 let state = app_handle.state::<AppState>();
                 stop_session(&app_handle, &state, &id);
@@ -2034,7 +2135,7 @@ fn sync_live_preview(
         let Some(state) = app_for_ready.try_state::<AppState>() else { return; };
         let target = state.native_presentation.lock().ok().and_then(|guard| {
             let current = guard.as_ref()?;
-            if current.id != id_for_ready || !current.ready || current.suspended { return None; }
+            if current.id != id_for_ready || !current.ready || current.suspended || current.notes_prompt_open { return None; }
             let index = current.pages.iter().position(|page| page.id == current.active_page_id)?;
             current.pages.get(index).map(|page| (page.id.clone(), current.motion_state.clone()))
         });
@@ -2077,6 +2178,7 @@ pub fn native_presentation_live_preview(
     let session = state.native_presentation.lock().map_err(|_| AppError::InternalError)?
         .as_ref().filter(|session| session.id == payload.session_id && session.ready && !session.suspended)
         .cloned().ok_or(AppError::InvalidSession)?;
+    if session.notes_prompt_open { return Ok(()); }
     let window = app.get_window(PRESENTER_LABEL).ok_or(AppError::InvalidSession)?;
     let window_size = window.inner_size().map_err(|_| AppError::InternalError)?;
     let scale = window.scale_factor().map_err(|_| AppError::InternalError)?;
@@ -2149,6 +2251,10 @@ fn navigate_native(app:&tauri::AppHandle,state:&AppState,payload:NavigatePayload
             || !session.pages.iter().any(|page| page.id == payload.page_id)
         {
             return Err(AppError::InvalidParams);
+        }
+        if session.notes_editing {
+            request_presenter_intent(app, session, serde_json::json!({"kind":"navigate","pageId":payload.page_id}));
+            return Ok(session.view());
         }
         if session.pending_page_id.is_some()||session.motion_session.as_ref().is_some_and(|m|m.planning.is_some()){session.queued_page_id=Some(payload.page_id);return Ok(session.view());}
         session.sequence += 1;
@@ -2357,6 +2463,7 @@ pub fn native_presentation_report(
         return Ok(true);
     }
     if payload.kind == "end" {
+        if request_notes_leave_if_editing(&app, &state, &payload.session_id) { return Ok(false); }
         return Ok(stop_session(&app, &state, &payload.session_id));
     }
     if payload.kind == "fullscreen-toggle" {
@@ -2559,7 +2666,7 @@ pub fn stop_native_presentation_on_main_close(app: &tauri::AppHandle) -> bool {
     let Some(state) = app.try_state::<AppState>() else { return false; };
     let id = state.native_presentation.lock().ok()
         .and_then(|guard| guard.as_ref().map(|session| session.id.clone()));
-    id.is_some_and(|id| stop_session(app, &state, &id))
+    id.is_some_and(|id| request_notes_leave_if_editing(app, &state, &id) || stop_session(app, &state, &id))
 }
 
 #[tauri::command]
@@ -2568,6 +2675,7 @@ pub fn stop_native_presentation(
     state: tauri::State<'_, AppState>,
     session_id: String,
 ) -> Result<bool, AppError> {
+    if request_notes_leave_if_editing(&app, &state, &session_id) { return Ok(false); }
     Ok(stop_session(&app, &state, &session_id))
 }
 
@@ -2583,6 +2691,32 @@ mod tests {
         io::Write,
         process::{Command, Stdio},
     };
+
+    #[test]
+    fn presenter_notes_publish_history_preserve_other_slides_and_reject_stale_source() {
+        use crate::core::{document_versions::HistoryStore, html_edit::content_hash_bytes};
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("slides.html");
+        let source = r#"<!doctype html><html><body><h1>Unchanged slide</h1><script id="nutbook-presentation-notes" type="application/json">{"version":1,"pages":{"one":[{"type":"paragraph","runs":[{"text":"A","bold":true}]}],"two":[{"type":"paragraph","runs":[{"text":"Keep","bold":false}]}]}}</script></body></html>"#;
+        std::fs::write(&path, source).unwrap();
+        let history = HistoryStore::open(&temp.path().join("app")).unwrap();
+        let patch = HashMap::from([("one".into(), vec![NoteParagraph { kind:"paragraph".into(), runs:vec![NoteRun {text:"B中文备注".into(),bold:true}] }])]);
+        let (saved, updated) = super::publish_presenter_notes(&history, &path, temp.path(), &content_hash_bytes(source.as_bytes()), &patch).unwrap();
+        assert!(saved.changed);
+        assert!(updated.contains("<h1>Unchanged slide</h1>"));
+        let notes = super::saved_notes_json_block(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(notes["two"][0].runs[0].text, "Keep");
+        assert_eq!(notes["one"][0].runs[0].text, "B中文备注");
+        assert!(notes["one"][0].runs[0].bold);
+        let document = history.document(&saved.document_id).unwrap();
+        assert_eq!(document.versions.len(), 2);
+        assert!(document.versions.iter().any(|v| history.object(&v.snapshot.body).unwrap() == source.as_bytes()));
+        assert!(super::publish_presenter_notes(&history, &path, temp.path(), &content_hash_bytes(source.as_bytes()), &patch).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), updated);
+        let (noop, _) = super::publish_presenter_notes(&history, &path, temp.path(), &content_hash_bytes(updated.as_bytes()), &patch).unwrap();
+        assert!(!noop.changed);
+        assert_eq!(history.document(&saved.document_id).unwrap().versions.len(), 2);
+    }
 
     #[test]
     fn phase_acceptance_documents_pass_presentation_preflight() {
@@ -2750,6 +2884,7 @@ pub fn native_presentation_motion_control(app:tauri::AppHandle,webview:tauri::We
 fn advance_motion(app:&tauri::AppHandle,state:&AppState,id:&str)->Result<NativePresentationView,AppError>{request_motion(app,state,id,None)}
 fn request_motion(app:&tauri::AppHandle,state:&AppState,id:&str,control:Option<MotionControlPayload>)->Result<NativePresentationView,AppError>{
  let (view,legacy_target)={let mut guard=state.native_presentation.lock().map_err(|_|AppError::InternalError)?;let session=guard.as_mut().filter(|s|s.id==id&&s.ready&&!s.suspended).ok_or(AppError::InvalidSession)?;
+ if session.notes_editing && control.is_none(){request_presenter_intent(app,session,serde_json::json!({"kind":"advance"}));return Ok(session.view());}
  if let Some(motion)=&mut session.motion_session{if motion.planning.is_some()||session.pending_page_id.is_some(){if control.is_some(){return Err(AppError::InvalidParams);}if motion.queued>=32{return Err(AppError::InvalidParams);}motion.queued+=1;return Ok(session.view());}let sequence=session.sequence+1;let began=if let Some(command)=&control{motion.begin_control(sequence,&command.action,command.time_ms)}else{motion.begin(sequence)};if !began{return Err(AppError::InvalidParams);}session.sequence=sequence;session.error=None;(session.view(),None)}else{if control.is_some(){return Err(AppError::InvalidParams);}let index=session.pages.iter().position(|p|p.id==session.active_page_id).ok_or(AppError::InvalidSession)?;(session.view(),session.pages.get(index+1).map(|p|p.id.clone()))}};
  if let Some(page_id)=legacy_target{return navigate_native(app,state,NavigatePayload{session_id:id.into(),page_id});}
  if !view.pending_motion{return Ok(view);}

@@ -37,6 +37,13 @@ pub fn supported_extension(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Recovery bundles are resources, never standalone source/artifact entries.
+/// Check the supplied path and canonical aliases, without blocking asset reads.
+pub fn is_history_resource_path(path: &Path) -> bool {
+    let reserved = |value: &Path| value.components().any(|part| part.as_os_str().to_string_lossy().to_ascii_lowercase().starts_with(".nutbook-restored-"));
+    reserved(path) || path.canonicalize().is_ok_and(|canonical| reserved(&canonical))
+}
+
 /// 应被跳过的目录名：隐藏目录（`.` 前缀）、版本控制目录、明确的
 /// 依赖/缓存目录。dist / build / output 不在此列。
 pub fn is_excluded_dir_name(name: &str) -> bool {
@@ -244,6 +251,7 @@ pub fn preflight_folder(
     };
 
     let root = Path::new(root_path);
+    if is_history_resource_path(root) { result.fatal = Some(PreflightFatal::RootUnreadable); return result; }
     let Ok(root_metadata) = fs::metadata(root) else {
         result.fatal = Some(PreflightFatal::RootUnreadable);
         return result;

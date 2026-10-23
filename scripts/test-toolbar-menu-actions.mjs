@@ -524,7 +524,7 @@ assert.equal(tagControlsBounds.width, defaultControlsBounds.width, "Custom Tag m
 assert.equal(moreControlsBounds.x, defaultControlsBounds.x, "More must share the same stable controls x coordinate");
 assert.equal(moreControlsBounds.width, defaultControlsBounds.width, "More must share the same stable controls width");
 assert.equal(defaultControlsBounds.height, 40, "closed controls keep their compact height");
-assert.equal(moreControlsBounds.height, 180, "More may change only the controls height");
+assert.equal(moreControlsBounds.height, 220, "More may change only the controls height");
 assert.equal(tagControlsBounds.height, 360, "Custom Tag may change only the controls height");
 
 const controlsInvocations = [];
@@ -1075,6 +1075,9 @@ try {
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.classList.contains("toolbar-pin")), true);
   await runtimePage.keyboard.press("ArrowDown");
+  assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "historyOption");
+  assert.equal(await runtimePage.locator('#historyOption').getAttribute('title'), '版本历史');
+  await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "removeOption");
   await runtimePage.keyboard.press("Escape");
   assert.equal(await runtimePage.locator("#moreButton").getAttribute("aria-expanded"), "false");
@@ -1093,7 +1096,7 @@ try {
   await runtimePage.locator("#moreButton").click();
   await runtimePage.waitForFunction(() => document.getElementById("menu")?.classList.contains("open"));
   const nativeMenuBottom = await runtimePage.locator("#menu").evaluate(node => node.getBoundingClientRect().bottom);
-  assert.ok(nativeMenuBottom <= 180, `three-option HTML menu must fit its ${180}px host overlay, got ${nativeMenuBottom}`);
+  assert.ok(nativeMenuBottom <= 220, `four-option HTML menu must fit its ${220}px host overlay, got ${nativeMenuBottom}`);
   await runtimePage.locator("#nativePresentationOption").dispatchEvent("pointerdown");
   assert.equal(await runtimePage.locator("#nativePresentationProgress").isVisible(), true, "probing must show feedback in the native controls surface immediately");
   assert.match(await runtimePage.locator("#nativePresentationProgress").textContent(), /正在检查演示/);

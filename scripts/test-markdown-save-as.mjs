@@ -27,7 +27,8 @@ for (const mode of ['cancel', 'saved', 'failed', 'draft-blocked', 'external']) {
 }
 console.log('Markdown Save As: cancel/success/failure/draft/external entry behavior passed');
 
-const restoreGate = html.match(/canRestore: doc => (Boolean\([^\n]+\)),/);
+const markdownHistory = html.slice(html.indexOf('async function openDocumentVersions('));
+const restoreGate = markdownHistory.match(/canRestore: doc => (Boolean\([^\n]+\)),/);
 assert.ok(restoreGate, 'actual main history restore gate exists');
 for (const target of [{itemId:1},{sessionId:'external',generation:1},{}]) {
   const context = vm.createContext({target,tab:{detail:{filePath:'/var/tmp/a.md'}},doc:{canonical_path:'/private/var/tmp/a.md'}});

@@ -420,7 +420,9 @@ fn safe_existing_project_path(project_root: &Path, relative: &str) -> Option<Pat
     {
         return None;
     }
-    let canonical = fs::canonicalize(project_root.join(relative_path)).ok()?;
+    let candidate = project_root.join(relative_path);
+    if super::traversal::is_history_resource_path(&candidate) { return None; }
+    let canonical = fs::canonicalize(candidate).ok()?;
     canonical.strip_prefix(project_root).ok()?;
     canonical.is_file().then_some(canonical)
 }
@@ -719,6 +721,22 @@ fn candidate_status_rank(status: &str) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn primary_artifact_path_never_elevates_a_recovery_resource() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        let bundle = root.path().join(".nutbook-restored-test");
+        std::fs::create_dir(&bundle).unwrap();
+        std::fs::write(bundle.join("module.html"),"<h1>resource</h1>").unwrap();
+        assert!(super::safe_existing_project_path(&canonical,".nutbook-restored-test/module.html").is_none());
+        #[cfg(unix)] {
+            std::os::unix::fs::symlink(bundle.join("module.html"),root.path().join("alias.html")).unwrap();
+            assert!(super::safe_existing_project_path(&canonical,"alias.html").is_none());
+        }
+        std::fs::write(root.path().join("normal.html"),"<h1>normal</h1>").unwrap();
+        assert!(super::safe_existing_project_path(&canonical,"normal.html").is_some());
+    }
+
     use std::{
         fs,
         path::PathBuf,

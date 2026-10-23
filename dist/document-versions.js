@@ -7,20 +7,48 @@
     'en-US': {title:'Version history',close:'Close version history',empty:'No saved versions yet',source:'Read-only source',preview:'Static preview',restore:'Restore this version',remove:'Delete this version',clear:'Clear this document’s history',limit:'Capacity limit (decimal MB)',apply:'Save limit',used:'History usage',incomplete:'Incomplete dependencies; preview uses archived resources only',missing:'Source unavailable; history retained',confirmDelete:'Deleting history does not delete the source. Shared objects remain while referenced.',confirmRestore:'The current content will also be retained. Continue?',dirty:'There are unsaved changes. Choose how to continue restoring.',saveRestore:'Save and restore',discardRestore:'Discard and restore',cancel:'Cancel',confirm:'Confirm',restored:'Version restored.',initial:'Initial',save:'Saved',restoredKind:'Restored',choose:'Choose a version',capacityNote:'Lowering the limit does not delete history. In-flight saves may temporarily exceed the new limit.',confirmIncomplete:'This version has incomplete dependencies. Restore captured content only?',error:'Operation failed; draft retained: '}
   };
   const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function dependencyInfo(snapshot) {
+    const entries=Object.entries(snapshot.dependencies).filter(([,dep])=>dep.state!=='captured');
+    const uncertain=entries.filter(([path,dep])=>path.startsWith('html:warning:')&&dep.reason==='script runtime dependencies cannot be proven statically');
+    const actionable=entries.filter(entry=>!uncertain.includes(entry));
+    return {entries,uncertain,actionable,missing:actionable.filter(([,dep])=>dep.state==='missing-at-save')};
+  }
+  function renderDependencyInfo(warning,snapshot,incomplete,en) {
+    const info=dependencyInfo(snapshot),excluded=info.actionable.length-info.missing.length;
+    warning.replaceChildren();warning.open=false;warning.hidden=!incomplete&&!info.entries.length;
+    if(warning.hidden)return;
+    const summary=document.createElement('summary'),detail=document.createElement('div');
+    if(info.missing.length) {
+      summary.textContent=en?`${info.missing.length} ${snapshot.html?'resource(s)':'image(s)'} not found at save`:`${info.missing.length} ${snapshot.html?'项资源':'张图片'}未找到`;
+    } else if(excluded) {
+      summary.textContent=en?`${excluded} resource(s) not archived`:`${excluded} 项资源未归档`;
+    } else if(info.uncertain.length) {
+      summary.textContent=en?'Script resources not verified':'脚本资源未核验';
+    } else {
+      summary.textContent=en?'Some content cannot be previewed':'部分内容无法预览';
+    }
+    const lines=[];
+    if(info.missing.length)lines.push((en?'Missing when saved: ':'保存时未找到：')+info.missing.map(([path])=>path).join('、'));
+    const other=info.actionable.filter(([,dep])=>dep.state!=='missing-at-save');
+    if(other.length)lines.push((en?'Not archived: ':'未归档：')+[...new Set(other.map(([path])=>path.startsWith('html:warning:')?(en?'Some references could not be parsed automatically':'部分资源引用无法自动解析'):path))].join('、'));
+    if(info.uncertain.length)lines.push(en?'Recognizable local resources were saved. Additional resources loaded by scripts at runtime have not been verified. This does not mean a file is missing.':'可识别的本地资源已保存；脚本运行时额外加载的资源尚未核验，不代表已有文件缺失。');
+    if(!lines.length)lines.push(en?'The archived source remains available in read-only source view.':'仍可通过只读源码查看归档内容。');
+    summary.title=summary.textContent;detail.textContent=lines.join('\n');warning.append(summary,detail);
+  }
   async function open(ctx) {
     if(current) await current.close();
     const w=words[ctx.language()]||words['zh-CN'];
     const dialog=document.createElement(ctx.container?'div':'dialog');dialog.className='nutbook-history'+(ctx.container?' vh-embedded':'');dialog.setAttribute('aria-label',w.title);dialog.dataset.i18nSkip='true';
     dialog.innerHTML=`<header><div><h2>${w.title}</h2></div><button type="button" data-close title="${w.close}" aria-label="${w.close}">×</button></header><div class="vh-prompt" data-prompt hidden></div><div class="vh-layout"><nav data-list aria-label="${w.title}"></nav><section class="vh-main"><div class="vh-toolbar"><div class="vh-actions vh-tabs"><button data-mode="preview" aria-pressed="true">${w.preview}</button><button data-mode="source" aria-pressed="false">${w.source}</button></div><details data-warning class="vh-dependency" hidden></details></div><div class="vh-preview" data-frame-host></div><textarea class="vh-view" data-source readonly spellcheck="false" aria-label="${w.source}" hidden></textarea></section></div><footer class="vh-actions"><button data-restore class="vh-primary" disabled>${w.restore}</button><button data-save-as disabled></button><button data-delete disabled>${w.remove}</button><button data-clear class="vh-danger" disabled>${w.clear}</button></footer><p class="vh-status" data-status role="status" aria-live="polite"></p>`;
     if(ctx.onBack){const back=dialog.querySelector('[data-close]');const label=ctx.language()==='en-US'?'Back to files':'返回文件列表';back.classList.add('vh-return');back.title=label;back.setAttribute('aria-label',label);back.innerHTML=`<span aria-hidden="true">←</span> ${ctx.language()==='en-US'?'Back':'返回'}`;}
-    const saveAsButton=dialog.querySelector('[data-save-as]');saveAsButton.textContent=ctx.language()==='en-US'?'Save version as…':'另存此版本…';saveAsButton.hidden=!ctx.readOnly;
+    const saveAsButton=dialog.querySelector('[data-save-as]');saveAsButton.textContent=ctx.language()==='en-US'?'Save version as…':'另存此版本…';saveAsButton.hidden=!ctx.readOnly&&!ctx.allowSaveAs;
     if(ctx.readOnly)dialog.querySelector('[data-restore]').hidden=true;
     (ctx.container||document.body).append(dialog);if(!ctx.container){const heading=dialog.querySelector('h2');heading.tabIndex=-1;dialog.showModal();heading.focus({preventScroll:true});}
     let disposed=false,generation=0,session=null,data=null,doc=null,version=null,busy=false,promptFocus=null,pendingPrompt=null;
     const $=s=>dialog.querySelector(s),status=s=>$('[data-status]').textContent=s;
     const buttonTitles=()=>dialog.querySelectorAll('button').forEach(b=>{if(!b.title)b.title=b.textContent;if(!b.getAttribute('aria-label'))b.setAttribute('aria-label',b.textContent);});buttonTitles();
     const revoke=async()=>{generation++;$('[data-frame-host]').replaceChildren();if(session){const id=session;session=null;await ctx.invoke('close_document_version_preview',{sessionId:id});}};
-    const run=async(fn)=>{if(busy||disposed)return;promptFocus=document.activeElement;busy=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn();}catch(e){status(w.error+ctx.error(e));}finally{busy=false;if(!disposed){dialog.querySelectorAll('button').forEach(b=>b.disabled=false);$('[data-restore]').disabled=!version||!(doc?.id===data?.activeDocumentId&&ctx.canRestore(doc));$('[data-save-as]').disabled=!version;$('[data-delete]').disabled=!version;$('[data-clear]').disabled=!doc?.versions?.length;promptFocus?.focus();promptFocus=null;}}};
+    const run=async(fn)=>{if(busy||disposed)return;promptFocus=document.activeElement;busy=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn();}catch(e){status(w.error+ctx.error(e));}finally{busy=false;if(!disposed){dialog.querySelectorAll('button').forEach(b=>b.disabled=false);$('[data-restore]').disabled=!version||!(doc?.id===data?.activeDocumentId&&data?.restoreAllowed!==false&&ctx.canRestore(doc));$('[data-save-as]').disabled=!version;$('[data-delete]').disabled=!version;$('[data-clear]').disabled=!doc?.versions?.length;promptFocus?.focus();promptFocus=null;}}};
     const prompt=async(message,choices)=>new Promise(resolve=>{
       const p=$('[data-prompt]'),previous=promptFocus||document.activeElement,id='vh-confirm-'+(++preferenceMenuId);
       const siblings=[...dialog.children].filter(node=>node!==p).map(node=>[node,node.inert]);
@@ -31,7 +59,7 @@
       p.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();finish(choices[0][0]);}else if(e.key==='Tab'){const buttons=[...p.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);e.preventDefault();buttons[(index+(e.shiftKey?-1:1)+buttons.length)%buttons.length].focus();}};
       p.querySelector('button')?.focus();
     });
-    const select=async(d,v)=>{await revoke();doc=d;version=v;renderList();if(!v)return;const seq=++generation;const response=await ctx.invoke('get_document_version_preview',{payload:{documentId:d.id,versionId:v.id,generation:seq}});if(disposed||generation!==seq){await ctx.invoke('close_document_version_preview',{sessionId:response.sessionId});return;}session=response.sessionId;if(!response.html)throw new Error(ctx.language()==='en-US'?'Archived preview unavailable':'历史预览内容不可用');const frame=document.createElement('iframe');frame.className='vh-view';frame.dataset.frame='';frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.title=w.preview;frame.addEventListener('load',()=>{if(!disposed&&generation===seq&&frame.isConnected){status('');}});frame.addEventListener('error',()=>{if(generation===seq&&frame.isConnected){status(ctx.language()==='en-US'?'Preview could not load.':'预览未能加载。');}});frame.srcdoc=response.html;$('[data-frame-host]').replaceChildren(frame);$('[data-source]').value=response.source;const uncaptured=Object.entries(v.snapshot.dependencies).filter(([,dep])=>dep.state!=='captured');const missing=uncaptured.map(([path])=>path);const absentAtSave=uncaptured.length>0&&uncaptured.every(([,dep])=>dep.state==='missing-at-save');const warning=$('[data-warning]');warning.replaceChildren();warning.open=false;warning.hidden=!response.incomplete;if(response.incomplete){const summary=document.createElement('summary');summary.textContent=ctx.language()==='en-US'?(absentAtSave?`${missing.length} image(s) not found at save`:`${missing.length||1} resource(s) not archived`):(absentAtSave?`${missing.length} 张图片未找到`:`${missing.length||1} 项资源未收录`);summary.title=summary.textContent;const detail=document.createElement('div');detail.textContent=(ctx.language()==='en-US'?(absentAtSave?'These images were missing when this version was saved: ':'These resources were not archived with this version: '):(absentAtSave?'保存此版本时，未找到图片：':'保存此版本时，以下资源未被收录：'))+missing.join('、')+(ctx.language()==='en-US'?'. Text and archived images are still available.':'。正文和已保存的图片仍可预览。');warning.append(summary,detail);};};
+    const select=async(d,v)=>{await revoke();doc=d;version=v;renderList();if(!v)return;const seq=++generation;const response=await ctx.invoke('get_document_version_preview',{payload:{documentId:d.id,versionId:v.id,generation:seq}});if(disposed||generation!==seq){await ctx.invoke('close_document_version_preview',{sessionId:response.sessionId});return;}session=response.sessionId;if(!response.html)throw new Error(ctx.language()==='en-US'?'Archived preview unavailable':'历史预览内容不可用');const frame=document.createElement('iframe');frame.className='vh-view';frame.dataset.frame='';frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.title=w.preview;frame.addEventListener('load',()=>{if(!disposed&&generation===seq&&frame.isConnected){status('');}});frame.addEventListener('error',()=>{if(generation===seq&&frame.isConnected){status(ctx.language()==='en-US'?'Preview could not load.':'预览未能加载。');}});frame.srcdoc=response.html;$('[data-frame-host]').replaceChildren(frame);$('[data-source]').value=response.source;renderDependencyInfo($('[data-warning]'),v.snapshot,response.incomplete,ctx.language()==='en-US');};
     function renderList(){const nav=$('[data-list]');nav.replaceChildren();for(const d of (data?.documents||[]).filter(d=>d.id===(ctx.documentId||data.activeDocumentId))){const heading=document.createElement('p');heading.textContent=d.canonical_path.split(/[\\/]/).pop()+(data.availability?.[d.id]===false?' · '+w.missing:'');heading.title=d.canonical_path;heading.className='vh-document';nav.append(heading);for(const v of [...d.versions].reverse()){const b=document.createElement('button');b.type='button';const kind=v.kind==='initial'?w.initial:v.kind==='restore'?w.restoredKind:w.save;const date=new Date(v.saved_at).toLocaleString(ctx.language(),{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});b.innerHTML=`<span class="vh-kind">${esc(kind)}</span><time>${esc(date)}</time>`;b.setAttribute('aria-current',String(version?.id===v.id));b.title=b.textContent;b.onclick=()=>run(()=>select(d,v));nav.append(b);}}if(!nav.children.length)nav.textContent=w.empty;}
     const refresh=async()=>{data=await ctx.invoke('list_document_versions',{payload:ctx.target||{}});if(disposed)return;const selected=data.documents.find(d=>d.id===(doc?.id||data.activeDocumentId));doc=selected||null;version=doc?.versions.find(v=>v.id===version?.id)||null;renderList();};
     const close=async()=>{if(disposed)return;disposed=true;pendingPrompt?.();current=null;window.removeEventListener('keydown',keys,true);if(ctx.container)dialog.remove();await revoke().catch(()=>{});if(!ctx.container)dialog.close();dialog.remove();ctx.restoreFocus?.();};current={close,embedded:Boolean(ctx.container)};
@@ -43,7 +71,7 @@
     $('[data-save-as]').onclick=()=>run(async()=>{
       const selectedDoc=doc,selectedVersion=version;if(!selectedVersion)return;
       const incomplete=Object.values(selectedVersion.snapshot.dependencies).some(d=>d.state!=='captured');
-      if(incomplete&&!await prompt(ctx.language()==='en-US'?'Some resources were not archived. Save the text and available images anyway?':'部分资源未存入历史。是否继续另存正文和已保存的图片？',[[false,w.cancel],[true,ctx.language()==='en-US'?'Continue saving':'继续另存']]))return;
+      if(dependencyInfo(selectedVersion.snapshot).actionable.length&&!await prompt(ctx.language()==='en-US'?'Some resources were not archived. Save the content and available resources anyway?':'部分资源未存入历史。是否继续另存正文和已保存的资源？',[[false,w.cancel],[true,ctx.language()==='en-US'?'Continue saving':'继续另存']]))return;
       const path=await ctx.invoke('save_document_version_as',{payload:{documentId:selectedDoc.id,versionId:selectedVersion.id,allowIncomplete:incomplete}});
       if(!path||disposed)return;
       status((ctx.language()==='en-US'?'Saved. Add the file to open it: ':'已另存，可通过“添加文件”打开：')+path);
@@ -53,9 +81,9 @@
       const choice=dirty?await prompt(w.dirty,[['cancel',w.cancel],['discard',w.discardRestore],['save',w.saveRestore]]):await prompt(w.confirmRestore,[['cancel',w.cancel],['discard',w.confirm]]);
       if(choice==='cancel')return;if(choice==='save'&&!await ctx.save()){status(w.error+(ctx.language()==='en-US'?'Save did not complete':'保存未完成'));return;}
       const incomplete=Object.values(selectedVersion.snapshot.dependencies).some(d=>d.state!=='captured');
-      if(incomplete&&!await prompt(w.confirmIncomplete,[[false,w.cancel],[true,w.confirm]]))return;
+      if(dependencyInfo(selectedVersion.snapshot).actionable.length&&!await prompt(w.confirmIncomplete,[[false,w.cancel],[true,w.confirm]]))return;
       await revoke();const result=await ctx.invoke('restore_document_version',{payload:{documentId:selectedDoc.id,versionId:selectedVersion.id,target:ctx.target,expectedHash:await ctx.expectedHash(),allowIncomplete:incomplete}});
-      await ctx.applied(result);await refresh();status(w.restored);
+      await ctx.applied(result);await refresh();if(version)await select(doc,version);status(w.restored);
     });
     // Let the modal own shortcuts; never dispatch editor/global history actions.
     const keys=e=>{if(!disposed&&(e.metaKey||e.ctrlKey)&&['s','w','z','y','k'].includes(e.key.toLowerCase())){e.preventDefault();e.stopImmediatePropagation();}};window.addEventListener('keydown',keys,true);dialog.addEventListener('close',()=>window.removeEventListener('keydown',keys,true),{once:true});

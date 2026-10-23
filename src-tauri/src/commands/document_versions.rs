@@ -5,6 +5,7 @@ use crate::{
     state::AppState,
 };
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use std::path::PathBuf;
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,7 +15,7 @@ pub struct HistoryTarget {
     pub generation: Option<u64>,
 }
 fn trusted(webview: &tauri::Webview) -> Result<(), AppError> {
-    if webview.label() == "main" {
+    if matches!(webview.label(), "main" | "settings-overlay") {
         Ok(())
     } else {
         Err(AppError::InvalidSession)
@@ -23,7 +24,7 @@ fn trusted(webview: &tauri::Webview) -> Result<(), AppError> {
 fn target(state: &AppState, value: &HistoryTarget) -> Result<(PathBuf, PathBuf), AppError> {
     if let Some(id) = value.item_id {
         let item = state.get_item_detail(id)?;
-        if item.summary.file_type != "markdown" {
+        if !matches!(item.summary.file_type.as_str(), "markdown" | "html") {
             return Err(AppError::UnsupportedFileType);
         }
         Ok((
@@ -55,6 +56,7 @@ pub struct HistoryList {
     storage_path: PathBuf,
     limit_bytes: u64,
     availability:std::collections::BTreeMap<String,bool>,
+    restore_allowed: bool,
 }
 #[tauri::command]
 pub fn list_document_versions(
@@ -65,6 +67,10 @@ pub fn list_document_versions(
     trusted(&webview)?;
     let store = state.document_history()?;
     for id in store.pending_index_documents()? { let _=state.synchronize_history_index(&id); }
+    let restore_allowed = if let Some(id) = payload.item_id {
+        state.get_item_detail(id).ok().is_some_and(|item| item.summary.file_type == "markdown"
+            || (item.summary.file_type == "html" && super::html_edit::manifest_managed_source_allowed(&state,id,&item.summary.file_path).unwrap_or(false)))
+    } else { payload.session_id.is_some() };
     let documents = store.documents()?;
     let active_document_id = target(&state, &payload).ok().and_then(|(path, _)| {
         let path = path.canonicalize().ok()?;
@@ -85,6 +91,7 @@ pub fn list_document_versions(
         storage_path: store.storage_path().to_owned(),
         limit_bytes: settings.limit_bytes,
         availability,
+        restore_allowed,
     })
 }
 #[derive(Deserialize)]
@@ -170,6 +177,7 @@ pub struct RestoreResult {
 }
 #[tauri::command]
 pub fn restore_document_version(
+    app: tauri::AppHandle,
     webview: tauri::Webview,
     state: tauri::State<'_, AppState>,
     payload: RestoreHistory,
@@ -181,13 +189,27 @@ pub fn restore_document_version(
     if path.canonicalize().map_err(|_| AppError::IoError)? != head.canonical_path {
         return Err(AppError::InvalidSession);
     }
-    store.restore_markdown(
-        &payload.document_id,
-        &payload.version_id,
-        &root,
-        &payload.expected_hash,
-        payload.allow_incomplete,
-    )?;
+    let html = head.versions.iter().any(|v| v.snapshot.html.is_some());
+    if html {
+        let id = payload.target.item_id.ok_or(AppError::InvalidSession)?;
+        if payload.target.session_id.is_some() { return Err(AppError::InvalidSession); }
+        let item = state.get_item_detail(id)?;
+        if item.summary.file_type != "html" || !super::html_edit::manifest_managed_source_allowed(&state,id,&item.summary.file_path)? { return Err(AppError::InvalidParams); }
+        let path_lock = state.html_edit_path_lock(&path)?;
+        let _path_guard = path_lock.lock().map_err(|_| AppError::InternalError)?;
+        let manifest_lock = state.html_edit_manifest_lock(item.summary.library_id)?;
+        let _manifest_guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+        if !super::html_edit::manifest_managed_source_allowed(&state,id,&item.summary.file_path)? { return Err(AppError::InvalidParams); }
+        state.with_no_html_edit_session(|| {
+            crate::core::html_edit::restore_html_history_for_file(&store,&root,&path,&payload.document_id,&payload.version_id,&payload.expected_hash,payload.allow_incomplete)?;
+            // Queue reload before a new editor lease can start. No late frontend
+            // callback may reload a newly opened editor and erase its draft.
+            let _ = crate::core::html_runtime::eval_html_runtime_script(&app,id,"window.location.reload();");
+            Ok(())
+        })?;
+    } else {
+        store.restore_markdown(&payload.document_id,&payload.version_id,&root,&payload.expected_hash,payload.allow_incomplete)?;
+    }
     let source = std::fs::read_to_string(&path).map_err(|_| AppError::IoError)?;
     let hash = digest(source.as_bytes());
     if let Some(id) = payload.target.session_id {
@@ -202,6 +224,9 @@ pub fn restore_document_version(
             .ok()
             .and_then(|m| crate::core::document::file_modified_at_string(&m).ok())
             .unwrap_or_default();
+        if html {
+            index_synchronized &= state.database.sync_item_revision_after_durable_save(id,&path.to_string_lossy(),&hash,Some(&modified),source.len() as i64).index_synchronized;
+        } else {
         index_synchronized &= state
             .update_markdown_item_content(
                 id,
@@ -213,6 +238,12 @@ pub fn restore_document_version(
                 &crate::core::document::render_markdown_as_html_for_file(&source, &file_name),
             )
             .is_ok();
+        }
+    }
+    if html {
+        if let (Some(id),Some(main)) = (payload.target.item_id,app.get_webview("main")) {
+            let _ = main.eval(&format!("window.__NUTBOOK_HTML_HISTORY_RESTORED__?.({id});"));
+        }
     }
     Ok(RestoreResult {
         source,
@@ -253,14 +284,19 @@ pub fn save_document_version_as(webview: tauri::Webview, state: tauri::State<'_,
     let head = store.document(&payload.document_id)?;
     if !head.versions.iter().any(|v| v.id == payload.version_id) { return Err(AppError::InvalidParams); }
     let name = head.canonical_path.file_name().and_then(|s| s.to_str()).unwrap_or("restored.md");
-    let Some(path) = rfd::FileDialog::new().set_file_name(name).add_filter("Markdown", &["md", "markdown"]).save_file() else { return Ok(None); };
+    let html = head.versions.iter().any(|v| v.snapshot.html.is_some());
+    let dialog = rfd::FileDialog::new().set_file_name(name);
+    let dialog = if html { dialog.add_filter("HTML", &["html", "htm"]) } else { dialog.add_filter("Markdown", &["md", "markdown"]) };
+    let Some(path) = dialog.save_file() else { return Ok(None); };
     let expected = match std::fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => Some(digest(&std::fs::read(&path).map_err(|_| AppError::IoError)?)),
         Ok(_) => return Err(AppError::InvalidParams),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => return Err(AppError::IoError),
     };
-    let commit=crate::core::markdown_save_as::publish_archived(&store, &payload.document_id, &payload.version_id, &path, expected.as_deref(), payload.allow_incomplete)?;
+    let commit = if html {
+        store.save_archived_html_as(&payload.document_id,&payload.version_id,&path,expected.as_deref(),payload.allow_incomplete)?
+    } else { crate::core::markdown_save_as::publish_archived(&store, &payload.document_id, &payload.version_id, &path, expected.as_deref(), payload.allow_incomplete)? };
     state.synchronize_history_index(&commit.document_id);
     Ok(Some(path))
 }

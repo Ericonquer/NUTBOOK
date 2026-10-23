@@ -5,8 +5,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use crate::{
     core::html_edit::{
         get_html_edit_patch_for_file as get_patch_for_file,
-        commit_html_edit_for_file, HtmlEditCommit,
-        save_html_edit_conflict_copy_for_file,
+        commit_html_edit_with_history_for_file, HtmlEditCommit,
+        save_html_edit_conflict_copy_with_history_for_file,
         recover_html_edit_commit_journal,
         import_html_edit_asset as import_asset,
         load_html_edit_manifest,
@@ -345,6 +345,7 @@ pub fn save_html_edit_patch(
     let title_hint = title_hint(&item);
     let manifest_lock = state.html_edit_manifest_lock(library.id)?;
     let _guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(item.summary.id,&payload.runtime_session_id,payload.generation)?)?;
     let library_root = html_edit_library_root(&library)?;
     let save = HtmlEditPatchSave {
         library_id: library.id,
@@ -390,6 +391,7 @@ pub fn commit_html_edit(
     let _path_guard = path_lock.lock().map_err(|_| AppError::InternalError)?;
     let manifest_lock = state.html_edit_manifest_lock(library.id)?;
     let _manifest_guard = manifest_lock.lock().map_err(|_| AppError::InternalError)?;
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(item.summary.id,&payload.runtime_session_id,payload.generation)?)?;
     let library_root = html_edit_library_root(&library)?;
     let commit = HtmlEditCommit {
         library_root,
@@ -400,7 +402,10 @@ pub fn commit_html_edit(
         changes: payload.changes,
         presentation_notes: if payload.presentation_notes.is_empty() { None } else { Some(serde_json::to_value(payload.presentation_notes).map_err(|_| AppError::InternalError)?) },
     };
-    let committed = commit_html_edit_for_file(&commit)?;
+    let history = state.document_history()?;
+    let committed = commit_html_edit_with_history_for_file(&commit, &history)?;
+    // Source publication is durable; disposable history-index repair is separate.
+    if let Some(id) = &committed.history_document_id { state.synchronize_history_index(id); }
     // The commit is already durable. A best-effort refresh must never turn it
     // into an apparent failed save that the user might retry.
     //
@@ -474,7 +479,10 @@ pub fn save_html_edit_conflict_copy(state: tauri::State<'_, AppState>, payload: 
     let path = PathBuf::from(&item.summary.file_path);
     let path_lock = state.html_edit_path_lock(&path)?; let _path_guard = path_lock.lock().map_err(|_| AppError::InternalError)?;
     let note_patch = if payload.presentation_notes.is_empty() { None } else { Some(serde_json::to_value(payload.presentation_notes).map_err(|_| AppError::InternalError)?) };
-    let target = save_html_edit_conflict_copy_for_file(&HtmlEditCommit { library_root: html_edit_library_root(&library)?, file_path: path, artifact_edit_id: payload.artifact_edit_id, expected_file_hash: String::new(), expected_modified_at: 0, changes: payload.changes, presentation_notes: note_patch })?;
+    require_html_edit_session_lease(state.html_edit_session_lease_matches(item.summary.id,&payload.runtime_session_id,payload.generation)?)?;
+    let history = state.document_history()?;
+    let (target,document_id) = save_html_edit_conflict_copy_with_history_for_file(&HtmlEditCommit { library_root: html_edit_library_root(&library)?, file_path: path, artifact_edit_id: payload.artifact_edit_id, expected_file_hash: String::new(), expected_modified_at: 0, changes: payload.changes, presentation_notes: note_patch }, &history)?;
+    state.synchronize_history_index(&document_id);
     // The conflict copy is already durable. Keep refresh failure from
     // misleading the user into retrying and creating a second copy.
     let _ = crate::commands::library::scan_library_once(&state.database, library.id);
@@ -489,7 +497,7 @@ fn library_for_item(state: &AppState, library_id: i64) -> Result<Library, AppErr
         .ok_or(AppError::LibraryNotFound)
 }
 
-fn manifest_managed_source_allowed(
+pub(crate) fn manifest_managed_source_allowed(
     state: &AppState,
     item_id: i64,
     item_path: &str,

@@ -471,6 +471,8 @@ fn main() {
             commands::native_presentation::native_presentation_probe_command,
             commands::native_presentation::start_native_presentation,
             commands::native_presentation::save_native_presentation_notes,
+            commands::native_presentation::native_presentation_notes_edit,
+            commands::native_presentation::native_presentation_notes_save,
             commands::native_presentation::native_presentation_state,
             commands::native_presentation::native_presentation_timer,
             commands::native_presentation::native_presentation_blackout,

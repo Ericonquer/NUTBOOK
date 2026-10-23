@@ -248,7 +248,7 @@ pub fn attach_settings_overlay_command(
     window: tauri::Window,
     payload: AttachSettingsOverlayRequest,
 ) -> Result<bool, AppError> {
-    attach_settings_overlay(&app, &window, payload.bounds, payload.tab, payload.mode)
+    attach_settings_overlay(&app, &window, payload.bounds, payload.tab, payload.mode, payload.history_item_id)
 }
 
 #[tauri::command]

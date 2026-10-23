@@ -16856,7 +16856,7 @@
         renderSettingsPanel();
       }
 
-      async function openSettingsOverlay(tab = "skills", mode = "menu") {
+      async function openSettingsOverlay(tab = "skills", mode = "menu", historyItemId = null) {
         if (!appState.isTauri) {
           openSettingsTab(tab);
           return;
@@ -16877,7 +16877,24 @@
                 height: Math.max(1, window.innerHeight)
               },
           tab,
-          mode
+          mode, historyItemId
+        });
+      }
+
+      let singleHtmlHistoryEpoch = 0;
+      async function openSingleHtmlHistory(itemId) {
+        const epoch = ++singleHtmlHistoryEpoch;
+        if (!Number.isSafeInteger(itemId) || itemId <= 0) { closeSettingsOverlay(); return; }
+        let expectedHash = (await invoke("get_item_content_revision", { itemId })).revision;
+        if (epoch !== singleHtmlHistoryEpoch) return;
+        await NutbookVersions.open({
+          invoke, target: { itemId }, allowSaveAs: true,
+          language: () => appState.language, error: normalizeError,
+          canRestore: doc => Boolean(doc?.versions?.some(version => version.snapshot.html)),
+          dirty: () => false, save: async () => false,
+          expectedHash: async () => expectedHash,
+          applied: async result => { expectedHash = result.fileHash; },
+          restoreFocus: () => { if (epoch === singleHtmlHistoryEpoch && appState.settingsOverlayMode === "history") closeSettingsOverlay(); }
         });
       }
 
@@ -16924,15 +16941,17 @@
         renderSettingsPanel();
       }
 
-      window.__NUTBOOK_OPEN_SETTINGS_OVERLAY__ = (tab = "skills", mode = "menu") => {
+      window.__NUTBOOK_OPEN_SETTINGS_OVERLAY__ = (tab = "skills", mode = "menu", historyItemId = null) => {
         appState.isSettingsOverlay = true;
         appState.settingsOverlayMode = mode;
+        singleHtmlHistoryEpoch++;
+        if (mode !== "history") NutbookVersions.close();
         document.documentElement.classList.add("settings-overlay-mode");
         document.body.classList.add("settings-overlay-mode");
         document.body.classList.toggle("settings-overlay-menu", mode === "menu");
         appState.settingsTab = tab;
         appState.isAboutOpen = mode === "about";
-        appState.isSettingsOpen = mode !== "menu" && mode !== "about" && mode !== "update";
+        appState.isSettingsOpen = !["menu", "about", "update", "history"].includes(mode);
         appState.isUpdateDialogOpen = mode === "update";
         renderSettingsPanel();
         renderUpdateDialog();
@@ -16940,12 +16959,25 @@
           focusSelectedSettingsTab();
         }
         renderAboutPanel();
+        if (mode === "history") openSingleHtmlHistory(historyItemId).catch(error => { setStatus(normalizeError(error), "error"); });
         if (mode === "update") {
           checkForUpdates({ manual: true, force: true }).catch(() => {});
         } else if (mode === "panel") {
           loadUpdateSettings().catch(() => {});
         }
       };
+
+      async function refreshHtmlHistoryTab(itemId) {
+        const tab = getOpenTab(itemId);
+        if (!tab || tab.closed || appState.htmlEditSession?.itemId === itemId) return;
+        const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId }));
+        const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
+        if (getOpenTab(itemId) !== tab || tab.closed || appState.htmlEditSession?.itemId === itemId) return;
+        tab.detail = detail; tab.preview = preview; tab.item = normalizeItemSummary(detail);
+        appState.runtimePatchAppliedKeys.delete(itemId);
+        renderTabs();
+      }
+      window.__NUTBOOK_HTML_HISTORY_RESTORED__ = itemId => refreshHtmlHistoryTab(itemId).catch(error => setStatus(normalizeError(error), "error"));
 
       window.__NUTBOOK_REFRESH_AFTER_SETTINGS__ = async () => {
         await loadUpdateSettings();
@@ -17210,13 +17242,17 @@
             }
           ];
         }
-        if (isMarkdown) options.splice(options.findIndex(option => option.action === "remove-from-nutbook"), 0, { action: "document-versions", label: appState.language === "en-US" ? "Version history" : "版本历史", icon: MENU_ICON_SVG.versionHistory, disabled: false });
+        if (isMarkdown || (isHtmlRuntime && tab.sourceMode !== "external")) options.splice(options.findIndex(option => option.action === "remove-from-nutbook"), 0, { action: "document-versions", label: appState.language === "en-US" ? "Version history" : "版本历史", icon: MENU_ICON_SVG.versionHistory, disabled: false });
         return options;
       }
 
       async function openDocumentVersions(settingsOnly = false) {
         const tab = getActiveTab();
-        if (tab?.preview?.fileType === "html") { showToast(appState.language === "en-US" ? "Open history from the home screen for now" : "当前请从首页打开版本历史"); return; }
+        if (tab?.preview?.fileType === "html-runtime") {
+          if (!(await confirmHtmlEditLeaveIfNeeded(tab.id, { source: "version-history" }))) return;
+          await openSettingsOverlay("versions", "history", tab.id);
+          return;
+        }
         if (settingsOnly) return openSettingsTab("versions");
         const target = tab?.preview?.fileType === "markdown"
           ? (tab.sourceMode === "external" ? { sessionId: tab.external.sessionId, generation: tab.external.generation } : { itemId: tab.id }) : {};
@@ -21960,6 +21996,11 @@ if (!chipTipController) {
           }
           return;
         }
+        if (action === "open-version-history") {
+          if (getActiveTab()?.id !== itemId || getActiveTab()?.preview?.fileType !== "html-runtime") return;
+          await openDocumentVersions(false);
+          return;
+        }
         if (action === "request-remove") {
           await showHtmlRemoveConfirmOverlay(itemId);
           return;
@@ -23087,7 +23128,7 @@ if (!chipTipController) {
 
       function runtimeControlsOverlayHeight() {
         if (appState.runtimeControlsOverlayMode === "tags") return 360;
-        if (appState.runtimeControlsOverlayMode === "more") return 180;
+        if (appState.runtimeControlsOverlayMode === "more") return 220;
         // A1.3：来源徽标 tooltip 展开态（多行完整来源名），须高于 hover 68px 才不会被裁。
         if (appState.runtimeControlsOverlayMode === "badge-tip") return 100;
         if (appState.runtimeControlsOverlayMode === "hover") return 68;
@@ -29479,13 +29520,14 @@ if (!chipTipController) {
           appState.settingsOverlayMode = window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "menu";
           document.body.classList.toggle("settings-overlay-menu", appState.settingsOverlayMode === "menu");
           appState.isAboutOpen = appState.settingsOverlayMode === "about";
-          appState.isSettingsOpen = appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about" && appState.settingsOverlayMode !== "update";
+          appState.isSettingsOpen = !["menu", "about", "update", "history"].includes(appState.settingsOverlayMode);
           appState.isUpdateDialogOpen = appState.settingsOverlayMode === "update";
           wireEvents();
           renderSettingsMenu();
           renderSettingsPanel();
           renderUpdateDialog();
           renderAboutPanel();
+          if (appState.settingsOverlayMode === "history") await openSingleHtmlHistory(window.__NUTBOOK_HISTORY_ITEM_ID__);
           i18n?.observe?.();
           if (appState.settingsOverlayMode === "menu") {
             els.hostSettingsMenu?.addEventListener("mouseenter", cancelHostSettingsOverlayClose);
@@ -29499,7 +29541,7 @@ if (!chipTipController) {
           if (appState.settingsOverlayMode === "update") {
             await loadUpdateSettings();
             await checkForUpdates({ manual: true, force: true });
-          } else if (appState.settingsOverlayMode !== "menu" && appState.settingsOverlayMode !== "about") {
+          } else if (!["menu", "about", "history"].includes(appState.settingsOverlayMode)) {
             await loadLibraries();
             await loadTags();
             await loadIgnoredItems();

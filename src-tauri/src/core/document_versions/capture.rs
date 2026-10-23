@@ -11,14 +11,15 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-pub struct CapturedMarkdown {
+pub struct CapturedDocument {
     pub snapshot: Snapshot,
     pub objects: BTreeMap<String, Vec<u8>>,
-    reads: BTreeMap<PathBuf, (String, u64)>,
-    absent: BTreeSet<PathBuf>,
-    bindings: BTreeMap<PathBuf, PathBuf>,
+    pub(super) reads: BTreeMap<PathBuf, (String, u64)>,
+    pub(super) absent: BTreeSet<PathBuf>,
+    pub(super) bindings: BTreeMap<PathBuf, PathBuf>,
 }
-impl CapturedMarkdown {
+pub type CapturedMarkdown = CapturedDocument;
+impl CapturedDocument {
     /// Call under the document save lock immediately before durable prepare.
     pub fn recheck(&self) -> Result<()> {
         for (reference, canonical) in &self.bindings {
@@ -155,6 +156,7 @@ pub fn capture_markdown(
         snapshot: Snapshot {
             body: digest(body),
             dependencies: BTreeMap::new(),
+            html: None,
         },
         objects: BTreeMap::from([(digest(body), body.to_vec())]),
         reads: BTreeMap::new(),
@@ -170,90 +172,140 @@ pub fn capture_markdown(
         if reference.starts_with("data:") {
             continue;
         }
-        let excluded = |reason: &str| Dependency::NotCaptured {
-            reason: reason.into(),
-        };
-        let dependency = (|| -> Result<Dependency> {
-            let Ok(mut url) = base.join(&reference) else {
-                return Ok(excluded("unresolvable URL"));
-            };
-            if url.scheme() != "file" {
-                return Ok(excluded("remote or unsupported reference"));
-            }
-            url.set_query(None);
-            url.set_fragment(None);
-            let Ok(candidate) = url.to_file_path() else {
-                return Ok(excluded("unsupported file URL"));
-            };
-            let Some(candidate) = normalize(&candidate) else {
-                return Ok(excluded("invalid path"));
-            };
-            if !candidate.starts_with(&root) {
-                return Ok(excluded("outside authorized root"));
-            }
-            // Validate nearest existing ancestor even for an absent leaf. This
-            // prevents an in-root symlink to an outside missing target.
-            let mut ancestor = candidate.as_path();
-            loop {
-                match fs::symlink_metadata(ancestor) {
-                    Ok(_) => {
-                        if !ancestor.canonicalize()?.starts_with(&root) {
-                            return Ok(excluded("symlink outside authorized root"));
-                        }
-                        break;
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                        ancestor = ancestor
-                            .parent()
-                            .ok_or_else(|| HistoryError::Invalid("missing ancestor".into()))?;
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            }
-            let metadata = match fs::metadata(&candidate) {
-                Ok(metadata) => metadata,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    result.absent.insert(candidate.clone());
-                    return Ok(Dependency::MissingAtSave {
-                        reason: "not found before capture".into(),
-                    });
-                }
-                Err(e) => return Err(e.into()),
-            };
-            if !metadata.is_file() {
-                return Ok(excluded("not a regular file"));
-            }
-            let canonical = candidate.canonicalize()?;
-            if !canonical.starts_with(&root) {
-                return Ok(excluded("symlink outside authorized root"));
-            }
-            if metadata.len() > budget.saturating_sub(used) {
-                return Err(HistoryError::Invalid("capture budget exceeded".into()));
-            }
-            let bytes = read_regular_bounded(&canonical, budget.saturating_sub(used))?;
-            let hash = digest(&bytes);
-            if !result.objects.contains_key(&hash) {
-                used += bytes.len() as u64;
-                result.objects.insert(hash.clone(), bytes.clone());
-            }
-            result.bindings.insert(candidate.clone(), canonical.clone());
-            result
-                .reads
-                .insert(canonical, (hash.clone(), bytes.len() as u64));
-            Ok(Dependency::Captured {
-                object: hash,
-                bytes: bytes.len() as u64,
-            })
-        })()?;
+        let dependency =
+            capture_reference(&mut result, &root, &base, &reference, &mut used, budget)?;
         result.snapshot.dependencies.insert(reference, dependency);
     }
     result.recheck()?;
     Ok(result)
 }
 
+pub(super) fn capture_reference(
+    result: &mut CapturedDocument,
+    root: &Path,
+    base: &url::Url,
+    reference: &str,
+    used: &mut u64,
+    budget: u64,
+) -> Result<Dependency> {
+    let excluded = |reason: &str| Dependency::NotCaptured {
+        reason: reason.into(),
+    };
+    let Ok(mut url) = base.join(&reference) else {
+        return Ok(excluded("unresolvable URL"));
+    };
+    if url.scheme() != "file" {
+        return Ok(excluded("remote or unsupported reference"));
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    let Ok(candidate) = url.to_file_path() else {
+        return Ok(excluded("unsupported file URL"));
+    };
+    let Some(candidate) = normalize(&candidate) else {
+        return Ok(excluded("invalid path"));
+    };
+    if !candidate.starts_with(&root) {
+        return Ok(excluded("outside authorized root"));
+    }
+    // Validate nearest existing ancestor even for an absent leaf. This
+    // prevents an in-root symlink to an outside missing target.
+    let mut ancestor = candidate.as_path();
+    loop {
+        match fs::symlink_metadata(ancestor) {
+            Ok(_) => {
+                if !ancestor.canonicalize()?.starts_with(&root) {
+                    return Ok(excluded("symlink outside authorized root"));
+                }
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                ancestor = ancestor
+                    .parent()
+                    .ok_or_else(|| HistoryError::Invalid("missing ancestor".into()))?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let metadata = match fs::metadata(&candidate) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            result.absent.insert(candidate.clone());
+            return Ok(Dependency::MissingAtSave {
+                reason: "not found before capture".into(),
+            });
+        }
+        Err(e) => return Err(e.into()),
+    };
+    if !metadata.is_file() {
+        return Ok(excluded("not a regular file"));
+    }
+    let canonical = candidate.canonicalize()?;
+    if !canonical.starts_with(&root) {
+        return Ok(excluded("symlink outside authorized root"));
+    }
+    if metadata.len() > budget {
+        return Err(HistoryError::Invalid("capture budget exceeded".into()));
+    }
+    let bytes = read_regular_bounded(&canonical, budget)?;
+    let hash = digest(&bytes);
+    if result
+        .reads
+        .get(&canonical)
+        .is_some_and(|(previous, size)| previous != &hash || *size != bytes.len() as u64)
+        || result
+            .bindings
+            .get(&candidate)
+            .is_some_and(|previous| previous != &canonical)
+    {
+        return Err(HistoryError::Conflict);
+    }
+    if !result.objects.contains_key(&hash) {
+        if bytes.len() as u64 > budget.saturating_sub(*used) {
+            return Err(HistoryError::Invalid("capture budget exceeded".into()));
+        }
+        *used += bytes.len() as u64;
+        result.objects.insert(hash.clone(), bytes.clone());
+    }
+    result.bindings.insert(candidate.clone(), canonical.clone());
+    result
+        .reads
+        .insert(canonical, (hash.clone(), bytes.len() as u64));
+    Ok(Dependency::Captured {
+        object: hash,
+        bytes: bytes.len() as u64,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn duplicate_resource_aliases_fit_exact_unique_budget_and_reject_mixed_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("a.md");
+        let image = dir.path().join("image.svg");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&image, b"12345678901234567890").unwrap();
+        let body = b"![a](image.svg)\n![b](./image.svg)\n";
+        let budget = body.len() as u64 + 20;
+        let mut captured = capture_markdown(&source, dir.path(), body, budget).unwrap();
+        assert_eq!(captured.objects.len(), 2);
+        fs::write(&image, b"changed image bytes!").unwrap();
+        let base = url::Url::from_file_path(source.canonicalize().unwrap()).unwrap();
+        let mut used = budget;
+        assert!(matches!(
+            capture_reference(
+                &mut captured,
+                &dir.path().canonicalize().unwrap(),
+                &base,
+                "./image.svg",
+                &mut used,
+                budget
+            ),
+            Err(HistoryError::Conflict)
+        ));
+    }
     #[test]
     fn parser_handles_references_code_remote_missing_and_dedup() {
         let dir = tempfile::tempdir().unwrap();
@@ -340,7 +392,9 @@ mod tests {
         // This is also the user's native acceptance sample. A real restore
         // deliberately relocates its image URLs; do not reset the file or
         // require the pre-acceptance spelling of those URLs.
-        assert!(captured.snapshot.dependencies.values().any(|dependency| matches!(dependency, Dependency::Captured { bytes, .. } if *bytes>0)));
+        assert!(captured.snapshot.dependencies.values().any(
+            |dependency| matches!(dependency, Dependency::Captured { bytes, .. } if *bytes>0)
+        ));
         assert!(captured.snapshot.dependencies.values().any(|dependency| matches!(dependency, Dependency::MissingAtSave { reason } if !reason.is_empty())));
         assert!(!captured.snapshot.dependencies.contains_key("secret.png"));
         assert_eq!(captured.objects.len(), 2);

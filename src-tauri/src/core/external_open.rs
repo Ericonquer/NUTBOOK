@@ -221,6 +221,7 @@ pub fn read_file_baseline(path: &Path) -> Result<SessionPaths, AppError> {
 }
 
 pub fn supported_markdown_path(path: &Path) -> bool {
+    if super::traversal::is_history_resource_path(path) { return false; }
     path.extension()
         .and_then(|value| value.to_str())
         .map(|value| {
@@ -232,6 +233,7 @@ pub fn supported_markdown_path(path: &Path) -> bool {
 
 /// 外部打开支持的类型：Markdown 或 HTML（计划 6.1）。
 pub fn supported_external_path(path: &Path) -> bool {
+    if super::traversal::is_history_resource_path(path) { return false; }
     path.extension()
         .and_then(|value| value.to_str())
         .map(|value| {
@@ -744,6 +746,7 @@ pub struct ExternalPathPlan {
 /// 只读分类：供 inspect 阶段与 open 阶段共用，保证两阶段判定一致。
 pub fn plan_external_path(state: &AppState, raw_path: &str) -> Result<ExternalPathPlan, AppError> {
     let path = Path::new(raw_path);
+    if super::traversal::is_history_resource_path(path) { return Err(AppError::InvalidParams); }
     let file_name = path
         .file_name()
         .map(|value| value.to_string_lossy().to_string())

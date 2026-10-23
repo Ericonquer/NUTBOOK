@@ -131,6 +131,23 @@ impl HistoryStore {
         atomic_bytes(&projection.join("owner.json"), &json_bytes(&record)?, false)?;
         let served = projection.join("content");
         fs::create_dir(&served)?;
+        if version.snapshot.html.is_some() {
+            let server = ScopedContentServer::start(&served)
+                .map_err(|e| invalid(format!("preview server: {e}")))?;
+            let objects = version.snapshot.hashes().map(|hash| Ok((hash.to_owned(), self.object(hash)?)))
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            let projection_html = super::super::html_projection::project(&version.snapshot, &objects, &server.origin())?;
+            for (name, bytes) in &projection_html.files {
+                atomic_bytes(&served.join(name), bytes, false)?;
+            }
+            let filename = format!("{session}-preview.html");
+            atomic_bytes(&served.join(&filename), projection_html.page.as_bytes(), false)?;
+            let url = server.relative_url(Path::new(&filename)).ok_or_else(|| invalid("preview URL"))?;
+            let incomplete = projection_html.incomplete;
+            self.previews.lock().map_err(|_| invalid("preview lock"))?.insert(session.clone(), VersionPreviewSession { record, server, projection });
+            cleanup.committed = true;
+            return Ok(PreviewInfo { session_id: session, generation, url, source: projection_html.source, html: projection_html.page, incomplete });
+        }
         let mut replacements = BTreeMap::new();
         let mut incomplete = version
             .snapshot
@@ -376,6 +393,42 @@ mod tests {
         assert_eq!(projected.matches("<!-- nutbook-cover -->").count(),2);
         assert!(projected.contains("![cover](image.svg)"));
         assert_eq!(source.matches("<!-- nutbook-cover -->").count(),3);
+    }
+    #[test]
+    fn html_preview_serves_only_archived_projection_and_revokes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.html");
+        let body = b"<h1>A</h1><link rel=stylesheet href=style.css><img src=image.svg><script>window.BAD=true</script>";
+        fs::write(&path, body).unwrap();
+        fs::write(dir.path().join("style.css"), b"@font-face{font-family:HistorySymbols;src:url(symbols.ttf)}body{margin:0;padding:0!important}h1{color:blue}").unwrap();
+        let font = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("tests/fixtures/document-save-versions/shared/symbols.ttf");
+        fs::write(dir.path().join("symbols.ttf"),fs::read(font).unwrap()).unwrap();
+        fs::write(dir.path().join("image.svg"), b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>").unwrap();
+        let store = HistoryStore::open(&dir.path().join("app")).unwrap();
+        let saved = store.save_html(&path, dir.path(), &digest(body), b"<h1>B</h1>", None).unwrap();
+        let registry = std::env::temp_dir().join(format!("nutbook-html-history-preview-{}", Uuid::new_v4()));
+        fs::create_dir(&registry).unwrap();
+        crate::core::scoped_content_server::init_used_port_registry(registry.join("ports.json")).unwrap();
+        let head = store.document(&saved.document_id).unwrap();
+        fs::write(dir.path().join("style.css"), b"LIVE_CANARY").unwrap();
+        fs::remove_file(dir.path().join("symbols.ttf")).unwrap();
+        let preview = store.begin_markdown_preview(&head.id, &head.versions[0].id, 1).unwrap();
+        let page = ureq::get(&preview.url).call().unwrap().into_string().unwrap();
+        assert!(page.contains("<h1>A</h1>"));
+        assert!(page.contains("color:blue"));
+        assert!(!page.contains("LIVE_CANARY"));
+        assert!(!page.contains("window.BAD"));
+        assert!(preview.source.contains("window.BAD"));
+        if let Ok(script) = std::env::var("NUTBOOK_HTML_HISTORY_BROWSER_SCRIPT") {
+            let inline_path = std::env::temp_dir().join(format!("nutbook-html-inline-{}.html", Uuid::new_v4()));
+            fs::write(&inline_path, &preview.html).unwrap();
+            let status = std::process::Command::new("node").arg(script).arg(&preview.url).arg(&inline_path).status().unwrap();
+            let _ = fs::remove_file(inline_path);
+            assert!(status.success());
+        }
+
+        store.close_preview(&preview.session_id).unwrap();
+        assert!(ureq::get(&preview.url).call().is_err());
     }
     #[test]
     fn static_preview_is_scoped_inert_and_revoked_before_history_gc() {

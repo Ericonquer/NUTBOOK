@@ -583,6 +583,14 @@ impl AppState {
         Ok(())
     }
 
+    /// Hold registration out of the publication interval. Only one HTML edit
+    /// session is active in the host; aliases must not bypass the restore gate.
+    pub fn with_no_html_edit_session<T>(&self, action: impl FnOnce() -> Result<T,AppError>) -> Result<T,AppError> {
+        let leases = self.html_edit_session_leases.lock().map_err(|_| AppError::InternalError)?;
+        if !leases.by_item.is_empty() { return Err(AppError::EditConflict); }
+        action()
+    }
+
     pub fn html_edit_session_lease_matches(
         &self,
         item_id: i64,

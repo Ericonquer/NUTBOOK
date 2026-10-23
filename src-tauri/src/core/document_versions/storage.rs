@@ -10,6 +10,17 @@ use std::{
 };
 use uuid::Uuid;
 
+// Every created ancestor must be durable, not just the leaf containing a file.
+fn sync_resource_tree(path: &Path) -> Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_symlink() { return Err(invalid("symlink in owned recovery tree")); }
+        if kind.is_dir() { sync_resource_tree(&entry.path())?; }
+    }
+    sync_directory(path)
+}
+
 pub const DEFAULT_LIMIT_BYTES: u64 = 500_000_000;
 pub const MAX_VERSIONS: usize = 10;
 const SCHEMA: u32 = 1;
@@ -65,10 +76,18 @@ pub enum Dependency {
     NotCaptured { reason: String },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HtmlResourceGraph {
+    pub document_path: String,
+    pub edges: Vec<super::html_capture::HtmlDependencyEdge>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub body: String,
     /// Keys are original reference identities, never object-store paths.
     pub dependencies: BTreeMap<String, Dependency>,
+    // Absent for existing Markdown manifests: preserve their canonical bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html: Option<HtmlResourceGraph>,
 }
 impl Snapshot {
     fn hashes(&self) -> impl Iterator<Item = &str> {
@@ -80,6 +99,23 @@ impl Snapshot {
         ))
     }
     fn validate(&self) -> Result<()> {
+        if let Some(graph) = &self.html {
+            let safe_path = |value: &str| !value.is_empty()
+                && !value.contains('\\')
+                && !value.contains(':')
+                && value.split('/').all(|part| !part.is_empty() && part != "." && part != "..");
+            if !safe_path(&graph.document_path) || graph.edges.len() > 4096 {
+                return Err(invalid("invalid HTML resource graph"));
+            }
+            for edge in &graph.edges {
+                if (edge.source != graph.document_path
+                    && !matches!(self.dependencies.get(&edge.source), Some(Dependency::Captured { .. })))
+                    || !self.dependencies.contains_key(&edge.target)
+                    || edge.reference.len() > 1_000_000 {
+                    return Err(invalid("unbound HTML resource graph edge"));
+                }
+            }
+        }
         if self.hashes().all(valid_hash) {
             Ok(())
         } else {
@@ -631,6 +667,7 @@ impl HistoryStore {
         pre_publish: Option<&dyn Fn() -> Result<()>>,
         new_target: bool,
     ) -> Result<CommitResult> {
+        if super::super::traversal::is_history_resource_path(path) { return Err(invalid("recovery assets cannot be a document save target")); }
         old.validate()?;
         new.validate()?;
         if old.body != expected
@@ -1405,6 +1442,43 @@ impl HistoryStore {
             false,
         )
     }
+    /// Publish an authorized HTML source and its captured resource graph through
+    /// the history journal. Callers retain edit leases and source-policy checks.
+    pub fn save_html(
+        &self,
+        path: &Path,
+        root: &Path,
+        expected: &str,
+        content: &[u8],
+        restored_from: Option<String>,
+    ) -> Result<CommitResult> {
+        let path = path.canonicalize()?;
+        let _path = self.path_lock(&path)?;
+        let source = fs::read(&path)?;
+        if digest(&source) != expected {
+            return Err(HistoryError::Conflict);
+        }
+        let budget = self.settings()?.limit_bytes;
+        let before = super::capture_html(&path, root, &source, budget)?;
+        let after = super::capture_html(&path, root, content, budget)?;
+        let mut objects = before.document.objects.clone();
+        objects.extend(after.document.objects.clone());
+        let guard = || {
+            before.recheck()?;
+            after.recheck()
+        };
+        self.commit_checked_locked(
+            &path,
+            expected,
+            before.document.snapshot.clone(),
+            after.document.snapshot.clone(),
+            objects,
+            restored_from,
+            None,
+            Some(&guard),
+            false,
+        )
+    }
     pub fn publish_new_markdown(
         &self,
         path: &Path,
@@ -1429,6 +1503,7 @@ impl HistoryStore {
         let old = Snapshot {
             body: digest(b""),
             dependencies: BTreeMap::new(),
+            html: None,
         };
         let guard = || after.recheck();
         self.commit_checked_locked(
@@ -1442,6 +1517,44 @@ impl HistoryStore {
             Some(&guard),
             true,
         )
+    }
+    pub fn publish_new_html_from(&self, path: &Path, root: &Path, content: &[u8], restored_from: Option<String>) -> Result<CommitResult> {
+        let path = path.parent().ok_or_else(|| invalid("target parent"))?.canonicalize()?.join(path.file_name().ok_or_else(|| invalid("target filename"))?);
+        let _path = self.path_lock(&path)?;
+        if fs::symlink_metadata(&path).is_ok() { return Err(HistoryError::Conflict); }
+        let after = super::capture_html(&path,root,content,self.settings()?.limit_bytes)?;
+        let mut objects = after.document.objects.clone();
+        objects.insert(digest(b""),Vec::new());
+        let old = Snapshot {body:digest(b""),dependencies:BTreeMap::new(),html:None};
+        let guard = || after.recheck();
+        self.commit_checked_locked(&path,&digest(b""),old,after.document.snapshot.clone(),objects,restored_from,None,Some(&guard),true)
+    }
+    /// Archived Save As reads no live original source. Selected target remains
+    /// protected by the same expected-hash/no-clobber publication contract.
+    pub fn save_archived_html_as(&self, document: &str, version: &str, target: &Path, expected: Option<&str>, allow_incomplete: bool) -> Result<CommitResult> {
+        let head = self.document(document)?;
+        let version = head.versions.iter().find(|v| v.id == version).ok_or_else(|| invalid("version does not belong to document"))?;
+        self.verify_manifest(document,version)?;
+        let objects = version.snapshot.hashes().map(|hash| Ok((hash.to_owned(),self.object(hash)?))).collect::<Result<BTreeMap<_,_>>>()?;
+        let root = target.parent().ok_or_else(|| invalid("target parent"))?.canonicalize()?;
+        let name = format!(".nutbook-restored-{}",Uuid::new_v4());
+        let plan = super::html_restore::plan(&version.snapshot,&objects,&name,allow_incomplete)?;
+        struct Assets(Option<PathBuf>);
+        impl Drop for Assets { fn drop(&mut self) { if let Some(path) = self.0.take() { let _ = fs::remove_dir_all(path); } } }
+        let directory = root.join(&name);
+        fs::create_dir(&directory)?;
+        let mut assets = Assets(Some(directory.clone()));
+        for (name,bytes) in &plan.files {
+            let path = directory.join(name);
+            fs::create_dir_all(path.parent().ok_or_else(|| invalid("resource parent"))?)?;
+            atomic_bytes(&path,bytes,false)?;
+            sync_directory(path.parent().unwrap())?;
+        }
+        sync_resource_tree(&directory)?;
+        let result = if let Some(hash) = expected { self.save_html(target,&root,hash,&plan.body,Some(version.id.clone())) }
+            else { self.publish_new_html_from(target,&root,&plan.body,Some(version.id.clone())) };
+        if result.is_ok() { assets.0 = None; }
+        result
     }
     /// Restore into an existing authorized Markdown source. The command must
     /// adjudicate drafts first and require explicit incomplete confirmation.
@@ -1606,6 +1719,67 @@ impl HistoryStore {
             Some(&guard),
             false,
         )
+    }
+    /// Restore a verified HTML version without overwriting shared resources.
+    /// The private resource tree is registered before source publication.
+    pub fn restore_html(
+        &self, document_id: &str, version_id: &str, root: &Path,
+        expected: &str, allow_incomplete: bool,
+    ) -> Result<CommitResult> {
+        self.restore_html_with_publication_guard(document_id,version_id,root,expected,allow_incomplete,None)
+    }
+    pub fn restore_html_with_publication_guard(
+        &self, document_id: &str, version_id: &str, root: &Path,
+        expected: &str, allow_incomplete: bool,
+        prepare: Option<&dyn Fn(&str) -> Result<()>>,
+    ) -> Result<CommitResult> {
+        check_id(version_id)?;
+        let initial = self.document(document_id)?;
+        let path = initial.canonical_path.canonicalize()?;
+        let root = root.canonicalize()?;
+        if !path.starts_with(&root) { return Err(invalid("restore target outside authorized root")); }
+        let _path = self.path_lock(&path)?;
+        let mut head = self.document(document_id)?;
+        if file_identity(&path)? != head.file_identity || digest(&fs::read(&path)?) != expected { return Err(HistoryError::Conflict); }
+        if self.pending()?.iter().any(|j| j.before.canonical_path == path) { return Err(HistoryError::RecoveryRequired(document_id.into())); }
+        let version = head.versions.iter().find(|v| v.id == version_id).cloned().ok_or_else(|| invalid("version does not belong to document"))?;
+        self.verify_manifest(document_id, &version)?;
+        let source = fs::read(&path)?;
+        let budget = self.settings()?.limit_bytes;
+        let before = super::capture_html(&path, &root, &source, budget)?;
+        if before.document.snapshot == version.snapshot { return Ok(CommitResult {document_id: head.id, changed:false, pending_finalize:false}); }
+        let objects = version.snapshot.hashes().map(|hash| Ok((hash.to_owned(),self.object(hash)?))).collect::<Result<BTreeMap<_,_>>>()?;
+        let operation = Uuid::new_v4().to_string();
+        let directory_name = format!(".nutbook-restored-{}-{operation}", head.id);
+        let directory = path.parent().ok_or_else(|| invalid("restore parent"))?.join(&directory_name);
+        let plan = super::html_restore::plan(&version.snapshot,&objects,&directory_name,allow_incomplete)?;
+        let resources = plan.files.iter().map(|(name,bytes)| (name.clone(),digest(bytes))).collect::<BTreeMap<_,_>>();
+        let marker = serde_json::json!({"schema":SCHEMA,"owner":self.owner,"document":head.id,"operation":operation,"resources":resources});
+        let marker_bytes = json_bytes(&marker)?;
+        let journal = self.root.join("restore-journals").join(format!("{operation}.json"));
+        {
+            let _quota = self.quota_lock()?;
+            atomic_bytes(&journal,&json_bytes(&serde_json::json!({"schema":SCHEMA,"owner":self.owner,"document":head.id,"operation":operation,"path":directory,"marker":digest(&marker_bytes),"state":"prepared"}))?,false)?;
+        }
+        fs::create_dir(&directory)?;
+        atomic_bytes(&directory.join(".nutbook-owner.json"),&marker_bytes,false)?;
+        for (name, bytes) in &plan.files {
+            let target = directory.join(name);
+            fs::create_dir_all(target.parent().ok_or_else(|| invalid("restore resource parent"))?)?;
+            atomic_bytes(&target,bytes,false)?;
+            sync_directory(target.parent().unwrap())?;
+        }
+        sync_resource_tree(&directory)?;
+        head.restored_directories.push(RestoredDirectory {path:directory,operation_id:operation,marker_digest:digest(&marker_bytes),resources});
+        atomic_bytes(&self.head_path(document_id),&json_bytes(&head)?,false)?;
+        fs::remove_file(journal)?;
+        sync_directory(&self.root.join("restore-journals"))?;
+        let after = super::capture_html(&path,&root,&plan.body,budget)?;
+        let mut objects = before.document.objects.clone();
+        objects.extend(after.document.objects.clone());
+        if let Some(prepare) = prepare { prepare(&after.document.snapshot.body)?; }
+        let guard = || { before.recheck()?; after.recheck() };
+        self.commit_checked_locked(&path,expected,before.document.snapshot.clone(),after.document.snapshot.clone(),objects,Some(version_id.into()),None,Some(&guard),false)
     }
     /// ID-only history mutation, with the same source lock as saving. The
     /// atomically replaced header is the durable tombstone for removed IDs.
@@ -1871,6 +2045,7 @@ mod tests {
             Snapshot {
                 body: digest(body),
                 dependencies,
+                html: None,
             },
             objects,
         )
@@ -2290,6 +2465,151 @@ mod tests {
         assert!(recovered.object(&digest(b"shared")).is_err(), "recovery already reclaims orphaned images");
         assert_eq!(recovered.collect_unreferenced_objects().unwrap(), 0, "repeat cleanup is idempotent");
         assert_eq!(fs::read(&path).unwrap(), b"A");
+    }
+    #[test]
+    fn html_save_persists_original_graph_and_shared_objects_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.html");
+        let a = b"<h1>A</h1><link rel=stylesheet href=style.css>";
+        let b = b"<h1>B</h1><link rel=stylesheet href=style.css>";
+        fs::write(&path, a).unwrap();
+        fs::write(dir.path().join("style.css"), b"a{background:url(image.png)}").unwrap();
+        fs::write(dir.path().join("image.png"), b"image").unwrap();
+        let app = dir.path().join("app");
+        let store = HistoryStore::open(&app).unwrap();
+        let saved = store.save_html(&path, dir.path(), &digest(a), b, None).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b);
+        assert!(!store.save_html(&path, dir.path(), &digest(b), b, None).unwrap().changed);
+        assert!(matches!(store.save_html(&path, dir.path(), &digest(a), a, None), Err(HistoryError::Conflict)));
+        drop(store);
+        let store = HistoryStore::open(&app).unwrap();
+        let head = store.document(&saved.document_id).unwrap();
+        assert_eq!(head.versions.len(), 2);
+        assert_eq!(store.object(&head.versions[0].snapshot.body).unwrap(), a);
+        assert_eq!(store.object(&head.versions[1].snapshot.body).unwrap(), b);
+        for version in &head.versions {
+            version.snapshot.validate().unwrap();
+            let graph = version.snapshot.html.as_ref().unwrap();
+            assert_eq!(graph.document_path, "a.html");
+            assert_eq!(graph.edges.len(), 2);
+            assert!(version.snapshot.dependencies.contains_key("image.png"));
+        }
+        // A failed quota reservation must leave the current source intact.
+        store.set_limit_mb(1).unwrap();
+        let oversized = vec![b'x'; 1_000_001];
+        assert!(store.save_html(&path, dir.path(), &digest(b), &oversized, None).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b);
+    }
+    #[test]
+    fn html_restore_keeps_transitive_resources_runtime_bytes_and_shared_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("tests/fixtures/document-save-versions");
+        for name in ["shared/style.css","nested/inner.css","shared/image.svg","shared/script.js","nested/message.js","shared/symbols.ttf"] {
+            let target = dir.path().join(name);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target,fs::read(fixture.join(name)).unwrap()).unwrap();
+        }
+        let path = dir.path().join("a.html");
+        let original = fs::read(fixture.join("ordinary.html")).unwrap();
+        fs::write(&path,&original).unwrap();
+        let newer = String::from_utf8(original.clone()).unwrap().replace("HTML 版本验收 A", "HTML 版本验收 B").into_bytes();
+        let store = HistoryStore::open(&dir.path().join("app")).unwrap();
+        let saved = store.save_html(&path,dir.path(),&digest(&original),&newer,None).unwrap();
+        let initial = store.document(&saved.document_id).unwrap().versions[0].id.clone();
+        fs::write(dir.path().join("shared/image.svg"),b"LIVE_SHARED_IMAGE").unwrap();
+        assert!(store.restore_html(&saved.document_id,&initial,dir.path(),&digest(&newer),false).is_err());
+        store.restore_html(&saved.document_id,&initial,dir.path(),&digest(&newer),true).unwrap();
+        let restored = fs::read_to_string(&path).unwrap();
+        assert!(restored.contains("HTML 版本验收 A"));
+        assert!(restored.contains(".nutbook-restored-"));
+        assert!(restored.contains("type=\"module\""));
+        assert_eq!(fs::read(dir.path().join("shared/image.svg")).unwrap(),b"LIVE_SHARED_IMAGE");
+        let head = store.document(&saved.document_id).unwrap();
+        let root = &head.restored_directories[0].path;
+        for name in ["shared/style.css","nested/inner.css","shared/image.svg","shared/script.js","nested/message.js","shared/symbols.ttf"] {
+            assert_eq!(fs::read(root.join(name)).unwrap(),fs::read(fixture.join(name)).unwrap(),"{name} bytes preserved");
+        }
+        store.delete_versions(&saved.document_id,None).unwrap();
+        store.collect_unreferenced_objects().unwrap();
+        assert!(root.join("shared/image.svg").exists());
+        assert!(fs::read_to_string(&path).unwrap().contains("HTML 版本验收 A"));
+        if let Ok(script) = std::env::var("NUTBOOK_HTML_RESTORE_BROWSER_SCRIPT") {
+            let registry = std::env::temp_dir().join(format!("nutbook-restore-browser-{}",Uuid::new_v4()));
+            fs::create_dir(&registry).unwrap();
+            crate::core::scoped_content_server::init_used_port_registry(registry.join("ports.json")).unwrap();
+            let server = crate::core::scoped_content_server::ScopedContentServer::start(dir.path()).unwrap();
+            let url = server.relative_url(Path::new("a.html")).unwrap();
+            let status = std::process::Command::new("node").arg(script).arg(url).status().unwrap();
+            assert!(status.success());
+        }
+
+    }
+    #[test]
+    fn archived_html_save_as_survives_missing_source_and_protects_target_preimage() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_root = dir.path().join("source");
+        let target_root = dir.path().join("target");
+        fs::create_dir(&source_root).unwrap(); fs::create_dir(&target_root).unwrap();
+        let source = source_root.join("a.html");
+        let a = b"<h1>A</h1><link rel=stylesheet href=style.css>";
+        let b = b"<h1>B</h1><link rel=stylesheet href=style.css>";
+        fs::write(&source,a).unwrap();
+        fs::write(source_root.join("style.css"),b"h1{color:blue}").unwrap();
+        let store = HistoryStore::open(&dir.path().join("app")).unwrap();
+        let saved = store.save_html(&source,&source_root,&digest(a),b,None).unwrap();
+        let version = store.document(&saved.document_id).unwrap().versions[0].id.clone();
+        fs::remove_dir_all(&source_root).unwrap();
+        let target = target_root.join("restored.html");
+        store.save_archived_html_as(&saved.document_id,&version,&target,None,false).unwrap();
+        assert!(!source.exists());
+        assert!(fs::read_to_string(&target).unwrap().contains("<h1>A</h1>"));
+        let inventory = || fs::read_dir(&target_root).unwrap().count();
+        let before = inventory();
+        assert!(store.save_archived_html_as(&saved.document_id,&version,&target,None,false).is_err());
+        assert_eq!(inventory(),before,"failed no-clobber cleans only its exclusive resource tree");
+        let other = target_root.join("existing.html");
+        fs::write(&other,b"<h1>Target preimage</h1>").unwrap();
+        let result = store.save_archived_html_as(&saved.document_id,&version,&other,Some(&digest(b"<h1>Target preimage</h1>")),false).unwrap();
+        let head = store.document(&result.document_id).unwrap();
+        assert_eq!(store.object(&head.versions[0].snapshot.body).unwrap(),b"<h1>Target preimage</h1>");
+        assert!(head.versions.last().unwrap().snapshot.html.is_some());
+    }
+    #[test]
+    fn unsupported_script_or_css_still_saves_source_but_cannot_silently_relocate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.html");
+        let a = b"<h1>A</h1><script>const label=`it's /template/`;</script><style>/* unfinished</style>";
+        let b = b"<h1>B</h1><script>const label=`it's /template/`;</script><style>/* unfinished</style>";
+        fs::write(&path,a).unwrap();
+        let store = HistoryStore::open(&dir.path().join("app")).unwrap();
+        let saved = store.save_html(&path,dir.path(),&digest(a),b,None).unwrap();
+        assert_eq!(fs::read(&path).unwrap(),b);
+        let head = store.document(&saved.document_id).unwrap();
+        assert!(head.versions[0].snapshot.dependencies.values().any(|d| matches!(d,Dependency::NotCaptured { .. })));
+        assert!(store.restore_html(&head.id,&head.versions[0].id,dir.path(),&digest(b),true).is_err());
+        assert_eq!(fs::read(&path).unwrap(),b);
+        assert!(store.document(&head.id).unwrap().restored_directories.is_empty());
+    }
+    #[test]
+    fn html_graph_roundtrips_and_old_snapshot_bytes_remain_stable() {
+        let old = format!(r#"{{"body":"{}","dependencies":{{}}}}"#, digest(b"old"));
+        let legacy: Snapshot = serde_json::from_str(&old).unwrap();
+        legacy.validate().unwrap();
+        assert_eq!(serde_json::to_string(&legacy).unwrap(), old);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.html");
+        let body = b"<link rel=stylesheet href=style.css>";
+        fs::write(&path, body).unwrap();
+        fs::write(dir.path().join("style.css"), b"a{color:red}").unwrap();
+        let captured = super::super::capture_html(&path, dir.path(), body, 100_000).unwrap();
+        let bytes = serde_json::to_vec(&captured.document.snapshot).unwrap();
+        let mut decoded: Snapshot = serde_json::from_slice(&bytes).unwrap();
+        decoded.validate().unwrap();
+        assert_eq!(decoded, captured.document.snapshot);
+        decoded.html.as_mut().unwrap().edges[0].target = "not-archived.css".into();
+        assert!(decoded.validate().is_err());
+        decoded.html.as_mut().unwrap().document_path = "../escape.html".into();
+        assert!(decoded.validate().is_err());
     }
     #[test]
     fn markdown_restore_keeps_shared_source_and_survives_history_clear() {

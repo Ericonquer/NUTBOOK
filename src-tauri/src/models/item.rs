@@ -973,6 +973,8 @@ pub struct AttachSettingsOverlayRequest {
     pub bounds: RuntimeHostBounds,
     pub tab: Option<String>,
     pub mode: Option<String>,
+    #[serde(default)]
+    pub history_item_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

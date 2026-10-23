@@ -2573,7 +2573,11 @@ fn motion_config_commit_is_data_only_atomic_and_preserves_source() {
     config["entries"]["title"]["strength"] = serde_json::json!(1.7);
     let change: HtmlEditChange = serde_json::from_value(serde_json::json!({"type":"motion-config","selector":"[data-id=\"nutbook-motion-config\"]","text": config.to_string()})).unwrap();
     let commit = HtmlEditCommit { library_root: root.path().into(), file_path: path.clone(), artifact_edit_id: opened.artifact_edit_id.clone(), expected_file_hash: opened.source_file_hash, expected_modified_at: opened.source_modified_at, changes: std::collections::BTreeMap::from([("nutbook-motion-config".into(), change.clone())]), presentation_notes: None };
-    let saved = commit_html_edit_for_file(&commit).unwrap();
+    let history = nutbook_backend::core::document_versions::HistoryStore::open(&root.path().join("history-app")).unwrap();
+    let saved = nutbook_backend::core::html_edit::commit_html_edit_with_history_for_file(&commit,&history).unwrap();
+    let document = history.document(saved.history_document_id.as_deref().unwrap()).unwrap();
+    assert_eq!(document.versions.len(),2,"explicit motion save creates one source revision");
+    assert_eq!(history.object(&document.versions[0].snapshot.body).unwrap(),source.as_bytes());
     let result = std::fs::read_to_string(&path).unwrap();
     assert_eq!(result.split(prefix).next(), source.split(prefix).next());
     assert_eq!(result.split(prefix).nth(1).unwrap().split_once("</script>").unwrap().1, source.split(prefix).nth(1).unwrap().split_once("</script>").unwrap().1);
@@ -2655,4 +2659,89 @@ fn formal_presentation_step_source_rejects_false_identity() {
     assert!(read_formal_motion_document(&source.replace("title-1\" data-editable", "wrong-target\" data-editable")).is_err());
     assert!(read_formal_motion_document(&source.replace("application/json", "text/javascript")).is_err());
     assert!(read_formal_motion_document(&source.replace("nutbook-motion/v1\"", "other\"")).unwrap().is_none());
+}
+
+#[test]
+fn html_history_publisher_keeps_source_journal_and_notes_in_one_revision() {
+    use nutbook_backend::core::document_versions::HistoryStore;
+    use nutbook_backend::core::html_edit::commit_html_edit_with_history_for_file;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("presentation.html");
+    let before = br#"<!doctype html><h1 data-id="title" data-editable="text">Before</h1><script type="application/json" id="nutbook-presentation-notes">{"version":1,"pages":{}}</script>"#;
+    std::fs::write(&path,before).unwrap();
+    let opened = get_html_edit_patch_for_file(&HtmlEditPatchLookup {library_id:1,library_root:root.path().to_owned(),item_id:1,file_path:path.clone(),title_hint:"history".into()}).unwrap();
+    let history = HistoryStore::open(&root.path().join("app")).unwrap();
+    let commit = HtmlEditCommit {library_root:root.path().to_owned(),file_path:path.clone(),artifact_edit_id:opened.artifact_edit_id,expected_file_hash:opened.source_file_hash,expected_modified_at:opened.source_modified_at,changes:Default::default(),presentation_notes:Some(serde_json::json!({"page":[{"type":"paragraph","runs":[{"text":"Saved notes"}]}]}))};
+    // A history capture failure must preserve the current source.
+    // Retry uses the same source baseline.
+    history.set_limit_mb(1).unwrap();
+    let mut too_large = commit.clone();
+    too_large.presentation_notes = Some(serde_json::json!({"page":[{"type":"paragraph","runs":[{"text":"x".repeat(1_000_100)}]}]}));
+    assert!(commit_html_edit_with_history_for_file(&too_large,&history).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(),before);
+    recover_html_edit_commit_journal(root.path()).unwrap();
+    commit_html_edit_with_history_for_file(&commit,&history).unwrap();
+    let head = history.documents().unwrap().remove(0);
+    assert_eq!(head.versions.len(),2);
+    assert_eq!(history.object(&head.versions[0].snapshot.body).unwrap(),before);
+    let after = std::fs::read(&path).unwrap();
+    assert_eq!(history.object(&head.versions[1].snapshot.body).unwrap(),after);
+    assert!(String::from_utf8(after).unwrap().contains("Saved notes"));
+    recover_html_edit_commit_journal(root.path()).unwrap();
+}
+
+#[test]
+fn html_history_restore_retires_patches_only_after_source_is_durable() {
+    use nutbook_backend::core::document_versions::{HistoryStore,digest};
+    use nutbook_backend::core::html_edit::restore_html_history_for_file;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("page.html");
+    let a = b"<h1 data-id=\"title\" data-editable=\"text\">A</h1>";
+    let b = b"<h1 data-id=\"title\" data-editable=\"text\">B</h1>";
+    std::fs::write(&path,a).unwrap();
+    let history = HistoryStore::open(&root.path().join("app")).unwrap();
+    let saved = history.save_html(&path,root.path(),&digest(a),b,None).unwrap();
+    let version = history.document(&saved.document_id).unwrap().versions[0].id.clone();
+    let lookup = HtmlEditPatchLookup {library_id:1,library_root:root.path().into(),item_id:1,file_path:path.clone(),title_hint:"history".into()};
+    let opened = get_html_edit_patch_for_file(&lookup).unwrap();
+    save_html_edit_patch_for_file(&HtmlEditPatchSave {
+        library_id:1,library_root:root.path().into(),item_id:1,file_path:path.clone(),title_hint:"history".into(),
+        artifact_edit_id:opened.artifact_edit_id.clone(),expected_file_hash:opened.source_file_hash,expected_modified_at:opened.source_modified_at,
+        expected_patch_revision:0,changes:Default::default(),
+    }).unwrap();
+    let patch = patch_path(root.path(),&opened.artifact_edit_id).unwrap();
+    assert!(patch.exists());
+    let other = root.path().join("other.html");
+    history.publish_new_html_from(&other,root.path(),&vec![b'x';1_100_000],None).unwrap();
+    history.set_limit_mb(1).unwrap();
+    assert!(restore_html_history_for_file(&history,root.path(),&path,&saved.document_id,&version,&digest(b),false).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(),b);
+    recover_html_edit_commit_journal(root.path()).unwrap();
+    assert!(patch.exists(),"failed publication keeps the editor patch");
+    history.set_limit_mb(5).unwrap();
+    restore_html_history_for_file(&history,root.path(),&path,&saved.document_id,&version,&digest(b),false).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(),a);
+    assert!(!patch.exists());
+    assert!(load_html_edit_manifest(root.path()).unwrap().entries.is_empty());
+    let head = history.document(&saved.document_id).unwrap();
+    assert!(head.versions.iter().any(|v| history.object(&v.snapshot.body).unwrap()==b));
+    assert_eq!(head.versions.last().unwrap().kind,"restore");
+}
+
+#[test]
+fn conflict_copy_has_own_history_without_overwriting_the_external_source() {
+ use nutbook_backend::core::{document_versions::HistoryStore,html_edit::save_html_edit_conflict_copy_with_history_for_file};
+ let root=tempfile::tempdir().unwrap();let path=root.path().join("a.html");
+ let external=b"<h1 data-id=\"title\" data-editable=\"text\">External</h1>";std::fs::write(&path,external).unwrap();
+ let opened=get_html_edit_patch_for_file(&HtmlEditPatchLookup {library_id:1,library_root:root.path().into(),item_id:1,file_path:path.clone(),title_hint:"conflict".into()}).unwrap();
+ let history=HistoryStore::open(&root.path().join("history")).unwrap();
+ let change=serde_json::from_value(serde_json::json!({"type":"text","selector":"[data-id=\"title\"]","originalTextHash":"runtime-hash","text":"Draft copy","editRole":"plain"})).unwrap();
+ let commit=HtmlEditCommit {library_root:root.path().into(),file_path:path.clone(),artifact_edit_id:opened.artifact_edit_id,expected_file_hash:String::new(),expected_modified_at:0,changes:std::collections::BTreeMap::from([("title".into(),change)]),presentation_notes:None};
+ let (copy,id)=save_html_edit_conflict_copy_with_history_for_file(&commit,&history).unwrap();
+ assert_eq!(std::fs::read(&path).unwrap(),external);
+ let bytes=std::fs::read(&copy).unwrap();assert!(String::from_utf8(bytes.clone()).unwrap().contains("Draft copy"));
+ let head=history.document(&id).unwrap();assert_eq!(head.canonical_path,copy.canonicalize().unwrap());
+ assert_eq!(head.versions.len(),1);assert_eq!(history.object(&head.versions[0].snapshot.body).unwrap(),bytes);
+ assert!(save_html_edit_conflict_copy_with_history_for_file(&commit,&history).is_err(),"a same-name copy is never clobbered");
+ assert_eq!(std::fs::read(&path).unwrap(),external);
 }
