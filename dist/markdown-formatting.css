@@ -90,3 +90,7 @@
 .formatting-delivery>label[hidden],.formatting-delivery-actions[hidden] { display:none; }
 
 .formatting-runtime-actions>button[hidden] { display:none; }
+
+.formatting-save-dialog { max-width: 480px; padding: 24px; color: var(--text-primary, #292524); background: var(--surface, #fff); border: 1px solid #d6d3d1; border-radius: 12px; }
+.formatting-save-dialog::backdrop { background: #0005; }
+.formatting-save-actions { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 24px; }

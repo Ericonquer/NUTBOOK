@@ -47,6 +47,12 @@
     node.addEventListener('click', action);
     return node;
   }
+  Object.assign(messages['zh-CN'], { save: '保存', saveChoiceTitle: '保存稿件微调', saveChoiceHelp: '覆盖原稿，或将本次微调另存为 Markdown 副本。', overwriteSource: '覆盖原稿', saveCopy: '另存副本', cancelSave: '取消', continueEditing: '继续编辑', discardChanges: '放弃修改', saveCopyDone: '副本已保存；下次进入仍读取原稿。', sourceConflict: '原稿已被外部修改。请另存副本以保留本次微调。', preferencesFailed: '稿件已保存，但排版设置保存失败；当前编辑仍保留：' });
+  Object.assign(messages['en-US'], { save: 'Save', saveChoiceTitle: 'Save article edits', saveChoiceHelp: 'Update the original, or save these edits as a Markdown copy.', overwriteSource: 'Overwrite original', saveCopy: 'Save a copy', cancelSave: 'Cancel', continueEditing: 'Keep editing', discardChanges: 'Discard changes', saveCopyDone: 'Copy saved. Next time the original will be loaded.', sourceConflict: 'The original changed externally. Save a copy to keep these edits.', preferencesFailed: 'Article saved, but formatting preferences could not be saved. Edits are retained: ' });
+  Object.assign(messages['zh-CN'], { weiboImageRejected: '微博图片上传未完成；稿件尚未完整发送。失败图片：' });
+  Object.assign(messages['en-US'], { weiboImageRejected: 'Weibo image upload was rejected; the article is incomplete. Failed image: ' });
+  Object.assign(messages['zh-CN'], { xImageIncomplete: 'X 图片插入未完成。失败图片：', xSaveIncomplete: 'X 尚未确认全文和全部图片已保存；请检查草稿完整性。' });
+  Object.assign(messages['en-US'], { xImageIncomplete: 'X image insertion did not complete. Failed image: ', xSaveIncomplete: 'X has not confirmed that the entire article and all images were saved. Check the draft for missing content.' });
   const icons = {summary:'M3 3h10M3 6h10M3 9h7M3 12h5', weibo: 'M11 3a3 3 0 0 1 3 3M11 1a5 5 0 0 1 5 5M12.5 8c1.3.7 1.5 1.5 1.1 2.5-.6 1.8-3.5 3.1-6.5 3.1S1.8 12.2 2 10.4c.1-1.4 1.9-3.7 3.6-4.6.8-.4 1.2-.1 1 .7l-.2.8c1.7-.7 3.5-1.1 4-.4.3.4 0 .9-.3 1.3M9.8 10.2c0 1.2-1.4 2.1-3.1 2.1s-2.9-.7-2.9-1.8 1.4-2 3.1-2 2.9.6 2.9 1.7ZM6 10.5h.01', plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
   icons.send = 'M2 8 14 2l-4 12-3-5-5-1ZM7 9l7-7';
   function iconButton(key, label, action) {
@@ -339,7 +345,7 @@
     return JSON.stringify({ markdown, settings: Object.fromEntries(Object.entries(pref).sort(([a],[b]) => a.localeCompare(b))), metadata: { wechat: metadata?.wechat || '', weibo: metadata?.weibo || '' } });
   }
   function serialized(s) { return snapshotSerialized(s.data.markdown, settings(s), s.data.metadata); }
-  function updateState(s) { s.status.textContent = s.revision && serialized(s) === s.baseline ? text('saved') : text('dirty'); }
+  function updateState(s) { s.status.textContent = serialized(s) === s.baseline ? text('saved') : text('dirty'); }
   function dispose(s) {
     clearTimeout(s.timer);
     if (s.deliveryPanel?.open) s.deliveryPanel.close();
@@ -481,13 +487,34 @@
     clearTimeout(s.timer);
     s.timer = setTimeout(() => { if (current(s) && !s.composing) preview(s); }, 220);
   }
-  async function save() {
+  async function chooseSave(s, leaving = false) {
+    if (s.bridge.chooseSave) return s.bridge.chooseSave({ leaving });
+    const dialog = element('dialog', '', { class: 'formatting-save-dialog', 'aria-labelledby': 'formattingSaveTitle', 'aria-describedby': 'formattingSaveHelp' });
+    dialog.append(element('h3', text('saveChoiceTitle'), { id: 'formattingSaveTitle' }), element('p', text('saveChoiceHelp'), { id: 'formattingSaveHelp' }));
+    const actions = element('div', '', { class: 'formatting-save-actions' });
+    const result = new Promise(resolve => {
+      const done = choice => { dialog.close(); dialog.remove(); resolve(choice); };
+      dialog.addEventListener('cancel', event => { event.preventDefault(); done('continue'); });
+      for (const [choice, key] of [['continue', leaving ? 'continueEditing' : 'cancelSave'], ...(leaving ? [['discard', 'discardChanges']] : []), ['copy', 'saveCopy'], ['overwrite', 'overwriteSource']]) {
+        actions.append(button(text(key), () => done(choice)));
+      }
+    });
+    dialog.append(actions); s.root.append(dialog); dialog.showModal();
+    actions.querySelector('button').focus();
+    return result;
+  }
+  async function save(choice) {
     const s = active;
     if (!s || s.saving) return false;
     s.saving = true;
     s.saveButton.disabled = true;
+    let bodySaved = false, committingBody = false;
     try {
       const markdown = flush(s);
+      if (markdown !== s.bodyBaseline) {
+        if (!['overwrite', 'copy'].includes(choice)) choice = await chooseSave(s);
+        if (!['overwrite', 'copy'].includes(choice) || !current(s)) return false;
+      }
       const pref = settings(s);
       const metadata = structuredClone(s.data.metadata || {});
       // Freeze a complete content+resource snapshot. Edits during I/O remain dirty.
@@ -495,6 +522,22 @@
       if (!current(s)) return false;
       const data = JSON.parse(JSON.stringify({ ...s.data, markdown, settings: pref, metadata }));
       s.persisting = true;
+      if (markdown !== s.bodyBaseline) {
+        committingBody = true;
+        const committed = await s.bridge.invoke('commit_formatting_markdown', { itemId: s.id, markdown, expectedSource: s.sourceAtOpen, assets: data.assets, saveCopy: choice === 'copy' });
+        if (!committed || !current(s)) return false;
+        // A durable body save is acknowledged independently of preference storage.
+        s.bodyBaseline = markdown;
+        bodySaved = true; committingBody = false;
+        if (committed.overwritten) {
+          s.sourceAtOpen = committed.source;
+          s.data.source = committed.source;
+          data.source = committed.source;
+          s.originalPromise = null;
+          await s.bridge.sourceSaved?.(committed);
+          if (s.originalVisible) await s.refreshOriginal?.();
+        } else s.errors.textContent = text('saveCopyDone');
+      }
       const revision = await s.bridge.invoke('save_formatting_draft', { itemId: s.id, expectedRevision: s.revision, draft: data });
       if (!current(s)) return false;
       s.revision = revision;
@@ -503,7 +546,10 @@
       updateState(s);
       return true;
     } catch (error) {
-      if (current(s)) s.errors.textContent = text('conflict') + s.bridge.error(error);
+      if (current(s)) {
+        const message = s.bridge.error(error);
+        s.errors.textContent = committingBody && /edit.?conflict/i.test(message) ? text('sourceConflict') : text(bodySaved ? 'preferencesFailed' : 'conflict') + message;
+      }
       return false;
     } finally { s.saving = false; s.persisting = false; s.saveButton.disabled = false; }
   }
@@ -515,12 +561,13 @@
     s.leaving = (async () => {
       try {
         if (s.importing && !s.composing) s.data.markdown = s.editor ? s.editor.getMarkdown() : s.fallback.value; else flush(s);
-        if (s.saving && s.persisting) return false;
-        if (serialized(s) !== s.baseline || !s.revision || s.importing) {
-          const choice = await s.bridge.confirm(`${s.name} · ${text('draft')}`);
+        if (s.saving) return false;
+        if (serialized(s) !== s.baseline || s.importing) {
+          const bodyChanged = s.data.markdown !== s.bodyBaseline;
+          const choice = bodyChanged ? await chooseSave(s, true) : await s.bridge.confirm(`${s.name} · ${text('draft')}`);
           if (choice === 'continue') return false;
-          if (choice === 'save') {
-            if (!(await save())) return false;
+          if (['save', 'overwrite', 'copy'].includes(choice)) {
+            if (!(await save(choice))) return false;
             // Input can continue during I/O. Do not exit with a newer unsaved edit.
             flush(s);
             if (serialized(s) !== s.baseline) return false;
@@ -753,6 +800,19 @@
     const message=String(error?.message || error);
     const keys={X_LOGIN_INCOMPLETE:'xLoginIncomplete',X_BROWSER_CLOSED:'xBrowserClosed',X_CHROME_REQUIRED:'xChromeRequired'};
     const dictionary=messages[bridge.language()] || messages['zh-CN'];
+    if(message.startsWith('X_IMAGE_INSERT_TIMEOUT')) {
+      const image=message.match(/image=(\d+\/\d+)/)?.[1] || '?';
+      const observed=message.match(/observed=(\d+)/)?.[1] || '?';
+      const loaded=message.match(/loaded=(\d+)/)?.[1] || '?';
+      return dictionary.xImageIncomplete + image + (bridge.language()==='en-US' ? ` (inserted: ${observed}, ready: ${loaded})` : `（已插入 ${observed}，已就绪 ${loaded}）`);
+    }
+    if(message==='X_CONTENT_SAVE_TIMEOUT') return dictionary.xSaveIncomplete;
+    if(message.startsWith('IMAGE_UPLOAD_REJECTED')) {
+      const image=message.match(/image=(\d+\/\d+)/)?.[1] || '?';
+      const code=message.match(/code=([A-Za-z0-9_-]+)/)?.[1];
+      const ret=message.match(/ret=(-?\d+|unknown)/)?.[1];
+      return dictionary.weiboImageRejected + image + (code ? ` (code=${code}, ret=${ret || 'unknown'})` : '');
+    }
     const key=keys[message.split(':')[0]];
     return key ? dictionary[key] : bridge.error(error);
   }
@@ -1046,7 +1106,10 @@
     if (bridge.activeId() !== tab.id || opening !== openGeneration || active) return;
     if (loaded.draft && (loaded.draft.version !== 1 || typeof loaded.draft.markdown !== 'string' || typeof loaded.draft.source !== 'string' || !loaded.draft.assets || typeof loaded.draft.assets !== 'object')) throw new Error(messages[bridge.language()]?.invalid || messages['zh-CN'].invalid);
     const raw = loaded.source ?? tab.preview.raw ?? '';
-    const data = loaded.draft || { version: 1, source: raw, markdown: raw, assets: {} };
+    await bridge.sourceLoaded?.(raw);
+    if (bridge.activeId() !== tab.id || opening !== openGeneration || active) return;
+    // Previous publishing text is never authoritative; retain only preferences/metadata.
+    const data = { ...(loaded.draft || {}), version: 1, source: raw, markdown: raw, assets: Object.fromEntries(Object.entries(loaded.draft?.source === raw ? loaded.draft.assets : {}).filter(([src]) => /^https?:\/\//i.test(src))) };
     const root = element('div', '', { class: 'formatting-workspace', 'data-i18n-skip':'' });
     const s = { id: tab.id, name: tab.item.fileName, language: bridge.language(), sourceAtOpen:raw, bridge, data, root, revision: loaded.revision, generation: 0, mode:'wechat', composing: false, editor: null, fallback: null, imageFailures: new Map(), imageRequests: new Map(), networkRequests: new Set(), validatedImages: new Set() };
     active = s;
@@ -1089,10 +1152,11 @@
       if (!isOriginal) { s.editor?.focus?.(); return; }
       if (s.originalPromise) return;
       original.textContent = text('loading');
+      const originalSource = data.source;
       s.originalPromise = (async () => {
         try {
-          const html = await s.bridge.invoke('render_formatting_markdown', { markdown:data.source });
-          if (!current(s)) return;
+          const html = await s.bridge.invoke('render_formatting_markdown', { markdown:originalSource });
+          if (!current(s) || data.source !== originalSource) return;
           const section = inlineHtml(html);
           original.replaceChildren(section);
           for (const image of section.querySelectorAll('img')) {
@@ -1106,6 +1170,7 @@
     };
     const draftTab = button(text('draft'), () => selectTab(false));
     const sourceTab = button(text('source'), () => selectTab(true));
+    s.refreshOriginal = () => selectTab(true);
     for (const [node,selected] of [[draftTab,true],[sourceTab,false]]) {
       node.className = 'formatting-tab'; node.setAttribute('role','tab'); node.setAttribute('aria-selected',String(selected)); node.tabIndex = selected ? 0 : -1;
       node.addEventListener('keydown', event => { if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) { event.preventDefault(); const next = event.key === 'Home' ? false : event.key === 'End' ? true : node === draftTab; selectTab(next); (next ? sourceTab : draftTab).focus(); } });
@@ -1189,6 +1254,7 @@
       mount.replaceChildren(s.fallback);
       s.fallback.addEventListener('input', () => { s.data.markdown = s.fallback.value; updateState(s); schedule(s); });
     }
+    s.bodyBaseline = s.titleBaselineMarkdown ?? s.data.markdown;
     s.baseline = s.titleBaselineMarkdown == null ? serialized(s) : snapshotSerialized(s.titleBaselineMarkdown,settings(s),s.data.metadata);
     if (data.source !== raw) hint.textContent += ` ${text('changed')}`;
     s.root.append(s.deliveryPanel);

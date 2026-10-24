@@ -33,7 +33,7 @@ export async function deliverXDraft({context,job,journal,checkpoint,progress=()=
  const page=(journal&&context.pages().find(p=>p.url()===journal.editUrl))||await context.newPage();page.setDefaultTimeout(20000);
  for(const other of context.pages())if(other!==page&&journal&&other.url()===journal.editUrl)await other.close();
  const abort=()=>page.close().catch(()=>{});signal?.addEventListener('abort',abort,{once:true});
- let state=journal?structuredClone(journal):null;
+ let state=journal?structuredClone(journal):null, saveReceipt;
  async function persist(stage){state={...state,digest,stage};await checkpoint(state);}
  async function verify(){
   report('verifying');await page.reload({waitUntil:'domcontentloaded'});await page.locator(title).waitFor();
@@ -68,7 +68,7 @@ export async function deliverXDraft({context,job,journal,checkpoint,progress=()=
   }
   report('writing');await page.locator(title).fill(job.title);
   const body=page.locator(composer+'[contenteditable="true"]');await body.click();await body.press(process.platform==='darwin'?'Meta+a':'Control+a');await page.keyboard.press('Backspace');
-  const saveReceipt=waitForXContentSave(page,prepared.text,prepared.markers.length);saveReceipt.catch(()=>{});
+  saveReceipt=observeXContentSave(page,prepared.text,prepared.markers.length);
   for(let n=0;n<prepared.parts.length;n++){
    const part=prepared.parts[n];
    await body.focus();await body.press(process.platform==='darwin'?'Meta+ArrowDown':'Control+End');
@@ -79,9 +79,9 @@ export async function deliverXDraft({context,job,journal,checkpoint,progress=()=
    await page.getByRole('button',{name:mediaName}).click();await page.getByRole('menuitem',{name:/^媒体$|^Media$/}).click();
    const dialog=page.getByRole('dialog');await dialog.locator('input[type="file"]').setInputFiles(file(job.images.find(i=>i.id===part.imageId)));
    const apply=page.getByRole('button',{name:/^应用$|^Apply$/});if(await apply.count())await apply.click();
-   await page.waitForFunction(({selector,count})=>{const imgs=[...document.querySelectorAll(selector+' section img[src]')];return imgs.length===count&&imgs.every(i=>i.complete&&i.naturalWidth>0);},{selector:composer,count:n+1});
+   await waitForXImage(page,composer,n+1,prepared.markers.length);
   }
-  report('saving');await saveReceipt;
+  report('saving');await saveReceipt.wait();
   if(job.coverId){
    report('cover');const coverReceipt=page.waitForResponse(r=>/\/ArticleEntityUpdateCoverMedia(?:\?|$)/.test(r.url())&&r.status()===200).then(r=>r.json());coverReceipt.catch(()=>{});await page.locator('input[type="file"]').first().setInputFiles(file(job.images.find(i=>i.id===job.coverId)));
    const apply=page.getByRole('button',{name:/^应用$|^Apply$/});await apply.waitFor();await apply.click();await apply.waitFor({state:'hidden'});const receipt=await coverReceipt;if(receipt.errors?.length)throw Error('COVER_SAVE_REJECTED');
@@ -89,7 +89,7 @@ export async function deliverXDraft({context,job,journal,checkpoint,progress=()=
   report('saving');
   // Reload verification is the authority; checkpoint stays editing until autosave is proven.
   const result=await verify();return result;
- }finally{signal?.removeEventListener('abort',abort);}
+ }finally{saveReceipt?.dispose();signal?.removeEventListener('abort',abort);}
 }
 function file(image){return {name:`${image.id}.${image.mime.split('/')[1]}`,mimeType:image.mime,buffer:Buffer.from(image.base64,'base64')};}
 
@@ -99,7 +99,36 @@ export function xContentMatches(data,text,imageCount){
  const media=(state.entityMap||[]).flatMap(e=>e.value?.data?.mediaItems||[]);
  return actual===text&&media.length===imageCount&&media.every(i=>i.mediaId);
 }
-async function waitForXContentSave(page,text,count){
- const response=await page.waitForResponse(async r=>{if(!/\/ArticleEntityUpdateContent(?:\?|$)/.test(r.url()))return false;const data=await r.json();if(r.status()!==200||data.errors?.length)throw Error('BODY_SAVE_REJECTED');return xContentMatches(data,text,count);},{timeout:30000});
- return response.status();
+// Observe throughout writing, but start the acknowledgement deadline only
+// after all text/media has been inserted. Long uploads cannot consume it early.
+export function observeXContentSave(page,text,count){
+ let resolve,reject,disposed=false,timer;
+ const receipt=new Promise((yes,no)=>{resolve=yes;reject=no;});receipt.catch(()=>{});
+ const onResponse=async response=>{
+  if(disposed||!/\/ArticleEntityUpdateContent(?:\?|$)/.test(response.url()))return;
+  try{
+   const data=await response.json();if(disposed)return;
+   if(response.status()!==200||data.errors?.length){reject(Error('BODY_SAVE_REJECTED'));return;}
+   if(xContentMatches(data,text,count))resolve(response.status());
+  }catch{if(!disposed)reject(Error('X_SAVE_RECEIPT_UNREADABLE'));}
+ };
+ page.on('response',onResponse);
+ return {
+  wait:({timeout=30000}={})=>new Promise((yes,no)=>{
+   timer=setTimeout(()=>no(Error('X_CONTENT_SAVE_TIMEOUT')),timeout);
+   receipt.then(value=>{clearTimeout(timer);yes(value);},error=>{clearTimeout(timer);no(error);});
+  }),
+  dispose(){disposed=true;clearTimeout(timer);page.off('response',onResponse);reject(Error('CANCELLED'));}
+ };
+}
+
+export async function waitForXImage(page,selector,current,total,{timeout=20000}={}){
+ try{
+  await page.waitForFunction(({selector,count})=>{const imgs=[...document.querySelectorAll(selector+' section img[src]')];return imgs.length===count&&imgs.every(i=>i.complete&&i.naturalWidth>0);},{selector,count:current},{timeout});
+ }catch(error){
+  if(error.name!=='TimeoutError')throw error;
+  const state=await page.evaluate(selector=>{const imgs=[...document.querySelectorAll(selector+' section img[src]')];return {observed:imgs.length,loaded:imgs.filter(i=>i.complete&&i.naturalWidth>0).length};},selector).catch(()=>null);
+  if(!state)throw Error('X_BROWSER_CLOSED');
+  throw Error(`X_IMAGE_INSERT_TIMEOUT image=${current}/${total} observed=${state.observed} loaded=${state.loaded}`);
+ }
 }

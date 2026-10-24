@@ -37,6 +37,7 @@ try{
     if(command==='load_formatting_draft')return {draft:fixture.saved,revision:fixture.revision,source:fixture.raw};
     if(command==='render_formatting_markdown')return `<h1>Published title</h1><p>Body <strong>bold</strong></p>${fixture.withImages ? `<p><img src="${fixture.png}"></p><p>Between images</p><p><img src="${fixture.png}"></p>` : ''}`;
     if(command==='validate_formatting_image_data')return null;
+    if(command==='commit_formatting_markdown'){if(args.expectedSource!==fixture.raw)throw Error('EDIT_CONFLICT');fixture.raw=args.markdown;return {overwritten:true,source:fixture.raw};}
     if(command==='save_formatting_draft'){fixture.saved=structuredClone(args.draft);fixture.revision='r1';return 'r1';}
     throw Error(command);
    }};
@@ -181,7 +182,9 @@ try{
  await page.keyboard.press('Tab');
  assert.equal(await page.locator('.formatting-delivery-heading .formatting-tooltip').evaluate(el=>getComputedStyle(el).visibility),'visible');
  await page.getByRole('button',{name:'Save and send draft',exact:true}).click();
+ await page.getByRole('button',{name:'Overwrite original',exact:true}).click();
  await page.waitForFunction(()=>fixture.sent);
+ assert.equal(await page.evaluate(()=>fixture.raw),'changed after save','Save and send requires explicit body-save destination');
  assert.equal(await page.evaluate(()=>fixture.sent.rememberLogin),false);
  assert.equal(await page.evaluate(()=>fixture.sent.job.images.length),2);
  assert.equal(await page.getByRole('button',{name:'Save and send draft',exact:true}).isDisabled(),true);
@@ -214,6 +217,7 @@ try{
  await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.formatting-delivery-actions button').textContent==='Create a new draft');
  await page.getByRole('button',{name:'Create a new draft',exact:true}).click();
+ await page.getByRole('button',{name:'Overwrite original',exact:true}).click();
  await page.waitForFunction(()=>fixture.deliveryCalls===2);
  assert.equal(await page.evaluate(()=>fixture.sent.recreate),true);
 
@@ -236,6 +240,14 @@ try{
  assert.equal(await page.getByRole('dialog',{name:'Send to Weibo drafts'}).isVisible(),true);
  assert.equal(await page.getByLabel('Keep Weibo signed in on this device').isVisible(),true);
  await page.getByRole('button',{name:'Cancel sending',exact:true}).click();
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,running:false,stage:'failed',error:'IMAGE_UPLOAD_REJECTED image=10/12 code=A00006 ret=0 count=1'};});
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.getByRole('button',{name:'Send to Weibo drafts',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.includes('Failed image: 10/12'));
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/code=A00006, ret=0/);
+ await page.evaluate(()=>{fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/失败图片：10\/12/);
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.getByRole('button',{name:'Send to X drafts',exact:true}).click();
  assert.equal(await page.getByRole('tab',{name:'X Articles',exact:true}).getAttribute('aria-selected'),'true');
@@ -252,6 +264,14 @@ try{
  assert.equal(await page.getByRole('button',{name:'Signed in, continue',exact:true}).isVisible(),true);
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  assert.equal(await page.evaluate(()=>fixture.deliveryState.running),true);
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,running:false,stage:'failed',error:'X_IMAGE_INSERT_TIMEOUT image=3/12 observed=2 loaded=2'};});
+ await page.getByRole('button',{name:'Send to X drafts',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.includes('Failed image: 3/12'));
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/inserted: 2, ready: 2/);
+ await page.evaluate(()=>{fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/失败图片：3\/12（已插入 2，已就绪 2）/);
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.evaluate(()=>NutbookFormatting.leave(1));
  await page.evaluate(gif=>{fixture.png=gif;fixture.withImages=true;fixture.deliveryState={running:false,stage:'idle'};},'data:image/gif;base64,'+readFileSync('assets/readme-demo/nutbook-agent-access-cn.gif').toString('base64'));
  await page.evaluate(()=>NutbookFormatting.open(bridge,{id:1,item:{fileName:'sample.md'},preview:{raw:fixture.raw}}));

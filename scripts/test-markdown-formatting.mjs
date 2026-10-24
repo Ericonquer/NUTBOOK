@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { chromium } from 'playwright';
+import vm from 'node:vm';
+// Exercise the actual host bridge: returning to the reader must not restore
+// its suspended pre-save EditorView or stale raw content.
+const host = readFileSync('dist/index.html','utf8');
+const sourceSaved = host.match(/sourceSaved: (async saved => \{[\s\S]*?\n              \}),/)[1];
+const readerTab = {id:1, preview:{raw:'old'}, detail:{}, draft:'old', isDirty:false};
+const readerCalls = [];
+const readerContext = { tab:readerTab, destroyMarkdownEditorSession:id=>readerCalls.push(id), loadItems:async()=>{}, appState:{items:[{id:1,fileName:'new.md'}]}, renderTabs:()=>readerCalls.push('tabs') };
+await vm.runInNewContext(`(${sourceSaved})`,readerContext)({source:'new',saved:{renderedHtml:'<p>new</p>',fileHash:'new-hash',modifiedAt:'now'}});
+assert.equal(readerTab.preview.raw,'new');
+assert.equal(readerTab.draft,'new');
+assert.equal(readerTab.markdownBaseline,'new');
+assert.equal(readerTab.detail.fileHash,'new-hash');
+assert.equal(readerTab.isDirty,false);
+assert.deepEqual(readerCalls,[1,'tabs']);
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
@@ -24,6 +39,7 @@ try {
       language: () => fixture.language || 'en-US', copyText: async value => { fixture.xText = value; }, activeId: () => 1, container: document.querySelector('#viewer'),
       suspend() {}, restore() { fixture.restored++; }, error: e => e.message || String(e), resolveImage: src => src,
       confirm: async () => fixture.choice,
+      chooseSave: async ({leaving}) => leaving ? (fixture.choice === 'save' ? 'overwrite' : fixture.choice) : 'overwrite',
       editor: async () => ({ create: async options => {
         const input = document.createElement('textarea'); input.value = options.markdown;
         input.setAttribute('data-fixture-editor', ''); options.root.append(input);
@@ -33,7 +49,19 @@ try {
       } }),
       invoke: async (command, args) => {
         fixture.calls.push(command);
-        if (command === 'load_formatting_draft') return { draft: structuredClone(fixture.saved), revision: fixture.revision };
+        if (command === 'load_formatting_draft') return { draft: structuredClone(fixture.saved), revision: fixture.revision, source: tab.preview.raw };
+        if (command === 'commit_formatting_markdown') {
+          if (fixture.failCommit) throw new Error('EDIT_CONFLICT');
+          if (fixture.cancelCopy) return null;
+          if (args.saveCopy) { fixture.copy = args.markdown; return {overwritten:false}; }
+          if (args.expectedSource !== tab.preview.raw) throw new Error('EDIT_CONFLICT');
+          // Model portable imported-image serialization performed by the backend.
+          let source = args.markdown;
+          for (const [src,data] of Object.entries(args.assets)) if (src.startsWith('nutbook-image-')) source = source.split(src).join(data);
+          tab.preview.raw = source;
+          fixture.committed = source;
+          return {overwritten:true,source};
+        }
         if (command === 'render_formatting_markdown' && args.markdown === 'alignment fixture') return '<h1>Heading</h1><div align="center"><p><em>Centered caption</em></p></div>';
         if (command === 'render_formatting_markdown') return args.markdown.includes('missing') ? '<p>text</p><img src="missing.png">' : '<h1>Heading</h1>'+Array.from({length:70}, (_,i)=>`<p>Paragraph ${i} ${args.markdown}</p>`).join('');
         if (command === 'validate_formatting_image_data') return null;
@@ -83,9 +111,9 @@ try {
   assert.equal(await page.evaluate(() => NutbookFormatting.leave(1)), false, 'continue keeps the session');
   await page.evaluate(() => { fixture.choice = 'discard'; });
   assert.equal(await page.evaluate(() => NutbookFormatting.leave(1)), true);
-  assert.equal(await page.evaluate(() => tab.preview.raw), 'original', 'publishing never writes source');
+  assert.equal(await page.evaluate(() => tab.preview.raw), 'edited twice', 'explicit overwrite updates source; discarding newer edits preserves it');
   await page.evaluate(() => { fixture.pauseSave = false; return NutbookFormatting.open(bridge, tab); });
-  assert.equal(await input.inputValue(), 'edited twice', 'reopen restores persisted draft');
+  assert.equal(await input.inputValue(), 'edited twice', 'reopen loads the explicitly updated source');
   // Choosing Save on leave cannot discard input typed while the save is in flight.
   await input.fill('save on leave');
   await page.evaluate(() => {
@@ -116,6 +144,52 @@ try {
   await page.waitForFunction(() => fixture.resolveOpen);
   await page.evaluate(async () => { await NutbookFormatting.leave(1); fixture.resolveOpen(); await opening; });
   assert.equal(await page.locator('.formatting-workspace').count(), 0, 'stale open is discarded');
+  await page.evaluate(async () => {
+    bridge.invoke = fixture.originalInvoke;
+    fixture.choice = 'discard';
+    fixture.saved = {version:1,source:'old source',markdown:'obsolete draft',assets:{},settings:{theme:'reading'}};
+    tab.preview.raw = 'fresh original';
+    await NutbookFormatting.open(bridge,tab);
+    fixture.defaultChooseSave = bridge.chooseSave; delete bridge.chooseSave;
+  });
+  assert.equal(await input.inputValue(), 'fresh original', 'latest disk source always wins over an independently edited old draft');
+  assert.equal(await page.locator('.formatting-theme-name').textContent(),'Longform','theme survives source synchronization');
+  await input.fill('copy edits');
+  await page.evaluate(() => { window.dialogSave = NutbookFormatting.save(); });
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  assert.equal(await page.evaluate(() => dialogSave),false);
+  assert.equal(await input.inputValue(),'copy edits');
+  await page.evaluate(() => { fixture.cancelCopy = true; window.dialogSave = NutbookFormatting.save(); });
+  await page.getByRole('button',{name:'Save a copy',exact:true}).click();
+  assert.equal(await page.evaluate(() => dialogSave),false,'canceling file picker keeps draft unsaved');
+  await page.evaluate(() => { fixture.cancelCopy = false; window.dialogSave = NutbookFormatting.save(); });
+  await page.getByRole('button',{name:'Save a copy',exact:true}).click();
+  assert.equal(await page.evaluate(() => dialogSave),true);
+  assert.equal(await page.evaluate(() => fixture.copy),'copy edits');
+  assert.equal(await page.evaluate(() => tab.preview.raw),'fresh original','Save a copy preserves original');
+  await page.evaluate(async () => { await NutbookFormatting.leave(1); await NutbookFormatting.open(bridge,tab); });
+  assert.equal(await input.inputValue(),'fresh original','copy content never becomes the next publishing source');
+  await input.fill('keep on conflict');
+  await page.evaluate(() => { tab.preview.raw = 'external edit'; window.dialogLeave = NutbookFormatting.leave(1); });
+  await page.getByRole('button',{name:'Overwrite original',exact:true}).click();
+  assert.equal(await page.evaluate(() => dialogLeave),false,'external source conflict blocks save and leave');
+  assert.equal(await input.inputValue(),'keep on conflict');
+  await page.evaluate(() => { window.dialogLeave = NutbookFormatting.leave(1); });
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => dialogLeave),false,'Escape keeps editing');
+  await page.evaluate(() => { window.dialogLeave = NutbookFormatting.leave(1); });
+  await page.getByRole('button',{name:'Discard changes',exact:true}).click();
+  assert.equal(await page.evaluate(() => dialogLeave),true);
+  assert.equal(await page.evaluate(() => tab.preview.raw),'external edit');
+  await page.evaluate(() => NutbookFormatting.open(bridge,tab));
+  await input.fill('overwrite with original visible');
+  await page.getByRole('tab',{name:'Original',exact:true}).click();
+  await page.evaluate(() => { window.dialogSave = NutbookFormatting.save(); });
+  await page.getByRole('button',{name:'Overwrite original',exact:true}).click();
+  assert.equal(await page.evaluate(() => dialogSave),true);
+  assert.match(await page.locator('.formatting-original').textContent(),/overwrite with original visible/,'visible read-only source refreshes immediately after overwrite');
+  await page.evaluate(() => NutbookFormatting.leave(1));
+  await page.evaluate(() => { bridge.chooseSave = fixture.defaultChooseSave; });
   await page.addScriptTag({ content: readFileSync('dist/assets/markdown-editor.js', 'utf8'), type: 'module' });
   await page.waitForFunction(() => Boolean(window.NutbookMarkdownEditor?.create));
   await page.evaluate(async () => {
@@ -235,7 +309,7 @@ try {
   assert.equal(await page.locator('.formatting-workspace .ProseMirror').isVisible(), false);
   assert.equal(await page.getByRole('button', { name:'Undo', exact:true }).isDisabled(), true);
   await page.waitForFunction(() => document.querySelector('.formatting-original h1'));
-  assert.doesNotMatch(await page.locator('.formatting-original').textContent(), /edit in Milkdown/, 'rendered original stays separate from publishing edits');
+  assert.match(await page.locator('.formatting-original').textContent(), /edit in Milkdown/, 'read-only original reflects the explicitly committed edits');
   await page.getByRole('tab', { name:'Publishing draft', exact:true }).click();
   assert.equal(await page.locator('.formatting-workspace .ProseMirror').isVisible(), true);
   await page.evaluate(() => {
@@ -424,7 +498,7 @@ try {
   await page.evaluate(async () => {
     fixture.choice = 'discard'; await NutbookFormatting.leave(1);
     fixture.saved = {version:1,source:'Body only',markdown:'### Existing subheading\n\nBody only',assets:{}};
-    fixture.revision = 'title-fallback'; tab.item.fileName = 'Fallback article.md';
+    fixture.revision = 'title-fallback'; tab.preview.raw = '### Existing subheading\n\nBody only'; tab.item.fileName = 'Fallback article.md';
     await NutbookFormatting.open(bridge,tab);
   });
   assert.equal(await page.locator('.formatting-editor .ProseMirror h1').textContent(),'Fallback article');
