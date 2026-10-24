@@ -12,6 +12,7 @@ assert.throws(()=>readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:0,pid:'p
  assert.match(error.message,/IMAGE_UPLOAD_REJECTED image=10\/12 code=A00006 ret=0 count=1/);
  assert.doesNotMatch(error.message,/private-asset-id/);return true;
 });
+for(const empty of [null,undefined,{}])assert.throws(()=>readWeiboUpload(empty),/IMAGE_UPLOAD_REJECTED code=unknown ret=unknown count=0/);
 assert.throws(()=>readWeiboUpload({code:'sensitive cookie=value',data:{pics:{pic_1:{ret:'sensitive',pid:''}}}}),error=>{
  assert.match(error.message,/code=unknown ret=unknown/);assert.doesNotMatch(error.message,/sensitive|cookie/);return true;
 });

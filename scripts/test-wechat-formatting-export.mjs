@@ -262,6 +262,26 @@ try{
  await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,platform:'x',stage:'waiting_for_x_login'};});
  await page.waitForFunction(()=>!document.querySelector('.formatting-delivery-actions button:nth-child(2)').hidden);
  assert.equal(await page.getByRole('button',{name:'Signed in, continue',exact:true}).isVisible(),true);
+ const progressSteps=[{stage:'reusing'},{stage:'writing'},{stage:'uploading_images',current:1,total:12},{stage:'saving',current:1,total:12},{stage:'uploading_images',current:2,total:12},{stage:'saving',current:2,total:12},{stage:'uploading_images',current:12,total:12},{stage:'saving',current:12,total:12},{stage:'saving'},{stage:'cover'},{stage:'verifying'}];
+ let previousProgress=0;
+ for(const step of progressSteps){
+  await page.evaluate(step=>{fixture.deliveryState={...fixture.deliveryState,stage:step.stage,history:[...(fixture.deliveryState.history||[]),step]};},step);
+  const expected=step.total?'Processing images… ('+step.current+'/'+step.total+')':({reusing:'Verifying the existing draft…',writing:'Filling article…',saving:'Saving X draft…',cover:'Setting cover…',verifying:'Reopening and verifying draft…'})[step.stage];
+  await page.waitForFunction(expected=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent===expected,expected);
+  const value=await page.locator('.formatting-delivery progress').evaluate(el=>el.value);
+  assert.ok(value>=previousProgress,'same run must never move backwards at '+JSON.stringify(step));
+  assert.ok(value<6,'progress must not claim completion before verified');previousProgress=value;
+ }
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.getByRole('button',{name:'Send to X drafts',exact:true}).click();
+ assert.equal(await page.locator('.formatting-delivery progress').evaluate(el=>el.value),previousProgress,'reopen preserves progress');
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,runId:'progress-new-run',stage:'connecting',history:[{stage:'connecting'}]};});
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery progress').value===0);
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,stage:'saving',history:[{stage:'saving',current:5,total:12}]};fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent==='正在处理图片… (5/12)');
+ assert.equal(await page.locator('.formatting-delivery progress').getAttribute('aria-label'),'正在处理图片… (5/12)');
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
+
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  assert.equal(await page.evaluate(()=>fixture.deliveryState.running),true);
  await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,running:false,stage:'failed',error:'X_IMAGE_INSERT_TIMEOUT image=3/12 observed=2 loaded=2'};});
@@ -270,6 +290,19 @@ try{
  assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/inserted: 2, ready: 2/);
  await page.evaluate(()=>{fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
  assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/失败图片：3\/12（已插入 2，已就绪 2）/);
+ await page.getByRole('button',{name:'关闭发送窗口',exact:true}).click();
+ await page.evaluate(()=>{fixture.deliveryState.error='X_DRAFT_RESET_FAILED';});
+ await page.getByRole('button',{name:'发送到 X 草稿箱',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.includes('旧草稿正文未能清空'));
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/previous draft body could not be cleared/);
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.evaluate(()=>{fixture.deliveryState.error='IMAGE_ORDER_MISMATCH';});
+ await page.getByRole('button',{name:'Send to X drafts',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.includes('Media order could not be confirmed'));
+ await page.evaluate(()=>{fixture.language='zh-CN';NutbookFormatting.refreshLanguage();});
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/媒体顺序核对未通过/);
+ await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
  await page.evaluate(()=>{fixture.language='en-US';NutbookFormatting.refreshLanguage();});
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.evaluate(()=>NutbookFormatting.leave(1));

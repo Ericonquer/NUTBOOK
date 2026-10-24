@@ -44,7 +44,7 @@ export function readWeiboUpload(value, image){
  const pics=Object.values(value?.data?.pics||{});
  if(value?.code!=='A00006'||pics.length!==1||pics[0].ret!==1||!/^\w{1,100}$/.test(pics[0].pid||'')){
   // Product failure details, never the raw response, URL, PID or credentials.
-  const code=/^[A-Za-z0-9_-]{1,32}$/.test(String(value?.code))?String(value.code):'unknown';
+  const code=value?.code!=null&&/^[A-Za-z0-9_-]{1,32}$/.test(String(value.code))?String(value.code):'unknown';
   const ret=/^-?\d{1,6}$/.test(String(pics[0]?.ret))?String(pics[0].ret):'unknown';
   const position=image&&Number.isInteger(image.current)&&Number.isInteger(image.total)?` image=${image.current}/${image.total}`:'';
   throw Error(`IMAGE_UPLOAD_REJECTED${position} code=${code} ret=${ret} count=${pics.length}`);

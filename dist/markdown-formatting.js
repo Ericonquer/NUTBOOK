@@ -51,8 +51,8 @@
   Object.assign(messages['en-US'], { save: 'Save', saveChoiceTitle: 'Save article edits', saveChoiceHelp: 'Update the original, or save these edits as a Markdown copy.', overwriteSource: 'Overwrite original', saveCopy: 'Save a copy', cancelSave: 'Cancel', continueEditing: 'Keep editing', discardChanges: 'Discard changes', saveCopyDone: 'Copy saved. Next time the original will be loaded.', sourceConflict: 'The original changed externally. Save a copy to keep these edits.', preferencesFailed: 'Article saved, but formatting preferences could not be saved. Edits are retained: ' });
   Object.assign(messages['zh-CN'], { weiboImageRejected: '微博图片上传未完成；稿件尚未完整发送。失败图片：' });
   Object.assign(messages['en-US'], { weiboImageRejected: 'Weibo image upload was rejected; the article is incomplete. Failed image: ' });
-  Object.assign(messages['zh-CN'], { xImageIncomplete: 'X 图片插入未完成。失败图片：', xSaveIncomplete: 'X 尚未确认全文和全部图片已保存；请检查草稿完整性。' });
-  Object.assign(messages['en-US'], { xImageIncomplete: 'X image insertion did not complete. Failed image: ', xSaveIncomplete: 'X has not confirmed that the entire article and all images were saved. Check the draft for missing content.' });
+  Object.assign(messages['zh-CN'], { deliveryProcessingImages:'正在处理图片…', xOrderUnconfirmed:'媒体顺序核对未通过，请查看草稿；本地发布稿仍保留。', xIdentityUnavailable:'缺少此次发送的媒体凭据，无法自动确认顺序；请查看草稿人工核对。', xImageIncomplete: 'X 图片插入未完成。失败图片：', xResetIncomplete: '旧草稿正文未能清空并确认保存，已停止发送，避免叠加内容。', xSaveIncomplete: 'X 尚未确认全文和全部图片已保存；请检查草稿完整性。' });
+  Object.assign(messages['en-US'], { deliveryProcessingImages:'Processing images…', xOrderUnconfirmed:'Media order could not be confirmed. Check the draft; your local publishing draft is retained.', xIdentityUnavailable:'The original media receipts are unavailable. Please check the existing draft manually.', xImageIncomplete: 'X image insertion did not complete. Failed image: ', xResetIncomplete: 'The previous draft body could not be cleared and confirmed saved. Sending stopped to avoid duplicate content.', xSaveIncomplete: 'X has not confirmed that the entire article and all images were saved. Check the draft for missing content.' });
   const icons = {summary:'M3 3h10M3 6h10M3 9h7M3 12h5', weibo: 'M11 3a3 3 0 0 1 3 3M11 1a5 5 0 0 1 5 5M12.5 8c1.3.7 1.5 1.5 1.1 2.5-.6 1.8-3.5 3.1-6.5 3.1S1.8 12.2 2 10.4c.1-1.4 1.9-3.7 3.6-4.6.8-.4 1.2-.1 1 .7l-.2.8c1.7-.7 3.5-1.1 4-.4.3.4 0 .9-.3 1.3M9.8 10.2c0 1.2-1.4 2.1-3.1 2.1s-2.9-.7-2.9-1.8 1.4-2 3.1-2 2.9.6 2.9 1.7ZM6 10.5h.01', plus: 'M8 3v10M3 8h10', wechat: 'M9.5 9.5a4 4 0 0 1-2 .5 5 5 0 0 1-1.8-.3L3.5 11l.4-2A3.6 3.6 0 0 1 2 6c0-2.2 2.1-4 4.8-4s4.7 1.6 4.7 3.7M14 10c0-1.8-1.8-3.2-4-3.2S6 8.2 6 10s1.8 3.2 4 3.2c.5 0 1-.1 1.4-.2l1.9 1-.3-1.6a3 3 0 0 0 1-2.4Z', x: 'M3 2.5h3l7 11h-3zM13 2.5 3 13.5', undo: 'M6 3 2.5 6.5 6 10M2.5 6.5H9a4 4 0 0 1 0 8', 'save': 'M3.5 2.5h6.8l3.2 3.2V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5ZM5 2.5v3.5h5V2.5M5 13.5V10h6v3.5', 'copy': 'M6 6h7.5v7.5H6zM10 6V2.5H2.5V10H6', 'back': 'M7 3.5 2.5 8 7 12.5M2.5 8h11', 'image': 'M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5ZM3 12l3.5-3.5 2.5 2.5 2-2 2.5 2.5M6 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z', 'theme': 'M8 2a6 6 0 1 0 0 12h.7a1.4 1.4 0 0 0 .7-2.6 1.4 1.4 0 0 1 .6-2.6h2a2 2 0 0 0 2-2A5.4 5.4 0 0 0 8 2ZM4.5 6.5h.01M6.5 4h.01M10 4h.01M12 6h.01', 'source': 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9 2.5l-2 11', 'draft': 'M11 2.5 13.5 5 6 12.5l-3.2.7.7-3.2ZM9.8 3.7l2.5 2.5', 'close': 'M4 4l8 8M4 12l8-8', 'retry': 'M13.5 3.5V7H10M13.5 7a5.5 5.5 0 1 0-1 4.5', 'phone': 'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM7.5 11.5h1', 'help': 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 7v4M8 5h.01'};
   icons.send = 'M2 8 14 2l-4 12-3-5-5-1ZM7 9l7-7';
   function iconButton(key, label, action) {
@@ -798,7 +798,7 @@
   }
   function deliveryError(error, bridge) {
     const message=String(error?.message || error);
-    const keys={X_LOGIN_INCOMPLETE:'xLoginIncomplete',X_BROWSER_CLOSED:'xBrowserClosed',X_CHROME_REQUIRED:'xChromeRequired'};
+    const keys={IMAGE_ORDER_MISMATCH:'xOrderUnconfirmed',X_MEDIA_IDENTITY_UNAVAILABLE:'xIdentityUnavailable',X_DRAFT_RESET_FAILED:'xResetIncomplete',X_LOGIN_INCOMPLETE:'xLoginIncomplete',X_BROWSER_CLOSED:'xBrowserClosed',X_CHROME_REQUIRED:'xChromeRequired'};
     const dictionary=messages[bridge.language()] || messages['zh-CN'];
     if(message.startsWith('X_IMAGE_INSERT_TIMEOUT')) {
       const image=message.match(/image=(\d+\/\d+)/)?.[1] || '?';
@@ -1281,19 +1281,35 @@
     if(status.jobId && !status.jobId.startsWith(`${deliveryPlatform(s)}-${s.id}-`))return;
     s.deliveryState = status;
     s.deliveryRunning = !!status.running;
+    const platform=deliveryPlatform(s);
+    const event=status.history?.at(-1);
+    const imageStep=platform==='x'&&(status.stage==='uploading_images'||status.stage==='saving'&&event?.stage==='saving'&&event.total>0);
     const keys = {connecting:'deliveryConnecting',connected:'deliveryConnecting',waiting_for_scan:'deliveryScan',waiting_for_x_login:'deliveryXLogin',preparing:'deliveryWriting',uploading_images:'deliveryUploading',writing:'deliveryWriting',cover:'deliveryCover',saving:'deliverySaving',verifying:'deliveryVerifying',reusing:'deliveryReuse',verified:'deliveryDone',cancelled:'deliveryCancelled',failed:'deliveryFailed',interrupted:'deliveryFailed'};
-    s.deliveryMessage.textContent = keys[status.stage] ? text(keys[status.stage]) : '';
+    s.deliveryMessage.textContent = imageStep ? text('deliveryProcessingImages') : keys[status.stage] ? text(keys[status.stage]) : '';
     if(deliveryPlatform(s)==='weibo') s.deliveryMessage.textContent = s.deliveryMessage.textContent.replace(/公众号/g,'微博').replace(/WeChat/g,'Weibo');
     if(deliveryPlatform(s)==='x') s.deliveryMessage.textContent=s.deliveryMessage.textContent.replace(/公众号/g,'X').replace(/WeChat/g,'X');
     s.deliveryLogin.disabled=false;
     s.deliveryLogin.hidden = status.stage !== 'waiting_for_x_login' || !status.running;
     if (status.error) runtimeResults.delete(s.bridge);
     if (status.error) s.deliveryMessage.textContent += ` ${String(status.error).includes('WECHAT_RUNTIME') ? text('deliveryNoRuntime') : String(status.error).includes('DRAFT_UNAVAILABLE') ? text('deliveryUnavailable') : String(status.error).includes('JOB_LOCKED') ? text('deliveryLocked') : deliveryError(status.error,s.bridge)}`;
-    const completed = {connecting:0,connected:0,waiting_for_scan:0,preparing:1,uploading_images:deliveryPlatform(s)==='weibo'?2:1,writing:deliveryPlatform(s)==='weibo'?1:2,cover:3,saving:4,verifying:5,reusing:5,verified:6};
+    // Image upload, per-image save and reopen form one phase in X. Compute
+    // progress from the run history so polling or reopening the dialog cannot
+    // make it regress. A new run gets its own baseline.
+    function progressFor(step){
+      if(step.stage==='uploading_images'||platform==='x'&&step.stage==='saving'&&step.total>0){
+        const start=1,span=platform==='x'?3:platform==='weibo'?2:1;
+        const fraction=Number.isFinite(step.current)&&step.total>0 ? Math.min(1,Math.max(0,(step.current-1+(step.stage==='saving'?0.5:0))/step.total)) : 0;
+        return start+span*fraction;
+      }
+      return ({preparing:1,writing:platform==='wechat'?2:1,cover:platform==='x'?4:3,saving:platform==='x'?4.5:4,verifying:5,verified:6})[step.stage]||0;
+    }
+    const run=[platform,status.runId||status.jobId||''].join(':');
+    const previous=s.deliveryProgressRun===run?s.deliveryProgressValue||0:0;
+    s.deliveryProgressRun=run;
+    s.deliveryProgressValue=status.stage==='idle'?0:Math.max(previous,progressFor(event?.stage===status.stage?event:{stage:status.stage}),...(status.history||[]).map(progressFor));
     s.deliveryProgress.hidden = !status.running && status.stage !== 'verified';
-    s.deliveryProgress.value = completed[status.stage] || 0;
-    const event = status.history?.at(-1);
-    if (status.stage === 'uploading_images' && event?.stage === status.stage && event.total) s.deliveryMessage.textContent += ` (${event.current}/${event.total})`;
+    s.deliveryProgress.value = s.deliveryProgressValue;
+    if ((status.stage === 'uploading_images'||imageStep) && event?.stage === status.stage && event.total) s.deliveryMessage.textContent += ` (${event.current}/${event.total})`;
     s.deliveryProgress.setAttribute('aria-label',s.deliveryMessage.textContent || text('sendWechat'));
     s.deliveryRecreate = status.error === 'DRAFT_UNAVAILABLE';
     const sendLabel = text(s.deliveryRecreate ? 'recreateDraft' : 'sendNow');
