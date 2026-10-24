@@ -8,6 +8,14 @@ assert.throws(()=>validateWeiboResume({digest:'changed'},digest),/JOB_CONTENT_CH
 assert.equal(readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:1,pid:'abc123'}}}}),'abc123');
 assert.throws(()=>readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:0,pid:'abc123'}}}}),/IMAGE_UPLOAD_REJECTED/);
 assert.throws(()=>readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:1,pid:'../../a'}}}}),/IMAGE_UPLOAD_REJECTED/);
+assert.throws(()=>readWeiboUpload({code:'A00006',data:{pics:{pic_1:{ret:0,pid:'private-asset-id'}}}},{current:10,total:12}),error=>{
+ assert.match(error.message,/IMAGE_UPLOAD_REJECTED image=10\/12 code=A00006 ret=0 count=1/);
+ assert.doesNotMatch(error.message,/private-asset-id/);return true;
+});
+for(const empty of [null,undefined,{}])assert.throws(()=>readWeiboUpload(empty),/IMAGE_UPLOAD_REJECTED code=unknown ret=unknown count=0/);
+assert.throws(()=>readWeiboUpload({code:'sensitive cookie=value',data:{pics:{pic_1:{ret:'sensitive',pid:''}}}}),error=>{
+ assert.match(error.message,/code=unknown ret=unknown/);assert.doesNotMatch(error.message,/sensitive|cookie/);return true;
+});
 console.log('Weibo receipt identity, checkpoint destination and ambiguous creation guards passed.');
 
 let handler,reads=0,fulfilled=false,disposed=false,unrouted=false,fetchOptions;

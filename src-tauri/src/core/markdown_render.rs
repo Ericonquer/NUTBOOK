@@ -1,4 +1,4 @@
-use comrak::{markdown_to_html, ComrakOptions};
+use comrak::{parse_document, format_html, Arena, ComrakOptions, nodes::{AstNode, NodeValue}};
 
 use crate::core::document::{aligned_text_html_candidate, aligned_text_markdown, portable_image_html_candidate, sanitize_portable_image_html};
 
@@ -60,11 +60,57 @@ fn render_markdown(raw: &str, preserve_alignment: bool) -> String {
         prepared.push('\n');
         index += 1;
     }
-    let mut rendered = markdown_to_html(&prepared, &markdown_options());
+    let arena = Arena::new();
+    let options = markdown_options();
+    let document = parse_document(&arena, &prepared, &options);
+    repair_inline_compatibility(&arena, document, &prepared);
+    let mut html = Vec::new();
+    format_html(document, &options, &mut html).expect("rendering into memory");
+    let mut rendered = String::from_utf8(html).expect("Markdown HTML is UTF-8");
     for (token, html) in replacements {
         rendered = rendered.replace(&format!("<p>{token}</p>"), &html);
     }
     rendered
+}
+
+// Operate on parsed nodes: code and escaped literal examples never become HTML.
+fn repair_inline_compatibility<'a>(arena: &'a Arena<AstNode<'a>>, document: &'a AstNode<'a>, source: &str) {
+    let mut line_offsets = vec![0];
+    for (index, byte) in source.bytes().enumerate() { if byte == b'\n' { line_offsets.push(index + 1); } }
+    for node in document.descendants().collect::<Vec<_>>() {
+        let value = node.data.borrow().value.clone();
+        match value {
+            NodeValue::HtmlInline(ref html) if plain_break(html) => {
+                node.data.borrow_mut().value = NodeValue::LineBreak;
+            }
+            NodeValue::HtmlBlock(ref html) if plain_break(&html.literal) => {
+                node.data.borrow_mut().value = NodeValue::Paragraph;
+                node.append(arena.alloc(AstNode::from(NodeValue::LineBreak)));
+            }
+            NodeValue::Link(_) => {
+                let (Some(before), Some(after)) = (node.previous_sibling(), node.next_sibling()) else { continue; };
+                let (NodeValue::Text(prefix), NodeValue::Text(suffix)) = (before.data.borrow().value.clone(), after.data.borrow().value.clone()) else { continue; };
+                if !prefix.ends_with("**") || !suffix.starts_with("**") { continue; }
+                let position = node.data.borrow().sourcepos;
+                let (Some(start_line), Some(end_line)) = (position.start.line.checked_sub(1).and_then(|i| line_offsets.get(i)), position.end.line.checked_sub(1).and_then(|i| line_offsets.get(i))) else { continue; };
+                let start = start_line + position.start.column.saturating_sub(1);
+                let end = end_line + position.end.column;
+                if start < 2 || source.get(start - 2..start) != Some("**") || source.get(end..end + 2) != Some("**") { continue; }
+                if start.checked_sub(3).and_then(|i| source.as_bytes().get(i)).is_some_and(|b| *b == b'*') || source.as_bytes().get(end + 2) == Some(&b'*') { continue; }
+                let escapes = source[..start - 2].bytes().rev().take_while(|b| *b == b'\\').count();
+                if escapes % 2 != 0 { continue; }
+                before.data.borrow_mut().value = NodeValue::Text(prefix[..prefix.len() - 2].into());
+                after.data.borrow_mut().value = NodeValue::Text(suffix[2..].into());
+                let strong = arena.alloc(AstNode::from(NodeValue::Strong));
+                node.insert_before(strong); strong.append(node);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn plain_break(html: &str) -> bool {
+    matches!(html.trim().to_ascii_lowercase().as_str(), "<br>" | "<br/>" | "<br />" | "<br >")
 }
 
 fn markdown_options() -> ComrakOptions<'static> {
@@ -81,6 +127,41 @@ fn markdown_options() -> ComrakOptions<'static> {
 #[cfg(test)]
 mod tests {
     use super::render_markdown_html;
+
+    #[test]
+    fn bold_links_next_to_chinese_hide_only_real_markers() {
+        for source in [
+            "叫**[NUTBOOK](https://example.com)**的软件",
+            "叫[**NUTBOOK**](https://example.com)的软件",
+            "**[NUTBOOK](https://example.com)**软件",
+            "叫**[NUTBOOK][app]**的软件\n\n[app]: https://example.com",
+        ] {
+            for html in [render_markdown_html(source), super::render_formatting_html(source)] {
+                assert!(html.contains("<strong>"), "{source}: {html}");
+                assert!(html.contains("href=\"https://example.com\""), "{source}: {html}");
+                assert!(!html.contains("**"), "{source}: {html}");
+            }
+        }
+        for source in [r"叫\*\*[NUTBOOK](https://example.com)\*\*的软件", "`**[NUTBOOK](https://example.com)**`", "```md\n**[NUTBOOK](https://example.com)**\n```", "叫&#42;&#42;[NUTBOOK](https://example.com)&#42;&#42;的软件"] {
+            let html = super::render_formatting_html(source);
+            assert!(html.contains("**"), "literal example changed: {source}: {html}");
+            assert!(!html.contains("<strong>"), "literal example changed: {source}: {html}");
+        }
+    }
+
+    #[test]
+    fn editor_empty_lines_and_hard_breaks_never_render_as_tags() {
+        let source = "前段\n\n<br />\n\n**尾段**\n\n行内<br>换行";
+        for html in [render_markdown_html(source), super::render_formatting_html(source)] {
+            assert!(html.contains("<br"), "{html}");
+            assert!(!html.contains("&lt;br"), "{html}");
+            assert!(html.contains("<strong>尾段</strong>"), "{html}");
+        }
+        for source in ["`<br />`", "```html\n<br />\n```", r"\<br />", "<br onclick=\"alert(1)\">", "<script>alert(1)</script>"] {
+            let html = super::render_formatting_html(source);
+            assert!(html.contains("&lt;"), "unsafe or literal HTML changed: {source}: {html}");
+        }
+    }
 
     #[test]
     fn renders_gfm_tables_tasks_and_strikethrough() {

@@ -40,9 +40,15 @@ export function validateWeiboResume(journal,digest){
  const url=new URL(journal.editUrl);
  if(url.origin!=='https://card.weibo.com'||url.pathname!=='/article/v5/editor'||!/^#\/draft\/\d+$/.test(url.hash))throw Error('INVALID_CHECKPOINT_URL');
 }
-export function readWeiboUpload(value){
+export function readWeiboUpload(value, image){
  const pics=Object.values(value?.data?.pics||{});
- if(value?.code!=='A00006'||pics.length!==1||pics[0].ret!==1||!/^\w{1,100}$/.test(pics[0].pid||''))throw Error('IMAGE_UPLOAD_REJECTED');
+ if(value?.code!=='A00006'||pics.length!==1||pics[0].ret!==1||!/^\w{1,100}$/.test(pics[0].pid||'')){
+  // Product failure details, never the raw response, URL, PID or credentials.
+  const code=value?.code!=null&&/^[A-Za-z0-9_-]{1,32}$/.test(String(value.code))?String(value.code):'unknown';
+  const ret=/^-?\d{1,6}$/.test(String(pics[0]?.ret))?String(pics[0].ret):'unknown';
+  const position=image&&Number.isInteger(image.current)&&Number.isInteger(image.total)?` image=${image.current}/${image.total}`:'';
+  throw Error(`IMAGE_UPLOAD_REJECTED${position} code=${code} ret=${ret} count=${pics.length}`);
+ }
  return pics[0].pid;
 }
 export async function isWeiboAuthenticated(url,page){
@@ -120,7 +126,7 @@ export async function deliverWeiboDraft({context,job,journal,checkpoint,progress
   const uploaded=await captureWeiboJson(page,r=>new URL(r.url()).hostname==='picupload.weibo.com'&&new URL(r.url()).pathname==='/interface/pic_upload.php'&&r.request().method()==='POST',async()=>{
    await(await chooser).setFiles({name:`${image.id}.${image.mime.split('/')[1]}`,mimeType:image.mime,buffer:Buffer.from(image.base64,'base64')});
   },{timeout:60000});
-  const pid=readWeiboUpload(uploaded);
+  const pid=readWeiboUpload(uploaded,{current:index+1,total:job.images.length});
   const card=dialog.locator('.image-item').filter({has:page.locator(`img[src*="/${pid}."]`)});
   await card.waitFor();const url=await card.locator('img').getAttribute('src');
   if(!/^https:\/\/[^/]+\.sinaimg\.cn\//.test(url||''))throw Error('INVALID_UPLOADED_IMAGE_URL');
