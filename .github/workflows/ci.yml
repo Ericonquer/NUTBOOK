@@ -102,7 +102,8 @@ jobs:
         run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
 
   windows-compile:
-    name: PR Windows runtime gate
+    # Preserve the context already required by main ruleset; runtime checks are included.
+    name: PR Windows release compile
     runs-on: windows-latest
     timeout-minutes: 25
 

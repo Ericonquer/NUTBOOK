@@ -5,6 +5,7 @@ const workflow=readFileSync('.github/workflows/ci.yml','utf8');
 const gate=workflow.slice(workflow.indexOf('  cross-platform-gate:'));
 const run=gate.slice(gate.indexOf('        run: |')+'        run: |'.length).trim().split('\n').map(x=>x.trim()).join('\n');
 assert(workflow.includes('cargo build --release --features tauri/custom-protocol'), 'native smoke must embed production frontend');
+assert(workflow.includes('name: PR Windows release compile'), 'preserve existing required ruleset context');
 assert(run.includes('"$WINDOWS" = success'));
 if(process.platform!=='win32'){
  const execute=env=>spawnSync('bash',['-e','-c',run],{env:{...process.env,...env}}).status;
