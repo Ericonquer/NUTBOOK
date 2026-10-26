@@ -238,22 +238,45 @@ pub fn serve(label: &str, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     }
 }
 
-/// Single bounded IO worker for all native protocol requests. The WebView
-/// callback returns immediately; overload is an explicit retryable 503.
+/// Fixed IO pool and bounded pending queue for all native resource requests.
+/// The queue accommodates normal image/module bursts without retaining a
+/// worker per document. Overload returns an explicit retryable 503.
 pub fn dispatch(label: String, request: Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {
+    if !matches!(request.method().as_str(), "GET" | "HEAD") {
+        responder.respond(denied(405));
+        return;
+    }
+    let header_bytes: usize = request
+        .headers()
+        .iter()
+        .map(|(name, value)| name.as_str().len() + value.as_bytes().len())
+        .sum();
+    if !request.body().is_empty() || request.uri().to_string().len() + header_bytes > 16 * 1024 {
+        responder.respond(denied(413));
+        return;
+    }
     type Job = (String, Request<Vec<u8>>, tauri::UriSchemeResponder);
     static QUEUE: OnceLock<Result<std::sync::mpsc::SyncSender<Job>, ()>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Job>(8);
-        std::thread::Builder::new()
-            .name("content-resource-io".into())
-            .spawn(move || {
-                while let Ok((label, request, responder)) = rx.recv() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Job>(256);
+        let rx = Arc::new(Mutex::new(rx));
+        for worker in 0..4 {
+            let rx = Arc::clone(&rx);
+            if std::thread::Builder::new()
+                .name(format!("content-resource-io-{worker}"))
+                .spawn(move || loop {
+                    let job = rx.lock().unwrap().recv();
+                    let Ok((label, request, responder)) = job else {
+                        break;
+                    };
                     responder.respond(serve(&label, request));
-                }
-            })
-            .map(|_| tx)
-            .map_err(|_| ())
+                })
+                .is_err()
+            {
+                return Err(());
+            }
+        }
+        Ok(tx)
     });
     match queue {
         Ok(tx) => {

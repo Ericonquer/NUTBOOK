@@ -14,12 +14,13 @@ try {
   const tab={preview:{resourceOrigin:'old-generation'}};
   replaceTabPreview(tab,{resourceOrigin:'new-generation'});
   replaceTabPreview(tab,{resourceOrigin:'new-generation'});
+  replaceTabPreview({closed:true,preview:{resourceOrigin:'closed-old'}},{resourceOrigin:'late-result'});
   appState.inspector.snapshot={resourceOrigin:'inspector-generation'};
   destroyInspectorEditorOnly();
   await Promise.resolve();
   return {released,current:tab.preview.resourceOrigin};
  });
- assert.deepEqual(report.released,['old-generation','inspector-generation']);
+ assert.deepEqual(report.released,['old-generation','late-result','inspector-generation']);
  assert.equal(report.current,'new-generation');
  console.log('Superseded preview and inspector resources release their exact generation; current grant is retained.');
 } finally {await browser.close();}

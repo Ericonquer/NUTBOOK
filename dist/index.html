@@ -14835,6 +14835,7 @@
       }
 
       function replaceTabPreview(tab, preview) {
+        if (tab.closed) { releaseDocumentResource(preview); return false; }
         if (tab.preview?.resourceOrigin !== preview?.resourceOrigin) releaseDocumentResource(tab.preview);
         tab.preview = preview;
       }
@@ -24657,10 +24658,10 @@ if (!chipTipController) {
 
           let freshDetail, freshPreview;
           try {
-            const [freshDetailRaw, freshPreviewRaw] = await Promise.all([
-              invoke("get_item_detail", { itemId: tab.id }),
-              invoke("get_item_preview", { itemId: tab.id })
-            ]);
+            // Acquire a fresh resource grant only after detail succeeds; a
+            // sibling Promise.all rejection must not orphan a preview lease.
+            const freshDetailRaw = await invoke("get_item_detail", { itemId: tab.id });
+            const freshPreviewRaw = await invoke("get_item_preview", { itemId: tab.id });
             freshDetail = normalizeItemDetail(freshDetailRaw);
             freshPreview = normalizePreview(freshPreviewRaw);
           } catch (error) {
