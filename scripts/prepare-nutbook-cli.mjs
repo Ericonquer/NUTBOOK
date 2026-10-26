@@ -8,7 +8,7 @@ const target = /^host: (.+)$/m.exec(rustc)?.[1];
 if (!target) throw new Error("could not determine the Rust target triple");
 
 const extension = target.includes("windows") ? ".exe" : "";
-const source = join("src-tauri", "target", "release", `nutbook${extension}`);
+const source = join("src-tauri", "target", "release", `nutbook-cli-bin${extension}`);
 const destination = join("src-tauri", "generated-resources", "nutbook-cli", `nutbook${extension}`);
 
 // Tauri validates every configured bundle resource while compiling this CLI.
@@ -16,7 +16,7 @@ const destination = join("src-tauri", "generated-resources", "nutbook-cli", `nut
 // must exist before `cargo build`, not only before we copy its output.
 mkdirSync(dirname(destination), { recursive: true });
 
-execFileSync("cargo", ["build", "--release", "--manifest-path", manifest, "--bin", "nutbook"], {
+execFileSync("cargo", ["build", "--release", "--manifest-path", manifest, "--bin", "nutbook-cli-bin"], {
   stdio: "inherit"
 });
 

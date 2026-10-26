@@ -1,7 +1,7 @@
 // Native WebView2 WebDriver, using the same capabilities as Tauri's official adapter.
 // No frontend/backend mocks, injected test commands, or packaged runtime dependencies.
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -48,7 +48,7 @@ try{
  const portServer=createServer();await new Promise((ok,fail)=>{portServer.once('error',fail);portServer.listen(0,'127.0.0.1',ok);});
  const debugPort=portServer.address().port;await new Promise(ok=>portServer.close(ok));
  debugEndpoint=`http://127.0.0.1:${debugPort}`;
- appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),NUTBOOK_STARTUP_TRACE:join(reportDir,'startup.log'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:false,stdio:['ignore','pipe','pipe']});
+ appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:false,stdio:['ignore','pipe','pipe']});
  for(const stream of [appProcess.stdout,appProcess.stderr])capture(stream,appLogs);
  appProcess.on('error',e=>appLogs.push(e.message));
  appProcess.on('exit',(code,signal)=>{report.appExit={code,signal};});
@@ -60,10 +60,16 @@ try{
  },15000);
  const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
  session=created.sessionId;assert(session,'WebDriver session missing');
+ const stableCli=join(root,'app-data','cli','nutbook.exe');
+ await wait('stable-cli-deployed',()=>existsSync(stableCli));
+ const version=spawnSync(stableCli,['--version'],{windowsHide:true,encoding:'utf8',timeout:3000});
+ assert.equal(version.status,0,version.error?.message||version.stderr);
+ assert.match(version.stdout,/^nutbook \d+\.\d+\.\d+\s*$/);
+ report.checks.push({name:'stable-cli-version'});
  await wait('markdown-editor',async()=>{await prompt();return execute(`return !!document.querySelector('.ProseMirror');`);});
  await execute(`document.querySelector('[data-join-external-tab]')?.click();`);
  await wait('joined-library',()=>execute(`return getActiveTab()?.sourceMode==='library'||getActiveTab()?.external?.joined===true;`));
- await wait('local-svg-loaded',()=>execute(`return [...document.querySelectorAll('.ProseMirror img')].some(img=>img.complete&&img.naturalWidth>0&&!img.src.startsWith('data:'));`));
+ await wait('local-svg-loaded',()=>execute(`return [...document.querySelectorAll('.ProseMirror img')].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0&&!img.src.startsWith('data:'));`));
  const element=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.ProseMirror'});
  const elementId=element['element-6066-11e4-a52e-4f735466cecf'];assert(elementId);
  const marker='Windows 保存重开 '+Date.now();
@@ -71,7 +77,7 @@ try{
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009s\uE000'});
  await wait('saved-to-disk',async()=>readFileSync(md,'utf8').includes(marker));
  await execute(`document.querySelector('.tab-chip.active [data-close-tab]')?.click();`);
- await wait('library-card-image',()=>execute(`return [...document.querySelectorAll('[data-open-item] img')].some(img=>img.complete&&img.naturalWidth>0);`));
+ await wait('library-card-image',()=>execute(`return [...document.querySelectorAll('[data-open-item] img')].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
  await nativeOpen(md);
  await wait('saved-reopened',async()=>{await prompt();return execute(`return document.querySelector('.ProseMirror')?.textContent.includes(arguments[0]);`,[marker]);});
  // Open actual product history UI, then inspect its sandboxed archived iframe via WebDriver.
@@ -81,7 +87,7 @@ try{
  await wait('history-frame',()=>execute(`return !!document.querySelector('.nutbook-history iframe[data-frame]');`));
  const frame=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.nutbook-history iframe[data-frame]'});
  await request('POST',`/session/${session}/frame`,{id:frame});
- await wait('archived-image-loaded',()=>execute(`return [...document.images].some(img=>img.complete&&img.naturalWidth>0);`));
+ await wait('archived-image-loaded',()=>execute(`return [...document.images].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
  await request('POST',`/session/${session}/frame`,{id:null});
  await execute(`document.querySelector('.nutbook-history [data-close]').click();`);
  await wait('history-closed',()=>execute(`return !document.querySelector('.nutbook-history');`));
@@ -89,7 +95,7 @@ try{
  // Native child surfaces are distinct WebDriver targets. Never substitute main DOM/HTTP success.
  await wait('html-child-script',async()=>{
    const handles=await request('GET',`/session/${session}/window/handles`);
-   for(const handle of handles){await request('POST',`/session/${session}/window`,{handle});await prompt();if(await execute(`return document.querySelector('#ready')?.textContent==='SCRIPT READY'&&!!document.querySelector('#native-html')&&getComputedStyle(document.body).getPropertyValue('--smoke-css').trim()==='ready'&&[...document.images].some(img=>img.complete&&img.naturalWidth>0);`))return true;}
+   for(const handle of handles){await request('POST',`/session/${session}/window`,{handle});await prompt();if(await execute(`return window.innerWidth>300&&window.innerHeight>200&&document.visibilityState==='visible'&&document.querySelector('#ready')?.textContent==='SCRIPT READY'&&!!document.querySelector('#native-html')&&getComputedStyle(document.body).getPropertyValue('--smoke-css').trim()==='ready'&&[...document.images].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`))return true;}
    return false;
  },20000);
  report.success=true;

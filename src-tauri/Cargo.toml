@@ -14,7 +14,7 @@ name = "NUTBOOK"
 path = "src/main.rs"
 
 [[bin]]
-name = "nutbook"
+name = "nutbook-cli-bin"
 path = "src/bin/nutbook.rs"
 
 [dependencies]

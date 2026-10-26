@@ -22,13 +22,15 @@ assert(smoke.includes("saved-to-disk"));
 assert(smoke.includes('debuggerAddress:'));
 assert(smoke.includes('appProcess=spawn(binary,[md]'));
 assert(smoke.includes('binarySubsystem,2'));
+assert(smoke.includes('stable-cli-deployed'));
+assert(!smoke.includes('NUTBOOK_STARTUP_TRACE'));
 assert(smoke.includes('native-webview-debug-ready'));
 assert(!smoke.includes("ms:edgeOptions':{binary,args:"));
 
 assert(!smoke.includes('mockInvoke'));
 assert(smoke.includes('archived-image-loaded'));
 assert(workflow.includes('test-content-resource-native.mjs --release --no-build'));
-assert(workflow.includes('--bin NUTBOOK --example content_protocol_probe'));
+assert(workflow.includes('--bin NUTBOOK --bin nutbook-cli-bin --example content_protocol_probe'));
 const native=readFileSync('scripts/test-content-resource-native.mjs','utf8');
 assert(native.includes("['darwin','win32']"));
 assert(native.includes('report.fd.before>0'));
