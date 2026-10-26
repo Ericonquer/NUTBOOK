@@ -340,7 +340,7 @@ mod tests {
         }
     }
 
-    /// 两个候选都存在但内容相同：显示结果一致，不算有害歧义。
+    /// 两个不同文件即使当前字节相同也不能判为同一身份。
     #[test]
     fn different_files_stay_ambiguous_even_when_bytes_match() {
         let dir = scratch_dir("identical");

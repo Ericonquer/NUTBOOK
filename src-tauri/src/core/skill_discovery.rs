@@ -369,25 +369,28 @@ fn is_forbidden_output_path(candidate: &Path) -> bool {
 
 fn normalized_path_string(path: &Path) -> String {
     #[cfg(windows)]
-    { return path.to_string_lossy().into_owned(); }
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::RootDir => parts.push(String::new()),
-            Component::CurDir => {}
-            Component::Normal(value) => parts.push(value.to_string_lossy().to_string()),
-            _ => {}
+    { path.to_string_lossy().into_owned() }
+    #[cfg(not(windows))]
+    {
+        let mut parts = Vec::new();
+        for component in path.components() {
+            match component {
+                Component::RootDir => parts.push(String::new()),
+                Component::CurDir => {}
+                Component::Normal(value) => parts.push(value.to_string_lossy().to_string()),
+                _ => {}
+            }
         }
-    }
 
-    if parts.is_empty() {
-        return path.to_string_lossy().to_string();
-    }
+        if parts.is_empty() {
+            return path.to_string_lossy().to_string();
+        }
 
-    if parts[0].is_empty() {
-        format!("/{}", parts[1..].join("/"))
-    } else {
-        parts.join("/")
+        if parts[0].is_empty() {
+            format!("/{}", parts[1..].join("/"))
+        } else {
+            parts.join("/")
+        }
     }
 }
 

@@ -2874,6 +2874,7 @@ dependencies = [
  "comrak",
  "core-foundation",
  "dispatch2",
+ "embed-resource",
  "html5ever 0.27.0",
  "image",
  "kamadak-exif",
