@@ -1,0 +1,43 @@
+Windows 阶段 1 第二轮复核（受审 WorkBuddy revision 5）
+基线 087d057d00469173668733e83e786e08419a60ab；受审 tracked diff SHA-256 59821295080c898b246b0769e75e076b3613bb111eb66922735e5f4296ac64d1。五个任务 untracked 内容指纹均与交接一致。控制区交来时已是 REVIEWING revision 6 / owner Codex，主审核对后继续此轮，不伪造另一次执行方交付。
+
+结论：NEEDS_REVISION。无需等待本地 Windows 机器才能继续工作；尚未整体通过，也没有 Windows runner 运行结论。主审未改业务代码、未提交/推送/启动 Actions。
+
+已确认改善
+- W02-R1 新复制资源生产者现在 encode_ref_segment，report#1/report%23/空格名字的已编码引用在普通解析链上单次往返正确；新增 Rust 七个定向测试全部由主审重跑通过。
+- W04-R1 历史 URI 引用现在解码为 OS 路径后再拼接，生产 JS 反例 report%20one → report one、report%2523 → report%23 正确。字符串合同已改善；尚无“真实 Windows 跨目录另存→重做→重开”结果。
+- W04-R2 POSIX 根 join 返回 /assets/x.png，旧阻断关闭，保留普通盘符/verbatim/UNC 测试通过。
+- W12-C1 较上一轮已有真实行为断言，不再只依赖 marker 缺失；但仍没有已安装 Windows 应用/child surface 行为验证。
+
+W02-R1 [P1，编码合同兼容性，原问题的剩余部分] 新解码器使旧有效引用丢图或静默换图
+位置：src-tauri/src/core/thumbnail.rs:329-338（新增 decode_relative_ref）；core/markdown_ref.rs:52-74（percent decode）；前后端其他引用消费者须按同一兼容策略核对。
+复现：独立目录 assets/report%23.png 内容 ORIGINAL、assets/report#.png 内容 DIFFERENT，引用 assets/report%23.png。直接提取 HEAD 版本与当前生产 resolve_cover_asset_path 函数并编译标准库 Rust probe、使用同一真实磁盘文件读取：
+  HEAD/旧版 → assets/report%23.png → ORIGINAL
+  当前实现 → assets/report#.png → DIFFERENT
+只有原文件存在时，当前实现改为解析不存在的 report#.png，丢图。当前新 helper 已编码生产者不受这个反例影响，但不能因此把旧用户文档静默换图视为固有代价。
+这次新增证据来自真实磁盘读取，足以证实旧封面资源行为回归；没有声称 Windows 实机已复现。它是编码合同变更的兼容问题，复用 W02-R1，不换号重置返修次数。
+修复边界：为新生成 URI 与历史引用制定可检验兼容策略；必要时根据可信来源/版本区分，或对真正歧义显式报告并让用户选择。不能盲目“优先解码”或“优先字面”就声称两种都兼容；两候选不同文件时不允许静默误选，不允许自动改用户正文或重命名文件。先明确兼容策略和证据，再实现。
+验收：旧字面 %23/%20/%25 文件名；新编码 #/空格/% 文件名；只有字面文件、只有解码文件、两者不同内容、两者同内容四种情况。打开/正文/封面/保存重开/跨目录另存行为一致，原件 hash 不变。必要的兼容决策若确需用户选择，提交具体可评估方案；不能把所有旧文档一律当新协议数据。
+
+W02-R2 [P2，未关闭] 全部目录段精确比较只是把错图改成普通 Windows alias 破图
+位置：dist/index.html:10464-10472 pathIdentityKey；scripts/test-windows-path-contract.mjs 新 case mismatch 拒绝断言。
+主审生产函数结果：root/base=\\?\C:\Users\Demo\Docs；相对 ./assets/normal.png 正常；合法绝对引用 C:\users\demo\docs\assets\normal.png 返回空 URL。普通大小写不敏感 NTFS 中这些拼写可指向同一文件，但函数无真实文件系统身份信息而一概拒绝。
+此项上一轮反馈已明确要求不能仅全改 case-sensitive。本次交接坦诚说明了降级，但该降级没有被用户批准为产品边界，因此不能关闭 W02-R2。
+根因层级：同步字符串映射不能判断卷/目录真实大小写语义，不应继续堆字符串特例。按项目停止线回到身份/资源解析边界。可评估后端在现有 preview 快照或批量资源解析阶段 canonicalize 后一次返回 scoped URL/映射，前端同步消费缓存；不必假设只能“每张图一次 IPC + 反复重绘”。具体方案需覆盖会话失效、保存更新、权限和性能，避免在输入热路径全量扫描。
+验收：Windows runner 上默认目录的真实 alias 成功、大小写敏感目录的两个不同文件不误映射；缺权限时明确未测，不能把纯 JS 断言当 NTFS 证据。新旧方案均保持授权 root 不扩大。
+
+W12 / 交接修正 [执行要求，不计新增产品缺陷]
+WorkBuddy 下一步写“下一阶段需用户先定”与已确认计划冲突。用户已安排 WorkBuddy 负责整个 Windows 修复，并同意 runner 为主、同事最后短验收。W05—W12 的代码、测试、工作流合同和本地可审查实现可继续；不需要再次批准范围。
+未授权 commit/push/PR/发布仍然有效。远端执行权限与本地实现分开：先实现并交审，真正需要上传/运行时由主审在具体可审查产物准备好后处理权限，不能把“需要远端运行”当“不能开始实现”。本机没有 gh 也不是必须用户手工网页执行的证据；届时检查可用连接器/CLI/凭证能力，不预设渠道。
+下一轮允许先完成 W05—W12 独立部分与轻量 runner 脚本，在本轮编码兼容/身份问题方案评估期间继续推进；不要重复等待同事机器，不以隐藏功能代替适配。
+PR：单 Windows job 原生定向测试 + 一次真实应用构建 + 短 smoke（不制 NSIS）；发布：安装本次唯一 NSIS 后跑同套 smoke，不再编译第二份。复用缓存、并行其他 OS、记录冷/热时间；runner 门槛必须验证实际 child 内容/脚本/图片和保存重开，不只检查主窗口存活。必要任务 skipped/缺报告/错提交保持失败。无自动运行/通知声称。
+
+本轮主审执行记录
+- Node v22.23.2：Windows path contract、history resource paths、webview threading、desktop entry 四脚本通过；external open entry bridge 通过。
+- npm run check:frontend；git diff --check：通过。
+- cargo test --lib markdown_ref::tests：3 passed。
+- cargo test --lib 四个精确 filter：markdown_image_reference_encodes_the_os_file_name_once、markdown_asset_src_decodes_the_reference_exactly_once、history_references_decode_percent_escapes_once、cover_asset_src_decodes_percent_escapes_once，各 1 passed。共 7 个新增 Rust 用例通过。
+- 旧/新生产函数提取编译运行，真实磁盘读取 old=ORIGINAL/new=DIFFERENT；JS 新编码/历史/根 join 成功和 alias 空 URL 记录在 evidence。
+- 未重跑全量 suite、原生 GUI/Windows/NSIS，无对应完成声明。无新增业务依赖，无产品代码修改；运行 cargo 会更新本地 ignored 构建缓存，不等于产品修改。
+
+收口：受审 revision 5，主审 publication revision 7，reviewer_last_processed_revision=5。返修轮次为第 2 轮，沿用已有 revision_cycles=2，不因新证据/旧问题子项换号重置次数。尚有一次默认自动返修额度；同一根因不得继续用局部字符串补丁试错，必要时带具体方案裁决。Memory impact: none。

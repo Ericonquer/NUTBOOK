@@ -39,7 +39,7 @@ assert.match(releaseWindows, /\["cargo", \["check", "--release", "--manifest-pat
 
 assert.match(ciWorkflow, /pull_request:/, "PRs must have a remote CI gate");
 assert.doesNotMatch(ciWorkflow, /push:\s*\n\s*branches:/, "merged main must not repeat the full PR matrix");
-for (const expected of ["PR quality and runtime tests", "PR macOS release compile", "PR Windows release compile"]) {
+for (const expected of ["PR quality and runtime tests", "PR macOS release compile", "PR Windows runtime gate"]) {
   assert.match(ciWorkflow, new RegExp(`name: ${expected}`), `CI must retain ${expected}`);
 }
 const qualityJob = ciWorkflow.slice(ciWorkflow.indexOf("quality:"), ciWorkflow.indexOf("macos-compile:"));

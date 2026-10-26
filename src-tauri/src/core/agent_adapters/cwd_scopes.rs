@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, env, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, time::SystemTime};
+use std::{collections::BTreeMap, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, time::SystemTime};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::Value;
@@ -57,7 +57,7 @@ pub fn scopes_from_cwds(
 }
 
 fn is_openclaw_system_workspace(path: &Path) -> bool {
-    let Some(home) = env::var_os("HOME") else { return false; };
+    let Some(home) = crate::core::platform::home_dir() else { return false; };
     is_openclaw_system_workspace_under(path, &PathBuf::from(home).join(".openclaw"))
 }
 

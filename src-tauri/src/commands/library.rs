@@ -131,10 +131,7 @@ pub fn open_library_location(
     };
     let open_target = nearest_existing_directory(&target).ok_or(AppError::IoError)?;
 
-    std::process::Command::new("open")
-        .arg(open_target)
-        .status()
-        .map_err(|_| AppError::IoError)?;
+    crate::core::platform::open_path(&open_target).map_err(|_| AppError::IoError)?;
 
     Ok(true)
 }

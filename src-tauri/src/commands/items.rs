@@ -303,7 +303,7 @@ mod tests {
         fs::write(&markdown_path, "# Original\n").expect("original Markdown should be written");
 
         let database = Database::new(&db_path).expect("db should initialize");
-        let state = AppState::new(database, std::env::temp_dir());
+        let state = AppState::new(database, db_path.with_extension("app-data"));
         state
             .upsert_library(Library {
                 id: 1,

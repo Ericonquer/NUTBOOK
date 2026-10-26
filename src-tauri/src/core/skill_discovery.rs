@@ -40,7 +40,7 @@ pub fn discover_artifact_skills(
 }
 
 fn default_skill_roots() -> Vec<PathBuf> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    let Some(home) = crate::core::platform::home_dir() else {
         return Vec::new();
     };
     let mut roots = vec![
@@ -349,7 +349,7 @@ fn resolve_declared_output_path(skill_root: &Path, relative_output_dir: &str) ->
 }
 
 fn is_forbidden_output_path(candidate: &Path) -> bool {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    let Some(home) = crate::core::platform::home_dir() else {
         return false;
     };
 
@@ -368,6 +368,8 @@ fn is_forbidden_output_path(candidate: &Path) -> bool {
 }
 
 fn normalized_path_string(path: &Path) -> String {
+    #[cfg(windows)]
+    { return path.to_string_lossy().into_owned(); }
     let mut parts = Vec::new();
     for component in path.components() {
         match component {
@@ -458,6 +460,15 @@ fn skill_root_rank(skill_root: &Path) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_preserve_drive_and_unc_identity() {
+        for raw in [r"C:\Users\demo\skills", r"D:\Users\demo\skills", r"\\?\C:\Users\demo\skills", r"\\server\share\skills"] {
+            assert_eq!(super::normalized_path_string(std::path::Path::new(raw)), raw);
+        }
+        assert_ne!(super::normalized_path_string(std::path::Path::new(r"C:\skills")), super::normalized_path_string(std::path::Path::new(r"D:\skills")));
+    }
+
     use std::{
         collections::HashSet,
         fs,

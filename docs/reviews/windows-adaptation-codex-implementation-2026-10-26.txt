@@ -1,0 +1,25 @@
+Codex Windows adaptation implementation — 2026-10-26
+Branch: codex/windows-adaptation; base 087d057d00469173668733e83e786e08419a60ab.
+Status: local implementation and local verification complete; native Windows acceptance pending.
+
+Changes
+1. Backend-authorized resource identity: item/session/generation derives base/root. No renderer-selected root, whole-file content comparison, or out-of-root access before ambiguity classification. Distinct canonical candidates fail as ambiguous.
+2. Frontend resource cache binds context and content revision; stale responses cannot publish. Milkdown, inspector, preview, pasted assets and reference-style Markdown consume the same identity rules. Local unknown resources are resolved before publishing URLs.
+3. Retained reviewed async child-WebView command changes and scoped URL encoding; quiet Windows subprocesses plus direct ShellExecute; USERPROFILE-based discovery, drive/UNC-preserving skill paths and system browser discovery.
+4. Windows recycle uses system Shell; UNC and >=260 UTF-16 path safely reject. Windows presentation capture reuses existing verified Node/browser and packaged Playwright adapter. No new product runtime/crate version.
+5. Lightweight Windows gate: focused native contracts, one production release executable build, actual WebView2 driver smoke. Exact NSIS install + same smoke before release asset staging. Aggregate requires all platform jobs success. Driver/test tools CI-only; branch protection not configured remotely.
+
+Verification actually executed on macOS
+- Frontend build, syntax checks, i18n (853 keys), release/CI contracts, YAML parsing, git diff --check passed.
+- 71 regression commands: initial run had two harness failures (missing resolver stub / old resolver name); fixed and rerun both successfully. Other 69 passed, including actual browser presentation capture adapter and resource-context regressions.
+- Rust lib: 752 passed, 12 ignored, zero failures in authorized local test environment.
+- Integration: HTML editing 67, scoped origin 38, baseline boundary 5, history resource isolation 1 passed.
+- New Windows path alias and drive/UNC tests are cfg(windows) and not executed here.
+
+Acceptance still required
+- First real Windows runner may reveal compile/driver/child-target integration issues; configured scripts are not native execution evidence. Child inaccessible is a hard failure.
+- Installer byte size, installed disk footprint, offline consumer experience, console visibility, IME/focus/minimize/restore and real inserted PNG/paste require native Windows evidence. Existing CI environment is not a clean consumer machine.
+- Presentation uncached pages start a capture process; Windows latency not measured. Recycle long/network paths remain safe errors.
+- No commit, push, PR, remote workflow, branch-protection edit or release performed. User authorization required for Git delivery/remote run under existing plan.
+
+Memory impact: none. Existing WorkBuddy files preserved; takeover snapshot /tmp/nutbook-windows-before-codex-20261026.tar.gz.

@@ -1,6 +1,6 @@
 use crate::errors::AppError;
 use serde::Deserialize;
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,7 +23,7 @@ pub fn open_external_url_command(payload: OpenExternalUrlRequest) -> Result<bool
 
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
+        crate::core::platform::command("open")
             .arg(parsed.as_str())
             .spawn()
             .map_err(|_| AppError::InternalError)?;
@@ -32,10 +32,7 @@ pub fn open_external_url_command(payload: OpenExternalUrlRequest) -> Result<bool
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
-            .args(["/c", "start", "", parsed.as_str()])
-            .spawn()
-            .map_err(|_| AppError::InternalError)?;
+        crate::core::platform::open_shell(parsed.as_str()).map_err(|_| AppError::InternalError)?;
         Ok(true)
     }
 
@@ -61,7 +58,7 @@ pub fn open_downloaded_installer(cache_dir: &Path, installer_path: &Path) -> Res
 
     #[cfg(target_os = "macos")]
     {
-        let status = Command::new("open")
+        let status = crate::core::platform::command("open")
             .arg(&canonical_installer)
             .status()
             .map_err(|_| AppError::UpdateFailed("could not open the downloaded DMG".to_string()))?;
@@ -73,20 +70,8 @@ pub fn open_downloaded_installer(cache_dir: &Path, installer_path: &Path) -> Res
 
     #[cfg(target_os = "windows")]
     {
-        let status = Command::new("cmd")
-            .args([
-                "/c",
-                "start",
-                "",
-                canonical_installer.to_string_lossy().as_ref(),
-            ])
-            .status()
-            .map_err(|_| {
-                AppError::UpdateFailed("could not start the downloaded installer".to_string())
-            })?;
-        if !status.success() {
-            return Err(AppError::UpdateFailed("could not start the downloaded installer".to_string()));
-        }
+        crate::core::platform::open_shell(&canonical_installer)
+            .map_err(|_| AppError::UpdateFailed("could not start the downloaded installer".into()))?;
         return Ok(());
     }
 

@@ -1,0 +1,48 @@
+Windows 阶段 1 第三轮复核（受审 WorkBuddy revision 8）
+基线：087d057d00469173668733e83e786e08419a60ab。tracked diff SHA-256：f1ec67707531d7511dff194bcf1edf15a9384e89b7bea8613b1c3072106897f9；6 个任务 untracked 文件逐项核对一致。Codex 认领 REVIEWING revision 9 后进行复核，未改业务代码。
+
+结论：不通过。磁盘双候选裁决方向解决了上一轮“解码优先”的部分问题，但新批量链路有可复现的目录基准、缓存失效、授权先后问题；原始绝对路径 alias 仍未进入后端裁决。本轮达到约定三轮返修上限，发布 WAITING_USER revision 10，暂停自动返修，不自动启动第四轮。
+
+W02-R2 / A [P1] 误把资料库授权 root 当成 Markdown 相对资源基目录
+位置：dist/index.html:10717-10731；src-tauri/src/commands/preview.rs:2869-2938；对照 preview.rs:116-199 markdown_resource_context_for_item。
+事实：现有 preview 分开提供 root（资料库授权根）与 base_dir（当前 Markdown 的父目录），它们只有单文件/根层文档时才相同。新请求只发 {root,references}，Rust 却 resolve_ref_on_disk(reference,&root)。
+复现：真实磁盘 library/docs/assets/a.png 存在，Markdown 位于 library/docs/note.md，引用 assets/a.png；提取当前生产 resolve_preview_resources_impl + markdown_ref、以标准库 Rust harness 执行，root=library 返回 missing。若 library/assets/a.png 也存在，则会解析另一文件。新缓存将错误结果覆盖原先按 resourceBaseDir 正确的同步解析。
+影响：添加文件夹后打开子目录 Markdown，正文/inspector 图片丢失或错图，跨 Windows/macOS。现有测试只设 root==base，漏了正式资料库用户路径。
+修复合同：必须区分授权 root、文档 base 和相对引用；从 item/session 后端确定上下文，以 base 解析、以 root 验权，再返回 origin 内路径。不允许把 root 改成 base 来缩减合法 folder 授权。验收至少两个子目录同名 assets/a.png、../ 仍在 root 内及越界 canary。
+
+W02-R2 / B [P1] 缓存 root 变化后旧条目被重新启用，携带旧 origin
+位置：dist/index.html:10679-10749 resolvePreviewResources/readResourceResolution。
+事实：过滤 pending 在检查 root 之前读取旧 byReference；随后 cache.root=root 却不清旧条目；缓存也没有绑定 origin/session/revision。late-response guard 比较的是 cache.root 字段而非当前 tab.preview.root/origin，所以并不完整。
+生产 JS 复现：先 root=C:\library、origin=:4001 缓存 assets/a.png；改为 D:\other、origin=:4002，再解析 [assets/a.png,assets/b.png]。请求只发 b；cache.root 被改为 D，readResourceResolution(a) 重新命中 :4001/assets/a.png。
+影响：来源修复/另存重绑定/预览会话重建时可显示旧文件或请求已撤销端口。仅改 origin 但 root 相同时，缓存始终有效，也会保留旧 URL。missing/ambiguous 负缓存还可能阻止资源恢复后重新解析。
+修复合同：用完整会话/上下文身份分代；先失效后取 pending；异步发布前核对 tab 当前身份；取消/旧响应不能写入新缓存；资源/文档版本改变可重算负缓存。通过行为测试覆盖 root 改变+新旧引用混合、origin-only 改变、旧响应晚到、缺图恢复。
+
+W02-R1 / C [P1] 授权验证晚于双候选读取；同步命令存在无预算内容读取
+位置：core/markdown_ref.rs:153-171 same_file_or_same_content、:206-257 resolve_ref_on_disk；commands/preview.rs:2889-2949 resolve_preview_resources(_impl)。
+事实：resolve_ref_on_disk 允许 ..，在 canonical root 检查前调用 same_file_or_same_content，并对两个候选 fs::read 全量读入。只有 Resolved 分支才在 command 中验证 strip_prefix；Ambiguous 分支直接返回 ambiguous。交接声称“只做 canonicalize、不读内容”，与代码不符。
+真实磁盘复现（只在主审创建的 /tmp fixture）：authorized 为授权 root；../outside/x%23.png 与 ../outside/x#.png 为 root 外不同文件、均 5 字节。内容 AMBER/BERRY 时请求返回 ambiguous；改成 AMBER/AMBER 时同一请求返回 outside。内容相等性影响了响应，证实越界检查之前已读取并比较了外部文件。未声称泄露完整文件内容或存在已验证远程攻击。
+此外，公开 Tauri command 只接 renderer 给的 root，没有 item/session 身份校验，任意存在目录可被当作 root。前端“不批量探测绝对路径”不能成为后端授权。每批 512 条只是数量限制，双候选可各为大文件，且 command 仍 pub fn，不能认为这是轻量无阻塞查询。
+修复合同：从有效 item/session 推导授权和基目录；每个候选 canonicalize/最近存在父目录验权必须先于存在性/内容裁决，越界统一拒绝，不能回显越界歧义；不接受 renderer 自定义授权根。限定引用长度、数量、文件字节/总预算和执行时间，避免主线程全量读取；需要内容比对时有界流式处理或其他不会把内存放大的方案，并按运行线程边界执行。
+验收：root 外双候选无论存在、字节相同或不同都在读取前一致拒绝；伪造 root、过期 session、越界 symlink 失败；有预算的大文件反例会失败且应用能响应。测试不能只断言最终 relativePath=null。
+
+W02-R2 / D [P2，原阻断尚未关闭] 绝对路径 alias 被排除在新身份裁决之外
+位置：dist/index.html:10698-10704 isPreviewBatchReference；resolveMarkdownImageUrl 的同步回退；pathIdentityKey 仍对目录严格比较。
+复现：isPreviewBatchReference('c:\LIBRARY\docs\assets\a.png') 返回 false；因此上一轮明确的 root=\\?\C:\Users\Demo\Docs 与 C:\users\demo\docs\assets\normal.png alias 反例仍走同一严格比较并返回空 URL。
+影响：新后端缓存只改善相对引用，没有修复被要求处理的真实绝对路径 alias。不能把测试 stub 预置 resolved 结果当旧失败路径已经覆盖。
+修复合同：不扩大授权前提下允许后端裁决授权范围内绝对别名，用文档/session 上下文验证候选；普通 NTFS alias 成功，case-sensitive 两目录不误映射。若决定不支持此类引用，须作为明确产品变更获得用户确认，不能在交审中自动降级。
+
+W02-R1 / E [P2，用户反馈缺口] 歧义结果仍是破图，且正文与编辑器处理不同
+位置：setupMarkdownImageResources 移除 src；Milkdown/inspector resolveImageSrc 回调仍 return resolveMarkdownImageUrl(...) || src。
+交接确认歧义没有专门文案。返回 Ambiguous 是正确的底层裁决，但用户不知道原因和恢复办法；编辑器还会回退原始 src，而普通 preview 则移除，合同不一致。引用式 Markdown (![x][id] + 定义) 不会被新 regex 收集进入 batch，仍可能绕过磁盘兼容裁决。
+修复合同：本地化的简洁“引用存在两个不同文件”状态/tooltip及可理解的恢复路径，保留正文，不自动改名；拒绝/未解析状态不得回退成另一条资源解释。用真实 parser 或现有解析能力收集图片引用，至少覆盖内联、引用式、portable HTML 和新插入图片，避免只测 regex 与 cache helper。
+
+本轮已通过的独立验证
+- Node v22.23.2：test-windows-resource-identity、test-windows-history-resource-paths、test-external-open-entry-bridge、test-windows-path-contract 全通过；git diff --check 通过。
+- cargo test --lib markdown_ref::tests -- --test-threads=1：11 passed。
+- 新反例使用当前生产函数提取执行：JS cache 实际输出；Rust impl（请求/结果容器去除序列化，仅保留相同字段/算法）+真实 markdown_ref，真实磁盘 nested root missing 和越界同/不同内容响应。它们是源码行为和本地磁盘证据，不冒充完整原生 app/Windows 证据。
+- 未做 Windows runner、NSIS、原生 GUI；W05—W12 全部尚未实现，workflow 无改动。
+
+建议下一步（本轮不自动实施）
+先冻结资源解析合同：有效文档/外部会话身份→后端授权 root+文档 base→候选验权→有界磁盘裁决→带 session/revision 的缓存结果→统一渲染状态。先拿一个真实嵌套目录 Markdown 跑最小链，再扩展。不要让 resolver、cache 和系统权限继续分头试错。
+达到约定三轮上限，暂停第四轮自动返修，由用户决定是否按该合同继续或调整执行安排；主审不擅自接管产品代码。后续 W05—W12 范围本身已授权，不需重新讨论范围，但仍不能伪称已开始或完成。无 commit/push/PR/发布授权改变。
+Memory impact: none。

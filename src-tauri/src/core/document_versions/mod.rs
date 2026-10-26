@@ -5,7 +5,7 @@ mod storage;
 pub use storage::*;
 
 mod capture;
-pub use capture::{capture_markdown, CapturedMarkdown, CapturedDocument};
+pub use capture::{image_references, capture_markdown, CapturedMarkdown, CapturedDocument};
 
 mod markdown_projection;
 pub use markdown_projection::relocate_markdown;

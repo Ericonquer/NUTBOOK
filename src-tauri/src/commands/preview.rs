@@ -47,7 +47,7 @@ use crate::{
             HtmlRuntimeSession,
         },
         thumbnail::{
-            export_long_image_with_chromium, export_pdf_with_chromium, find_local_chromium_executable,
+            export_long_image_with_chromium, export_pdf_with_chromium, find_export_chromium_executable,
             ChromiumLongImageInput, ChromiumPdfInput,
         },
     },
@@ -107,8 +107,17 @@ pub fn get_item_preview(
             .scoped_file_url_for_item(&format!("preview:{item_id}"), &item, path)
             .unwrap_or_default()
     };
-    let markdown_resource = markdown_resource_context_for_item(&state, &item)?;
-    load_document_payload(&item, url, markdown_resource)
+    let resource_key = format!("preview:{item_id}:{}", uuid::Uuid::new_v4());
+    let markdown_resource = markdown_resource_context_for_item(&state, &item, &resource_key)?;
+    let origin = markdown_resource.origin.clone();
+    let result = load_document_payload(&item, url, markdown_resource);
+    if result.is_err() { let _ = state.release_document_resource(&origin); }
+    result
+}
+
+#[tauri::command]
+pub fn release_document_resource(state: tauri::State<'_, AppState>, origin: String) -> Result<bool, AppError> {
+    state.release_document_resource(&origin)
 }
 
 /// Build the complete context that the Markdown host needs to turn a local
@@ -118,6 +127,7 @@ pub fn get_item_preview(
 fn markdown_resource_context_for_item(
     state: &AppState,
     item: &ItemDetail,
+    resource_key: &str,
 ) -> Result<MarkdownResourceContext, AppError> {
     if item.summary.file_type != "markdown" {
         return Ok(MarkdownResourceContext::default());
@@ -167,7 +177,7 @@ fn markdown_resource_context_for_item(
     })?;
 
     let server = state
-        .scoped_server(&format!("preview:{}", item.summary.id), &canonical_root)
+        .scoped_server(resource_key, &canonical_root)
         .map_err(|error| match error {
             // Preserve the existing actionable registry diagnosis and fail
             // closed.  It never grants another root or falls back to `/fs`.
@@ -181,7 +191,7 @@ fn markdown_resource_context_for_item(
             other => other,
         })?;
     let origin = server.resource_base();
-    if !origin.starts_with("http://127.0.0.1:") {
+    if !crate::core::content_resource::is_resource_url(&origin) {
         return Err(AppError::MarkdownResourceUnavailable(
             "SCOPED_SERVER_STARTUP_FAILED: the item-scoped resource origin is invalid; reopen the item and retry"
                 .to_string(),
@@ -203,8 +213,12 @@ pub fn get_item_inspector_snapshot(
     payload: GetItemPreviewRequest,
 ) -> Result<MarkdownInspectorSnapshot, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
-    let markdown_resource = markdown_resource_context_for_item(&state, &item)?;
-    load_markdown_inspector_snapshot(&item, markdown_resource)
+    let key = format!("inspector:{}:{}", item.summary.id, uuid::Uuid::new_v4());
+    let markdown_resource = markdown_resource_context_for_item(&state, &item, &key)?;
+    let origin = markdown_resource.origin.clone();
+    let result = load_markdown_inspector_snapshot(&item, markdown_resource);
+    if result.is_err() { let _ = state.release_document_resource(&origin); }
+    result
 }
 
 /// 廉价 revision 复核：只返回当前内容 hash，供检查视图丢弃晚到/过期实例。
@@ -218,7 +232,7 @@ pub fn get_item_content_revision(
 }
 
 #[tauri::command]
-pub fn attach_inspector_more_overlay_command(
+pub async fn attach_inspector_more_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     payload: AttachInspectorMoreOverlayRequest,
@@ -243,7 +257,7 @@ pub fn close_inspector_more_overlay_command(
 }
 
 #[tauri::command]
-pub fn attach_settings_overlay_command(
+pub async fn attach_settings_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     payload: AttachSettingsOverlayRequest,
@@ -344,7 +358,7 @@ pub fn open_html_window(
 }
 
 #[tauri::command]
-pub fn open_html_detached_window(
+pub async fn open_html_detached_window(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: OpenHtmlWindowRequest,
@@ -361,7 +375,7 @@ pub fn open_html_detached_window(
 }
 
 #[tauri::command]
-pub fn attach_html_runtime_host_command(
+pub async fn attach_html_runtime_host_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -447,7 +461,7 @@ fn external_html_runtime_payload(
 /// P2-R92a：`viewState` 仅在**新建** child 时回放（surface 隐藏即被 close，
 /// 再次激活必然重建）。已存在的 surface 走 bounds-only 早退，忽略该参数。
 #[tauri::command]
-pub fn attach_external_html_runtime_host_command(
+pub async fn attach_external_html_runtime_host_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -578,7 +592,7 @@ fn external_find_identity(session_id: &str) -> String {
 /// 身份裁决 = sessionId + generation（与 host attach 同一函数）；外部会话
 /// 不开放 HTML 编辑，`can_replace` 恒 false。
 #[tauri::command]
-pub fn attach_external_html_find_overlay_command(
+pub async fn attach_external_html_find_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -679,7 +693,7 @@ pub fn external_html_find_action_command(
 }
 
 #[tauri::command]
-pub fn attach_html_presentation_preview_command(
+pub async fn attach_html_presentation_preview_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -742,7 +756,7 @@ pub fn set_html_runtime_host_visibility_command(
 }
 
 #[tauri::command]
-pub fn attach_html_runtime_controls_overlay_command(
+pub async fn attach_html_runtime_controls_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -823,7 +837,7 @@ pub fn set_html_runtime_controls_overlay_bounds_command(
 }
 
 #[tauri::command]
-pub fn attach_html_find_overlay_command(
+pub async fn attach_html_find_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -875,7 +889,7 @@ pub fn set_html_find_overlay_visibility_command(
 }
 
 #[tauri::command]
-pub fn attach_html_edit_toolbar_overlay_command(
+pub async fn attach_html_edit_toolbar_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -900,7 +914,7 @@ pub fn attach_html_edit_toolbar_overlay_command(
 }
 
 #[tauri::command]
-pub fn attach_html_edit_leave_confirm_overlay_command(
+pub async fn attach_html_edit_leave_confirm_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -1175,7 +1189,7 @@ pub fn html_runtime_view_state_command(
 }
 
 #[tauri::command]
-pub fn attach_markdown_controls_overlay_command(
+pub async fn attach_markdown_controls_overlay_command(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
@@ -2744,7 +2758,7 @@ pub fn export_markdown_pdf(
         .ok_or(AppError::InvalidParams)?;
 
     let template = markdown_export_template(&app, READING_LIGHT_TEMPLATE);
-    export_markdown_pdf_to_path(&state, payload, &target, template, find_local_chromium_executable())
+    export_markdown_pdf_to_path(&state, payload, &target, template, find_export_chromium_executable())
 }
 
 #[tauri::command]
@@ -2787,7 +2801,7 @@ pub async fn export_markdown_long_image_to_path_command(
         markdown_export_template(&app, READING_LIGHT_TEMPLATE)
     };
     let database = state.database.clone();
-    let chromium_path = find_local_chromium_executable();
+    let chromium_path = find_export_chromium_executable();
     tauri::async_runtime::spawn_blocking(move || {
         export_markdown_long_image_to_selected_path(&database, payload, template, chromium_path)
     })
@@ -2819,7 +2833,7 @@ pub async fn export_markdown_long_image(
         markdown_export_template(&app, READING_LIGHT_TEMPLATE)
     };
     let database = state.database.clone();
-    let chromium_path = find_local_chromium_executable();
+    let chromium_path = find_export_chromium_executable();
     tauri::async_runtime::spawn_blocking(move || {
         export_markdown_long_image_to_path(&database, payload, &target, template, chromium_path)
     })
@@ -2848,25 +2862,118 @@ fn is_supported_markdown_image(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 写进正文的图片引用：URI reference，文件名段恰好编码一次（W02-R1）。
 fn markdown_relative_asset_path(file_name: &str) -> String {
-    format!("./assets/{}", file_name.replace('\\', "/"))
+    format!(
+        "./assets/{}",
+        crate::core::markdown_ref::encode_ref_segment(file_name)
+    )
+}
+
+// ------------------------------------------------------------------
+// W02-R2：预览资源的身份裁决
+//
+// 同步字符串比较无法判断卷/目录的真实大小写语义：普通 NTFS 目录里
+// `Docs\assets` 与引用 `docs\assets` 是同一文件，而目录级 case-sensitive
+// 目录里可能是两个不同文件。只有 canonicalize 之后的文件系统事实能裁决，
+// 所以按 root **批量**解析一次（每次预览一次 IPC，不是每张图一次），
+// 前端同步消费缓存。
+// ------------------------------------------------------------------
+
+const MAX_PREVIEW_RESOURCE_REFERENCES: usize = 4096;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolvePreviewResourcesRequest {
+    pub item_id: Option<i64>,
+    pub session_id: Option<String>,
+    pub generation: Option<u64>,
+    #[serde(default)] pub references: Vec<String>,
+    pub markdown: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewResourceResolution {
+    pub reference: String,
+    pub relative_path: Option<String>,
+    pub state: String,
+}
+
+#[tauri::command]
+pub async fn resolve_preview_resources(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    payload: ResolvePreviewResourcesRequest,
+) -> Result<Vec<PreviewResourceResolution>, AppError> {
+    if webview.label() != "main" { return Err(AppError::InvalidSession); }
+    // Identity only; renderer cannot grant itself an authorization root.
+    let (path, root) = match (payload.item_id, payload.session_id.as_deref()) {
+        (Some(id), None) => {
+            let item = state.get_item_detail(id)?;
+            if item.summary.file_type != "markdown" { return Err(AppError::InvalidParams); }
+            (PathBuf::from(&item.summary.file_path), state.authorization_root_for_item(&item)?)
+        },
+        (None, Some(id)) => {
+            let session = state.external_sessions.get(id).ok_or(AppError::InvalidSession)?;
+            if session.closed || Some(session.generation) != payload.generation || session.file_type != "markdown" {
+                return Err(AppError::InvalidSession);
+            }
+            let path = PathBuf::from(&session.raw_path);
+            let root = path.parent().ok_or(AppError::InvalidParams)?.to_path_buf();
+            (path, root)
+        },
+        _ => return Err(AppError::InvalidParams),
+    };
+    let canonical = path.canonicalize().map_err(|_| AppError::InvalidParams)?;
+    let base = canonical.parent().ok_or(AppError::InvalidParams)?.to_path_buf();
+    let root = root.canonicalize().map_err(|_| AppError::InvalidParams)?;
+    if !canonical.starts_with(&root) { return Err(AppError::InvalidParams); }
+    let mut references = payload.references;
+    if let Some(markdown) = payload.markdown {
+        if markdown.len() > 8 * 1024 * 1024 { return Err(AppError::InvalidParams); }
+        references.extend(crate::core::document_versions::image_references(&markdown));
+    }
+    references.sort(); references.dedup();
+    let result = tauri::async_runtime::spawn_blocking(move || resolve_preview_resources_impl(&root, &base, references))
+        .await.map_err(|_| AppError::InternalError)?;
+    if let Some(id) = payload.session_id {
+        let session = state.external_sessions.get(&id).ok_or(AppError::InvalidSession)?;
+        if session.closed || Some(session.generation) != payload.generation { return Err(AppError::InvalidSession); }
+    }
+    result
+}
+
+pub fn resolve_preview_resources_impl(
+    root: &std::path::Path, base: &std::path::Path, references: Vec<String>,
+) -> Result<Vec<PreviewResourceResolution>, AppError> {
+    if references.len() > MAX_PREVIEW_RESOURCE_REFERENCES || references.iter().any(|r| r.len() > 16 * 1024) {
+        return Err(AppError::InvalidParams);
+    }
+    let canonical_root = root.canonicalize().map_err(|_| AppError::InvalidParams)?;
+    let started = std::time::Instant::now();
+    let mut resolutions = Vec::with_capacity(references.len());
+    for reference in references {
+        if started.elapsed() > std::time::Duration::from_secs(3) { return Err(AppError::PreviewLoadFailed); }
+        let (relative_path, state) = match crate::core::markdown_ref::resolve_ref_within(&reference, base, &canonical_root) {
+            crate::core::markdown_ref::RefResolution::Resolved { path, .. } => {
+                let relative = path.strip_prefix(&canonical_root).map_err(|_| AppError::InvalidParams)?;
+                (Some(relative.to_string_lossy().replace('\\', "/")), "resolved")
+            },
+            crate::core::markdown_ref::RefResolution::Missing => (None, "missing"),
+            crate::core::markdown_ref::RefResolution::Outside => (None, "outside"),
+            crate::core::markdown_ref::RefResolution::Ambiguous { .. } => (None, "ambiguous"),
+        };
+        resolutions.push(PreviewResourceResolution { reference, relative_path, state: state.into() });
+    }
+    Ok(resolutions)
 }
 
 fn markdown_asset_path_from_src(markdown_path: &std::path::Path, image_src: &str) -> Result<std::path::PathBuf, AppError> {
-    let src = image_src
-        .split(['#', '?'])
-        .next()
-        .unwrap_or("")
-        .trim()
-        .replace('\\', "/");
-    if src.is_empty()
-        || src.starts_with('/')
-        || src.starts_with("data:")
-        || src.starts_with("blob:")
-        || src.contains("://")
-    {
-        return Err(AppError::InvalidParams);
-    }
+    // 引用是 URI reference：先切 fragment/query，再每段解码恰好一次（W02-R1）。
+    // 解码出分隔符的段由 decode_relative_ref 直接拒绝，不会重建目录穿越。
+    let src = crate::core::markdown_ref::decode_relative_ref(image_src)
+        .ok_or(AppError::InvalidParams)?;
 
     let relative = std::path::Path::new(&src);
     let mut components = relative.components();
@@ -2891,7 +2998,24 @@ fn markdown_asset_path_from_src(markdown_path: &std::path::Path, image_src: &str
     }
 
     let markdown_dir = markdown_path.parent().ok_or(AppError::InvalidParams)?;
-    let asset_path = markdown_dir.join("assets").join(asset_relative);
+    let assets_dir = markdown_dir.join("assets");
+    // W02-R1 兼容：磁盘事实优先。历史文档的 `assets/report%23.png` 指的是磁盘上
+    // 字面就叫 `report%23.png` 的文件；解码优先会静默换到 `report#.png`。
+    // 两个候选都是真实文件且内容不同 → 显式失败，不猜。
+    let asset_path = match crate::core::markdown_ref::resolve_ref_on_disk(image_src, markdown_dir) {
+        crate::core::markdown_ref::RefResolution::Resolved { path, .. } => path,
+        // 保持既有语义：引用合法但文件不存在时返回候选路径，由调用方 exists 判断。
+        crate::core::markdown_ref::RefResolution::Missing => assets_dir.join(asset_relative),
+        crate::core::markdown_ref::RefResolution::Outside => return Err(AppError::InvalidParams),
+        crate::core::markdown_ref::RefResolution::Ambiguous {
+            decoded_relative,
+            literal_relative,
+        } => {
+            return Err(AppError::AmbiguousImageReference(format!(
+                "{literal_relative} and {decoded_relative} are different files"
+            )))
+        }
+    };
     if !is_supported_markdown_image(&asset_path) {
         return Err(AppError::UnsupportedFileType);
     }
@@ -3222,6 +3346,150 @@ pub fn release_markdown_cover_lease(
 
 #[cfg(test)]
 mod tests {
+    // W02-R1：Markdown 图片引用 = URI reference，每段恰好一次 percent-encoding；
+    // OS 文件名 = 解码一次的结果。生产者必须编码，否则 `#` 会被当成 fragment。
+    #[test]
+    fn markdown_image_reference_encodes_the_os_file_name_once() {
+        assert_eq!(super::markdown_relative_asset_path("normal.png"), "./assets/normal.png");
+        assert_eq!(super::markdown_relative_asset_path("report#1.png"), "./assets/report%231.png");
+        assert_eq!(super::markdown_relative_asset_path("report%23.png"), "./assets/report%2523.png");
+        assert_eq!(super::markdown_relative_asset_path("report one.png"), "./assets/report%20one.png");
+        assert_eq!(super::markdown_relative_asset_path("100%.png"), "./assets/100%25.png");
+        assert_eq!(super::markdown_relative_asset_path("中文.png"), "./assets/%E4%B8%AD%E6%96%87.png");
+    }
+
+    #[test]
+    fn markdown_asset_src_decodes_the_reference_exactly_once() {
+        let markdown = std::env::temp_dir().join("nutbook-ref-contract").join("note.md");
+        let assets_dir = markdown.parent().expect("parent").join("assets");
+        for (src, file_name) in [
+            ("./assets/report%231.png", "report#1.png"),
+            ("./assets/report%2523.png", "report%23.png"),
+            ("./assets/report%20one.png", "report one.png"),
+            ("./assets/100%25.png", "100%.png"),
+        ] {
+            let resolved = super::markdown_asset_path_from_src(&markdown, src).expect(src);
+            assert_eq!(resolved, assets_dir.join(file_name), "{src}");
+        }
+        // 解码后仍必须是单个安全段：编码的分隔符不能重建目录穿越。
+        assert!(super::markdown_asset_path_from_src(&markdown, "./assets/%2E%2E%2Fescape.png").is_err());
+        assert!(super::markdown_asset_path_from_src(&markdown, "./assets/a%5Cb.png").is_err());
+    }
+
+    // W02-R1 剩余部分：旧文档的字面 `%` 引用与新协议的编码引用必须都按
+    // **磁盘事实**裁决，两种候选都真实存在且内容不同时显式失败。
+    #[test]
+    fn markdown_asset_src_follows_disk_facts_for_percent_names() {
+        let root = temp_path("legacy-percent");
+        let assets = root.join("assets");
+        fs::create_dir_all(&assets).expect("assets dir");
+        let markdown = root.join("note.md");
+        fs::write(&markdown, "# note").expect("markdown");
+
+        // 1) 只有字面文件：旧文档命中磁盘上真实存在的 `report%23.png`。
+        fs::write(assets.join("report%23.png"), b"ORIGINAL").expect("literal file");
+        assert_eq!(
+            super::markdown_asset_path_from_src(&markdown, "./assets/report%23.png")
+                .expect("literal hit"),
+            assets.join("report%23.png").canonicalize().unwrap()
+        );
+
+        // 2) 再加一个内容不同的解码文件：显式歧义，不能静默换图。
+        fs::write(assets.join("report#.png"), b"DIFFERENT").expect("decoded file");
+        let error = super::markdown_asset_path_from_src(&markdown, "./assets/report%23.png")
+            .expect_err("conflicting candidates must fail");
+        assert!(
+            matches!(error, AppError::AmbiguousImageReference(_)),
+            "expected an explicit ambiguity, got {error:?}"
+        );
+
+        // Distinct paths remain ambiguous even if their bytes happen to match today.
+        fs::write(assets.join("report#.png"), b"ORIGINAL").expect("same content");
+        assert!(matches!(super::markdown_asset_path_from_src(&markdown, "./assets/report%23.png"), Err(AppError::AmbiguousImageReference(_))));
+
+        // 4) 新协议生成的引用仍然只命中解码文件。
+        fs::write(assets.join("report#1.png"), b"NEW").expect("new file");
+        assert_eq!(
+            super::markdown_asset_path_from_src(&markdown, "./assets/report%231.png")
+                .expect("encoded hit"),
+            assets.join("report#1.png").canonicalize().unwrap()
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // W02-R2：身份裁决必须来自文件系统事实（canonicalize），而不是字符串比较。
+    #[test]
+    fn preview_resource_resolution_uses_filesystem_identity() {
+        let root = temp_path("resource-identity");
+        let assets = root.join("assets");
+        fs::create_dir_all(&assets).expect("assets");
+        fs::write(assets.join("normal.png"), b"PNG").expect("image");
+        let outside = temp_path("resource-outside");
+        fs::create_dir_all(&outside).expect("outside");
+        fs::write(outside.join("secret.png"), b"SECRET").expect("secret");
+
+        let request = super::ResolvePreviewResourcesRequest {
+            item_id: None, session_id: None, generation: None, markdown: None,
+            references: vec![
+                "./assets/normal.png".to_string(),
+                format!(
+                    "../{}/secret.png",
+                    outside.file_name().unwrap().to_string_lossy()
+                ),
+                "./assets/missing.png".to_string(),
+            ],
+        };
+        let resolutions = super::resolve_preview_resources_impl(&root, &root, request.references).expect("resolutions");
+        assert_eq!(resolutions.len(), 3);
+        assert_eq!(resolutions[0].reference, "./assets/normal.png");
+        assert_eq!(resolutions[0].state, "resolved");
+        assert_eq!(
+            resolutions[0].relative_path.as_deref(),
+            Some("assets/normal.png")
+        );
+        assert_eq!(resolutions[1].state, "outside");
+        assert!(resolutions[1].relative_path.is_none());
+        assert_eq!(resolutions[2].state, "missing");
+        assert!(resolutions[2].relative_path.is_none());
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn preview_resource_resolution_reports_ambiguity_and_bounds_the_batch() {
+        let root = temp_path("resource-ambiguous");
+        let assets = root.join("assets");
+        fs::create_dir_all(&assets).expect("assets");
+        fs::write(assets.join("report%23.png"), b"ORIGINAL").expect("literal");
+        fs::write(assets.join("report#.png"), b"DIFFERENT").expect("decoded");
+
+        let request = super::ResolvePreviewResourcesRequest {
+            item_id: None, session_id: None, generation: None, markdown: None,
+            references: vec!["./assets/report%23.png".to_string()],
+        };
+        let resolutions = super::resolve_preview_resources_impl(&root, &root, request.references).expect("resolutions");
+        assert_eq!(resolutions[0].state, "ambiguous");
+        assert!(
+            resolutions[0].relative_path.is_none(),
+            "ambiguity must not pick a file"
+        );
+
+        let too_many = super::ResolvePreviewResourcesRequest {
+            item_id: None, session_id: None, generation: None, markdown: None,
+            references: (0..=super::MAX_PREVIEW_RESOURCE_REFERENCES)
+                .map(|index| format!("assets/{index}.png"))
+                .collect(),
+        };
+        assert!(matches!(
+            super::resolve_preview_resources_impl(&root, &root, too_many.references),
+            Err(AppError::InvalidParams)
+        ));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
     use std::{fs, time::{SystemTime, UNIX_EPOCH}};
 
     use crate::{
@@ -3506,16 +3774,11 @@ mod tests {
             .expect("item should be inserted");
 
         let item = state.get_item_detail(1).expect("detail should load");
-        // The sandbox running this unit suite does not permit loopback bind;
-        // use the same complete context shape that the scoped server emits and
-        // keep the actual bind/startup path covered by the production helper.
+        // Exercise the production native resource grant; it needs no loopback socket.
         let canonical_root = root.canonicalize().expect("canonical root");
-        let context = MarkdownResourceContext {
-            origin: "http://127.0.0.1:43199".to_string(),
-            root: canonical_root.to_string_lossy().to_string(),
-            base_dir: canonical_root.to_string_lossy().to_string(),
-        };
-        assert!(context.origin.starts_with("http://127.0.0.1:"), "{}", context.origin);
+        let context = super::markdown_resource_context_for_item(&state, &item, "test-preview")
+            .expect("native scoped context");
+        assert!(crate::core::content_resource::is_resource_url(&context.origin), "{}", context.origin);
         assert_eq!(
             context.root,
             canonical_root.to_string_lossy()
@@ -3528,7 +3791,7 @@ mod tests {
             .expect("payload should load with scoped context");
         match payload {
             PreviewPayload::Markdown(markdown) => {
-                assert!(markdown.resource_origin.starts_with("http://127.0.0.1:"));
+                assert!(crate::core::content_resource::is_resource_url(&markdown.resource_origin));
                 assert!(!markdown.resource_origin.contains("/fs"));
                 assert_eq!(markdown.resource_root, canonical_root.to_string_lossy());
                 assert_eq!(markdown.resource_base_dir, canonical_root.to_string_lossy());
@@ -3550,7 +3813,7 @@ mod tests {
 
         let db_path = temp_path("save-db").with_extension("sqlite3");
         let database = Database::new(&db_path).expect("db should initialize");
-        let state = AppState::new(database, std::env::temp_dir());
+        let state = AppState::new(database, db_path.with_extension("app-data"));
 
         state
             .upsert_library(Library {
@@ -3615,7 +3878,7 @@ mod tests {
 
         let db_path = temp_path("consistency-db").with_extension("sqlite3");
         let database = Database::new(&db_path).expect("db should initialize");
-        let state = AppState::new(database, std::env::temp_dir());
+        let state = AppState::new(database, db_path.with_extension("app-data"));
 
         state
             .upsert_library(Library {
@@ -4236,7 +4499,7 @@ mod tests {
         let database = Database::new(&root.join("evidence.sqlite3")).unwrap();
         let state = AppState::new(database, std::env::temp_dir());
         insert_markdown_item(&state, &root, &path, markdown);
-        let chrome = super::find_local_chromium_executable().expect("Chromium");
+        let chrome = super::find_export_chromium_executable().expect("Chromium");
         for width in [800, 1080, 1440] {
             for quality in ["standard", "high"] {
                 let request = crate::models::ExportMarkdownLongImageRequest {
@@ -4470,7 +4733,8 @@ mod tests {
         })
         .expect("copy should succeed");
 
-        assert_eq!(response.relative_path, "./assets/Hero Image.PNG");
+        // W02-R1：写进正文的是 URI 引用，文件名段必须编码一次；磁盘文件名不变。
+        assert_eq!(response.relative_path, "./assets/Hero%20Image.PNG");
         assert_eq!(response.file_name, "Hero Image.PNG");
         assert_eq!(
             fs::read(root.join("assets").join("Hero Image.PNG")).expect("copied image should read"),

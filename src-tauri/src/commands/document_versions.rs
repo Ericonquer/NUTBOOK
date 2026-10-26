@@ -264,11 +264,11 @@ pub fn open_document_history_location(webview:tauri::Webview,state:tauri::State<
     trusted(&webview)?;
     let store=state.document_history()?;
     #[cfg(target_os="macos")]
-    let result=std::process::Command::new("open").arg(store.storage_path()).status();
+    let result=crate::core::platform::command("open").arg(store.storage_path()).status();
     #[cfg(target_os="windows")]
-    let result=std::process::Command::new("explorer.exe").arg(store.storage_path()).status();
+    let result=crate::core::platform::command("explorer.exe").arg(store.storage_path()).status();
     #[cfg(not(any(target_os="macos",target_os="windows")))]
-    let result=std::process::Command::new("xdg-open").arg(store.storage_path()).status();
+    let result=crate::core::platform::command("xdg-open").arg(store.storage_path()).status();
     if result.map_err(|_|AppError::IoError)?.success(){Ok(())}else{Err(AppError::IoError)}
 }
 

@@ -128,19 +128,30 @@ try {
   assert.equal(await page.evaluate(()=>editor.undo()),true);
   assert.doesNotMatch(await page.evaluate(()=>editor.getMarkdown()),/pasted.png/);
   const hostFunction = readFileSync('dist/index.html', 'utf8').match(/async function pasteMarkdownImageAssetForTab\(tab, input, options = \{\}\) \{[\s\S]*?\n      \}/)[0];
-  await page.evaluate(async code => {
+  // Windows 适配（W04）：宿主插图/粘贴现在用共享 OS 路径助手登记 insertedResources，
+  // 沙箱必须注入同一段生产源码才能执行真实函数。
+  const indexHtmlSource = readFileSync('dist/index.html', 'utf8');
+  const identityStart = indexHtmlSource.indexOf('// >>> windows-path-identity');
+  const identityEnd = indexHtmlSource.indexOf('// <<< windows-path-identity', identityStart);
+  assert.ok(identityStart >= 0 && identityEnd > identityStart, 'path identity block must exist');
+  const pathIdentitySource = indexHtmlSource.slice(identityStart, identityEnd);
+  await page.evaluate(async ([code, helpers]) => {
+    (0, eval)(helpers);
     window.importForTab = eval(`(${code})`);
+    // This host-routing test isolates resource resolution; the real coordinator has its own regression.
+    window.resolvePreviewResources = async () => {};
     window.appState = { activeTabId:7, activeMarkdownEditor:{} };
     window.hostCalls = [];
     window.invoke = async (cmd,args) => {
       hostCalls.push({cmd,args});
       if (cmd === 'fetch_formatting_image') return 'data:image/png;base64,aGVsbG8=';
-      return { relativePath:'./assets/pasted.png', fileName:'pasted.png' };
+      // 与真实后端一致：assetPath 是真实 OS 路径，宿主直接登记它（W02-R1）。
+      return { relativePath:'./assets/pasted.png', assetPath:'/external/assets/pasted.png', fileName:'pasted.png' };
     };
     window.hostTab = { id:7, item:{filePath:'/documents/source.md'}, sourceMode:'library' };
     window.hostFile = new File(['png bytes'], 'paste.png', { type:'image/png' });
     await importForTab(hostTab, hostFile);
-  }, hostFunction);
+  }, [hostFunction, pathIdentitySource]);
   assert.equal(await page.evaluate(() => hostCalls.at(-1).cmd), 'paste_markdown_image_asset');
   assert.equal(await page.evaluate(() => hostCalls.at(-1).args.itemId), 7);
   await page.evaluate(async () => {

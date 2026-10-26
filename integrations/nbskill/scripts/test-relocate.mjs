@@ -15,7 +15,7 @@ mkdirSync(join(root, "output", "废稿"), { recursive: true });
 const html = '<html data-nutbook-edit-contract="nutbook-html/v1"><body><p data-id="body" data-editable="text">Text</p></body></html>';
 for (const [path, content] of [["a.md", "# A"], ["b.md", "# B"], ["c.html", html], ["asset.png", "image"]]) writeFileSync(join(root, "output", "废稿", path), content);
 const manifestPath = join(root, ".agent-outputs", "manifest.json");
-const movesPath = join(root, "moves.json");
+let movesSequence = 0;
 const entry = (id, path) => ({ id, path, state: "active", skill: { name: "writer", version: "1.0" }, kind: "document", title: id, generatedAt: "2026-10-19T00:00:00Z" });
 const original = { schemaVersion: 1, projectRoot: ".", entries: [
   { ...entry("a", "old/a.md"), relatedFiles: [{ path: "old/asset.png", role: "asset" }] },
@@ -26,7 +26,10 @@ const original = { schemaVersion: 1, projectRoot: ".", entries: [
 const moves = ["a.md", "b.md", "c.html", "asset.png"].map(name => ({ from: `old/${name}`, to: `output/废稿/${name}` }));
 const seed = (manifest = original) => writeFileSync(manifestPath, JSON.stringify(manifest));
 const invoke = async (mapping = moves, extra = []) => {
-  writeFileSync(movesPath, JSON.stringify(mapping));
+  // Each child owns an immutable input. Rewriting one shared moves.json can
+  // truncate it while another concurrently launched child is reading it.
+  const movesPath = join(root, `moves-${++movesSequence}.json`);
+  writeFileSync(movesPath, JSON.stringify(mapping), { flag: "wx" });
   return run(process.execPath, [script, "--project-root", root, "--moves", movesPath, ...extra]);
 };
 seed();

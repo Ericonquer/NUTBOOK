@@ -1773,9 +1773,18 @@ function buildThumbnailConvergenceHarness(stubResponses, cancelOnInvoke) {
   const normalizeSrc = extractFunctionSource(indexHtml, "function normalizeThumbnailInfo(thumbnail) {");
   const applySrc = extractFunctionSource(indexHtml, "function applyGenerateThumbnailResult(item, result) {");
   const onceSrc = extractFunctionSource(indexHtml, "async function generateThumbnailOnce(item, runId) {");
+  // Windows 适配（W03）：缩略图路径归一化依赖共享 PathIdentity 助手与
+  // toCacheResourceUrl，harness 必须注入同一段生产源码。
+  const identityStart = indexHtml.indexOf("// >>> windows-path-identity");
+  const identityEnd = indexHtml.indexOf("// <<< windows-path-identity", identityStart);
+  assert.ok(identityStart >= 0 && identityEnd > identityStart, "path identity block must exist");
+  const identitySrc = indexHtml.slice(identityStart, identityEnd);
+  const cacheUrlSrc = extractFunctionSource(indexHtml, "function toCacheResourceUrl(localPath) {");
   const harness = `
     const toLocalServerUrl = (p) => p;
     const cancelOnInvoke = ${JSON.stringify(cancelOnInvoke ?? null)};
+    ${identitySrc}
+    ${cacheUrlSrc}
     ${normalizeSrc}
     ${applySrc}
     ${onceSrc}

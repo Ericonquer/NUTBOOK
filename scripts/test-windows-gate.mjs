@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+const workflow=readFileSync('.github/workflows/ci.yml','utf8');
+const gate=workflow.slice(workflow.indexOf('  cross-platform-gate:'));
+const run=gate.slice(gate.indexOf('        run: |')+'        run: |'.length).trim().split('\n').map(x=>x.trim()).join('\n');
+assert(workflow.includes('cargo build --release --features tauri/custom-protocol'), 'native smoke must embed production frontend');
+assert(run.includes('"$WINDOWS" = success'));
+if(process.platform!=='win32'){
+ const execute=env=>spawnSync('bash',['-e','-c',run],{env:{...process.env,...env}}).status;
+ const ready={QUALITY:'success',MACOS:'success',WINDOWS:'success'};
+ assert.equal(execute(ready),0);
+ for(const key of Object.keys(ready))for(const bad of ['failure','cancelled','skipped','neutral','', 'timed_out'])assert.notEqual(execute({...ready,[key]:bad}),0,`${key}=${bad} must block`);
+}
+const smoke=readFileSync('scripts/windows-runtime-smoke.mjs','utf8');
+assert(smoke.includes("assert.equal(process.platform,'win32'"));
+assert(smoke.includes("assert(report.success"));
+assert(smoke.includes("html-child-script"));
+assert(smoke.includes("img.naturalWidth>0"));
+assert(smoke.includes("saved-to-disk"));
+assert(!smoke.includes('mockInvoke'));
+assert(smoke.includes('archived-image-loaded'));
+assert(workflow.includes('test-content-resource-native.mjs --release --no-build'));
+assert(workflow.includes('--bin NUTBOOK --example content_protocol_probe'));
+const native=readFileSync('scripts/test-content-resource-native.mjs','utf8');
+assert(native.includes("['darwin','win32']"));
+assert(native.includes('report.fd.before>0'));
+assert(native.includes("assert.equal(report.secureContext,true)"));
+const release=readFileSync('.github/workflows/release-build.yml','utf8');
+assert(release.indexOf('Install and smoke this exact Windows package')<release.indexOf('Stage installer and checksum'));
+console.log('Cross-platform Gate rejects failed, skipped, cancelled and missing platform results');

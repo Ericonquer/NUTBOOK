@@ -32,6 +32,16 @@ const SCAN_RS = readFileSync("src-tauri/src/core/scan_coordinator.rs", "utf8");
 const DB_RS = readFileSync("src-tauri/src/db/mod.rs", "utf8");
 const EDITOR_JS = readFileSync("src/markdown-editor.js", "utf8");
 
+// Windows 适配（W02/W03/W04）：宿主路径函数改为消费共享的 PathIdentity 助手，
+// 所以这些沙箱必须注入同一段生产源码；否则被抽取的函数在 VM 里缺依赖。
+const PATH_IDENTITY_SOURCE = (() => {
+  const start = INDEX_HTML.indexOf("// >>> windows-path-identity");
+  assert.ok(start !== -1, "the path identity block must exist in dist/index.html");
+  const end = INDEX_HTML.indexOf("// <<< windows-path-identity", start);
+  assert.ok(end > start, "the path identity block must be closed");
+  return INDEX_HTML.slice(start, end);
+})();
+
 function extractFunctionSource(source, startMarker) {
   const start = source.indexOf(startMarker);
   assert.ok(start !== -1, `function source not found: ${startMarker}`);
@@ -401,8 +411,13 @@ assert.doesNotMatch(
 );
 assert.match(
   EXTERNAL_RS,
-  /let canonical = fs::canonicalize\(raw\)\s*\.map_err\(\|_\| AppError::InvalidParams\)\?;\s*if !canonical\.starts_with\(&canonical_dir\) \{\s*return Err\(AppError::InvalidParams\);/,
-  "R3-3: missing/out-of-dir history resources must hard-fail so the original session is preserved"
+  /let canonical = fs::canonicalize\(raw_path\)\s*\.map_err\(\|_\| AppError::InvalidParams\)\?;\s*if !canonical\.starts_with\(&canonical_original_dir\) \{\s*return Err\(AppError::InvalidParams\);/,
+  "R3-3: out-of-dir absolute history resources must hard-fail so the original session is preserved"
+);
+assert.match(
+  EXTERNAL_RS,
+  /RefResolution::Missing \| RefResolution::Outside => return Err\(AppError::InvalidParams\)/,
+  "W02-R1: a missing history reference must still hard-fail instead of being skipped"
 );
 assert.match(EXTERNAL_RS, /fn review_save_as_rejects_history_resources_outside_source_dir/, "R3-3 regression: out-of-dir history resources reject the save");
 assert.match(EXTERNAL_RS, /fn review_save_as_rejects_missing_history_resources/, "R3-3 regression: missing history resources reject the save");
@@ -761,7 +776,7 @@ historyContext.tab = {
 };
 vm.createContext(historyContext);
 vm.runInContext(
-  `${historyHelpers}\nglobalThis.collect = collectExternalHistoryResourcePaths;`,
+  `${PATH_IDENTITY_SOURCE}\n${historyHelpers}\nglobalThis.collect = collectExternalHistoryResourcePaths;`,
   historyContext
 );
 const historyPaths = await vm.runInContext(
@@ -769,16 +784,16 @@ const historyPaths = await vm.runInContext(
   historyContext
 );
 assert.ok(
-  historyPaths.includes("/Users/me/docs/assets/old.png"),
-  "undo-reachable original-content resources must be included"
+  historyPaths.includes("assets/old.png"),
+  "undo-reachable original-content resources must be forwarded as raw references"
 );
 assert.ok(
   historyPaths.includes("/Users/me/docs/assets/late.png"),
   "resources inserted during the session must be included even if the current body no longer references them"
 );
 assert.ok(
-  !historyPaths.some((value) => !value.startsWith("/Users/me/docs/")),
-  "relative refs must resolve inside the original document directory"
+  !historyPaths.some((value) => value.startsWith("/") && !value.startsWith("/Users/me/docs/")),
+  "absolute entries must stay inside the original document directory"
 );
 
 // 6f. R3-2 编辑器侧反例：手敲/粘贴图片后撤销——事务级追踪集合必须仍含该
@@ -839,7 +854,7 @@ hostContext.tab = {
   item: { filePath: "/Users/me/docs/note.md" }
 };
 vm.createContext(hostContext);
-vm.runInContext(`${hostHelpers}\nglobalThis.record = recordExternalMarkdownRefs;\nglobalThis.collect = collectExternalHistoryResourcePaths;`, hostContext);
+vm.runInContext(`${PATH_IDENTITY_SOURCE}\n${hostHelpers}\nglobalThis.record = recordExternalMarkdownRefs;\nglobalThis.collect = collectExternalHistoryResourcePaths;`, hostContext);
 await vm.runInContext(
   "record(globalThis.tab, '![x](assets/manual.png)')",
   hostContext
@@ -853,12 +868,12 @@ const undonePaths = await vm.runInContext(
   hostContext
 );
 assert.ok(
-  undonePaths.includes("/Users/me/docs/assets/manual.png"),
-  "a hand-typed-then-undone image ref must still be collected (undo/redo reachable)"
+  undonePaths.includes("assets/manual.png"),
+  "a hand-typed-then-undone image ref must still be forwarded (undo/redo reachable)"
 );
 assert.ok(
-  !undonePaths.some((value) => !value.startsWith("/Users/me/docs/")),
-  "reachable refs must resolve inside the original document directory"
+  !undonePaths.some((value) => value.startsWith("/") && !value.startsWith("/Users/me/docs/")),
+  "absolute entries must stay inside the original document directory"
 );
 
 // 6h. R5 fallback textarea 反例（Codex R5 探针的等价回归，覆盖实际宿主函数）：
@@ -2053,8 +2068,12 @@ const imageTab = buildExternalTabContext.buildExternalTab({
 assert.equal(imageTab.preview.resourceOrigin, "http://127.0.0.1:41234");
 assert.equal(imageTab.preview.resourceRoot, "/project");
 assert.equal(imageTab.preview.resourceBaseDir, "/project");
-const imageResolverContext = {};
+const imageResolverContext = { appState: { isTauri: false } };
 vm.createContext(imageResolverContext);
+vm.runInContext(PATH_IDENTITY_SOURCE, imageResolverContext);
+// W02-R2：这个沙箱只验证「没有批量裁决结果时的同步回退」。批量身份合同由
+// scripts/test-windows-resource-identity.mjs 用真实生产函数验证。
+vm.runInContext("function readResourceResolution() { return undefined; }", imageResolverContext);
 for (const signature of [
   "function isExternalHttpUrl(value) {",
   "function safeDecodeUri(value) {",

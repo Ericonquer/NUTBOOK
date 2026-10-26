@@ -1,0 +1,56 @@
+{
+  "payloadMissingBase": {
+    "root": "C:\\library",
+    "references": [
+      "assets/a.png"
+    ]
+  },
+  "first": {
+    "url": "http://127.0.0.1:4001/assets/a.png",
+    "state": "resolved"
+  },
+  "afterRootChange": {
+    "url": "http://127.0.0.1:4001/assets/a.png",
+    "state": "resolved"
+  },
+  "absoluteAliasBatched": false,
+  "calls": [
+    {
+      "root": "C:\\library",
+      "references": [
+        "assets/a.png"
+      ]
+    },
+    {
+      "root": "D:\\other",
+      "references": [
+        "assets/b.png"
+      ]
+    }
+  ],
+  "nestedResourceProbe": {
+    "actualFileExists": "library/docs/assets/a.png",
+    "markdown": "library/docs/note.md",
+    "reference": "assets/a.png",
+    "requestRoot": "library",
+    "actualState": "missing",
+    "expectedRelativePath": "docs/assets/a.png"
+  },
+  "outsideContentProbe": {
+    "reference": "../outside/x%23.png",
+    "root": "authorized",
+    "outsideLiteral": "outside/x%23.png",
+    "outsideDecoded": "outside/x#.png",
+    "differentBytes": [
+      "AMBER",
+      "BERRY"
+    ],
+    "differentState": "ambiguous",
+    "sameBytes": [
+      "AMBER",
+      "AMBER"
+    ],
+    "sameState": "outside",
+    "note": "real temporary fixtures with extracted current Rust impl, not Windows native app"
+  }
+}

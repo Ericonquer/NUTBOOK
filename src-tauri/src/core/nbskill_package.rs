@@ -111,7 +111,7 @@ pub fn cli_status(app_data: &Path) -> &'static str {
     let path = app_data.join("cli").join(if cfg!(target_os = "windows") { "nutbook.exe" } else { "nutbook" });
     let Ok(metadata) = fs::symlink_metadata(&path) else { return "missing"; };
     if !metadata.is_file() || metadata.file_type().is_symlink() { return "corrupt"; }
-    let Ok(output) = std::process::Command::new(&path).arg("--version").output() else { return "corrupt"; };
+    let Ok(output) = crate::core::platform::command(&path).arg("--version").output() else { return "corrupt"; };
     if !output.status.success() { return "corrupt"; }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let Some(installed) = stdout.trim().strip_prefix("nutbook ").and_then(crate::core::cli::compare_cli_semver) else { return "corrupt"; };

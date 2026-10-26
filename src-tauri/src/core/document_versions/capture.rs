@@ -67,7 +67,7 @@ fn read_regular_bounded(path: &Path, budget: u64) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
-fn image_references(markdown: &str) -> BTreeSet<String> {
+pub fn image_references(markdown: &str) -> BTreeSet<String> {
     let mut refs = BTreeSet::new();
     for event in Parser::new_ext(markdown, Options::all()) {
         match event {

@@ -84,7 +84,7 @@ assert.match(
 const mountSrc = extractFunctionSource(INDEX_HTML, "async function mountInspectorMarkdownPreview(item, snapshot, token) {");
 assert.match(mountSrc, /readOnly: true/, "the inspector must create the editor in read-only mode");
 assert.match(mountSrc, /loadMarkdownEditorApi\(\)/, "the inspector must reuse the same Milkdown bundle as the open page");
-assert.match(mountSrc, /resolveMarkdownImageUrl\(src, tabLike\)/, "image URL resolution must be the same resolver as the open page");
+assert.match(mountSrc, /markdownEditorImageUrl\(src, tabLike\)/, "image URL resolution must be the same resolver as the open page");
 assert.match(mountSrc, /markdownDocumentTitle\(snapshot\.raw/, "the title shell must use the authoritative title parser");
 assert.match(mountSrc, /inspector-preview-pending" data-inspector-preview="1" inert/, "the mounted card must start hidden and inert until every recheck passes");
 assert.match(mountSrc, /\$\{inspectorStateMarkup\("loading"\)\}/, "a loading state layer must cover the hidden mount");
@@ -114,7 +114,7 @@ assert.match(DOCUMENT_RUST, /revision: content_hash\(&raw\)/, "snapshot revision
 assert.match(MODELS_RUST, /pub struct MarkdownInspectorSnapshot/, "the snapshot model must exist");
 assert.match(MODELS_RUST, /pub resource_origin: String,[\s\S]*?pub resource_root: String,[\s\S]*?pub resource_base_dir: String/, "inspector snapshots must carry the complete scoped Markdown resource context");
 assert.match(PREVIEW_RUST, /if item\.summary\.file_type != "markdown" \{\s*return Err\(AppError::UnsupportedFileType\);/, "html files must be rejected by the markdown snapshot loader");
-assert.match(PREVIEW_RUST, /let markdown_resource = markdown_resource_context_for_item\(&state, &item\)\?;\s*load_markdown_inspector_snapshot\(&item, markdown_resource\)/, "the inspector endpoint must construct the same scoped resource context as the full preview");
+assert.match(PREVIEW_RUST, /let key = format!\("inspector:[\s\S]*?markdown_resource_context_for_item\(&state, &item, &key\)\?;[\s\S]*?load_markdown_inspector_snapshot\(&item, markdown_resource\)/, "the inspector endpoint must use an independently owned native resource context");
 assert.match(mountSrc, /resourceOrigin: snapshot\.resourceOrigin,[\s\S]*?resourceRoot: snapshot\.resourceRoot,[\s\S]*?resourceBaseDir: snapshot\.resourceBaseDir/, "the read-only inspector must pass scoped resource context into its image resolver");
 
 // 右上排序只能使用检视左栏实际可表达的三项；全局排序变更必须同步到
@@ -256,6 +256,7 @@ function buildFlowContext() {
 }
 
 const FLOW_SOURCES = [
+  "function releaseDocumentResource(preview) {",
   "function escapeHtml(value) {",
   "function syncInspectorMoreOverlay() {",
   "function setInspectorPreviewExpanded(expanded) {",

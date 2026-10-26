@@ -1828,6 +1828,7 @@ fn build_detached_runtime_window(
     app: &tauri::AppHandle,
     session: &HtmlRuntimeSession,
 ) -> Result<(), AppError> {
+    crate::core::content_resource::bind_surface(&session.runtime_url, &session.label)?;
     let webview_url = tauri::WebviewUrl::External(
         session
             .runtime_url
@@ -1841,7 +1842,7 @@ fn build_detached_runtime_window(
         .resizable(true)
         .initialization_script(html_runtime_compatibility_script())
         .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
-        .on_new_window(detached_new_window_handler(app))
+        .on_new_window(detached_new_window_handler(app, &session.label))
         .on_document_title_changed(detached_fullscreen_handler(session.title.clone()))
         .build()
         .map_err(|_| AppError::InternalError)?;
@@ -1869,6 +1870,7 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
     view_state_surface_token: u64,
     view_state: Option<&Value>,
 ) -> Result<WebviewBuilder<R>, AppError> {
+    crate::core::content_resource::bind_surface(&session.runtime_url, label)?;
     let webview_url = tauri::WebviewUrl::External(
         session
             .runtime_url
@@ -1885,7 +1887,7 @@ fn build_runtime_webview_builder<R: tauri::Runtime>(
                 view_state_surface_token,
                 view_state,
             ))
-            .on_new_window(detached_new_window_handler(app))
+            .on_new_window(detached_new_window_handler(app, label))
             .on_document_title_changed(detached_embedded_fullscreen_handler(app)),
     )
 }
@@ -2121,6 +2123,7 @@ fn build_external_runtime_webview_builder<R: tauri::Runtime>(
     session: &HtmlRuntimeSession,
     initial_view_state: Option<&Value>,
 ) -> Result<WebviewBuilder<R>, AppError> {
+    crate::core::content_resource::bind_surface(&session.runtime_url, label)?;
     let webview_url = tauri::WebviewUrl::External(
         session
             .runtime_url
@@ -2131,7 +2134,7 @@ fn build_external_runtime_webview_builder<R: tauri::Runtime>(
     let mut builder = WebviewBuilder::new(label, webview_url)
         .initialization_script(html_runtime_compatibility_script())
         .initialization_script(include_str!("../../../dist/assets/context-menu.js"))
-        .on_new_window(detached_new_window_handler(app))
+        .on_new_window(detached_new_window_handler(app, label))
         .on_document_title_changed(detached_embedded_fullscreen_handler(app));
     // P2-R92a：hide 即销毁 surface，回放只能在建 child 时注入一次；无快照时
     // 完全不注入（旧行为：新 child 从初始位置开始）。
@@ -2150,6 +2153,7 @@ fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
     active_page_id: &str,
     preview_instance_id: &str,
 ) -> Result<WebviewBuilder<R>, AppError> {
+    crate::core::content_resource::bind_surface(&session.runtime_url, label)?;
     let webview_url = tauri::WebviewUrl::External(
         session
             .runtime_url
@@ -2167,7 +2171,7 @@ fn build_presentation_preview_webview_builder<R: tauri::Runtime>(
                 active_page_id,
                 preview_instance_id,
             ))
-            .on_new_window(detached_new_window_handler(app))
+            .on_new_window(detached_new_window_handler(app, label))
             .on_document_title_changed(detached_embedded_fullscreen_handler(app)),
     )
 }
@@ -2663,8 +2667,10 @@ fn inspector_more_overlay_action_handler<R: tauri::Runtime>(
 
 fn detached_new_window_handler<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    opener_label: &str,
 ) -> impl Fn(url::Url, tauri::webview::NewWindowFeatures) -> NewWindowResponse<R> + Send + Sync + 'static {
     let app_handle = app.clone();
+    let opener_label = opener_label.to_owned();
     move |url, features| {
         let label = format!(
             "html-runtime-popup-{}",
@@ -2673,9 +2679,10 @@ fn detached_new_window_handler<R: tauri::Runtime>(
                 .map(|duration| duration.as_micros())
                 .unwrap_or_default()
         );
+        crate::core::content_resource::bind_popup(url.as_str(), &opener_label, &label);
         let builder = tauri::WebviewWindowBuilder::new(
             &app_handle,
-            label,
+            label.clone(),
             tauri::WebviewUrl::External(url.clone()),
         )
         .window_features(features)
@@ -2725,7 +2732,10 @@ fn detached_new_window_handler<R: tauri::Runtime>(
                 }
                 NewWindowResponse::Create { window }
             }
-            Err(_) => NewWindowResponse::Allow,
+            Err(_) => {
+                crate::core::content_resource::unbind_surface(&label);
+                NewWindowResponse::Deny
+            },
         }
     }
 }

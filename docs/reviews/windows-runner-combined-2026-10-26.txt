@@ -1,0 +1,12 @@
+Combined Windows runner — 2026-10-26
+Current branch integrates transport changes from 4e7ab59..61861ba (codex/bound-tombstone-sockets). Original worktree unchanged. No merge or release authorization.
+
+Implementation: one Windows job builds production app plus test-only native protocol example in one Cargo invocation. Focused native Rust tests run with fail-fast bash. Protocol example runs twice in actual WebView2 on Windows; 10k create/drop sessions per process, real GetProcessHandleCount, module/CSS/image/fetch, burst, secure context/WebCrypto/storage, foreign grant/revoked/old process denial. Product WebDriver smoke includes real history UI and archived-image iframe, plus Markdown save/reopen/card and native HTML child. Exact installed NSIS uses the same product smoke, without rebuilding application/probe.
+
+Local verification on macOS:
+- Full Node22 check:push passed: npm ci/browser/frontend build/check/i18n857, 74 regression scripts, cargo debug/release bins checks, 758 Rust library tests (12 ignored), 67 HTML integration tests.
+- Native WKWebView protocol gate passed twice; 10k cycles each, FD 4->4, every compatibility/revoke/burst/storage/crypto assertion passed.
+- Initial combined Rust run had obsolete hardcoded loopback context and noncanonical /tmp test-root assumptions; changed to production grant and physical test-root before successful full prepush.
+- YAML parsing, production probe compilation, git diff --check passed.
+
+Pending: Windows CI actual result, installed NSIS validation/size, IME/focus/minimize/restore and colleague final short acceptance. Driver child-target accessibility is fail-closed, not proven by local tests. Aggregate required-branch-rule configuration has not been changed. Protocol probe example/test-driver never enters installer. No new packaged runtime or crate version.

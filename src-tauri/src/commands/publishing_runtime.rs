@@ -243,7 +243,7 @@ fn inspect(source: &Path, data: &Path, platform: &str) -> Result<Value, String> 
         if !seen.insert(path.clone()) {
             continue;
         }
-        let checked = output(Command::new(&path).arg("--version"), Duration::from_secs(2));
+        let checked = output(crate::core::platform::command(&path).arg("--version"), Duration::from_secs(2));
         match checked {
             Ok(bytes) if compatible(&String::from_utf8_lossy(&bytes)) => {
                 found = Some(path);
@@ -255,7 +255,7 @@ fn inspect(source: &Path, data: &Path, platform: &str) -> Result<Value, String> 
     }
     let mut status = if let Some(node) = &found {
         let raw = output(
-            Command::new(node)
+            crate::core::platform::command(node)
                 .arg(source.join("discover-publishing-runtime.mjs"))
                 .arg(data)
                 .arg(platform),
@@ -392,7 +392,7 @@ mod tests {
     fn probe_timeout_is_bounded() {
         #[cfg(unix)]
         assert!(output(
-            Command::new("/bin/sleep").arg("2"),
+            crate::core::platform::command("/bin/sleep").arg("2"),
             Duration::from_millis(50)
         )
         .is_err());

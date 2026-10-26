@@ -63,6 +63,8 @@ pub enum AppError {
     DatabaseError,
     #[error("io error")]
     IoError,
+    #[error("content resources unavailable: {0}")]
+    ContentResourceUnavailable(String),
     #[error("internal error")]
     InternalError,
     /// §7.2：用户在系统确认对话框中取消或未授予默认应用变更。
@@ -81,6 +83,10 @@ pub enum AppError {
     /// actionable status without exposing document contents or restoring `/fs`.
     #[error("markdown resource unavailable: {0}")]
     MarkdownResourceUnavailable(String),
+    /// W02-R1：引用的字面候选与解码候选是两个内容不同的真实文件。
+    /// 编码协议无法在不误选的前提下裁决，调用方必须显式失败而不是换图。
+    #[error("image reference is ambiguous: {0}")]
+    AmbiguousImageReference(String),
     /// Agent project discovery could not read/write its local cache.  The
     /// message carries a safe cause and next action instead of collapsing to
     /// the unhelpful generic `DATABASE_ERROR` alone.
@@ -164,8 +170,10 @@ impl AppError {
             AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
             AppError::AssetTooLarge => "ASSET_TOO_LARGE",
             AppError::CoverAssetRejected(_) => "COVER_ASSET_REJECTED",
+            AppError::ContentResourceUnavailable(_) => "CONTENT_RESOURCE_UNAVAILABLE",
             AppError::ScopedRegistryFailed(_) => "SCOPED_REGISTRY_FAILED",
             AppError::MarkdownResourceUnavailable(_) => "MARKDOWN_RESOURCE_UNAVAILABLE",
+            AppError::AmbiguousImageReference(_) => "AMBIGUOUS_IMAGE_REFERENCE",
             AppError::AgentDiscoveryDatabaseUnavailable(_) => "AGENT_DISCOVERY_DATABASE_UNAVAILABLE",
             AppError::InvalidSession => "INVALID_SESSION",
             AppError::ExportEngineUnavailable => "EXPORT_ENGINE_UNAVAILABLE",

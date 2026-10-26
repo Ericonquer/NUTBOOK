@@ -64,7 +64,7 @@ impl CodexAdapter {
     pub fn from_environment() -> Self {
         let codex_home = env::var_os("CODEX_HOME")
             .map(PathBuf::from)
-            .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")))
+            .or_else(|| crate::core::platform::home_dir().map(|home| home.join(".codex")))
             .unwrap_or_default();
         let sqlite_home = env::var_os("CODEX_SQLITE_HOME")
             .map(PathBuf::from)

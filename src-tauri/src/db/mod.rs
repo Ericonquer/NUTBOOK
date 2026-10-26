@@ -1108,6 +1108,7 @@ impl Database {
             .join("thumbnails")
     }
 
+    #[cfg(not(windows))]
     fn unique_trash_target(file_path: &Path) -> Result<PathBuf, AppError> {
         let home = std::env::var("HOME").map_err(|_| AppError::IoError)?;
         let trash_dir = Path::new(&home).join(".Trash");
@@ -1140,6 +1141,12 @@ impl Database {
         Ok(candidate)
     }
 
+    #[cfg(windows)]
+    fn move_file_to_trash(file_path: &Path) -> Result<(), AppError> {
+        crate::core::platform::recycle(file_path).map_err(|_| AppError::IoError)
+    }
+
+    #[cfg(not(windows))]
     fn move_file_to_trash(file_path: &Path) -> Result<(), AppError> {
         let target = Self::unique_trash_target(file_path)?;
         fs::rename(file_path, target).map_err(|_| AppError::IoError)

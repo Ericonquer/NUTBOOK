@@ -1,0 +1,30 @@
+{
+  "insertedNames": [
+    {
+      "name": "report#1.png",
+      "backendRelativePath": "./assets/report#1.png",
+      "url": "http://127.0.0.1:41002/assets/report"
+    },
+    {
+      "name": "report%23.png",
+      "backendRelativePath": "./assets/report%23.png",
+      "url": "http://127.0.0.1:41002/assets/report%23.png"
+    },
+    {
+      "name": "normal.png",
+      "backendRelativePath": "./assets/normal.png",
+      "url": "http://127.0.0.1:41002/assets/normal.png"
+    }
+  ],
+  "historyEncodedRef": {
+    "expectedOsPath": "C:\\docs\\assets\\report one.png",
+    "actual": [
+      "C:\\docs\\assets\\report%20one.png"
+    ]
+  },
+  "posixRoot": {
+    "parent": "/",
+    "joined": ""
+  },
+  "caseSensitiveAlias": "http://127.0.0.1:41002/other.png"
+}

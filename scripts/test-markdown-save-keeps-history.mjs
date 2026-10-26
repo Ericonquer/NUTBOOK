@@ -10,7 +10,8 @@ const BUNDLE = readFileSync("dist/assets/markdown-editor.js", "utf8");
 
 const saveMatch = INDEX_HTML.match(/async function saveMarkdownTab\(tab, \{ renderAfter = true \} = \{\}\) \{[\s\S]*?\n      \}/);
 assert.ok(saveMatch, "saveMarkdownTab must exist");
-const SAVE_TAB_FN = saveMatch[0];
+const RESOURCE_FNS = ["releaseDocumentResource", "replaceTabPreview"].map(name => INDEX_HTML.match(new RegExp(`function ${name}\\([^]*?\\n      \\}`))[0]).join("\n");
+const SAVE_TAB_FN = RESOURCE_FNS + "\n" + saveMatch[0];
 
 const MARKDOWN = `# 普通 H1 文档\n\n这是一份带普通一级标题的 Markdown 验收语料。\n\n## 背景\n\n正文内容。\n`;
 

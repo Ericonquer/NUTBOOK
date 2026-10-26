@@ -29,7 +29,7 @@ enum DiscoveryFailure {
 
 impl WorkBuddyAdapter {
     pub fn from_environment() -> Self {
-        let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = crate::core::platform::home_dir().unwrap_or_default();
         let app_path = env::var_os("WORKBUDDY_APP_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/Applications/WorkBuddy.app"));
@@ -106,7 +106,7 @@ impl WorkBuddyAdapter {
     fn discover_scopes_internal(
         &self,
     ) -> Result<(Vec<DiscoveredAgentScope>, Option<String>), DiscoveryFailure> {
-        if !self.app_path.is_dir() {
+        if !self.app_path.is_dir() && !(cfg!(windows) && self.database_path.is_file()) {
             return Err(DiscoveryFailure::NotInstalled);
         }
         let version = read_bundle_version(&self.app_path);

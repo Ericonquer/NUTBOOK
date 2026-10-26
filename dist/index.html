@@ -9271,6 +9271,8 @@
         isSettingsOverlay: Boolean(window.__NUTBOOK_SETTINGS_OVERLAY__),
         settingsOverlayMode: window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "panel",
         isBooting: true,
+        libraryLoadError: "",
+        itemLoadError: "",
         isEditing: false,
         isTauri: Boolean(window.__TAURI_INTERNALS__?.invoke),
         isSidebarCollapsed: false,
@@ -10337,6 +10339,257 @@
         }
       }
 
+      // >>> windows-path-identity
+      // Windows 适配（W02/W03/W04）：路径有三种语义，不能混用。
+      //   1. 原始 OS path：交给后端做 I/O。保留盘符、verbatim `\\?\`、UNC、
+      //      Unicode 与真实分隔符；前端不得为“归一化”去掉盘符或改真分隔符。
+      //   2. PathIdentity：只用于前端身份比较。统一 `/`、折叠 `\\?\`、Windows
+      //      大小写不敏感（只在比较时折叠，URL 保留引用里的大小写）。
+      //   3. 授权 root 内的相对路径：唯一允许生成 scoped HTTP URL 的来源。
+      // 本区块只做 2 和 3，不做 I/O，也不改写真实 OS path。
+      function pathOsSeparator(value) {
+        return String(value ?? "").includes("\\") ? "\\" : "/";
+      }
+
+      // 原始 OS path 的父目录（W04）：保留盘符/verbatim/UNC 与真分隔符。
+      function pathOsParentDirectory(value) {
+        const text = String(value ?? "").replace(/[\\/]+$/, "");
+        if (!text) return "";
+        const index = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\"));
+        if (index < 0) return "";
+        const parent = text.slice(0, index);
+        if (!parent) return "/";
+        return /^[A-Za-z]:$/.test(parent) ? `${parent}${pathOsSeparator(value)}` : parent;
+      }
+
+      // 原始 OS path 拼接（W04）：verbatim 路径不接受 `/`，必须沿用基底分隔符。
+      function pathOsJoin(directory, relative) {
+        const raw = String(directory ?? "");
+        const base = raw.replace(/[\\/]+$/, "");
+        const tail = String(relative ?? "").trim();
+        if (!tail) return "";
+        if (isWindowsDrivePath(tail) || tail.startsWith("/") || tail.startsWith("\\")) return tail;
+        const separator = pathOsSeparator(raw);
+        const normalized = tail
+          .replace(/^\.\//, "")
+          .split(/[\\/]+/)
+          .filter(Boolean)
+          .join(separator);
+        if (!normalized) return "";
+        if (base) return `${base}${separator}${normalized}`;
+        // 根目录去掉尾分隔符后为空串，但它是合法基底：POSIX `/` 必须拼回
+        // `/assets/x.png`，不能静默变成空路径（W04-R2）。无基底的普通相对
+        // 目录仍返回空，不伪造路径。
+        return raw && /^[\\/]+$/.test(raw) ? `${separator}${normalized}` : "";
+      }
+
+      function isWindowsDrivePath(value) {
+        return /^[A-Za-z]:[\\/]/.test(String(value ?? ""));
+      }
+
+      function decodePathSegment(segment) {
+        if (!segment.includes("%")) return segment;
+        try {
+          return decodeURIComponent(segment);
+        } catch (_) {
+          return segment;
+        }
+      }
+
+      function parsePathIdentity(value, options = {}) {
+        let text = String(value ?? "").trim();
+        if (!text) return null;
+        let flavor = "";
+        let head = [];
+        if (/^\\\\\?\\UNC[\\/]/i.test(text) || /^\/\/\?\/UNC\//i.test(text)) {
+          flavor = "unc";
+          text = text.slice(8);
+        } else if (text.startsWith("\\\\?\\") || text.startsWith("//?/")) {
+          text = text.slice(4);
+          if (!/^[A-Za-z]:/.test(text)) return null;
+          flavor = "win";
+          head = [text.slice(0, 1).toUpperCase()];
+          text = text.slice(2);
+        } else if (text.startsWith("\\\\") || text.startsWith("//")) {
+          flavor = "unc";
+          text = text.slice(2);
+        } else if (isWindowsDrivePath(text)) {
+          flavor = "win";
+          head = [text.slice(0, 1).toUpperCase()];
+          text = text.slice(2);
+        } else if (text.startsWith("/")) {
+          flavor = "posix";
+        } else {
+          flavor = "relative";
+        }
+        const segments = [];
+        for (const rawSegment of text.split(/[\\/]+/)) {
+          if (!rawSegment) continue;
+          segments.push(options.decodePercent ? decodePathSegment(rawSegment) : rawSegment);
+        }
+        if (flavor === "unc") {
+          if (segments.length < 2) return null;
+          head = [segments.shift(), segments.shift()];
+        }
+        return { flavor, head, segments };
+      }
+
+      // 词法解析 `.` / `..`：越过文件系统根的 `..` 直接判无效（fail closed）。
+      function resolvePathSegments(segments) {
+        const resolved = [];
+        for (const segment of segments) {
+          if (!segment || segment === ".") continue;
+          if (segment === "..") {
+            if (!resolved.length) return null;
+            resolved.pop();
+            continue;
+          }
+          resolved.push(segment);
+        }
+        return resolved;
+      }
+
+      function pathIdentityString(parsed) {
+        if (!parsed) return "";
+        const segments = resolvePathSegments(parsed.segments);
+        if (!segments) return "";
+        if (parsed.flavor === "win") {
+          return `${parsed.head[0]}:${segments.length ? `/${segments.join("/")}` : "/"}`;
+        }
+        if (parsed.flavor === "unc") {
+          return `//${parsed.head.join("/")}/${segments.join("/")}`;
+        }
+        if (parsed.flavor === "posix") return `/${segments.join("/")}`;
+        return segments.join("/");
+      }
+
+      function pathIdentityKey(parsed, segments) {
+        // 只折叠卷头（盘符 / UNC server+share）：那是同一卷，差异只是拼写。
+        // 目录段不折叠——Windows 支持目录级大小写敏感（WSL / 对 NTFS 目录开启
+        // case sensitivity 后 `docs\Allowed` 与 `docs\allowed` 是两个目录），
+        // 折叠会把引用重定向到 root 内同名文件，宁可 fail closed（不出 URL）。
+        const foldHead = (values) => (parsed.flavor === "win" || parsed.flavor === "unc"
+          ? values.map((value) => value.toLowerCase())
+          : values);
+        return [parsed.flavor, ...foldHead(parsed.head || []), ...segments];
+      }
+
+      // root 内相对路径（身份比较）；越界、跨盘符、跨 flavor 一律返回 null。
+      function pathIdentityWithin(targetPath, rootPath) {
+        const target = parsePathIdentity(targetPath);
+        const root = parsePathIdentity(rootPath);
+        if (!target || !root) return null;
+        if (target.flavor === "relative" || root.flavor === "relative") return null;
+        if (target.flavor !== root.flavor) return null;
+        const targetSegments = resolvePathSegments(target.segments);
+        const rootSegments = resolvePathSegments(root.segments);
+        // 空 rootSegments 是合法形态（盘符根 `C:\` / 文件系统根 `/`）：此时
+        // 只比较 head（盘符或 UNC share），相对路径就是 target 的全部组件。
+        if (!targetSegments || !rootSegments) return null;
+        const targetKey = pathIdentityKey(target, targetSegments);
+        const rootKey = pathIdentityKey(root, rootSegments);
+        if (rootKey.length > targetKey.length) return null;
+        for (let index = 0; index < rootKey.length; index += 1) {
+          if (rootKey[index] !== targetKey[index]) return null;
+        }
+        return targetSegments.slice(rootSegments.length);
+      }
+
+      // 授权 root 内相对路径 → scoped HTTP URL。空或非法一律返回空，不回退本地路径。
+      function scopedUrlFromPath(origin, root, targetPath) {
+        if (!origin || !root || !targetPath) return "";
+        const relativeSegments = pathIdentityWithin(targetPath, root);
+        if (!relativeSegments || !relativeSegments.length) return "";
+        const encoded = [];
+        for (const segment of relativeSegments) {
+          if (!segment || segment === "." || segment === "..") return "";
+          if (segment.includes("\\") || segment.includes("\0")) return "";
+          encoded.push(encodeURIComponent(segment));
+        }
+        return `${origin}/${encoded.join("/")}`;
+      }
+
+      function joinPathIdentity(baseDir, relativeText) {
+        const base = parsePathIdentity(baseDir);
+        if (!base || base.flavor === "relative") return "";
+        const relative = parsePathIdentity(relativeText, { decodePercent: true });
+        if (!relative) return "";
+        if (relative.flavor !== "relative") return pathIdentityString(relative);
+        const segments = resolvePathSegments([...base.segments, ...relative.segments]);
+        if (!segments) return "";
+        return pathIdentityString({ flavor: base.flavor, head: base.head, segments });
+      }
+
+      function pathFromFileUrl(value) {
+        const text = String(value ?? "").trim();
+        if (!/^file:/i.test(text)) return "";
+        try {
+          const url = new URL(text);
+          const pathname = url.pathname || "";
+          if (url.host) return pathIdentityString(parsePathIdentity(`//${url.host}${pathname}`, { decodePercent: true }));
+          const drivePath = /^\/[A-Za-z]:[\\/]/.test(pathname) ? pathname.slice(1) : pathname;
+          return pathIdentityString(parsePathIdentity(drivePath, { decodePercent: true }));
+        } catch (_) {
+          return "";
+        }
+      }
+
+      // 单段 percent-decode：非法转义按字面保留（文件名字面含 `%` 时不炸）。
+      function decodeRefSegmentOnce(segment) {
+        if (!segment.includes("%")) return segment;
+        try {
+          return decodeURIComponent(segment);
+        } catch (_) {
+          // eslint-disable-next-line no-useless-escape
+          const escaped = segment.replace(/%(?![0-9A-Fa-f]{2})/g, "%25");
+          try {
+            return decodeURIComponent(escaped);
+          } catch (_) {
+            return segment;
+          }
+        }
+      }
+
+      // 图片引用（URI reference）→ OS 相对路径：每段解码恰好一次（W02-R1）。
+      // 与后端 core::markdown_ref::decode_relative_ref 同一合同：拒绝绝对路径、
+      // scheme，以及解码出分隔符 / NUL 的段；`..` 留给后端 canonical 校验，
+      // 不在这里偷偷裁剪成 root 内路径。空串表示该引用不可用。
+      function markdownRefToOsRelative(ref) {
+        let text = String(ref ?? "").trim();
+        if (!text) return "";
+        const cut = text.search(/[#?]/);
+        if (cut >= 0) text = text.slice(0, cut);
+        text = text.trim();
+        if (!text) return "";
+        const normalized = text.replace(/\\/g, "/");
+        if (normalized.startsWith("/")) return "";
+        if (/^(data|blob|file):/i.test(normalized) || normalized.includes("://")) return "";
+        const keepAlias = normalized.startsWith("./");
+        const segments = [];
+        for (const rawSegment of normalized.split("/")) {
+          if (!rawSegment) continue;
+          const segment = decodeRefSegmentOnce(rawSegment);
+          if (!segment || segment === ".") continue;
+          if (segment !== ".." && (segment.includes("/") || segment.includes("\\") || segment.includes("\0"))) {
+            return "";
+          }
+          segments.push(segment);
+        }
+        if (!segments.length) return "";
+        const joined = segments.join("/");
+        if (keepAlias && !joined.startsWith("./") && !joined.startsWith("../")) return `./${joined}`;
+        return joined;
+      }
+
+      // 引用 → 真实 OS 路径（W04）。目录为空或引用不可用时返回空串，调用方
+      // 必须跳过而不是拼出 `/assets/…` 这种会让后端 canonicalize 失败的坏路径。
+      function historyResourcePathFor(directory, ref) {
+        if (!directory) return "";
+        const relative = markdownRefToOsRelative(ref);
+        return relative ? pathOsJoin(directory, relative) : "";
+      }
+      // <<< windows-path-identity
+
       function normalizeLinkedFilePath(value) {
         const raw = safeDecodeUri(String(value || "").trim()).replace(/\\/g, "/");
         if (!raw) return "";
@@ -10365,8 +10618,10 @@
 
       function stripLinkFragmentAndQuery(value) {
         const text = String(value || "").trim();
-        const hashIndex = text.indexOf("#");
-        const queryIndex = text.indexOf("?");
+        // Windows verbatim 前缀 `\\?\` / `//?/` 自带问号，不能当成查询串起点。
+        const offset = /^\\\\\?\\|^\/\/\?\//.test(text) ? 4 : 0;
+        const hashIndex = text.indexOf("#", offset);
+        const queryIndex = text.indexOf("?", offset);
         const cutIndexes = [hashIndex, queryIndex].filter((index) => index >= 0);
         const cutIndex = cutIndexes.length ? Math.min(...cutIndexes) : -1;
         return cutIndex >= 0 ? text.slice(0, cutIndex) : text;
@@ -10396,43 +10651,164 @@
         const target = stripLinkFragmentAndQuery(src);
         if (!target || target.startsWith("#") || isExternalHttpUrl(target)) return "";
         if (/^(data|blob):/i.test(target)) return "";
-        if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !target.toLowerCase().startsWith("file:")) {
+        const fileUrlPath = pathFromFileUrl(target);
+        if (fileUrlPath) return fileUrlPath;
+        // 盘符路径先于 scheme 判定：`C:\...` / `C:/...` 是本地路径，不是协议。
+        if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !isWindowsDrivePath(target)) {
           return "";
         }
-        if (target.toLowerCase().startsWith("file:")) {
-          try {
-            return normalizeLinkedFilePath(decodeURIComponent(new URL(target).pathname));
-          } catch (_) {
-            return "";
-          }
+        if (isWindowsDrivePath(target) || target.startsWith("/") || target.startsWith("\\\\")) {
+          return pathIdentityString(parsePathIdentity(target, { decodePercent: true }));
         }
-        if (target.startsWith("/")) {
-          return normalizeLinkedFilePath(target);
-        }
+        // 相对引用：以 canonical base 目录为准，按身份规则拼接（W02）。
         const baseDir = tab?.preview?.resourceBaseDir || tab?.preview?.baseDir || dirnamePath(tab?.item?.filePath || "");
-        return baseDir ? normalizeLinkedFilePath(`${baseDir}/${target}`) : "";
+        return baseDir ? joinPathIdentity(baseDir, target) : "";
       }
 
       // PR C Phase 1（D1=A）：把 canonical 绝对路径映射为 item scoped origin
       // 内的相对 URL。root 前缀不匹配（越界引用）一律返回空。
+      // Windows：root 来自后端 canonicalize（`\\?\C:\...`），引用路径可能是
+      // `C:\`、`C:/`、verbatim 或 UNC；统一走 PathIdentity 比较，不做去盘符。
       function toScopedResourceUrl(targetPath, tab) {
-        const origin = tab?.preview?.resourceOrigin;
-        const root = tab?.preview?.resourceRoot;
-        if (!origin || !root || !targetPath || !targetPath.startsWith("/")) return "";
-        const normRoot = root.endsWith("/") ? root.slice(0, -1) : root;
-        if (!targetPath.startsWith(normRoot + "/")) return "";
-        const rel = targetPath.slice(normRoot.length + 1);
-        const encoded = rel.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-        return encoded ? `${origin}/${encoded}` : "";
+        return scopedUrlFromPath(tab?.preview?.resourceOrigin, tab?.preview?.resourceRoot, targetPath);
+      }
+
+      // W02-R2：同步字符串比较无法判断卷/目录的真实大小写语义（普通 NTFS
+      // 目录 `Docs` 与 `docs` 是同一文件；目录级 case-sensitive 目录里可能是
+      // 两个文件）。身份只能由后端 canonicalize 裁决，所以按 root **批量**
+      // 解析一次并缓存，前端渲染时全同步消费。
+      // >>> windows-resource-identity
+      function previewResourceKey(tab) {
+        const p = tab?.preview || {};
+        return JSON.stringify([tab?.external?.sessionId || tab?.item?.id || tab?.id, tab?.external?.generation,
+          p.resourceRoot, p.resourceBaseDir, p.resourceOrigin, p.contentRevision, tab?.item?.modifiedAt]);
+      }
+
+      function previewResourceResolutions(tab) {
+        if (!tab?.preview) return null;
+        const key = previewResourceKey(tab);
+        if (tab.preview.resourceResolutions?.key !== key) {
+          tab.preview.resourceResolutions = { key, byReference: new Map(), pending: null, markdown: undefined };
+        }
+        return tab.preview.resourceResolutions;
+      }
+
+      function readResourceResolution(tab, reference) {
+        const cache = tab?.preview?.resourceResolutions;
+        return cache?.key === previewResourceKey(tab) ? cache.byReference.get(reference) : undefined;
+      }
+
+      function isPreviewBatchReference(reference) {
+        const text = String(reference || "").trim();
+        return !!text && !isExternalHttpUrl(text) && !/^(data|blob):/i.test(text) && !text.startsWith("#");
+      }
+
+      function scopedUrlFromRelative(origin, relativePath) {
+        if (!origin || !relativePath) return "";
+        const parts = String(relativePath).split("/");
+        if (parts.some(part => !part || part === "." || part === ".." || part.includes("\\"))) return "";
+        return `${origin}/${parts.map(encodeURIComponent).join("/")}`;
+      }
+
+      async function resolvePreviewResources(tab, references, markdown) {
+        let cache = previewResourceResolutions(tab);
+        const origin = tab?.preview?.resourceOrigin || "";
+        if (!cache || !appState.isTauri || !origin) return false;
+        if (cache.pending) {
+          await cache.pending;
+          if (tab.closed) return false;
+          return resolvePreviewResources(tab, references, markdown);
+        }
+        if (markdown !== undefined && cache.markdown !== markdown) {
+          cache = tab.preview.resourceResolutions = { key: previewResourceKey(tab), byReference: new Map(), pending: null, markdown };
+        }
+        const pending = [...new Set(references)].filter(ref => isPreviewBatchReference(ref) && !cache.byReference.has(ref));
+        const parseMarkdown = markdown !== undefined && !cache.parsed;
+        if (!pending.length && !parseMarkdown) return false;
+        const identity = tab.external?.sessionId
+          ? { sessionId: tab.external.sessionId, generation: tab.external.generation }
+          : { itemId: Number(tab.item?.id ?? tab.id) };
+        if (!identity.sessionId && !Number.isSafeInteger(identity.itemId)) return false;
+        const task = (async () => {
+          let changed = false;
+          for (let offset = 0; offset < Math.max(1, pending.length); offset += 512) {
+            const payload = { ...identity, references: pending.slice(offset, offset + 512) };
+            if (!offset && parseMarkdown) payload.markdown = markdown;
+            const results = await invoke("resolve_preview_resources", { payload });
+            if (tab.closed || tab.preview.resourceResolutions !== cache || previewResourceKey(tab) !== cache.key) return false;
+            for (const entry of results || []) {
+              cache.byReference.set(entry.reference, {
+                url: entry.state === "resolved" ? scopedUrlFromRelative(origin, entry.relativePath) : "", state: entry.state
+              });
+              changed = true;
+            }
+          }
+          cache.parsed = true;
+          return changed;
+        })();
+        cache.pending = task;
+        try { return await task; }
+        catch (error) { cache.parsed = false; return false; }
+        finally { if (cache.pending === task) cache.pending = null; }
+      }
+
+      function markdownLocalImageReferences(markdown) {
+        const references = new Set();
+        const source = String(markdown || "");
+        for (const match of source.matchAll(/!\[[^\]]*\]\(([^()\s]+)\)/g)) references.add(match[1]);
+        for (const match of source.matchAll(/<img[^>]+src=["']([^"'\s]+)["']/gi)) references.add(match[1]);
+        return [...references].filter((reference) => isPreviewBatchReference(reference));
+      }
+
+      // 编辑器（Milkdown）的 resolveImageSrc 是同步回调，必须在创建前把
+      // 批量裁决跑完，否则编辑器里的图片会先破图再也不会恢复。
+      async function ensureMarkdownPreviewResources(tab, markdown) {
+        const cache = previewResourceResolutions(tab);
+        // A fresh mount retries missing/ambiguous entries: files may have changed outside Nutbook.
+        if (cache && !cache.pending) {
+          for (const [ref, entry] of cache.byReference) if (entry.state !== "resolved") cache.byReference.delete(ref);
+          cache.parsed = false;
+        }
+        await resolvePreviewResources(tab, markdownLocalImageReferences(markdown), markdown);
+        if (tab?.preview?.resourceResolutions && [...tab.preview.resourceResolutions.byReference.values()].some(x => x.state === "ambiguous")) {
+          setStatus(t("markdown.imageReferenceAmbiguous"), "warn");
+        }
       }
 
       function resolveMarkdownImageUrl(src, tab) {
+        if (isExternalHttpUrl(src) || /^(data|blob):/i.test(src)) return src;
+        const cached = readResourceResolution(tab, src);
+        if (cached !== undefined) return cached.url || "";
+        // Native local resources must be resolved against the document/session on disk.
+        if (appState.isTauri && isPreviewBatchReference(src)) return "";
         const targetPath = markdownImageFilePath(src, tab);
         if (!targetPath) return "";
-        // PR C Phase 1（D1=A）：只走 item scoped origin；越界引用（root 前缀
-        // 不匹配）返回空 —— 不回退旧 /fs 绝对路径通道，避免重新打开任意读。
         return toScopedResourceUrl(targetPath, tab);
       }
+
+      function markdownEditorImageUrl(src, tab) {
+        if (isExternalHttpUrl(src) || /^(data|blob):/i.test(src)) return src;
+        if (appState.isTauri && readResourceResolution(tab, src) === undefined) {
+          const cache = previewResourceResolutions(tab);
+          if (cache) {
+            (cache.newReferences ??= new Set()).add(src);
+            if (!cache.refreshQueued) {
+              cache.refreshQueued = true;
+              queueMicrotask(async () => {
+                cache.refreshQueued = false;
+                const refs = [...cache.newReferences]; cache.newReferences.clear();
+                if (tab.closed || tab.preview.resourceResolutions !== cache) return;
+                const changed = await resolvePreviewResources(tab, refs);
+                if (!changed || tab.closed || tab.preview.resourceResolutions !== cache) return;
+                if (appState.activeMarkdownEditorTabId === tab.id) appState.activeMarkdownEditor?.refreshImageSources?.();
+                if (appState.inspector?.selectedItemId === tab.id) appState.inspector.editor?.refreshImageSources?.();
+              });
+            }
+          }
+        }
+        return resolveMarkdownImageUrl(src, tab) || "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+      }
+      // <<< windows-resource-identity
 
       function markdownImageAlignmentFromTitle(title) {
         const match = String(title || "").match(/(?:^|\s)nutbook-align=(left|center|right)(?=\s|$)/i);
@@ -10468,14 +10844,37 @@
 
       function setupMarkdownImageResources(card, tab) {
         if (!card || tab?.preview?.fileType !== "markdown") return;
-        card.querySelectorAll(".markdown-preview img[src]").forEach((image) => {
-          const originalSrc = image.getAttribute("src") || "";
+        const pending = [];
+        card.querySelectorAll(".markdown-preview img").forEach((image) => {
+          // 原始引用存到 data 属性：裁决为不可用时 src 会被移除，批量结果
+          // 回来仍要能重新解析，不能丢引用串。
+          let originalSrc = image.getAttribute("data-nutbook-image-src");
+          if (originalSrc === null) {
+            originalSrc = image.getAttribute("src") || "";
+            if (originalSrc) image.setAttribute("data-nutbook-image-src", originalSrc);
+          }
+          if (!originalSrc) return;
+          if (isPreviewBatchReference(originalSrc) && readResourceResolution(tab, originalSrc) === undefined) {
+            pending.push(originalSrc);
+          }
           const resolvedSrc = resolveMarkdownImageUrl(originalSrc, tab);
-          if (resolvedSrc && resolvedSrc !== originalSrc) {
-            image.setAttribute("src", resolvedSrc);
+          if (resolvedSrc) {
+            if (resolvedSrc !== image.getAttribute("src")) image.setAttribute("src", resolvedSrc);
+            image.classList.remove("nutbook-image-unresolved");
+          } else {
+            // 缺失/歧义/越界：不出图，也不把相对引用留给浏览器去猜（scoped
+            // server 会把 `%23` 解成 `#`，那正是"静默换图"的来源）。
+            if (image.hasAttribute("src")) image.removeAttribute("src");
+            image.classList.add("nutbook-image-unresolved");
+            image.setAttribute("title", t(readResourceResolution(tab, originalSrc)?.state === "ambiguous" ? "markdown.imageReferenceAmbiguous" : "markdown.imageReferenceUnavailable"));
           }
           applyMarkdownImageAlignment(image);
         });
+        if (pending.length) {
+          resolvePreviewResources(tab, pending, tab.draft ?? tab.preview.raw ?? "").then((changed) => {
+            if (changed && card.isConnected) setupMarkdownImageResources(card, tab);
+          });
+        }
       }
 
       function isSupportedLinkedArtifactPath(path) {
@@ -13641,13 +14040,11 @@
             const relativePath = result?.relativePath ?? result?.relative_path ?? "";
             if (!relativePath) return null;
             // R2-3：记录本会话插入过的图片绝对路径——撤销历史可达状态引用
-            // 的资源必须随跨目录另存收敛。
-            const sourceDir = (tab.external.path || tab.item?.filePath || "")
-              .split("/").slice(0, -1).join("/");
-            if (sourceDir) {
-              (tab.external.insertedResources ??= new Set())
-                .add(`${sourceDir}/${relativePath.replace(/^\.\//, "")}`);
-            }
+            // 的资源必须随跨目录另存收敛。W02-R1：直接用后端返回的 assetPath
+            // （真实 OS 路径），绝不由引用串反推，避免 `%`/`#` 解码猜错。
+            const insertedPath = result?.assetPath ?? result?.asset_path ?? "";
+            if (insertedPath) (tab.external.insertedResources ??= new Set()).add(insertedPath);
+            await resolvePreviewResources(tab, [relativePath]);
             setStatus(t("markdown.imageInserted"), "ok");
             return {
               relativePath,
@@ -13667,6 +14064,7 @@
           });
           const relativePath = result?.relativePath ?? result?.relative_path ?? "";
           if (!relativePath) return null;
+          await resolvePreviewResources(tab, [relativePath]);
           setStatus(t("markdown.imageInserted"), "ok");
           return {
             relativePath,
@@ -13699,12 +14097,14 @@
         if (tab.sourceMode === "external") {
           if (tab.external.saveLock || tab.external.generation !== generation) throw new Error("Image import cancelled");
           result = await invoke("external_session_paste_image", { sessionId: tab.external.sessionId, generation, data });
-          const sourceDir = (tab.external.path || tab.item.filePath).split("/").slice(0, -1).join("/");
-          (tab.external.insertedResources ??= new Set()).add(`${sourceDir}/${result.relativePath.replace(/^\.\//, "")}`);
+          // W02-R1：粘贴响应带真实 assetPath，直接登记，不反推引用串。
+          const pastedPath = result?.assetPath ?? result?.asset_path ?? "";
+          if (pastedPath) (tab.external.insertedResources ??= new Set()).add(pastedPath);
         } else {
           result = await invoke("paste_markdown_image_asset", { itemId: tab.id, data });
         }
         if (options.signal?.aborted || tab.closed || appState.activeTabId !== tab.id || appState.activeMarkdownEditor !== expectedEditor || (tab.coverActivationToken || 0) !== activationToken) throw new Error("Image import cancelled");
+        await resolvePreviewResources(tab, [result.relativePath]);
         return result;
       }
 
@@ -13913,6 +14313,11 @@
           if (!root.isConnected || appState.activeTabId !== expectedTabId) {
             return;
           }
+          // W02-R2：编辑器的 resolveImageSrc 是同步回调，批量身份裁决必须先完成。
+          await ensureMarkdownPreviewResources(tab, content);
+          if (!root.isConnected || appState.activeTabId !== expectedTabId) {
+            return;
+          }
           const editor = await api.create({
             root,
             markdown: content,
@@ -13920,7 +14325,7 @@
             language: appState.language,
             tableToolsEnabled: appState.markdownPreferences.tableToolsEnabled,
             resolveImageSrc(src) {
-              return resolveMarkdownImageUrl(src, tab) || src;
+              return markdownEditorImageUrl(src, tab);
             },
             onInsertImageAsset() {
               return insertMarkdownImageAssetForTab(tab);
@@ -14096,7 +14501,7 @@
       function toRuntimeFileUrl(pathOrUrl, fallbackPath) {
         const candidate = fallbackPath || pathOrUrl;
         if (!candidate) return "";
-        if (String(candidate).startsWith("nutbook-preview://")) {
+        if (/^(nutbook-preview|nutbook-content):\/\//.test(String(candidate))) {
           return String(candidate);
         }
         if (!appState.isTauri || typeof convertFileSrcRaw !== "function") {
@@ -14116,7 +14521,7 @@
       function toLocalServerUrl(pathOrUrl, query = "") {
         if (!pathOrUrl) return "";
         const value = String(pathOrUrl);
-        if (value.startsWith("http://127.0.0.1:") || value.startsWith("http://localhost:")) {
+        if (value.startsWith("nutbook-content://") || value.startsWith("http://nutbook-content.") || value.startsWith("http://127.0.0.1:") || value.startsWith("http://localhost:")) {
           return `${value}${query}`;
         }
 
@@ -14167,21 +14572,16 @@
 
       // PR C Phase 1（D1=A）：缩略图缓存路径 → 缓存 scoped origin 内的相对
       // URL。root 前缀不匹配或未启用时返回空（调用方回退）。
+      // Windows：缓存 root 同为 canonicalize 结果，本地图片/JPEG/PNG 封面与
+      // 默认 SVG 走同一身份规则（W03）。
       function toCacheResourceUrl(localPath) {
-        const origin = appState.cacheResourceOrigin;
-        const root = appState.cacheResourceRoot;
-        if (!origin || !root || !localPath || !localPath.startsWith("/")) return "";
-        const normRoot = root.endsWith("/") ? root.slice(0, -1) : root;
-        if (!localPath.startsWith(normRoot + "/")) return "";
-        const rel = localPath.slice(normRoot.length + 1);
-        const encoded = rel.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-        return encoded ? `${origin}/${encoded}` : "";
+        return scopedUrlFromPath(appState.cacheResourceOrigin, appState.cacheResourceRoot, localPath);
       }
 
       function normalizeThumbnailInfo(thumbnail) {
         if (!thumbnail) return null;
         let path = thumbnail.path ?? null;
-        if (path && (path.startsWith("/") || path.startsWith("file://"))) {
+        if (path) {
           // PR C Phase 1：只走缩略图缓存 scoped origin；失败保持原值
           // （无效 URL 不会命中旧 /fs 通道）。
           path = toCacheResourceUrl(path) || path;
@@ -14822,6 +15222,20 @@
         if (item.skillBinding) return item.skillBinding;
         const library = appState.libraries.find((entry) => entry.id === item.libraryId);
         return library?.skillBinding ?? null;
+      }
+
+      function releaseDocumentResource(preview) {
+        const origin = preview?.resourceOrigin ?? preview?.resource_origin;
+        if (!origin || !appState.isTauri) return;
+        invoke("release_document_resource", { origin }).catch(error => {
+          setStatus(`${t("home.resourceReleaseFailed")} ${normalizeError(error)}`, "warn");
+        });
+      }
+
+      function replaceTabPreview(tab, preview) {
+        if (tab.closed) { releaseDocumentResource(preview); return false; }
+        if (tab.preview?.resourceOrigin !== preview?.resourceOrigin) releaseDocumentResource(tab.preview);
+        tab.preview = preview;
       }
 
       function normalizePreview(preview) {
@@ -16972,8 +17386,8 @@
         if (!tab || tab.closed || appState.htmlEditSession?.itemId === itemId) return;
         const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId }));
         const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
-        if (getOpenTab(itemId) !== tab || tab.closed || appState.htmlEditSession?.itemId === itemId) return;
-        tab.detail = detail; tab.preview = preview; tab.item = normalizeItemSummary(detail);
+        if (getOpenTab(itemId) !== tab || tab.closed || appState.htmlEditSession?.itemId === itemId) { releaseDocumentResource(preview); return; }
+        tab.detail = detail; replaceTabPreview(tab, preview); tab.item = normalizeItemSummary(detail);
         appState.runtimePatchAppliedKeys.delete(itemId);
         renderTabs();
       }
@@ -17278,7 +17692,7 @@
             } else {
               const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId: tab.id }));
               const preview = normalizePreview(await invoke("get_item_preview", { itemId: tab.id }));
-              tab.detail = detail; tab.preview = preview; tab.item = normalizeItemSummary(detail);
+              tab.detail = detail; replaceTabPreview(tab, preview); tab.item = normalizeItemSummary(detail);
               await loadItems(); renderViewer(); renderTabs();
             }
           },
@@ -19966,6 +20380,7 @@
           // insertMarkdownCoverAssetForTab 会识别 closed 并释放对应 staged lease，
           // 不会把晚到结果插回已关闭的 tab。
           tab.closed = true;
+          releaseDocumentResource(tab.preview);
           destroyMarkdownEditorSession(tab.id);
           // PR C / C2：关闭/放弃时释放本次会话的 staged cover lease。只清理
           // "本会话新建、磁盘 baseline 未引用、当前 draft 未引用"的 staged 文件；
@@ -20972,6 +21387,21 @@
       });
 
       function renderItems() {
+        const loadError = appState.libraryLoadError || appState.itemLoadError;
+        if (loadError) {
+          appState.lastItemsFingerprint = "";
+          els.listSummary.textContent = t("home.loadFailedTitle");
+          els.itemList.classList.add("empty-mode");
+          const errorMarkup = `<div class="empty-state" role="alert"><div><h2>${escapeHtml(t("home.loadFailedTitle"))}</h2><div>${escapeHtml(t("home.loadFailedBody"))}</div><div>${escapeHtml(loadError)}</div><div class="button-row" style="justify-content:center;margin-top:14px"><button data-retry-library-load="true" class="empty-state-action primary" type="button" aria-label="${escapeAttribute(t("home.retryLoad"))}" title="${escapeAttribute(t("home.retryLoad"))}">${escapeHtml(t("home.retryLoad"))}</button></div></div></div>`;
+          els.itemList.innerHTML = errorMarkup;
+          if (els.inspectorRows) els.inspectorRows.innerHTML = errorMarkup;
+          document.querySelectorAll("[data-retry-library-load]").forEach(button => button.addEventListener("click", async (event) => {
+            event.currentTarget.disabled = true;
+            await loadLibraries();
+            await loadItems();
+          }));
+          return;
+        }
         renderTagBatch();
         renderTagFilterSummary();
         // 检查视图接管列表渲染：同一份 appState.items（搜索/筛选/范围保持不变）。
@@ -23517,6 +23947,7 @@ if (!chipTipController) {
       async function loadLibraries() {
         try {
           appState.libraries = (await invoke("list_libraries")).map(normalizeLibrary);
+          appState.libraryLoadError = "";
           reconcileActiveLibrary();
           renderLibraries();
           renderSettingsPanel();
@@ -23526,6 +23957,8 @@ if (!chipTipController) {
           // 幂等：后端只为缺失的 library 建立监听并安排一次后台 catch-up scan。
           await ensureWatcher();
         } catch (error) {
+          appState.libraryLoadError = normalizeError(error);
+          renderItems();
           setStatus(`加载资料库失败：${normalizeError(error)}`, "error");
         }
       }
@@ -23631,7 +24064,9 @@ if (!chipTipController) {
         const searchEpoch = ++appState.searchEpoch;
         appState.thumbnailQueueRunId += 1;
         appState.thumbnailQueueActive = false;
+        if (appState.libraryLoadError) { renderItems(); return false; }
         if (!appState.libraries.length) {
+          appState.itemLoadError = "";
           appState.items = [];
           renderItems();
           return true;
@@ -23662,6 +24097,7 @@ if (!chipTipController) {
           // 让调用方知道这不是失败，而是被取代——绝不能触发回滚。
           if (searchEpoch !== appState.searchEpoch) return "stale";
           appState.items = sortItemsInPlace((result.items || []).map(normalizeItemSummary));
+          appState.itemLoadError = "";
           renderItems();
           // A1.1-PERF：忽略列表只在设置区打开或真实状态变化时刷新（loadLibraries/恢复操作已覆盖），
           // 不在首页每 2.5s 无条件调用 loadIgnoredItems。
@@ -23669,6 +24105,8 @@ if (!chipTipController) {
           return true;
         } catch (error) {
           if (searchEpoch !== appState.searchEpoch) return "stale";
+          appState.itemLoadError = normalizeError(error);
+          renderItems();
           setStatus(statusError("status.listLoadFailedPrefix", error), "error");
           return false;
         }
@@ -24055,7 +24493,7 @@ if (!chipTipController) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
         const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
-        if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
+        if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) { releaseDocumentResource(preview); return; }
         const tabItem = item || normalizeItemSummary(detail);
         const existing = appState.tabs.find((tab) => tab.id === itemId);
 
@@ -24063,7 +24501,7 @@ if (!chipTipController) {
           const keepDraft = isMarkdownTabDirty(existing);
           existing.item = tabItem;
           existing.detail = detail;
-          existing.preview = preview;
+          replaceTabPreview(existing, preview);
           existing.draft = keepDraft ? existing.draft : (preview.raw || "");
           existing.isDirty = keepDraft;
         } else {
@@ -24597,10 +25035,10 @@ if (!chipTipController) {
 
           let freshDetail, freshPreview;
           try {
-            const [freshDetailRaw, freshPreviewRaw] = await Promise.all([
-              invoke("get_item_detail", { itemId: tab.id }),
-              invoke("get_item_preview", { itemId: tab.id })
-            ]);
+            // Acquire a fresh resource grant only after detail succeeds; a
+            // sibling Promise.all rejection must not orphan a preview lease.
+            const freshDetailRaw = await invoke("get_item_detail", { itemId: tab.id });
+            const freshPreviewRaw = await invoke("get_item_preview", { itemId: tab.id });
             freshDetail = normalizeItemDetail(freshDetailRaw);
             freshPreview = normalizePreview(freshPreviewRaw);
           } catch (error) {
@@ -24611,7 +25049,7 @@ if (!chipTipController) {
           const latestContent = markdownContentForTab(tab);
           const changedWhileSaving = latestContent !== content;
           tab.detail = freshDetail;
-          tab.preview = freshPreview;
+          replaceTabPreview(tab, freshPreview);
           tab.markdownBaseline = freshPreview?.raw ?? content;
           tab.draft = changedWhileSaving ? latestContent : tab.markdownBaseline;
           tab.isDirty = tab.draft !== tab.markdownBaseline;
@@ -26236,6 +26674,7 @@ if (!chipTipController) {
       function destroyInspectorEditorOnly() {
         const editor = appState.inspector.editor;
         appState.inspector.editor = null;
+        releaseDocumentResource(appState.inspector.snapshot);
         appState.inspector.snapshot = null;
         try {
           editor?.destroy?.();
@@ -26532,8 +26971,10 @@ if (!chipTipController) {
         appState.inspector.status = "loading";
         destroyInspectorEditorOnly();
         renderInspectorPreview();
+        let pendingResource = null;
         try {
           const snapshot = await invoke("get_item_inspector_snapshot", { itemId: item.id });
+          pendingResource = snapshot;
           if (!isInspectorSelectionCurrent(item.id, token)) return;
           const normalized = {
             itemId: Number(snapshot.itemId ?? snapshot.item_id ?? item.id),
@@ -26570,6 +27011,9 @@ if (!chipTipController) {
           appState.inspector.status = "unavailable";
           destroyInspectorEditorOnly();
           renderInspectorPreview();
+        } finally {
+          const origin = pendingResource?.resourceOrigin ?? pendingResource?.resource_origin;
+          if (origin && appState.inspector.snapshot?.resourceOrigin !== origin) releaseDocumentResource(pendingResource);
         }
       }
 
@@ -26601,7 +27045,8 @@ if (!chipTipController) {
         }
         if (!isInspectorSelectionCurrent(item.id, token) || !root?.isConnected) return null;
         const tabLike = {
-          item: { filePath: snapshot.filePath, fileName: snapshot.fileName },
+          id: item.id,
+          item: { id: item.id, filePath: snapshot.filePath, fileName: snapshot.fileName },
           preview: {
             baseDir: snapshot.baseDir,
             resourceOrigin: snapshot.resourceOrigin,
@@ -26609,15 +27054,16 @@ if (!chipTipController) {
             resourceBaseDir: snapshot.resourceBaseDir
           }
         };
+        // W02-R2：inspector 的只读编辑器同样是同步 resolveImageSrc。
+        await ensureMarkdownPreviewResources(tabLike, snapshot.raw);
         const editor = await api.create({
           root,
           markdown: snapshot.raw,
-          fileName: snapshot.fileName || "",
-          language: appState.language,
+          fileName: snapshot.fileName || "",          language: appState.language,
           // 创建期只读：插件/事件边界在编辑器内部裁剪，contenteditable 只是兜底。
           readOnly: true,
           resolveImageSrc(src) {
-            return resolveMarkdownImageUrl(src, tabLike) || src;
+            return markdownEditorImageUrl(src, tabLike);
           }
         });
         if (!isInspectorSelectionCurrent(item.id, token) || !root.isConnected) {
@@ -28622,27 +29068,28 @@ if (!chipTipController) {
       //  4. 本会话插入过的图片绝对路径（insertedResources）。
       // 后端会再次校验每条路径存在且落在原文档父目录内，否则硬失败保留原会话。
       function collectExternalHistoryResourcePaths(tab, content) {
-        const currentPath = tab.external?.path || tab.item?.filePath || "";
-        const sourceDir = currentPath.split("/").slice(0, -1).join("/");
-        if (!sourceDir) return [];
+        const paths = new Set();
         const editor = tab.id === appState.activeMarkdownEditorTabId ? appState.activeMarkdownEditor : null;
-        const refs = new Set();
+        // W02-R1：引用串交给后端按**磁盘事实**裁决（字面 `%23` 与解码 `#`
+        // 可以是两个真实文件）。前端在这里解码再拼路径就等于替磁盘做主。
         for (const ref of editor?.getEverReferencedResources?.() || []) {
-          refs.add(String(ref).replace(/^\.\//, ""));
+          if (ref) paths.add(String(ref));
         }
         for (const ref of tab.external.everReferencedResources || []) {
-          refs.add(String(ref).replace(/^\.\//, ""));
+          if (ref) paths.add(String(ref));
         }
+        // 撤销可达的旧正文状态（上次预览 / baseline / 草稿 / 当前正文）：
+        // 同样传原始引用串。这些图片当前正文可能已经不含，后端无法从
+        // content 单独得到，不能省。
         for (const state of [tab.preview?.raw, tab.markdownBaseline, tab.draft, content]) {
           for (const ref of extractExternalRelativeImageRefs(state)) {
-            refs.add(ref.replace(/^\.\//, ""));
+            if (ref) paths.add(ref);
           }
         }
-        const paths = new Set();
-        for (const ref of refs) {
-          if (ref && !/^(https?:|data:|file:|#|\/)/i.test(ref)) paths.add(`${sourceDir}/${ref}`);
+        // 当前正文的引用后端也会从 content 收集，这里重复传入由后端去重。
+        for (const inserted of tab.external.insertedResources || []) {
+          if (inserted) paths.add(inserted);
         }
-        for (const inserted of tab.external.insertedResources || []) paths.add(inserted);
         return [...paths];
       }
 

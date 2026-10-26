@@ -229,7 +229,7 @@ pub fn deploy_bundled_cli(app_data: &Path, resource_dir: Option<&Path>) -> Resul
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755)).map_err(|_| "cannot mark CLI executable".to_string())?;
     }
-    let version = std::process::Command::new(&temporary).arg("--version").output().map_err(|_| "cannot verify copied CLI".to_string())?;
+    let version = crate::core::platform::command(&temporary).arg("--version").output().map_err(|_| "cannot verify copied CLI".to_string())?;
     if !version.status.success() || !String::from_utf8_lossy(&version.stdout).contains(CLI_VERSION) {
         let _ = fs::remove_file(&temporary);
         return Err("copied CLI version verification failed".to_string());
@@ -238,7 +238,7 @@ pub fn deploy_bundled_cli(app_data: &Path, resource_dir: Option<&Path>) -> Resul
     if destination.exists() {
         let metadata = fs::symlink_metadata(&destination).map_err(|_| "cannot inspect existing CLI".to_string())?;
         if metadata.file_type().is_symlink() || !metadata.is_file() { let _ = fs::remove_file(&temporary); return Err("existing CLI is not a regular Nutbook-owned file".to_string()); }
-        let old_version = std::process::Command::new(&destination).arg("--version").output().ok()
+        let old_version = crate::core::platform::command(&destination).arg("--version").output().ok()
             .filter(|output| output.status.success())
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
         let Some(old_version) = old_version.and_then(|version| version.strip_prefix("nutbook ").and_then(compare_cli_semver)) else {
@@ -753,7 +753,7 @@ mod tests {
         let deployed = deploy_bundled_cli(&root.path().join("app-data"), Some(&root.path().join("resources"))).expect("deploy");
         assert!(deployed.is_file());
         assert!(!deployed.parent().expect("cli parent").join(".nutbook.previous").exists());
-        assert_eq!(std::process::Command::new(deployed).arg("--version").output().expect("version").status.success(), true);
+        assert_eq!(crate::core::platform::command(deployed).arg("--version").output().expect("version").status.success(), true);
         let deployed = deploy_bundled_cli(&root.path().join("app-data"), Some(&root.path().join("resources"))).expect("upgrade existing CLI");
         assert!(deployed.is_file());
     }

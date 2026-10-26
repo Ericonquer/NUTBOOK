@@ -1,0 +1,98 @@
+NUTBOOK Windows 适配代码自审
+日期：2026-10-26
+审查基线：087d057d00469173668733e83e786e08419a60ab，配置版本 1.5.0。
+范围：桌面启动/安装配置、资源 URL、Markdown 图片与另存为、HTML child/overlay/演示、浏览器发现与导出、Agent/Skill 发现、文件系统操作、进程启动、CI/发布验证。
+约束：只审查，不修复，不提交、不推送、不启动应用、不改用户数据。当前主机 macOS，没有 Windows 实机或该用户安装包；以下是当前源码发现，不代表已复现该安装包全部故障。
+
+结论
+Windows 支持存在多个基础层缺口。不能把缩略图、图片、HTML 白屏分别修完就判为适配完成。应先建立操作系统路径/URL、WebView 创建线程、系统目录和进程启动的统一合同，再逐项完成真实 Windows 安装版验收。
+等级：P1 为核心路径失效、会话资源完整性或明显的平台功能缺失；P2 为局部功能/体验。证据分为函数反例验证、代码确定、框架已知风险。没有 Windows 运行证据的地方明确保留边界。
+
+01 [P1] HTML 正文、多个浮层与演示存在同步创建 WebView 的死锁风险
+证据：src-tauri/src/commands/preview.rs:364 / :450 / :745 / :826 / :878 / :903 / :1178 等均为同步 Tauri command，最终进入 core/html_runtime.rs:473 等 add_child；独立 HTML window 经 core/html_runtime.rs:1838 创建。commands/native_presentation.rs:1601 同步进入 :1699 WebviewWindowBuilder，:2173 同步进入 :2158 add_child。
+影响：HTML 打开白屏、设置/搜索/编辑菜单/离开确认无法打开、演讲者窗口与预览卡住，风险不限于单个 HTML。
+依据：Tauri 官方明确警告 Windows 下在同步 command/event handler 创建 WebView/window 的死锁，要求 async command 或独立线程。https://docs.rs/tauri/latest/tauri/webview/struct.WebviewBuilder.html 与 https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindowBuilder.html 。本地 tauri 2.10.3 源码也含同类说明。
+状态：代码命中已知风险；截图白屏的高概率解释，尚缺 Windows 堆栈或分段日志证明实际阻塞点。
+验收：最小 HTML 无外链样本从资料库和系统外部打开；验证正文、设置、搜索、编辑工具条、保存/放弃/继续编辑、独立播放和演示；冷启动、切换和最小化恢复。不能仅把函数加 async 就宣布完成，须核对真实线程和锁持有范围。
+
+02 [P1] Markdown 本地图片 URL 转换只支持 POSIX 绝对路径
+证据：dist/index.html:10418 toScopedResourceUrl 拒绝非 / 开头；resourceRoot 也未统一反斜杠、盘符和 canonical verbatim 形式。:10401 markdownImageFilePath 将 C: 开头的直接引用当 scheme 拒绝；file:///C:/ 路径另有前导 / 身份差异。
+影响：已有图片、新插入图片和粘贴图片可能已写盘但阅读/编辑显示破图。不是 PNG/SVG 解码结论。
+验证：直接提取生产函数运行，POSIX 控制组成功；C:\、C:/、\\?\C:\、UNC 四类全部返回空 imageUrl。证据见同目录 JSON。
+验收：带中文/空格/#/% 的真实文档、相对图片、盘符路径、canonical 路径；插入/粘贴/保存/关闭/重开；拒绝越出授权 root，不能恢复全局 /fs 或开放 asset scope 兜底。
+
+03 [P1] 所有本地缓存缩略图受同类路径缺陷影响
+证据：dist/index.html:14170 toCacheResourceUrl 只接受 / 开头；:14181 normalizeThumbnailInfo 仅对 / 或 file:// 路径尝试转换；:20524 直接将结果写入 img src。
+影响：不只默认 SVG，本地 PNG/JPEG 缓存卡片也受影响；后端生成成功不等于卡片能显示。
+验证：上述四类 Windows 路径均原样留在 thumbnailPath，未成为 scoped HTTP URL；POSIX 转换成功。
+验收：首扫默认封面、HTML 占位、生成截图、图片封面、失效重建和重启后卡片。保持缓存授权边界。
+
+04 [P1] 外部文档跨目录另存丢失撤销历史资源清单，粘贴路径还可能导致保存失败
+证据：dist/index.html:13646 / :13702 / :28626 使用 split('/') 从原始 OS path 求父目录。反斜杠输入下 sourceDir 为空；collectExternalHistoryResourcePaths 提前返回 []。粘贴路径仍可能登记 /assets/...。:28681 / :28727 将结果传入另存副本/另存为。core/external_open.rs:1512 对 historyResourcePaths 逐项 canonicalize，并拒绝缺失或目录外资源。
+影响：正文仍引用的图片有后端枚举兜底，不能声称所有图片都丢；真正缺口是插图后撤销、跨目录另存、再重做时只存在于历史中的图片未复制；坏 insertedResources 路径也可能使整个另存失败并保留原会话。
+验证：生产函数反例：POSIX 与 C:/ 可收集 assets/old.png；C:\、verbatim、UNC 返回 []。
+验收：插图→撤销→跨目录另存为→重做→保存→关闭重开；另存副本、取消和冲突路径；核对目标 assets 文件和原件 hash。
+
+05 [P1] 缩略图、PDF 与长图导出的浏览器发现仍只查 macOS
+证据：core/thumbnail.rs:527 优先接受 NUTBOOK_CHROME_PATH，否则只读 HOME；:550 固定 Library/Caches/ms-playwright；候选只有 mac-arm64/mac-x64；:587 系统浏览器候选全为 /Applications/*.app。commands/preview.rs:2747 / :2790 / :2822 与 native_presentation.rs:1935 使用这一路径。
+影响：普通 Windows 用户即便按引导安装共享 Chromium 或系统 Chrome/Edge，相关功能仍可能报告无引擎。publishing_runtime.rs 有另一套 Windows 候选发现，但以上调用没有复用它；不能用发布运行时 ready 证明导出 ready。
+例外：显式 NUTBOOK_CHROME_PATH 可越过发现缺口，不表示普通安装路径可用。
+验收：仅系统 Edge、已有共享 Chromium、完全缺引擎三种环境；使用准确状态和复用方案，禁止为解决发现失败重复打包整套依赖。
+
+06 [P1] 演示页缩略图在 Windows 分支明确不支持
+证据：core/thumbnail.rs:821 与 :856 的 cfg(not(unix)) 分支直接返回 presentation thumbnail CDP capture/worker is not supported；native_presentation_thumbnail 调用 worker。
+影响：即便修好浏览器发现，演示缩略图仍失败，是独立能力缺失。HTML 文件卡片的 Windows CLI screenshot 分支存在，不能把此结论扩大成所有截图均未实现。
+验收：Windows 演讲者页列表真实生成多个不同页缩略图，首次生成和切页后 revision 正确。
+
+07 [P1] “移到废纸篓”使用 macOS 目录语义
+证据：db/mod.rs:1111 unique_trash_target 读取 HOME 并创建 ~/.Trash；:1143 rename；:4238 move_item_to_trash 直接调用，无 Windows 分流。
+影响：常规 Windows 没有 HOME 时失败；若有 HOME，文件被移动到普通 .Trash 文件夹而非 Windows 回收站。跨盘 rename 也会失败。没有依据声称这里永久删除了原文件。
+验收：从正式文件菜单删除，同盘/异盘均在系统回收站可恢复；取消和失败不能让索引与磁盘失配。
+
+08 [P1] Agent/Skill 默认发现依赖 HOME，Windows 默认环境下漏发现
+证据：core/skill_discovery.rs:42 无 HOME 直接返回空 roots；:351 同样依赖 HOME。agent_adapters/codex.rs:65 无 CODEX_HOME 时只回退 HOME；claude_code.rs:19、openclaw.rs:20、hermes.rs:16 类似。WorkBuddy 还默认 /Applications/WorkBuddy.app。
+影响：Windows 原生 GUI 启动未设置 HOME 时已有 Skill 和 Agent 项目漏发现或误报未安装；显式环境覆盖只能解决部分 adapter，不能替代默认适配。
+验收：不设置 HOME，仅 USERPROFILE/LOCALAPPDATA 的普通账户，按各 Agent 真实 Windows 数据合同验证，避免扫描错误 cwd 或用户整个主目录。
+
+09 [P1] Skill 路径序列化直接丢失 Windows 盘符/UNC prefix
+证据：core/skill_discovery.rs:370 normalized_path_string 处理 RootDir/Normal，却在 _ 分支丢弃 Component::Prefix；:271 用于 output_path，:313 用于 manifest_path/skill_root_path。
+影响：即便 HOME 已设置且磁盘扫描成功，C:\Users\... 仍会输出 /Users/...；不同盘符相同尾路径可能碰撞；连接 output、source_exists、已连接状态和后续打开均可能错误。不能只在 Windows 设置 HOME 就认为发现已修复。
+状态：基于 Rust Windows Path::components 分支的代码确定性推演；未在 macOS 上冒充执行 Windows 原生 Path 解析。
+验收：两个盘符同尾路径、UNC、canonical verbatim 路径，序列化后真实可打开且身份不合并。
+
+10 [P2] 打开资料库位置仍无条件调用 macOS open
+证据：commands/library.rs:114 open_library_location 最后 :134 Command::new("open")，未 cfg 分流；项目其他 reveal 操作已有 explorer.exe 实现。
+影响：Windows 从资料库入口“打开位置”失败；不能归因于用户目录权限。
+验收：文件来源打开父目录、文件夹来源打开自身、失效来源定位最近存在父目录。
+
+11 [P2] 主程序与后台子进程都缺少 Windows 控制台策略
+证据：src-tauri/src/main.rs 文件首部缺 windows_subsystem 声明；state/mod.rs:95 的日志与截图逐字匹配。core/cli.rs:232 / :241 在部署时运行 CLI --version，core/nbskill_package.rs:114 检测 CLI；commands/publishing_runtime.rs:47 执行 Node 探测、wechat_delivery.rs:202 启动 Node worker；仓库没有 CREATE_NO_WINDOW/Windows CommandExt 创建标志。
+影响：主应用带控制台；即使修主程序，控制台型 Node/CLI 子进程仍存在额外闪窗风险。stdout/stderr 重定向不等于隐藏控制台。浏览器登录窗口属于有意产品操作，不能全局隐藏。
+状态：主程序缺配置为确定事实，截图归属证据强；各子进程实际闪窗次数/时点需 Windows 验证。
+验收：安装后首次启动、再次启动、打开设置/运行时探测、CLI 自检、发送草稿；允许显式登录/查看窗口，后台探测不弹终端。
+
+12 [P1，验证体系缺口] Windows 发布门槛不能发现上述运行时故障
+证据：.github/workflows/ci.yml Windows job 只 cargo check --release --bins；release-preflight.yml 是构建输入和编译；release-build.yml 生成 NSIS、非空校验、checksum 和上传，没有实际安装、启动、HTML/Markdown 路径冒烟。scripts/test-markdown-images-insert-layering.mjs 本次运行通过，但生产函数 Windows 输入四类失败。
+结论：编译与产物完整性验证有价值，但不证明 Windows 用户路径；不能用这些 green checks 做适配已完成的证据。
+建议：低成本路径合同矩阵进入通用测试；原生 Windows 增补有界运行测试；最终 NSIS 在干净账户安装后做真实 UI 验收并留证据。UI 自动化需另按项目授权执行，此次没有使用 Computer Use。
+
+检查过但没有作为缺陷提交的项目
+- scoped_content_server 使用 Path::components/canonicalize/strip_prefix，不因 HTTP 路径使用 / 就认定它 Windows 不兼容；不能退回旧共享 /fs 任意文件服务器。
+- local_server.rs 和 preview_protocol.rs 保留旧 POSIX 实现，但未找到当前生产入口接入，未将它们当作本次 HTML 白屏根因。
+- 外部文本写盘使用 std::fs::rename：Rust 官方支持 Windows 覆盖行为，不能机械宣称“Windows rename 无法覆盖”。https://doc.rust-lang.org/std/fs/fn.rename.html 。版本存储还有 MoveFileExW 平台实现。
+- 默认应用 Windows 查询返回 Unknown 是代码声明的降级；设置入口打开 Windows 设置，未误报已关联，不列为 bug。
+- 没有证据证明用户 HTML 本身有错、缺少 WebView2、安装器漏文件或防火墙拦截；这些需安装包版本、运行日志和实机请求证据。
+- Windows 路径大小写/Unicode/长路径/网络盘离线、DPI/多显示器、IME、快捷键、文件监视、更新安装器启动、cmd URL 转义仍需原生验证；不把未核实风险包装为已确认缺陷。
+
+本次实际验证
+1. 读取当前项目规则、项目 MEMORY、匹配 handoff 与相关代码；审查 Windows cfg 分支、前后端调用入口、CI/发布链。
+2. 直接提取生产 JS 函数，运行五种路径：POSIX、盘符反斜杠、盘符斜杠、verbatim、UNC；含中文图片名；结果在 windows-adaptation-audit-2026-10-26-evidence.json。
+3. node scripts/test-markdown-images-insert-layering.mjs 通过；此结果恰好证明现有覆盖不足，不是 Windows 功能通过。
+4. 官方 Tauri WebView 创建限制和 Rust rename 合同核验。
+5. 未改业务源码、构建产物、依赖、配置或测试；未运行全量 build/cargo/安装包/Windows GUI，纯审查没有必要用 macOS 编译代替 Windows 验收。
+
+建议后续修复顺序（尚未实施）
+A. 先收敛路径/URL 与 WebView 创建线程合同，建立会失败的 Windows 反例；优先闭环 HTML 打开、MD 图片、卡片和保存退出。
+B. 处理另存资源、盘符身份、系统主目录、回收站、系统打开、浏览器发现与明确不支持的演示缩略图。
+C. 统一 Windows 主/子进程窗口策略，补 Windows 安装版 Gate；对完整最小闭环和失败恢复留真实证据。
+最终验收样本至少包含中文/空格目录与 assets 图片的 Markdown、无外链可运行 HTML、可编辑演示稿；从正式 UI 使用，覆盖保存/放弃/继续编辑/关闭重开/最小化恢复/另存为/取消/异常路径/缺依赖。后续若引入依赖，先评估系统复用与体积，不默认增加运行时包。

@@ -1,0 +1,38 @@
+// Windows desktop entry contract (W11, main program only).
+//
+// Without `windows_subsystem = "windows"` the release GUI binary links against
+// the console subsystem, so the installed app always shows a console window.
+// Background child processes and CLI entry points are covered by the stage 2
+// part of W11 and are intentionally NOT asserted here.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const MAIN_RS = readFileSync("src-tauri/src/main.rs", "utf8");
+
+const subsystemAttribute = MAIN_RS.match(
+  /#!\[cfg_attr\(([^,\]]+),\s*windows_subsystem\s*=\s*"windows"\)\]/
+);
+assert.ok(subsystemAttribute, "src-tauri/src/main.rs must declare the Windows GUI subsystem");
+assert.equal(
+  subsystemAttribute[1].trim(),
+  "not(debug_assertions)",
+  "the GUI subsystem must only apply to release builds so `cargo run` keeps its console"
+);
+
+const firstItem = MAIN_RS.indexOf("\nuse ");
+const attributeIndex = MAIN_RS.indexOf(subsystemAttribute[0]);
+assert.ok(
+  attributeIndex >= 0 && (firstItem === -1 || attributeIndex < firstItem),
+  "the crate-level attribute must appear before the first item"
+);
+
+// The separate CLI binary must keep console semantics: it is a different entry
+// point and must not inherit the GUI subsystem attribute.
+const CLI_MAIN = readFileSync("src-tauri/src/bin/nutbook.rs", "utf8");
+assert.doesNotMatch(
+  CLI_MAIN,
+  /windows_subsystem\s*=\s*"windows"/,
+  "the CLI binary must not be turned into a hidden GUI process"
+);
+
+console.log("Windows desktop entry checks passed");

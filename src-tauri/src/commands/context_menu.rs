@@ -106,10 +106,10 @@ pub fn reveal_context_item(state: tauri::State<'_, crate::state::AppState>, webv
     let path = std::path::Path::new(&item.summary.file_path);
     if !path.is_file() { return Err("File no longer exists".into()); }
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg("-R").arg(path).status();
+    let result = crate::core::platform::command("open").arg("-R").arg(path).status();
     #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).status();
+    let result = crate::core::platform::command("explorer.exe").arg(format!("/select,{}", path.display())).status();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let result = std::process::Command::new("xdg-open").arg(path.parent().ok_or("No parent directory")?).status();
+    let result = crate::core::platform::command("xdg-open").arg(path.parent().ok_or("No parent directory")?).status();
     result.map_err(|e| e.to_string())?.success().then_some(()).ok_or("Could not show file".into())
 }

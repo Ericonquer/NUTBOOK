@@ -15,6 +15,7 @@ pub mod local_server;
 pub mod markdown_cover;
 pub mod markdown_cover_assets;
 pub mod markdown_export;
+pub mod markdown_ref;
 pub mod markdown_render;
 pub mod nbskill_package;
 pub mod path_identity;
@@ -39,3 +40,6 @@ pub mod motion_session;
 pub mod display_layout;
 
 pub mod markdown_save_as;
+
+pub mod platform;
+pub mod content_resource;

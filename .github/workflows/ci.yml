@@ -102,13 +102,19 @@ jobs:
         run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
 
   windows-compile:
-    name: PR Windows release compile
+    name: PR Windows runtime gate
     runs-on: windows-latest
-    timeout-minutes: 18
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.0
@@ -127,5 +133,60 @@ jobs:
           restore-keys: |
             ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
 
-      - name: Compile Windows release binaries
-        run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
+      - name: Prepare frontend and lightweight resources
+        run: |
+          npm ci
+          npm run build:frontend
+          npm run prepare:publishing-runtime
+
+      - name: Windows native resource contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/test-windows-resource-identity.mjs
+          node scripts/test-windows-history-resource-paths.mjs
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib markdown_ref::tests -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib preview_resource_resolution -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib content_resource:: -- --test-threads=1
+
+      - name: Build Windows application once without installer
+        run: cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --example content_protocol_probe
+
+      - name: Native protocol lifetime and compatibility gate
+        timeout-minutes: 2
+        env:
+          NUTBOOK_SMOKE_REPORT: windows-smoke-report
+        run: node scripts/test-content-resource-native.mjs --release --no-build
+
+      - name: Setup native WebView2 driver
+        shell: pwsh
+        run: ./scripts/setup-windows-webdriver.ps1
+
+      - name: Actual Windows application smoke
+        timeout-minutes: 3
+        run: node scripts/windows-runtime-smoke.mjs
+
+      - name: Preserve bounded runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-evidence
+          path: windows-smoke-report/
+          if-no-files-found: error
+          retention-days: 3
+
+  cross-platform-gate:
+    name: Cross-platform Gate
+    if: always()
+    needs: [quality, macos-compile, windows-compile]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every planned platform to succeed
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          MACOS: ${{ needs.macos-compile.result }}
+          WINDOWS: ${{ needs.windows-compile.result }}
+        run: |
+          test "$QUALITY" = success
+          test "$MACOS" = success
+          test "$WINDOWS" = success

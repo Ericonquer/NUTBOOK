@@ -177,7 +177,7 @@ pub async fn set_default_app(
         // Codex R4：Windows 主路径直接打开系统默认应用设置页（§7.3），
         // 不走 macOS 确认对话框，也不落回 Finder 说明。
         let _ = (app, kind);
-        let status = std::process::Command::new("explorer.exe")
+        let status = crate::core::platform::command("explorer.exe")
             .arg("ms-settings:defaultapps")
             .status()
             .map_err(|_| AppError::IoError)?;

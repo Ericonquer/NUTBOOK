@@ -39,7 +39,7 @@ use crate::{
             set_html_runtime_host_visibility, HtmlRuntimeSession,
         },
         thumbnail::{
-            capture_presentation_thumbnail_with_worker, find_local_chromium_executable,
+            capture_presentation_thumbnail_with_worker, find_export_chromium_executable,
             PresentationScreenshotInput, PresentationThumbnailWorkerInput,
         },
     },
@@ -1519,7 +1519,7 @@ pub struct RecoverPayload {
 }
 
 #[tauri::command]
-pub fn recover_native_presentation(
+pub async fn recover_native_presentation(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: RecoverPayload,
@@ -1598,7 +1598,7 @@ pub fn recover_native_presentation(
 }
 
 #[tauri::command]
-pub fn start_native_presentation(
+pub async fn start_native_presentation(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: StartPayload,
@@ -1820,7 +1820,7 @@ pub struct BlackoutPayload {
 }
 
 #[tauri::command]
-pub fn native_presentation_blackout(
+pub async fn native_presentation_blackout(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: BlackoutPayload,
@@ -1906,6 +1906,7 @@ static PREVIEW_IMAGES: OnceLock<Mutex<crate::core::thumbnail::PresentationPrevie
 
 #[tauri::command]
 pub async fn native_presentation_thumbnail(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: ThumbnailPayload,
 ) -> Result<ThumbnailResult, AppError> {
@@ -1932,8 +1933,9 @@ pub async fn native_presentation_thumbnail(
             return Ok(ThumbnailResult{page_id:payload.page_id,data_url});
         }
     }
+    #[cfg(not(windows))]
     let chromium_path =
-        find_local_chromium_executable().ok_or(AppError::ThumbnailGenerationFailed)?;
+        find_export_chromium_executable().ok_or(AppError::ThumbnailGenerationFailed)?;
     let url = state.scoped_file_url_for_item(
         &format!(
             "html-runtime:{}:native-presentation-thumbnail",
@@ -1942,10 +1944,18 @@ pub async fn native_presentation_thumbnail(
         &item,
         Path::new(&item.summary.file_path),
     )?;
+    #[cfg(windows)]
+    let runtime = crate::commands::publishing_runtime::resolve(&app, &state.app_data_dir, "wechat")
+        .map_err(|_| AppError::ExportEngineUnavailable)?;
+    #[cfg(not(windows))] let _ = app;
     let page_id = payload.page_id;
+    #[cfg(not(windows))]
     let revision = session.source_hash;
     let result = tauri::async_runtime::spawn_blocking(move || {
-        capture_presentation_thumbnail_with_worker(PresentationThumbnailWorkerInput {
+        #[cfg(windows)]
+        let captured = capture_windows_presentation(&runtime, &url, &page_id);
+        #[cfg(not(windows))]
+        let captured = capture_presentation_thumbnail_with_worker(PresentationThumbnailWorkerInput {
             screenshot: PresentationScreenshotInput {
                 chromium_path,
                 url,
@@ -1955,8 +1965,8 @@ pub async fn native_presentation_thumbnail(
                 pixel_ratio: 2,
             },
             source_revision: revision,
-        })
-        .map(|asset| ThumbnailResult {
+        });
+        captured.map(|asset| ThumbnailResult {
             page_id,
             data_url: format!(
                 "data:{};base64,{}",
@@ -1970,6 +1980,49 @@ pub async fn native_presentation_thumbnail(
     let result=result.map_err(|_|AppError::ThumbnailGenerationFailed)?;
     if let Some(key)=cache_key { PREVIEW_IMAGES.get_or_init(Default::default).lock().map_err(|_|AppError::InternalError)?.insert(key,result.data_url.clone()); }
     Ok(result)
+}
+
+#[cfg(windows)]
+fn capture_windows_presentation(runtime: &crate::commands::publishing_runtime::Runtime, url: &str, page_id: &str)
+    -> Result<crate::core::thumbnail::GeneratedThumbnailAsset, String>
+{
+    use std::{process::Stdio, io::Write};
+    let output = std::env::temp_dir().join(format!("nutbook-presentation-{}.png", uuid::Uuid::new_v4()));
+    let request = serde_json::json!({"url":crate::core::thumbnail::static_capture_url(url),
+        "browser":runtime.browser,"output":output,
+        "init":crate::core::thumbnail::static_capture_init_script(),
+        "setup":crate::core::thumbnail::presentation_thumbnail_setup_script(page_id)});
+    let result = (|| {
+        let mut child = crate::core::platform::command(&runtime.node)
+            .arg(runtime.source.join("worker/capture-presentation.mjs"))
+            .env_remove("NODE_OPTIONS").env_remove("NODE_PATH")
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
+            .spawn().map_err(|_| "cannot launch presentation capture")?;
+        let mut stdin = child.stdin.take().ok_or("capture input unavailable")?;
+        stdin.write_all(request.to_string().as_bytes()).map_err(|_| "cannot send capture request")?;
+        drop(stdin);
+        let start = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().map_err(|_| "capture status unavailable")? {
+                if !status.success() { return Err("presentation capture failed".into()); }
+                break;
+            }
+            if start.elapsed() > Duration::from_secs(25) {
+                let _ = crate::core::platform::command("taskkill.exe")
+                    .args(["/PID", &child.id().to_string(), "/T", "/F"]).status();
+                let _ = child.kill(); let _ = child.wait();
+                return Err("presentation capture timed out".into());
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let metadata = fs::metadata(&output).map_err(|_| "capture file missing")?;
+        if metadata.len() > 20 * 1024 * 1024 { return Err("capture too large".into()); }
+        let bytes = fs::read(&output).map_err(|_| "cannot read capture")?;
+        if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") { return Err("invalid capture".into()); }
+        Ok(crate::core::thumbnail::GeneratedThumbnailAsset { backend:"presentation-playwright",content_type:"image/png",file_extension:"png",bytes,svg:String::new(),width:2048,height:1152 })
+    })();
+    let _ = fs::remove_file(output);
+    result
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -2170,7 +2223,7 @@ fn sync_live_preview(
 }
 
 #[tauri::command]
-pub fn native_presentation_live_preview(
+pub async fn native_presentation_live_preview(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     payload: LivePreviewPayload,
