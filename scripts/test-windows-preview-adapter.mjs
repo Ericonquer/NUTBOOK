@@ -16,7 +16,7 @@ try{
  const hashes=[];
  for(const selected of ['a','b']){
   const output=join(root,selected+'.png');
-  const request={browser,url:`http://127.0.0.1:${server.address().port}/`,output,init:'window.__NUTBOOK_CAPTURE_PURPOSE__="static";',setup:`(()=>{document.getElementById('a').style.display=${JSON.stringify(selected==='a'?'block':'none')};document.getElementById('b').style.display=${JSON.stringify(selected==='b'?'block':'none')};})()`};
+  const request={browser,url:`http://nb-capture-0123456789abcdef0123456789abcdef.localhost:${server.address().port}/`,output,init:'window.__NUTBOOK_CAPTURE_PURPOSE__="static";',setup:`(()=>{document.getElementById('a').style.display=${JSON.stringify(selected==='a'?'block':'none')};document.getElementById('b').style.display=${JSON.stringify(selected==='b'?'block':'none')};})()`};
   const child=spawn(process.execPath,['scripts/wechat/capture-presentation.mjs'],{stdio:['pipe','ignore','pipe'],windowsHide:true});let error='';child.stderr.on('data',x=>error+=x);child.stdin.end(JSON.stringify(request));
   const timeout=setTimeout(()=>child.kill(),20000);const code=await new Promise(resolve=>child.on('exit',resolve));clearTimeout(timeout);assert.equal(code,0,error);
   const bytes=await readFile(output);assert.equal(bytes.subarray(1,4).toString(),'PNG');assert.equal(bytes.readUInt32BE(16),2048);assert.equal(bytes.readUInt32BE(20),1152);hashes.push(createHash('sha256').update(bytes).digest('hex'));

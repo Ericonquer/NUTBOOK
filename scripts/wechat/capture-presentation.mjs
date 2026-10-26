@@ -2,7 +2,8 @@
 import { chromium } from 'playwright-core';
 let input='';for await(const chunk of process.stdin){input+=chunk;if(input.length>2*1024*1024)throw Error('capture request too large');}
 const request=JSON.parse(input);
-if(!/^http:\/\/127\.0\.0\.1:\d+\//.test(request.url))throw Error('invalid capture origin');
+const sourceUrl=new URL(request.url);
+if(sourceUrl.protocol!=='http:'||!sourceUrl.port||sourceUrl.username||sourceUrl.password||!(sourceUrl.hostname==='127.0.0.1'||/^nb-capture-[a-f0-9]{32}\.localhost$/.test(sourceUrl.hostname)))throw Error('invalid capture origin');
 const browser=await chromium.launch({executablePath:request.browser,headless:true});
 try{
  const page=await browser.newPage({viewport:{width:1024,height:576},deviceScaleFactor:2});

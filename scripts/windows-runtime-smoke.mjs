@@ -48,7 +48,7 @@ try{
  const portServer=createServer();await new Promise((ok,fail)=>{portServer.once('error',fail);portServer.listen(0,'127.0.0.1',ok);});
  const debugPort=portServer.address().port;await new Promise(ok=>portServer.close(ok));
  debugEndpoint=`http://127.0.0.1:${debugPort}`;
- appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:true,stdio:['ignore','pipe','pipe']});
+ appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),NUTBOOK_STARTUP_TRACE:join(reportDir,'startup.log'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:false,stdio:['ignore','pipe','pipe']});
  for(const stream of [appProcess.stdout,appProcess.stderr])capture(stream,appLogs);
  appProcess.on('error',e=>appLogs.push(e.message));
  appProcess.on('exit',(code,signal)=>{report.appExit={code,signal};});
@@ -96,7 +96,8 @@ try{
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
 }catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
- clearTimeout(deadline);if(session)try{await request('DELETE',`/session/${session}`);}catch{}
+ clearTimeout(deadline);if(appProcess?.pid){const snapshot=spawn('powershell.exe',['-NoProfile','-Command',`Get-Process -Id ${appProcess.pid} -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,Responding,MainWindowHandle,MainWindowTitle,CPU | ConvertTo-Json`],{windowsHide:true,stdio:['ignore','pipe','ignore']});let output='';snapshot.stdout.on('data',x=>output+=x);await Promise.race([new Promise(ok=>snapshot.on('exit',ok)),pause(3000)]);snapshot.kill();writeFileSync(join(reportDir,'process.json'),output);}
+ if(session)try{await request('DELETE',`/session/${session}`);}catch{}
  for(const child of [appProcess,driver])if(child?.pid)spawn('taskkill.exe',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
  writeFileSync(join(reportDir,'app.log'),appLogs.join('\n'));

@@ -151,9 +151,11 @@ jobs:
           rustc -Vv > windows-smoke-report/toolchain.txt
           node scripts/test-windows-resource-identity.mjs
           node scripts/test-windows-history-resource-paths.mjs
+          node scripts/test-windows-preview-adapter.mjs
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib markdown_ref::tests -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib preview_resource_resolution -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib content_resource:: -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib capture_authority_survives_port_reuse -- --test-threads=1
 
       - name: Build Windows application once without installer
         run: cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --example content_protocol_probe

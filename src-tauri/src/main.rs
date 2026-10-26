@@ -125,13 +125,25 @@ mod tests {
     }
 }
 
+// TEMPORARY: remove after the Windows startup boundary is identified.
+fn startup_trace(stage: &str) {
+    if let Some(path) = std::env::var_os("NUTBOOK_STARTUP_TRACE") {
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{:?} {stage}", std::time::SystemTime::now());
+        }
+    }
+}
+
 fn main() {
+    startup_trace("main.enter");
     // PR B（5.1）：先收集 argv 中的外部打开路径；Windows 下若已有存活实例，
     // 经本地 IPC 整体转交后同步退出（不创建第二个主窗口、不走退出确认链路）。
     let cold_start_paths = collect_external_open_argv_paths();
+    startup_trace("argv.collected");
     #[cfg(target_os = "windows")]
     if !cold_start_paths.is_empty() {
         if let Some(app_data) = windows_app_data_dir() {
+            startup_trace("ipc.forward.begin");
             if forward_external_open_via_ipc(&app_data, &cold_start_paths)
                 .ok()
                 .flatten()
@@ -141,17 +153,20 @@ fn main() {
             }
         }
     }
+    startup_trace("ipc.forward.end");
     // PR B（5.1）：冷启动路径在 setup 之前直接入进程级全局 inbox；一个请求
     // 整体保留，批次边界不得拆散；前端 ExternalOpenReady 后 drain。
     if !cold_start_paths.is_empty() {
         external_open::global_inbox().enqueue("cold_start", cold_start_paths);
     }
 
+    startup_trace("builder.begin");
     tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol(nutbook_backend::core::content_resource::SCHEME, |ctx, request, responder| {
             nutbook_backend::core::content_resource::dispatch(ctx.webview_label().to_owned(), request, responder)
         })
         .menu(|app| {
+            startup_trace("menu.begin");
             let add_folder = MenuItemBuilder::with_id(MENU_ADD_FOLDER_ID, "添加文件夹")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
@@ -258,6 +273,7 @@ fn main() {
                     &PredefinedMenuItem::maximize(app, None)?,
                 ],
             )?;
+            startup_trace("menu.items-created");
             MenuBuilder::new(app)
                 .item(&app_menu)
                 .item(&file_menu)
@@ -308,19 +324,24 @@ fn main() {
             }
         })
         .on_page_load(|webview, payload| {
+            startup_trace("webview.page-load");
             if payload.event() == tauri::webview::PageLoadEvent::Started && webview.label() == "main" {
                 nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_reload(webview.app_handle());
                 nutbook_backend::core::html_runtime::clear_main_window_children_on_page_load(webview);
             }
         })
         .setup(|app| {
+            startup_trace("setup.begin");
             app.manage(commands::context_menu::ContextState::default());
             let app_data_dir = prepare_app_data_dir(app.handle())
                 .expect("failed to prepare app data dir");
+            startup_trace("setup.app-data-ready");
             let database_path = app_data_dir.join("nutbook.sqlite3");
             let database = Database::new(database_path)
                 .expect("failed to initialize database");
+            startup_trace("setup.db-ready");
             app.manage(AppState::new(database, app_data_dir.clone()));
+            startup_trace("setup.state-ready");
             // Recover history owners/projections and rebuild the disposable
             // index off the UI thread. Commands share the same store mutex and
             // retry/report errors normally if startup recovery cannot finish.
@@ -333,6 +354,7 @@ fn main() {
             if let Err(error) = nutbook_backend::core::update::cleanup_update_cache(app.handle()) {
                 eprintln!("Nutbook update-cache cleanup skipped: {error}");
             }
+            startup_trace("setup.cache-cleaned");
             let resource_dir = app.path().resource_dir().ok();
             if let Err(error) = deploy_bundled_cli(
                 &app_data_dir,
@@ -340,9 +362,11 @@ fn main() {
             ) {
                 eprintln!("Nutbook CLI deployment skipped: {error}");
             }
+            startup_trace("setup.cli-deployed");
             if let Err(error) = start_cli_ipc_server(app.handle().clone(), app_data_dir) {
                 eprintln!("Nutbook CLI IPC unavailable: {error}");
             }
+            startup_trace("setup.ipc-started");
             app.manage(HtmlEditAppExitState::default());
             #[cfg(target_os = "macos")]
             nutbook_backend::core::html_runtime::install_html_runtime_minimize_observer(app.handle());
@@ -596,7 +620,7 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| match event {
+        .run(|app, event| { if matches!(&event, tauri::RunEvent::Ready) { startup_trace("event-loop.ready"); } match event {
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },
@@ -662,7 +686,7 @@ fn main() {
                 }
             }
             _ => {}
-        });
+        }});
 }
 
 // PR B（3.6）：允许 surface 的原生文件 Drop 统一 enqueue 一次并 emit 既有

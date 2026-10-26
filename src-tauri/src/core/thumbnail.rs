@@ -888,6 +888,13 @@ fn capture_presentation_thumbnail_with_worker_impl(
         *slot = Some(PresentationThumbnailWorker::new(&input.screenshot, &input.source_revision)?);
     }
     let worker = slot.as_mut().ok_or("presentation thumbnail worker unavailable")?;
+    if worker.url != input.screenshot.url {
+        // Keep the expensive browser process; each capture owns a fresh nonce
+        // transport and reloads its document before selecting the requested page.
+        worker.pipe.call("Page.navigate", json!({"url": static_capture_url(&input.screenshot.url)}), Some(&worker.session_id))?;
+        worker.pipe.wait_for_event("Page.loadEventFired", &worker.session_id, Duration::from_secs(8))?;
+        worker.url = input.screenshot.url.clone();
+    }
     worker.capture(&input.screenshot.page_id)
 }
 
@@ -942,7 +949,7 @@ impl PresentationThumbnailWorker {
 
     fn matches(&mut self, input: &PresentationThumbnailWorkerInput) -> bool {
         self.chromium_path == input.screenshot.chromium_path
-            && self.url == input.screenshot.url
+            && (self.url == input.screenshot.url || (is_capture_transport_url(&self.url) && is_capture_transport_url(&input.screenshot.url)))
             && self.source_revision == input.source_revision
             && self.width == input.screenshot.width
             && self.height == input.screenshot.height
@@ -982,6 +989,14 @@ impl PresentationThumbnailWorker {
     }
 
     fn close(&mut self) { self.pipe.close(); let _ = fs::remove_dir_all(&self.profile_path); }
+}
+
+#[cfg(unix)]
+fn is_capture_transport_url(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else { return false; };
+    if url.scheme() != "http" || url.port().is_none() || !url.username().is_empty() || url.password().is_some() { return false; }
+    let Some(id) = url.host_str().and_then(|host| host.strip_prefix("nb-capture-")).and_then(|host| host.strip_suffix(".localhost")) else { return false; };
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn valid_presentation_page_id(page_id: &str) -> bool {
@@ -2229,8 +2244,9 @@ mod tests {
 
     #[test]
     #[ignore = "launches a persistent local Chromium CDP worker; run manually"]
+    #[cfg(unix)]
     fn presentation_cdp_worker_reuses_one_deck_for_multiple_pages() {
-        let Some(chromium_path) = find_local_chromium_executable() else { return; };
+        let chromium_path = find_local_chromium_executable().expect("verified local Chromium required for this explicit native capture gate");
         let directory = tempfile::tempdir().expect("temporary directory");
         let source = directory.path().join("deck.html");
         fs::write(&source, r#"<!doctype html><html><head><style>
@@ -2239,15 +2255,24 @@ mod tests {
           <section data-nutbook-page-id="page-one" class="page active"><div class="copy"></div><div class="icon"></div></section><section data-nutbook-page-id="page-two" class="page"><div class="copy"></div></section>
           <script>let active="page-one";window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{if(active===id)return true;active=id;for(const page of document.querySelectorAll('[data-nutbook-page-id]'))page.classList.toggle('active',page.dataset.nutbookPageId===id);return true;}};</script>
         </body></html>"#).expect("presentation fixture should be written");
-        let url = url::Url::from_file_path(&source).expect("file url").to_string();
-        let request = |page_id: &str| PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput { chromium_path: chromium_path.clone(), url: url.clone(), page_id: page_id.to_string(), width: 480, height: 270, pixel_ratio: 1 }, source_revision: "worker-test-v1".to_string() };
-        let first = capture_presentation_thumbnail_with_worker(request("page-two")).expect("first worker screenshot");
-        let second = capture_presentation_thumbnail_with_worker(request("page-one")).expect("second worker screenshot");
+        let capture = |page: &str| {
+            let server = crate::core::scoped_content_server::ScopedContentServer::start_for_capture(directory.path()).unwrap();
+            let input = PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput {
+                chromium_path: chromium_path.clone(), url: server.relative_url(Path::new("deck.html")).unwrap(), page_id: page.into(), width: 480, height: 270, pixel_ratio: 1,
+            }, source_revision: "nonce-transport-v1".into() };
+            capture_presentation_thumbnail_with_worker(input).expect("capture with fresh private transport")
+        };
+        let first = capture("page-two");
+        let first_pid = super::PRESENTATION_THUMBNAIL_WORKER.get().unwrap().lock().unwrap().as_ref().unwrap().pipe.child.id();
+        let second = capture("page-one");
+        let second_pid = super::PRESENTATION_THUMBNAIL_WORKER.get().unwrap().lock().unwrap().as_ref().unwrap().pipe.child.id();
+        assert_eq!(first_pid, second_pid, "fresh capture authorities must reuse the browser process");
         assert_eq!(first.backend, "presentation-cdp-worker");
         assert_eq!(second.backend, "presentation-cdp-worker");
         assert!(second.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
         let restored = image::load_from_memory(&second.bytes).expect("second page should decode as PNG");
         assert_eq!(restored.get_pixel(250, 50).0[..3], [0, 255, 0], "returning to a page must preserve its horizontal layout");
+        if let Some(mut worker) = super::PRESENTATION_THUMBNAIL_WORKER.get().unwrap().lock().unwrap().take() { worker.close(); }
     }
 
     #[test]

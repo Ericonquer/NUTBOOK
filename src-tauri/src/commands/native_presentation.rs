@@ -1936,14 +1936,11 @@ pub async fn native_presentation_thumbnail(
     #[cfg(not(windows))]
     let chromium_path =
         find_export_chromium_executable().ok_or(AppError::ThumbnailGenerationFailed)?;
-    let url = state.scoped_file_url_for_item(
-        &format!(
-            "html-runtime:{}:native-presentation-thumbnail",
-            session.item_id
-        ),
-        &item,
-        Path::new(&item.summary.file_path),
-    )?;
+    let capture_root = state.authorization_root_for_item(&item)?;
+    let capture_server = crate::core::scoped_content_server::ScopedContentServer::start_for_capture(&capture_root)?;
+    let path = Path::new(&item.summary.file_path).canonicalize().map_err(|_| AppError::IoError)?;
+    let relative = path.strip_prefix(capture_server.canonical_root()).map_err(|_| AppError::InvalidParams)?;
+    let url = capture_server.relative_url(relative).ok_or(AppError::InvalidParams)?;
     #[cfg(windows)]
     let runtime = crate::commands::publishing_runtime::resolve(&app, &state.app_data_dir, "wechat")
         .map_err(|_| AppError::ExportEngineUnavailable)?;
@@ -1952,6 +1949,7 @@ pub async fn native_presentation_thumbnail(
     #[cfg(not(windows))]
     let revision = session.source_hash;
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _capture_server = capture_server;
         #[cfg(windows)]
         let captured = capture_windows_presentation(&runtime, &url, &page_id);
         #[cfg(not(windows))]
