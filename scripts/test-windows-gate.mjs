@@ -19,6 +19,12 @@ assert(smoke.includes("assert(report.success"));
 assert(smoke.includes("html-child-script"));
 assert(smoke.includes("img.naturalWidth>0"));
 assert(smoke.includes("saved-to-disk"));
+assert(smoke.includes('debuggerAddress:'));
+assert(smoke.includes('appProcess=spawn(binary,[md]'));
+assert(smoke.includes('binarySubsystem,2'));
+assert(smoke.includes('native-webview-debug-ready'));
+assert(!smoke.includes("ms:edgeOptions':{binary,args:"));
+
 assert(!smoke.includes('mockInvoke'));
 assert(smoke.includes('archived-image-loaded'));
 assert(workflow.includes('test-content-resource-native.mjs --release --no-build'));

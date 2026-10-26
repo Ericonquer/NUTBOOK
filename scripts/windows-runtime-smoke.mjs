@@ -8,7 +8,8 @@ import {join,resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 const reportDir=resolve(process.env.NUTBOOK_SMOKE_REPORT||'windows-smoke-report');mkdirSync(reportDir,{recursive:true});
 const report={commit:process.env.GITHUB_SHA||'local',checks:[],success:false};
-let session,driver;let deadline;const logs=[];
+let session,driver,appProcess,debugEndpoint;let deadline;const logs=[],appLogs=[];
+function capture(stream,buffer){stream?.on('data',chunk=>{buffer.push(String(chunk).slice(0,4096));if(buffer.length>200)buffer.shift();});}
 const endpoint='http://127.0.0.1:9515';
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 async function request(method,path,body){
@@ -24,7 +25,10 @@ async function prompt(){await execute(`document.querySelector('[data-prompt-acti
 try{
  assert.equal(process.platform,'win32','native Windows smoke must not be skipped on another OS');
  const binary=resolve(process.env.NUTBOOK_SMOKE_APP||'src-tauri/target/release/NUTBOOK.exe');assert(existsSync(binary));
- report.binarySha256=createHash('sha256').update(readFileSync(binary)).digest('hex');
+ const executable=readFileSync(binary);
+ report.binarySha256=createHash('sha256').update(executable).digest('hex');
+ report.binarySubsystem=executable.readUInt16LE(executable.readUInt32LE(0x3c)+24+68);
+ assert.equal(report.binarySubsystem,2,'GUI application must use Windows GUI subsystem');
  const root=mkdtempSync(join(tmpdir(),'NUTBOOK 验收 #100% '));mkdirSync(join(root,'docs','assets'),{recursive:true});
  const md=join(root,'docs','sample.md'),html=join(root,'runtime.html');
  writeFileSync(join(root,'docs','assets','图 #100%.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="green"/></svg>');
@@ -33,14 +37,29 @@ try{
  writeFileSync(join(root,'data.json'),'{"ok":true}');
  writeFileSync(join(root,'module.js'),`const data=await fetch('/data.json').then(r=>r.json());document.getElementById('ready').textContent=data.ok?'SCRIPT READY':'FAIL';`);
  writeFileSync(html,'<!doctype html><html><head><link rel="stylesheet" href="/style.css"><script type="module" src="/module.js"></script></head><body><h1 id="native-html">HTML BODY</h1><p id="ready">pending</p><img src="/docs/assets/%E5%9B%BE%20%23100%25.svg"></body></html>');
- driver=spawn(process.env.NUTBOOK_WEBDRIVER||'msedgedriver.exe',['--port=9515','--host=127.0.0.1'],{
+ driver=spawn(process.env.NUTBOOK_WEBDRIVER||'msedgedriver.exe',['--port=9515','--host=127.0.0.1','--verbose'],{
    env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true'},windowsHide:true,stdio:['ignore','pipe','pipe']});
- for(const stream of [driver.stdout,driver.stderr])stream.on('data',chunk=>{if(logs.length<200)logs.push(String(chunk).slice(0,4096));});
+ for(const stream of [driver.stdout,driver.stderr])capture(stream,logs);
  driver.on('error',e=>logs.push(e.message));
  await wait('driver-ready',async()=>!!await request('GET','/status'),10000);
- const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{binary,args:[md]}}}});
- session=created.sessionId;assert(session,'WebDriver session missing');
+ // Microsoft's attach route supports applications with multiple native WebViews.
+ // Launch the real app ourselves so paths remain application argv and diagnostics are readable.
+ const {createServer}=await import('node:net');
+ const portServer=createServer();await new Promise((ok,fail)=>{portServer.once('error',fail);portServer.listen(0,'127.0.0.1',ok);});
+ const debugPort=portServer.address().port;await new Promise(ok=>portServer.close(ok));
+ debugEndpoint=`http://127.0.0.1:${debugPort}`;
+ appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:true,stdio:['ignore','pipe','pipe']});
+ for(const stream of [appProcess.stdout,appProcess.stderr])capture(stream,appLogs);
+ appProcess.on('error',e=>appLogs.push(e.message));
+ appProcess.on('exit',(code,signal)=>{report.appExit={code,signal};});
  deadline=setTimeout(()=>{driver.kill();},180000);
+ await wait('native-webview-debug-ready',async()=>{
+   const response=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)});
+   const targets=await response.json();report.targets=targets.map(({id,type,url,title})=>({id,type,url,title}));
+   return targets.some(target=>target.type==='page'&&target.url!=='about:blank');
+ },15000);
+ const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
+ session=created.sessionId;assert(session,'WebDriver session missing');
  await wait('markdown-editor',async()=>{await prompt();return execute(`return !!document.querySelector('.ProseMirror');`);});
  await execute(`document.querySelector('[data-join-external-tab]')?.click();`);
  await wait('joined-library',()=>execute(`return getActiveTab()?.sourceMode==='library'||getActiveTab()?.external?.joined===true;`));
@@ -75,11 +94,12 @@ try{
  },20000);
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
-}catch(error){report.error=error.stack;process.exitCode=1;if(session){try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
+}catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
  clearTimeout(deadline);if(session)try{await request('DELETE',`/session/${session}`);}catch{}
- if(driver?.pid)spawn('taskkill.exe',['/PID',String(driver.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
+ for(const child of [appProcess,driver])if(child?.pid)spawn('taskkill.exe',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
+ writeFileSync(join(reportDir,'app.log'),appLogs.join('\n'));
  writeFileSync(join(reportDir,'report.json'),JSON.stringify(report,null,2));
 }
 assert(report.success,report.error||'Windows smoke failed');
