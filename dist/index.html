@@ -9271,6 +9271,8 @@
         isSettingsOverlay: Boolean(window.__NUTBOOK_SETTINGS_OVERLAY__),
         settingsOverlayMode: window.__NUTBOOK_SETTINGS_OVERLAY_MODE__ || "panel",
         isBooting: true,
+        libraryLoadError: "",
+        itemLoadError: "",
         isEditing: false,
         isTauri: Boolean(window.__TAURI_INTERNALS__?.invoke),
         isSidebarCollapsed: false,
@@ -14096,7 +14098,7 @@
       function toRuntimeFileUrl(pathOrUrl, fallbackPath) {
         const candidate = fallbackPath || pathOrUrl;
         if (!candidate) return "";
-        if (String(candidate).startsWith("nutbook-preview://")) {
+        if (/^(nutbook-preview|nutbook-content):\/\//.test(String(candidate))) {
           return String(candidate);
         }
         if (!appState.isTauri || typeof convertFileSrcRaw !== "function") {
@@ -14116,7 +14118,7 @@
       function toLocalServerUrl(pathOrUrl, query = "") {
         if (!pathOrUrl) return "";
         const value = String(pathOrUrl);
-        if (value.startsWith("http://127.0.0.1:") || value.startsWith("http://localhost:")) {
+        if (value.startsWith("nutbook-content://") || value.startsWith("http://nutbook-content.") || value.startsWith("http://127.0.0.1:") || value.startsWith("http://localhost:")) {
           return `${value}${query}`;
         }
 
@@ -14822,6 +14824,19 @@
         if (item.skillBinding) return item.skillBinding;
         const library = appState.libraries.find((entry) => entry.id === item.libraryId);
         return library?.skillBinding ?? null;
+      }
+
+      function releaseDocumentResource(preview) {
+        const origin = preview?.resourceOrigin ?? preview?.resource_origin;
+        if (!origin || !appState.isTauri) return;
+        invoke("release_document_resource", { origin }).catch(error => {
+          setStatus(`${t("home.resourceReleaseFailed")} ${normalizeError(error)}`, "warn");
+        });
+      }
+
+      function replaceTabPreview(tab, preview) {
+        if (tab.preview?.resourceOrigin !== preview?.resourceOrigin) releaseDocumentResource(tab.preview);
+        tab.preview = preview;
       }
 
       function normalizePreview(preview) {
@@ -16972,8 +16987,8 @@
         if (!tab || tab.closed || appState.htmlEditSession?.itemId === itemId) return;
         const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId }));
         const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
-        if (getOpenTab(itemId) !== tab || tab.closed || appState.htmlEditSession?.itemId === itemId) return;
-        tab.detail = detail; tab.preview = preview; tab.item = normalizeItemSummary(detail);
+        if (getOpenTab(itemId) !== tab || tab.closed || appState.htmlEditSession?.itemId === itemId) { releaseDocumentResource(preview); return; }
+        tab.detail = detail; replaceTabPreview(tab, preview); tab.item = normalizeItemSummary(detail);
         appState.runtimePatchAppliedKeys.delete(itemId);
         renderTabs();
       }
@@ -17278,7 +17293,7 @@
             } else {
               const detail = normalizeItemDetail(await invoke("get_item_detail", { itemId: tab.id }));
               const preview = normalizePreview(await invoke("get_item_preview", { itemId: tab.id }));
-              tab.detail = detail; tab.preview = preview; tab.item = normalizeItemSummary(detail);
+              tab.detail = detail; replaceTabPreview(tab, preview); tab.item = normalizeItemSummary(detail);
               await loadItems(); renderViewer(); renderTabs();
             }
           },
@@ -19987,6 +20002,7 @@
           // insertMarkdownCoverAssetForTab 会识别 closed 并释放对应 staged lease，
           // 不会把晚到结果插回已关闭的 tab。
           tab.closed = true;
+          releaseDocumentResource(tab.preview);
           destroyMarkdownEditorSession(tab.id);
           // PR C / C2：关闭/放弃时释放本次会话的 staged cover lease。只清理
           // "本会话新建、磁盘 baseline 未引用、当前 draft 未引用"的 staged 文件；
@@ -20993,6 +21009,21 @@
       });
 
       function renderItems() {
+        const loadError = appState.libraryLoadError || appState.itemLoadError;
+        if (loadError) {
+          appState.lastItemsFingerprint = "";
+          els.listSummary.textContent = t("home.loadFailedTitle");
+          els.itemList.classList.add("empty-mode");
+          const errorMarkup = `<div class="empty-state" role="alert"><div><h2>${escapeHtml(t("home.loadFailedTitle"))}</h2><div>${escapeHtml(t("home.loadFailedBody"))}</div><div>${escapeHtml(loadError)}</div><div class="button-row" style="justify-content:center;margin-top:14px"><button data-retry-library-load="true" class="empty-state-action primary" type="button" aria-label="${escapeAttribute(t("home.retryLoad"))}" title="${escapeAttribute(t("home.retryLoad"))}">${escapeHtml(t("home.retryLoad"))}</button></div></div></div>`;
+          els.itemList.innerHTML = errorMarkup;
+          if (els.inspectorRows) els.inspectorRows.innerHTML = errorMarkup;
+          document.querySelectorAll("[data-retry-library-load]").forEach(button => button.addEventListener("click", async (event) => {
+            event.currentTarget.disabled = true;
+            await loadLibraries();
+            await loadItems();
+          }));
+          return;
+        }
         renderTagBatch();
         renderTagFilterSummary();
         // 检查视图接管列表渲染：同一份 appState.items（搜索/筛选/范围保持不变）。
@@ -23538,6 +23569,7 @@ if (!chipTipController) {
       async function loadLibraries() {
         try {
           appState.libraries = (await invoke("list_libraries")).map(normalizeLibrary);
+          appState.libraryLoadError = "";
           reconcileActiveLibrary();
           renderLibraries();
           renderSettingsPanel();
@@ -23547,6 +23579,8 @@ if (!chipTipController) {
           // 幂等：后端只为缺失的 library 建立监听并安排一次后台 catch-up scan。
           await ensureWatcher();
         } catch (error) {
+          appState.libraryLoadError = normalizeError(error);
+          renderItems();
           setStatus(`加载资料库失败：${normalizeError(error)}`, "error");
         }
       }
@@ -23652,7 +23686,9 @@ if (!chipTipController) {
         const searchEpoch = ++appState.searchEpoch;
         appState.thumbnailQueueRunId += 1;
         appState.thumbnailQueueActive = false;
+        if (appState.libraryLoadError) { renderItems(); return false; }
         if (!appState.libraries.length) {
+          appState.itemLoadError = "";
           appState.items = [];
           renderItems();
           return true;
@@ -23683,6 +23719,7 @@ if (!chipTipController) {
           // 让调用方知道这不是失败，而是被取代——绝不能触发回滚。
           if (searchEpoch !== appState.searchEpoch) return "stale";
           appState.items = sortItemsInPlace((result.items || []).map(normalizeItemSummary));
+          appState.itemLoadError = "";
           renderItems();
           // A1.1-PERF：忽略列表只在设置区打开或真实状态变化时刷新（loadLibraries/恢复操作已覆盖），
           // 不在首页每 2.5s 无条件调用 loadIgnoredItems。
@@ -23690,6 +23727,8 @@ if (!chipTipController) {
           return true;
         } catch (error) {
           if (searchEpoch !== appState.searchEpoch) return "stale";
+          appState.itemLoadError = normalizeError(error);
+          renderItems();
           setStatus(statusError("status.listLoadFailedPrefix", error), "error");
           return false;
         }
@@ -24076,7 +24115,7 @@ if (!chipTipController) {
         captureActiveMarkdownScroll();
         captureActiveMarkdownDraft();
         const preview = normalizePreview(await invoke("get_item_preview", { itemId }));
-        if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) return;
+        if (!isCurrentItemOpenToken(itemId, openToken, navigationEpoch)) { releaseDocumentResource(preview); return; }
         const tabItem = item || normalizeItemSummary(detail);
         const existing = appState.tabs.find((tab) => tab.id === itemId);
 
@@ -24084,7 +24123,7 @@ if (!chipTipController) {
           const keepDraft = isMarkdownTabDirty(existing);
           existing.item = tabItem;
           existing.detail = detail;
-          existing.preview = preview;
+          replaceTabPreview(existing, preview);
           existing.draft = keepDraft ? existing.draft : (preview.raw || "");
           existing.isDirty = keepDraft;
         } else {
@@ -24632,7 +24671,7 @@ if (!chipTipController) {
           const latestContent = markdownContentForTab(tab);
           const changedWhileSaving = latestContent !== content;
           tab.detail = freshDetail;
-          tab.preview = freshPreview;
+          replaceTabPreview(tab, freshPreview);
           tab.markdownBaseline = freshPreview?.raw ?? content;
           tab.draft = changedWhileSaving ? latestContent : tab.markdownBaseline;
           tab.isDirty = tab.draft !== tab.markdownBaseline;
@@ -26257,6 +26296,7 @@ if (!chipTipController) {
       function destroyInspectorEditorOnly() {
         const editor = appState.inspector.editor;
         appState.inspector.editor = null;
+        releaseDocumentResource(appState.inspector.snapshot);
         appState.inspector.snapshot = null;
         try {
           editor?.destroy?.();
@@ -26553,8 +26593,10 @@ if (!chipTipController) {
         appState.inspector.status = "loading";
         destroyInspectorEditorOnly();
         renderInspectorPreview();
+        let pendingResource = null;
         try {
           const snapshot = await invoke("get_item_inspector_snapshot", { itemId: item.id });
+          pendingResource = snapshot;
           if (!isInspectorSelectionCurrent(item.id, token)) return;
           const normalized = {
             itemId: Number(snapshot.itemId ?? snapshot.item_id ?? item.id),
@@ -26591,6 +26633,9 @@ if (!chipTipController) {
           appState.inspector.status = "unavailable";
           destroyInspectorEditorOnly();
           renderInspectorPreview();
+        } finally {
+          const origin = pendingResource?.resourceOrigin ?? pendingResource?.resource_origin;
+          if (origin && appState.inspector.snapshot?.resourceOrigin !== origin) releaseDocumentResource(pendingResource);
         }
       }
 

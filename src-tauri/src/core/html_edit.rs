@@ -709,7 +709,7 @@ pub fn populate_runtime_asset_urls<F>(
         let Some(relative_path) = change.src.as_deref() else { continue; };
         let Ok(path) = resolve_html_edit_asset_path(library_root, &response.artifact_edit_id, relative_path) else { continue; };
         let url = file_url(&path);
-        if url.starts_with("http://") || url.starts_with("https://") {
+        if url.starts_with("http://") || url.starts_with("https://") || crate::core::content_resource::is_resource_url(&url) {
             response.runtime_asset_urls.insert(relative_path.to_string(), url);
         }
     }

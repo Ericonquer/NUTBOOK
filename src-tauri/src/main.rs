@@ -143,6 +143,9 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(nutbook_backend::core::content_resource::SCHEME, |ctx, request, responder| {
+            nutbook_backend::core::content_resource::dispatch(ctx.webview_label().to_owned(), request, responder)
+        })
         .menu(|app| {
             let add_folder = MenuItemBuilder::with_id(MENU_ADD_FOLDER_ID, "添加文件夹")
                 .accelerator("CmdOrCtrl+O")
@@ -257,6 +260,11 @@ fn main() {
                 .item(&view_menu)
                 .item(&window_menu)
                 .build()
+        })
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                nutbook_backend::core::content_resource::unbind_surface(window.label());
+            }
         })
         .on_menu_event(|app, event| {
             if commands::context_menu::dispatch(app, event.id().as_ref()) { return; }
@@ -405,6 +413,7 @@ fn main() {
             commands::items::restore_ignored_item,
             commands::items::sync_filesystem_state,
             commands::preview::get_item_preview,
+            commands::preview::release_document_resource,
             commands::preview::get_item_inspector_snapshot,
             commands::preview::get_item_content_revision,
             commands::preview::attach_inspector_more_overlay_command,

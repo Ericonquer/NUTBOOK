@@ -39,3 +39,5 @@ pub mod motion_session;
 pub mod display_layout;
 
 pub mod markdown_save_as;
+
+pub mod content_resource;

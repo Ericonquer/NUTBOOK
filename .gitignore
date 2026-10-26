@@ -71,3 +71,7 @@ src-tauri/generated-resources/wechat-runtime/*
 
 /src-tauri/generated-resources/publishing-runtime/*
 !/src-tauri/generated-resources/publishing-runtime/.gitkeep
+
+# Copies created through the native content-session acceptance workflow
+/tests/fixtures/content-session-transport/**/*.nutbook-editable.html
+/tests/fixtures/content-session-transport/**/.nutbook/

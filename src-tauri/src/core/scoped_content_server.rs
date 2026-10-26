@@ -1,3 +1,7 @@
+//! Legacy loopback transport retained for boundary regression tests and its
+//! shared canonical path resolver. Production sessions use `content_resource`;
+//! application startup never reads its port registry or starts tombstones.
+//!
 //! PR C Phase 1（计划 6.3，handoff 裁决 D1=A）：scoped resource origin。
 //!
 //! 每个 HTML 内容会话一个独立 loopback 服务器实例，origin 根直接映射授权
@@ -1041,6 +1045,10 @@ enum Resolved {
 }
 
 fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
+    resolve_in_root(raw_path, &shared.canonical_root, shared.max_body_bytes)
+}
+
+fn resolve_in_root(raw_path: &str, root: &Path, max_bytes: u64) -> Resolved {
     let not_found = Resolved::Simple {
         status: "404 Not Found",
         content_type: "text/plain; charset=utf-8",
@@ -1085,11 +1093,11 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
     }
 
     // 2) join root 后 canonicalize，组件级前缀比对封 symlink 逃逸。
-    let candidate = shared.canonical_root.join(&relative);
+    let candidate = root.join(&relative);
     let Ok(canonical_candidate) = candidate.canonicalize() else {
         return not_found;
     };
-    if !canonical_candidate.starts_with(&shared.canonical_root) {
+    if !canonical_candidate.starts_with(root) {
         return out_of_scope();
     }
     if canonical_candidate.is_dir() {
@@ -1104,7 +1112,7 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
         return out_of_scope();
     }
     let size = metadata.len();
-    if size > shared.max_body_bytes {
+    if size > max_bytes {
         return Resolved::Simple {
             status: "413 Payload Too Large",
             content_type: "text/plain; charset=utf-8",
@@ -1124,6 +1132,40 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
         content_type,
         size,
     }
+}
+
+/// Shared path/canonical-root policy for the native resource protocol. Reading
+/// is capped even if a file grows after metadata was checked.
+pub(crate) fn resource_response(root: &Path, path: &str, head: bool) -> tauri::http::Response<Vec<u8>> {
+    use std::io::Read;
+    let (status, mime, body, size) = match resolve_in_root(path, root, MAX_RESPONSE_BODY_BYTES) {
+        Resolved::File { path, content_type, size } => {
+            if head { (200, content_type, Vec::new(), size) }
+            else {
+                match std::fs::File::open(path).and_then(|file| {
+                    let mut body = Vec::new();
+                    file.take(MAX_RESPONSE_BODY_BYTES + 1).read_to_end(&mut body)?;
+                    Ok(body)
+                }) {
+                    Ok(body) if body.len() as u64 <= MAX_RESPONSE_BODY_BYTES => {
+                        let len = body.len() as u64; (200, content_type, body, len)
+                    }
+                    _ => (413, "text/plain", b"resource unavailable or too large".to_vec(), 32),
+                }
+            }
+        }
+        Resolved::CaptureHtml { body } => {
+            let size = body.len() as u64;
+            (200, "text/html; charset=utf-8", if head { Vec::new() } else { body }, size)
+        }
+        Resolved::Simple { status, content_type, body } => (
+            status[..3].parse::<u16>().unwrap_or(500), content_type,
+            if head { Vec::new() } else { body.to_vec() }, body.len() as u64,
+        ),
+    };
+    tauri::http::Response::builder().status(status).header("Content-Type", mime)
+        .header("Content-Length", size.to_string()).header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff").body(body).unwrap()
 }
 
 fn write_response(

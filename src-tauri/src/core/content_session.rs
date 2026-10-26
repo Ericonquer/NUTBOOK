@@ -246,7 +246,7 @@ impl std::fmt::Display for BridgeRejection {
 /// 从 URL 提取 origin（`scheme://authority`）。无法解析返回 None。
 pub fn origin_of_url(url: &str) -> Option<String> {
     let (scheme, rest) = url.split_once("://")?;
-    if scheme != "http" && scheme != "https" {
+    if scheme != "http" && scheme != "https" && scheme != "nutbook-content" {
         return None;
     }
     let authority = rest.split(['/', '?', '#']).next()?;
@@ -364,6 +364,7 @@ impl ContentSessionRegistry {
 
     /// 注销单个 webview 会话。
     pub fn unregister(&self, label: &str) -> bool {
+        super::content_resource::unbind_surface(label);
         self.sessions
             .lock()
             .map(|mut sessions| sessions.remove(label).is_some())
@@ -393,6 +394,7 @@ impl ContentSessionRegistry {
                     .collect();
                 let count = stale.len();
                 for label in stale {
+                    super::content_resource::unbind_surface(&label);
                     sessions.remove(&label);
                 }
                 count

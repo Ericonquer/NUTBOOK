@@ -63,6 +63,8 @@ pub enum AppError {
     DatabaseError,
     #[error("io error")]
     IoError,
+    #[error("content resources unavailable: {0}")]
+    ContentResourceUnavailable(String),
     #[error("internal error")]
     InternalError,
     /// §7.2：用户在系统确认对话框中取消或未授予默认应用变更。
@@ -164,6 +166,7 @@ impl AppError {
             AppError::AssetInvalidType => "ASSET_INVALID_TYPE",
             AppError::AssetTooLarge => "ASSET_TOO_LARGE",
             AppError::CoverAssetRejected(_) => "COVER_ASSET_REJECTED",
+            AppError::ContentResourceUnavailable(_) => "CONTENT_RESOURCE_UNAVAILABLE",
             AppError::ScopedRegistryFailed(_) => "SCOPED_REGISTRY_FAILED",
             AppError::MarkdownResourceUnavailable(_) => "MARKDOWN_RESOURCE_UNAVAILABLE",
             AppError::AgentDiscoveryDatabaseUnavailable(_) => "AGENT_DISCOVERY_DATABASE_UNAVAILABLE",

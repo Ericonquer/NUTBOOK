@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const html=readFileSync('dist/index.html','utf8');
 const extract=name=>{
- const source=html.match(new RegExp(`async function ${name}\\([^]*?\\n      \\}`))?.[0];
+ const source=html.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n      \\}`))?.[0];
  assert.ok(source,name);return source;
 };
 for(const allow of [true,false]) {
@@ -38,7 +38,7 @@ for (const mode of ['normal','editing-before','editing-during','closed-during'])
   invoke:async command=>{if(command==='get_item_preview'){if(mode==='editing-during')state.htmlEditSession={itemId:41};if(mode==='closed-during')tab.closed=true;}return {fresh:true};},
   normalizeItemDetail:v=>v,normalizePreview:v=>v,normalizeItemSummary:v=>v,renderTabs:()=>rendered++,
  });
- await vm.runInContext(extract('refreshHtmlHistoryTab')+'\nrefreshHtmlHistoryTab(41)',ctx);
+ await vm.runInContext(extract('releaseDocumentResource')+'\n'+extract('replaceTabPreview')+'\n'+extract('refreshHtmlHistoryTab')+'\nrefreshHtmlHistoryTab(41)',ctx);
  assert.equal(rendered,mode==='normal'?1:0,'a late restore refresh cannot mutate a reopened editor or closed tab');
  assert.equal(state.runtimePatchAppliedKeys.has(41),mode!=='normal');
 }

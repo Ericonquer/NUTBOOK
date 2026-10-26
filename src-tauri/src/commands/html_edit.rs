@@ -212,7 +212,7 @@ pub fn import_html_edit_asset(
     let runtime_url = scoped_server
         .relative_url(relative_asset)
         .ok_or(AppError::InternalError)?;
-    if !runtime_url.starts_with("http://") && !runtime_url.starts_with("https://") {
+    if !runtime_url.starts_with("nutbook-content://") && !runtime_url.starts_with("http://nutbook-content.") {
         return Err(AppError::InternalError);
     }
     Ok(ImportHtmlEditAssetResponse {

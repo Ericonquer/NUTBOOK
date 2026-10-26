@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::scoped_content_server::ScopedContentServer;
+use crate::core::content_resource::ContentResource;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct PreviewRecord {
@@ -15,7 +15,7 @@ pub(super) struct PreviewRecord {
 #[derive(Debug)]
 pub(super) struct VersionPreviewSession {
     record: PreviewRecord,
-    server: ScopedContentServer,
+    server: ContentResource,
     projection: PathBuf,
 }
 #[derive(Debug, Serialize)]
@@ -132,7 +132,7 @@ impl HistoryStore {
         let served = projection.join("content");
         fs::create_dir(&served)?;
         if version.snapshot.html.is_some() {
-            let server = ScopedContentServer::start(&served)
+            let server = ContentResource::start(&served)
                 .map_err(|e| invalid(format!("preview server: {e}")))?;
             let objects = version.snapshot.hashes().map(|hash| Ok((hash.to_owned(), self.object(hash)?)))
                 .collect::<Result<BTreeMap<_, _>>>()?;
@@ -206,7 +206,7 @@ impl HistoryStore {
         let filename = format!("{session}-preview.html");
         let page=format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; connect-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'\"><style>body{{font:16px/1.7 system-ui;margin:24px;overflow-wrap:anywhere}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap}}table{{border-collapse:collapse}}td,th{{border:1px solid #bbb;padding:6px}}</style></head><body>{html}</body></html>");
         atomic_bytes(&served.join(&filename), page.as_bytes(), false)?;
-        let server = ScopedContentServer::start(&served)
+        let server = ContentResource::start(&served)
             .map_err(|e| invalid(format!("preview server: {e}")))?;
         let url = server
             .relative_url(Path::new(&filename))
@@ -434,6 +434,14 @@ fn remove_validated_projection(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn native_preview_response(url: &str) -> tauri::http::Response<Vec<u8>> {
+        crate::core::content_resource::serve("main", tauri::http::Request::builder().uri(url).body(vec![]).unwrap())
+    }
+    fn native_preview_body(url: &str) -> String {
+        let response = native_preview_response(url);
+        assert_eq!(response.status(), 200);
+        String::from_utf8(response.into_body()).unwrap()
+    }
     #[test]
     fn unpublished_preview_journal_does_not_block_recovery_or_gc() {
         let dir = tempfile::tempdir().unwrap();
@@ -505,29 +513,19 @@ mod tests {
         fs::write(dir.path().join("image.svg"), b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>").unwrap();
         let store = HistoryStore::open(&dir.path().join("app")).unwrap();
         let saved = store.save_html(&path, dir.path(), &digest(body), b"<h1>B</h1>", None).unwrap();
-        let registry = std::env::temp_dir().join(format!("nutbook-html-history-preview-{}", Uuid::new_v4()));
-        fs::create_dir(&registry).unwrap();
-        crate::core::scoped_content_server::init_used_port_registry(registry.join("ports.json")).unwrap();
         let head = store.document(&saved.document_id).unwrap();
         fs::write(dir.path().join("style.css"), b"LIVE_CANARY").unwrap();
         fs::remove_file(dir.path().join("symbols.ttf")).unwrap();
         let preview = store.begin_markdown_preview(&head.id, &head.versions[0].id, 1).unwrap();
-        let page = ureq::get(&preview.url).call().unwrap().into_string().unwrap();
+        let page = native_preview_body(&preview.url);
         assert!(page.contains("<h1>A</h1>"));
         assert!(page.contains("color:blue"));
         assert!(!page.contains("LIVE_CANARY"));
         assert!(!page.contains("window.BAD"));
         assert!(preview.source.contains("window.BAD"));
-        if let Ok(script) = std::env::var("NUTBOOK_HTML_HISTORY_BROWSER_SCRIPT") {
-            let inline_path = std::env::temp_dir().join(format!("nutbook-html-inline-{}.html", Uuid::new_v4()));
-            fs::write(&inline_path, &preview.html).unwrap();
-            let status = std::process::Command::new("node").arg(script).arg(&preview.url).arg(&inline_path).status().unwrap();
-            let _ = fs::remove_file(inline_path);
-            assert!(status.success());
-        }
 
         store.close_preview(&preview.session_id).unwrap();
-        assert!(ureq::get(&preview.url).call().is_err());
+        assert_eq!(native_preview_response(&preview.url).status(), 403);
     }
     #[test]
     fn static_preview_is_scoped_inert_and_revoked_before_history_gc() {
@@ -540,13 +538,6 @@ mod tests {
         let saved = store
             .save_markdown(&path, dir.path(), &digest(a), b"# B", None)
             .unwrap();
-        // A persistent test-only registry directory avoids affecting user data
-        // or deleting registry state while parallel tests still use a server.
-        let registry =
-            std::env::temp_dir().join(format!("nutbook-history-preview-{}", Uuid::new_v4()));
-        fs::create_dir(&registry).unwrap();
-        crate::core::scoped_content_server::init_used_port_registry(registry.join("ports.json"))
-            .unwrap();
         let head = store.document(&saved.document_id).unwrap();
         let version = &head.versions[0];
         let preview = store
@@ -556,11 +547,7 @@ mod tests {
         assert!(preview.incomplete);
         assert!(preview.source.contains("<!-- nutbook-cover -->"));
         assert!(!preview.html.contains("nutbook-cover"));
-        let body = ureq::get(&preview.url)
-            .call()
-            .unwrap()
-            .into_string()
-            .unwrap();
+        let body = native_preview_body(&preview.url);
         assert!(body.contains("script-src 'none'"));
         use html5ever::tendril::TendrilSink;
         let dom =
@@ -583,35 +570,17 @@ mod tests {
         }
         check(&dom.document, &preview.session_id);
         assert!(body.contains(&format!("src=\"{}-", preview.session_id)));
-        if std::env::var_os("NUTBOOK_HISTORY_BROWSER_CHECK").is_some() {
-            let script = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .join("scripts/test-document-versions-preview-browser.mjs");
-            let inline_path=std::env::temp_dir().join(format!("nutbook-inline-{}.html",Uuid::new_v4()));
-            fs::write(&inline_path,&preview.html).unwrap();
-            let status = std::process::Command::new("node")
-                .arg(script)
-                .arg(&preview.url)
-                .arg(&inline_path)
-                .status()
-                .unwrap();
-            let _=fs::remove_file(inline_path);
-            assert!(status.success());
-        }
-        let origin = url::Url::parse(&preview.url)
-            .unwrap()
-            .origin()
-            .ascii_serialization();
+
+        let origin = crate::core::content_session::origin_of_url(&preview.url).unwrap();
         for path in [
             "/owner.json",
             "/../../settings.json",
             "/00000000-other-version.svg",
         ] {
-            assert!(ureq::get(&format!("{origin}{path}")).call().is_err());
+            assert_ne!(native_preview_response(&format!("{origin}{path}")).status(), 200);
         }
         store.delete_versions(&head.id, None).unwrap();
-        assert!(ureq::get(&preview.url).call().is_err());
+        assert_eq!(native_preview_response(&preview.url).status(), 403);
         assert!(store.preview_records().unwrap().is_empty());
         store.collect_unreferenced_objects().unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"# B");

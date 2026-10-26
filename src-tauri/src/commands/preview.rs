@@ -107,8 +107,17 @@ pub fn get_item_preview(
             .scoped_file_url_for_item(&format!("preview:{item_id}"), &item, path)
             .unwrap_or_default()
     };
-    let markdown_resource = markdown_resource_context_for_item(&state, &item)?;
-    load_document_payload(&item, url, markdown_resource)
+    let resource_key = format!("preview:{item_id}:{}", uuid::Uuid::new_v4());
+    let markdown_resource = markdown_resource_context_for_item(&state, &item, &resource_key)?;
+    let origin = markdown_resource.origin.clone();
+    let result = load_document_payload(&item, url, markdown_resource);
+    if result.is_err() { let _ = state.release_document_resource(&origin); }
+    result
+}
+
+#[tauri::command]
+pub fn release_document_resource(state: tauri::State<'_, AppState>, origin: String) -> Result<bool, AppError> {
+    state.release_document_resource(&origin)
 }
 
 /// Build the complete context that the Markdown host needs to turn a local
@@ -118,6 +127,7 @@ pub fn get_item_preview(
 fn markdown_resource_context_for_item(
     state: &AppState,
     item: &ItemDetail,
+    resource_key: &str,
 ) -> Result<MarkdownResourceContext, AppError> {
     if item.summary.file_type != "markdown" {
         return Ok(MarkdownResourceContext::default());
@@ -167,7 +177,7 @@ fn markdown_resource_context_for_item(
     })?;
 
     let server = state
-        .scoped_server(&format!("preview:{}", item.summary.id), &canonical_root)
+        .scoped_server(resource_key, &canonical_root)
         .map_err(|error| match error {
             // Preserve the existing actionable registry diagnosis and fail
             // closed.  It never grants another root or falls back to `/fs`.
@@ -181,7 +191,7 @@ fn markdown_resource_context_for_item(
             other => other,
         })?;
     let origin = server.resource_base();
-    if !origin.starts_with("http://127.0.0.1:") {
+    if !crate::core::content_resource::is_resource_url(&origin) {
         return Err(AppError::MarkdownResourceUnavailable(
             "SCOPED_SERVER_STARTUP_FAILED: the item-scoped resource origin is invalid; reopen the item and retry"
                 .to_string(),
@@ -203,8 +213,12 @@ pub fn get_item_inspector_snapshot(
     payload: GetItemPreviewRequest,
 ) -> Result<MarkdownInspectorSnapshot, AppError> {
     let item = state.get_item_detail(payload.item_id)?;
-    let markdown_resource = markdown_resource_context_for_item(&state, &item)?;
-    load_markdown_inspector_snapshot(&item, markdown_resource)
+    let key = format!("inspector:{}:{}", item.summary.id, uuid::Uuid::new_v4());
+    let markdown_resource = markdown_resource_context_for_item(&state, &item, &key)?;
+    let origin = markdown_resource.origin.clone();
+    let result = load_markdown_inspector_snapshot(&item, markdown_resource);
+    if result.is_err() { let _ = state.release_document_resource(&origin); }
+    result
 }
 
 /// 廉价 revision 复核：只返回当前内容 hash，供检查视图丢弃晚到/过期实例。
@@ -3550,7 +3564,7 @@ mod tests {
 
         let db_path = temp_path("save-db").with_extension("sqlite3");
         let database = Database::new(&db_path).expect("db should initialize");
-        let state = AppState::new(database, std::env::temp_dir());
+        let state = AppState::new(database, db_path.with_extension("app-data"));
 
         state
             .upsert_library(Library {
@@ -3615,7 +3629,7 @@ mod tests {
 
         let db_path = temp_path("consistency-db").with_extension("sqlite3");
         let database = Database::new(&db_path).expect("db should initialize");
-        let state = AppState::new(database, std::env::temp_dir());
+        let state = AppState::new(database, db_path.with_extension("app-data"));
 
         state
             .upsert_library(Library {

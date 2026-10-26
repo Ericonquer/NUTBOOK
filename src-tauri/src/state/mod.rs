@@ -14,7 +14,7 @@ use crate::{
         scan_coordinator::ScanCoordinator,
         watcher::build_library_watcher,
         content_session::ContentSessionRegistry,
-        scoped_content_server::ScopedContentServer,
+        content_resource::ContentResource,
     },
     db::{
         repositories::{ItemRepository, LibraryRepository, TagRepository, ThumbnailRepository},
@@ -33,17 +33,17 @@ use crate::{
 pub struct AppState {
     pub database: Database,
     scan_coordinator: ScanCoordinator,
-    /// PR C Phase 1（D1=A）：每 session 独立 scoped 内容服务器注册表。
+    /// Live native resource grants, keyed by logical consumer/session.
     /// key 约定：`preview:{item_id}` / `html-runtime:{item_id}:{surface}` /
     /// `html-edit:{item_id}` / `external:{session_id}`。
-    scoped_servers: Mutex<HashMap<String, Arc<ScopedContentServer>>>,
+    scoped_servers: Mutex<HashMap<String, Arc<ContentResource>>>,
     /// PR C Phase 1（R9/R11）：内容面 webview 会话登记表 —— 宿主创建内容
     /// webview 时登记 {role, item, origin, session, generation}；内容面命令
     /// 与标题桥一律先查登记，导航离开注册 origin 即失效。
     pub content_sessions: ContentSessionRegistry,
-    /// PR C Phase 1：缩略图缓存资源服务器（root = app_data_dir/.cache/thumbnails）。
+    /// Native thumbnail-cache grant (root = app_data_dir/.cache/thumbnails).
     /// main 可信面展示缩略图的唯一本地来源；root 只含缩略图缓存文件。
-    cache_resource_server: Option<Arc<ScopedContentServer>>,
+    cache_resource_server: Option<Arc<ContentResource>>,
     watched_libraries: Mutex<HashSet<i64>>,
     active_watchers: Mutex<HashMap<i64, RecommendedWatcher>>,
     html_edit_manifest_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
@@ -79,29 +79,13 @@ impl AppState {
         let thumbnail_settings_path = app_data_dir.join("thumbnail-settings.json");
         let update_settings_path = app_data_dir.join("update-settings.json");
 
-        // R11-a（Codex 第二轮返修）：跨启动端口隔离。在任何 scoped 服务器
-        // 启动之前：设置登记表路径并加载历史身份 → 把登记的上一进程端口
-        // 占为墓碑应答服务（可选、单线程有界）。身份裁决由 start 的禁止
-        // 集合完成，与墓碑成败无关（R11-a 第三轮）；init 失败 fail closed
-        // —— 应用继续启动，但一切 scoped 内容会话拒绝启动。
-        let used_ports_path = app_data_dir.join(
-            crate::core::scoped_content_server::USED_PORTS_FILE_NAME,
-        );
-        if let Err(error) =
-            crate::core::scoped_content_server::init_used_port_registry(used_ports_path)
-        {
-            eprintln!("Nutbook scoped port registry init failed: {error}; HTML scoped sessions will refuse to start (fail closed)");
-        }
-        let entombed = crate::core::scoped_content_server::entomb_registered_ports();
-        if entombed > 0 {
-            eprintln!("Nutbook entombed {entombed} stale scoped port(s) from previous launches");
-        }
-
+        // Native resource grants replace finite, lifetime port identities.
+        // Existing used-scoped-ports files remain untouched for older versions.
         // PR C Phase 1：缩略图缓存资源服务器（root = app_data_dir/.cache/thumbnails）。
         let cache_root = app_data_dir.join(".cache").join("thumbnails");
         let cache_resource_server = match fs::create_dir_all(&cache_root)
             .ok()
-            .and_then(|_| ScopedContentServer::start(&cache_root).ok())
+            .and_then(|_| ContentResource::start(&cache_root).ok())
         {
             Some(server) => Some(Arc::new(server)),
             None => {
@@ -165,13 +149,14 @@ impl AppState {
         store.synchronize_document_index(&mut connection, document_id).is_ok()
     }
 
-    /// PR C Phase 1：缩略图缓存资源 URL 前缀（R11-a 后即 origin 本身）与
-    /// canonical root。未启用时返回空。
+    /// Native thumbnail origin and cache path prefix as written to the database. The handler independently
+    /// enforces the canonical root; preserving aliases here keeps /tmp paths
+    /// aligned with thumbnail records. Unavailable grants return empty values.
     pub fn cache_resource_info(&self) -> (String, String) {
         match &self.cache_resource_server {
             Some(server) => (
                 server.resource_base(),
-                server.canonical_root().to_string_lossy().to_string(),
+                self.app_data_dir.join(".cache").join("thumbnails").to_string_lossy().to_string(),
             ),
             None => (String::new(), String::new()),
         }
@@ -193,9 +178,8 @@ impl AppState {
 
     // ---- PR C Phase 1（D1=A）：scoped resource origin ----
     //
-    // 安全边界落在「端口 = 授权 root」绑定上：每个内容会话独立 loopback
-    // origin，origin 根直接映射授权 root（folder 资料库 root 或单文件直接
-    // 父目录）。旧 `/fs` 绝对路径路由在 Phase 1 收口后不复存在。
+    // A live random authority plus the native requesting surface binds each
+    // session to one canonical root. No socket or lifetime port ledger is used.
 
     /// 获取（或创建）指定 session 的 scoped 内容服务器。同 key 同 root 复用；
     /// root 漂移（来源被移动/替换）时重建。
@@ -203,7 +187,7 @@ impl AppState {
         &self,
         session_key: &str,
         root: &std::path::Path,
-    ) -> Result<Arc<ScopedContentServer>, AppError> {
+    ) -> Result<Arc<ContentResource>, AppError> {
         let canonical_root = root.canonicalize().map_err(|_| AppError::IoError)?;
         let mut servers = self
             .scoped_servers
@@ -213,20 +197,31 @@ impl AppState {
             if existing.canonical_root() == canonical_root.as_path() {
                 return Ok(Arc::clone(existing));
             }
-            // root 漂移：Drop 旧实例（关闭旧端口），下方重建。
-            servers.remove(session_key);
+            // Root changed: immediately revoke outstanding old handles before rebuilding.
+            if let Some(old) = servers.remove(session_key) { old.revoke(); }
         }
-        let server = Arc::new(ScopedContentServer::start(&canonical_root)?);
+        let server = Arc::new(ContentResource::start(&canonical_root)?);
+        if let Some(item) = session_key.strip_prefix("html-edit:") {
+            server.allow_surface(&format!("html-host-{item}"));
+            server.allow_surface(&format!("html-player-{item}"));
+            server.allow_surface(&format!("html-presentation-preview-{item}"));
+        }
         servers.insert(session_key.to_string(), Arc::clone(&server));
         Ok(server)
     }
 
-    /// 关闭并移除 session 的 scoped 服务器。生命周期钩子：close 标签 /
-    /// 替换 session / promotion teardown / 来源失效。
+    /// Release only the exact returned resource generation. A late frontend
+    /// cleanup must not revoke a newer preview for the same document.
+    pub fn release_document_resource(&self, origin: &str) -> Result<bool, AppError> {
+        let mut resources = self.scoped_servers.lock().map_err(|_| AppError::InternalError)?;
+        let key = resources.iter().find(|(_, resource)| resource.origin() == origin).map(|(key, _)| key.clone());
+        Ok(key.and_then(|key| resources.remove(&key)).map(|resource| { resource.revoke(); }).is_some())
+    }
+
     pub fn drop_scoped_server(&self, session_key: &str) -> bool {
         self.scoped_servers
             .lock()
-            .map(|mut servers| servers.remove(session_key).is_some())
+            .map(|mut servers| servers.remove(session_key).map(|resource| { resource.revoke(); }).is_some())
             .unwrap_or(false)
     }
 
@@ -1039,7 +1034,7 @@ impl ThumbnailRepository for AppState {
 /// 旧实现把 `preview:{id}` 也当前缀 —— 撤销 item 1 会误伤 `preview:10` /
 /// `preview:100` / `html-edit:10` 的存活资源能力。此处 `1` 不得匹配 `10`/`100`。
 fn scoped_key_belongs_to_item(key: &str, item_id: i64) -> bool {
-    if key == format!("preview:{item_id}") || key == format!("html-edit:{item_id}") {
+    if key == format!("preview:{item_id}") || key.starts_with(&format!("preview:{item_id}:")) || key.starts_with(&format!("inspector:{item_id}:")) || key == format!("html-edit:{item_id}") {
         return true;
     }
     key.starts_with(&format!("html-runtime:{item_id}:"))
@@ -1123,5 +1118,67 @@ mod update_download_tests {
         assert_eq!(state.update_download_progress().unwrap(), final_state);
         state.begin_update_download().unwrap();
         state.finish_update_download();
+    }
+}
+
+#[cfg(test)]
+mod resource_lifetime_tests {
+    use super::*;
+    #[test]
+    fn exact_preview_release_revokes_even_with_outstanding_handles() {
+        let root=tempfile::tempdir().unwrap();
+        let database=Database::new(root.path().join("test.sqlite3")).unwrap();
+        let state=AppState::new(database,root.path().join("app"));
+        fs::write(root.path().join("canary.txt"),b"alive").unwrap();
+        let old=state.scoped_server("preview:1:old",root.path()).unwrap();
+        let new=state.scoped_server("preview:1:new",root.path()).unwrap();
+        let old_url=old.relative_url(std::path::Path::new("canary.txt")).unwrap();
+        let new_url=new.relative_url(std::path::Path::new("canary.txt")).unwrap();
+        assert!(state.release_document_resource(old.origin()).unwrap());
+        let get=|url:&str|crate::core::content_resource::serve("main",tauri::http::Request::builder().uri(url).body(vec![]).unwrap()).status();
+        assert_eq!(get(&old_url),403);
+        assert_eq!(get(&new_url),200);
+        assert!(!state.release_document_resource(old.origin()).unwrap());
+        assert_eq!(get(&new_url),200);
+        assert!(state.drop_scoped_server("preview:1:new"));
+        assert_eq!(get(&new_url),403);
+        assert!(!root.path().join("app/used-scoped-ports.json").exists());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod cache_alias_tests {
+    use super::*;
+    #[test]
+    fn cache_urls_keep_database_path_alias_and_serve_the_canonical_svg() {
+        let root=tempfile::tempdir().unwrap();
+        let real=root.path().join("real");fs::create_dir(&real).unwrap();
+        let alias=root.path().join("alias");std::os::unix::fs::symlink(&real,&alias).unwrap();
+        let state=AppState::new(Database::new(alias.join("test.sqlite3")).unwrap(),alias.clone());
+        let image=alias.join(".cache/thumbnails/cover.svg");
+        fs::write(&image,b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>").unwrap();
+        let (_,prefix)=state.cache_resource_info();
+        assert!(image.starts_with(prefix));
+        let url=state.cache_resource_url(image.to_str().unwrap());
+        let response=crate::core::content_resource::serve("main",tauri::http::Request::builder().uri(url).body(vec![]).unwrap());
+        assert_eq!(response.status(),200);
+        assert_eq!(response.headers()["Content-Type"],"image/svg+xml");
+    }
+}
+
+#[cfg(test)]
+mod legacy_registry_migration_tests {
+    use super::*;
+    #[test]
+    fn native_resources_ignore_but_preserve_legacy_registry_bytes() {
+        let root=tempfile::tempdir().unwrap();
+        let app=root.path().join("app");fs::create_dir(&app).unwrap();
+        let registry=app.join("used-scoped-ports.json");
+        fs::write(&registry,b"old or damaged legacy registry").unwrap();
+        let state=AppState::new(Database::new(app.join("test.sqlite3")).unwrap(),app.clone());
+        let grant=state.scoped_server("preview:1:new",root.path()).unwrap();
+        assert!(crate::core::content_resource::is_resource_url(grant.origin()));
+        assert_eq!(fs::read(registry).unwrap(),b"old or damaged legacy registry");
+        assert!(!app.join("used-scoped-ports.json.lock").exists());
     }
 }

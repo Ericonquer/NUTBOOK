@@ -23,7 +23,8 @@ const grab = (pattern, name) => {
   return m[0];
 };
 
-const SAVE_TAB_FN = grab(/async function saveMarkdownTab\(tab, \{ renderAfter = true \} = \{\}\) \{[\s\S]*?\n      \}/, "saveMarkdownTab");
+const RESOURCE_FNS = ["releaseDocumentResource", "replaceTabPreview"].map(name => INDEX_HTML.match(new RegExp(`function ${name}\\([^]*?\\n      \\}`))[0]).join("\n");
+const SAVE_TAB_FN = RESOURCE_FNS + "\n" + grab(/async function saveMarkdownTab\(tab, \{ renderAfter = true \} = \{\}\) \{[\s\S]*?\n      \}/, "saveMarkdownTab");
 const AUTOSIZE_FN = grab(/function autosizeMarkdownTitleInput\(input\) \{[\s\S]*?\n      \}/, "autosizeMarkdownTitleInput");
 const SESSION_FN = grab(/function markdownTitleInputSession\(input\) \{[\s\S]*?\n      \}/, "markdownTitleInputSession");
 const SETVAL_FN = grab(/function setTitleInputValue\(input, value\) \{[\s\S]*?\n      \}/, "setTitleInputValue");
