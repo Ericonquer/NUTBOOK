@@ -45,14 +45,27 @@ try{
  // Microsoft's attach route supports applications with multiple native WebViews.
  // Launch the real app ourselves so paths remain application argv and diagnostics are readable.
  const {createServer}=await import('node:net');
- const portServer=createServer();await new Promise((ok,fail)=>{portServer.once('error',fail);portServer.listen(0,'127.0.0.1',ok);});
- const debugPort=portServer.address().port;await new Promise(ok=>portServer.close(ok));
+ // Keep the explicit debug port outside Windows' dynamic allocation range,
+ // so the application's own port-0 IPC listener cannot claim it first.
+ const debugPort=9222,portServer=createServer();
+ await new Promise((ok,fail)=>{portServer.once('error',fail);portServer.listen(debugPort,'127.0.0.1',ok);});
+ await new Promise(ok=>portServer.close(ok));report.debugPort=debugPort;
  debugEndpoint=`http://127.0.0.1:${debugPort}`;
  appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:false,stdio:['ignore','pipe','pipe']});
  for(const stream of [appProcess.stdout,appProcess.stderr])capture(stream,appLogs);
+ report.appPid=appProcess.pid;
  appProcess.on('error',e=>appLogs.push(e.message));
  appProcess.on('exit',(code,signal)=>{report.appExit={code,signal};});
  deadline=setTimeout(()=>{driver.kill();},180000);
+ const stableCli=join(root,'app-data','cli','nutbook.exe');
+ await wait('stable-cli-deployed',()=>existsSync(stableCli));
+ const version=spawnSync(stableCli,['--version'],{windowsHide:true,encoding:'utf8',timeout:3000});
+ assert.equal(version.status,0,version.error?.message||version.stderr);
+ assert.match(version.stdout,/^nutbook \d+\.\d+\.\d+\s*$/);
+ report.checks.push({name:'stable-cli-version'});
+ const endpointFile=join(root,'app-data','cli-ipc.json');
+ await wait('application-ipc-created',()=>existsSync(endpointFile));
+ {const endpoint=JSON.parse(readFileSync(endpointFile,'utf8'));report.applicationIpc={port:endpoint.port,pid:endpoint.pid};assert.notEqual(endpoint.port,debugPort,'IPC and debug port must be distinct');}
  await wait('native-webview-debug-ready',async()=>{
    const response=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)});
    const targets=await response.json();report.targets=targets.map(({id,type,url,title})=>({id,type,url,title}));
@@ -60,12 +73,6 @@ try{
  },15000);
  const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
  session=created.sessionId;assert(session,'WebDriver session missing');
- const stableCli=join(root,'app-data','cli','nutbook.exe');
- await wait('stable-cli-deployed',()=>existsSync(stableCli));
- const version=spawnSync(stableCli,['--version'],{windowsHide:true,encoding:'utf8',timeout:3000});
- assert.equal(version.status,0,version.error?.message||version.stderr);
- assert.match(version.stdout,/^nutbook \d+\.\d+\.\d+\s*$/);
- report.checks.push({name:'stable-cli-version'});
  await wait('markdown-editor',async()=>{await prompt();return execute(`return !!document.querySelector('.ProseMirror');`);});
  await execute(`document.querySelector('[data-join-external-tab]')?.click();`);
  await wait('joined-library',()=>execute(`return getActiveTab()?.sourceMode==='library'||getActiveTab()?.external?.joined===true;`));
@@ -102,7 +109,12 @@ try{
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
 }catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
- clearTimeout(deadline);if(appProcess?.pid){const snapshot=spawn('powershell.exe',['-NoProfile','-Command',`Get-Process -Id ${appProcess.pid} -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,Responding,MainWindowHandle,MainWindowTitle,CPU | ConvertTo-Json`],{windowsHide:true,stdio:['ignore','pipe','ignore']});let output='';snapshot.stdout.on('data',x=>output+=x);await Promise.race([new Promise(ok=>snapshot.on('exit',ok)),pause(3000)]);snapshot.kill();writeFileSync(join(reportDir,'process.json'),output);}
+ clearTimeout(deadline);if(appProcess?.pid){
+  const task=spawnSync('tasklist.exe',['/FI',`PID eq ${appProcess.pid}`,'/FO','CSV','/V'],{windowsHide:true,encoding:'utf8',timeout:3000});
+  writeFileSync(join(reportDir,'process.txt'),task.stdout||task.error?.message||task.stderr||'no process');
+  const diagnostic=spawnSync('pwsh.exe',['-NoProfile','-NonInteractive','-Command',"Get-CimInstance Win32_Process | Where-Object {$_.Name -match 'nutbook|msedgewebview2'} | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Depth 3"],{windowsHide:true,encoding:'utf8',timeout:8000});
+  writeFileSync(join(reportDir,'process-tree.json'),diagnostic.stdout||JSON.stringify({error:diagnostic.error?.message,stderr:diagnostic.stderr}));
+ }
  if(session)try{await request('DELETE',`/session/${session}`);}catch{}
  for(const child of [appProcess,driver])if(child?.pid)spawn('taskkill.exe',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));

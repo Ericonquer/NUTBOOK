@@ -25,6 +25,9 @@ assert(smoke.includes('binarySubsystem,2'));
 assert(smoke.includes('stable-cli-deployed'));
 assert(!smoke.includes('NUTBOOK_STARTUP_TRACE'));
 assert(smoke.includes('native-webview-debug-ready'));
+assert(smoke.indexOf("await wait('stable-cli-deployed'")<smoke.indexOf("await wait('native-webview-debug-ready'"));
+assert(smoke.includes('application-ipc-created'));
+assert(smoke.includes('process-tree.json'));
 assert(!smoke.includes("ms:edgeOptions':{binary,args:"));
 
 assert(!smoke.includes('mockInvoke'));
