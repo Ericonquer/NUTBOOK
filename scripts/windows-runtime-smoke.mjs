@@ -11,6 +11,22 @@ const report={commit:process.env.GITHUB_SHA||'local',checks:[],success:false};
 let session,driver,appProcess,debugEndpoint;let deadline;const logs=[],appLogs=[];
 function capture(stream,buffer){stream?.on('data',chunk=>{buffer.push(String(chunk).slice(0,4096));if(buffer.length>200)buffer.shift();});}
 const endpoint='http://127.0.0.1:9515';
+const policyBackups=[];
+// WebView2 ignores user-scoped debug overrides in elevated hosts (Microsoft,
+// security.md). GitHub Windows runners use High IL; policy is app-scoped and
+// restored in finally, never installed by or bundled with the product.
+function reg(args){return spawnSync('reg.exe',[...args,'/reg:64'],{windowsHide:true,encoding:'utf8',timeout:3000});}
+function setMachineOverride(section,name,value){
+ const key=String.raw`HKLM\Software\Policies\Microsoft\Edge\WebView2`+'\\'+section;
+ const old=reg(['QUERY',key,'/v',name]);
+ const found=old.status===0?old.stdout.match(/\b(REG_SZ|REG_EXPAND_SZ)[ \t]+([^\r\n]*)/):null;
+ if(old.status===0&&!found)throw Error('Cannot preserve existing WebView2 override');
+ if(old.status!==0&&!/unable to find|cannot find|not found/i.test(old.stdout+old.stderr))throw Error('Cannot read WebView2 machine override');
+ const write=reg(['ADD',key,'/v',name,'/t','REG_SZ','/d',value,'/f']);
+ assert.equal(write.status,0,write.stderr||write.error?.message);
+ policyBackups.push({key,name,type:found?.[1],value:found?.[2]});
+}
+
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 async function request(method,path,body){
  const response=await fetch(endpoint+path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
@@ -51,7 +67,22 @@ try{
  await new Promise((ok,fail)=>{portServer.once('error',fail);portServer.listen(debugPort,'127.0.0.1',ok);});
  await new Promise(ok=>portServer.close(ok));report.debugPort=debugPort;
  debugEndpoint=`http://127.0.0.1:${debugPort}`;
- appProcess=spawn(binary,[md],{env:{...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`},windowsHide:false,stdio:['ignore','pipe','pipe']});
+ const groups=spawnSync('whoami.exe',['/groups','/fo','csv','/nh'],{windowsHide:true,encoding:'utf8',timeout:3000});
+ assert.equal(groups.status,0,groups.stderr||groups.error?.message);
+ report.hostHighIntegrity=groups.stdout.includes('S-1-16-12288');
+ const debugArguments=`--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`;
+ const appEnv={...process.env,HOME:'',NUTBOOK_APP_DATA_DIR:join(root,'app-data'),TAURI_WEBVIEW_AUTOMATION:'true',WEBVIEW2_USER_DATA_FOLDER:join(root,'webview-data')};
+ if(report.hostHighIntegrity){
+   report.browserOverrideSource='app-specific-machine-policy';
+   for(const name of ['NUTBOOK.exe','com.hayley.nutbook']){
+     setMachineOverride('AdditionalBrowserArguments',name,debugArguments);
+     setMachineOverride('UserDataFolder',name,join(root,'webview-data'));
+   }
+   for(const key of Object.keys(appEnv))if(key.toUpperCase()==='WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS')delete appEnv[key];
+ }else{
+   report.browserOverrideSource='environment';appEnv.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=debugArguments;
+ }
+ appProcess=spawn(binary,[md],{env:appEnv,windowsHide:false,stdio:['ignore','pipe','pipe']});
  for(const stream of [appProcess.stdout,appProcess.stderr])capture(stream,appLogs);
  report.appPid=appProcess.pid;
  appProcess.on('error',e=>appLogs.push(e.message));
@@ -117,6 +148,10 @@ finally{
  }
  if(session)try{await request('DELETE',`/session/${session}`);}catch{}
  for(const child of [appProcess,driver])if(child?.pid)spawn('taskkill.exe',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
+ for(const old of policyBackups.reverse()){
+   const restored=old.type?reg(['ADD',old.key,'/v',old.name,'/t',old.type,'/d',old.value,'/f']):reg(['DELETE',old.key,'/v',old.name,'/f']);
+   if(restored.status!==0){report.success=false;process.exitCode=1;(report.policyRestoreErrors??=[]).push({name:old.name,error:restored.stderr||restored.error?.message});}
+ }
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
  writeFileSync(join(reportDir,'app.log'),appLogs.join('\n'));
  writeFileSync(join(reportDir,'report.json'),JSON.stringify(report,null,2));

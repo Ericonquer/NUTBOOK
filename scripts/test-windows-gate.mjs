@@ -28,6 +28,10 @@ assert(smoke.includes('native-webview-debug-ready'));
 assert(smoke.indexOf("await wait('stable-cli-deployed'")<smoke.indexOf("await wait('native-webview-debug-ready'"));
 assert(smoke.includes('application-ipc-created'));
 assert(smoke.includes('process-tree.json'));
+assert(smoke.includes('report.hostHighIntegrity'));
+assert(smoke.includes('setMachineOverride'));
+assert(smoke.includes('policyBackups.reverse()'));
+assert(!smoke.includes("setMachineOverride('AdditionalBrowserArguments','*'"));
 assert(!smoke.includes("ms:edgeOptions':{binary,args:"));
 
 assert(!smoke.includes('mockInvoke'));
