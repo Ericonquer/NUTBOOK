@@ -205,9 +205,18 @@ pub(super) fn capture_reference(
     let Some(candidate) = normalize(&candidate) else {
         return Ok(excluded("invalid path"));
     };
-    if !candidate.starts_with(&root) {
+    // Windows canonical paths use the verbatim prefix (\\?\), while file
+    // URLs round-trip to ordinary drive/UNC paths. Compare both URL-derived
+    // spellings, then re-anchor under the canonical root before filesystem IO.
+    // The canonical ancestor and final target checks below remain mandatory.
+    let lexical_root = url::Url::from_directory_path(root)
+        .ok()
+        .and_then(|url| url.to_file_path().ok())
+        .ok_or_else(|| HistoryError::Invalid("invalid root file URL".into()))?;
+    let Ok(relative) = candidate.strip_prefix(&lexical_root) else {
         return Ok(excluded("outside authorized root"));
-    }
+    };
+    let candidate = root.join(relative);
     // Validate nearest existing ancestor even for an absent leaf. This
     // prevents an in-root symlink to an outside missing target.
     let mut ancestor = candidate.as_path();
@@ -280,6 +289,29 @@ pub(super) fn capture_reference(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resource_capture_url_roundtrip_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("资料 #100%");
+        fs::create_dir_all(root.join("docs/assets")).unwrap();
+        let path = root.join("docs/note.md");
+        fs::write(&path, b"source").unwrap();
+        let image = root.join("docs/assets/图 #100%.svg");
+        fs::write(&image, b"archived image").unwrap();
+        let outside = dir.path().join("outside.svg");
+        fs::write(&outside, b"private canary").unwrap();
+        let image_url = url::Url::from_file_path(image.canonicalize().unwrap()).unwrap();
+        let body = format!("![encoded](assets/%E5%9B%BE%20%23100%25.svg)\n\n![absolute]({image_url})\n\n![missing](assets/missing.svg)\n\n![outside](../../outside.svg)");
+        let captured = capture_markdown(&path, &root, body.as_bytes(), 10000).unwrap();
+        for reference in ["assets/%E5%9B%BE%20%23100%25.svg", image_url.as_str()] {
+            assert!(matches!(captured.snapshot.dependencies[reference], Dependency::Captured { .. }), "{reference}: {:?}", captured.snapshot.dependencies[reference]);
+        }
+        assert!(matches!(captured.snapshot.dependencies["assets/missing.svg"], Dependency::MissingAtSave { .. }));
+        assert!(matches!(captured.snapshot.dependencies["../../outside.svg"], Dependency::NotCaptured { .. }));
+        assert_eq!(captured.objects.len(), 2, "body and one deduplicated image only");
+        captured.recheck().unwrap();
+    }
+
     #[test]
     fn duplicate_resource_aliases_fit_exact_unique_budget_and_reject_mixed_reads() {
         let dir = tempfile::tempdir().unwrap();

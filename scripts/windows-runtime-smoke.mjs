@@ -111,9 +111,22 @@ try{
  const element=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.ProseMirror'});
  const elementId=element['element-6066-11e4-a52e-4f735466cecf'];assert(elementId);
  const marker='Windows 保存重开 '+Date.now();
- await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009\uE010\uE000\n'+marker});
+ await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009\uE010\uE000\n'+marker+'\n'});
+ // Exercise the real OS clipboard -> editor paste -> Tauri asset writer path.
+ // Windows PowerShell/Forms are runner tooling, never product dependencies.
+ const clipboard=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-STA','-Command',
+   "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $image=New-Object System.Drawing.Bitmap 16,16; $graphics=[System.Drawing.Graphics]::FromImage($image); try {$graphics.Clear([System.Drawing.Color]::Purple); [System.Windows.Forms.Clipboard]::SetImage($image); if(-not [System.Windows.Forms.Clipboard]::ContainsImage()){throw 'Clipboard image missing'}} finally {$graphics.Dispose();$image.Dispose()}"],
+   {windowsHide:true,encoding:'utf8',timeout:5000});
+ assert.equal(clipboard.status,0,clipboard.error?.message||clipboard.stderr);
+ await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009v\uE000'});
+ await wait('clipboard-png-loaded',()=>execute(`const images=[...document.querySelectorAll('.ProseMirror img')];return images.length>=2&&images.every(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0);`));
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009s\uE000'});
  await wait('saved-to-disk',async()=>readFileSync(md,'utf8').includes(marker));
+ const pastedRef=readFileSync(md,'utf8').match(/!\[[^\]]*\]\(([^)]+\.png)\)/)?.[1];assert(pastedRef,'saved Markdown must reference the pasted PNG');
+ const pastedFile=resolve(root,'docs',decodeURIComponent(pastedRef));
+ assert(pastedFile.startsWith(resolve(root,'docs')+'\\'),'paste asset must stay in document directory');
+ assert.equal(readFileSync(pastedFile).subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+ report.checks.push({name:'pasted-png-persisted'});
  // Disk durability precedes the save coordinator's refreshed baseline and busy release.
  // Close only after the real save UI has settled; do not answer an unsaved prompt.
  await wait('save-settled',()=>execute(`const tab=getActiveTab();return !!tab&&!isMarkdownTabDirty(tab)&&document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy')!=='true';`));
@@ -129,7 +142,7 @@ try{
  await wait('history-frame',()=>execute(`return !!document.querySelector('.nutbook-history iframe[data-frame]');`));
  const frame=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.nutbook-history iframe[data-frame]'});
  await request('POST',`/session/${session}/frame`,{id:frame});
- await wait('archived-image-loaded',()=>execute(`return [...document.images].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
+ await wait('archived-image-loaded',()=>execute(`const images=[...document.images];return images.length>=2&&images.every(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
  await request('POST',`/session/${session}/frame`,{id:null});
  await execute(`document.querySelector('.nutbook-history [data-close]').click();`);
  await wait('history-closed',()=>execute(`return !document.querySelector('.nutbook-history');`));

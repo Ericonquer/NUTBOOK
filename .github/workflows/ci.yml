@@ -157,6 +157,7 @@ jobs:
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib markdown_ref::tests -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib preview_resource_resolution -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib content_resource:: -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib resource_capture_url_roundtrip_identity -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib capture_authority_survives_port_reuse -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib windows_cli_alias_and_gui_images_are_rejected -- --test-threads=1
 

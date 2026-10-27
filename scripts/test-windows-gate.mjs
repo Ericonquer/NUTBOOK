@@ -39,6 +39,10 @@ assert(!smoke.includes("ms:edgeOptions':{binary,args:"));
 
 assert(!smoke.includes('mockInvoke'));
 assert(smoke.includes('archived-image-loaded'));
+assert(smoke.includes('[System.Windows.Forms.Clipboard]::SetImage'));
+assert(smoke.includes('clipboard-png-loaded'));
+assert(smoke.includes('pasted-png-persisted'));
+assert(workflow.includes('--lib resource_capture_url_roundtrip_identity'));
 assert(workflow.includes('test-content-resource-native.mjs --release --no-build'));
 assert(workflow.includes('--bin NUTBOOK --bin nutbook-cli-bin --example content_protocol_probe'));
 const native=readFileSync('scripts/test-content-resource-native.mjs','utf8');
