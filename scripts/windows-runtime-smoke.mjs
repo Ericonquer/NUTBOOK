@@ -160,9 +160,12 @@ try{
  const frame=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.nutbook-history iframe[data-frame]'});
  await request('POST',`/session/${session}/frame`,{id:frame});
  await wait('archived-image-loaded',()=>execute(`const images=[...document.images];return images.length>=2&&images.every(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
+ const archivedUrl=await execute(`return document.images[0].src;`);
  await request('POST',`/session/${session}/frame`,{id:null});
  await execute(`document.querySelector('.nutbook-history [data-close]').click();`);
  await wait('history-closed',()=>execute(`return !document.querySelector('.nutbook-history');`));
+ const revoked=await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1],image=new Image();image.onload=()=>done(false);image.onerror=()=>done(true);image.src=arguments[0];`,args:[archivedUrl]});
+ assert.equal(revoked,true,'closed history image grant must stop loading');report.checks.push({name:'history-image-revoked'});
  await nativeOpen(html);
  // Native child surfaces are distinct WebDriver targets. Never substitute main DOM/HTTP success.
  await wait('html-child-script',async()=>{

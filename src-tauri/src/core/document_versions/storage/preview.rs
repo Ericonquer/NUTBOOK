@@ -17,6 +17,8 @@ pub(super) struct VersionPreviewSession {
     record: PreviewRecord,
     server: ContentResource,
     projection: PathBuf,
+    #[cfg(windows)]
+    windows_mapping: Option<WindowsPreviewMapping>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +29,59 @@ pub struct PreviewInfo {
     pub source: String,
     pub html: String,
     pub incomplete: bool,
+}
+
+// WebView2 can bypass WebResourceRequested for opaque srcdoc subresources
+// (native CI observed requests reaching IIS). Map only this immutable projection
+// in its trusted host WebView. No sockets, user-directory mapping, or sandbox change.
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsPreviewMapping {
+    webview: tauri::Webview,
+    host: String,
+}
+#[cfg(windows)]
+impl WindowsPreviewMapping {
+    async fn install(webview: tauri::Webview, host: String, root: PathBuf) -> Result<Self> {
+        use windows_core::{HSTRING, Interface};
+        use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
+        let mapping = Self { webview: webview.clone(), host: host.clone() };
+        // The native API accepts conventional Windows paths up to MAX_PATH.
+        let folder_path = url::Url::from_directory_path(&root).map_err(|_| invalid("preview directory URL"))?
+            .to_file_path().map_err(|_| invalid("preview directory path"))?;
+        let folder = folder_path.to_str().ok_or_else(|| invalid("preview directory encoding"))?.to_owned();
+        if folder.encode_utf16().count() >= 260 {
+            return Err(invalid("Windows history preview directory exceeds WebView2 MAX_PATH limit"));
+        }
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        webview.with_webview(move |platform| {
+            let result = (|| unsafe {
+                let view = platform.controller().CoreWebView2()?.cast::<ICoreWebView2_3>()?;
+                view.SetVirtualHostNameToFolderMapping(&HSTRING::from(host), &HSTRING::from(folder), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS)
+            })().map_err(|error: windows_core::Error| error.to_string());
+            let _ = send.send(result);
+        }).map_err(|error| invalid(format!("preview mapping dispatch: {error}")))?;
+        // Await outside the UI thread. The guard also clears a late install on
+        // timeout/error: both callbacks are queued to the same native surface.
+        tauri::async_runtime::spawn_blocking(move || receive.recv_timeout(std::time::Duration::from_secs(5)))
+            .await.map_err(|error| invalid(format!("preview mapping task: {error}")))?
+            .map_err(|error| invalid(format!("preview mapping timeout: {error}")))?
+            .map_err(|error| invalid(format!("preview mapping: {error}")))?;
+        Ok(mapping)
+    }
+}
+#[cfg(windows)]
+impl Drop for WindowsPreviewMapping {
+    fn drop(&mut self) {
+        use windows_core::{HSTRING, Interface};
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_3;
+        let host = self.host.clone();
+        let _ = self.webview.with_webview(move |platform| unsafe {
+            if let Ok(view) = platform.controller().CoreWebView2().and_then(|view| view.cast::<ICoreWebView2_3>()) {
+                let _ = view.ClearVirtualHostNameToFolderMapping(&HSTRING::from(host));
+            }
+        });
+    }
 }
 
 // Hide metadata only in the visual projection. Parser spans keep code examples
@@ -144,7 +199,7 @@ impl HistoryStore {
             atomic_bytes(&served.join(&filename), projection_html.page.as_bytes(), false)?;
             let url = server.relative_url(Path::new(&filename)).ok_or_else(|| invalid("preview URL"))?;
             let incomplete = projection_html.incomplete;
-            self.previews.lock().map_err(|_| invalid("preview lock"))?.insert(session.clone(), VersionPreviewSession { record, server, projection });
+            self.previews.lock().map_err(|_| invalid("preview lock"))?.insert(session.clone(), VersionPreviewSession { record, server, projection, #[cfg(windows)] windows_mapping: None });
             cleanup.committed = true;
             return Ok(PreviewInfo { session_id: session, generation, url, source: projection_html.source, html: projection_html.page, incomplete });
         }
@@ -224,6 +279,8 @@ impl HistoryStore {
                     record,
                     server,
                     projection,
+                    #[cfg(windows)]
+                    windows_mapping: None,
                 },
             );
         cleanup.committed = true;
@@ -236,6 +293,23 @@ impl HistoryStore {
             incomplete,
         })
     }
+    #[cfg(windows)]
+    pub async fn bind_windows_preview(&self, session: &str, webview: tauri::Webview) -> Result<()> {
+        if webview.label() != "main" { return Err(invalid("untrusted preview surface")); }
+        let (root, host) = {
+            let previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
+            let preview = previews.get(session).ok_or_else(|| invalid("expired preview"))?;
+            let host = url::Url::parse(preview.server.origin()).map_err(|_| invalid("preview origin"))?
+                .host_str().ok_or_else(|| invalid("preview host"))?.to_owned();
+            (preview.server.canonical_root().to_path_buf(), host)
+        };
+        let mapping = WindowsPreviewMapping::install(webview, host, root).await?;
+        let mut previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
+        let preview = previews.get_mut(session).ok_or_else(|| invalid("expired preview"))?;
+        preview.windows_mapping = Some(mapping);
+        Ok(())
+    }
+
     pub fn close_preview(&self, session: &str) -> Result<()> {
         check_id(session)?;
         let value = self
@@ -248,7 +322,11 @@ impl HistoryStore {
                 record,
                 server,
                 projection,
+                #[cfg(windows)]
+                windows_mapping,
             } = value;
+            #[cfg(windows)]
+            drop(windows_mapping);
             drop(server); // closes origin and waits for worker shutdown first
             remove_owned_projection(&projection)?;
             let _quota = self.quota_lock()?;

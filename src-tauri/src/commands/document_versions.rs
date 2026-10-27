@@ -102,7 +102,7 @@ pub struct VersionSelection {
     pub generation: u64,
 }
 #[tauri::command]
-pub fn get_document_version_preview(
+pub async fn get_document_version_preview(
     webview: tauri::Webview,
     state: tauri::State<'_, AppState>,
     payload: VersionSelection,
@@ -113,6 +113,11 @@ pub fn get_document_version_preview(
         &payload.version_id,
         payload.generation,
     )?;
+    #[cfg(windows)]
+    if let Err(error) = state.document_history()?.bind_windows_preview(&result.session_id, webview).await {
+        let _ = state.document_history()?.close_preview(&result.session_id);
+        return Err(error.into());
+    }
     Ok(result)
 }
 #[tauri::command]
