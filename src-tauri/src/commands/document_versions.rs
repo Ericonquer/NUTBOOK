@@ -108,14 +108,19 @@ pub async fn get_document_version_preview(
     payload: VersionSelection,
 ) -> Result<PreviewInfo, AppError> {
     trusted(&webview)?;
-    let result=state.document_history()?.begin_markdown_preview(
+    let history = state.document_history()?;
+    let result=history.begin_markdown_preview(
         &payload.document_id,
         &payload.version_id,
         payload.generation,
     )?;
+    if let Err(error) = history.bind_preview_surface(&result.session_id, webview.label()) {
+        let _ = history.close_preview(&result.session_id);
+        return Err(error.into());
+    }
     #[cfg(windows)]
-    if let Err(error) = state.document_history()?.bind_windows_preview(&result.session_id, webview).await {
-        let _ = state.document_history()?.close_preview(&result.session_id);
+    if let Err(error) = history.bind_windows_preview(&result.session_id, webview).await {
+        let _ = history.close_preview(&result.session_id);
         return Err(error.into());
     }
     Ok(result)

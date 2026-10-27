@@ -293,12 +293,21 @@ impl HistoryStore {
             incomplete,
         })
     }
+    pub fn bind_preview_surface(&self, session: &str, label: &str) -> Result<()> {
+        if !matches!(label, "main" | "settings-overlay") { return Err(invalid("untrusted preview surface")); }
+        let previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
+        let preview = previews.get(session).ok_or_else(|| invalid("expired preview"))?;
+        preview.server.allow_surface(label);
+        Ok(())
+    }
+
     #[cfg(windows)]
     pub async fn bind_windows_preview(&self, session: &str, webview: tauri::Webview) -> Result<()> {
-        if webview.label() != "main" { return Err(invalid("untrusted preview surface")); }
+        if !matches!(webview.label(), "main" | "settings-overlay") { return Err(invalid("untrusted preview surface")); }
         let (root, host) = {
             let previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
             let preview = previews.get(session).ok_or_else(|| invalid("expired preview"))?;
+            if preview.windows_mapping.is_some() { return Ok(()); }
             let host = url::Url::parse(preview.server.origin()).map_err(|_| invalid("preview origin"))?
                 .host_str().ok_or_else(|| invalid("preview host"))?.to_owned();
             (preview.server.canonical_root().to_path_buf(), host)
@@ -622,6 +631,12 @@ mod tests {
             .begin_markdown_preview(&head.id, &version.id, 7)
             .unwrap();
         assert_eq!(preview.generation, 7);
+        assert!(store.bind_preview_surface(&preview.session_id, "html-host-9").is_err());
+        let request = || tauri::http::Request::builder().uri(&preview.url).body(Vec::new()).unwrap();
+        assert_eq!(crate::core::content_resource::serve("settings-overlay", request()).status(), 403);
+        store.bind_preview_surface(&preview.session_id, "settings-overlay").unwrap();
+        assert_eq!(crate::core::content_resource::serve("settings-overlay", request()).status(), 200);
+        assert_eq!(crate::core::content_resource::serve("html-host-9", request()).status(), 403);
         assert!(preview.incomplete);
         assert!(preview.source.contains("<!-- nutbook-cover -->"));
         assert!(!preview.html.contains("nutbook-cover"));
@@ -659,6 +674,7 @@ mod tests {
         }
         store.delete_versions(&head.id, None).unwrap();
         assert_eq!(native_preview_response(&preview.url).status(), 403);
+        assert_eq!(crate::core::content_resource::serve("settings-overlay", request()).status(), 403);
         assert!(store.preview_records().unwrap().is_empty());
         store.collect_unreferenced_objects().unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"# B");

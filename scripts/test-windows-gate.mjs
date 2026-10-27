@@ -47,7 +47,7 @@ const historyPreview=readFileSync('src-tauri/src/core/document_versions/storage/
 assert(historyPreview.includes('COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS'));
 assert(historyPreview.includes('ClearVirtualHostNameToFolderMapping'));
 assert(historyPreview.includes('preview.server.canonical_root()'));
-assert(historyPreview.includes('webview.label() != "main"'));
+assert(historyPreview.includes('matches!(webview.label(), "main" | "settings-overlay")'));
 assert(smoke.includes('[System.Windows.Forms.Clipboard]::SetImage'));
 assert(smoke.includes('clipboard-png-loaded'));
 assert(smoke.includes('.ProseMirror img:not(.ProseMirror-separator)'));
