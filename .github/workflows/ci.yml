@@ -172,7 +172,7 @@ jobs:
           # Both generate_context macros share a content-hash asset cache in
           # OUT_DIR. Build sequentially: a second macro must not include a
           # compressed file while the first process is still writing it.
-          cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --bin nutbook-cli-bin
+          cargo build --release --features tauri/custom-protocol,tauri/test --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --bin nutbook-cli-bin
           cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --example content_protocol_probe
 
       - name: Native protocol lifetime and compatibility gate

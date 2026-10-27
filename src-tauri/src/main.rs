@@ -267,9 +267,8 @@ fn main() {
                 .build()
         })
         .on_window_event(|window, event| {
-            // Windows may restore a child WebView while the main document
-            // still reports hidden. Native window state owns suspend/resume;
-            // DOM visibility alone cannot restore the editor coordinator.
+            // Native window state is authoritative for suspend/resume;
+            // DOM visibility of the main WebView can differ from its children.
             #[cfg(target_os = "windows")]
             if window.label() == "main"
                 && matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true))
@@ -278,16 +277,9 @@ fn main() {
                     window.is_minimized(),
                     window.app_handle().get_webview("main"),
                 ) {
-                    let sent = main.eval(format!(
+                    let _ = main.eval(format!(
                         "window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__?.({minimized});"
                     ));
-                    // Temporary native lifecycle diagnostic for the runner.
-                    if let Ok(path) = std::env::var("NUTBOOK_RUNTIME_LIFECYCLE_DIAGNOSTIC") {
-                        use std::io::Write;
-                        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-                            let _ = writeln!(file, "event={event:?} minimized={minimized} eval={sent:?}");
-                        }
-                    }
                 }
             }
             if matches!(event, tauri::WindowEvent::Destroyed) {
