@@ -19660,11 +19660,11 @@
             items = items.filter((item) => [item.fileName, item.title, item.summary, ...(item.tags||[]).map(tag=>tag.name)].join(" ").toLowerCase().includes(keyword));
           }
           return {
-            items: structuredClone(items),
-            page: 1,
-            pageSize: items.length || 30,
+            items: structuredClone(args.pageSize ? items.slice(((args.page || 1) - 1) * args.pageSize, (args.page || 1) * args.pageSize) : items),
+            page: args.page || 1,
+            pageSize: args.pageSize || items.length || 30,
             total: items.length,
-            hasMore: false
+            hasMore: !!args.pageSize && (args.page || 1) * args.pageSize < items.length
           };
         }
         if (command === "get_item_detail") {
@@ -24102,22 +24102,34 @@ if (!chipTipController) {
             ? undefined
             : appState.activeLibraryId;
           refreshTagDiscovery();
-          const result = await invoke("list_items", {
+          const query = {
             libraryId,
             browseMode: appState.browseMode,
             keyword: getSearchKeyword() || undefined,
             fileTypes: getFileTypeFilter() ? [getFileTypeFilter()] : undefined,
             tagIds: appState.activeTagFilterIds.length ? appState.activeTagFilterIds : undefined,
             untagged: appState.untaggedFilter || undefined,
-            page: 1,
             pageSize: 100,
             sortBy: sortConfig.sortBy,
             sortOrder: sortConfig.sortOrder
-          });
-          // 过期请求：一个更新的请求已经发起。不渲染、不报错，返回 "stale"
-          // 让调用方知道这不是失败，而是被取代——绝不能触发回滚。
-          if (searchEpoch !== appState.searchEpoch) return "stale";
-          appState.items = sortItemsInPlace((result.items || []).map(normalizeItemSummary));
+          };
+          const items = [];
+          const seenIds = new Set();
+          for (let page = 1; ; page += 1) {
+            const result = await invoke("list_items", { ...query, page });
+            // A newer search/filter owns the list; do not request or publish more old pages.
+            if (searchEpoch !== appState.searchEpoch) return "stale";
+            let added = 0;
+            for (const item of result.items || []) {
+              if (seenIds.has(item.id)) continue;
+              seenIds.add(item.id);
+              items.push(normalizeItemSummary(item));
+              added += 1;
+            }
+            if (!result.hasMore) break;
+            if (!added) throw new Error("Invalid paginated item response");
+          }
+          appState.items = sortItemsInPlace(items);
           appState.itemLoadError = "";
           renderItems();
           // A1.1-PERF：忽略列表只在设置区打开或真实状态变化时刷新（loadLibraries/恢复操作已覆盖），

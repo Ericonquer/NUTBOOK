@@ -176,6 +176,16 @@ try{
    await execute(`document.querySelector('.nutbook-history [data-close]')?.click();`);
    await wait('history-failure-cleanup',()=>execute(`return !document.querySelector('.nutbook-history');`));
  }
+ // Real filesystem -> backend scan -> home cards beyond the first backend page.
+ const many=join(root,'pagination');mkdirSync(many);
+ for(let i=1;i<=205;i++)writeFileSync(join(many,`page-${String(i).padStart(3,'0')}.md`),`# Pagination ${i}\n\nWindows page ${i}.\n`);
+ await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1];(async()=>{const library=await invoke('select_library',{rootPath:arguments[0],name:'Pagination 205',sourceKind:'folder'});await invoke('scan_library',{libraryId:library.id,mode:'full'});await loadLibraries();await showAllFilesHome();return true;})().then(done,error=>done({error:String(error)}));`,args:[many]}).then(result=>assert.equal(result,true));
+ await wait('all-files-beyond-100',()=>execute(`const files=appState.items.filter(x=>x.fileName.startsWith('page-'));return files.length===205&&files.every(x=>!!document.querySelector('[data-open-item="'+x.id+'"]'));`));
+ for(const number of ['101','205']){
+   await execute(`const item=appState.items.find(x=>x.fileName==='page-${number}.md');document.querySelector('[data-open-trigger="'+item.id+'"]').click();`);
+   await wait('pagination-open-'+number,()=>execute(`return getActiveTab()?.item?.fileName==='page-${number}.md'&&!!document.querySelector('.ProseMirror')&&document.querySelector('.ProseMirror').textContent.includes('Pagination ${Number(number)}');`));
+   await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1];showAllFilesHome().then(()=>done(true),error=>done({error:String(error)}));`,args:[]}).then(result=>assert.equal(result,true));
+ }
  await nativeOpen(html);
  // Native child surfaces are distinct WebDriver targets. Never substitute main DOM/HTTP success.
  await wait('html-child-script',async()=>{
