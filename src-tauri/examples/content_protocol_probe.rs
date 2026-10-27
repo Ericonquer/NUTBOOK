@@ -39,6 +39,7 @@ fn main() {
         ("module.js","window.probeModule=true;"),
         ("data.json","{\"canary\":\"A\"}"),
         ("style.css","body { --probe-css: ready; }"),
+        ("frame.html", "<!doctype html><img id='image' src='image.svg'><script>addEventListener('load',()=>parent.postMessage({mappingProbe:location.hash.slice(1),width:document.querySelector('img').naturalWidth},'*'))</script>"),
         ("image.svg","<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>"),
     ] { std::fs::write(fixture.join(name),body).unwrap(); }
     // Session churn must not consume ports, FDs or persistent identities.
@@ -75,6 +76,24 @@ fn main() {
                 content_resource::dispatch(ctx.webview_label().to_owned(), request, responder);
             },
         )
+        .on_page_load(|webview, payload| {
+            #[cfg(windows)]
+            if webview.label() == "protocol-probe" && payload.event() == tauri::webview::PageLoadEvent::Finished {
+                use windows_core::{HSTRING, Interface};
+                use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
+                let ready = webview.clone();
+                webview.with_webview(move |platform| unsafe {
+                    let native = platform.controller().CoreWebView2().unwrap().cast::<ICoreWebView2_3>().unwrap();
+                    let folder = std::env::temp_dir().join(format!("nutbook-protocol-gate-{}", std::process::id()));
+                    for (kind, mode) in [("deny", COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS), ("allow", COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW)] {
+                        native.SetVirtualHostNameToFolderMapping(&HSTRING::from(format!("nb-map-{kind}-{}.invalid",std::process::id())), &HSTRING::from(folder.to_str().unwrap()), mode).unwrap();
+                    }
+                    ready.eval("window.__mappingReadyResolve?.();").unwrap();
+                }).unwrap();
+            }
+            #[cfg(not(windows))]
+            let _ = (webview, payload);
+        })
         .setup(move |app| {
             tauri::WebviewWindowBuilder::new(
                 app,
@@ -87,6 +106,7 @@ fn main() {
                 serde_json::to_string(&std::env::var("NUTBOOK_PROTOCOL_PROBE_OLD_URL").unwrap_or_default()).unwrap(),
                 serde_json::to_string(if cfg!(windows) { "process-handles" } else { "file-descriptors" }).unwrap()
             ))
+            .initialization_script(format!("window.probeMappingOrigins={};window.probeMappingReady=new Promise(resolve=>window.__mappingReadyResolve=resolve);", if cfg!(windows) {serde_json::json!([format!("http://nb-map-deny-{}.invalid",std::process::id()),format!("http://nb-map-allow-{}.invalid",std::process::id())]).to_string()} else {"null".into()}))
             .title("Nutbook resource protocol compatibility gate")
             .build()?;
             let handle = app.handle().clone();

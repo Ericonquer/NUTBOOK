@@ -8,6 +8,21 @@ addEventListener('load',async()=>{
  try { const r=await fetch('/data.json'); result.fetch=(await r.json()).canary==='A'; }catch(e){result.fetch=false;result.fetchError=String(e)}
  try { const r=await fetch(window.probeOther);result.crossDenied=!r.ok; }catch(e){result.crossDenied=true;result.crossError=String(e)}
  try { result.resourceBurst=(await Promise.all(Array.from({length:96},async(_,i)=>{const r=await fetch('/data.json?burst='+i);return r.ok&&(await r.json()).canary==='A'}))).every(Boolean); }catch(e){result.resourceBurst=false;result.burstError=String(e)}
+ if(window.probeMappingOrigins){
+   await window.probeMappingReady;
+   const loadImage=url=>new Promise(resolve=>{const image=new Image(),timer=setTimeout(()=>resolve('timeout'),2000);image.onload=()=>{clearTimeout(timer);resolve(image.naturalWidth)};image.onerror=()=>{clearTimeout(timer);resolve(0)};image.src=url;});
+   const loadFrame=(origin,navigate)=>new Promise(resolve=>{
+     const frame=document.createElement('iframe'),token=crypto.randomUUID();frame.sandbox='allow-scripts';
+     const finish=width=>{clearTimeout(timer);removeEventListener('message',message);frame.remove();resolve(width);};
+     const message=event=>{if(event.source===frame.contentWindow&&event.data?.mappingProbe===token)finish(event.data.width);};
+     const timer=setTimeout(()=>finish('timeout'),2000);addEventListener('message',message);
+     if(navigate)frame.src=origin+'/frame.html#'+token;
+     else frame.srcdoc=`<!doctype html><img id="image" src="${origin}/image.svg"><script>addEventListener('load',()=>parent.postMessage({mappingProbe:${JSON.stringify(token)},width:document.querySelector('img').naturalWidth},'*'))<\/script>`;
+     document.body.append(frame);
+   });
+   result.mappingDiagnostic=[];
+   for(const origin of window.probeMappingOrigins)result.mappingDiagnostic.push({origin,parent:await loadImage(origin+'/image.svg'),opaqueSrcdoc:await loadFrame(origin,false),opaqueNavigated:await loadFrame(origin,true)});
+ }
  result.fd=window.probeFd;
  result.oldAddressDenied=true;
  if(window.probeOld){try{const r=await fetch(window.probeOld);result.oldAddressDenied=!r.ok;}catch(e){result.oldAddressDenied=true;}}
