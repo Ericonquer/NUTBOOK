@@ -92,7 +92,8 @@ try{
  await wait('stable-cli-deployed',()=>existsSync(stableCli));
  const version=spawnSync(stableCli,['--version'],{windowsHide:true,encoding:'utf8',timeout:3000});
  assert.equal(version.status,0,version.error?.message||version.stderr);
- assert.match(version.stdout,/^nutbook \d+\.\d+\.\d+\s*$/);
+ const expectedVersion=JSON.parse(readFileSync('src-tauri/tauri.conf.json','utf8')).version;
+ assert.equal(version.stdout.trim(),'nutbook '+expectedVersion);report.applicationVersion=expectedVersion;
  report.checks.push({name:'stable-cli-version'});
  const endpointFile=join(root,'app-data','cli-ipc.json');
  await wait('application-ipc-created',()=>existsSync(endpointFile));

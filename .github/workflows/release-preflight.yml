@@ -2,12 +2,19 @@ name: Release preflight
 
 on:
   workflow_dispatch:
+    inputs:
+      windows_package:
+        description: Build and install a Windows candidate, without a tag or Release
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 env:
   RUST_VERSION: 1.98.0
+  TAURI_CLI_VERSION: 2.11.2
 
 concurrency:
   group: release-preflight-${{ github.ref }}
@@ -17,7 +24,7 @@ jobs:
   windows-package-inputs:
     name: Release preflight / Windows package inputs
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout requested revision
@@ -73,6 +80,57 @@ jobs:
       - name: Assert generated Windows CLI resource
         shell: bash
         run: test -s src-tauri/generated-resources/nutbook-cli/nutbook.exe
+
+      # Only explicit candidate acceptance packages an installer. PR CI stays unchanged.
+      - name: Restore candidate Tauri CLI
+        if: inputs.windows_package
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/nutbook-tauri-cli
+          key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.TAURI_CLI_VERSION }}
+
+      - name: Install candidate packaging CLI when absent
+        if: inputs.windows_package
+        shell: bash
+        env:
+          TAURI_CLI_ROOT: ${{ runner.temp }}/nutbook-tauri-cli
+        run: |
+          set -euo pipefail
+          cli="$TAURI_CLI_ROOT/bin/cargo-tauri"
+          if [ ! -x "$cli" ]; then
+            cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked --root "$TAURI_CLI_ROOT"
+          fi
+          "$cli" --version | grep -F "tauri-cli $TAURI_CLI_VERSION"
+          printf '%s/bin\n' "$TAURI_CLI_ROOT" >> "$GITHUB_PATH"
+
+      - name: Build isolated Windows candidate without publishing
+        id: candidate-package
+        if: inputs.windows_package
+        run: |
+          if (Test-Path src-tauri/target/release/bundle) { Remove-Item src-tauri/target/release/bundle -Recurse -Force }
+          cargo tauri build --bundles nsis
+
+      - name: Setup candidate native driver
+        if: inputs.windows_package
+        shell: pwsh
+        run: ./scripts/setup-windows-webdriver.ps1
+
+      - name: Accept this installed Windows candidate
+        if: inputs.windows_package
+        timeout-minutes: 4
+        shell: pwsh
+        run: ./scripts/smoke-installed-windows.ps1
+
+      - name: Preserve candidate installer and installed evidence
+        if: always() && inputs.windows_package
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-candidate-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            windows-smoke-report/
+          if-no-files-found: error
+          retention-days: 7
 
   macos-release-compile:
     name: Release preflight / macOS release compile

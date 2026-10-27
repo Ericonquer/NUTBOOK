@@ -525,6 +525,7 @@ fn main() {
             commands::wechat_delivery::control_wechat_delivery,
             commands::formatting::load_formatting_draft,
             commands::formatting::save_formatting_draft,
+            commands::formatting::commit_formatting_markdown,
             commands::formatting::render_formatting_markdown,
             commands::formatting::read_formatting_image,
             commands::formatting::fetch_formatting_image,

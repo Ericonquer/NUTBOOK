@@ -75,3 +75,18 @@ assert(workflow.includes('name: windows-runtime-evidence-${{ github.run_attempt 
 assert(release.includes('name: installed-windows-evidence-${{ github.run_attempt }}'));
 assert(workflow.includes('actions/cache/save@v4'), 'failed native runs must retain expensive compile cache');
 console.log('Cross-platform Gate rejects failed, skipped, cancelled and missing platform results');
+
+const candidate=readFileSync('.github/workflows/release-preflight.yml','utf8');
+const installed=readFileSync('scripts/smoke-installed-windows.ps1','utf8');
+assert(candidate.includes('windows_package:'));
+assert(candidate.includes('default: false'));
+assert(candidate.includes('if: inputs.windows_package'));
+assert(candidate.includes('cargo tauri build --bundles nsis'));
+assert(candidate.includes('./scripts/smoke-installed-windows.ps1'));
+assert(!candidate.includes('gh release '),'candidate acceptance cannot create or publish Releases');
+assert(!candidate.includes('git tag '),'candidate acceptance cannot create tags');
+assert(installed.includes('Refusing to overlay an existing installation'));
+assert(installed.includes('installerSha256 = $beforeHash'));
+assert(installed.includes('installedBytes ='));
+assert(installed.includes('VersionInfo.ProductVersion'));
+assert(installed.includes('node scripts/windows-runtime-smoke.mjs'));

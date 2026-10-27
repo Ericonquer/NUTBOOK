@@ -1,4 +1,4 @@
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, prosePluginsCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, prosePluginsCtx, rootCtx, serializerCtx, remarkStringifyOptionsCtx } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
@@ -28,6 +28,10 @@ import {
   setDocumentTitleInSource
 } from "./markdown-document-title.js";
 import { findDocumentMatches, replacementPlan } from "./markdown-find-engine.js";
+
+import { repairBoldLinks, boldLinkStringifyHandler } from "./markdown-inline-compat.js";
+
+const boldLinkRemark = $remark("boldLinkRemark", () => () => (tree, file) => repairBoldLinks(tree, String(file.value || "")));
 
 const instances = new WeakMap();
 const SKILL_FRONTMATTER_FIELDS = ["name", "description", "trigger_keywords"];
@@ -1783,6 +1787,10 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
 
   const editorBuilder = Editor.make()
     .config((ctx) => {
+      ctx.update(remarkStringifyOptionsCtx, options => ({
+        ...options,
+        handlers: { ...options.handlers, strong: boldLinkStringifyHandler(options.handlers.strong) }
+      }));
       ctx.set(rootCtx, editorMount);
       ctx.set(defaultValueCtx, editorMarkdown);
       if (readOnly) {
@@ -1829,6 +1837,7 @@ async function createMilkdownEditor({ root, markdown = "", fileName = "", langua
           }));
       }
     })
+    .use(boldLinkRemark)
     .use(alignedTextRemark)
     .use(portableImageRemark)
     .use(coverImageRemark)

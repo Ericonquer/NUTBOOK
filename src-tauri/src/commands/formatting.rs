@@ -1,4 +1,4 @@
-//! Isolated formatting drafts. The source document is never a write target.
+//! Publishing preferences and explicit, history-protected article saves.
 use crate::{
     core::{
         document::content_hash, markdown_cover::parse_cover_metadata,
@@ -51,6 +51,66 @@ pub fn load_formatting_draft(
         json!({"draft": serde_json::from_str::<Value>(&raw).map_err(|_| AppError::InvalidParams)?, "revision": content_hash(&raw), "source": source}),
     )
 }
+// Imported publishing images have virtual names. Embed their validated bytes
+// into actual image destinations, never plain text/code or a private sidecar URL.
+fn portable_formatting_markdown(markdown: &str, assets: &Value) -> Result<String, AppError> {
+    if markdown.len() > MAX_DRAFT || serde_json::to_vec(assets).map_err(|_| AppError::InvalidParams)?.len() > MAX_DRAFT {
+        return Err(AppError::InvalidParams);
+    }
+    let mut replacements = std::collections::BTreeMap::new();
+    if let Some(assets) = assets.as_object() {
+        for (src, data) in assets {
+            if !src.starts_with("nutbook-image-") { continue; }
+            let data = data.as_str().ok_or(AppError::InvalidParams)?;
+            crate::core::image_import::decode_raster_data(data).map_err(|_| AppError::InvalidParams)?;
+            replacements.insert(src.clone(), data.to_owned());
+        }
+    }
+    Ok(crate::core::document_versions::relocate_markdown(markdown, &replacements)?)
+}
+
+#[tauri::command]
+pub fn commit_formatting_markdown(
+    webview: tauri::Webview,
+    state: tauri::State<'_, AppState>,
+    item_id: i64,
+    markdown: String,
+    expected_source: String,
+    assets: Value,
+    save_copy: bool,
+) -> Result<Option<Value>, AppError> {
+    if webview.label() != "main" { return Err(AppError::InvalidParams); }
+    let item = state.get_item_detail(item_id)?;
+    if item.summary.file_type != "markdown" { return Err(AppError::UnsupportedFileType); }
+    let source = fs::canonicalize(&item.summary.file_path).map_err(|_| AppError::IoError)?;
+    let content = portable_formatting_markdown(&markdown, &assets)?;
+    if !save_copy {
+        let saved = super::preview::save_markdown_content_impl(&state, crate::models::SaveMarkdownContentRequest {
+            item_id, content: content.clone(), expected_file_hash: content_hash(&expected_source), expected_modified_at: None,
+        })?;
+        return Ok(Some(json!({"overwritten": true, "source": content, "saved": saved})));
+    }
+    let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("article");
+    let Some(target) = rfd::FileDialog::new().set_file_name(format!("{stem}-publishing.md")).add_filter("Markdown", &["md", "markdown"]).save_file() else { return Ok(None); };
+    let target = canonical_copy_target(&source, &target)?;
+    let expected = match fs::symlink_metadata(&target) {
+        Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => Some(content_hash(&fs::read_to_string(&target).map_err(|_| AppError::IoError)?)),
+        Ok(_) => return Err(AppError::InvalidParams),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(AppError::IoError),
+    };
+    let commit = crate::core::markdown_save_as::publish(state.document_history()?.as_ref(), &source, &content, &target, expected.as_deref())?;
+    state.synchronize_history_index(&commit.document_id);
+    Ok(Some(json!({"overwritten": false, "path": target})))
+}
+
+fn canonical_copy_target(source: &Path, target: &Path) -> Result<std::path::PathBuf, AppError> {
+    let parent = target.parent().ok_or(AppError::InvalidParams)?.canonicalize().map_err(|_| AppError::IoError)?;
+    let target = parent.join(target.file_name().ok_or(AppError::InvalidParams)?);
+    if target == source || target.canonicalize().ok().as_deref() == Some(source) { return Err(AppError::InvalidParams); }
+    Ok(target)
+}
+
 #[tauri::command]
 pub fn save_formatting_draft(
     webview: tauri::Webview,
@@ -456,6 +516,68 @@ mod tests {
             board.clearContents();
         }
     }
+    #[test]
+    fn publishing_sanitizer_keeps_bold_links_and_safe_breaks() {
+        let html = render_formatting_markdown("叫**[NUTBOOK](https://example.com)**的软件\n\n<br />\n\n**尾段**\n\n`<br />`\n\n<script>alert(1)</script>".into()).unwrap();
+        assert!(html.contains("<strong><a href=\"https://example.com\""), "{html}");
+        assert!(html.contains("<br>"), "{html}");
+        assert!(html.contains("<code>&lt;br /&gt;</code>"), "literal code example must stay literal: {html}");
+        assert!(html.contains("&lt;script&gt;"), "untrusted HTML must stay escaped: {html}");
+        assert!(!html.contains("**"));
+    }
+
+    #[test]
+    fn publishing_image_save_is_portable_and_does_not_rewrite_text_or_code() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2).write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        let data = format!("data:image/png;base64,{}", STANDARD.encode(bytes.into_inner()));
+        let markdown = "![photo](nutbook-image-test.png)\n\n`nutbook-image-test.png`";
+        let assets = json!({"nutbook-image-test.png": data});
+        let saved = portable_formatting_markdown(markdown, &assets).unwrap();
+        assert!(saved.contains("![photo](data:image/png;base64,"));
+        assert!(saved.ends_with("`nutbook-image-test.png`"));
+        assert!(portable_formatting_markdown(markdown, &json!({"nutbook-image-test.png":"invalid"})).is_err());
+    }
+
+    #[test]
+    fn publishing_copy_keeps_original_and_relocates_real_image_resources() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_dir = dir.path().join("source"); fs::create_dir(&source_dir).unwrap();
+        let output = dir.path().join("output"); fs::create_dir(&output).unwrap();
+        let source = source_dir.join("article.md"); fs::write(&source, "# original").unwrap();
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2).write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        fs::write(source_dir.join("local.png"), bytes.get_ref()).unwrap();
+        let data = format!("data:image/png;base64,{}", STANDARD.encode(bytes.into_inner()));
+        let content = portable_formatting_markdown("# copy\n\n![local](local.png)\n\n![imported](nutbook-image-test.png)", &json!({"nutbook-image-test.png":data})).unwrap();
+        let store = crate::core::document_versions::HistoryStore::open(&dir.path().join("app")).unwrap();
+        let target = output.join("copy.md");
+        crate::core::markdown_save_as::publish(&store, &source, &content, &target, None).unwrap();
+        assert_eq!(fs::read_to_string(&source).unwrap(), "# original");
+        let copied = fs::read_to_string(&target).unwrap();
+        assert!(copied.contains("nutbook-assets-"));
+        assert!(copied.contains("data:image/png;base64,"));
+        assert!(!copied.contains("nutbook-image-test"));
+        let resources = fs::read_dir(&output).unwrap().filter_map(|e| e.ok()).filter(|e| e.path().is_dir()).collect::<Vec<_>>();
+        assert_eq!(resources.len(), 1);
+        assert!(fs::read_dir(resources[0].path()).unwrap().next().is_some());
+    }
+
+    #[test]
+    fn publishing_copy_cannot_select_original_or_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("article.md"); fs::write(&source, "original").unwrap();
+        let source = source.canonicalize().unwrap();
+        assert!(canonical_copy_target(&source, &source).is_err());
+        assert!(canonical_copy_target(&source, &dir.path().join("copy.md")).is_ok());
+        #[cfg(unix)] {
+            let alias = dir.path().join("alias.md");
+            std::os::unix::fs::symlink(&source, &alias).unwrap();
+            assert!(canonical_copy_target(&source, &alias).is_err());
+        }
+        assert_eq!(fs::read_to_string(source).unwrap(), "original");
+    }
+
     #[test]
     fn draft_compare_and_swap_preserves_last_complete_file() {
         let dir = tempfile::tempdir().unwrap();

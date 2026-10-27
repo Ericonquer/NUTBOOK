@@ -9482,7 +9482,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.5.0",
+          currentVersion: "1.5.1",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -15749,7 +15749,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.5.0",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.5.1",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -17751,6 +17751,27 @@
               activeId: () => appState.activeTabId, editor: loadMarkdownEditorApi,
               suspend: () => { captureActiveMarkdownDraft(); suspendActiveMarkdownEditor(); },
               restore: () => renderViewer(), confirm: confirmMarkdownUnsavedClose,
+              sourceLoaded: async raw => {
+                if (tab.preview.raw === raw) return;
+                const [detail, preview] = await Promise.all([
+                  invoke('get_item_detail', { itemId: tab.id }),
+                  invoke('get_item_preview', { itemId: tab.id })
+                ]);
+                destroyMarkdownEditorSession(tab.id);
+                tab.detail = normalizeItemDetail(detail); tab.preview = normalizePreview(preview);
+                tab.markdownBaseline = tab.preview.raw; tab.draft = tab.preview.raw; tab.isDirty = false;
+              },
+              sourceSaved: async saved => {
+                // The suspended reader must not restore its older EditorView/content.
+                destroyMarkdownEditorSession(tab.id);
+                tab.preview = { ...tab.preview, raw: saved.source, html: saved.saved.renderedHtml };
+                tab.detail = { ...tab.detail, fileHash: saved.saved.fileHash, modifiedAt: saved.saved.modifiedAt };
+                tab.markdownBaseline = saved.source; tab.draft = saved.source; tab.isDirty = false;
+                await loadItems().catch(() => {});
+                const refreshed = appState.items.find(item => item.id === tab.id);
+                if (refreshed) tab.item = refreshed;
+                renderTabs();
+              },
               error: normalizeError, resolveImage: resolveMarkdownImageUrl
             }, tab);
           } catch (error) { showToast(normalizeError(error)); }
@@ -19007,7 +19028,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.5.0")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.5.1")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -19534,7 +19555,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.5.0",
+              currentVersion: "1.5.1",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -19545,8 +19566,8 @@
             };
           }
           return {
-            currentVersion: "1.5.0",
-            latestVersion: "1.5.0",
+            currentVersion: "1.5.1",
+            latestVersion: "1.5.1",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
