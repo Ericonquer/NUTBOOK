@@ -199,7 +199,8 @@ try{
  const deck=join(root,'exported-presentation.html');
  writeFileSync(deck,readFileSync('src-tauri/tests/fixtures/html-edit/exported-presentation-minimize.html'));
  await nativeOpen(deck);
- await wait('presentation-edit-entry',async()=>{await prompt();return execute(`if(getActiveTab()?.item?.fileName!=='exported-presentation.html')return false;document.querySelector('#documentPrimaryButton')?.click();return true;`);});
+ await wait('presentation-joined',async()=>{await prompt();return execute(`if(getActiveTab()?.item?.fileName!=='exported-presentation.html')return false;document.querySelector('[data-join-external-tab]')?.click();return getActiveTab()?.sourceMode==='library'||getActiveTab()?.external?.joined===true;`);});
+ await wait('presentation-edit-entry',()=>execute(`const button=document.querySelector('#documentPrimaryButton');if(!button||button.disabled)return false;button.click();return true;`));
  let editHandle;
  await wait('presentation-edit-ready',async()=>{
    for(const handle of await request('GET',`/session/${session}/window/handles`)){
@@ -216,8 +217,8 @@ try{
    assert.equal(result.status,0,result.stderr||result.error?.message);
  };
  for(let cycle=0;cycle<6;cycle++){
-   windowState(true);
    await request('POST',`/session/${session}/window`,{handle:mainHandle});
+   windowState(true);
    await wait('presentation-minimized-'+cycle,()=>execute(`return appState.runtimeSurfacesSuspended;`));
    windowState(false);
    await wait('presentation-restored-'+cycle,()=>execute(`return !appState.runtimeSurfacesSuspended&&!!appState.htmlEditSession?.presentation?.pages?.length;`));
@@ -243,7 +244,9 @@ try{
  if(report.historyFailure)throw Error('History path failed: '+report.historyFailure);
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
-}catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{report.failureState=await execute(`return {url:location.href,activeTab:typeof getActiveTab==='function'?(()=>{const tab=getActiveTab();return tab?{id:tab.id,dirty:tab.isDirty,computedDirty:isMarkdownTabDirty(tab),baseline:tab.markdownBaseline,draft:tab.draft,editor:markdownContentForTab(tab)}:null})():null,saveBusy:document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy'),images:[...document.images].map(img=>({src:img.src,complete:img.complete,width:img.naturalWidth,rect:img.getBoundingClientRect().toJSON()}))};`);}catch{}try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
+}catch(error){report.error=error.stack;process.exitCode=1;
+ if(session)try{report.surfaceStates=[];for(const handle of await request('GET',`/session/${session}/window/handles`)){await request('POST',`/session/${session}/window`,{handle});report.surfaceStates.push(await execute(`return {url:location.href,title:document.title,hidden:document.hidden,editor:window.__NUTBOOK_HTML_EDIT__?.isEditing(),toolbar:!!document.querySelector('#nutbook-html-edit-inline-toolbar'),host:typeof appState==='undefined'?null:{activeId:appState.activeTabId,suspended:appState.runtimeSurfacesSuspended,session:appState.htmlEditSession?{itemId:appState.htmlEditSession.itemId,sessionId:appState.htmlEditSession.runtimeSessionId,generation:appState.htmlEditSession.generation,dirty:appState.htmlEditSession.dirty,pages:appState.htmlEditSession.presentation?.pages?.length}:null,primaryDisabled:document.querySelector('#documentPrimaryButton')?.disabled,status:document.querySelector('#statusText')?.textContent}};`));}}catch{}
+ if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{report.failureState=await execute(`return {url:location.href,activeTab:typeof getActiveTab==='function'?(()=>{const tab=getActiveTab();return tab?{id:tab.id,dirty:tab.isDirty,computedDirty:isMarkdownTabDirty(tab),baseline:tab.markdownBaseline,draft:tab.draft,editor:markdownContentForTab(tab)}:null})():null,saveBusy:document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy'),images:[...document.images].map(img=>({src:img.src,complete:img.complete,width:img.naturalWidth,rect:img.getBoundingClientRect().toJSON()}))};`);}catch{}try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
  devtools?.close();writeFileSync(join(reportDir,'browser-diagnostics.json'),JSON.stringify(browserDiagnostics.map(line=>{try{return JSON.parse(line);}catch{return line;}}),null,2));
  clearTimeout(deadline);if(appProcess?.pid){
