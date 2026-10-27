@@ -95,3 +95,27 @@ preserve.appState.htmlFind = {};
 await assert.rejects(preserve.hide(42, { force: true }), /teardown reached/);
 assert.equal(teardown, 1, 'normal tab cleanup must retain its existing teardown path');
 console.log('Minimized active editor retained; normal cleanup still tears down.');
+
+// Readiness must use the existing authenticated title bridge when a native
+// content surface has no direct IPC, or IPC rejects its transport.
+for (const childInvoke of [undefined, () => Promise.reject(Error('IPC unavailable'))]) {
+  let titleReports = 0;
+  const readyContext = {
+    appState: { htmlEditRuntimeDocumentReadyWaiters: new Map() },
+    window: { setTimeout, clearTimeout }, Date, Math, Promise,
+    invoke: async (_command, args) => {
+      const childDocument = { readyState: 'complete', querySelector: () => ({}) };
+      Object.defineProperty(childDocument, 'title', { set(value) {
+        titleReports++;
+        const payload = JSON.parse(value.slice('__NUTBOOK_HTML_EDIT_RUNTIME__:'.length));
+        readyContext.appState.htmlEditRuntimeDocumentReadyWaiters.get(payload.requestId)?.(payload);
+      }});
+      vm.runInNewContext(args.script, { window: { __TAURI_INTERNALS__: childInvoke ? { invoke: childInvoke } : undefined }, document: childDocument, location: { href: 'http://nutbook-content.example.localhost/deck.html' }, Promise, JSON });
+    }
+  };
+  vm.createContext(readyContext);
+  vm.runInContext(`${extract('waitForHtmlEditableRuntimeDocument')}; globalThis.ready = waitForHtmlEditableRuntimeDocument;`, readyContext);
+  assert.equal(await readyContext.ready(42, 'edit-42', 7, () => true), true);
+  assert.equal(titleReports, 1);
+}
+console.log('Editable document readiness survives absent and rejecting child IPC.');

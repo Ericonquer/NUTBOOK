@@ -12074,8 +12074,13 @@
                   generation: ${generation}
                 };
                 const invoke = window.__TAURI_INTERNALS__?.invoke;
+                const reportViaTitle = () => {
+                  document.title = "__NUTBOOK_HTML_EDIT_RUNTIME__:" + JSON.stringify(payload);
+                };
                 if (typeof invoke === "function") {
-                  Promise.resolve(invoke("html_edit_runtime_message_command", { payload })).catch(function () {});
+                  Promise.resolve(invoke("html_edit_runtime_message_command", { payload })).catch(reportViaTitle);
+                } else {
+                  reportViaTitle();
                 }
               })();`
             }).catch(() => {
