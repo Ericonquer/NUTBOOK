@@ -67,6 +67,11 @@ impl WindowsPreviewMapping {
         if folder.encode_utf16().count() >= 260 {
             return Err(invalid("Windows history preview directory exceeds WebView2 MAX_PATH limit"));
         }
+        for entry in fs::read_dir(&root)? {
+            let entry = entry?;
+            let length = folder.encode_utf16().count() + 1 + entry.file_name().to_string_lossy().encode_utf16().count();
+            if length >= 260 { return Err(invalid("Windows history preview file exceeds WebView2 MAX_PATH limit")); }
+        }
         let (send, receive) = std::sync::mpsc::sync_channel(1);
         webview.with_webview(move |platform| {
             let result = (|| unsafe {
@@ -216,7 +221,7 @@ impl HistoryStore {
             for (name, bytes) in &projection_html.files {
                 atomic_bytes(&served.join(name), bytes, false)?;
             }
-            let filename = format!("{session}-preview.html");
+            let filename = "preview.html".to_owned();
             atomic_bytes(&served.join(&filename), projection_html.page.as_bytes(), false)?;
             let url = server.relative_url(Path::new(&filename)).ok_or_else(|| invalid("preview URL"))?;
             let incomplete = projection_html.incomplete;
@@ -225,6 +230,7 @@ impl HistoryStore {
             return Ok(PreviewInfo { session_id: session, generation, url, source: projection_html.source, html: projection_html.page, incomplete });
         }
         let mut replacements = BTreeMap::new();
+        let mut object_names: BTreeMap<String, String> = BTreeMap::new();
         let mut incomplete = version
             .snapshot
             .dependencies
@@ -234,6 +240,10 @@ impl HistoryStore {
             let Dependency::Captured { object, .. } = dep else {
                 continue;
             };
+            if let Some(name) = object_names.get(object) {
+                replacements.insert(reference.clone(), name.clone());
+                continue;
+            }
             let bytes = self.object(object)?;
             let suffix = match image::guess_format(&bytes) {
                 Ok(image::ImageFormat::Png) => "png",
@@ -253,7 +263,10 @@ impl HistoryStore {
                     continue;
                 }
             };
-            let name = format!("{session}-{object}.{suffix}");
+            // Session identity already belongs to the directory and grant.
+            // Compact local names avoid MAX_PATH in WebView2's file loader.
+            let name = format!("r{}.{suffix}", object_names.len());
+            object_names.insert(object.clone(), name.clone());
             atomic_bytes(&served.join(&name), &bytes, false)?;
             replacements.insert(reference.clone(), name.clone());
         }
@@ -279,7 +292,7 @@ impl HistoryStore {
             })
             .clean(&rendered)
             .to_string();
-        let filename = format!("{session}-preview.html");
+        let filename = "preview.html".to_owned();
         let page=format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; connect-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'\"><style>body{{font:16px/1.7 system-ui;margin:24px;overflow-wrap:anywhere}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap}}table{{border-collapse:collapse}}td,th{{border:1px solid #bbb;padding:6px}}</style></head><body>{html}</body></html>");
         atomic_bytes(&served.join(&filename), page.as_bytes(), false)?;
         let server = ContentResource::start(&served)
@@ -636,6 +649,34 @@ mod tests {
         assert_eq!(native_preview_response(&preview.url).status(), 403);
     }
     #[test]
+    fn compact_preview_resources_fit_windows_path_budget_and_deduplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        let source = b"# A\n\n![one](image.svg)\n\n![alias](./image.svg)\n";
+        fs::write(&path, source).unwrap();
+        fs::write(dir.path().join("image.svg"), b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>").unwrap();
+        let template = dir.path().canonicalize().unwrap().join("x").join("document-versions").join("preview-projections").join("a".repeat(36)).join("b".repeat(36)).join("content");
+        let padding = 220usize.saturating_sub(template.to_string_lossy().encode_utf16().count()) + 1;
+        let app = dir.path().join("a".repeat(padding));
+        let store = HistoryStore::open(&app).unwrap();
+        let saved = store.save_markdown(&path, dir.path(), &digest(source), b"# B", None).unwrap();
+        let head = store.document(&saved.document_id).unwrap();
+        let preview = store.begin_markdown_preview(&head.id, &head.versions[0].id, 1).unwrap();
+        let root = store.previews.lock().unwrap().get(&preview.session_id).unwrap().server.canonical_root().to_path_buf();
+        let files = fs::read_dir(&root).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
+        assert_eq!(files.len(), 2, "one private page and one shared image object");
+        for file in files {
+            assert!(file.to_string_lossy().encode_utf16().count() < 260, "{}", file.display());
+            assert!(file.file_name().unwrap().len() < 20);
+        }
+        let body = native_preview_body(&preview.url);
+        assert_eq!(body.matches("src=\"r0.svg\"").count(), 2);
+        assert_eq!(preview.source, std::str::from_utf8(source).unwrap());
+        store.close_preview(&preview.session_id).unwrap();
+        assert_eq!(native_preview_response(&preview.url).status(), 403);
+    }
+
+    #[test]
     fn static_preview_is_scoped_inert_and_revoked_before_history_gc() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
@@ -667,23 +708,23 @@ mod tests {
         let dom =
             html5ever::parse_document(markup5ever_rcdom::RcDom::default(), Default::default())
                 .one(body.clone());
-        fn check(node: &markup5ever_rcdom::Handle, session: &str) {
+        fn check(node: &markup5ever_rcdom::Handle) {
             if let markup5ever_rcdom::NodeData::Element { name, attrs, .. } = &node.data {
                 assert_ne!(name.local.as_ref(), "script");
                 for attr in attrs.borrow().iter() {
                     assert!(!attr.name.local.as_ref().starts_with("on"));
                     assert_ne!(attr.name.local.as_ref(), "href");
                     if attr.name.local.as_ref() == "src" {
-                        assert!(attr.value.starts_with(session));
+                        assert!(attr.value.starts_with("r") && !attr.value.contains(['/', '\\']));
                     }
                 }
             }
             for child in node.children.borrow().iter() {
-                check(child, session);
+                check(child);
             }
         }
-        check(&dom.document, &preview.session_id);
-        assert!(body.contains(&format!("src=\"{}-", preview.session_id)));
+        check(&dom.document);
+        assert!(body.contains("src=\"r0.svg\""));
 
         let origin = crate::core::content_session::origin_of_url(&preview.url).unwrap();
         for path in [

@@ -248,7 +248,9 @@ pub(super) fn project(
             names.insert(key.clone(), format!("data:font/{suffix};base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes)));
             continue;
         }
-        let filename = format!("{object}-{}.{suffix}", digest(key.as_bytes()));
+        // Each projection owns its directory; reference slots preserve CSS base contexts
+        // without repeating two hashes in Windows filesystem paths.
+        let filename = format!("r{}.{suffix}", names.len());
         names.insert(key.clone(), format!("{origin}/{filename}"));
         files.insert(filename, bytes.to_vec());
     }

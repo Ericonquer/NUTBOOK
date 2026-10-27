@@ -45,7 +45,7 @@ try{
  report.binarySha256=createHash('sha256').update(executable).digest('hex');
  report.binarySubsystem=executable.readUInt16LE(executable.readUInt32LE(0x3c)+24+68);
  assert.equal(report.binarySubsystem,2,'GUI application must use Windows GUI subsystem');
- const root=mkdtempSync(join(tmpdir(),'NUTBOOK 验收 #100% '));mkdirSync(join(root,'docs','assets'),{recursive:true});
+ const root=mkdtempSync(join(tmpdir(),'NUTBOOK 验收 #100% '));report.fixtureRoot=root;mkdirSync(join(root,'docs','assets'),{recursive:true});
  const md=join(root,'docs','sample.md'),html=join(root,'runtime.html');
  writeFileSync(join(root,'docs','assets','图 #100%.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="green"/></svg>');
  writeFileSync(md,'# Windows smoke\n\n![图片](assets/%E5%9B%BE%20%23100%25.svg)\n\n正文。\n');
@@ -152,6 +152,8 @@ try{
  await wait('library-card-image',()=>execute(`return [...document.querySelectorAll('[data-open-item] img')].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
  await nativeOpen(md);
  await wait('saved-reopened',async()=>{await prompt();return execute(`return document.querySelector('.ProseMirror')?.textContent.includes(arguments[0]);`,[marker]);});
+ // Run history independently so its failure still preserves the HTML result.
+ try {
  // Open actual product history UI, then inspect its sandboxed archived iframe via WebDriver.
  await execute(`document.querySelector('#documentMoreButton').click();`);
  await wait('history-menu',()=>execute(`const b=document.querySelector('[data-document-action="document-versions"]');if(!b)return false;b.click();return true;`));
@@ -166,6 +168,13 @@ try{
  await wait('history-closed',()=>execute(`return !document.querySelector('.nutbook-history');`));
  const revoked=await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1],image=new Image();image.onload=()=>done(false);image.onerror=()=>done(true);image.src=arguments[0];`,args:[archivedUrl]});
  assert.equal(revoked,true,'closed history image grant must stop loading');report.checks.push({name:'history-image-revoked'});
+ }catch(error){
+   report.historyFailure=error.stack;
+   try{report.historyFailureImages=await execute(`return [...document.images].map(img=>({src:img.src,width:img.naturalWidth}));`);const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'history-failure.png'),Buffer.from(png,'base64'));}catch{}
+   await request('POST',`/session/${session}/frame`,{id:null});
+   await execute(`document.querySelector('.nutbook-history [data-close]')?.click();`);
+   await wait('history-failure-cleanup',()=>execute(`return !document.querySelector('.nutbook-history');`));
+ }
  await nativeOpen(html);
  // Native child surfaces are distinct WebDriver targets. Never substitute main DOM/HTTP success.
  await wait('html-child-script',async()=>{
@@ -173,6 +182,7 @@ try{
    for(const handle of handles){await request('POST',`/session/${session}/window`,{handle});await prompt();if(await execute(`return window.innerWidth>300&&window.innerHeight>200&&document.visibilityState==='visible'&&document.querySelector('#ready')?.textContent==='SCRIPT READY'&&!!document.querySelector('#native-html')&&getComputedStyle(document.body).getPropertyValue('--smoke-css').trim()==='ready'&&[...document.images].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`))return true;}
    return false;
  },20000);
+ if(report.historyFailure)throw Error('History path failed: '+report.historyFailure);
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
 }catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{report.failureState=await execute(`return {url:location.href,activeTab:typeof getActiveTab==='function'?(()=>{const tab=getActiveTab();return tab?{id:tab.id,dirty:tab.isDirty,computedDirty:isMarkdownTabDirty(tab),baseline:tab.markdownBaseline,draft:tab.draft,editor:markdownContentForTab(tab)}:null})():null,saveBusy:document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy'),images:[...document.images].map(img=>({src:img.src,complete:img.complete,width:img.naturalWidth,rect:img.getBoundingClientRect().toJSON()}))};`);}catch{}try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}

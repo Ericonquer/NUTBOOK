@@ -32,7 +32,7 @@ fn main() {
         assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &limit), 0);
     }
     let fixture =
-        std::env::temp_dir().join(format!("nutbook-protocol-gate-{}", std::process::id()));
+        std::env::temp_dir().join(format!("nutbook-protocol-验收 #100% {}", std::process::id()));
     std::fs::create_dir_all(&fixture).unwrap();
     for (name,body) in [
         ("index.html",include_str!("content_protocol_probe.html")),
@@ -86,7 +86,7 @@ fn main() {
                     let (send, receive) = std::sync::mpsc::sync_channel(1);
                     webview.with_webview(move |platform| unsafe {
                         let native = platform.controller().CoreWebView2().unwrap().cast::<ICoreWebView2_3>().unwrap();
-                        let folder = std::env::temp_dir().join(format!("nutbook-protocol-gate-{}", std::process::id()));
+                        let folder = std::env::temp_dir().join(format!("nutbook-protocol-验收 #100% {}", std::process::id()));
                         native.SetVirtualHostNameToFolderMapping(&HSTRING::from(format!("nb-history-probe-{}.invalid",std::process::id())), &HSTRING::from(folder.to_str().unwrap()), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS).unwrap();
                         let _ = send.send(());
                     }).unwrap();
