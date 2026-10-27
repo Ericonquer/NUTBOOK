@@ -80,29 +80,18 @@ fn main() {
             #[cfg(windows)]
             if webview.label() == "protocol-probe" && payload.event() == tauri::webview::PageLoadEvent::Finished {
                 use windows_core::{HSTRING, Interface};
-                use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
+                use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
                 let webview = webview.clone();
                 std::thread::spawn(move || {
-                    let trace = |phase: &str| {
-                        if let Ok(output) = std::env::var("NUTBOOK_PROTOCOL_PROBE_OUT") {
-                            use std::io::Write;
-                            if let Ok(mut file) = std::fs::OpenOptions::new().append(true).create(true).open(format!("{output}.mapping")) { let _ = writeln!(file,"{phase}"); }
-                        }
-                    };
-                    trace("native-mapping-dispatch");
                     let (send, receive) = std::sync::mpsc::sync_channel(1);
                     webview.with_webview(move |platform| unsafe {
                         let native = platform.controller().CoreWebView2().unwrap().cast::<ICoreWebView2_3>().unwrap();
                         let folder = std::env::temp_dir().join(format!("nutbook-protocol-gate-{}", std::process::id()));
-                        for (kind, mode) in [("deny", COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS), ("allow", COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW)] {
-                            native.SetVirtualHostNameToFolderMapping(&HSTRING::from(format!("nb-map-{kind}-{}.invalid",std::process::id())), &HSTRING::from(folder.to_str().unwrap()), mode).unwrap();
-                        }
+                        native.SetVirtualHostNameToFolderMapping(&HSTRING::from(format!("nb-history-probe-{}.invalid",std::process::id())), &HSTRING::from(folder.to_str().unwrap()), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS).unwrap();
                         let _ = send.send(());
                     }).unwrap();
                     receive.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
-                    trace("native-mapping-ready");
                     webview.eval("window.__mappingReadyResolve?.();").unwrap();
-                    trace("browser-mapping-test-released");
                 });
             }
             #[cfg(not(windows))]
@@ -120,7 +109,7 @@ fn main() {
                 serde_json::to_string(&std::env::var("NUTBOOK_PROTOCOL_PROBE_OLD_URL").unwrap_or_default()).unwrap(),
                 serde_json::to_string(if cfg!(windows) { "process-handles" } else { "file-descriptors" }).unwrap()
             ))
-            .initialization_script(format!("window.probeMappingOrigins={};window.probeMappingReady=new Promise(resolve=>window.__mappingReadyResolve=resolve);", if cfg!(windows) {serde_json::json!([format!("http://nb-map-deny-{}.invalid",std::process::id()),format!("http://nb-map-allow-{}.invalid",std::process::id())]).to_string()} else {"null".into()}))
+            .initialization_script(format!("window.probeMappedOrigin={};window.probeMappingReady=new Promise(resolve=>window.__mappingReadyResolve=resolve);", if cfg!(windows) {serde_json::to_string(&format!("http://nb-history-probe-{}.invalid",std::process::id())).unwrap()} else {"null".into()}))
             .title("Nutbook resource protocol compatibility gate")
             .build()?;
             let handle = app.handle().clone();

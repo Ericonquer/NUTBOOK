@@ -23,7 +23,6 @@ try {
   if(evidence){
    writeFileSync(join(evidence,`protocol-${run}-process.json`),JSON.stringify({status:result.status,error:result.error?.message,stderr:result.stderr?.slice(-16000)},null,2));
    try{writeFileSync(join(evidence,`protocol-${run}.json`),readFileSync(output));}catch{}
-   try{writeFileSync(join(evidence,`protocol-${run}-mapping.log`),readFileSync(output+'.mapping').subarray(0,16000));}catch{}
   }
   assert.equal(result.status,0,result.stderr||result.error?.message);
   const report=JSON.parse(readFileSync(output,'utf8'));
@@ -33,6 +32,7 @@ try {
   assert.ok(report.fd.after<=report.fd.before+2);
   assert.equal(report.oldAddressDenied,true);
   assert.equal(report.secureContext,true);
+  if(process.platform==='win32'){assert.equal(report.mappedFrames?.opaqueSrcdoc,10);assert.equal(report.mappedFrames?.opaqueNavigated,10);}
   for(const key of ['css','module','image','fetch','crossDenied','resourceBurst','crypto','storage','revoked'])assert.equal(report[key],true,key);
   assert(report.fd.before>0,'resource counter must be real');
   previous=report.href;

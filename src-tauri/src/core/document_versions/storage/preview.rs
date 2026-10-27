@@ -31,6 +31,20 @@ pub struct PreviewInfo {
     pub incomplete: bool,
 }
 
+// Keep native folder mappings outside Wry's synthetic protocol namespace.
+// Windows native CI verifies this independent reserved host in opaque frames.
+fn preview_browser_origin(resource: &ContentResource) -> String {
+    #[cfg(windows)]
+    {
+        let url = url::Url::parse(resource.origin()).expect("generated content origin");
+        let id = url.host_str().expect("content host").strip_prefix("nutbook-content.")
+            .and_then(|host| host.strip_suffix(".localhost")).expect("generated content authority");
+        format!("http://nb-history-{id}.invalid")
+    }
+    #[cfg(not(windows))]
+    { resource.origin().to_owned() }
+}
+
 // WebView2 can bypass WebResourceRequested for opaque srcdoc subresources
 // (native CI observed requests reaching IIS). Map only this immutable projection
 // in its trusted host WebView. No sockets, user-directory mapping, or sandbox change.
@@ -76,10 +90,17 @@ impl Drop for WindowsPreviewMapping {
         use windows_core::{HSTRING, Interface};
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_3;
         let host = self.host.clone();
-        let _ = self.webview.with_webview(move |platform| unsafe {
-            if let Ok(view) = platform.controller().CoreWebView2().and_then(|view| view.cast::<ICoreWebView2_3>()) {
-                let _ = view.ClearVirtualHostNameToFolderMapping(&HSTRING::from(host));
-            }
+        let webview = self.webview.clone();
+        // Sync IPC cleanup may run inside a native UI callback. Always enqueue
+        // from the async executor; Tauri would otherwise dispatch inline and
+        // re-enter its locked WebView state. Projection files are removed by
+        // close_preview immediately, so a queued clear cannot expose live data.
+        tauri::async_runtime::spawn(async move {
+            let _ = webview.with_webview(move |platform| unsafe {
+                if let Ok(view) = platform.controller().CoreWebView2().and_then(|view| view.cast::<ICoreWebView2_3>()) {
+                    let _ = view.ClearVirtualHostNameToFolderMapping(&HSTRING::from(host));
+                }
+            });
         });
     }
 }
@@ -191,7 +212,7 @@ impl HistoryStore {
                 .map_err(|e| invalid(format!("preview server: {e}")))?;
             let objects = version.snapshot.hashes().map(|hash| Ok((hash.to_owned(), self.object(hash)?)))
                 .collect::<Result<BTreeMap<_, _>>>()?;
-            let projection_html = super::super::html_projection::project(&version.snapshot, &objects, &server.origin())?;
+            let projection_html = super::super::html_projection::project(&version.snapshot, &objects, &preview_browser_origin(&server))?;
             for (name, bytes) in &projection_html.files {
                 atomic_bytes(&served.join(name), bytes, false)?;
             }
@@ -268,8 +289,8 @@ impl HistoryStore {
             .ok_or_else(|| invalid("preview URL"))?;
         // Inline projection avoids a second frame navigation from the custom
         // application origin. Only this session's immutable image origin is allowed.
-        let inline_page=page.replace("img-src 'self'", &format!("img-src {}",server.origin()))
-            .replace("<img src=\"", &format!("<img src=\"{}/",server.origin()));
+        let inline_page=page.replace("img-src 'self'", &format!("img-src {}",preview_browser_origin(&server)))
+            .replace("<img src=\"", &format!("<img src=\"{}/",preview_browser_origin(&server)));
         self.previews
             .lock()
             .map_err(|_| invalid("preview lock"))?
@@ -308,7 +329,7 @@ impl HistoryStore {
             let previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
             let preview = previews.get(session).ok_or_else(|| invalid("expired preview"))?;
             if preview.windows_mapping.is_some() { return Ok(()); }
-            let host = url::Url::parse(preview.server.origin()).map_err(|_| invalid("preview origin"))?
+            let host = url::Url::parse(&preview_browser_origin(&preview.server)).map_err(|_| invalid("preview origin"))?
                 .host_str().ok_or_else(|| invalid("preview host"))?.to_owned();
             (preview.server.canonical_root().to_path_buf(), host)
         };

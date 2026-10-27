@@ -8,9 +8,8 @@ addEventListener('load',async()=>{
  try { const r=await fetch('/data.json'); result.fetch=(await r.json()).canary==='A'; }catch(e){result.fetch=false;result.fetchError=String(e)}
  try { const r=await fetch(window.probeOther);result.crossDenied=!r.ok; }catch(e){result.crossDenied=true;result.crossError=String(e)}
  try { result.resourceBurst=(await Promise.all(Array.from({length:96},async(_,i)=>{const r=await fetch('/data.json?burst='+i);return r.ok&&(await r.json()).canary==='A'}))).every(Boolean); }catch(e){result.resourceBurst=false;result.burstError=String(e)}
- if(window.probeMappingOrigins){
+ if(window.probeMappedOrigin){
    await window.probeMappingReady;
-   const loadImage=url=>new Promise(resolve=>{const image=new Image(),timer=setTimeout(()=>resolve('timeout'),2000);image.onload=()=>{clearTimeout(timer);resolve(image.naturalWidth)};image.onerror=()=>{clearTimeout(timer);resolve(0)};image.src=url;});
    const loadFrame=(origin,navigate)=>new Promise(resolve=>{
      const frame=document.createElement('iframe'),token=crypto.randomUUID();frame.sandbox='allow-scripts';
      const finish=width=>{clearTimeout(timer);removeEventListener('message',message);frame.remove();resolve(width);};
@@ -20,8 +19,7 @@ addEventListener('load',async()=>{
      else frame.srcdoc=`<!doctype html><img id="image" src="${origin}/image.svg"><script>addEventListener('load',()=>parent.postMessage({mappingProbe:${JSON.stringify(token)},width:document.querySelector('img').naturalWidth},'*'))<\/script>`;
      document.body.append(frame);
    });
-   result.mappingDiagnostic=[];
-   for(const origin of window.probeMappingOrigins)result.mappingDiagnostic.push({origin,parent:await loadImage(origin+'/image.svg'),opaqueSrcdoc:await loadFrame(origin,false),opaqueNavigated:await loadFrame(origin,true)});
+   result.mappedFrames={opaqueSrcdoc:await loadFrame(window.probeMappedOrigin,false),opaqueNavigated:await loadFrame(window.probeMappedOrigin,true)};
  }
  result.fd=window.probeFd;
  result.oldAddressDenied=true;
@@ -31,7 +29,7 @@ addEventListener('load',async()=>{
  try{localStorage.setItem('probe','A');result.storage=localStorage.getItem('probe')==='A';localStorage.removeItem('probe')}catch(e){result.storage=false;result.storageError=String(e)}
  await window.__TAURI_INTERNALS__.invoke('protocol_probe_revoke');
  try { const r=await fetch('/data.json');result.revoked=!r.ok; }catch(e){result.revoked=true;}
- result.ok=result.resourceBurst&&result.oldAddressDenied&&result.crypto&&result.storage&&result.revoked&&result.css&&result.module&&result.image&&result.fetch&&result.crossDenied;
+ result.ok=(!window.probeMappedOrigin||(result.mappedFrames.opaqueSrcdoc===10&&result.mappedFrames.opaqueNavigated===10))&&result.resourceBurst&&result.oldAddressDenied&&result.crypto&&result.storage&&result.revoked&&result.css&&result.module&&result.image&&result.fetch&&result.crossDenied;
  document.querySelector('#result').textContent=JSON.stringify(result,null,2);
  await window.__TAURI_INTERNALS__.invoke('protocol_probe_report',{report:result});
 });
