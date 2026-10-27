@@ -41,6 +41,8 @@ assert(!smoke.includes('mockInvoke'));
 assert(smoke.includes('archived-image-loaded'));
 assert(smoke.includes('[System.Windows.Forms.Clipboard]::SetImage'));
 assert(smoke.includes('clipboard-png-loaded'));
+assert(smoke.includes('.ProseMirror img:not(.ProseMirror-separator)'));
+assert(smoke.includes('images.length===2&&images.every'));
 assert(smoke.includes('pasted-png-persisted'));
 assert(workflow.includes('--lib resource_capture_url_roundtrip_identity'));
 assert(workflow.includes('test-content-resource-native.mjs --release --no-build'));

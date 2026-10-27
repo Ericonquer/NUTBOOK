@@ -119,7 +119,7 @@ try{
    {windowsHide:true,encoding:'utf8',timeout:5000});
  assert.equal(clipboard.status,0,clipboard.error?.message||clipboard.stderr);
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009v\uE000'});
- await wait('clipboard-png-loaded',()=>execute(`const images=[...document.querySelectorAll('.ProseMirror img')];return images.length>=2&&images.every(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0);`));
+ await wait('clipboard-png-loaded',()=>execute(`const images=[...document.querySelectorAll('.ProseMirror img:not(.ProseMirror-separator)')];return images.length===2&&images.every(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0);`));
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009s\uE000'});
  await wait('saved-to-disk',async()=>readFileSync(md,'utf8').includes(marker));
  const pastedRef=readFileSync(md,'utf8').match(/!\[[^\]]*\]\(([^)]+\.png)\)/)?.[1];assert(pastedRef,'saved Markdown must reference the pasted PNG');
