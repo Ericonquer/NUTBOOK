@@ -266,7 +266,7 @@ jobs:
         if: always() && runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: installed-windows-evidence
+          name: installed-windows-evidence-${{ github.run_attempt }}
           path: windows-smoke-report/
           if-no-files-found: error
           retention-days: 3

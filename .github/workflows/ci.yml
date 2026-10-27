@@ -196,7 +196,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-runtime-evidence
+          name: windows-runtime-evidence-${{ github.run_attempt }}
           path: windows-smoke-report/
           if-no-files-found: error
           retention-days: 3

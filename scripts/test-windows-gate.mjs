@@ -71,5 +71,7 @@ const build=readFileSync('src-tauri/build.rs','utf8');
 assert(build.includes('compile_for_everything'), 'tests/examples need the native manifest too');
 assert(build.includes('new_without_app_manifest'), 'avoid embedding duplicate manifest in binaries');
 assert(readFileSync('src-tauri/windows.manifest','utf8').includes('Microsoft.Windows.Common-Controls'));
+assert(workflow.includes('name: windows-runtime-evidence-${{ github.run_attempt }}'), 'reruns must preserve each attempt without artifact name conflicts');
+assert(release.includes('name: installed-windows-evidence-${{ github.run_attempt }}'));
 assert(workflow.includes('actions/cache/save@v4'), 'failed native runs must retain expensive compile cache');
 console.log('Cross-platform Gate rejects failed, skipped, cancelled and missing platform results');
