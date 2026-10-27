@@ -23,6 +23,7 @@ try {
   if(evidence){
    writeFileSync(join(evidence,`protocol-${run}-process.json`),JSON.stringify({status:result.status,error:result.error?.message,stderr:result.stderr?.slice(-16000)},null,2));
    try{writeFileSync(join(evidence,`protocol-${run}.json`),readFileSync(output));}catch{}
+   try{writeFileSync(join(evidence,`protocol-${run}-mapping.log`),readFileSync(output+'.mapping').subarray(0,16000));}catch{}
   }
   assert.equal(result.status,0,result.stderr||result.error?.message);
   const report=JSON.parse(readFileSync(output,'utf8'));
