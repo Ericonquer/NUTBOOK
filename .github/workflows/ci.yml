@@ -150,6 +150,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p windows-smoke-report
+          # Discard corrupted app-generated asset caches once, before tests,
+          # so the app library compiled below is reused by the UI build.
+          cargo clean --release --manifest-path src-tauri/Cargo.toml --package nutbook-backend
           rustc -Vv > windows-smoke-report/toolchain.txt
           node scripts/test-windows-resource-identity.mjs
           node scripts/test-windows-history-resource-paths.mjs
@@ -166,9 +169,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Restored app artifacts can embed a different frontend context. Keep
-          # dependency caches, but always regenerate this checkout's app crate.
-          cargo clean --release --manifest-path src-tauri/Cargo.toml --package nutbook-backend
           # Both generate_context macros share a content-hash asset cache in
           # OUT_DIR. Build sequentially: a second macro must not include a
           # compressed file while the first process is still writing it.

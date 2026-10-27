@@ -267,6 +267,22 @@ fn main() {
                 .build()
         })
         .on_window_event(|window, event| {
+            // Windows may restore a child WebView while the main document
+            // still reports hidden. Native window state owns suspend/resume;
+            // DOM visibility alone cannot restore the editor coordinator.
+            #[cfg(target_os = "windows")]
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true))
+            {
+                if let (Ok(minimized), Some(main)) = (
+                    window.is_minimized(),
+                    window.app_handle().get_webview("main"),
+                ) {
+                    let _ = main.eval(format!(
+                        "window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__?.({minimized});"
+                    ));
+                }
+            }
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 nutbook_backend::core::content_resource::unbind_surface(window.label());
             }
