@@ -57,7 +57,8 @@ assert(smoke.includes('images.length===2&&images.every'));
 assert(smoke.includes('pasted-png-persisted'));
 assert(workflow.includes('--lib resource_capture_url_roundtrip_identity'));
 assert(workflow.includes('test-content-resource-native.mjs --release --no-build'));
-assert(workflow.includes('--bin NUTBOOK --bin nutbook-cli-bin --example content_protocol_probe'));
+assert(workflow.includes('--bin NUTBOOK --bin nutbook-cli-bin'));
+assert(workflow.includes('--example content_protocol_probe'));
 const native=readFileSync('scripts/test-content-resource-native.mjs','utf8');
 assert(native.includes("['darwin','win32']"));
 assert(native.includes('report.fd.before>0'));
@@ -91,3 +92,5 @@ assert(installed.includes('installedBytes ='));
 assert(installed.includes('VersionInfo.ProductVersion'));
 assert(installed.includes('node scripts/windows-runtime-smoke.mjs'));
 assert.match(workflow, /cargo clean --release --manifest-path src-tauri\/Cargo.toml --package nutbook-backend/, 'Native Windows smoke must regenerate app assets while retaining dependency caches');
+
+assert.doesNotMatch(workflow, /cargo build[^\n]*--bin NUTBOOK[^\n]*--example/, 'App and probe context generation must not race in the same OUT_DIR');

@@ -70,3 +70,28 @@ await context.resume();
 assert.equal(context.appState.runtimeSurfacesSuspended, false);
 assert.equal(syncCount, 1);
 console.log("HTML runtime window lifecycle checks passed");
+
+// The active editor's child owns unsaved DOM/undo/inline toolbar. A minimize
+// must not tear it down just because the host session survives in JS.
+const editor = { itemId: 42, runtimeSessionId: 'editing-42', generation: 7 };
+let teardown = 0;
+const preserve = {
+  appState: { runtimeSurfacesSuspended: true, htmlEditSession: editor, runtimeHiddenSurfaceIds: new Set(), activeRuntimeHostId: null },
+  currentRuntimeSurfaceToken: () => 1,
+  isRuntimeSurfaceActive: () => true,
+  isRuntimeSurfaceHideCurrent: () => true,
+  isCurrentHtmlEditSession: session => session === editor,
+  externalRuntimeTabForId: () => null,
+  getActiveTab: () => ({ id: 42 }),
+  resetRuntimeControlsOverlaySync: () => {},
+  setRuntimeControlsOverlayVisibility: async () => { teardown++; throw Error('teardown reached'); },
+};
+vm.createContext(preserve);
+vm.runInContext(`${extract('hideRuntimeSessionSurfaces')}; globalThis.hide = hideRuntimeSessionSurfaces;`, preserve);
+await preserve.hide(42, { force: true });
+assert.equal(teardown, 0, 'minimize must retain the live current editor, including unsaved DOM');
+preserve.appState.runtimeSurfacesSuspended = false;
+preserve.appState.htmlFind = {};
+await assert.rejects(preserve.hide(42, { force: true }), /teardown reached/);
+assert.equal(teardown, 1, 'normal tab cleanup must retain its existing teardown path');
+console.log('Minimized active editor retained; normal cleanup still tears down.');

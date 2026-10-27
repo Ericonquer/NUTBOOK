@@ -23394,6 +23394,14 @@ if (!chipTipController) {
         // 会重新 attach 同一个 surface：记账一旦没被清掉，之后每次切走都会被这里
         // 短路吞掉，child 永久残留在最上层。故对「外部 + force」不适用该短路
         // （正式 item 路径行为不变）。
+        // Minimize hides the whole native window. The active editor owns
+        // unsaved DOM and its inline toolbar; closing this child destroys both
+        // while the host session incorrectly remains "editing". Retain only
+        // that current editor during suspension, never an inactive document.
+        const activeEditSession = appState.htmlEditSession;
+        if (appState.runtimeSurfacesSuspended
+          && activeEditSession?.itemId === itemId
+          && isCurrentHtmlEditSession(activeEditSession)) return;
         const externalHideTarget = externalRuntimeTabForId(itemId);
         if (appState.runtimeHiddenSurfaceIds.has(itemId)
           && !options.recoverLateAttach

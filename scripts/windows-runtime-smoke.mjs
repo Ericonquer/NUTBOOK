@@ -122,6 +122,7 @@ try{
  command('Log.enable');command('Network.enable');command('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:false,flatten:true});
  const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
  session=created.sessionId;assert(session,'WebDriver session missing');
+ const mainHandle=await request('GET',`/session/${session}/window`);
  await wait('markdown-editor',async()=>{await prompt();return execute(`return !!document.querySelector('.ProseMirror');`);});
  await execute(`document.querySelector('[data-join-external-tab]')?.click();`);
  await wait('joined-library',()=>execute(`return getActiveTab()?.sourceMode==='library'||getActiveTab()?.external?.joined===true;`));
@@ -193,6 +194,52 @@ try{
    for(const handle of handles){await request('POST',`/session/${session}/window`,{handle});await prompt();if(await execute(`return window.innerWidth>300&&window.innerHeight>200&&document.visibilityState==='visible'&&document.querySelector('#ready')?.textContent==='SCRIPT READY'&&!!document.querySelector('#native-html')&&getComputedStyle(document.body).getPropertyValue('--smoke-css').trim()==='ready'&&[...document.images].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`)){report.htmlTarget=await execute(`return {url:location.href,topLevel:window.top===window,width:innerWidth,height:innerHeight,visibility:document.visibilityState};`);assert.equal(report.htmlTarget.topLevel,true);assert(report.htmlTarget.url.startsWith('http://nutbook-content.'),'HTML assertion must observe the native content surface');return true;}}
    return false;
  },20000);
+ // Exporter-produced deck, real native minimize/restore, unsaved live DOM.
+ await request('POST',`/session/${session}/window`,{handle:mainHandle});
+ const deck=join(root,'exported-presentation.html');
+ writeFileSync(deck,readFileSync('src-tauri/tests/fixtures/html-edit/exported-presentation-minimize.html'));
+ await nativeOpen(deck);
+ await wait('presentation-edit-entry',async()=>{await prompt();return execute(`if(getActiveTab()?.item?.fileName!=='exported-presentation.html')return false;document.querySelector('#documentPrimaryButton')?.click();return true;`);});
+ let editHandle;
+ await wait('presentation-edit-ready',async()=>{
+   for(const handle of await request('GET',`/session/${session}/window/handles`)){
+     await request('POST',`/session/${session}/window`,{handle});
+     if(await execute(`return !!window.__NUTBOOK_HTML_EDIT__?.isEditing()&&!!document.querySelector('#nutbook-html-edit-inline-toolbar')&&!!document.querySelector('.cover-title[contenteditable]');`)){editHandle=handle;return true;}
+   }return false;
+ });
+ await execute(`window.__smokeEditorIdentity='keep-live-editor';`);
+ const titleElement=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.cover-title[contenteditable]'});
+ await request('POST',`/session/${session}/element/${titleElement['element-6066-11e4-a52e-4f735466cecf']}/value`,{text:'\uE009a\uE000Unsaved minimize acceptance'});
+ const windowState=(minimized)=>{
+   const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',
+     `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class NutbookWindow { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h); }'; $h=(Get-Process -Id ${appProcess.pid}).MainWindowHandle; if($h -eq 0){throw 'Missing app window'}; [NutbookWindow]::ShowWindow($h,${minimized?6:9}) | Out-Null; if([NutbookWindow]::IsIconic($h) -ne $${minimized?'true':'false'}){throw 'Native window state mismatch'}`],{windowsHide:true,encoding:'utf8',timeout:5000});
+   assert.equal(result.status,0,result.stderr||result.error?.message);
+ };
+ for(let cycle=0;cycle<6;cycle++){
+   windowState(true);
+   await request('POST',`/session/${session}/window`,{handle:mainHandle});
+   await wait('presentation-minimized-'+cycle,()=>execute(`return appState.runtimeSurfacesSuspended;`));
+   windowState(false);
+   await wait('presentation-restored-'+cycle,()=>execute(`return !appState.runtimeSurfacesSuspended&&!!appState.htmlEditSession?.presentation?.pages?.length;`));
+   await request('POST',`/session/${session}/window`,{handle:editHandle});
+   await wait('presentation-still-editable-'+cycle,()=>execute(`const toolbar=document.querySelector('#nutbook-html-edit-inline-toolbar');return window.__smokeEditorIdentity==='keep-live-editor'&&window.__NUTBOOK_HTML_EDIT__?.isEditing()&&document.querySelector('.cover-title[contenteditable]')?.textContent.includes('Unsaved minimize acceptance')&&!!toolbar&&toolbar.isConnected;`));
+   const toolbarElement=await request('POST',`/session/${session}/element`,{using:'css selector',value:'#nutbook-html-edit-inline-toolbar'});
+   const shadow=await request('GET',`/session/${session}/element/${toolbarElement['element-6066-11e4-a52e-4f735466cecf']}/shadow`);
+   const saveButton=await request('POST',`/session/${session}/shadow/${shadow['shadow-6066-11e4-a52e-4f735466cecf']}/element`,{using:'css selector',value:'[data-intent=save]'});
+   assert.equal(await request('GET',`/session/${session}/element/${saveButton['element-6066-11e4-a52e-4f735466cecf']}/displayed`),true,'Restored inline toolbar Save button must be visible');
+ }
+ await request('POST',`/session/${session}/element/${titleElement['element-6066-11e4-a52e-4f735466cecf']}/value`,{text:'\uE009s\uE000'});
+ await request('POST',`/session/${session}/window`,{handle:mainHandle});
+ await wait('presentation-saved-after-restore',()=>execute(`return !!appState.htmlEditSession&&!appState.htmlEditSession.dirty&&!appState.htmlEditSession.saveInFlight;`));
+ assert(readFileSync(deck,'utf8').includes('Unsaved minimize acceptance'),'Restored edit must persist to the original exported file');
+ await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1];(async()=>{const id=getActiveTab().id;await exitHtmlEditMode();await closeOpenTab(id);})().then(()=>done(true),error=>done({error:String(error)}));`,args:[]}).then(result=>assert.equal(result,true));
+ await nativeOpen(deck);
+ await wait('presentation-reopened-after-restore',async()=>{
+   for(const handle of await request('GET',`/session/${session}/window/handles`)){
+     await request('POST',`/session/${session}/window`,{handle});
+     if(await execute(`return !!document.querySelector('.cover-title')?.textContent.includes('Unsaved minimize acceptance');`))return true;
+   }return false;
+ });
  if(report.historyFailure)throw Error('History path failed: '+report.historyFailure);
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
