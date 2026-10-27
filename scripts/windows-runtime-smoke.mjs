@@ -8,7 +8,7 @@ import {join,resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 const reportDir=resolve(process.env.NUTBOOK_SMOKE_REPORT||'windows-smoke-report');mkdirSync(reportDir,{recursive:true});
 const report={commit:process.env.GITHUB_SHA||'local',checks:[],success:false};
-let session,driver,appProcess,debugEndpoint;let deadline;const logs=[],appLogs=[];
+let session,driver,appProcess,debugEndpoint,devtools;const browserDiagnostics=[];let deadline;const logs=[],appLogs=[];
 function capture(stream,buffer){stream?.on('data',chunk=>{buffer.push(String(chunk).slice(0,4096));if(buffer.length>200)buffer.shift();});}
 const endpoint='http://127.0.0.1:9515';
 const policyBackups=[];
@@ -102,6 +102,23 @@ try{
    const targets=await response.json();report.targets=targets.map(({id,type,url,title})=>({id,type,url,title}));
    return targets.some(target=>target.type==='page'&&target.url!=='about:blank');
  },15000);
+ // Observe the real browser's network/security errors, including opaque
+ // sandboxed history frames. No product test hook or policy relaxation.
+ const mainTarget=(await fetch(debugEndpoint+'/json/list').then(r=>r.json())).find(target=>target.type==='page'&&target.url!=='about:blank');
+ devtools=new WebSocket(mainTarget.webSocketDebuggerUrl);
+ await new Promise((ok,fail)=>{const timer=setTimeout(()=>fail(Error('DevTools diagnostics connection timeout')),3000);devtools.addEventListener('open',()=>{clearTimeout(timer);ok();},{once:true});devtools.addEventListener('error',()=>{clearTimeout(timer);fail(Error('DevTools diagnostics connection failed'));},{once:true});});
+ let devtoolsId=0;
+ const command=(method,params={},sessionId)=>devtools.send(JSON.stringify({id:++devtoolsId,method,params,...(sessionId?{sessionId}:{})}));
+ devtools.addEventListener('message',event=>{
+   const message=JSON.parse(String(event.data));
+   if(message.method==='Target.attachedToTarget'){
+     command('Log.enable',{},message.params.sessionId);command('Network.enable',{},message.params.sessionId);
+   }
+   if(message.error||message.method==='Log.entryAdded'||message.method==='Network.loadingFailed'||(message.method==='Network.responseReceived'&&message.params.response.status>=400)){
+     browserDiagnostics.push(JSON.stringify(message).slice(0,4096));if(browserDiagnostics.length>200)browserDiagnostics.shift();
+   }
+ });
+ command('Log.enable');command('Network.enable');command('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:false,flatten:true});
  const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
  session=created.sessionId;assert(session,'WebDriver session missing');
  await wait('markdown-editor',async()=>{await prompt();return execute(`return !!document.querySelector('.ProseMirror');`);});
@@ -157,6 +174,7 @@ try{
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
 }catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{report.failureState=await execute(`return {url:location.href,activeTab:typeof getActiveTab==='function'?(()=>{const tab=getActiveTab();return tab?{id:tab.id,dirty:tab.isDirty,computedDirty:isMarkdownTabDirty(tab),baseline:tab.markdownBaseline,draft:tab.draft,editor:markdownContentForTab(tab)}:null})():null,saveBusy:document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy'),images:[...document.images].map(img=>({src:img.src,complete:img.complete,width:img.naturalWidth,rect:img.getBoundingClientRect().toJSON()}))};`);}catch{}try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
+ devtools?.close();writeFileSync(join(reportDir,'browser-diagnostics.json'),JSON.stringify(browserDiagnostics.map(line=>{try{return JSON.parse(line);}catch{return line;}}),null,2));
  clearTimeout(deadline);if(appProcess?.pid){
   const task=spawnSync('tasklist.exe',['/FI',`PID eq ${appProcess.pid}`,'/FO','CSV','/V'],{windowsHide:true,encoding:'utf8',timeout:3000});
   writeFileSync(join(reportDir,'process.txt'),task.stdout||task.error?.message||task.stderr||'no process');
