@@ -90,3 +90,4 @@ assert(installed.includes('installerSha256 = $beforeHash'));
 assert(installed.includes('installedBytes ='));
 assert(installed.includes('VersionInfo.ProductVersion'));
 assert(installed.includes('node scripts/windows-runtime-smoke.mjs'));
+assert.match(workflow, /cargo clean --release --manifest-path src-tauri\/Cargo.toml --package nutbook-backend/, 'Native Windows smoke must regenerate app assets while retaining dependency caches');

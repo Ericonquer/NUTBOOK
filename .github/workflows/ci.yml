@@ -163,7 +163,13 @@ jobs:
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib windows_cli_alias_and_gui_images_are_rejected -- --test-threads=1
 
       - name: Build Windows application once without installer
-        run: cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --bin nutbook-cli-bin --example content_protocol_probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Restored app artifacts can embed a different frontend context. Keep
+          # dependency caches, but always regenerate this checkout's app crate.
+          cargo clean --release --manifest-path src-tauri/Cargo.toml --package nutbook-backend
+          cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --bin nutbook-cli-bin --example content_protocol_probe
 
       - name: Native protocol lifetime and compatibility gate
         timeout-minutes: 2
