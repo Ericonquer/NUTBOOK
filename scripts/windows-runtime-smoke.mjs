@@ -114,7 +114,11 @@ try{
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009\uE010\uE000\n'+marker});
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009s\uE000'});
  await wait('saved-to-disk',async()=>readFileSync(md,'utf8').includes(marker));
+ // Disk durability precedes the save coordinator's refreshed baseline and busy release.
+ // Close only after the real save UI has settled; do not answer an unsaved prompt.
+ await wait('save-settled',()=>execute(`const tab=getActiveTab();return !!tab&&!isMarkdownTabDirty(tab)&&document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy')!=='true';`));
  await execute(`document.querySelector('.tab-chip.active [data-close-tab]')?.click();`);
+ await wait('tab-closed',()=>execute(`return !getActiveTab()&&!document.querySelector('#confirmScrim.open');`));
  await wait('library-card-image',()=>execute(`return [...document.querySelectorAll('[data-open-item] img')].some(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0&&img.getBoundingClientRect().height>0);`));
  await nativeOpen(md);
  await wait('saved-reopened',async()=>{await prompt();return execute(`return document.querySelector('.ProseMirror')?.textContent.includes(arguments[0]);`,[marker]);});
@@ -138,7 +142,7 @@ try{
  },20000);
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
-}catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
+}catch(error){report.error=error.stack;process.exitCode=1;if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{report.failureState=await execute(`return {url:location.href,activeTab:typeof getActiveTab==='function'?(()=>{const tab=getActiveTab();return tab?{id:tab.id,dirty:tab.isDirty,computedDirty:isMarkdownTabDirty(tab),baseline:tab.markdownBaseline,draft:tab.draft,editor:markdownContentForTab(tab)}:null})():null,saveBusy:document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy'),images:[...document.images].map(img=>({src:img.src,complete:img.complete,width:img.naturalWidth,rect:img.getBoundingClientRect().toJSON()}))};`);}catch{}try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
  clearTimeout(deadline);if(appProcess?.pid){
   const task=spawnSync('tasklist.exe',['/FI',`PID eq ${appProcess.pid}`,'/FO','CSV','/V'],{windowsHide:true,encoding:'utf8',timeout:3000});
