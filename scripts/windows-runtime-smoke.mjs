@@ -254,6 +254,53 @@ try{
      if(await execute(`return !!document.querySelector('.cover-title')?.textContent.includes('Unsaved minimize acceptance');`))return true;
    }return false;
  });
+ // Check the related leave decisions and home lifecycle using real buttons.
+ const findEditingDeck=async(label)=>{
+   let found;
+   await wait(label,async()=>{for(const handle of await request('GET',`/session/${session}/window/handles`)){try{await request('POST',`/session/${session}/window`,{handle});if(await execute(`return !!window.__NUTBOOK_HTML_EDIT__?.isEditing()&&!!document.querySelector('.cover-title[contenteditable]');`)){found=handle;return true;}}catch{}}return false;});
+   return found;
+ };
+ const enterDeckEdit=async(label)=>{
+   await wait(label+'-document',async()=>{for(const handle of await request('GET',`/session/${session}/window/handles`)){try{await request('POST',`/session/${session}/window`,{handle});if(await execute(`return document.readyState==='complete'&&!!document.querySelector('.cover-title')&&!window.__NUTBOOK_HTML_EDIT__;`))return true;}catch{}}return false;});
+   await request('POST',`/session/${session}/window`,{handle:mainHandle});
+   await wait(label+'-entry',()=>execute(`const button=document.querySelector('#documentPrimaryButton');if(!button||button.disabled)return false;button.click();return true;`));
+   return findEditingDeck(label);
+ };
+ const typeTitle=async(text)=>{
+   const element=await request('POST',`/session/${session}/element`,{using:'css selector',value:'.cover-title[contenteditable]'});
+   await request('POST',`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/value`,{text:'\uE009a\uE000'+text});
+ };
+ const finishEdit=async()=>{
+   const element=await request('POST',`/session/${session}/element`,{using:'css selector',value:'#nutbook-html-edit-inline-toolbar'});
+   const shadow=await request('GET',`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/shadow`);
+   const button=await request('POST',`/session/${session}/shadow/${shadow['shadow-6066-11e4-a52e-4f735466cecf']}/element`,{using:'css selector',value:'[data-intent=done]'});
+   await request('POST',`/session/${session}/element/${button['element-6066-11e4-a52e-4f735466cecf']}/click`,{});
+ };
+ const chooseLeave=async(choice)=>{
+   await wait('presentation-confirm-'+choice,async()=>{for(const handle of await request('GET',`/session/${session}/window/handles`)){try{await request('POST',`/session/${session}/window`,{handle});if(await execute(`return !!document.querySelector('#${choice}Button');`)){const button=await request('POST',`/session/${session}/element`,{using:'css selector',value:'#'+choice+'Button'});await request('POST',`/session/${session}/element/${button['element-6066-11e4-a52e-4f735466cecf']}/click`,{});return true;}}catch{}}return false;});
+ };
+ await enterDeckEdit('presentation-edit-after-reopen');
+ await typeTitle('Unsaved confirmation acceptance');
+ await finishEdit();await chooseLeave('keep');
+ await findEditingDeck('presentation-continue-editing');
+ assert(await execute(`return document.querySelector('.cover-title').textContent.includes('Unsaved confirmation acceptance');`));
+ await finishEdit();await chooseLeave('discard');
+ await request('POST',`/session/${session}/window`,{handle:mainHandle});
+ await wait('presentation-discard-exited',()=>execute(`return !appState.htmlEditSession;`));
+ assert(!readFileSync(deck,'utf8').includes('Unsaved confirmation acceptance'));
+ assert(readFileSync(deck,'utf8').includes('Unsaved minimize acceptance'));
+ await enterDeckEdit('presentation-edit-after-discard');
+ await typeTitle('Saved confirmation acceptance');
+ await finishEdit();await chooseLeave('save');
+ await request('POST',`/session/${session}/window`,{handle:mainHandle});
+ await wait('presentation-save-exited',()=>execute(`return !appState.htmlEditSession;`));
+ assert(readFileSync(deck,'utf8').includes('Saved confirmation acceptance'));
+ await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1];(async()=>{await closeOpenTab(getActiveTab().id);await showAllFilesHome();})().then(()=>done(true),error=>done({error:String(error)}));`,args:[]}).then(result=>assert.equal(result,true));
+ windowState(true);
+ await wait('home-minimized',()=>execute(`return appState.runtimeSurfacesSuspended;`));
+ windowState(false);
+ await wait('home-restored',()=>execute(`return !appState.runtimeSurfacesSuspended&&appState.activeTabId==null&&document.querySelectorAll('[data-open-item]').length>=205;`));
+ await wait('home-no-content-overlay',async()=>!(await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json())).some(target=>target.url?.startsWith('http://nutbook-content.')));
  if(report.historyFailure)throw Error('History path failed: '+report.historyFailure);
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
