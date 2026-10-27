@@ -278,9 +278,16 @@ fn main() {
                     window.is_minimized(),
                     window.app_handle().get_webview("main"),
                 ) {
-                    let _ = main.eval(format!(
+                    let sent = main.eval(format!(
                         "window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__?.({minimized});"
                     ));
+                    // Temporary native lifecycle diagnostic for the runner.
+                    if let Ok(path) = std::env::var("NUTBOOK_RUNTIME_LIFECYCLE_DIAGNOSTIC") {
+                        use std::io::Write;
+                        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                            let _ = writeln!(file, "event={event:?} minimized={minimized} eval={sent:?}");
+                        }
+                    }
                 }
             }
             if matches!(event, tauri::WindowEvent::Destroyed) {
