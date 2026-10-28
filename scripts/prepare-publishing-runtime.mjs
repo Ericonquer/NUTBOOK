@@ -2,6 +2,8 @@ import {copyFileSync,cpSync,rmSync,mkdirSync,readFileSync,readdirSync,writeFileS
 import {createHash} from 'node:crypto';
 import {join,resolve} from 'node:path';
 const output=resolve('src-tauri/generated-resources/publishing-runtime');
+// Generated workers must not retain scripts removed from source.
+rmSync(join(output,'worker'),{recursive:true,force:true});
 mkdirSync(join(output,'worker'),{recursive:true});
 const lock=JSON.parse(readFileSync('package-lock.json','utf8')).packages['node_modules/playwright-core'];
 if(!/^\d+\.\d+\.\d+$/.test(lock.version)||!lock.integrity.startsWith('sha512-'))throw Error('Invalid pinned Playwright package');

@@ -55,7 +55,7 @@
     "check:motion:p3-page-curl": "node scripts/test-motion-page-curl.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test motion_contract",
     "prepare:publishing-runtime": "node scripts/prepare-publishing-runtime.mjs",
     "prepare:wechat-runtime": "node scripts/prepare-wechat-runtime.mjs",
-    "check:wechat": "node scripts/test-wechat-delivery.mjs && node scripts/test-wechat-browser-session.mjs && node scripts/test-wechat-formatting-export.mjs",
+    "check:wechat": "node scripts/test-wechat-delivery.mjs && node scripts/test-wechat-retry.mjs && node scripts/test-wechat-save-recovery.mjs && node scripts/test-wechat-browser-session.mjs && node scripts/test-wechat-formatting-export.mjs",
     "check:x": "node scripts/test-x-delivery.mjs",
     "check:x-session": "node scripts/test-x-browser-session.mjs",
     "check:weibo": "node scripts/test-weibo-delivery.mjs && node scripts/test-weibo-browser-contract.mjs",

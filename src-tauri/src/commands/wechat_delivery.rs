@@ -174,15 +174,8 @@ fn start(
                 return Err("DELIVERY_ALREADY_RUNNING".into());
             }
         }
-        if recreate
-            && !slot.as_ref().is_some_and(|task| {
-                task.status["jobId"] == id
-                    && task.status["error"] == "DRAFT_UNAVAILABLE"
-                    && task.status["running"] == false
-            })
-        {
-            return Err("RECREATE_NOT_ALLOWED".into());
-        }
+        // The worker validates the durable per-job status under its job lock.
+        // In-memory status is lost on restart and cannot be the recovery authority.
         if let Some(task) = slot.take() {
             drop(slot);
             stop_task(task);
@@ -269,6 +262,7 @@ fn start(
                         "failed"
                     });
                     task.status["error"] = message["message"].clone();
+                    task.status["canRecreate"] = message["canRecreate"].clone();
                 }
                 _ => {}
             }
