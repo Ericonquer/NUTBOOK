@@ -7,6 +7,11 @@ on:
         description: Existing, immutable version tag to build into a draft Release (for example v1.0.1)
         required: true
         type: string
+      reuse_run:
+        description: Failed build run for this exact commit; reuse its verified Windows and ARM packages and rebuild Intel only
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -28,6 +33,7 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       commit: ${{ steps.release.outputs.commit }}
+      matrix: ${{ steps.platforms.outputs.matrix }}
     permissions:
       contents: write
       actions: read
@@ -104,6 +110,33 @@ jobs:
           fi
           printf 'tag=%s\ncommit=%s\n' "$tag" "$COMMIT" >> "$GITHUB_OUTPUT"
 
+
+      - name: Select platforms and validate reusable packages
+        id: platforms
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_RUN: ${{ inputs.reuse_run }}
+          COMMIT: ${{ steps.gate.outputs.commit }}
+        run: |
+          set -euo pipefail
+          matrix='{"include":[{"label":"macOS Intel","artifact-name":"verified-macos-intel","asset-suffix":"_x64.dmg","source-glob":"src-tauri/target/release/bundle/dmg/*.dmg","expected-architecture":"x86_64","runner":"macos-15-intel","args":"--bundles app"},{"label":"macOS Apple Silicon","artifact-name":"verified-macos-arm","asset-suffix":"_aarch64.dmg","source-glob":"src-tauri/target/release/bundle/dmg/*.dmg","expected-architecture":"arm64","runner":"macos-14","args":"--bundles app"},{"label":"Windows","artifact-name":"verified-windows","asset-suffix":"_x64-setup.exe","source-glob":"src-tauri/target/release/bundle/nsis/*.exe","runner":"windows-latest","args":"--bundles nsis"}]}'
+          if [ -n "$REUSE_RUN" ]; then
+            grep -Eq '^[0-9]+$' <<<"$REUSE_RUN"
+            prior="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN")"
+            test "$(jq -r .head_sha <<<"$prior")" = "$COMMIT"
+            test "$(jq -r .path <<<"$prior")" = '.github/workflows/release-build.yml'
+            test "$(jq -r .status <<<"$prior")" = completed
+            test "$(jq -r .conclusion <<<"$prior")" = failure
+            test "$(jq -r .event <<<"$prior")" = workflow_dispatch
+            jobs="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN/jobs?per_page=100")"
+            for name in 'Verify immutable release candidate' 'Build Windows' 'Build macOS Apple Silicon'; do
+              jq -e --arg name "$name" '[.[].jobs[]? | select(.name == $name and .conclusion == "success")] | length == 1' <<<"$jobs" >/dev/null
+            done
+            matrix="$(jq -c '{include: [.include[] | select(.label == "macOS Intel")]}' <<<"$matrix")"
+          fi
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.label }}
     needs: prepare-release
@@ -113,27 +146,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: macOS Intel
-            artifact-name: verified-macos-intel
-            asset-suffix: _x64.dmg
-            source-glob: src-tauri/target/release/bundle/dmg/*.dmg
-            expected-architecture: x86_64
-            runner: macos-15-intel
-            args: --bundles app
-          - label: macOS Apple Silicon
-            artifact-name: verified-macos-arm
-            asset-suffix: _aarch64.dmg
-            source-glob: src-tauri/target/release/bundle/dmg/*.dmg
-            expected-architecture: arm64
-            runner: macos-14
-            args: --bundles app
-          - label: Windows
-            artifact-name: verified-windows
-            asset-suffix: _x64-setup.exe
-            source-glob: src-tauri/target/release/bundle/nsis/*.exe
-            runner: windows-latest
-            args: --bundles nsis
+        ${{ fromJSON(needs.prepare-release.outputs.matrix) }}
 
     steps:
       - name: Checkout immutable release tag
@@ -199,7 +212,23 @@ jobs:
           printf '%s/bin\n' "$TAURI_CLI_ROOT" >> "$GITHUB_PATH"
 
       - name: Build package without publishing it
-        run: cargo tauri build ${{ matrix.args }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = macOS ]; then
+            cat > "$RUNNER_TEMP/nutbook-sign-cli.sh" <<'SIGN_CLI'
+          set -euo pipefail
+          for binary in "$GITHUB_WORKSPACE/src-tauri/target/release/nutbook-cli-bin" "$GITHUB_WORKSPACE/src-tauri/generated-resources/nutbook-cli/nutbook"; do
+            test -x "$binary"
+            codesign --force --sign - "$binary"
+            codesign --verify --strict "$binary"
+          done
+          SIGN_CLI
+            config="$(jq -cn --arg script 'bash "$RUNNER_TEMP/nutbook-sign-cli.sh"' '{build:{beforeBundleCommand:$script}}')"
+            cargo tauri build ${{ matrix.args }} --config "$config"
+          else
+            cargo tauri build ${{ matrix.args }}
+          fi
 
       - name: Build macOS DMG with deterministic large-icon layout
         if: runner.os == 'macOS'
@@ -298,12 +327,31 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Download all verified packages
         uses: actions/download-artifact@v7
         with:
           pattern: verified-*
           merge-multiple: true
+          path: release
+
+      - name: Reuse verified Windows package from the exact release commit
+        if: inputs.reuse_run != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: verified-windows
+          run-id: ${{ inputs.reuse_run }}
+          github-token: ${{ github.token }}
+          path: release
+
+      - name: Reuse verified ARM package from the exact release commit
+        if: inputs.reuse_run != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: verified-macos-arm
+          run-id: ${{ inputs.reuse_run }}
+          github-token: ${{ github.token }}
           path: release
 
       - name: Verify exact package bytes and upload once

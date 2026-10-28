@@ -86,7 +86,13 @@ assert.doesNotMatch(releaseWorkflow, /^ {4}env:\n {6}TAURI_CLI_ROOT: \$\{\{ runn
 assert.match(releaseWorkflow, /Restore pinned Tauri CLI cache[\s\S]*path: \$\{\{ runner\.temp \}\}\/nutbook-tauri-cli/, "the Tauri CLI cache path must use runner context at step scope");
 assert.match(releaseWorkflow, /Install exact Tauri CLI when absent\n\s+shell: bash\n\s+env:\n\s+TAURI_CLI_ROOT: \$\{\{ runner\.temp \}\}\/nutbook-tauri-cli/, "the Tauri CLI installer must receive its runner path at step scope");
 assert.match(releaseWorkflow, /Remove cached release outputs before packaging/, "release must remove stale cached installers before build");
-assert.match(releaseWorkflow, /args: --bundles app/, "macOS builders must produce the app before creating the deterministic DMG layout");
+const releaseMatrix = JSON.parse(releaseWorkflow.match(/^          matrix='(.+)'$/m)[1]);
+assert.deepEqual(releaseMatrix.include.map(platform => [platform.label, platform.args]), [["macOS Intel", "--bundles app"], ["macOS Apple Silicon", "--bundles app"], ["Windows", "--bundles nsis"]], "normal releases must retain all three package targets");
+assert.match(releaseWorkflow, /beforeBundleCommand/, "macOS nested CLI signing must run after compilation and before app signing");
+assert.doesNotMatch(releaseWorkflow, /--no-sign/, "recovery must not disable Tauri app signing");
+assert.match(releaseWorkflow, /test "\$\(jq -r \.head_sha <<<"\$prior"\)" = "\$COMMIT"/, "reused packages must belong to the exact immutable release commit");
+assert.match(releaseWorkflow, /name: verified-windows[\s\S]*?run-id: \$\{\{ inputs\.reuse_run \}\}/);
+assert.match(releaseWorkflow, /name: verified-macos-arm[\s\S]*?run-id: \$\{\{ inputs\.reuse_run \}\}/);
 assert.match(releaseWorkflow, /Build macOS DMG with deterministic large-icon layout/, "macOS builders must have a headless DMG-layout step");
 assert.match(releaseWorkflow, /dmgbuild==1\.6\.5/, "the headless DMG builder must be version-pinned");
 assert.match(releaseWorkflow, /dmgbuild -s scripts\/dmgbuild-settings\.py/, "the release workflow must use the committed large-icon layout settings");
@@ -115,3 +121,50 @@ assert.match(prePushHook, /git diff --quiet/, "pre-push must reject a dirty work
 assert.match(prePushHook, /npm run check:push/, "pre-push must run the complete local quality gate");
 
 console.log("CI, release, and local pre-push contracts passed.");
+
+// Run the exact beforeBundle hook against unsigned Intel Mach-O binaries.
+if (process.platform === "darwin") {
+  const fs = await import("node:fs");
+  const { execFileSync, spawnSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const folder = fs.mkdtempSync(join(tmpdir(), "nutbook-sign-cli-"));
+  try {
+    const binaries = ["src-tauri/target/release/nutbook-cli-bin", "src-tauri/generated-resources/nutbook-cli/nutbook"].map(path => join(folder, path));
+    for (const binary of binaries) {
+      fs.mkdirSync(join(binary, ".."), { recursive: true });
+      execFileSync("clang", ["-arch", "x86_64", "-x", "c", "-", "-o", binary], { input: "int main(void) { return 0; }\n", stdio: ["pipe", "pipe", "pipe"] });
+      spawnSync("codesign", ["--remove-signature", binary]);
+      assert.notEqual(spawnSync("codesign", ["--verify", "--strict", binary]).status, 0);
+    }
+    const hook = releaseWorkflow.match(/<<'SIGN_CLI'\n([\s\S]*?)^          SIGN_CLI$/m)[1].replace(/^ {10}/gm, "");
+    const script = join(folder, "sign-cli.sh"); fs.writeFileSync(script, hook);
+    execFileSync("bash", [script], { env: { ...process.env, GITHUB_WORKSPACE: folder }, stdio: "pipe" });
+    for (const binary of binaries) {
+      execFileSync("codesign", ["--verify", "--strict", binary], { stdio: "pipe" });
+      assert.match(execFileSync("file", [binary], { encoding: "utf8" }), /x86_64/);
+    }
+    console.log("Unsigned Intel CLI signing passed with the actual beforeBundle hook.");
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+}
+
+if (process.platform !== "win32") {
+  const fs = await import("node:fs");
+  const { spawnSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const folder = fs.mkdtempSync(join(tmpdir(), "nutbook-release-reuse-"));
+  try {
+    const bin = join(folder, "bin"); fs.mkdirSync(bin);
+    const gh = join(bin, "gh");
+    fs.writeFileSync(gh, `#!${process.execPath}\nconst f=JSON.parse(process.env.RECOVERY_FIXTURE);process.stdout.write(JSON.stringify(process.argv.some(x=>x.includes('/jobs?'))?f.jobs:f.run));\n`);fs.chmodSync(gh,0o755);
+    const block = releaseWorkflow.slice(releaseWorkflow.indexOf("      - name: Select platforms and validate reusable packages"), releaseWorkflow.indexOf("\n  build:"));
+    const script = join(folder, "select.sh");fs.writeFileSync(script,block.slice(block.indexOf("        run: |\n")+"        run: |\n".length).replace(/^ {10}/gm,""));
+    const fixture={run:{head_sha:"expected",path:".github/workflows/release-build.yml",status:"completed",conclusion:"failure",event:"workflow_dispatch"},jobs:[{jobs:["Verify immutable release candidate","Build Windows","Build macOS Apple Silicon"].map(name=>({name,conclusion:"success"}))}]};
+    const run=(reuse,data=fixture)=>{const output=join(folder,"output");fs.rmSync(output,{force:true});const result=spawnSync("bash",[script],{env:{...process.env,PATH:bin+":"+process.env.PATH,GITHUB_OUTPUT:output,GITHUB_REPOSITORY:"owner/repo",COMMIT:"expected",REUSE_RUN:reuse,RECOVERY_FIXTURE:JSON.stringify(data)},encoding:"utf8"});return {status:result.status,matrix:result.status===0?JSON.parse(fs.readFileSync(output,"utf8").trim().slice("matrix=".length)):null};};
+    assert.equal(run("").matrix.include.length,3);
+    assert.deepEqual(run("123").matrix.include.map(x=>x.label),["macOS Intel"]);
+    assert.notEqual(run("123",{...fixture,run:{...fixture.run,head_sha:"foreign"}}).status,0);
+    assert.notEqual(run("123",{...fixture,jobs:[{jobs:fixture.jobs[0].jobs.filter(x=>x.name!=="Build Windows")}]}).status,0);
+    assert.notEqual(run("123",{...fixture,run:{...fixture.run,status:"in_progress"}}).status,0);
+    console.log("Recovery rebuilds Intel only and rejects foreign, incomplete or unverified source runs.");
+  } finally {fs.rmSync(folder,{recursive:true,force:true});}
+}
