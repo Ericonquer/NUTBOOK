@@ -1,4 +1,4 @@
-use std::{env, fs, path::{Path, PathBuf}, time::SystemTime};
+use std::{fs, path::{Path, PathBuf}, time::SystemTime};
 
 use crate::{
     core::agent_adapters::{cwd_scopes::{first_json_cwd, is_openclaw_system_workspace_under, scopes_from_cwds}, AgentWorkspaceAdapter},
@@ -17,7 +17,7 @@ pub struct OpenClawAdapter {
 
 impl OpenClawAdapter {
     pub fn from_environment() -> Self {
-        let state_root = env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join(".openclaw");
+        let state_root = crate::core::platform::home_dir().unwrap_or_default().join(".openclaw");
         Self { agents_root: state_root.join("agents"), state_root }
     }
     #[cfg(test)]

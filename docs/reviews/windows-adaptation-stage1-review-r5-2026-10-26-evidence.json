@@ -1,0 +1,33 @@
+{
+  "defaultWindowsAlias": "",
+  "canonicalRelative": "http://127.0.0.1:4000/assets/normal.png",
+  "rootJoin": "/assets/x.png",
+  "encodedNames": [
+    {
+      "ref": "report%231.png",
+      "url": "http://127.0.0.1:4000/assets/report%231.png",
+      "history": "C:\\Users\\Demo\\Docs\\assets\\report#1.png"
+    },
+    {
+      "ref": "report%2523.png",
+      "url": "http://127.0.0.1:4000/assets/report%2523.png",
+      "history": "C:\\Users\\Demo\\Docs\\assets\\report%23.png"
+    },
+    {
+      "ref": "report%20one.png",
+      "url": "http://127.0.0.1:4000/assets/report%20one.png",
+      "history": "C:\\Users\\Demo\\Docs\\assets\\report one.png"
+    }
+  ],
+  "legacyDiskProbe": {
+    "source": "production function extracted from HEAD versus working tree; same real disk files",
+    "reference": "assets/report%23.png",
+    "literalFile": "report%23.png",
+    "literalBytes": "ORIGINAL",
+    "decodedFile": "report#.png",
+    "decodedBytes": "DIFFERENT",
+    "beforeRead": "ORIGINAL",
+    "afterRead": "DIFFERENT",
+    "platform": "macOS standard-library Rust probe; not Windows GUI"
+  }
+}

@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::scoped_content_server::ScopedContentServer;
+use crate::core::content_resource::ContentResource;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct PreviewRecord {
@@ -15,8 +15,10 @@ pub(super) struct PreviewRecord {
 #[derive(Debug)]
 pub(super) struct VersionPreviewSession {
     record: PreviewRecord,
-    server: ScopedContentServer,
+    server: ContentResource,
     projection: PathBuf,
+    #[cfg(windows)]
+    windows_mapping: Option<WindowsPreviewMapping>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +29,85 @@ pub struct PreviewInfo {
     pub source: String,
     pub html: String,
     pub incomplete: bool,
+}
+
+// Keep native folder mappings outside Wry's synthetic protocol namespace.
+// Windows native CI verifies this independent reserved host in opaque frames.
+fn preview_browser_origin(resource: &ContentResource) -> String {
+    #[cfg(windows)]
+    {
+        let url = url::Url::parse(resource.origin()).expect("generated content origin");
+        let id = url.host_str().expect("content host").strip_prefix("nutbook-content.")
+            .and_then(|host| host.strip_suffix(".localhost")).expect("generated content authority");
+        format!("http://nb-history-{id}.invalid")
+    }
+    #[cfg(not(windows))]
+    { resource.origin().to_owned() }
+}
+
+// WebView2 can bypass WebResourceRequested for opaque srcdoc subresources
+// (native CI observed requests reaching IIS). Map only this immutable projection
+// in its trusted host WebView. No sockets, user-directory mapping, or sandbox change.
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsPreviewMapping {
+    webview: tauri::Webview,
+    host: String,
+}
+#[cfg(windows)]
+impl WindowsPreviewMapping {
+    async fn install(webview: tauri::Webview, host: String, root: PathBuf) -> Result<Self> {
+        use windows_core::{HSTRING, Interface};
+        use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
+        let mapping = Self { webview: webview.clone(), host: host.clone() };
+        // The native API accepts conventional Windows paths up to MAX_PATH.
+        let folder_path = url::Url::from_directory_path(&root).map_err(|_| invalid("preview directory URL"))?
+            .to_file_path().map_err(|_| invalid("preview directory path"))?;
+        let folder = folder_path.to_str().ok_or_else(|| invalid("preview directory encoding"))?.to_owned();
+        if folder.encode_utf16().count() >= 260 {
+            return Err(invalid("Windows history preview directory exceeds WebView2 MAX_PATH limit"));
+        }
+        for entry in fs::read_dir(&root)? {
+            let entry = entry?;
+            let length = folder.encode_utf16().count() + 1 + entry.file_name().to_string_lossy().encode_utf16().count();
+            if length >= 260 { return Err(invalid("Windows history preview file exceeds WebView2 MAX_PATH limit")); }
+        }
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        webview.with_webview(move |platform| {
+            let result = (|| unsafe {
+                let view = platform.controller().CoreWebView2()?.cast::<ICoreWebView2_3>()?;
+                view.SetVirtualHostNameToFolderMapping(&HSTRING::from(host), &HSTRING::from(folder), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS)
+            })().map_err(|error: windows_core::Error| error.to_string());
+            let _ = send.send(result);
+        }).map_err(|error| invalid(format!("preview mapping dispatch: {error}")))?;
+        // Await outside the UI thread. The guard also clears a late install on
+        // timeout/error: both callbacks are queued to the same native surface.
+        tauri::async_runtime::spawn_blocking(move || receive.recv_timeout(std::time::Duration::from_secs(5)))
+            .await.map_err(|error| invalid(format!("preview mapping task: {error}")))?
+            .map_err(|error| invalid(format!("preview mapping timeout: {error}")))?
+            .map_err(|error| invalid(format!("preview mapping: {error}")))?;
+        Ok(mapping)
+    }
+}
+#[cfg(windows)]
+impl Drop for WindowsPreviewMapping {
+    fn drop(&mut self) {
+        use windows_core::{HSTRING, Interface};
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_3;
+        let host = self.host.clone();
+        let webview = self.webview.clone();
+        // Sync IPC cleanup may run inside a native UI callback. Always enqueue
+        // from the async executor; Tauri would otherwise dispatch inline and
+        // re-enter its locked WebView state. Projection files are removed by
+        // close_preview immediately, so a queued clear cannot expose live data.
+        tauri::async_runtime::spawn(async move {
+            let _ = webview.with_webview(move |platform| unsafe {
+                if let Ok(view) = platform.controller().CoreWebView2().and_then(|view| view.cast::<ICoreWebView2_3>()) {
+                    let _ = view.ClearVirtualHostNameToFolderMapping(&HSTRING::from(host));
+                }
+            });
+        });
+    }
 }
 
 // Hide metadata only in the visual projection. Parser spans keep code examples
@@ -132,23 +213,24 @@ impl HistoryStore {
         let served = projection.join("content");
         fs::create_dir(&served)?;
         if version.snapshot.html.is_some() {
-            let server = ScopedContentServer::start(&served)
+            let server = ContentResource::start(&served)
                 .map_err(|e| invalid(format!("preview server: {e}")))?;
             let objects = version.snapshot.hashes().map(|hash| Ok((hash.to_owned(), self.object(hash)?)))
                 .collect::<Result<BTreeMap<_, _>>>()?;
-            let projection_html = super::super::html_projection::project(&version.snapshot, &objects, &server.origin())?;
+            let projection_html = super::super::html_projection::project(&version.snapshot, &objects, &preview_browser_origin(&server))?;
             for (name, bytes) in &projection_html.files {
                 atomic_bytes(&served.join(name), bytes, false)?;
             }
-            let filename = format!("{session}-preview.html");
+            let filename = "preview.html".to_owned();
             atomic_bytes(&served.join(&filename), projection_html.page.as_bytes(), false)?;
             let url = server.relative_url(Path::new(&filename)).ok_or_else(|| invalid("preview URL"))?;
             let incomplete = projection_html.incomplete;
-            self.previews.lock().map_err(|_| invalid("preview lock"))?.insert(session.clone(), VersionPreviewSession { record, server, projection });
+            self.previews.lock().map_err(|_| invalid("preview lock"))?.insert(session.clone(), VersionPreviewSession { record, server, projection, #[cfg(windows)] windows_mapping: None });
             cleanup.committed = true;
             return Ok(PreviewInfo { session_id: session, generation, url, source: projection_html.source, html: projection_html.page, incomplete });
         }
         let mut replacements = BTreeMap::new();
+        let mut object_names: BTreeMap<String, String> = BTreeMap::new();
         let mut incomplete = version
             .snapshot
             .dependencies
@@ -158,6 +240,10 @@ impl HistoryStore {
             let Dependency::Captured { object, .. } = dep else {
                 continue;
             };
+            if let Some(name) = object_names.get(object) {
+                replacements.insert(reference.clone(), name.clone());
+                continue;
+            }
             let bytes = self.object(object)?;
             let suffix = match image::guess_format(&bytes) {
                 Ok(image::ImageFormat::Png) => "png",
@@ -177,7 +263,10 @@ impl HistoryStore {
                     continue;
                 }
             };
-            let name = format!("{session}-{object}.{suffix}");
+            // Session identity already belongs to the directory and grant.
+            // Compact local names avoid MAX_PATH in WebView2's file loader.
+            let name = format!("r{}.{suffix}", object_names.len());
+            object_names.insert(object.clone(), name.clone());
             atomic_bytes(&served.join(&name), &bytes, false)?;
             replacements.insert(reference.clone(), name.clone());
         }
@@ -203,18 +292,18 @@ impl HistoryStore {
             })
             .clean(&rendered)
             .to_string();
-        let filename = format!("{session}-preview.html");
+        let filename = "preview.html".to_owned();
         let page=format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; connect-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'\"><style>body{{font:16px/1.7 system-ui;margin:24px;overflow-wrap:anywhere}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap}}table{{border-collapse:collapse}}td,th{{border:1px solid #bbb;padding:6px}}</style></head><body>{html}</body></html>");
         atomic_bytes(&served.join(&filename), page.as_bytes(), false)?;
-        let server = ScopedContentServer::start(&served)
+        let server = ContentResource::start(&served)
             .map_err(|e| invalid(format!("preview server: {e}")))?;
         let url = server
             .relative_url(Path::new(&filename))
             .ok_or_else(|| invalid("preview URL"))?;
         // Inline projection avoids a second frame navigation from the custom
         // application origin. Only this session's immutable image origin is allowed.
-        let inline_page=page.replace("img-src 'self'", &format!("img-src {}",server.origin()))
-            .replace("<img src=\"", &format!("<img src=\"{}/",server.origin()));
+        let inline_page=page.replace("img-src 'self'", &format!("img-src {}",preview_browser_origin(&server)))
+            .replace("<img src=\"", &format!("<img src=\"{}/",preview_browser_origin(&server)));
         self.previews
             .lock()
             .map_err(|_| invalid("preview lock"))?
@@ -224,6 +313,8 @@ impl HistoryStore {
                     record,
                     server,
                     projection,
+                    #[cfg(windows)]
+                    windows_mapping: None,
                 },
             );
         cleanup.committed = true;
@@ -236,6 +327,32 @@ impl HistoryStore {
             incomplete,
         })
     }
+    pub fn bind_preview_surface(&self, session: &str, label: &str) -> Result<()> {
+        if !matches!(label, "main" | "settings-overlay") { return Err(invalid("untrusted preview surface")); }
+        let previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
+        let preview = previews.get(session).ok_or_else(|| invalid("expired preview"))?;
+        preview.server.allow_surface(label);
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub async fn bind_windows_preview(&self, session: &str, webview: tauri::Webview) -> Result<()> {
+        if !matches!(webview.label(), "main" | "settings-overlay") { return Err(invalid("untrusted preview surface")); }
+        let (root, host) = {
+            let previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
+            let preview = previews.get(session).ok_or_else(|| invalid("expired preview"))?;
+            if preview.windows_mapping.is_some() { return Ok(()); }
+            let host = url::Url::parse(&preview_browser_origin(&preview.server)).map_err(|_| invalid("preview origin"))?
+                .host_str().ok_or_else(|| invalid("preview host"))?.to_owned();
+            (preview.server.canonical_root().to_path_buf(), host)
+        };
+        let mapping = WindowsPreviewMapping::install(webview, host, root).await?;
+        let mut previews = self.previews.lock().map_err(|_| invalid("preview lock"))?;
+        let preview = previews.get_mut(session).ok_or_else(|| invalid("expired preview"))?;
+        preview.windows_mapping = Some(mapping);
+        Ok(())
+    }
+
     pub fn close_preview(&self, session: &str) -> Result<()> {
         check_id(session)?;
         let value = self
@@ -248,7 +365,11 @@ impl HistoryStore {
                 record,
                 server,
                 projection,
+                #[cfg(windows)]
+                windows_mapping,
             } = value;
+            #[cfg(windows)]
+            drop(windows_mapping);
             drop(server); // closes origin and waits for worker shutdown first
             remove_owned_projection(&projection)?;
             let _quota = self.quota_lock()?;
@@ -434,6 +555,14 @@ fn remove_validated_projection(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn native_preview_response(url: &str) -> tauri::http::Response<Vec<u8>> {
+        crate::core::content_resource::serve("main", tauri::http::Request::builder().uri(url).body(vec![]).unwrap())
+    }
+    fn native_preview_body(url: &str) -> String {
+        let response = native_preview_response(url);
+        assert_eq!(response.status(), 200);
+        String::from_utf8(response.into_body()).unwrap()
+    }
     #[test]
     fn unpublished_preview_journal_does_not_block_recovery_or_gc() {
         let dir = tempfile::tempdir().unwrap();
@@ -453,7 +582,7 @@ mod tests {
     #[test]
     fn projection_cleanup_rejects_symlink_before_removing_any_material() {
         let dir = tempfile::tempdir().unwrap();
-        let projection = dir.path().join("projection");
+        let projection = dir.path().canonicalize().unwrap().join("projection");
         fs::create_dir(&projection).unwrap();
         fs::write(projection.join("owner.json"), b"ownership marker").unwrap();
         fs::create_dir(projection.join("content")).unwrap();
@@ -505,30 +634,48 @@ mod tests {
         fs::write(dir.path().join("image.svg"), b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>").unwrap();
         let store = HistoryStore::open(&dir.path().join("app")).unwrap();
         let saved = store.save_html(&path, dir.path(), &digest(body), b"<h1>B</h1>", None).unwrap();
-        let registry = std::env::temp_dir().join(format!("nutbook-html-history-preview-{}", Uuid::new_v4()));
-        fs::create_dir(&registry).unwrap();
-        crate::core::scoped_content_server::init_used_port_registry(registry.join("ports.json")).unwrap();
         let head = store.document(&saved.document_id).unwrap();
         fs::write(dir.path().join("style.css"), b"LIVE_CANARY").unwrap();
         fs::remove_file(dir.path().join("symbols.ttf")).unwrap();
         let preview = store.begin_markdown_preview(&head.id, &head.versions[0].id, 1).unwrap();
-        let page = ureq::get(&preview.url).call().unwrap().into_string().unwrap();
+        let page = native_preview_body(&preview.url);
         assert!(page.contains("<h1>A</h1>"));
         assert!(page.contains("color:blue"));
         assert!(!page.contains("LIVE_CANARY"));
         assert!(!page.contains("window.BAD"));
         assert!(preview.source.contains("window.BAD"));
-        if let Ok(script) = std::env::var("NUTBOOK_HTML_HISTORY_BROWSER_SCRIPT") {
-            let inline_path = std::env::temp_dir().join(format!("nutbook-html-inline-{}.html", Uuid::new_v4()));
-            fs::write(&inline_path, &preview.html).unwrap();
-            let status = std::process::Command::new("node").arg(script).arg(&preview.url).arg(&inline_path).status().unwrap();
-            let _ = fs::remove_file(inline_path);
-            assert!(status.success());
-        }
 
         store.close_preview(&preview.session_id).unwrap();
-        assert!(ureq::get(&preview.url).call().is_err());
+        assert_eq!(native_preview_response(&preview.url).status(), 403);
     }
+    #[test]
+    fn compact_preview_resources_fit_windows_path_budget_and_deduplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        let source = b"# A\n\n![one](image.svg)\n\n![alias](./image.svg)\n";
+        fs::write(&path, source).unwrap();
+        fs::write(dir.path().join("image.svg"), b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>").unwrap();
+        let template = dir.path().canonicalize().unwrap().join("x").join("document-versions").join("preview-projections").join("a".repeat(36)).join("b".repeat(36)).join("content");
+        let padding = 220usize.saturating_sub(template.to_string_lossy().encode_utf16().count()) + 1;
+        let app = dir.path().join("a".repeat(padding));
+        let store = HistoryStore::open(&app).unwrap();
+        let saved = store.save_markdown(&path, dir.path(), &digest(source), b"# B", None).unwrap();
+        let head = store.document(&saved.document_id).unwrap();
+        let preview = store.begin_markdown_preview(&head.id, &head.versions[0].id, 1).unwrap();
+        let root = store.previews.lock().unwrap().get(&preview.session_id).unwrap().server.canonical_root().to_path_buf();
+        let files = fs::read_dir(&root).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
+        assert_eq!(files.len(), 2, "one private page and one shared image object");
+        for file in files {
+            assert!(file.to_string_lossy().encode_utf16().count() < 260, "{}", file.display());
+            assert!(file.file_name().unwrap().len() < 20);
+        }
+        let body = native_preview_body(&preview.url);
+        assert_eq!(body.matches("src=\"r0.svg\"").count(), 2);
+        assert_eq!(preview.source, std::str::from_utf8(source).unwrap());
+        store.close_preview(&preview.session_id).unwrap();
+        assert_eq!(native_preview_response(&preview.url).status(), 403);
+    }
+
     #[test]
     fn static_preview_is_scoped_inert_and_revoked_before_history_gc() {
         let dir = tempfile::tempdir().unwrap();
@@ -540,78 +687,56 @@ mod tests {
         let saved = store
             .save_markdown(&path, dir.path(), &digest(a), b"# B", None)
             .unwrap();
-        // A persistent test-only registry directory avoids affecting user data
-        // or deleting registry state while parallel tests still use a server.
-        let registry =
-            std::env::temp_dir().join(format!("nutbook-history-preview-{}", Uuid::new_v4()));
-        fs::create_dir(&registry).unwrap();
-        crate::core::scoped_content_server::init_used_port_registry(registry.join("ports.json"))
-            .unwrap();
         let head = store.document(&saved.document_id).unwrap();
         let version = &head.versions[0];
         let preview = store
             .begin_markdown_preview(&head.id, &version.id, 7)
             .unwrap();
         assert_eq!(preview.generation, 7);
+        assert!(store.bind_preview_surface(&preview.session_id, "html-host-9").is_err());
+        let request = || tauri::http::Request::builder().uri(&preview.url).body(Vec::new()).unwrap();
+        assert_eq!(crate::core::content_resource::serve("settings-overlay", request()).status(), 403);
+        store.bind_preview_surface(&preview.session_id, "settings-overlay").unwrap();
+        assert_eq!(crate::core::content_resource::serve("settings-overlay", request()).status(), 200);
+        assert_eq!(crate::core::content_resource::serve("html-host-9", request()).status(), 403);
         assert!(preview.incomplete);
         assert!(preview.source.contains("<!-- nutbook-cover -->"));
         assert!(!preview.html.contains("nutbook-cover"));
-        let body = ureq::get(&preview.url)
-            .call()
-            .unwrap()
-            .into_string()
-            .unwrap();
+        let body = native_preview_body(&preview.url);
         assert!(body.contains("script-src 'none'"));
         use html5ever::tendril::TendrilSink;
         let dom =
             html5ever::parse_document(markup5ever_rcdom::RcDom::default(), Default::default())
                 .one(body.clone());
-        fn check(node: &markup5ever_rcdom::Handle, session: &str) {
+        fn check(node: &markup5ever_rcdom::Handle) {
             if let markup5ever_rcdom::NodeData::Element { name, attrs, .. } = &node.data {
                 assert_ne!(name.local.as_ref(), "script");
                 for attr in attrs.borrow().iter() {
                     assert!(!attr.name.local.as_ref().starts_with("on"));
                     assert_ne!(attr.name.local.as_ref(), "href");
                     if attr.name.local.as_ref() == "src" {
-                        assert!(attr.value.starts_with(session));
+                        assert!(attr.value.starts_with("r") && !attr.value.contains(['/', '\\']));
                     }
                 }
             }
             for child in node.children.borrow().iter() {
-                check(child, session);
+                check(child);
             }
         }
-        check(&dom.document, &preview.session_id);
-        assert!(body.contains(&format!("src=\"{}-", preview.session_id)));
-        if std::env::var_os("NUTBOOK_HISTORY_BROWSER_CHECK").is_some() {
-            let script = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .join("scripts/test-document-versions-preview-browser.mjs");
-            let inline_path=std::env::temp_dir().join(format!("nutbook-inline-{}.html",Uuid::new_v4()));
-            fs::write(&inline_path,&preview.html).unwrap();
-            let status = std::process::Command::new("node")
-                .arg(script)
-                .arg(&preview.url)
-                .arg(&inline_path)
-                .status()
-                .unwrap();
-            let _=fs::remove_file(inline_path);
-            assert!(status.success());
-        }
-        let origin = url::Url::parse(&preview.url)
-            .unwrap()
-            .origin()
-            .ascii_serialization();
+        check(&dom.document);
+        assert!(body.contains("src=\"r0.svg\""));
+
+        let origin = crate::core::content_session::origin_of_url(&preview.url).unwrap();
         for path in [
             "/owner.json",
             "/../../settings.json",
             "/00000000-other-version.svg",
         ] {
-            assert!(ureq::get(&format!("{origin}{path}")).call().is_err());
+            assert_ne!(native_preview_response(&format!("{origin}{path}")).status(), 200);
         }
         store.delete_versions(&head.id, None).unwrap();
-        assert!(ureq::get(&preview.url).call().is_err());
+        assert_eq!(native_preview_response(&preview.url).status(), 403);
+        assert_eq!(crate::core::content_resource::serve("settings-overlay", request()).status(), 403);
         assert!(store.preview_records().unwrap().is_empty());
         store.collect_unreferenced_objects().unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"# B");

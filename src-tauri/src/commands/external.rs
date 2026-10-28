@@ -845,7 +845,7 @@ pub fn open_default_apps_panel(
             }
         };
         // 检查实际完成状态：open -R 失败（如 Finder 无法启动）必须报错。
-        let status = std::process::Command::new("open")
+        let status = crate::core::platform::command("open")
             .arg("-R")
             .arg(&target)
             .status()
@@ -860,7 +860,7 @@ pub fn open_default_apps_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = (app, path);
-        let status = std::process::Command::new("explorer.exe")
+        let status = crate::core::platform::command("explorer.exe")
             .arg("ms-settings:defaultapps")
             .status()
             .map_err(|_| AppError::IoError)?;

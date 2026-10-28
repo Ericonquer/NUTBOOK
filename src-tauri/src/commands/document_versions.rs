@@ -102,17 +102,27 @@ pub struct VersionSelection {
     pub generation: u64,
 }
 #[tauri::command]
-pub fn get_document_version_preview(
+pub async fn get_document_version_preview(
     webview: tauri::Webview,
     state: tauri::State<'_, AppState>,
     payload: VersionSelection,
 ) -> Result<PreviewInfo, AppError> {
     trusted(&webview)?;
-    let result=state.document_history()?.begin_markdown_preview(
+    let history = state.document_history()?;
+    let result=history.begin_markdown_preview(
         &payload.document_id,
         &payload.version_id,
         payload.generation,
     )?;
+    if let Err(error) = history.bind_preview_surface(&result.session_id, webview.label()) {
+        let _ = history.close_preview(&result.session_id);
+        return Err(error.into());
+    }
+    #[cfg(windows)]
+    if let Err(error) = history.bind_windows_preview(&result.session_id, webview).await {
+        let _ = history.close_preview(&result.session_id);
+        return Err(error.into());
+    }
     Ok(result)
 }
 #[tauri::command]
@@ -264,11 +274,11 @@ pub fn open_document_history_location(webview:tauri::Webview,state:tauri::State<
     trusted(&webview)?;
     let store=state.document_history()?;
     #[cfg(target_os="macos")]
-    let result=std::process::Command::new("open").arg(store.storage_path()).status();
+    let result=crate::core::platform::command("open").arg(store.storage_path()).status();
     #[cfg(target_os="windows")]
-    let result=std::process::Command::new("explorer.exe").arg(store.storage_path()).status();
+    let result=crate::core::platform::command("explorer.exe").arg(store.storage_path()).status();
     #[cfg(not(any(target_os="macos",target_os="windows")))]
-    let result=std::process::Command::new("xdg-open").arg(store.storage_path()).status();
+    let result=crate::core::platform::command("xdg-open").arg(store.storage_path()).status();
     if result.map_err(|_|AppError::IoError)?.success(){Ok(())}else{Err(AppError::IoError)}
 }
 

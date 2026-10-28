@@ -1,0 +1,396 @@
+{
+  "platform": "macOS",
+  "nativeWindows": "pending CI",
+  "regressions": [
+    {
+      "command": "node scripts/test-ci-preflight.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/0.log"
+    },
+    {
+      "command": "node integrations/nbskill/scripts/test.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/1.log"
+    },
+    {
+      "command": "node scripts/test-nbskill-motion.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/2.log"
+    },
+    {
+      "command": "node scripts/test-nbskill-presentation-default.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/3.log"
+    },
+    {
+      "command": "node scripts/test-motion-scaled-deck.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/4.log"
+    },
+    {
+      "command": "node scripts/test-html-find-across-pages.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/5.log"
+    },
+    {
+      "command": "node scripts/test-presentation-preview.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/6.log"
+    },
+    {
+      "command": "node scripts/test-publishing-runtime-setup.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/7.log"
+    },
+    {
+      "command": "node scripts/test-readme-rendering.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/8.log"
+    },
+    {
+      "command": "node scripts/test-static-cover-author-animations.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/9.log"
+    },
+    {
+      "command": "node scripts/test-thumbnail-library-rebuild.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/10.log"
+    },
+    {
+      "command": "node scripts/test-tauri-dev-config.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/11.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-image-acceptance-artifact.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/12.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-converter.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/13.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-free-image-runtime.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/14.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-i18n.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/15.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-presentation-runtime.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/16.log"
+    },
+    {
+      "command": "node scripts/test-native-presentation-dialog.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/17.log"
+    },
+    {
+      "command": "node scripts/test-native-presentation-shortcut.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/18.log"
+    },
+    {
+      "command": "node scripts/test-native-presenter-layout.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/19.log"
+    },
+    {
+      "command": "node scripts/test-native-presenter-notes.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/20.log"
+    },
+    {
+      "command": "node scripts/test-html-runtime-window-lifecycle.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/21.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-section-navigation-runtime.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/22.log"
+    },
+    {
+      "command": "node scripts/test-html-edit-inline-mark-blocks.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/23.log"
+    },
+    {
+      "command": "node scripts/test-markdown-portable-images.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/24.log"
+    },
+    {
+      "command": "node scripts/test-markdown-images-insert-layering.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/25.log"
+    },
+    {
+      "command": "node scripts/test-markdown-cover-metadata.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/26.log"
+    },
+    {
+      "command": "node scripts/test-markdown-cover-interactions.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/27.log"
+    },
+    {
+      "command": "node scripts/test-markdown-cover-card-rendering.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/28.log"
+    },
+    {
+      "command": "node scripts/test-markdown-cover-gui-issues.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/29.log"
+    },
+    {
+      "command": "node scripts/test-markdown-text-alignment.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/30.log"
+    },
+    {
+      "command": "node scripts/test-markdown-document-title.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/31.log"
+    },
+    {
+      "command": "node scripts/test-markdown-undo-redo-guard.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/32.log"
+    },
+    {
+      "command": "node scripts/test-markdown-heading-backspace.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/33.log"
+    },
+    {
+      "command": "node scripts/test-markdown-save-title-convergence.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/34.log"
+    },
+    {
+      "command": "node scripts/test-markdown-save-keeps-history.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/35.log"
+    },
+    {
+      "command": "node scripts/test-markdown-tab-session-history.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/36.log"
+    },
+    {
+      "command": "node scripts/test-markdown-title-autosize.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/37.log"
+    },
+    {
+      "command": "node scripts/test-markdown-exit-title-convergence.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/38.log"
+    },
+    {
+      "command": "node scripts/test-markdown-save-persist-state.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/39.log"
+    },
+    {
+      "command": "node scripts/test-markdown-skill-frontmatter.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/40.log"
+    },
+    {
+      "command": "node scripts/test-markdown-close-confirmation.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/41.log"
+    },
+    {
+      "command": "node scripts/test-markdown-formatting.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/42.log"
+    },
+    {
+      "command": "node scripts/test-wechat-formatting-export.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/43.log"
+    },
+    {
+      "command": "node scripts/test-markdown-image-paste.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/44.log"
+    },
+    {
+      "command": "node scripts/test-toolbar-menu-actions.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/45.log"
+    },
+    {
+      "command": "node scripts/test-custom-tags.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/46.log"
+    },
+    {
+      "command": "node scripts/test-tag-discovery.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/47.log"
+    },
+    {
+      "command": "node scripts/test-tag-management.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/48.log"
+    },
+    {
+      "command": "node scripts/test-pinnable-document-toolbar.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/49.log"
+    },
+    {
+      "command": "node scripts/test-inspector-view.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/50.log"
+    },
+    {
+      "command": "node scripts/test-release-auto-update.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/51.log"
+    },
+    {
+      "command": "node scripts/test-update-ui.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/52.log"
+    },
+    {
+      "command": "node scripts/test-regressions.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/53.log"
+    },
+    {
+      "command": "node scripts/test-external-open-entry-bridge.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/54.log"
+    },
+    {
+      "command": "node scripts/test-markdown-external-save-lock.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/55.log"
+    },
+    {
+      "command": "node scripts/test-external-open-tab-activation.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/56.log"
+    },
+    {
+      "command": "node scripts/test-disabled-primary-tooltip.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/57.log"
+    },
+    {
+      "command": "node scripts/test-promotion-behavior.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/58.log"
+    },
+    {
+      "command": "node scripts/test-document-versions-ui.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/59.log"
+    },
+    {
+      "command": "node scripts/test-settings-file-management-ui.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/60.log"
+    },
+    {
+      "command": "node scripts/test-markdown-save-as.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/61.log"
+    },
+    {
+      "command": "node scripts/test-document-versions-dependency-status.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/62.log"
+    },
+    {
+      "command": "node scripts/test-html-document-versions-entry.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/63.log"
+    },
+    {
+      "command": "node scripts/test-windows-path-contract.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/64.log"
+    },
+    {
+      "command": "node scripts/test-windows-history-resource-paths.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/65.log"
+    },
+    {
+      "command": "node scripts/test-windows-resource-identity.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/66.log"
+    },
+    {
+      "command": "node scripts/test-windows-webview-threading.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/67.log"
+    },
+    {
+      "command": "node scripts/test-windows-desktop-entry.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/68.log"
+    },
+    {
+      "command": "node scripts/test-windows-gate.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/69.log"
+    },
+    {
+      "command": "node scripts/test-windows-preview-adapter.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/70.log"
+    },
+    {
+      "command": "node scripts/test-content-resource-lifecycle.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/71.log"
+    },
+    {
+      "command": "node scripts/test-content-resource-fixture.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/72.log"
+    },
+    {
+      "command": "node scripts/test-library-load-failure.mjs",
+      "exit": 0,
+      "log": "/tmp/nutbook-combined-regressions/73.log"
+    }
+  ],
+  "prepush": "passed Node22 full check:push",
+  "rustLib": {
+    "passed": 758,
+    "ignored": 12,
+    "failed": 0
+  },
+  "htmlEdit": 67,
+  "nativeProtocol": {
+    "processes": 2,
+    "sessionsPerProcess": 10000,
+    "fdBefore": 4,
+    "fdAfter": 4,
+    "crypto": true,
+    "storage": true,
+    "secureContext": true,
+    "revoked": true,
+    "oldProcessDenied": true
+  },
+  "sourceBranch": "codex/bound-tombstone-sockets",
+  "sourceHead": "61861ba"
+}

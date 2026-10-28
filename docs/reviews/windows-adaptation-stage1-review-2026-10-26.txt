@@ -1,0 +1,48 @@
+Windows 阶段 1 主审结果（WorkBuddy revision 2）
+2026-10-26；基线 087d057d00469173668733e83e786e08419a60ab。
+受审业务 tracked diff SHA-256：37b8e25bb17eafffea73864824d4554b1fb41560b9cad17ab31d0defd9dfa2c2；四个新增脚本与交接指纹完全一致。业务代码未由主审修改。
+结论：NEEDS_REVISION。基础修复方向可继续，不满足阶段 1 收口；以下 W02/W04 用户路径缺口必须返修。W01 的 async 方向和 W11 主程序配置没有发现新的确定性阻断，但无 Windows 原生证据，不能标完成。
+
+W02-R1 [P1] 插图返回值与 URL 消费者的编码合同仍断裂
+位置：src-tauri/src/commands/preview.rs:2851；src/markdown-editor.js:2270；dist/index.html:10551、10583。
+触发：从真实 picker 选择 report#1.png 或 report%23.png。后端 markdown_relative_asset_path 原样返回 ./assets/<file_name>；编辑器直接把 relativePath 写进 image src；新 resolver 把 # 当 fragment 截断，把字面 %23 当 URL 编码解成 #。
+主审生产函数反例：report#1.png → http://127.0.0.1:41002/assets/report；report%23.png → .../report%23.png（服务器解码后请求 report#.png，磁盘实际是 report%23.png）。normal.png 对照正确。
+影响：声称覆盖 #/% 的新测试只输入预先编码的引用，未覆盖实际 copy command 返回值，普通合法图片仍破图。它是合同内尚未解决的入口问题，不冒称全部由此次 diff 新引入。
+返修边界：明确 OS 文件名与 Markdown URI 的单次编码合同，复制/粘贴/持久化/读取/历史资源一致；不得改用户原文件名或放开授权根。扩展后端等相邻路径只限实现本合同必需部分，记录改动。
+验收：真实图片文件 report#1.png、report%23.png、report one.png 经 copy/picker→编辑器→真实 scoped server→保存关闭重开成功；字面 %23 不得被当成 #；测试在修复前必须因资源不匹配而失败。
+
+W04-R1 [P1] 另存历史图片清单没有把 URI 引用解成磁盘路径
+位置：dist/index.html:28820-28824 pathOsJoin(sourceDir, ref)；src-tauri/src/core/external_open.rs:1512-1521 canonicalize(history_resource_paths)。
+触发：历史图片 ref=assets/report%20one.png（真实文件 report one.png），图片撤销后跨目录另存。主审函数输出 C:\docs\assets\report%20one.png，而不是 C:\docs\assets\report one.png。
+影响：后端按错误字符串 canonicalize，返回 InvalidParams，另存失败；若只测普通 x.png 会漏掉。前端 refs 与后端正文枚举 normalize_relative_ref 的编码语义须一并核对，不能只修 UI 显示。
+返修边界：资源清单使用统一的“引用→有权限的真实 OS path”合同，确保解码一次，拒绝解码后的越界/绝对路径/分隔符攻击；保留冲突/缺失硬失败与原会话。
+验收：含空格、#、字面 % 的图，插入→撤销→跨目录另存为→重做→保存关闭重开；目标 assets、正文与历史一致；越界 canary 仍拒绝。Windows runner 运行真实 I/O，不仅验证拼接字符串。
+
+W02-R2 [P2] 将所有 Windows 路径组件小写化比较违背真实卷身份
+位置：dist/index.html:10458-10463 pathIdentityKey；scripts/test-windows-path-contract.mjs 的“Windows is case insensitive”断言。
+触发：Windows 支持目录级大小写敏感；C:\docs\Allowed 与 C:\docs\allowed 可为不同目录。当前 root=...Allowed，target=...allowed\other.png 仍生成授权 origin /other.png。
+影响：原本不同的绝对资源路径被重定向到 root 内同名文件，可能显示错图。后端仍守住自己的 root，因此不是已经证实的越权读取，勿夸大成安全逃逸。
+依据：https://learn.microsoft.com/en-us/windows/wsl/case-sensitivity 。项目 PathIdentity 明确不把固定大小写折叠当所有卷语义。
+返修边界：身份裁决由真实后端 canonical 路径/卷行为承担，或提供明确安全且不误映射的合同；不能简单改成全部 case-sensitive 导致普通 Windows alias 失效。原生 runner 同时测默认与大小写敏感目录，后者若权限确实不可用必须明示覆盖缺口。
+
+W04-R2 [P2] 新 OS join helper 会把 POSIX 根目录 / 变为空串
+位置：dist/index.html:10363-10366 pathOsJoin。
+触发：pathOsParentDirectory('/note.md') 返回 '/'，pathOsJoin('/', 'assets/x.png') 却返回 ''。
+影响：新公共 helper 对合法根目录不闭合，根层外部文档的资源收集静默丢失；现有测试只覆盖 C:\ 根，漏了 POSIX 根。普通 macOS 用户通常不会在系统根目录编辑文件，但共享 helper 不应引入确定性退化。
+返修边界：保留根语义，兼顾盘符根、UNC share 根和 verbatim 根；拒绝无基底输入。
+验收：父目录→join 根路径矩阵行为测试，POSIX / 返回 /assets/x.png，其他原通过矩阵不退化。
+
+W12-C1 [必须补强的验证合同，不是本轮产品代码缺陷]
+四个新增脚本全通过，但 W02-R1/W04-R1 仍失败。修复前记录“marker 缺失”等，只证明源码结构不同，不证明真实 bug 的反例失败。保留静态 tripwire，但不要称它证明线程安全/运行能力。要求修复前、修复后的资源/I/O行为断言证据。
+用户已确认精简 runner：PR 单 Windows job 内快速原生测试+一次构建+短实际应用 smoke（不做 NSIS），与其他平台并行；发布使用本次 NSIS 安装后的同一应用做 smoke，不第二次构建；复用缓存，报告冷/热耗时；必要任务 skipped/缺证据不得假绿。测试工具仅 CI/dev，不进安装包。详细约束已补入正式计划。
+
+本轮主审实际执行：
+- Node v22.23.2 四个新增脚本：全通过。
+- test-external-open-entry-bridge.mjs：通过。
+- npm run check:frontend：通过。
+- test-markdown-image-paste.mjs：沙箱内 Chromium 在产品断言前因 MachPort Permission denied 启动失败；获准沙箱外重跑通过，覆盖真实 Milkdown caret/undo/redo/晚到输入/销毁取消/只读。
+- git diff --check：通过。
+- 新的五组反例直接提取当前生产函数执行，JSON 见相邻 evidence。
+- 未重复全量编译/全部测试：代码未由主审修改，已有针对性反例足以返修；未跑 Windows 原生测试、任何原生 GUI 或 NSIS。
+
+下一步：WorkBuddy 先修 W02-R1/W04-R1/W02-R2/W04-R2 并按稳定编号给证据；再继续阶段 2 与 W12 runner。缺本地 Windows 不阻止上述实现。远端执行仍需已有 Git 权限边界：无本轮 commit/push/PR/发布授权；先做好可审查脚本/工作流，不声称 Actions 已运行。用户/主审后续通知交接，无自动监控。

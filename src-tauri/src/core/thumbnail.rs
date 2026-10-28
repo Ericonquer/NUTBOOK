@@ -1,7 +1,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -321,16 +320,28 @@ pub fn markdown_cover_projection(raw: &str, file_path: &str) -> MarkdownCoverPro
 
 /// 解析本地封面资源路径（词法归一化 + 越界/符号链接检查，语义与
 /// `markdown_cover::local_resource_diagnostic` 一致；解析失败返回 None）。
+///
+/// W02-R1：引用是 URI reference，但历史文档里的 `assets/report%23.png` 指的是
+/// 磁盘上就叫 `report%23.png` 的文件。裁决交给 `resolve_ref_on_disk` 按磁盘事实
+/// 决定；字面与解码是两个内容不同的真实文件时返回 None（不出图），绝不猜一个。
 pub fn resolve_cover_asset_path(src: &str, base_dir: &Path) -> Option<std::path::PathBuf> {
     use std::path::{Component, PathBuf};
     if src.is_empty() {
         return None;
     }
-    let raw_path = Path::new(src);
-    let resolved = if raw_path.is_absolute() {
-        raw_path.to_path_buf()
+    let resolved = if Path::new(src).is_absolute() {
+        Path::new(src).to_path_buf()
     } else {
-        base_dir.join(raw_path)
+        match crate::core::markdown_ref::resolve_ref_on_disk(src, base_dir) {
+            crate::core::markdown_ref::RefResolution::Resolved { path, .. } => path,
+            // 既有语义：文件不存在时仍返回词法候选路径，存在性由调用方判断
+            // （degrade / 恢复封面依赖这一点）。
+            crate::core::markdown_ref::RefResolution::Missing => {
+                base_dir.join(crate::core::markdown_ref::decode_relative_ref(src)?)
+            }
+            // 两个内容不同的真实文件：无法在不误选的前提下裁决，不出图。
+            crate::core::markdown_ref::RefResolution::Ambiguous { .. } | crate::core::markdown_ref::RefResolution::Outside => return None,
+        }
     };
     let mut normalized = PathBuf::new();
     for component in resolved.components() {
@@ -532,7 +543,7 @@ pub fn find_local_chromium_executable() -> Option<PathBuf> {
         }
     }
 
-    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
+    let home = crate::core::platform::home_dir()?;
     if let Some(path) = playwright_chromium_executable_candidates(&home)
         .into_iter()
         .find(|path| path.is_file())
@@ -548,7 +559,10 @@ pub fn system_chrome_thumbnails_enabled() -> bool {
 }
 
 pub fn playwright_chromium_executable_candidates(home: &Path) -> Vec<PathBuf> {
-    let cache_root = home.join("Library/Caches/ms-playwright");
+    let cache_root = if cfg!(windows) {
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData/Local")).join("ms-playwright")
+    } else if cfg!(target_os = "macos") { home.join("Library/Caches/ms-playwright") }
+    else { home.join(".cache/ms-playwright") };
     playwright_chromium_executable_candidates_in(&cache_root)
 }
 
@@ -574,6 +588,11 @@ fn playwright_chromium_executable_candidates_in(cache_root: &Path) -> Vec<PathBu
     versions.sort();
     versions.reverse();
     for version in versions {
+        #[cfg(windows)]
+        candidates.extend([
+            version.join("chrome-headless-shell-win64/chrome-headless-shell.exe"),
+            version.join("chrome-win64/chrome.exe"), version.join("chrome-win/chrome.exe"),
+        ]);
         candidates.extend([
             version.join("chrome-headless-shell-mac-arm64/chrome-headless-shell"),
             version.join("chrome-headless-shell-mac-x64/chrome-headless-shell"),
@@ -585,11 +604,30 @@ fn playwright_chromium_executable_candidates_in(cache_root: &Path) -> Vec<PathBu
 }
 
 fn system_chromium_executable_candidates() -> Vec<PathBuf> {
-    vec![
+    #[cfg(windows)]
+    {
+        let mut candidates = Vec::new();
+        for key in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+            if let Some(root) = std::env::var_os(key) {
+                for suffix in ["Microsoft/Edge/Application/msedge.exe", "Google/Chrome/Application/chrome.exe", "Chromium/Application/chrome.exe"] {
+                    candidates.push(PathBuf::from(&root).join(suffix));
+                }
+            }
+        }
+        candidates
+    }
+    #[cfg(not(windows))]
+    { vec![
         PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         PathBuf::from("/Applications/Chromium.app/Contents/MacOS/Chromium"),
         PathBuf::from("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-    ]
+    ] }
+}
+
+/// Explicit export/presentation actions may reuse an existing system browser;
+/// automatic thumbnail discovery remains restricted to the installed shared engine.
+pub fn find_export_chromium_executable() -> Option<PathBuf> {
+    find_local_chromium_executable().or_else(find_system_chromium_executable)
 }
 
 pub fn find_system_chromium_executable() -> Option<PathBuf> {
@@ -710,7 +748,7 @@ pub fn static_capture_url(value: &str) -> String {
 
 pub const STATIC_CAPTURE_INIT: &str = r#"window.__NUTBOOK_CAPTURE_PURPOSE__='static';window.__NUTBOOK_STATIC_PRESENTATION__=true;document.addEventListener('DOMContentLoaded',()=>{const style=document.createElement('style');style.textContent='.deck-controls,.presentation-controls,[data-nutbook-presentation-controls],[data-prev],[data-next]{display:none!important}';document.head.append(style)},{once:true});"#;
 
-fn static_capture_init_script() -> String {
+pub(crate) fn static_capture_init_script() -> String {
     format!("{}\n{}",STATIC_CAPTURE_INIT,include_str!("../../resources/export-templates/motion-static-capture.js"))
 }
 
@@ -756,7 +794,7 @@ pub fn capture_html_thumbnail_with_chromium(
         let output = if should_launch_system_browser_via_open(&input.chromium_path) {
             launch_system_browser_screenshot_via_open(&input, &args)?
         } else {
-            Command::new(&input.chromium_path)
+            crate::core::platform::command(&input.chromium_path)
                 .args(&args)
                 .output()
                 .map_err(|error| format!("failed to launch chromium: {error}"))?
@@ -850,6 +888,13 @@ fn capture_presentation_thumbnail_with_worker_impl(
         *slot = Some(PresentationThumbnailWorker::new(&input.screenshot, &input.source_revision)?);
     }
     let worker = slot.as_mut().ok_or("presentation thumbnail worker unavailable")?;
+    if worker.url != input.screenshot.url {
+        // Keep the expensive browser process; each capture owns a fresh nonce
+        // transport and reloads its document before selecting the requested page.
+        worker.pipe.call("Page.navigate", json!({"url": static_capture_url(&input.screenshot.url)}), Some(&worker.session_id))?;
+        worker.pipe.wait_for_event("Page.loadEventFired", &worker.session_id, Duration::from_secs(8))?;
+        worker.url = input.screenshot.url.clone();
+    }
     worker.capture(&input.screenshot.page_id)
 }
 
@@ -904,7 +949,7 @@ impl PresentationThumbnailWorker {
 
     fn matches(&mut self, input: &PresentationThumbnailWorkerInput) -> bool {
         self.chromium_path == input.screenshot.chromium_path
-            && self.url == input.screenshot.url
+            && (self.url == input.screenshot.url || (is_capture_transport_url(&self.url) && is_capture_transport_url(&input.screenshot.url)))
             && self.source_revision == input.source_revision
             && self.width == input.screenshot.width
             && self.height == input.screenshot.height
@@ -946,11 +991,19 @@ impl PresentationThumbnailWorker {
     fn close(&mut self) { self.pipe.close(); let _ = fs::remove_dir_all(&self.profile_path); }
 }
 
+#[cfg(unix)]
+fn is_capture_transport_url(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else { return false; };
+    if url.scheme() != "http" || url.port().is_none() || !url.username().is_empty() || url.password().is_some() { return false; }
+    let Some(id) = url.host_str().and_then(|host| host.strip_prefix("nb-capture-")).and_then(|host| host.strip_suffix(".localhost")) else { return false; };
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn valid_presentation_page_id(page_id: &str) -> bool {
     !page_id.is_empty() && page_id.len() <= 160 && page_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
-fn presentation_thumbnail_setup_script(page_id: &str) -> String {
+pub(crate) fn presentation_thumbnail_setup_script(page_id: &str) -> String {
     let page_id = serde_json::to_string(page_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(r#"(async()=>{{
       const pageId={page_id};
@@ -1019,7 +1072,7 @@ impl CdpPipe {
     fn launch(chromium_path: &Path, profile_path: &Path) -> Result<Self, String> {
         let (browser_read, host_write) = cdp_os_pipe()?;
         let (host_read, browser_write) = cdp_os_pipe()?;
-        let mut command = Command::new(chromium_path);
+        let mut command = crate::core::platform::command(chromium_path);
         command
             .args([
                 "--headless=new", "--remote-debugging-pipe", "--no-first-run", "--no-default-browser-check",
@@ -1192,7 +1245,7 @@ fn run_chromium_export(
     if should_launch_system_browser_via_open(chromium_path) {
         launch_system_browser_export_via_open(chromium_path, args, output_path)?;
     } else {
-        let output = Command::new(chromium_path)
+        let output = crate::core::platform::command(chromium_path)
             .args(args)
             .output()
             .map_err(|error| {
@@ -1235,7 +1288,7 @@ fn launch_system_browser_screenshot_via_open(
         return Err("system browser app bundle not found".to_string());
     };
 
-    Command::new("open")
+    crate::core::platform::command("open")
         .args(["-W", "-n"])
         .arg(app_bundle_path)
         .arg("--args")
@@ -1253,7 +1306,7 @@ fn launch_system_browser_export_via_open(
         return Err("system browser app bundle not found".to_string());
     };
 
-    let output = Command::new("open")
+    let output = crate::core::platform::command("open")
         .arg("-n")
         .arg(&app_bundle_path)
         .arg("--args")
@@ -1707,6 +1760,56 @@ fn wrap_markdown_cover_title(
 
 #[cfg(test)]
 mod tests {
+    // W02-R1：封面/缩略图引用同样遵循“解码一次”的 URI 合同。
+    #[test]
+    fn cover_asset_src_decodes_percent_escapes_once() {
+        let root = std::env::temp_dir().join(format!("nutbook-cover-ref-{}", std::process::id()));
+        let assets = root.join("assets");
+        std::fs::create_dir_all(&assets).expect("assets");
+        let file = assets.join("report#1.png");
+        std::fs::write(&file, b"png").expect("file");
+        let resolved = super::resolve_cover_asset_path("./assets/report%231.png", &root)
+            .expect("an encoded reference must resolve to the real file");
+        assert_eq!(
+            resolved.canonicalize().expect("canonical"),
+            file.canonicalize().expect("canonical")
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // W02-R1 剩余部分：封面同样按磁盘事实裁决，字面 `%` 文件不能被解码优先抢走。
+    #[test]
+    fn cover_asset_resolution_follows_disk_facts() {
+        let root =
+            std::env::temp_dir().join(format!("nutbook-cover-legacy-{}", std::process::id()));
+        let assets = root.join("assets");
+        std::fs::create_dir_all(&assets).expect("assets");
+
+        // 只有字面文件：旧文档的 `assets/report%23.png` 必须取到它。
+        let literal = assets.join("report%23.png");
+        std::fs::write(&literal, b"ORIGINAL").expect("literal");
+        assert_eq!(
+            super::resolve_cover_asset_path("./assets/report%23.png", &root)
+                .expect("a legacy literal reference must still resolve")
+                .canonicalize()
+                .expect("canonical"),
+            literal.canonicalize().expect("canonical")
+        );
+
+        // 双候选内容不同：不出图，也不猜。
+        std::fs::write(assets.join("report#.png"), b"DIFFERENT").expect("decoded");
+        assert_eq!(
+            super::resolve_cover_asset_path("./assets/report%23.png", &root),
+            None,
+            "conflicting candidates must not be silently resolved"
+        );
+
+        // 同内容：显示结果一致，可以解析。
+        std::fs::write(assets.join("report#.png"), b"ORIGINAL").expect("same content");
+        assert!(super::resolve_cover_asset_path("./assets/report%23.png", &root).is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use image::GenericImageView;
     use super::{
         adaptive_markdown_cover_font, build_placeholder_html_thumbnail, capture_html_thumbnail_with_chromium,
@@ -2141,8 +2244,9 @@ mod tests {
 
     #[test]
     #[ignore = "launches a persistent local Chromium CDP worker; run manually"]
+    #[cfg(unix)]
     fn presentation_cdp_worker_reuses_one_deck_for_multiple_pages() {
-        let Some(chromium_path) = find_local_chromium_executable() else { return; };
+        let chromium_path = find_local_chromium_executable().expect("verified local Chromium required for this explicit native capture gate");
         let directory = tempfile::tempdir().expect("temporary directory");
         let source = directory.path().join("deck.html");
         fs::write(&source, r#"<!doctype html><html><head><style>
@@ -2151,15 +2255,24 @@ mod tests {
           <section data-nutbook-page-id="page-one" class="page active"><div class="copy"></div><div class="icon"></div></section><section data-nutbook-page-id="page-two" class="page"><div class="copy"></div></section>
           <script>let active="page-one";window.__NUTBOOK_PRESENTATION__={whenReady:()=>Promise.resolve(),setEditMode:()=>true,goTo:(id)=>{if(active===id)return true;active=id;for(const page of document.querySelectorAll('[data-nutbook-page-id]'))page.classList.toggle('active',page.dataset.nutbookPageId===id);return true;}};</script>
         </body></html>"#).expect("presentation fixture should be written");
-        let url = url::Url::from_file_path(&source).expect("file url").to_string();
-        let request = |page_id: &str| PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput { chromium_path: chromium_path.clone(), url: url.clone(), page_id: page_id.to_string(), width: 480, height: 270, pixel_ratio: 1 }, source_revision: "worker-test-v1".to_string() };
-        let first = capture_presentation_thumbnail_with_worker(request("page-two")).expect("first worker screenshot");
-        let second = capture_presentation_thumbnail_with_worker(request("page-one")).expect("second worker screenshot");
+        let capture = |page: &str| {
+            let server = crate::core::scoped_content_server::ScopedContentServer::start_for_capture(directory.path()).unwrap();
+            let input = PresentationThumbnailWorkerInput { screenshot: PresentationScreenshotInput {
+                chromium_path: chromium_path.clone(), url: server.relative_url(Path::new("deck.html")).unwrap(), page_id: page.into(), width: 480, height: 270, pixel_ratio: 1,
+            }, source_revision: "nonce-transport-v1".into() };
+            capture_presentation_thumbnail_with_worker(input).expect("capture with fresh private transport")
+        };
+        let first = capture("page-two");
+        let first_pid = super::PRESENTATION_THUMBNAIL_WORKER.get().unwrap().lock().unwrap().as_ref().unwrap().pipe.child.id();
+        let second = capture("page-one");
+        let second_pid = super::PRESENTATION_THUMBNAIL_WORKER.get().unwrap().lock().unwrap().as_ref().unwrap().pipe.child.id();
+        assert_eq!(first_pid, second_pid, "fresh capture authorities must reuse the browser process");
         assert_eq!(first.backend, "presentation-cdp-worker");
         assert_eq!(second.backend, "presentation-cdp-worker");
         assert!(second.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
         let restored = image::load_from_memory(&second.bytes).expect("second page should decode as PNG");
         assert_eq!(restored.get_pixel(250, 50).0[..3], [0, 255, 0], "returning to a page must preserve its horizontal layout");
+        if let Some(mut worker) = super::PRESENTATION_THUMBNAIL_WORKER.get().unwrap().lock().unwrap().take() { worker.close(); }
     }
 
     #[test]

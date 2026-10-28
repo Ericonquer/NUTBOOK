@@ -132,16 +132,15 @@ The installer bundles no Node.js or browser, only the Playwright driver and publ
 
 ## Latest Version
 
-### 1.5.0 · File Version History and Direct Draft Delivery
+### 1.5.1 · Windows Compatibility and Resource Reliability
 
-- **Major addition: Markdown / HTML version history**. Capture versions when saving, with preview, restore, Save As, and centralized cleanup. Keep up to 10 recent versions per file with an adjustable total storage limit.
-- **Previews for both formats**: scroll through Markdown documents; inspect static HTML, browse presentation pages, jump by page number, and compare the same page across versions.
-- **Send directly to draft boxes**: deliver formatted Markdown drafts to WeChat Official Accounts, Weibo, and X. Reuse compatible system Node.js and browsers, with setup for missing publishing tools as needed.
-- **Adjust notes while presenting**: edit and save the current slide’s notes in the presenter window, with changes included in file history.
-- **Fixes and reliability**: fix nbskill artifact intake and other existing issues, and improve file saving, recovery, update delivery, and previews.
+- Fix Windows file cards, local Markdown images, native HTML opening, and GUI/CLI startup conflicts.
+- Preserve archived images using bounded native resource sessions and compact preview paths, with cleanup on close.
+- Add Windows application and protocol regression gates; candidate installers are validated separately from normal PR checks.
 
 ### Earlier Releases
 
+- **1.5.0**: Markdown / HTML file history, direct draft delivery, and editable presenter notes.
 - **1.4.0**: Ordered multi-tags, Motion Center, animated backgrounds, and page transitions.
 - **1.3.0**: Markdown publishing workspace, separate platform drafts, and customizable toolbar.
 - **1.2.0**: Native HTML presentations, presenter view, and per-slide notes.

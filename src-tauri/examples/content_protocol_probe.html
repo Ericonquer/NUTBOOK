@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><title>Nutbook protocol gate</title>
+<base href="/"><link rel="stylesheet" href="/style.css">
+<script type="module" src="/module.js"></script>
+<h1>Resource protocol compatibility gate</h1><img id="image" src="/image.svg"><pre id="result">Testing…</pre>
+<script>
+addEventListener('load',async()=>{
+ const result={origin:location.origin,href:location.href,css:getComputedStyle(document.body).getPropertyValue('--probe-css').trim()==='ready',module:window.probeModule===true,image:document.querySelector('#image').naturalWidth===10};
+ try { const r=await fetch('/data.json'); result.fetch=(await r.json()).canary==='A'; }catch(e){result.fetch=false;result.fetchError=String(e)}
+ try { const r=await fetch(window.probeOther);result.crossDenied=!r.ok; }catch(e){result.crossDenied=true;result.crossError=String(e)}
+ try { result.resourceBurst=(await Promise.all(Array.from({length:96},async(_,i)=>{const r=await fetch('/data.json?burst='+i);return r.ok&&(await r.json()).canary==='A'}))).every(Boolean); }catch(e){result.resourceBurst=false;result.burstError=String(e)}
+ if(window.probeMappedOrigin){
+   await window.probeMappingReady;
+   const loadFrame=(origin,navigate)=>new Promise(resolve=>{
+     const frame=document.createElement('iframe'),token=crypto.randomUUID();frame.sandbox='allow-scripts';
+     const finish=width=>{clearTimeout(timer);removeEventListener('message',message);frame.remove();resolve(width);};
+     const message=event=>{if(event.source===frame.contentWindow&&event.data?.mappingProbe===token)finish(event.data.width);};
+     const timer=setTimeout(()=>finish('timeout'),2000);addEventListener('message',message);
+     if(navigate)frame.src=origin+'/frame.html#'+token;
+     else frame.srcdoc=`<!doctype html><img id="image" src="${origin}/image.svg"><script>addEventListener('load',()=>parent.postMessage({mappingProbe:${JSON.stringify(token)},width:document.querySelector('img').naturalWidth},'*'))<\/script>`;
+     document.body.append(frame);
+   });
+   result.mappedFrames={opaqueSrcdoc:await loadFrame(window.probeMappedOrigin,false),opaqueNavigated:await loadFrame(window.probeMappedOrigin,true)};
+ }
+ result.fd=window.probeFd;
+ result.oldAddressDenied=true;
+ if(window.probeOld){try{const r=await fetch(window.probeOld);result.oldAddressDenied=!r.ok;}catch(e){result.oldAddressDenied=true;}}
+ result.secureContext=window.isSecureContext;
+ try { const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('abc'));result.crypto=Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('')==='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'; }catch(e){result.crypto=false;result.cryptoError=String(e)}
+ try{localStorage.setItem('probe','A');result.storage=localStorage.getItem('probe')==='A';localStorage.removeItem('probe')}catch(e){result.storage=false;result.storageError=String(e)}
+ await window.__TAURI_INTERNALS__.invoke('protocol_probe_revoke');
+ try { const r=await fetch('/data.json');result.revoked=!r.ok; }catch(e){result.revoked=true;}
+ result.ok=(!window.probeMappedOrigin||(result.mappedFrames.opaqueSrcdoc===10&&result.mappedFrames.opaqueNavigated===10))&&result.resourceBurst&&result.oldAddressDenied&&result.crypto&&result.storage&&result.revoked&&result.css&&result.module&&result.image&&result.fetch&&result.crossDenied;
+ document.querySelector('#result').textContent=JSON.stringify(result,null,2);
+ await window.__TAURI_INTERNALS__.invoke('protocol_probe_report',{report:result});
+});
+</script>

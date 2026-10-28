@@ -1,0 +1,41 @@
+[
+  {
+    "name": "posix",
+    "imagePath": "/Users/demo/文档/assets/图片.png",
+    "imageUrl": "http://127.0.0.1:12345/assets/%E5%9B%BE%E7%89%87.png",
+    "thumbnailPath": "http://127.0.0.1:12346/cover.svg",
+    "historyPaths": [
+      "/Users/demo/文档/assets/old.png"
+    ]
+  },
+  {
+    "name": "drive-backslash",
+    "imagePath": "C:/Users/demo/文档/assets/图片.png",
+    "imageUrl": "",
+    "thumbnailPath": "C:\\Users\\demo\\文档\\cover.svg",
+    "historyPaths": []
+  },
+  {
+    "name": "drive-slash",
+    "imagePath": "C:/Users/demo/文档/assets/图片.png",
+    "imageUrl": "",
+    "thumbnailPath": "C:/Users/demo/文档/cover.svg",
+    "historyPaths": [
+      "C:/Users/demo/文档/assets/old.png"
+    ]
+  },
+  {
+    "name": "verbatim",
+    "imagePath": "/?/C:/Users/demo/文档/assets/图片.png",
+    "imageUrl": "",
+    "thumbnailPath": "\\\\?\\C:\\Users\\demo\\文档\\cover.svg",
+    "historyPaths": []
+  },
+  {
+    "name": "unc",
+    "imagePath": "/server/share/文档/assets/图片.png",
+    "imageUrl": "",
+    "thumbnailPath": "\\\\server\\share\\文档\\cover.svg",
+    "historyPaths": []
+  }
+]

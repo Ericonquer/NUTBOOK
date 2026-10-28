@@ -89,8 +89,8 @@
     },
     {
       "path": "scripts/test-relocate.mjs",
-      "sha256": "5f354a357e17b9118958f1ceecfd221a0ce92abb00b796e2d66bceed12d31eae",
-      "bytes": 5366
+      "sha256": "19b742be07253ddaaf313a5765ddae806204b24849a3fbf269f6ddc81866c9d5",
+      "bytes": 5577
     },
     {
       "path": "scripts/test.mjs",

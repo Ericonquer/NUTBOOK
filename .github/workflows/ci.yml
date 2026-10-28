@@ -102,19 +102,29 @@ jobs:
         run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
 
   windows-compile:
+    # Preserve the context already required by main ruleset; runtime checks are included.
     name: PR Windows release compile
+    env:
+      CARGO_INCREMENTAL: "1"
     runs-on: windows-latest
-    timeout-minutes: 18
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.0
 
       - name: Restore Rust build cache
-        uses: actions/cache@v4
+        id: windows-rust-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
@@ -123,9 +133,109 @@ jobs:
             src-tauri/target/release/build
             src-tauri/target/release/deps
             src-tauri/target/release/incremental
-          key: ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}-native-v2
           restore-keys: |
             ci-rust-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-
 
-      - name: Compile Windows release binaries
-        run: cargo check --release --manifest-path src-tauri/Cargo.toml --bins
+      - name: Prepare frontend and lightweight resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build:frontend
+          npm run prepare:publishing-runtime
+
+      - name: Windows native resource contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p windows-smoke-report
+          # Discard corrupted app-generated asset caches once, before tests,
+          # so the app library compiled below is reused by the UI build.
+          cargo clean --release --manifest-path src-tauri/Cargo.toml --package nutbook-backend
+          rustc -Vv > windows-smoke-report/toolchain.txt
+          node scripts/test-windows-resource-identity.mjs
+          node scripts/test-windows-history-resource-paths.mjs
+          node scripts/test-windows-preview-adapter.mjs
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib markdown_ref::tests -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib preview_resource_resolution -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib content_resource:: -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib resource_capture_url_roundtrip_identity -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib compact_preview_resources_fit_windows_path_budget -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib capture_authority_survives_port_reuse -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib windows_cli_alias_and_gui_images_are_rejected -- --test-threads=1
+
+      - name: Build Windows application once without installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Both generate_context macros share a content-hash asset cache in
+          # OUT_DIR. Build sequentially: a second macro must not include a
+          # compressed file while the first process is still writing it.
+          cargo build --release --features tauri/custom-protocol,tauri/test --manifest-path src-tauri/Cargo.toml --bin NUTBOOK --bin nutbook-cli-bin
+          cargo build --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --example content_protocol_probe
+
+      - name: Native protocol lifetime and compatibility gate
+        timeout-minutes: 2
+        env:
+          NUTBOOK_SMOKE_REPORT: windows-smoke-report
+        run: node scripts/test-content-resource-native.mjs --release --no-build
+
+      - name: Setup native WebView2 driver
+        shell: pwsh
+        run: ./scripts/setup-windows-webdriver.ps1
+
+      - name: Actual Windows application smoke
+        timeout-minutes: 3
+        run: node scripts/windows-runtime-smoke.mjs
+
+      - name: Capture native loader evidence on failure
+        if: failure()
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force windows-smoke-report | Out-Null
+          $mt = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\mt.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          $executables = @(Get-ChildItem src-tauri/target/release/deps/nutbook_backend-*.exe -ErrorAction SilentlyContinue) + @(Get-Item src-tauri/target/release/NUTBOOK.exe -ErrorAction SilentlyContinue) + @(Get-Item src-tauri/target/release/examples/content_protocol_probe.exe -ErrorAction SilentlyContinue)
+          foreach ($exe in ($executables | Select-Object -First 4)) {
+            if ($mt) { & $mt.FullName -nologo "-inputresource:$($exe.FullName);#1" "-out:windows-smoke-report/$($exe.BaseName).manifest" 2>&1 | Out-File "windows-smoke-report/$($exe.BaseName)-manifest.log" }
+          }
+          Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-30)} -MaxEvents 20 -ErrorAction SilentlyContinue | Select-Object TimeCreated,Id,ProviderName,Message | ConvertTo-Json -Depth 3 | Out-File windows-smoke-report/windows-events.json
+
+      - name: Preserve bounded runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-evidence-${{ github.run_attempt }}
+          path: windows-smoke-report/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Keep Windows build intermediates even when native tests fail
+        if: always() && steps.windows-rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target/release/.fingerprint
+            src-tauri/target/release/build
+            src-tauri/target/release/deps
+            src-tauri/target/release/incremental
+          key: ${{ steps.windows-rust-cache.outputs.cache-primary-key }}
+
+  cross-platform-gate:
+    name: Cross-platform Gate
+    if: always()
+    needs: [quality, macos-compile, windows-compile]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every planned platform to succeed
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          MACOS: ${{ needs.macos-compile.result }}
+          WINDOWS: ${{ needs.windows-compile.result }}
+        run: |
+          test "$QUALITY" = success
+          test "$MACOS" = success
+          test "$WINDOWS" = success

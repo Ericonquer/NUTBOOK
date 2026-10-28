@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use rusqlite::{Connection, OpenFlags};
 use crate::{
@@ -13,7 +13,7 @@ const ADAPTER_PROFILE: &str = "hermes-state-sqlite-v1";
 #[derive(Debug, Clone)]
 pub struct HermesAdapter { state_path: PathBuf }
 impl HermesAdapter {
-    pub fn from_environment() -> Self { Self { state_path: env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join(".hermes/state.db") } }
+    pub fn from_environment() -> Self { Self { state_path: crate::core::platform::home_dir().unwrap_or_default().join(".hermes/state.db") } }
     #[cfg(test)]
     fn with_state_path(state_path: PathBuf) -> Self { Self { state_path } }
     pub fn discovery_payload(&self) -> AgentScopeDiscoveryPayload {

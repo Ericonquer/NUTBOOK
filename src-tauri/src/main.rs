@@ -1,3 +1,8 @@
+// 主 GUI 二进制在 Windows 上必须走 GUI 子系统（W11）：否则安装版每次启动都会
+// 附带一个控制台窗口。release-only，保留 `cargo run` 的调试控制台；独立 CLI
+// 二进制 src/bin/nutbook.rs 不继承这条 crate 属性，继续按控制台语义运行。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::PathBuf, sync::Mutex, time::Duration};
 
 use nutbook_backend::core::external_open;
@@ -143,6 +148,9 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(nutbook_backend::core::content_resource::SCHEME, |ctx, request, responder| {
+            nutbook_backend::core::content_resource::dispatch(ctx.webview_label().to_owned(), request, responder)
+        })
         .menu(|app| {
             let add_folder = MenuItemBuilder::with_id(MENU_ADD_FOLDER_ID, "添加文件夹")
                 .accelerator("CmdOrCtrl+O")
@@ -257,6 +265,26 @@ fn main() {
                 .item(&view_menu)
                 .item(&window_menu)
                 .build()
+        })
+        .on_window_event(|window, event| {
+            // Native window state is authoritative for suspend/resume;
+            // DOM visibility of the main WebView can differ from its children.
+            #[cfg(target_os = "windows")]
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true))
+            {
+                if let (Ok(minimized), Some(main)) = (
+                    window.is_minimized(),
+                    window.app_handle().get_webview("main"),
+                ) {
+                    let _ = main.eval(format!(
+                        "window.__NUTBOOK_RUNTIME_WINDOW_LIFECYCLE__?.({minimized});"
+                    ));
+                }
+            }
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                nutbook_backend::core::content_resource::unbind_surface(window.label());
+            }
         })
         .on_menu_event(|app, event| {
             if commands::context_menu::dispatch(app, event.id().as_ref()) { return; }
@@ -405,6 +433,7 @@ fn main() {
             commands::items::restore_ignored_item,
             commands::items::sync_filesystem_state,
             commands::preview::get_item_preview,
+            commands::preview::release_document_resource,
             commands::preview::get_item_inspector_snapshot,
             commands::preview::get_item_content_revision,
             commands::preview::attach_inspector_more_overlay_command,
@@ -414,6 +443,8 @@ fn main() {
             commands::preview::close_markdown_overlay_command,
             commands::preview::copy_markdown_image_asset,
             commands::preview::delete_markdown_image_asset,
+            // W02-R2：预览资源的文件系统身份裁决（按 root 批量，一次 IPC）。
+            commands::preview::resolve_preview_resources,
             commands::preview::copy_markdown_cover_asset,
             commands::preview::validate_markdown_cover_asset,
             commands::preview::release_markdown_cover_lease,

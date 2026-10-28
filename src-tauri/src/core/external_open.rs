@@ -34,6 +34,7 @@ use uuid::Uuid;
 use crate::{
     core::{
         document::{content_hash, file_modified_at_string, markdown_summary, render_markdown_as_html_for_file},
+        markdown_ref::RefResolution,
         path_identity::path_identity,
         watcher::path_is_candidate,
     },
@@ -1508,21 +1509,76 @@ fn copy_referenced_local_resources(
     // 不 retarget、lease 清理本次新建，原会话原样保留）：静默跳过会让 redo
     // 恢复后出现失效图片且永不补齐，违反「无法完成则保留原会话」。正文引用
     // 的越界引用维持整体拒绝（既有合同，见下方 canonical 校验）。
-    let mut references = collect_relative_image_refs(content);
-    if let Ok(canonical_dir) = fs::canonicalize(original_dir) {
-        for raw in history_resource_paths {
-            let canonical = fs::canonicalize(raw)
-                .map_err(|_| AppError::InvalidParams)?;
-            if !canonical.starts_with(&canonical_dir) {
+    let canonical_original_dir = fs::canonicalize(original_dir).map_err(|_| AppError::IoError)?;
+    let canonical_target_dir = fs::canonicalize(target_dir).map_err(|_| AppError::IoError)?;
+
+    // W02-R1 兼容：正文引用按**磁盘事实**裁决，而不是字符串优先级。
+    // 历史文档的 `assets/report%23.png` 指磁盘上字面叫 `report%23.png` 的文件；
+    // 新协议生成的 `assets/report%231.png` 指 `report#1.png`。两个候选都是真实
+    // 文件且内容不同时显式失败，不猜——猜错会把另一张图静默迁移到新目录。
+    let mut references: Vec<String> = Vec::new();
+    for raw in collect_relative_image_refs(content) {
+        let relative = match crate::core::markdown_ref::resolve_ref_on_disk(&raw, original_dir) {
+            RefResolution::Resolved { path, .. } => fs::canonicalize(&path)
+                .map_err(|_| AppError::InvalidParams)?
+                .strip_prefix(&canonical_original_dir)
+                .map_err(|_| AppError::InvalidParams)?
+                .to_string_lossy()
+                .to_string(),
+            // 引用合法但文件不存在：保留既有硬失败语义，交给下面 canonicalize 报错。
+            RefResolution::Outside => return Err(AppError::InvalidParams),
+            RefResolution::Missing => crate::core::markdown_ref::decode_relative_ref(&raw)
+                .ok_or(AppError::InvalidParams)?,
+            RefResolution::Ambiguous {
+                decoded_relative,
+                literal_relative,
+            } => {
+                return Err(AppError::AmbiguousImageReference(format!(
+                    "{literal_relative} and {decoded_relative} are different files"
+                )))
+            }
+        };
+        if !references.contains(&relative) {
+            references.push(relative);
+        }
+    }
+    // 撤销/重做历史登记项有两种形态：绝对 OS 路径（本会话插入的图片）与
+    // **原始引用串**（曾被引用、正文当前可能已不含）。引用串同样按磁盘事实
+    // 裁决——前端不做解码拼接，否则 `%23` 与 `#` 在双候选时会被静默换掉。
+    for raw in history_resource_paths {
+        let raw_path = Path::new(raw);
+        let relative = if raw_path.is_absolute() {
+            let canonical = fs::canonicalize(raw_path).map_err(|_| AppError::InvalidParams)?;
+            if !canonical.starts_with(&canonical_original_dir) {
                 return Err(AppError::InvalidParams);
             }
-            let relative = canonical
-                .strip_prefix(&canonical_dir)
-                .map_err(|_| AppError::InvalidParams)?;
-            let value = relative.to_string_lossy().to_string();
-            if !references.contains(&value) {
-                references.push(value);
+            canonical
+                .strip_prefix(&canonical_original_dir)
+                .map_err(|_| AppError::InvalidParams)?
+                .to_string_lossy()
+                .to_string()
+        } else {
+            match crate::core::markdown_ref::resolve_ref_on_disk(raw, original_dir) {
+                RefResolution::Resolved { path, .. } => fs::canonicalize(&path)
+                    .map_err(|_| AppError::InvalidParams)?
+                    .strip_prefix(&canonical_original_dir)
+                    .map_err(|_| AppError::InvalidParams)?
+                    .to_string_lossy()
+                    .to_string(),
+                // 历史可达资源缺失：保留既有硬失败（不静默丢历史图片）。
+                RefResolution::Missing | RefResolution::Outside => return Err(AppError::InvalidParams),
+                RefResolution::Ambiguous {
+                    decoded_relative,
+                    literal_relative,
+                } => {
+                    return Err(AppError::AmbiguousImageReference(format!(
+                        "{literal_relative} and {decoded_relative} are different files"
+                    )))
+                }
             }
+        };
+        if !references.contains(&relative) {
+            references.push(relative);
         }
     }
     if references.is_empty() {
@@ -1531,8 +1587,6 @@ fn copy_referenced_local_resources(
     if references.len() > SAVE_AS_MAX_RESOURCE_COUNT {
         return Err(AppError::AssetTooLarge);
     }
-    let canonical_original_dir = fs::canonicalize(original_dir).map_err(|_| AppError::IoError)?;
-    let canonical_target_dir = fs::canonicalize(target_dir).map_err(|_| AppError::IoError)?;
     let mut total_bytes: u64 = 0;
     for reference in references {
         let resolved = original_dir.join(&reference);
@@ -1612,6 +1666,11 @@ fn write_new_file_no_clobber(destination: &Path, bytes: &[u8]) -> Result<(), App
     write
 }
 
+/// 收集正文里的**原始**本地引用串（未解码）。
+///
+/// 谁在这里解码，谁就替磁盘做了主：历史文档 `assets/report%23.png` 与
+/// 新协议 `assets/report%231.png` 的字符串语义相反，只能由
+/// `resolve_ref_on_disk` 按真实文件裁决。
 fn collect_relative_image_refs(content: &str) -> Vec<String> {
     let mut references = Vec::new();
     let bytes = content.as_bytes();
@@ -1623,8 +1682,8 @@ fn collect_relative_image_refs(content: &str) -> Vec<String> {
         if content[paren..].starts_with('(') {
             if let Some(end) = content[paren + 1..].find(')') {
                 let raw = content[paren + 1..paren + 1 + end].trim();
-                if let Some(reference) = normalize_relative_ref(raw) {
-                    references.push(reference);
+                if is_local_image_reference(raw) {
+                    references.push(raw.to_string());
                 }
                 index = paren + 1 + end;
                 continue;
@@ -1647,8 +1706,8 @@ fn collect_relative_image_refs(content: &str) -> Vec<String> {
             };
             if let Some(end) = rest[1..].find(quote) {
                 let raw = rest[1..1 + end].trim();
-                if let Some(reference) = normalize_relative_ref(raw) {
-                    references.push(reference);
+                if is_local_image_reference(raw) {
+                    references.push(raw.to_string());
                 }
             }
         }
@@ -1658,27 +1717,44 @@ fn collect_relative_image_refs(content: &str) -> Vec<String> {
     references
 }
 
+/// 任一种语义能解析成本地相对引用，就说明它值得进磁盘裁决。
+fn is_local_image_reference(raw: &str) -> bool {
+    crate::core::markdown_ref::decode_relative_ref(raw).is_some()
+        || crate::core::markdown_ref::literal_relative_ref(raw).is_some()
+}
+
+/// 单次解码的薄封装。生产路径已改走 `resolve_ref_on_disk` 的磁盘裁决，
+/// 这里只给定向测试断言"解码一次"的字符串合同。
+#[cfg(test)]
 fn normalize_relative_ref(raw: &str) -> Option<String> {
-    let value = raw
-        .split(['#', '?'])
-        .next()
-        .unwrap_or("")
-        .trim()
-        .replace('\\', "/");
-    if value.is_empty()
-        || value.starts_with('/')
-        || value.starts_with("data:")
-        || value.starts_with("blob:")
-        || value.contains("://")
-        || value.to_ascii_lowercase().starts_with("file:")
-    {
-        return None;
-    }
-    Some(value)
+    crate::core::markdown_ref::decode_relative_ref(raw)
 }
 
 #[cfg(test)]
 mod tests {
+    // W04-R1：历史资源引用必须先按 URI 语义解码一次，再拼成真实 OS 路径；
+    // 解码出来的分隔符不能重建目录穿越。
+    #[test]
+    fn history_references_decode_percent_escapes_once() {
+        assert_eq!(
+            normalize_relative_ref("assets/report%20one.png").as_deref(),
+            Some("assets/report one.png")
+        );
+        assert_eq!(
+            normalize_relative_ref("assets/report%231.png").as_deref(),
+            Some("assets/report#1.png")
+        );
+        assert_eq!(
+            normalize_relative_ref("assets/report%2523.png").as_deref(),
+            Some("assets/report%23.png")
+        );
+        assert_eq!(normalize_relative_ref("./assets/b.png").as_deref(), Some("./assets/b.png"));
+        assert_eq!(normalize_relative_ref("assets/a%2Fb.png"), None);
+        assert_eq!(normalize_relative_ref("assets/a%5Cb.png"), None);
+        assert_eq!(normalize_relative_ref("https://example.com/a.png"), None);
+        assert_eq!(normalize_relative_ref("/etc/passwd"), None);
+    }
+
     use super::*;
 
     fn review_state(tag: &str) -> (AppState, PathBuf) {
@@ -1842,6 +1918,45 @@ mod tests {
         assert!(references.contains(&"/deep/d.png".to_string()) == false);
         assert!(!references.iter().any(|value| value.contains("http")));
         assert!(!references.iter().any(|value| value.starts_with('/')));
+    }
+
+    #[test]
+    fn save_as_copies_the_resource_the_reference_actually_names() {
+        let source_dir = unique_dir("res-legacy-src");
+        let target_dir = unique_dir("res-legacy-dst");
+        fs::create_dir_all(source_dir.join("assets")).expect("src assets");
+        fs::create_dir_all(&target_dir).expect("dst");
+
+        // 历史文档：`assets/report%23.png` 指的是字面文件名，另存必须迁移它。
+        fs::write(source_dir.join("assets/report%23.png"), b"ORIGINAL").expect("literal");
+        let content = "![图](assets/report%23.png)";
+        let mut lease = ResourceCopyLease::new();
+        copy_referenced_local_resources(&source_dir, &target_dir, content, &[], &mut lease)
+            .expect("a legacy literal reference must be migratable");
+        assert_eq!(
+            fs::read(target_dir.join("assets/report%23.png")).expect("copied literal"),
+            b"ORIGINAL"
+        );
+
+        // 双候选内容不同：显式失败，且不留下任何迁移结果。
+        fs::write(source_dir.join("assets/report#.png"), b"DIFFERENT").expect("decoded");
+        let target_dir = unique_dir("res-legacy-dst2");
+        fs::create_dir_all(&target_dir).expect("dst2");
+        let mut lease = ResourceCopyLease::new();
+        let error =
+            copy_referenced_local_resources(&source_dir, &target_dir, content, &[], &mut lease)
+                .expect_err("conflicting candidates must not be migrated silently");
+        assert!(
+            matches!(error, AppError::AmbiguousImageReference(_)),
+            "expected an explicit ambiguity, got {error:?}"
+        );
+        assert!(
+            fs::read_dir(&target_dir).expect("dst2 listing").count() == 0,
+            "a rejected copy must leave no partial resources"
+        );
+
+        let _ = fs::remove_dir_all(&source_dir);
+        let _ = fs::remove_dir_all(&target_dir);
     }
 
     #[test]

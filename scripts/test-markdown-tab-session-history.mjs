@@ -76,6 +76,10 @@ await page.evaluate(({ sessionFunctions, mountFunction }) => {
   window.setupMarkdownOutline = () => {};
   window.setupMarkdownCodeCopyButton = () => {};
   window.setupMarkdownImageResources = () => {};
+  // W02-R2：真实实现会在创建编辑器前批量解析资源身份；这个沙箱只测会话
+  // 生命周期，把它 stub 掉，身份合同由 test-windows-resource-identity 覆盖。
+  window.ensureMarkdownPreviewResources = async () => {};
+  window.markdownEditorImageUrl = src => src;
   window.restoreMarkdownScroll = () => {};
   window.normalizeDetailedError = (error) => String(error?.message || error);
   window.markdownEditorFailedStatus = (error) => String(error);

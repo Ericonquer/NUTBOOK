@@ -5,7 +5,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{Mutex, OnceLock},
 };
 
@@ -199,7 +199,7 @@ fn start(
         return Err("JOB_CONTENT_CHANGED".into());
     }
     private_write(&input, &raw)?;
-    let mut command = Command::new(node);
+    let mut command = crate::core::platform::command(node);
     command
         .arg(root.join("worker/run.mjs"))
         .arg(&input)

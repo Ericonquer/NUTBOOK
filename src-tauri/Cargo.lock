@@ -2865,7 +2865,7 @@ dependencies = [
 
 [[package]]
 name = "nutbook-backend"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "ammonia",
  "base64 0.22.1",
@@ -2874,6 +2874,7 @@ dependencies = [
  "comrak",
  "core-foundation",
  "dispatch2",
+ "embed-resource",
  "html5ever 0.27.0",
  "image",
  "kamadak-exif",
@@ -2901,6 +2902,8 @@ dependencies = [
  "ureq",
  "url",
  "uuid",
+ "webview2-com",
+ "windows-core 0.61.2",
  "windows-sys 0.61.2",
 ]
 

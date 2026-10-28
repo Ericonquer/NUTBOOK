@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf, time::SystemTime};
+use std::{fs, path::PathBuf, time::SystemTime};
 
 use serde_json::Value;
 
@@ -16,7 +16,7 @@ pub struct ClaudeCodeAdapter { state_path: PathBuf }
 
 impl ClaudeCodeAdapter {
     pub fn from_environment() -> Self {
-        let state_path = env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join(".claude.json");
+        let state_path = crate::core::platform::home_dir().unwrap_or_default().join(".claude.json");
         Self { state_path }
     }
 

@@ -211,26 +211,27 @@ pub fn default_app_data_dir() -> Result<PathBuf, CliFailure> {
 /// Deploy the bundled CLI by copying it into the stable application data directory.
 /// The app intentionally never mutates PATH or creates a symlink.
 pub fn deploy_bundled_cli(app_data: &Path, resource_dir: Option<&Path>) -> Result<PathBuf, String> {
-    let candidates = [
-        resource_dir.map(|directory| directory.join("nutbook-cli").join(cli_binary_name())),
-        std::env::current_exe().ok().and_then(|path| path.parent().map(|parent| parent.join(cli_binary_name()))),
-    ];
-    let source = candidates.into_iter().flatten().find(|candidate| {
-        fs::symlink_metadata(candidate).is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
-            && candidate != &std::env::current_exe().unwrap_or_default()
-    }).ok_or_else(|| "bundled nutbook CLI is unavailable".to_string())?;
+    let current = std::env::current_exe().map_err(|_| "current executable unavailable")?;
+    let source = bundled_cli_source(&current, resource_dir)
+        .ok_or_else(|| "bundled nutbook CLI is unavailable".to_string())?;
     let destination_dir = app_data.join("cli");
     fs::create_dir_all(&destination_dir).map_err(|_| "cannot create CLI directory".to_string())?;
     let destination = destination_dir.join(cli_binary_name());
-    let temporary = destination_dir.join(format!(".{}.{}", cli_binary_name(), std::process::id()));
-    fs::copy(&source, &temporary).map_err(|_| "cannot copy bundled CLI".to_string())?;
+    let temporary = destination_dir.join(format!(".nutbook-cli-{}{}", uuid::Uuid::new_v4(), if cfg!(windows) { ".exe" } else { ".tmp" }));
+    struct StagedCli(PathBuf);
+    impl Drop for StagedCli { fn drop(&mut self) { let _ = fs::remove_file(&self.0); } }
+    let _stage = StagedCli(temporary.clone());
+    let mut output = fs::OpenOptions::new().create_new(true).write(true).open(&temporary).map_err(|_| "cannot stage bundled CLI")?;
+    let mut input = fs::File::open(&source).map_err(|_| "cannot open bundled CLI")?;
+    io::copy(&mut input, &mut output).map_err(|_| "cannot copy bundled CLI")?;
+    drop(output); drop(input);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755)).map_err(|_| "cannot mark CLI executable".to_string())?;
     }
-    let version = std::process::Command::new(&temporary).arg("--version").output().map_err(|_| "cannot verify copied CLI".to_string())?;
-    if !version.status.success() || !String::from_utf8_lossy(&version.stdout).contains(CLI_VERSION) {
+    let version = probe_cli_version(&temporary, Duration::from_secs(2));
+    if version.as_deref() != Ok(&format!("nutbook {CLI_VERSION}")) {
         let _ = fs::remove_file(&temporary);
         return Err("copied CLI version verification failed".to_string());
     }
@@ -238,9 +239,7 @@ pub fn deploy_bundled_cli(app_data: &Path, resource_dir: Option<&Path>) -> Resul
     if destination.exists() {
         let metadata = fs::symlink_metadata(&destination).map_err(|_| "cannot inspect existing CLI".to_string())?;
         if metadata.file_type().is_symlink() || !metadata.is_file() { let _ = fs::remove_file(&temporary); return Err("existing CLI is not a regular Nutbook-owned file".to_string()); }
-        let old_version = std::process::Command::new(&destination).arg("--version").output().ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+        let old_version = probe_cli_version(&destination, Duration::from_secs(2)).ok();
         let Some(old_version) = old_version.and_then(|version| version.strip_prefix("nutbook ").and_then(compare_cli_semver)) else {
             let _ = fs::remove_file(&temporary);
             return Err("existing CLI is not a verifiable Nutbook-owned file".to_string());
@@ -260,6 +259,73 @@ pub fn deploy_bundled_cli(app_data: &Path, resource_dir: Option<&Path>) -> Resul
     }
     if backup.exists() { fs::remove_file(&backup).map_err(|_| "cannot finalize CLI upgrade".to_string())?; }
     Ok(destination)
+}
+
+fn bundled_cli_source(current: &Path, resource_dir: Option<&Path>) -> Option<PathBuf> {
+    let canonical_current = current.canonicalize().ok()?;
+    let internal = if cfg!(windows) { "nutbook-cli-bin.exe" } else { "nutbook-cli-bin" };
+    [
+        resource_dir.map(|directory| directory.join("nutbook-cli").join(cli_binary_name())),
+        current.parent().map(|parent| parent.join(internal)),
+        current.parent().map(|parent| parent.join(cli_binary_name())),
+    ].into_iter().flatten().find(|candidate| {
+        fs::symlink_metadata(candidate).is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+            && candidate.canonicalize().is_ok_and(|path| path != canonical_current)
+            && is_console_cli_image(candidate)
+    })
+}
+
+#[cfg(windows)]
+fn is_console_cli_image(path: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = fs::File::open(path) else { return false; };
+    let mut dos = [0u8; 64];
+    if file.read_exact(&mut dos).is_err() || &dos[..2] != b"MZ" { return false; }
+    let offset = u32::from_le_bytes(dos[60..64].try_into().unwrap()) as u64;
+    if offset > 1024 * 1024 || file.seek(SeekFrom::Start(offset)).is_err() { return false; }
+    let mut pe = [0u8; 94];
+    file.read_exact(&mut pe).is_ok() && &pe[..4] == b"PE\0\0"
+        && matches!(u16::from_le_bytes([pe[24],pe[25]]), 0x10b | 0x20b)
+        && u16::from_le_bytes([pe[92],pe[93]]) == 3
+}
+#[cfg(not(windows))]
+fn is_console_cli_image(_: &Path) -> bool { true }
+
+fn probe_cli_version(binary: &Path, timeout: Duration) -> Result<String, String> {
+    use std::{io::Read, process::Stdio, time::Instant};
+    if !is_console_cli_image(binary) { return Err("CLI is not a console executable".into()); }
+    let output = binary.parent().ok_or("CLI directory unavailable")?
+        .join(format!(".cli-version-{}.tmp",uuid::Uuid::new_v4()));
+    struct OutputFile(PathBuf);
+    impl Drop for OutputFile { fn drop(&mut self) { let _ = fs::remove_file(&self.0); } }
+    let _guard = OutputFile(output.clone());
+    let file = fs::OpenOptions::new().write(true).create_new(true).open(&output).map_err(|_| "CLI version output unavailable")?;
+    let mut command = crate::core::platform::command(binary);
+    command.arg("--version").stdin(Stdio::null()).stdout(file).stderr(Stdio::null());
+    #[cfg(unix)] { use std::os::unix::process::CommandExt; command.process_group(0); }
+    let mut child = command.spawn().map_err(|_| "cannot verify copied CLI")?;
+    drop(command);
+    let start = Instant::now();
+    loop {
+        match child.try_wait().map_err(|_| "CLI version status unavailable")? {
+            Some(status) => {
+                if !status.success() { return Err("CLI version command failed".into()); }
+                let mut bytes = Vec::new();
+                fs::File::open(&output).map_err(|_| "CLI version output missing")?.take(4097)
+                    .read_to_end(&mut bytes).map_err(|_| "CLI version output unreadable")?;
+                if bytes.len() > 4096 { return Err("CLI version output too large".into()); }
+                return String::from_utf8(bytes).map(|value| value.trim().to_string()).map_err(|_| "CLI version output invalid".into());
+            },
+            None => {}
+        }
+        if start.elapsed() >= timeout || fs::metadata(&output).is_ok_and(|metadata| metadata.len() > 4096) {
+            #[cfg(windows)] { let _ = crate::core::platform::command("taskkill.exe").args(["/PID", &child.id().to_string(), "/T", "/F"]).status(); }
+            #[cfg(unix)] unsafe { libc::kill(-(child.id() as i32),libc::SIGKILL); }
+            let _ = child.kill(); let _ = child.wait();
+            return Err("CLI version probe timed out or produced excessive output".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 pub fn resolve_cli_path(value: &str) -> Result<PathBuf, CliFailure> {
@@ -611,6 +677,41 @@ mod tests {
     use tempfile::{Builder, TempDir};
 
     #[test]
+    fn bundled_cli_never_selects_current_executable() {
+        let current = std::env::current_exe().unwrap();
+        let resource = tempfile::tempdir().unwrap();
+        assert_ne!(bundled_cli_source(&current, Some(resource.path())), Some(current));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_cli_alias_and_gui_images_are_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let gui = root.path().join("NUTBOOK.exe");
+        let mut bytes = vec![0u8; 256]; bytes[..2].copy_from_slice(b"MZ");
+        bytes[60..64].copy_from_slice(&128u32.to_le_bytes()); bytes[128..132].copy_from_slice(b"PE\0\0");
+        bytes[152..154].copy_from_slice(&0x20bu16.to_le_bytes()); bytes[220..222].copy_from_slice(&2u16.to_le_bytes());
+        fs::write(&gui,&bytes).unwrap();
+        assert!(bundled_cli_source(&gui,None).is_none());
+        let cli = root.path().join("nutbook-cli-bin.exe"); fs::write(&cli,&bytes).unwrap();
+        assert!(!is_console_cli_image(&cli));
+        assert!(probe_cli_version(&cli,Duration::from_millis(50)).is_err());
+        bytes[220..222].copy_from_slice(&3u16.to_le_bytes());fs::write(&cli,bytes).unwrap();
+        assert_eq!(bundled_cli_source(&gui,None),Some(cli));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_version_probe_is_bounded_and_cleans_its_output() {
+        use std::os::unix::fs::PermissionsExt;
+        let root=tempfile::tempdir().unwrap();let path=root.path().join("hang");
+        fs::write(&path,"#!/bin/sh\nsleep 20\n").unwrap();fs::set_permissions(&path,fs::Permissions::from_mode(0o755)).unwrap();
+        let start=std::time::Instant::now();assert!(probe_cli_version(&path,Duration::from_millis(100)).is_err());
+        assert!(start.elapsed()<Duration::from_secs(2));
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(),1);
+    }
+
+    #[test]
     fn runtime_app_data_dir_separates_debug_state_without_overriding_explicit_path() {
         let platform_root = PathBuf::from("/tmp/nutbook-platform-data");
         let base = platform_root.join(RELEASE_APP_IDENTIFIER);
@@ -753,7 +854,7 @@ mod tests {
         let deployed = deploy_bundled_cli(&root.path().join("app-data"), Some(&root.path().join("resources"))).expect("deploy");
         assert!(deployed.is_file());
         assert!(!deployed.parent().expect("cli parent").join(".nutbook.previous").exists());
-        assert_eq!(std::process::Command::new(deployed).arg("--version").output().expect("version").status.success(), true);
+        assert_eq!(crate::core::platform::command(deployed).arg("--version").output().expect("version").status.success(), true);
         let deployed = deploy_bundled_cli(&root.path().join("app-data"), Some(&root.path().join("resources"))).expect("upgrade existing CLI");
         assert!(deployed.is_file());
     }

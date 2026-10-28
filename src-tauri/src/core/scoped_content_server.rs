@@ -1,3 +1,7 @@
+//! Legacy loopback transport retained for boundary regression tests and its
+//! shared canonical path resolver. Production sessions use `content_resource`;
+//! application startup never reads its port registry or starts tombstones.
+//!
 //! PR C Phase 1（计划 6.3，handoff 裁决 D1=A）：scoped resource origin。
 //!
 //! 每个 HTML 内容会话一个独立 loopback 服务器实例，origin 根直接映射授权
@@ -82,7 +86,16 @@ const STREAM_CHUNK_BYTES: usize = 256 * 1024;
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 /// 单实例共享状态：accept loop 与连接线程都持有 Arc。
+static ACTIVE_CAPTURES: AtomicUsize = AtomicUsize::new(0);
+struct CaptureSlot;
+impl Drop for CaptureSlot {
+    fn drop(&mut self) { ACTIVE_CAPTURES.fetch_sub(1, Ordering::SeqCst); }
+}
+
 struct ServerShared {
+    // Browser captures use a fresh authority, never persistent port identity.
+    required_host: Option<String>,
+    _capture_slot: Option<Arc<CaptureSlot>>,
     canonical_root: PathBuf,
     shutdown: Arc<AtomicBool>,
     active_connections: AtomicUsize,
@@ -704,7 +717,29 @@ impl ScopedContentServer {
                 registry_failed("连续 128 次 bind 候选均为已登记端口身份，放弃启动".to_string())
             })?
         };
-        Self::spawn_server(canonical_root, listener, address)
+        Self::spawn_server(canonical_root, listener, address, None, None)
+    }
+
+    /// A private, job-owned HTTP transport for external Chromium processes,
+    /// which cannot dispatch Tauri protocols. Nonce Host validation preserves
+    /// origin identity even when the OS reuses a released port; no registry or
+    /// tombstones are created. The slot stays live until draining readers exit.
+    pub fn start_for_capture(root: &Path) -> Result<Self, AppError> {
+        Self::capture_on_port(root, 0)
+    }
+
+    fn capture_on_port(root: &Path, port: u16) -> Result<Self, AppError> {
+        if ACTIVE_CAPTURES.fetch_add(1, Ordering::SeqCst) >= 4 {
+            ACTIVE_CAPTURES.fetch_sub(1, Ordering::SeqCst);
+            return Err(AppError::ContentResourceUnavailable("Too many active captures; retry after another capture finishes.".into()));
+        }
+        let slot = Arc::new(CaptureSlot);
+        let root = root.canonicalize().map_err(|_| AppError::IoError)?;
+        if !root.is_dir() { return Err(AppError::InvalidParams); }
+        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|_| AppError::IoError)?;
+        let address = listener.local_addr().map_err(|_| AppError::IoError)?;
+        let authority = format!("nb-capture-{}.localhost:{}", uuid::Uuid::new_v4().simple(), address.port());
+        Self::spawn_server(root, listener, address, Some(authority), Some(slot))
     }
 
     /// 测试 seam：显式在指定端口启动，与 `start` 走**同一认领事务**（bind →
@@ -730,7 +765,7 @@ impl ScopedContentServer {
                 )));
             }
         }
-        Self::spawn_server(canonical_root, listener, address)
+        Self::spawn_server(canonical_root, listener, address, None, None)
     }
 
     /// 共用启动尾段：spawn accept worker，组装实例。
@@ -738,11 +773,14 @@ impl ScopedContentServer {
         canonical_root: PathBuf,
         listener: TcpListener,
         address: std::net::SocketAddr,
+        required_host: Option<String>,
+        capture_slot: Option<Arc<CaptureSlot>>,
     ) -> Result<Self, AppError> {
-        let origin = format!("http://127.0.0.1:{}", address.port());
+        let origin = format!("http://{}", required_host.as_deref().map(str::to_owned).unwrap_or_else(|| address.to_string()));
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(ServerShared {
+            required_host, _capture_slot: capture_slot,
             canonical_root: canonical_root.clone(),
             shutdown: Arc::clone(&shutdown),
             active_connections: AtomicUsize::new(0),
@@ -947,6 +985,15 @@ fn handle_connection(mut stream: TcpStream, shared: &ServerShared) -> Result<(),
     let Some(request_line) = request_head.lines().next() else {
         return write_simple(&mut stream, "400 Bad Request", b"invalid request");
     };
+    if let Some(authority) = &shared.required_host {
+        let hosts: Vec<_> = request_head.lines().skip(1).filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("host").then_some(value.trim())
+        }).collect();
+        if hosts.len() != 1 || !hosts[0].eq_ignore_ascii_case(authority) {
+            return write_simple(&mut stream, "403 Forbidden", b"capture authority denied");
+        }
+    }
     // R11-a：拒绝 Service Worker 注册 —— SW 脚本请求带 `Service-Worker:
     // script` 头，一律 404。scoped origin 上装不上持久拦截器，跨进程
     // 端口复用窗口没有 SW 残留可拦。
@@ -1041,6 +1088,10 @@ enum Resolved {
 }
 
 fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
+    resolve_in_root(raw_path, &shared.canonical_root, shared.max_body_bytes)
+}
+
+fn resolve_in_root(raw_path: &str, root: &Path, max_bytes: u64) -> Resolved {
     let not_found = Resolved::Simple {
         status: "404 Not Found",
         content_type: "text/plain; charset=utf-8",
@@ -1085,11 +1136,11 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
     }
 
     // 2) join root 后 canonicalize，组件级前缀比对封 symlink 逃逸。
-    let candidate = shared.canonical_root.join(&relative);
+    let candidate = root.join(&relative);
     let Ok(canonical_candidate) = candidate.canonicalize() else {
         return not_found;
     };
-    if !canonical_candidate.starts_with(&shared.canonical_root) {
+    if !canonical_candidate.starts_with(root) {
         return out_of_scope();
     }
     if canonical_candidate.is_dir() {
@@ -1104,7 +1155,7 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
         return out_of_scope();
     }
     let size = metadata.len();
-    if size > shared.max_body_bytes {
+    if size > max_bytes {
         return Resolved::Simple {
             status: "413 Payload Too Large",
             content_type: "text/plain; charset=utf-8",
@@ -1124,6 +1175,40 @@ fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
         content_type,
         size,
     }
+}
+
+/// Shared path/canonical-root policy for the native resource protocol. Reading
+/// is capped even if a file grows after metadata was checked.
+pub(crate) fn resource_response(root: &Path, path: &str, head: bool) -> tauri::http::Response<Vec<u8>> {
+    use std::io::Read;
+    let (status, mime, body, size) = match resolve_in_root(path, root, MAX_RESPONSE_BODY_BYTES) {
+        Resolved::File { path, content_type, size } => {
+            if head { (200, content_type, Vec::new(), size) }
+            else {
+                match std::fs::File::open(path).and_then(|file| {
+                    let mut body = Vec::new();
+                    file.take(MAX_RESPONSE_BODY_BYTES + 1).read_to_end(&mut body)?;
+                    Ok(body)
+                }) {
+                    Ok(body) if body.len() as u64 <= MAX_RESPONSE_BODY_BYTES => {
+                        let len = body.len() as u64; (200, content_type, body, len)
+                    }
+                    _ => (413, "text/plain", b"resource unavailable or too large".to_vec(), 32),
+                }
+            }
+        }
+        Resolved::CaptureHtml { body } => {
+            let size = body.len() as u64;
+            (200, "text/html; charset=utf-8", if head { Vec::new() } else { body }, size)
+        }
+        Resolved::Simple { status, content_type, body } => (
+            status[..3].parse::<u16>().unwrap_or(500), content_type,
+            if head { Vec::new() } else { body.to_vec() }, body.len() as u64,
+        ),
+    };
+    tauri::http::Response::builder().status(status).header("Content-Type", mime)
+        .header("Content-Length", size.to_string()).header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff").body(body).unwrap()
 }
 
 fn write_response(
@@ -1311,6 +1396,33 @@ mod tests {
     }
 
     #[test]
+    fn capture_authority_survives_port_reuse_and_rejects_escape() {
+        fn request(port: u16, host: &str, path: &str) -> String {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").unwrap();
+            let mut response = String::new(); stream.read_to_string(&mut response).unwrap(); response
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("data.txt"), "CAPTURE").unwrap();
+        let first = ScopedContentServer::start_for_capture(root.path()).unwrap();
+        let url = url::Url::parse(first.origin()).unwrap();
+        let port = url.port().unwrap();
+        let old = format!("{}:{port}", url.host_str().unwrap());
+        assert!(request(port, &old, "/data.txt").contains("CAPTURE"));
+        assert!(request(port, &format!("127.0.0.1:{port}"), "/data.txt").contains("403 Forbidden"));
+        drop(first);
+        let second = ScopedContentServer::capture_on_port(root.path(), port).unwrap();
+        assert_ne!(second.origin(), format!("http://{old}"));
+        assert!(request(port, &old, "/data.txt").contains("403 Forbidden"));
+        let new = second.origin().strip_prefix("http://").unwrap();
+        assert!(request(port, new, "/data.txt").contains("CAPTURE"));
+        assert!(request(port, new, "/../outside").contains("403 Forbidden"));
+        drop(second);
+        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    }
+
+    #[test]
     fn start_rejects_missing_root() {
         let base = temp_scope("missing");
         let result = ScopedContentServer::start(&base.join("does-not-exist"));
@@ -1354,6 +1466,7 @@ mod tests {
 
     fn test_shared(server: &ScopedContentServer) -> ServerShared {
         ServerShared {
+            required_host: None, _capture_slot: None,
             canonical_root: server.canonical_root.clone(),
             shutdown: Arc::new(AtomicBool::new(false)),
             active_connections: AtomicUsize::new(0),
