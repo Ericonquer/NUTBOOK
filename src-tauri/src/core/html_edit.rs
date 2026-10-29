@@ -1000,7 +1000,7 @@ fn apply_html_edit_changes_to_source(source: &str, library_root: &Path, artifact
             }
             HtmlEditChangeType::Text => {
                 if target.name.is_empty() || attribute_value(&source[target.open_start..target.open_end], "data-editable").as_deref() != Some("text") { return Err(AppError::EditConflict); }
-                edits.push((target.inner_start, target.inner_end, escape_html_text(change.text.as_deref().ok_or(AppError::InvalidParams)?)));
+                edits.push((target.inner_start, target.inner_end, escape_html_text(change.text.as_deref().ok_or(AppError::InvalidParams)?).replace("\r\n", "\n").replace('\n', "<br>")));
             }
             HtmlEditChangeType::RichText => {
                 if attribute_value(&source[target.open_start..target.open_end], "data-editable").as_deref() != Some("rich-text") { return Err(AppError::EditConflict); }

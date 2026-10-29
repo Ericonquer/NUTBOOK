@@ -11852,7 +11852,7 @@
               var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
               if (!element) continue;
               if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
-                element.textContent = change.text || '';
+                var fragment = document.createDocumentFragment(); String(change.text || '').replaceAll(String.fromCharCode(13), '').split(String.fromCharCode(10)).forEach(function (line, index) { if (index) fragment.append(document.createElement('br')); fragment.append(document.createTextNode(line)); }); element.replaceChildren(fragment);
               } else if ((change.type === 'rich_text' || change.type === 'rich-text') && element.getAttribute('data-editable') === 'rich-text' && isValidatedRichHtml(change.html)) {
                 var baselineTextAlign = element.getAttribute('data-nutbook-original-text-align');
                 if (!baselineTextAlign) {
@@ -13161,11 +13161,14 @@
         if (session.itemId !== itemId) return;
         if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
         cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
-        nextHtmlEditSessionGeneration();
+        const exitGeneration = nextHtmlEditSessionGeneration();
+        const exitIsCurrent = () => appState.htmlEditSessionGeneration === exitGeneration
+          && (!appState.htmlEditSession || appState.htmlEditSession.runtimeSessionId === runtimeSessionId);
         session.assetRequestEpoch += 1;
         session.activeAssetRequestId = "";
         await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId, generation, previewInstanceId: session.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
         await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+        if (!exitIsCurrent()) return;
         appState.htmlEditToolbarSyncPending = false;
         try {
           await invoke("eval_html_runtime_script_command", {
@@ -13179,25 +13182,31 @@
           });
         } catch (_) {
         }
+        if (!exitIsCurrent()) return;
         try {
           await invoke("close_html_edit_toolbar_overlay_command", { itemId });
         } catch (_) {
         }
+        if (!exitIsCurrent()) return;
         resolveHtmlEditLeaveChoice("keep", runtimeSessionId);
         closeHtmlEditLeaveConfirmOverlay(itemId);
         if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
         renderHtmlEditPresentationRail(null);
         renderHtmlEditSectionNavigationRail(null);
-        scheduleRuntimeHostSync();
         appState.htmlEditToolbarVisible = false;
         appState.htmlEditToolbarSyncPending = false;
-        // Exiting removes the editable image layer.  Reapply the sidecar to
-        // the same child runtime immediately; otherwise its revision cache
-        // incorrectly treats the just-removed read-only layer as still shown.
         appState.runtimePatchAppliedKeys.delete(itemId);
-        await applyHtmlEditPatchToRuntime(itemId).catch(() => {});
         if (reloadCommittedSource) {
-          await invoke("eval_html_runtime_script_command", { itemId, script: "window.location.reload();" }).catch(() => {});
+          // The host owns the return location. Recreate the child through the
+          // existing lifecycle so its initialization receives the captured state.
+          cleanupRuntimeHostSync();
+          await hideRuntimeSessionSurfaces(itemId, { force: true });
+          if (!exitIsCurrent()) return;
+          if (appState.activeRuntimeHostId === itemId) {
+            appState.activeRuntimeHostId = null;
+            appState.runtimeHostLastBoundsKey = null;
+          }
+          scheduleRuntimeHostSync();
         }
         refocusActiveRuntimeHost(itemId);
       }

@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const browser=await chromium.launch({headless:true});
+try {
+ const page=await browser.newPage({viewport:{width:1200,height:800}});
+ await page.goto(pathToFileURL(resolve('tests/fixtures/experience-bugfixes/editable.html')).href);
+ await page.evaluate(()=>window.__TAURI_INTERNALS__={invoke:async()=>true});
+ await page.evaluate(()=>{const n=document.createElement('div');n.dataset.id='hidden';n.dataset.editable='text';n.style.display='none';n.innerHTML='one<br>two';document.body.append(n);});
+ await page.evaluate(()=>{const p=document.createElement('p');p.dataset.id='paragraph';p.dataset.editable='text';p.innerHTML='第一行<br>';document.body.append(p);});
+ await page.addScriptTag({path:resolve('dist/assets/html-edit-runtime.js')});
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.enter({itemId:1,runtimeSessionId:'experience',generation:1,inlineToolbar:false,locale:'zh-CN'}));
+ await page.locator('[data-id="hidden"]').evaluate(n=>{n.style.display='block';n.dispatchEvent(new Event('input',{bubbles:true}));});
+ assert.equal(await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot().dirty),false,'revealing a saved multiline page must not create an edit');
+ const paragraph=page.locator('[data-id="paragraph"]');await paragraph.focus();await paragraph.evaluate(n=>{const r=document.createRange();r.setStart(n.firstChild,n.firstChild.length);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);});await page.keyboard.press('Enter');
+ assert.equal(await paragraph.evaluate(n=>getSelection().getRangeAt(0).startContainer===n),true,'plain paragraph keeps the browser caret after the new line instead of rewriting it into the preceding text');await page.keyboard.type('NEXT');assert.ok((await paragraph.innerText()).includes('第一行\nNEXT'));
+ const body=page.locator('[data-id="body"]');await body.focus();await body.evaluate(n=>{const r=document.createRange();r.selectNodeContents(n);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r);});await page.keyboard.press('Enter');await page.keyboard.type('second');
+ const text=await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.getSnapshot().changes.body.text);
+ assert.equal(text,'第一行\nsecond','plain text snapshot preserves Enter');
+ await page.keyboard.press('Meta+z');await page.keyboard.press('Meta+Shift+z');
+ assert.equal(await body.innerText(),'第一行\nsecond','redo preserves line break');
+ const actions=page.locator('.nutbook-html-edit-image-actions');await page.mouse.move(1100,10);
+ assert.equal(await actions.evaluate(n=>getComputedStyle(n).opacity),'0');
+ await page.locator('[data-id="image"]').hover();assert.equal(await actions.evaluate(n=>getComputedStyle(n).opacity),'1');
+ await actions.locator('button').first().hover();assert.equal(await actions.evaluate(n=>getComputedStyle(n).opacity),'1','moving to image controls keeps them available');
+ await page.mouse.move(1100,10);assert.equal(await actions.evaluate(n=>getComputedStyle(n).opacity),'0');
+ await actions.locator('button').first().focus();assert.equal(await actions.evaluate(n=>getComputedStyle(n).opacity),'1','keyboard focus exposes controls');
+ await body.focus();assert.equal(await actions.evaluate(n=>getComputedStyle(n).opacity),'0','moving keyboard focus out hides controls');
+ await page.evaluate(()=>window.__NUTBOOK_HTML_EDIT__.exit({runtimeSessionId:'experience',discard:true}));
+ assert.equal(await body.innerText(),'第一行');assert.equal(await actions.count(),0);
+ console.log('HTML multiline snapshot/redo/discard and image hover/focus passed (browser, not native GUI)');
+}finally{await browser.close();}
