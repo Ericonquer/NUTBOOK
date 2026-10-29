@@ -25280,7 +25280,7 @@ if (!chipTipController) {
               : `${t("markdown.exportHtmlSuccessPrefix")}${tab.item.fileName}`,
             warningCount > 0 ? "warn" : "ok"
           );
-          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+          showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
         } catch (error) {
           appState.exportInProgress = false;
           const code = error?.code || error?.error?.code || "";
@@ -25328,7 +25328,7 @@ if (!chipTipController) {
           renderMarkdownExportDialog();
           const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
           setStatus(`${t("markdown.exportPdfSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
-          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+          showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
         } catch (error) {
           appState.exportInProgress = false;
           const code = error?.code || error?.error?.code || "";
@@ -25406,7 +25406,7 @@ if (!chipTipController) {
           hideExportProgress();
           const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
           setStatus(`${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
-          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+          showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
         } catch (error) {
           hideExportProgress();
           const code = error?.code || error?.error?.code || "";
@@ -25454,7 +25454,7 @@ if (!chipTipController) {
           const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
           const splitSuccessMessage = response?.partCount > 1 ? formatTranslation("markdown.exportLongImageSplitSuccess", { count: response.partCount }) : "";
           setStatus(splitSuccessMessage || `${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
-          showToast(splitSuccessMessage || (warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess")));
+          showToast(splitSuccessMessage || (warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess")));
         } catch (error) {
           if (split) hideExportProgress();
           appState.exportInProgress = false;
