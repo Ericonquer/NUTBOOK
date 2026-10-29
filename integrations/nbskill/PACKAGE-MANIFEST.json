@@ -114,8 +114,8 @@
     },
     {
       "path": "templates/motion-presentation.html",
-      "sha256": "54231ca1380a488fe7170c34c87bc405413a4af414d8a804221d6efc941e3e02",
-      "bytes": 363697
+      "sha256": "cfff92c31228412b8f11ee7b27ef83c2c66216176e651c752d17ee679d1a7741",
+      "bytes": 363801
     },
     {
       "path": "templates/presentation-mark.svg",
@@ -124,8 +124,8 @@
     },
     {
       "path": "templates/presentation.html",
-      "sha256": "54231ca1380a488fe7170c34c87bc405413a4af414d8a804221d6efc941e3e02",
-      "bytes": 363697
+      "sha256": "cfff92c31228412b8f11ee7b27ef83c2c66216176e651c752d17ee679d1a7741",
+      "bytes": 363801
     },
     {
       "path": "templates/presentation.source.html",

@@ -6977,9 +6977,9 @@ void main(){vec2 uv=gl_FragCoord.xy/resolution-.5;uv.x*=resolution.x/resolution.
         if (!result.applied) return;
         timingPreview = false;
         revision++;
-        preview = true;
-        previewProgress = 0.45;
-        commit(result.config);
+        preview = false;
+        previewProgress = 0;
+        if (commit(result.config)) void replay({ selectedOnly: true });
         if (selectedTemplateId === "text.true-focus") {
           const a = action(), pick = shadow.querySelector("[data-pick-focus]");
           if (pick && !pick.disabled && !(a?.params.focusEnd > a?.params.focusStart)) {
@@ -7002,9 +7002,9 @@ void main(){vec2 uv=gl_FragCoord.xy/resolution-.5;uv.x*=resolution.x/resolution.
         }
         if (!applied) return;
         revision++;
-        preview = true;
-        previewProgress = 0.45;
-        commit(next);
+        preview = false;
+        previewProgress = 0;
+        if (commit(next)) void replay({ wholePage: true });
         shadow.querySelector("[data-status]").textContent = `\u5DF2\u5957\u7528\u5230 ${applied} \u9875\uFF0C\u8DF3\u8FC7 ${config.pages.length - applied} \u9875\uFF1B\u4F7F\u7528\u5DE5\u5177\u680F\u4FDD\u5B58\u3002`;
       };
       shadow.querySelector("[data-remove]").onclick = () => {
@@ -7391,6 +7391,7 @@ void main(){vec2 uv=gl_FragCoord.xy/resolution-.5;uv.x*=resolution.x/resolution.
     };
     window.addEventListener("resize", resize);
     const api = {
+      autoPlayOnApply: true,
       setLocale(value) {
         selects?.close();
         setMotionUiLocale(value);
