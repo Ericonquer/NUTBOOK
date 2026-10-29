@@ -29,6 +29,7 @@ try {
     const rect = element.getBoundingClientRect();
     return { width: rect.width, height: rect.height, objectFit: getComputedStyle(element).objectFit, transform: getComputedStyle(element).transform };
   });
+  await cropTarget.hover();
   await page.locator('.nutbook-html-edit-image-actions button[data-tooltip="裁切显示"]').click();
   await page.waitForTimeout(20);
   const enteredCrop = await page.evaluate(() => {
@@ -83,6 +84,7 @@ try {
   assert.equal(committedCrop.change.leftPermille, committedCrop.scale, "the persisted image patch must carry the resized crop scale");
   assert.equal(committedCrop.y, 0, "a source image aligned to the top edge must keep the valid zero focal coordinate");
   assert.equal(committedCrop.change.widthPermille, 0, "serializing a top-aligned source crop must not replace zero with the center fallback");
+  await cropTarget.hover();
   await page.locator('.nutbook-html-edit-image-actions button[data-tooltip="裁切显示"]').click();
   assert.equal(await page.locator('.nutbook-html-edit-source-crop-overlay').count(), 1, "an ordinary image must enter crop mode again after completing a prior crop");
   await page.locator('.nutbook-html-edit-crop-toolbar button[data-action="cancel"]').click();
@@ -92,10 +94,12 @@ try {
     for (const name of ["image", "model", "scale", "x", "y"]) element.removeAttribute(`data-nutbook-crop-${name}`);
     element.setAttribute("style", "position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;margin:0;object-fit:contain;transform-origin:50% 50%;transform:translate(-2.528%,21.053%) scale(1.516)");
   });
+  await cropTarget.hover();
   await page.locator('.nutbook-html-edit-image-actions button[data-tooltip="裁切显示"]').click();
   await page.locator('.nutbook-html-edit-crop-toolbar button[data-action="done"]').click();
   assert.equal(await cropTarget.getAttribute("data-nutbook-crop-model"), "v2", "completing attribute-less legacy markup must migrate it to cover-based v2 instead of reviving contain");
   assert.equal(await cropTarget.evaluate((element) => getComputedStyle(element).objectFit), "cover", "legacy contain markup must not return after the crop is completed");
+  await cropTarget.hover();
   await page.locator('.nutbook-html-edit-image-actions button[data-tooltip="裁切显示"]').click();
   const zeroZoomContent = await page.locator('.nutbook-html-edit-source-crop-overlay [data-crop-content]').boundingBox();
   await page.mouse.move(zeroZoomContent.x + zeroZoomContent.width / 2, zeroZoomContent.y + zeroZoomContent.height / 2);
@@ -121,6 +125,7 @@ try {
   await page.waitForTimeout(30);
   const actionAfterScroll = await actionPosition();
   assert.deepEqual({ actionTop: actionAfterScroll.actionTop, actionLeft: actionAfterScroll.actionLeft }, { actionTop: actionAfterScroll.imageBottom + 7, actionLeft: actionAfterScroll.imageLeft }, "replacement controls must follow the current image frame while scrolling");
+  await cropTarget.hover();
   await page.locator('.nutbook-html-edit-image-actions button[data-tooltip="裁切显示"]').click();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(30);

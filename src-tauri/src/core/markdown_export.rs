@@ -2029,7 +2029,7 @@ fn plan_presentation_slides(
         title: document.title.clone(),
     }];
     if preferences.density == PresentationDensity::Master {
-        plan_master_slides(document, preferences, &mut slides);
+        plan_master_slides(document, preferences, source_dir, &mut slides);
     } else {
         plan_landscape_slides(document, preferences, source_dir, &mut slides);
         compact_report_slides(&mut slides, preferences);
@@ -2391,6 +2391,7 @@ fn extract_primary_number(value: &str) -> Option<String> {
 fn plan_master_slides(
     document: &PresentationDocument,
     _preferences: &PresentationHtmlExportPreferences,
+    source_dir: &Path,
     slides: &mut Vec<PresentationSlidePlan>,
 ) {
     for chapter in &document.chapters {
@@ -2404,6 +2405,17 @@ fn plan_master_slides(
                     title,
                     note,
                 });
+            }
+            for block in &topic.blocks {
+                if let PresentationBlock::Image(markdown) = block {
+                    slides.push(PresentationSlidePlan::Figure {
+                        chapter: chapter.title.clone(),
+                        title: topic.title.clone(),
+                        markdown: markdown.clone(),
+                        layout: figure_layout_for_markdown(markdown, source_dir),
+                        aside_markdown: None,
+                    });
+                }
             }
         }
     }
@@ -6119,6 +6131,26 @@ mod tests {
         assert!(wide.html.contains(r#"data-card-count="6""#));
         assert!(classic.html.contains(r#"data-card-count="3""#));
         assert!(master.html.contains(r#"data-density="master""#));
+    }
+
+    #[test]
+    fn master_plan_retains_images_in_source_order() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("first.svg"), r#"<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><rect width="240" height="160"/></svg>"#).unwrap();
+        fs::write(root.path().join("second.svg"), r#"<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240"><circle cx="80" cy="80" r="40"/></svg>"#).unwrap();
+        let input = MarkdownHtmlExportInput {
+            title: "Images".into(), source_file: "images.md".into(),
+            source_path: root.path().join("images.md"),
+            markdown: "# Deck\n\n## Chapter\n\n### Topic\n\nHello\n\n![first](first.svg)\n\n![second](second.svg)\n\n![missing](missing.png)".into(),
+            generated_at: String::new(), template_html: fallback_presentation_light_template().into(),
+            preferences: MarkdownHtmlExportPreferences::default(),
+        };
+        let output = render_presentation_html(input, PresentationHtmlExportPreferences {
+            aspect_ratio: "16-9".into(), density: PresentationDensity::Master, output_kind: "static".into(),
+        }).expect("master export");
+        assert_eq!(output.html.matches("data:image/svg+xml;base64,").count(), 2, "real local images are embedded for offline export");
+        assert!(output.html.find("alt=\"first\"") < output.html.find("alt=\"second\""));
+        assert_eq!(output.warnings.len(), 1, "missing images must produce warnings instead of being silently dropped");
     }
 
     #[test]

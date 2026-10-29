@@ -420,6 +420,7 @@ impl AppState {
         library_id: i64,
         watcher: RecommendedWatcher,
     ) -> Result<bool, AppError> {
+        if self.database.folder_import_pending(library_id)? { return Ok(false); }
         let libraries = self.list_libraries()?;
         if libraries.iter().all(|library| library.id != library_id) {
             return Err(AppError::LibraryNotFound);
@@ -451,10 +452,11 @@ impl AppState {
     ///   一次启动 catch-up，重复调用不重扫已完成来源），worker 持续 drain。
     pub fn sync_library_watchers(&self) -> Result<SyncLibraryWatchersResponse, AppError> {
         let libraries = self.list_libraries()?;
+        let incomplete: HashSet<i64> = self.database.list_library_sync_states()?.into_iter().filter(|(_,state)|state.starts_with("importing:")||state=="import_paused").map(|(id,_)|id).collect();
         let expected: Vec<Library> = libraries
             .into_iter()
             .filter(|library| {
-                library.path_state == "valid"
+                library.path_state == "valid" && !incomplete.contains(&library.id)
                     && (library.source_kind == "folder" || library.source_kind == "file")
             })
             .collect();

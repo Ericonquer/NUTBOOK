@@ -17,7 +17,7 @@ use std::{
     fs,
     path::Path,
     sync::{
-        atomic::AtomicU64,
+        atomic::{AtomicU64, AtomicBool},
         {Arc, Mutex, OnceLock},
     },
 };
@@ -384,6 +384,7 @@ fn reconfirmation_response(
     );
     evict_finished_ops();
     FolderIngestResponse {
+        committed_count: 0, failed_count: 0,
         library: None,
         created_count: 0,
         merged_item_count: 0,
@@ -402,6 +403,7 @@ fn reconfirmation_response(
 fn cancelled_response(mut summary: FolderPreflightSummary) -> FolderIngestResponse {
     summary.cancelled = true;
     FolderIngestResponse {
+        committed_count: 0, failed_count: 0,
         library: None,
         created_count: 0,
         merged_item_count: 0,
@@ -439,6 +441,14 @@ fn empty_summary(root_path: &str) -> FolderPreflightSummary {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IngestOpSnapshot {
+    pub committed_count: u64,
+    pub failed_count: u64,
+    pub library: Option<crate::models::Library>,
+    pub cancel_requested: bool,
+    pub processed: u64,
+    pub total: u64,
+    pub committing: bool,
+    pub batch_size: u64,
     pub op_id: u64,
     /// running | done | failed
     pub status: String,
@@ -467,6 +477,13 @@ pub struct IngestOpRecord {
 /// - 进入 Committing 后提交不再被打断（短事务保证原子），先受理的取消
 ///   一定拦截在提交之前。
 pub struct IngestCommitGate {
+    committed: AtomicU64,
+    failed: AtomicU64,
+    library: Mutex<Option<crate::models::Library>>,
+    streaming: AtomicBool,
+    cancel_after_batch: AtomicBool,
+    processed: AtomicU64,
+    total: AtomicU64,
     state: Mutex<GateState>,
 }
 
@@ -482,6 +499,10 @@ impl IngestCommitGate {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(GateState::Open),
+            committed: AtomicU64::new(0), failed: AtomicU64::new(0), library: Mutex::new(None),
+            streaming: AtomicBool::new(false), cancel_after_batch: AtomicBool::new(false),
+            processed: AtomicU64::new(0),
+            total: AtomicU64::new(0),
         }
     }
 
@@ -490,9 +511,15 @@ impl IngestCommitGate {
         if *state == GateState::Open {
             *state = GateState::CancelRequested;
             true
-        } else {
-            false
-        }
+        } else if *state == GateState::Committing && self.streaming.load(std::sync::atomic::Ordering::Relaxed) {
+            self.cancel_after_batch.store(true, std::sync::atomic::Ordering::Relaxed);
+            true
+        } else { false }
+    }
+
+    fn end_batch(&self) {
+        let mut state = self.state.lock().expect("ingest gate poisoned");
+        if *state == GateState::Committing { *state = if self.cancel_after_batch.load(std::sync::atomic::Ordering::Relaxed) {GateState::CancelRequested} else {GateState::Open}; }
     }
 
     /// 必须在持有 DB 写锁后调用。返回 false = 已有取消在先，禁止提交。
@@ -507,13 +534,13 @@ impl IngestCommitGate {
     }
 
     pub fn is_cancel_requested(&self) -> bool {
-        *self.state.lock().expect("ingest gate poisoned") == GateState::CancelRequested
+        *self.state.lock().expect("ingest gate poisoned") == GateState::CancelRequested || self.cancel_after_batch.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// op 终态登记后关闭：之后的取消请求如实返回未受理。
     pub fn finish(&self) {
         let mut state = self.state.lock().expect("ingest gate poisoned");
-        if *state != GateState::Committing {
+        if *state != GateState::Committing || self.streaming.load(std::sync::atomic::Ordering::Relaxed) {
             *state = GateState::Closed;
         }
     }
@@ -589,7 +616,17 @@ pub fn ingest_op_snapshot(op_id: u64) -> Option<IngestOpSnapshot> {
         ),
         IngestOpStatus::Failed(error) => ("failed".to_string(), None, Some(error.clone())),
     };
+    let committing = *op.gate.state.lock().ok()? == GateState::Committing;
+    let library = op.gate.library.lock().ok()?.clone();
     Some(IngestOpSnapshot {
+        committed_count: op.gate.committed.load(std::sync::atomic::Ordering::Relaxed),
+        failed_count: op.gate.failed.load(std::sync::atomic::Ordering::Relaxed),
+        library,
+        cancel_requested: op.gate.is_cancel_requested(),
+        processed: op.gate.processed.load(std::sync::atomic::Ordering::Relaxed),
+        total: op.gate.total.load(std::sync::atomic::Ordering::Relaxed),
+        committing,
+        batch_size: 50,
         op_id,
         status,
         response,
@@ -675,10 +712,21 @@ pub fn ingest_folder(
 /// 逐候选 → 拿写锁后 begin_commit 裁决」。最终提交边界 = **持有 DB 写锁
 /// 后**经 `IngestCommitGate::begin_commit` 原子裁决——先受理的取消拦截在
 /// 提交之前；先进入 Committing 的提交不再被打断，取消命令返回未受理。
-pub fn ingest_folder_with_cancel(
-    state: &AppState,
-    request: &FolderIngestRequest,
-    gate: Option<Arc<IngestCommitGate>>,
+pub fn ingest_folder_with_cancel(state: &AppState, request: &FolderIngestRequest, gate: Option<Arc<IngestCommitGate>>) -> Result<FolderIngestResponse, AppError> {
+    ingest_folder_impl(state, request, gate, None)
+}
+
+pub fn ingest_folder_in_batches(state: &AppState, request: &FolderIngestRequest, gate: Option<Arc<IngestCommitGate>>) -> Result<FolderIngestResponse, AppError> {
+    ingest_folder_in_batches_observed(state, request, gate, &mut |_, _| {})
+}
+
+pub fn ingest_folder_in_batches_observed(state: &AppState, request: &FolderIngestRequest, gate: Option<Arc<IngestCommitGate>>, observer: &mut dyn FnMut(&crate::models::Library, u64)) -> Result<FolderIngestResponse, AppError> {
+    ingest_folder_impl(state, request, gate, Some(observer))
+}
+
+fn ingest_folder_impl(
+    state: &AppState, request: &FolderIngestRequest, gate: Option<Arc<IngestCommitGate>>,
+    observer: Option<&mut dyn FnMut(&crate::models::Library, u64)>,
 ) -> Result<FolderIngestResponse, AppError> {
     let is_cancelled =
         || gate.as_ref().is_some_and(|gate| gate.is_cancel_requested());
@@ -773,6 +821,8 @@ pub fn ingest_folder_with_cancel(
         return Ok(reconfirmation_response(summary, &root_key));
     }
 
+    if let Some(observer) = observer { return ingest_confirmed_batches(state, &root_path, &preflight.candidates, summary, gate.clone(), observer); }
+
     // 4) 事务外内容准备：读取 / 解析 / 渲染；读失败按 recoverable 跳过。
     let ignored_paths: HashSet<String> = state
         .database
@@ -782,7 +832,10 @@ pub fn ingest_folder_with_cancel(
     let mut prepared: Vec<PreparedIngestCandidate> = Vec::new();
     let mut ignored_skip_count = 0_u64;
     let mut content_failures = 0_u64;
-    for candidate in &preflight.candidates {
+    if let Some(gate) = &gate { gate.total.store(preflight.candidates.len() as u64, std::sync::atomic::Ordering::Relaxed); }
+    for (index, candidate) in preflight.candidates.iter().enumerate() {
+        if index % 50 == 0 { std::thread::yield_now(); }
+        if let Some(gate) = &gate { gate.processed.store(index as u64, std::sync::atomic::Ordering::Relaxed); }
         // 取消检查点 1：内容准备逐候选检查（大目录可及时退出）。
         if is_cancelled() {
             return Ok(cancelled_response(summary));
@@ -797,6 +850,7 @@ pub fn ingest_folder_with_cancel(
             None => content_failures += 1,
         }
     }
+    if let Some(gate) = &gate { gate.processed.store(preflight.candidates.len() as u64, std::sync::atomic::Ordering::Relaxed); }
     if content_failures > 0 {
         // 提交前完整复核：确认后仍有候选读不出来 → 以最新计数要求重新确认，
         // 不允许「确认 5 个、悄悄接入 4 个」。本次预检登记为新 op，响应携带
@@ -875,6 +929,7 @@ pub fn ingest_folder_with_cancel(
     }
 
     Ok(FolderIngestResponse {
+        committed_count: prepared.len() as u64, failed_count: 0,
         library: db_result.library,
         created_count: db_result.created_count,
         merged_item_count: db_result.merged_item_count,
@@ -886,6 +941,97 @@ pub fn ingest_folder_with_cancel(
         cancelled: false,
         summary,
     })
+}
+
+static ACTIVE_BATCH_IMPORTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+struct ActiveBatchImport(String);
+impl Drop for ActiveBatchImport {
+    fn drop(&mut self) { if let Ok(mut roots)=ACTIVE_BATCH_IMPORTS.get_or_init(||Mutex::new(HashSet::new())).lock(){roots.remove(&self.0);} }
+}
+struct PartialFolderImport {
+    database: Database, library_id: Option<i64>, token: String, root_path: String, completed: bool,
+}
+impl Drop for PartialFolderImport {
+    fn drop(&mut self) { if !self.completed { if let Some(id)=self.library_id { let _=self.database.finish_folder_import(id,&self.token,"import_paused",&self.root_path); } } }
+}
+
+fn ingest_confirmed_batches(
+    state: &AppState, root_path: &str, candidates: &[PreflightCandidate], summary: FolderPreflightSummary,
+    gate: Option<Arc<IngestCommitGate>>, observer: &mut dyn FnMut(&crate::models::Library,u64),
+) -> Result<FolderIngestResponse,AppError> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let root_key=format!("{}|{}",state.database.path().display(),fs::canonicalize(root_path).map_err(|_|AppError::InvalidParams)?.display());
+    if !ACTIVE_BATCH_IMPORTS.get_or_init(||Mutex::new(HashSet::new())).lock().map_err(|_|AppError::InternalError)?.insert(root_key.clone()) {return Err(AppError::EditConflict);}
+    let _active=ActiveBatchImport(root_key);
+    let gate=gate.unwrap_or_else(||Arc::new(IngestCommitGate::new()));
+    gate.streaming.store(true,Relaxed);gate.total.store(candidates.len() as u64,Relaxed);
+    let mut durable=PartialFolderImport {database:state.database.clone(),library_id:None,token:format!("importing:{}",uuid::Uuid::new_v4()),root_path:root_path.to_owned(),completed:false};
+    let canonical=fs::canonicalize(root_path).map_err(|_|AppError::InvalidParams)?;
+    for library in state.list_libraries()? {
+        if fs::canonicalize(&library.root_path).ok().as_ref()==Some(&canonical) && state.database.folder_import_pending(library.id)? {
+            state.scan_coordinator().bump_generation(library.id);
+            state.unwatch_library(library.id)?;
+        }
+    }
+    let ignored:HashSet<String>=state.database.list_ignored_paths()?.into_iter().collect();
+    let mut response=FolderIngestResponse {committed_count:0,failed_count:0,library:None,created_count:0,merged_item_count:0,merged_library_count:0,preserved_single_file_count:0,ignored_skip_count:0,waiting_sync:false,needs_reconfirmation:false,cancelled:false,summary};
+    let mut processed=0;
+    let chunks=candidates.chunks(50).chain(std::iter::once(&candidates[0..0]).take(if candidates.is_empty(){1}else{0}));
+    for batch in chunks {
+        if gate.is_cancel_requested() {break;}
+        let mut prepared=Vec::with_capacity(batch.len());
+        for candidate in batch {
+            if gate.is_cancel_requested(){break;}
+            if ignored.contains(&candidate.path){response.ignored_skip_count+=1;}
+            else {
+                match prepare_candidate(root_path,candidate).filter(|item|item.content.as_ref().is_some_and(|c|c.file_hash==candidate.content_hash)) {
+                    Some(item)=>prepared.push(item),
+                    None=>{response.failed_count+=1;gate.failed.store(response.failed_count,Relaxed);}
+                }
+            }
+            processed+=1;gate.processed.store(processed,Relaxed);
+        }
+        if gate.is_cancel_requested(){break;}
+        if prepared.is_empty() && (response.library.is_some() || response.failed_count>0){continue;}
+        let lock=state.scan_coordinator().db_write_lock();
+        let guard=lock.lock().map_err(|_|AppError::InternalError)?;
+        if !gate.begin_commit(){drop(guard);break;}
+        for item in &prepared {
+            let metadata=fs::metadata(&item.file_path).map_err(|_|AppError::EditConflict)?;
+            if metadata.len()!=item.snapshot_size as u64 || crate::core::document::file_modified_at_string(&metadata)?!=item.snapshot_mtime {return Err(AppError::EditConflict);}
+        }
+        let merge_ids=merge_library_ids_for(&state.database,root_path,batch)?;
+        for id in &merge_ids {state.scan_coordinator().bump_generation(*id);let _=state.unwatch_library(*id);}
+        let result=state.database.ingest_folder_batch(root_path,&prepared,&merge_ids,&current_timestamp(),&durable.token,response.library.is_none(),durable.library_id);
+        drop(guard);gate.end_batch();restore_frozen_watchers(state,&merge_ids);
+        let result=result?;
+        if result.already_existing {
+            response.library=result.library;durable.completed=true;return Ok(response);
+        }
+        response.library=result.library;
+        response.created_count+=result.created_count;response.merged_item_count+=result.merged_item_count;response.merged_library_count+=result.merged_library_count;response.preserved_single_file_count=result.preserved_single_file_count;
+        response.committed_count+=prepared.len() as u64;
+        if let Some(library)=response.library.as_ref(){
+            durable.library_id=Some(library.id);
+            *gate.library.lock().map_err(|_|AppError::InternalError)?=Some(library.clone());
+            gate.committed.store(response.committed_count,Relaxed);
+            observer(library,response.committed_count);
+        }
+    }
+    response.cancelled=gate.is_cancel_requested() && response.committed_count+response.ignored_skip_count+response.failed_count<candidates.len() as u64;
+    response.summary.cancelled=response.cancelled;
+    response.summary.skipped_count+=response.failed_count;
+    if !response.cancelled && response.failed_count==0 {
+        if let Some(library)=response.library.as_ref(){
+            state.database.finish_folder_import(library.id,&durable.token,"ok",root_path)?;
+            durable.completed=true;
+            match build_library_watcher(state.scan_coordinator().clone(),library.clone()).and_then(|watcher|state.watch_library(library.id,watcher)) {
+                Ok(_)=>{},Err(_)=>response.waiting_sync=mark_waiting_sync(&state.database,library.id),
+            }
+        }else{durable.completed=true;}
+    }
+    consume_ops_for_path(&snapshot_key(root_path));
+    Ok(response)
 }
 
 /// 事务失败后恢复被冻结的 single-file watcher（best-effort；watcher 事件批次
@@ -1008,6 +1154,19 @@ mod tests {
         preflight_folder, PreflightCandidate, PreflightProgress, TraversalPolicy,
     };
     use std::{fs, path::PathBuf};
+
+    #[test]
+    fn streaming_cancel_during_commit_stops_next_batch() {
+        let gate = super::IngestCommitGate::new();
+        gate.streaming.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(gate.begin_commit());
+        assert!(gate.request_cancel());
+        gate.end_batch();
+        assert!(gate.is_cancel_requested());
+        assert!(!gate.begin_commit());
+        gate.finish();
+        assert!(!gate.request_cancel());
+    }
 
     fn unique_dir(tag: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()

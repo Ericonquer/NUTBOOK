@@ -900,7 +900,7 @@ const htmlEditExit = indexHtml.match(/async function exitHtmlEditMode\(itemOrOpt
 assert.ok(htmlEditExit, "HTML edit exit flow should exist");
 assert.match(
   htmlEditExit[1],
-  /appState\.htmlEditToolbarVisible = false;[\s\S]*runtimePatchAppliedKeys\.delete\(itemId\);[\s\S]*await applyHtmlEditPatchToRuntime\(itemId\)[\s\S]*refocusActiveRuntimeHost\(itemId\);/,
+  /appState\.htmlEditToolbarVisible = false;[\s\S]*runtimePatchAppliedKeys\.delete\(itemId\);[\s\S]*await hideRuntimeSessionSurfaces\(itemId,[\s\S]*scheduleRuntimeHostSync\(\);[\s\S]*refocusActiveRuntimeHost\(itemId\);/,
   "leaving HTML edit mode must recreate the removed readonly image layer before returning focus"
 );
 
@@ -1133,7 +1133,7 @@ assert.match(
 );
 assert.match(
   indexHtml,
-  /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.textContent[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
+  /function htmlEditReadonlyPatchScript\(patch, runtimeAssetUrls, surfaceToken\) \{[\s\S]*?change\.type === 'text'[\s\S]*?element\.replaceChildren[\s\S]*?change\.type === 'rich_text'[\s\S]*?element\.innerHTML/,
   "readonly runtime patching must keep text and validated rich-text fields separate"
 );
 assert.match(

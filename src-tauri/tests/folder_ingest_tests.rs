@@ -518,3 +518,126 @@ fn empty_incomplete_batch_must_still_schedule_catchup() {
     let _ = fs::remove_dir_all(staged);
     let _ = fs::remove_dir_all(base);
 }
+
+#[test]
+fn thousand_file_ingest_reports_progress_and_keeps_all_items() {
+    use nutbook_backend::core::folder_ingest::{register_ingest_op, ingest_op_gate, ingest_op_snapshot, finish_ingest_op};
+    let base = unique_dir("thousand");
+    let root = base.join("files");
+    fs::create_dir_all(&root).unwrap();
+    for index in 0..1000 {
+        let (ext, body) = if index % 2 == 0 { ("md", format!("# Note {index}\n\nthousand-token-{index}")) }
+            else { ("html", format!("<!doctype html><title>Note {index}</title><p>thousand-token-{index}</p>")) };
+        fs::write(root.join(format!("note-{index:04}.{ext}")), body).unwrap();
+    }
+    let database = Database::new(&base.join("test.sqlite3")).unwrap();
+    let summary = preflight_folder_ingest(&database, root.to_str().unwrap()).unwrap();
+    assert_eq!(summary.candidate_count, 1000);
+    let state = AppState::new(database.clone(), base.clone());
+    let op = register_ingest_op();
+    let request = FolderIngestRequest { root_path: root.to_string_lossy().into_owned(), confirmed_candidate_count: Some(1000), preflight_op_id: Some(summary.op_id) };
+    let start = Instant::now();
+    let result = ingest_folder_with_cancel(&state, &request, ingest_op_gate(op)).unwrap();
+    assert!(!result.cancelled);
+    assert!(!result.needs_reconfirmation);
+    assert_eq!(database.list_items(&ListItemsQuery::default()).unwrap().total, 1000);
+    let progress = ingest_op_snapshot(op).unwrap();
+    assert_eq!((progress.processed, progress.total, progress.batch_size), (1000,1000,50));
+    eprintln!("1000 mixed files core ingest: {:?}; fixture {}", start.elapsed(), root.display());
+    finish_ingest_op(op, Ok(result));
+    assert_eq!(ingest_op_snapshot(op).unwrap().status, "done");
+    drop(state);
+    drop(database);
+    let _ = fs::remove_dir_all(base);
+}
+
+fn streaming_fixture(count: usize, tag: &str) -> (std::path::PathBuf, std::path::PathBuf, Database, Arc<AppState>, FolderIngestRequest) {
+    let base=unique_dir(tag);let root=base.join("files");fs::create_dir_all(&root).unwrap();
+    for index in 0..count {fs::write(root.join(format!("note-{index:04}.md")),format!("# Note {index}\n\nstream-token-{index}")).unwrap();}
+    let database=Database::new(base.join("state.sqlite3")).unwrap();let state=Arc::new(AppState::new(database.clone(),base.clone()));
+    let summary=preflight_folder_ingest(&database,root.to_str().unwrap()).unwrap();
+    let request=FolderIngestRequest{root_path:root.to_string_lossy().into_owned(),confirmed_candidate_count:Some(summary.candidate_count),preflight_op_id:Some(summary.op_id)};
+    (base,root,database,state,request)
+}
+
+#[test]
+fn streaming_first_batch_is_usable_cancel_survives_restart_and_scan_resumes_without_duplicates() {
+    use nutbook_backend::core::folder_ingest::{ingest_folder_in_batches_observed,ingest_folder_in_batches,register_ingest_op,ingest_op_gate,ingest_op_snapshot,finish_ingest_op};
+    let (base,root,database,state,request)=streaming_fixture(120,"stream-restart");
+    let op=register_ingest_op();let gate=ingest_op_gate(op).unwrap();
+    let (ready_tx,ready_rx)=std::sync::mpsc::channel();let (continue_tx,continue_rx)=std::sync::mpsc::channel();
+    let worker_state=state.clone();let worker_gate=gate.clone();
+    let worker=thread::spawn(move||{
+        let mut first=true;
+        let result=ingest_folder_in_batches_observed(&worker_state,&request,Some(worker_gate),&mut |library,count|{
+            if first {first=false;ready_tx.send((library.id,count)).unwrap();continue_rx.recv_timeout(Duration::from_secs(10)).unwrap();}
+        }).unwrap();finish_ingest_op(op,Ok(result.clone()));result
+    });
+    let (library_id,committed)=ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();assert_eq!(committed,50);
+    assert_eq!(ingest_op_snapshot(op).unwrap().status,"running");
+    let items=database.list_items(&ListItemsQuery::default()).unwrap();assert_eq!(items.total,50);
+    let first_id=items.items[0].id;let first_path=items.items[0].file_path.clone();
+    assert!(fs::read_to_string(&first_path).unwrap().contains("stream-token-"));
+    assert_eq!(keyword_total(&database,"stream-token"),50,"committed files are searchable before import finishes");
+    database.set_item_favorite(first_id,true).unwrap();
+    assert!(gate.request_cancel());continue_tx.send(()).unwrap();
+    let response=worker.join().unwrap();assert!(response.cancelled);assert_eq!(response.committed_count,50);assert!(database.folder_import_pending(library_id).unwrap());
+    drop(state);drop(database);
+    let reopened=Database::new(base.join("state.sqlite3")).unwrap();let reopened_state=AppState::new(reopened.clone(),base.clone());
+    assert_eq!(reopened.list_items(&ListItemsQuery::default()).unwrap().total,50);
+    reopened_state.sync_library_watchers().unwrap();assert!(!reopened_state.is_library_watched(library_id));
+    assert!(reopened_state.scan_coordinator().run_scan(library_id).is_err());
+    assert_eq!(reopened.list_items(&ListItemsQuery::default()).unwrap().total,50,"catch-up cannot import the cancelled remainder");
+    let summary=preflight_folder_ingest(&reopened,root.to_str().unwrap()).unwrap();
+    let request=FolderIngestRequest{root_path:root.to_string_lossy().into_owned(),confirmed_candidate_count:Some(120),preflight_op_id:Some(summary.op_id)};
+    let result=ingest_folder_in_batches(&reopened_state,&request,None).unwrap();assert!(!result.cancelled);assert_eq!(result.created_count,70);assert_eq!(result.committed_count,120);
+    assert_eq!(reopened.list_items(&ListItemsQuery::default()).unwrap().total,120);assert!(!reopened.folder_import_pending(library_id).unwrap());
+    let detail=reopened.get_item_detail(first_id).unwrap();assert_eq!(detail.summary.file_path,first_path);assert!(detail.summary.is_favorite);
+    let _=fs::remove_dir_all(base);
+}
+
+#[test]
+fn streaming_delete_source_between_batches_does_not_resurrect_it() {
+    use nutbook_backend::core::folder_ingest::ingest_folder_in_batches_observed;
+    let (base,_root,database,state,request)=streaming_fixture(100,"stream-delete");let mut calls=0;
+    let result=ingest_folder_in_batches_observed(&state,&request,None,&mut |library,_|{calls+=1;state.delete_library(library.id).unwrap();});
+    assert!(matches!(result,Err(AppError::LibraryNotFound)));assert_eq!(calls,1);assert!(database.list_libraries().unwrap().is_empty());assert_eq!(database.list_items(&ListItemsQuery::default()).unwrap().total,0);
+    let _=fs::remove_dir_all(base);
+}
+
+#[test]
+fn streaming_file_disappears_after_first_batch_keeps_other_files_and_marks_incomplete() {
+    use nutbook_backend::core::folder_ingest::ingest_folder_in_batches_observed;
+    let (base,root,database,state,request)=streaming_fixture(120,"stream-missing");let mut first=true;
+    let result=ingest_folder_in_batches_observed(&state,&request,None,&mut |_,_|{if first{first=false;fs::remove_file(root.join("note-0119.md")).unwrap();}}).unwrap();
+    assert_eq!(result.committed_count,119);assert_eq!(result.failed_count,1);assert_eq!(database.list_items(&ListItemsQuery::default()).unwrap().total,119);assert!(database.folder_import_pending(result.library.unwrap().id).unwrap());
+    let _=fs::remove_dir_all(base);
+}
+
+#[test]
+fn streaming_same_root_cannot_run_two_jobs_at_once() {
+    use nutbook_backend::core::folder_ingest::{ingest_folder_in_batches_observed,ingest_folder_in_batches};
+    let (base,_root,database,state,request)=streaming_fixture(80,"stream-parallel");let mut checked=false;
+    let result=ingest_folder_in_batches_observed(&state,&request,None,&mut |_,_|{if !checked{checked=true;assert!(matches!(ingest_folder_in_batches(&state,&request,None),Err(AppError::EditConflict)));}}).unwrap();
+    assert_eq!(result.committed_count,80);assert_eq!(database.list_items(&ListItemsQuery::default()).unwrap().total,80);
+    let _=fs::remove_dir_all(base);
+}
+
+#[test]
+fn streaming_thousand_files_publish_twenty_durable_batches() {
+    use nutbook_backend::core::folder_ingest::ingest_folder_in_batches_observed;
+    let (base, _root, database, state, request) = streaming_fixture(1000, "stream-thousand");
+    let mut previous = 0;
+    let mut batches = 0;
+    let result = ingest_folder_in_batches_observed(&state, &request, None, &mut |_, count| {
+        assert_eq!(count - previous, 50);
+        assert_eq!(database.list_items(&ListItemsQuery::default()).unwrap().total as u64, count);
+        previous = count;
+        batches += 1;
+    }).unwrap();
+    assert_eq!(batches, 20);
+    assert_eq!(result.committed_count, 1000);
+    assert_eq!(keyword_total(&database, "stream-token"), 1000);
+    assert!(!database.folder_import_pending(result.library.unwrap().id).unwrap());
+    let _ = fs::remove_dir_all(base);
+}

@@ -8718,6 +8718,10 @@
           font-size: 26px;
         }
       }
+      .folder-task-progress{flex:none;margin-top:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--paper,#fff);font-size:12px;line-height:1.5;max-width:100%;app-region:no-drag;-webkit-app-region:no-drag}
+      .folder-task-progress p{margin:5px 0;overflow-wrap:anywhere}.folder-task-progress progress{display:block;width:100%;height:7px;accent-color:#267756;margin:9px 0}.folder-task-progress button{border:1px solid var(--line);border-radius:6px;background:transparent;padding:4px 10px;color:inherit;cursor:pointer}.folder-task-progress [data-task-compact]{display:none}
+      .document-mode .folder-task-progress,.sidebar-collapsed .folder-task-progress{width:48px;padding:4px;font-size:10px}.document-mode .folder-task-progress strong,.document-mode .folder-task-progress p,.sidebar-collapsed .folder-task-progress strong,.sidebar-collapsed .folder-task-progress p{display:none}.document-mode .folder-task-progress [data-task-compact],.sidebar-collapsed .folder-task-progress [data-task-compact]{display:block;font-size:9px;white-space:nowrap}.document-mode .folder-task-progress button,.sidebar-collapsed .folder-task-progress button{padding:3px;font-size:10px}
+      .source-scan-warning{display:inline-flex;align-items:center;justify-content:center;flex:none;color:#a66b16;width:20px;height:20px;border-radius:50%;outline-offset:2px;cursor:help}.source-scan-tooltip{position:fixed;z-index:10000;max-width:280px;padding:8px 11px;border-radius:7px;background:#252527;color:#fff;font:12px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;box-shadow:0 4px 14px #0002;pointer-events:none}
     </style>
     <link rel="stylesheet" href="./tag-editor.css" />
     <link rel="stylesheet" href="./tag-discovery.css" />
@@ -11686,8 +11690,7 @@
         if (!intent || (runtimeSessionId && intent.runtimeSessionId !== runtimeSessionId)) return false;
         appState.htmlEditDirtyLeaveIntent = null;
         appState.htmlEditLeavePromptOpen = false;
-        closeHtmlEditLeaveConfirmOverlay(intent.itemId);
-        intent.resolve(choice);
+        closeHtmlEditLeaveConfirmOverlay(intent.itemId).then(() => intent.resolve(choice));
         return true;
       }
 
@@ -11852,7 +11855,7 @@
               var element = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
               if (!element) continue;
               if (change.type === 'text' && element.getAttribute('data-editable') === 'text') {
-                element.textContent = change.text || '';
+                var fragment = document.createDocumentFragment(); String(change.text || '').replaceAll(String.fromCharCode(13), '').split(String.fromCharCode(10)).forEach(function (line, index) { if (index) fragment.append(document.createElement('br')); fragment.append(document.createTextNode(line)); }); element.replaceChildren(fragment);
               } else if ((change.type === 'rich_text' || change.type === 'rich-text') && element.getAttribute('data-editable') === 'rich-text' && isValidatedRichHtml(change.html)) {
                 var baselineTextAlign = element.getAttribute('data-nutbook-original-text-align');
                 if (!baselineTextAlign) {
@@ -12116,14 +12119,23 @@
       }
 
       async function requestHtmlEdit(itemId) {
+        const exiting = appState.htmlEditExitTransition;
+        if (exiting?.itemId === itemId) await exiting.promise;
         const tab = getOpenTab(itemId);
         if (!tab || getActiveTab()?.id !== itemId) return;
+        const isCurrent = () => getActiveTab()?.id === itemId && getOpenTab(itemId) === tab;
+        if (!await waitForHtmlRuntimeHost(itemId, isCurrent)) {
+          if (isCurrent()) throw new Error(nativePresentationText("HTML 正文尚未就绪，请重试", "HTML content is not ready. Please retry."));
+          return;
+        }
         const probeId = `html-edit-probe-${itemId}-${Date.now()}`;
         const access = await invoke("get_html_edit_patch", { itemId });
-        await invoke("eval_html_runtime_script_command", {
+        if (!isCurrent()) return;
+        const applied = await invoke("eval_html_runtime_script_command", {
           itemId,
           script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},managedSourceAllowed:${access.managedSourceAllowed !== false},hasProtocol:Boolean(document.querySelector('[data-editable]')||(window.__NUTBOOK_PRESENTATION__?.version===1&&window.__NUTBOOK_PRESENTATION__?.capabilities?.managedPresenter===true&&typeof window.__NUTBOOK_PRESENTATION__?.setEditMode==='function'&&document.getElementById('nutbook-presentation-notes')))});`
         });
+        if (!applied && isCurrent()) throw new Error(nativePresentationText("HTML 正文尚未就绪，请重试", "HTML content is not ready. Please retry."));
       }
 
       function usesInlineHtmlEditToolbarForSession(session) {
@@ -13160,12 +13172,18 @@
         const reloadCommittedSource = true;
         if (session.itemId !== itemId) return;
         if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
+        if (appState.htmlEditExitTransition?.runtimeSessionId === runtimeSessionId) return appState.htmlEditExitTransition.promise;
+        const transition = { itemId, runtimeSessionId, promise: null };
+        transition.promise = (async () => {
         cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
-        nextHtmlEditSessionGeneration();
+        const exitGeneration = nextHtmlEditSessionGeneration();
+        const exitIsCurrent = () => appState.htmlEditSessionGeneration === exitGeneration
+          && (!appState.htmlEditSession || appState.htmlEditSession.runtimeSessionId === runtimeSessionId);
         session.assetRequestEpoch += 1;
         session.activeAssetRequestId = "";
         await invoke("set_html_presentation_preview_visibility_command", { itemId, runtimeSessionId, generation, previewInstanceId: session.presentation?.previewInstanceId || "", visible: false }).catch(() => false);
         await invoke("invalidate_html_edit_session_lease", { itemId, runtimeSessionId, generation }).catch(() => false);
+        if (!exitIsCurrent()) return;
         appState.htmlEditToolbarSyncPending = false;
         try {
           await invoke("eval_html_runtime_script_command", {
@@ -13179,27 +13197,38 @@
           });
         } catch (_) {
         }
+        if (!exitIsCurrent()) return;
         try {
           await invoke("close_html_edit_toolbar_overlay_command", { itemId });
         } catch (_) {
         }
+        if (!exitIsCurrent()) return;
         resolveHtmlEditLeaveChoice("keep", runtimeSessionId);
-        closeHtmlEditLeaveConfirmOverlay(itemId);
+        await closeHtmlEditLeaveConfirmOverlay(itemId);
+        if (!exitIsCurrent()) return;
         if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
         renderHtmlEditPresentationRail(null);
         renderHtmlEditSectionNavigationRail(null);
-        scheduleRuntimeHostSync();
         appState.htmlEditToolbarVisible = false;
         appState.htmlEditToolbarSyncPending = false;
-        // Exiting removes the editable image layer.  Reapply the sidecar to
-        // the same child runtime immediately; otherwise its revision cache
-        // incorrectly treats the just-removed read-only layer as still shown.
         appState.runtimePatchAppliedKeys.delete(itemId);
-        await applyHtmlEditPatchToRuntime(itemId).catch(() => {});
         if (reloadCommittedSource) {
-          await invoke("eval_html_runtime_script_command", { itemId, script: "window.location.reload();" }).catch(() => {});
+          // The host owns the return location. Recreate the child through the
+          // existing lifecycle so its initialization receives the captured state.
+          cleanupRuntimeHostSync();
+          await hideRuntimeSessionSurfaces(itemId, { force: true });
+          if (!exitIsCurrent()) return;
+          if (appState.activeRuntimeHostId === itemId) {
+            appState.activeRuntimeHostId = null;
+            appState.runtimeHostLastBoundsKey = null;
+          }
+          scheduleRuntimeHostSync();
         }
         refocusActiveRuntimeHost(itemId);
+        })();
+        appState.htmlEditExitTransition = transition;
+        try { return await transition.promise; }
+        finally { if (appState.htmlEditExitTransition === transition) appState.htmlEditExitTransition = null; }
       }
 
       window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__ = function handleHtmlEditRuntimeMessage(data) {
@@ -14988,6 +15017,20 @@
         </svg>`;
       }
 
+      function sourceScanWarning(library) {
+        if(library.sourceKind!=='folder'||!library.scanIncomplete)return '';
+        const hint=t('settings.scanIncompleteHint');
+        return `<span class="source-scan-warning" data-settings-scan-incomplete="${library.id}" tabindex="0" role="img" aria-label="${escapeAttribute(hint)}"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 5.5v5.7m0 2.5v.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>`;
+      }
+
+      function wireSourceScanWarnings(container) {
+        container.querySelectorAll('[data-settings-scan-incomplete]').forEach(node=>{
+          const hide=()=>{document.getElementById('sourceScanTooltip')?.remove();node.removeAttribute('aria-describedby');};
+          const show=()=>{hide();const tip=document.createElement('div');tip.id='sourceScanTooltip';tip.className='source-scan-tooltip';tip.setAttribute('role','tooltip');tip.textContent=node.getAttribute('aria-label');document.body.append(tip);const rect=node.getBoundingClientRect();tip.style.left=Math.max(8,Math.min(innerWidth-tip.offsetWidth-8,rect.left))+'px';tip.style.top=Math.min(innerHeight-tip.offsetHeight-8,rect.bottom+7)+'px';node.setAttribute('aria-describedby',tip.id);};
+          node.addEventListener('pointerenter',show);node.addEventListener('focus',show);node.addEventListener('pointerleave',hide);node.addEventListener('blur',hide);
+        });
+      }
+
       function normalizeLibrary(library) {
         return {
           id: Number(library.id),
@@ -14995,6 +15038,7 @@
           rootPath: library.rootPath ?? library.root_path,
           sourceKind: library.sourceKind ?? library.source_kind ?? "folder",
           pathState: library.pathState ?? library.path_state ?? "valid",
+          scanIncomplete: Boolean(library.scanIncomplete ?? library.scan_incomplete),
           isActive: library.isActive ?? library.is_active,
           createdAt: library.createdAt ?? library.created_at,
           updatedAt: library.updatedAt ?? library.updated_at,
@@ -18663,6 +18707,7 @@
         return `<span class="source-manager-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">${kind==="file"?(htmlFile?'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M10 12l-3 3 3 3M14 12l3 3-3 3"/>':'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 12h8M8 16h6"/>'):'<path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/>'}</svg></span>`;
       }
       function renderSettingsPanel() {
+        document.getElementById('sourceScanTooltip')?.remove();
         els.settingsScrim.classList.toggle("open", appState.isSettingsOpen);
         els.settingsScrim.setAttribute("aria-hidden", appState.isSettingsOpen ? "false" : "true");
         if (!appState.isSettingsOpen) { NutbookVersions.closeEmbedded(); return; }
@@ -18779,10 +18824,10 @@
           ? `<div class="source-manager-table" role="table">${sourceListHeader}${libraries.map(library=>`
               <div class="settings-row source-manager-row" role="row">
                 <div class="source-manager-file" role="cell">${settingsSourceGlyph(library.sourceKind, library.rootPath)}<div class="settings-row-copy">
-                  <div class="settings-row-copy-top"><div class="settings-row-title" title="${escapeAttribute(library.name)}">${escapeHtml(library.name)}</div>${library.skillBinding?`<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>`:""}</div>
+                  <div class="settings-row-copy-top"><div class="settings-row-title" title="${escapeAttribute(library.name)}">${escapeHtml(library.name)}</div>${sourceScanWarning(library)}${library.skillBinding?`<span class="source-kind-badge">${escapeHtml(library.skillBinding.displayName)}</span>`:""}</div>
                   <div class="settings-row-meta settings-row-path" data-i18n-skip title="${escapeAttribute(library.rootPath)}">${escapeHtml(settingsSourcePathLabel(library.rootPath))}</div>
                 </div></div>
-                <div class="source-manager-state" role="cell">${library.pathState==="missing"?t("settings.pathMissing"):t("actions.connected")}</div>
+                <div class="source-manager-state" role="cell">${library.pathState==="missing"?t("settings.pathMissing"):library.scanIncomplete?t("settings.scanIncomplete"):t("actions.connected")}</div>
                 <div class="button-row" role="cell">${library.sourceKind==="agent_project"
                     ? `<button class="button button-secondary" type="button" data-settings-open-artifact-access="projects" title="${t("actions.viewArtifactAccess")}">${t("actions.viewArtifactAccess")}</button>`
                     : `<button class="button button-secondary" type="button" data-settings-scan-library="${library.id}" title="${library.pathState==="missing"?t("actions.repairPath"):(library.sourceKind==="file"?t("actions.index"):t("actions.scan"))}">${library.pathState==="missing"?t("actions.repairPath"):(library.sourceKind==="file"?t("actions.index"):t("actions.scan"))}</button>`}
@@ -19127,6 +19172,7 @@
             renderSettingsPanel();
           });
         });
+        wireSourceScanWarnings(els.settingsLibraryList);
         els.settingsLibraryList.querySelectorAll("[data-settings-scan-library]").forEach((node) => {
           node.addEventListener("click", async () => {
             const libraryId = Number(node.dataset.settingsScanLibrary);
@@ -21935,6 +21981,9 @@ if (!chipTipController) {
 
       async function runHtmlPrimaryAction(itemId) {
         return runPrimaryAction(itemId, async () => {
+          const exiting = appState.htmlEditExitTransition;
+          if (exiting?.itemId === itemId) await exiting.promise;
+          if (getActiveTab()?.id !== itemId) return false;
           if (appState.htmlEditSession?.itemId === itemId) {
             return confirmHtmlEditLeaveIfNeeded(itemId, { source: "toolbar-primary" });
           }
@@ -24142,12 +24191,18 @@ if (!chipTipController) {
             if (!result.hasMore) break;
             if (!added) throw new Error("Invalid paginated item response");
           }
+          const scrollState=options.preserveScroll?[els.itemList,els.inspectorRows].filter(Boolean).map(container=>{
+            const top=container.scrollTop,left=container.scrollLeft,rect=container.getBoundingClientRect();
+            const anchor=top>0?[...container.querySelectorAll('[data-open-item],[data-inspector-item]')].find(node=>node.getBoundingClientRect().bottom>rect.top):null;
+            return {container,top,left,id:anchor?.getAttribute('data-open-item')||anchor?.getAttribute('data-inspector-item'),offset:anchor?anchor.getBoundingClientRect().top-rect.top:0};
+          }):[];
           appState.items = sortItemsInPlace(items);
           appState.itemLoadError = "";
           renderItems();
+          for(const saved of scrollState){const anchor=saved.id?saved.container.querySelector(`[data-open-item="${saved.id}"],[data-inspector-item="${saved.id}"]`):null;saved.container.scrollTop=anchor?saved.container.scrollTop+anchor.getBoundingClientRect().top-saved.container.getBoundingClientRect().top-saved.offset:saved.top;saved.container.scrollLeft=saved.left;}
           // A1.1-PERF：忽略列表只在设置区打开或真实状态变化时刷新（loadLibraries/恢复操作已覆盖），
           // 不在首页每 2.5s 无条件调用 loadIgnoredItems。
-          ensureDocumentThumbnails(appState.items);
+          if (!options.deferThumbnails) ensureDocumentThumbnails(appState.items);
           return true;
         } catch (error) {
           if (searchEpoch !== appState.searchEpoch) return "stale";
@@ -24818,6 +24873,9 @@ if (!chipTipController) {
           return;
         }
 
+        const activeLibrary=appState.libraries.find(library=>library.id===appState.activeLibraryId);
+        if(activeLibrary?.scanIncomplete){if(!silent)await ingestFolderWithConfirmation(activeLibrary.rootPath,{resume:true});return;}
+
         try {
           if (!silent) setStatus(t("status.scanRunning"), "warn");
           const result = await invoke("scan_library", {
@@ -25271,7 +25329,7 @@ if (!chipTipController) {
               : `${t("markdown.exportHtmlSuccessPrefix")}${tab.item.fileName}`,
             warningCount > 0 ? "warn" : "ok"
           );
-          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+          showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
         } catch (error) {
           appState.exportInProgress = false;
           const code = error?.code || error?.error?.code || "";
@@ -25319,7 +25377,7 @@ if (!chipTipController) {
           renderMarkdownExportDialog();
           const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
           setStatus(`${t("markdown.exportPdfSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
-          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+          showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
         } catch (error) {
           appState.exportInProgress = false;
           const code = error?.code || error?.error?.code || "";
@@ -25397,7 +25455,7 @@ if (!chipTipController) {
           hideExportProgress();
           const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
           setStatus(`${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
-          showToast(warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess"));
+          showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
         } catch (error) {
           hideExportProgress();
           const code = error?.code || error?.error?.code || "";
@@ -25445,7 +25503,7 @@ if (!chipTipController) {
           const warningCount = Array.isArray(response?.warnings) ? response.warnings.length : 0;
           const splitSuccessMessage = response?.partCount > 1 ? formatTranslation("markdown.exportLongImageSplitSuccess", { count: response.partCount }) : "";
           setStatus(splitSuccessMessage || `${t("markdown.exportLongImageSuccessPrefix")}${tab.item.fileName}`, warningCount > 0 ? "warn" : "ok");
-          showToast(splitSuccessMessage || (warningCount > 0 ? t("markdown.exportWithWarnings") : t("markdown.exportSuccess")));
+          showToast(splitSuccessMessage || (warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess")));
         } catch (error) {
           if (split) hideExportProgress();
           appState.exportInProgress = false;
@@ -25697,18 +25755,26 @@ if (!chipTipController) {
       // Codex review P1-8 / R2-1：预检为后台操作 —— start_folder_preflight 立即
       // 返回 opId；进度与结果经 folder_preflight_status 轮询显示（不依赖事件），
       // 预检期间提供可用的取消按钮（cancel_folder_preflight）。
+      function updateFolderTaskProgress({ message, processed, total, done = false, cancel, cancelId } = {}) {
+        let card = document.getElementById('folderTaskProgress');
+        if (!card) {
+          card = document.createElement('section');card.id = 'folderTaskProgress';card.className = 'folder-task-progress';card.setAttribute('aria-live','polite');card.dataset.i18nSkip = 'true';
+          card.innerHTML = '<strong data-task-title></strong><p data-task-message></p><span data-task-compact></span><progress></progress><button type="button"></button>';
+          const sidebar = document.querySelector('.sidebar');(sidebar || document.body).append(card);
+        }
+        const en = currentLanguage() === 'en-US', button = card.querySelector('button');
+        card.querySelector('[data-task-title]').textContent = en ? 'File import' : '文件导入';
+        if (message) { card.querySelector('[data-task-message]').textContent = message;card.title = message; }
+        const bar=card.querySelector('progress');if(total>0){bar.max=total;bar.value=processed||0;card.querySelector('[data-task-compact]').textContent=`${processed||0}/${total}`;}else if(!done){bar.removeAttribute('value');card.querySelector('[data-task-compact]').textContent=en?'Import':'导入中';}
+        if(done){bar.max=1;bar.value=1;card.querySelector('[data-task-compact]').textContent=en?'Done':'已结束';button.id='folderTaskDismiss';button.textContent=en?'Close':'关闭';button.disabled=false;button.onclick=()=>card.remove();}
+        else if(cancel){button.id=cancelId;button.textContent=en?'Cancel':'取消';button.disabled=false;button.onclick=cancel;}
+        else button.disabled=true;
+        button.title=button.textContent;button.setAttribute('aria-label',button.textContent);
+        return card;
+      }
       function showFolderPreflightCancelChip(onCancel) {
-        const label = t("folderIngest.precheckCancelAction");
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "button button-ghost button-small";
-        button.id = "folderPreflightCancelChip";
-        button.textContent = label;
-        button.setAttribute("aria-label", label);
-        Object.assign(button.style, { position: "fixed", right: "18px", bottom: "54px", zIndex: "60" });
-        button.addEventListener("click", onCancel);
-        document.body.appendChild(button);
-        return () => button.remove();
+        updateFolderTaskProgress({message:currentLanguage()==='en-US'?'Checking files…':'正在检查文件…',cancel:onCancel,cancelId:'folderPreflightCancelChip'});
+        return () => updateFolderTaskProgress({message:currentLanguage()==='en-US'?'Check complete':'检查完成'});
       }
 
       // Codex review R2-1：预检结果经 invoke 轮询获取，不依赖 Tauri 事件。
@@ -25744,6 +25810,8 @@ if (!chipTipController) {
               setStatus(formatTranslation("folderIngest.precheckProgress", {
                 candidate: status.candidateCount ?? 0
               }), "warn");
+              updateFolderTaskProgress({message:formatTranslation("folderIngest.precheckProgress", {candidate:status.candidateCount??0})});
+              const preflightCancel=document.getElementById('folderPreflightCancelChip');if(preflightCancel)preflightCancel.disabled=false;
               continue;
             }
             if (status.status === "done") {
@@ -25758,17 +25826,8 @@ if (!chipTipController) {
 
       // Codex review R3：接入期间的取消按钮（与预检 chip 同款交互）。
       function showFolderIngestCancelChip(onCancel) {
-        const label = t("folderIngest.ingestCancelAction");
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "button button-ghost button-small";
-        button.id = "folderIngestCancelChip";
-        button.textContent = label;
-        button.setAttribute("aria-label", label);
-        Object.assign(button.style, { position: "fixed", right: "18px", bottom: "54px", zIndex: "60" });
-        button.addEventListener("click", onCancel);
-        document.body.appendChild(button);
-        return () => button.remove();
+        updateFolderTaskProgress({message:currentLanguage()==='en-US'?'Preparing files…':'正在准备文件…',cancel:onCancel,cancelId:'folderIngestCancelChip'});
+        return () => {};
       }
 
       // Codex review R3 静态缺口：接入为后台 op——start_folder_ingest 立即
@@ -25776,51 +25835,89 @@ if (!chipTipController) {
       // 不再阻塞 UI 命令线程；结果经 folder_ingest_status 轮询；取消经
       // cancel_folder_ingest 在提交边界前生效（事务已开始则走完，短事务
       // 保证原子）。返回值携带 error 字段：null = 正常响应。
+      async function refreshFolderImportItems(status) {
+        if (!status.library) return;
+        const projection=libraries=>JSON.stringify(libraries.map(library=>[library.id,library.name,library.rootPath,library.sourceKind,library.pathState,library.scanIncomplete,library.skillBinding]));
+        const libraries=(await invoke('list_libraries')).map(normalizeLibrary), changed=projection(libraries)!==projection(appState.libraries);
+        appState.libraries=libraries;reconcileActiveLibrary();
+        if(changed){renderLibraries();renderSettingsPanel();}
+        await loadItems({ skipFilesystemSync: true, preserveScroll: true, deferThumbnails: status.status === 'running' });
+      }
+
+      function folderImportProgressMessage(status) {
+        const en=currentLanguage()==='en-US', count=Number(status.committedCount||0), total=Number(status.total||0);
+        if(status.cancelRequested)return en?`Stopping after this batch · ${count} files retained`:`正在停止后续批次 · 已保留 ${count} 份`;
+        if(!total)return en?'Checking files…':'正在检查文件…';
+        if(!count)return en?'Importing the first batch…':'正在导入首批文件…';
+        return status.committing?(en?`Committing this batch · ${count}/${total} available`:`正在提交本批 · 已导入 ${count}/${total} 份`):(en?`${count}/${total} files available · import continues`:`已导入 ${count}/${total} 份 · 正在继续导入`);
+      }
+
+      window.__NUTBOOK_HANDLE_FOLDER_IMPORT_PROGRESS__ = status => appState.folderImportProgressSink?.(status);
+
       async function runFolderIngest(rootPath, confirmedCandidateCount, preflightOpId) {
-        let opId;
+        let opId, early=null, pending=null, refreshTask=null, refreshed=-1;
+        const drain=()=>{
+          if(refreshTask)return refreshTask;
+          refreshTask=(async()=>{while(pending){const next=pending;pending=null;await refreshFolderImportItems(next);refreshed=Number(next.committedCount||0);}})().catch(error=>setStatus(normalizeError(error),'warn')).finally(()=>{refreshTask=null;if(pending)drain();});
+          return refreshTask;
+        };
+        const sink=status=>{
+          if(opId==null){early=status;return;}
+          if(Number(status.opId)!==Number(opId))return;
+          const count=Number(status.committedCount||0);
+          updateFolderTaskProgress({message:folderImportProgressMessage(status),processed:count,total:Number(status.total||0)});
+          const button=document.getElementById('folderIngestCancelChip');if(button)button.disabled=Boolean(status.cancelRequested);
+          if(status.library&&count>refreshed){pending=status;drain();}
+        };
+        appState.folderImportProgressSink=sink;
         try {
           ({ opId } = await invoke("start_folder_ingest", {
             payload: { rootPath, confirmedCandidateCount, preflightOpId }
           }));
+          if(early)sink(early);
         } catch (error) {
+          if(appState.folderImportProgressSink===sink)appState.folderImportProgressSink=null;
           return { error: normalizeError(error) };
         }
         const removeChip = showFolderIngestCancelChip(async () => {
           try { await invoke("cancel_folder_ingest", { payload: { opId } }); } catch (error) {}
         });
         try {
-          const deadline = Date.now() + 120000;
           for (;;) {
-            await new Promise((resolve) => setTimeout(resolve, 250));
+            await new Promise((resolve) => setTimeout(resolve, 100));
             let status;
             try {
               status = await invoke("folder_ingest_status", { payload: { opId } });
             } catch (error) {
               return { error: normalizeError(error) };
             }
-            if (status.status === "running") {
-              if (Date.now() > deadline) {
-                try { await invoke("cancel_folder_ingest", { payload: { opId } }); } catch (error) {}
-                return { error: "ingest-timeout" };
-              }
-              continue;
-            }
+            sink(status);
+            if (status.status === "running") { setStatus(folderImportProgressMessage(status),"warn");continue; }
             if (status.status === "failed") {
-              return { error: status.error || "ingest-failed" };
+              return { error: status.error || "ingest-failed", committedCount:Number(status.committedCount||0), library:status.library };
             }
             return { ...status.response, error: null };
           }
         } finally {
+          while(refreshTask)await refreshTask;
+          if(appState.folderImportProgressSink===sink)appState.folderImportProgressSink=null;
           removeChip();
         }
       }
 
-      async function ingestFolderWithConfirmation(rootPath) {
+      async function ingestFolderWithConfirmation(rootPath, options = {}) {
+        if (appState.folderImportInProgress) {
+          showToast(currentLanguage()==='en-US'?'An import is already running. See the sidebar.':'已有导入任务，请在侧栏查看进度。');
+          return;
+        }
+        appState.folderImportInProgress = true;
         try {
           setStatus(t("folderIngest.precheckRunning"), "warn");
+          updateFolderTaskProgress({message:t("folderIngest.precheckRunning")});
           const preflight = await runFolderPreflight(rootPath);
           if (!preflight || !preflight.summary) {
             setStatus(`预检失败：${preflight?.error || normalizeError("unknown")}`, "error");
+            updateFolderTaskProgress({message:preflight?.error||'预检失败',done:true});
             return;
           }
           const preflightOpId = preflight.opId;
@@ -25832,6 +25929,7 @@ if (!chipTipController) {
                 ? "folderIngest.fatalCancelled"
                 : "folderIngest.fatalRootUnreadable";
             setStatus(t(fatalKey), "error");
+            updateFolderTaskProgress({message:t(fatalKey),done:true});
             return;
           }
 
@@ -25844,6 +25942,7 @@ if (!chipTipController) {
           for (;;) {
             // 副文案只列非零项，避免「跳过 0 个、并入 0 个」干扰普通用户。
             const noteParts = [];
+            if (summary.candidateCount >= 500) noteParts.push(currentLanguage() === "en-US" ? "Files appear in batches of 50. Cancelling keeps imported files and stops remaining batches." : "文件将每批 50 份导入并显示；取消会保留已导入部分，停止剩余批次。");
             if ((summary.skippedCount ?? 0) > 0) {
               noteParts.push(formatTranslation("folderIngest.confirmSkipPart", { skipped: summary.skippedCount }));
             }
@@ -25856,7 +25955,7 @@ if (!chipTipController) {
             const confirmNote = noteParts.length
               ? noteParts.join("；")
               : t("folderIngest.confirmNoteDefault");
-            const confirmed = await appConfirm({
+            const confirmed = options.resume || await appConfirm({
               title: t("folderIngest.confirmTitle"),
               message: formatTranslation("folderIngest.confirmMessage", {
                 candidate: summary.candidateCount
@@ -25867,6 +25966,7 @@ if (!chipTipController) {
             });
             if (!confirmed) {
               setStatus(t("folderIngest.cancelled"), "warn");
+              updateFolderTaskProgress({message:t("folderIngest.cancelled"),done:true});
               return;
             }
             setStatus(t("folderIngest.ingestRunning"), "warn");
@@ -25875,10 +25975,14 @@ if (!chipTipController) {
             response = await runFolderIngest(rootPath, confirmedCandidateCount, confirmedOpId);
             if (response.error) {
               setStatus(`接入失败：${response.error}`, "error");
+              updateFolderTaskProgress({message:(currentLanguage()==='en-US'?`Import stopped; ${response.committedCount||0} files retained. `:`导入中断，已保留 ${response.committedCount||0} 份。`)+response.error,done:true});
               return;
             }
             if (response.cancelled) {
               setStatus(t("folderIngest.cancelled"), "warn");
+              await refreshLibrariesAfterFilesystemSync();
+              await loadItems({skipFilesystemSync:true,preserveScroll:true});
+              updateFolderTaskProgress({message:currentLanguage()==='en-US'?`Cancelled; ${response.committedCount||0} files retained. Use Scan to finish this folder.`:`已取消，保留 ${response.committedCount||0} 份；可在文件管理点击“扫描”继续。`,done:true});
               return;
             }
             if (!response.needsReconfirmation) break;
@@ -25902,11 +26006,15 @@ if (!chipTipController) {
             merged: response.mergedItemCount,
             preserved: response.preservedSingleFileCount
           }), "ok");
+          updateFolderTaskProgress({message:response.failedCount?(currentLanguage()==='en-US'?`${response.committedCount} files available; ${response.failedCount} failed. Use Scan to retry.`:`已导入 ${response.committedCount} 份，${response.failedCount} 份未成功；点击“扫描”可重试。`):formatTranslation("folderIngest.doneStatus",{created:response.createdCount,merged:response.mergedItemCount,preserved:response.preservedSingleFileCount}),done:true});
           if (response.waitingSync) {
             setStatus(t("folderIngest.waitingSync"), "warn");
           }
         } catch (error) {
           setStatus(`接入文件夹失败：${normalizeError(error)}`, "error");
+          updateFolderTaskProgress({message:normalizeError(error),done:true});
+        } finally {
+          appState.folderImportInProgress = false;
         }
       }
 

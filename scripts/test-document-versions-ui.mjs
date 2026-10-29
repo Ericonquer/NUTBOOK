@@ -13,8 +13,8 @@ try{
   window.f={calls:[],dirty:false,saveOk:false,restored:0,limit:500000000,source:'unsaved draft',preview:0,documents:[{id:'doc',canonical_path:'/sample.md',restored_directories:[],versions:[{id:'a',saved_at:'2026-10-22T10:00:00Z',kind:'initial',snapshot:{dependencies:{image:dep}}},{id:'b',saved_at:'2026-10-22T10:00:01Z',kind:'save',snapshot:{dependencies:{image:dep}}}]}]};
   window.ctx={language:()=>f.language||'en-US',target:{itemId:1},error:e=>e.message||String(e),canRestore:()=>true,dirty:()=>f.dirty,save:async()=>f.saveOk,expectedHash:async()=> 'baseline',applied:async result=>{f.restored++;f.source=result.source;f.dirty=false;},invoke:async(command,args)=>{
    f.calls.push([command,args]);
-   if(command==='list_document_versions')return {documents:structuredClone(f.documents),activeDocumentId:'doc',usedBytes:1500,limitBytes:f.limit,documentBytes:{doc:900,other:600},availability:{doc:true,other:false}};
-   if(command==='get_document_version_preview'){f.preview++;if(f.pausePreview)await new Promise(resolve=>{f.resolvePreview=resolve;});return {sessionId:'session-'+f.preview,url:'http://127.0.0.1:12345/preview.html',html:'<p>Archived '+args.payload.versionId+'</p><script>parent.__historyLeaked=true</script>',source:args.payload.versionId==='a'?'original A':'saved B',incomplete:Boolean(f.incomplete)};}
+   if(command==='list_document_versions')return {documents:structuredClone(f.documents),activeDocumentId:'doc',currentSource:'Current C',currentHtml:'<p>Current C &lt;script&gt;literal user text&lt;/script&gt;</p>',usedBytes:1500,limitBytes:f.limit,documentBytes:{doc:900,other:600},availability:{doc:true,other:false},sourceStatus:{doc:"available",other:f.sourceStatus||"missing"}};
+   if(command==='get_document_version_preview'){f.preview++;if(f.pausePreview)await new Promise(resolve=>{f.resolvePreview=resolve;});return {sessionId:'session-'+f.preview,url:'http://127.0.0.1:12345/preview.html',html:'<p>Archived '+args.payload.versionId+'</p><script>parent.__historyLeaked=true</script>',source:args.payload.versionId==='a'?'original A':'saved B',sourceHtml:'<p>Archived '+args.payload.versionId+'</p>',incomplete:Boolean(f.incomplete)};}
    if(command==='close_document_version_preview'||command==='diagnose_document_version_preview')return;
    if(command==='open_document_history_location')return;
    if(command==='set_version_history_limit'){f.limit=args.megabytes*1000000;return;}
@@ -31,9 +31,16 @@ try{
  assert.equal(await page.locator('[data-close]').evaluate(n=>n.matches(':focus-visible')),true,'keyboard Close retains a visible focus indication');
 
  assert.equal(await page.locator('[data-source]').inputValue(),'saved B');
+ assert.equal(await page.locator('[data-frame-host]').isVisible(),true,'static preview is the default view');
+ assert.equal(await page.locator('[data-highlight]').getAttribute('aria-pressed'),'true');
+ await page.frameLocator('iframe').locator('ins').first().waitFor();
+ assert.ok((await page.frameLocator('iframe').locator('ins').allTextContents()).join('\n').includes('Current C'));
+ assert.equal(await page.frameLocator('iframe').locator('del').count()>0,true);
  assert.equal(await page.locator('iframe').getAttribute('sandbox'),'');
  assert.equal(await page.evaluate(()=>window.__historyLeaked),undefined);
  assert.equal(await page.locator('#editor').inputValue(),'unsaved draft','opening history cannot replace an editor draft');
+ await page.locator('[data-highlight]').click();
+ await page.locator('[data-mode="preview"]').click();
  for(let i=0;i<8;i++){
   const previous=await page.locator('iframe').elementHandle();
   const index=i%2;await page.locator('nav button').nth(index).click();
@@ -89,7 +96,24 @@ try{
  assert.equal(await page.locator('[data-library-list] tr').count(),2,'settings shows a file inventory, not the single-file preview');assert.equal(await page.locator('#settingsVersionsSection [data-history-preset]').count(),1,'capacity belongs in the history tab');assert.equal(await page.locator('#settingsVersionsSection .vh-library-heading [data-history-open]').count(),1,'location opens from the header');assert.equal(await page.locator('[data-library-storage] [data-history-open]').count(),0);assert.equal(await page.locator('.vh-library-heading [data-history-open]').evaluate(node=>getComputedStyle(node).borderRadius),'999px','open history uses the settings pill style');assert.equal(await page.locator('.vh-library-heading [data-history-open]').evaluate(node=>getComputedStyle(node).textDecorationLine),'none');assert.equal(await page.locator('[data-history-progress]').evaluate(node=>node.value),1500);assert.equal(await page.locator('[data-history-progress]').evaluate(node=>node.max),1000000);
  assert.equal(await page.locator('dialog').count(),0,'global history is embedded in Settings, not a separate window');assert.equal(await page.locator('.vh-library iframe').count(),0);await page.locator('#settingsVersionsSection').evaluate(node=>(node.style.maxWidth='800px',node.style.height='540px'));await page.locator('.vh-library').screenshot({path:'/tmp/nutbook-history-global-library.png'});await page.setViewportSize({width:600,height:800});await page.locator('.vh-library').screenshot({path:'/tmp/nutbook-history-global-library-small.png'});await page.setViewportSize({width:1280,height:720});
  assert.match(await page.locator('[data-library-list] tr').last().textContent(),/old.md.*600|old.md.*0.6/s);
- assert.match(await page.locator('[data-library-list] tr').last().textContent(),/Source unavailable/);
+ assert.match(await page.locator('[data-library-list] tr').last().textContent(),/File not found at original path/);
+ assert.match(await page.locator('.vh-file-unavailable').getAttribute('title'),/moved, renamed or deleted/);
+ for (const [language,status,label,hint] of [
+   ['zh-CN','missing','原路径找不到文件','移动、改名或删除'],
+   ['zh-CN','replaced','原路径文件已被替换','其他编辑器替换保存'],
+   ['zh-CN','inaccessible','暂时无法访问原文件','文件夹权限'],
+   ['en-US','replaced','File at this path has been replaced','identity has changed'],
+   ['en-US','inaccessible','Cannot access original file','folder permissions'],
+   ['en-US','missing','File not found at original path','moved, renamed or deleted']
+ ]) {
+   await page.evaluate(async ({language,status})=>{f.language=language;f.sourceStatus=status;await NutbookVersions.mountLibrary(document.querySelector('#settingsVersionsSection'),ctx);},{language,status});
+   assert.equal(await page.locator('.vh-file-unavailable').textContent(),label);
+   assert.ok((await page.locator('.vh-file-unavailable').getAttribute('title')).includes(hint));
+   await page.locator('.vh-file-unavailable').focus();
+   assert.ok((await page.locator('.vh-file-unavailable').getAttribute('aria-label')).includes(label));
+ }
+
+
  await page.locator('[data-library-list] tr').last().getByRole('button',{name:'View',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('[data-source]')?.value);
  const sectionBox=await page.locator('#settingsVersionsSection').boundingBox(),previewBox=await page.locator('[data-frame-host]').boundingBox(),footerBox=await page.locator('#settingsVersionsSection footer').boundingBox();assert.ok(previewBox.height>sectionBox.height*.5,'preview must use the available Settings height');assert.ok(Math.abs(footerBox.y+footerBox.height-sectionBox.y-sectionBox.height)<3,'actions belong at the bottom of the tab');await page.locator('#settingsVersionsSection').screenshot({path:'/tmp/nutbook-history-preview-height.png'});
