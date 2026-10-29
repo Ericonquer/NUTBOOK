@@ -48,6 +48,8 @@ pub struct FolderIngestRequest {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderIngestResponse {
+    pub committed_count: u64,
+    pub failed_count: u64,
     /// 新建的 folder library；needs_reconfirmation / 无来源时为 None。
     pub library: Option<Library>,
     pub created_count: u64,
@@ -62,7 +64,7 @@ pub struct FolderIngestResponse {
     pub waiting_sync: bool,
     /// 提交前快照复核发现候选集合/内容变化，需要重新确认。
     pub needs_reconfirmation: bool,
-    /// R3：接入在提交边界前被用户取消，零数据库写入。
+    /// Cancelled streaming imports retain previously committed batches.
     pub cancelled: bool,
     pub summary: FolderPreflightSummary,
 }

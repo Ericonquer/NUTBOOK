@@ -17,7 +17,7 @@ use crate::{
     },
     state::AppState,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
@@ -51,9 +51,18 @@ pub fn select_library(
     Ok(library)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryListEntry {
+    #[serde(flatten)]
+    library: Library,
+    scan_incomplete: bool,
+}
+
 #[tauri::command]
-pub fn list_libraries(state: tauri::State<'_, AppState>) -> Result<Vec<Library>, AppError> {
-    state.list_libraries()
+pub fn list_libraries(state: tauri::State<'_, AppState>) -> Result<Vec<LibraryListEntry>, AppError> {
+    let pending: std::collections::HashSet<i64> = state.database.list_library_sync_states()?.into_iter().filter(|(_,value)|value.starts_with("importing:")||value=="import_paused").map(|(id,_)|id).collect();
+    Ok(state.list_libraries()?.into_iter().map(|library| {let scan_incomplete=pending.contains(&library.id);LibraryListEntry{library,scan_incomplete}}).collect())
 }
 
 #[tauri::command]
@@ -148,13 +157,15 @@ fn nearest_existing_directory(path: &Path) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-pub fn scan_library(
+pub async fn scan_library(
     state: tauri::State<'_, AppState>,
     payload: ScanLibraryRequest,
 ) -> Result<ScanLibraryResponse, AppError> {
     let mode = payload.mode.unwrap_or_else(|| "full".to_string());
     // 手动扫描与 watcher/catch-up/delete/repair 对同一 library 串行。
-    let response = state.scan_coordinator().run_scan(payload.library_id)?;
+    let coordinator = state.scan_coordinator().clone();
+    let response = tauri::async_runtime::spawn_blocking(move || coordinator.run_scan(payload.library_id))
+        .await.map_err(|_| AppError::InternalError)??;
 
     Ok(ScanLibraryResponse {
         library_id: response.library_id,
@@ -397,8 +408,14 @@ pub fn start_folder_ingest(
     std::thread::spawn(move || {
         let state = handle.state::<AppState>();
         let gate = crate::core::folder_ingest::ingest_op_gate(op_id);
-        let result =
-            crate::core::folder_ingest::ingest_folder_with_cancel(&state, &request, gate);
+        let mut observer = |_: &Library, _: u64| {
+            if let Some(snapshot) = crate::core::folder_ingest::ingest_op_snapshot(op_id) {
+                if let (Some(main), Ok(payload)) = (handle.get_webview("main"), serde_json::to_string(&snapshot)) {
+                    let _ = main.eval(&format!("window.__NUTBOOK_HANDLE_FOLDER_IMPORT_PROGRESS__?.({payload});"));
+                }
+            }
+        };
+        let result = crate::core::folder_ingest::ingest_folder_in_batches_observed(&state, &request, gate, &mut observer);
         crate::core::folder_ingest::finish_ingest_op(op_id, result);
     });
     Ok(FolderIngestStartResponse { op_id })
@@ -442,10 +459,11 @@ pub fn watch_library(
 
 /// 让所有有效 folder/file 资料库进入监听（幂等），并安排后台 catch-up scan。
 #[tauri::command]
-pub fn sync_library_watchers(
-    state: tauri::State<'_, AppState>,
+pub async fn sync_library_watchers(
+    app: tauri::AppHandle,
 ) -> Result<SyncLibraryWatchersResponse, AppError> {
-    state.sync_library_watchers()
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().sync_library_watchers())
+        .await.map_err(|_| AppError::InternalError)?
 }
 
 #[derive(Debug, Clone, Default)]
@@ -460,6 +478,7 @@ pub struct LibraryScanSnapshot {
 }
 
 pub fn scan_library_once(database: &Database, library_id: i64) -> Result<LibraryScanSnapshot, AppError> {
+    if database.folder_import_pending(library_id)? { return Err(AppError::InvalidParams); }
     let libraries = database.list_libraries()?;
     let library = libraries
         .into_iter()

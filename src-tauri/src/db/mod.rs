@@ -1781,6 +1781,8 @@ impl Database {
             return Err(AppError::InvalidParams);
         }
 
+        let sync_state: String = transaction.query_row("SELECT sync_state FROM libraries WHERE id=?1",params![library_id],|row|row.get(0)).map_err(|_|AppError::DatabaseError)?;
+        if sync_state.starts_with("importing:") || sync_state == "import_paused" { return Ok(crate::models::ScanDeltaReport::default()); }
         let mut report = crate::models::ScanDeltaReport::default();
 
         // Codex review P1-1：delta 事务边界重新核验 removed/ignored。
@@ -2080,6 +2082,19 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(|_| AppError::DatabaseError)
     }
 
+    pub fn folder_import_pending(&self, library_id: i64) -> Result<bool, AppError> {
+        let connection = self.connection()?;
+        let value: Option<String> = connection.query_row("SELECT sync_state FROM libraries WHERE id=?1",params![library_id],|row|row.get(0)).optional().map_err(|_|AppError::DatabaseError)?;
+        Ok(value.is_some_and(|state| state.starts_with("importing:") || state == "import_paused"))
+    }
+
+    pub fn finish_folder_import(&self, library_id: i64, token: &str, state: &str, root_path: &str) -> Result<(), AppError> {
+        let root_key=canonical_root_key_for_path(root_path,false)?;
+        let changed=self.connection()?.execute("UPDATE libraries SET sync_state=?3 WHERE id=?1 AND sync_state=?2 AND canonical_root_key=?4",params![library_id,token,state,root_key]).map_err(|_|AppError::DatabaseError)?;
+        if changed==0{return Err(AppError::EditConflict);}
+        Ok(())
+    }
+
     /// watcher 激活失败时把来源标记为「等待同步」（计划 4.3 末条）。
     pub fn set_library_sync_state(&self, library_id: i64, sync_state: &str) -> Result<(), AppError> {
         let connection = self.connection()?;
@@ -2322,11 +2337,28 @@ impl Database {
     /// 4) 插入未存在的候选 item（identity 去重，防止同一文件重复拥有）；
     /// 5) 全量 FTS rebuild（完整接入属于全量扫描语义）。
     pub fn ingest_folder_source(
+        &self, root_path: &str, prepared: &[PreparedIngestCandidate], merge_library_ids: &[i64], now: &str,
+    ) -> Result<FolderIngestDbResult, AppError> {
+        self.ingest_folder_source_impl(root_path, prepared, merge_library_ids, now, None, false, None)
+    }
+
+    /// One durable streaming batch; never reconciles/deletes files outside this batch.
+    pub fn ingest_folder_batch(
+        &self, root_path: &str, prepared: &[PreparedIngestCandidate], merge_library_ids: &[i64], now: &str,
+        token: &str, resume: bool, expected_library: Option<i64>,
+    ) -> Result<FolderIngestDbResult, AppError> {
+        self.ingest_folder_source_impl(root_path, prepared, merge_library_ids, now, Some(token), resume, expected_library)
+    }
+
+    fn ingest_folder_source_impl(
         &self,
         root_path: &str,
         prepared: &[PreparedIngestCandidate],
         merge_library_ids: &[i64],
         now: &str,
+        import_token: Option<&str>,
+        resume: bool,
+        expected_library: Option<i64>,
     ) -> Result<FolderIngestDbResult, AppError> {
         let root = Path::new(root_path);
         if !root.is_dir() {
@@ -2367,7 +2399,12 @@ impl Database {
         };
         let already_existing_id = Self::folder_overlap_verdict(&existing, root, &root_identity)?;
 
-        if let Some(existing_id) = already_existing_id {
+        if expected_library.is_some() && already_existing_id != expected_library { return Err(AppError::LibraryNotFound); }
+        let continue_existing = if let (Some(existing_id), Some(token)) = (already_existing_id, import_token) {
+            let current: String = transaction.query_row("SELECT sync_state FROM libraries WHERE id = ?1", params![existing_id], |row|row.get(0)).map_err(|_|AppError::DatabaseError)?;
+            current == token || (resume && (current.starts_with("importing:") || current == "import_paused"))
+        } else { false };
+        if let Some(existing_id) = already_existing_id.filter(|_| !continue_existing) {
             let library = Self::load_library_in_transaction(&transaction, existing_id)?;
             transaction
                 .commit()
@@ -2382,6 +2419,10 @@ impl Database {
             });
         }
 
+        let folder_id = if let Some(existing_id) = already_existing_id.filter(|_|continue_existing) {
+            transaction.execute("UPDATE libraries SET sync_state = ?2 WHERE id = ?1", params![existing_id, import_token]).map_err(|_|AppError::DatabaseError)?;
+            existing_id
+        } else {
         // 2) 创建 folder library。
         let next_id: i64 = transaction
             .query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM libraries", [], |row| row.get(0))
@@ -2391,7 +2432,7 @@ impl Database {
                 "INSERT INTO libraries (
                     id, name, root_path, canonical_root_key, source_kind, path_state,
                     is_active, created_at, updated_at, last_scanned_at, identity, sync_state
-                 ) VALUES (?1, ?2, ?3, ?4, 'folder', 'valid', 1, ?5, ?5, ?5, ?6, 'ok')",
+                 ) VALUES (?1, ?2, ?3, ?4, 'folder', 'valid', 1, ?5, ?5, ?5, ?6, ?7)",
                 params![
                     next_id,
                     root_name,
@@ -2399,10 +2440,12 @@ impl Database {
                     root_key,
                     now,
                     root_identity,
+                    import_token.unwrap_or("ok"),
                 ],
             )
             .map_err(|_| AppError::DatabaseError)?;
-        let folder_id = next_id;
+        next_id
+        };
 
         // 候选索引：identity / 路径双键去重。
         let mut candidate_by_identity: HashMap<&str, usize> = HashMap::new();
@@ -2580,6 +2623,7 @@ impl Database {
 
         // 4) 插入候选 item（identity / 路径去重）。
         let mut created_count = 0_u64;
+        let mut fts_ids = std::collections::HashSet::new();
         for candidate in prepared {
             let existing_item: Option<(i64, Option<String>)> = transaction
                 .query_row(
@@ -2608,8 +2652,8 @@ impl Database {
                 // replace 路径语义恢复行并刷新漂移的内容。
                 let existing_owner: i64 = transaction
                     .query_row(
-                        "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND is_owner = 1",
-                        params![existing_id],
+                        "SELECT COUNT(*) FROM item_sources WHERE item_id = ?1 AND is_owner = 1 AND library_id <> ?2",
+                        params![existing_id, folder_id],
                         |row| row.get(0),
                     )
                     .map_err(|_| AppError::DatabaseError)?;
@@ -2735,7 +2779,7 @@ impl Database {
                 created_count += 1;
                 new_item_id
             };
-            let _ = item_id;
+            fts_ids.insert(item_id);
         }
 
         // 5) 保留计数 + 全量 FTS rebuild + last_scanned_at。
@@ -2755,7 +2799,12 @@ impl Database {
             }
         }
 
-        Self::rebuild_fts_index(&transaction)?;
+        if import_token.is_some() {
+            for item_id in fts_ids {
+                transaction.execute("DELETE FROM items_fts WHERE rowid = ?1", params![item_id]).map_err(|_|AppError::DatabaseError)?;
+                transaction.execute("INSERT INTO items_fts(rowid,item_id,file_name,title,raw_text) SELECT i.id,i.id,i.file_name,COALESCE(i.title,''),COALESCE(c.raw_text,'') FROM items i LEFT JOIN item_content c ON c.item_id=i.id WHERE i.id=?1 AND i.is_deleted=0",params![item_id]).map_err(|_|AppError::DatabaseError)?;
+            }
+        } else { Self::rebuild_fts_index(&transaction)?; }
         transaction
             .execute(
                 "UPDATE libraries SET last_scanned_at = ?2 WHERE id = ?1",
