@@ -7,8 +7,11 @@ use nutbook_backend::core::markdown_export::{
 
 fn main() {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
-    let markdown = if arguments.iter().any(|argument| argument == "readme") {
-        include_str!("../../README-CN.md").to_string()
+    let acceptance = arguments.iter().any(|argument| argument == "acceptance");
+    let markdown = if acceptance {
+        include_str!("../../docs/presentations/markdown-rule-acceptance/sample.md").to_string()
+    } else if arguments.iter().any(|argument| argument == "readme") {
+        include_str!("../tests/fixtures/presentation-layout/list-cards.md").to_string()
     } else {
         r#"# Layout fixture
 
@@ -48,10 +51,10 @@ fn main() {
     let input = MarkdownHtmlExportInput {
         title: "Layout fixture".to_string(),
         source_file: "layout-fixture.md".to_string(),
-        source_path: PathBuf::from("layout-fixture.md"),
+        source_path: if acceptance { PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/presentations/markdown-rule-acceptance/sample.md") } else { PathBuf::from("layout-fixture.md") },
         markdown,
         generated_at: "layout fixture".to_string(),
-        template_html: include_str!("../resources/export-templates/markdown-presentation-light.html").to_string(),
+        template_html: if arguments.iter().any(|a| a == "dark") { include_str!("../resources/export-templates/markdown-presentation-dark.html") } else { include_str!("../resources/export-templates/markdown-presentation-light.html") }.to_string(),
         preferences: MarkdownHtmlExportPreferences::default(),
     };
     let preferences = PresentationHtmlExportPreferences {
@@ -60,8 +63,8 @@ fn main() {
         } else {
             "16-9".to_string()
         },
-        density: PresentationDensity::Balanced,
-        output_kind: "static".to_string(),
+        density: if arguments.iter().any(|a| a == "report") { PresentationDensity::Report } else { PresentationDensity::Balanced },
+        output_kind: if arguments.iter().any(|a| a == "dynamic") { "dynamic" } else { "static" }.to_string(),
     };
     let output = render_presentation_html(input, preferences).expect("fixture should render");
     print!("{}", output.html);

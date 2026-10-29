@@ -1459,9 +1459,10 @@ fn export_markdown_html_to_path(
     } else {
         render_reading_html(input)?
     };
-    let MarkdownHtmlExportOutput { html, warnings } = rendered;
+    let MarkdownHtmlExportOutput { html, warnings, diagnostics, .. } = rendered;
     std::fs::write(target, html).map_err(|_| AppError::IoError)?;
     Ok(ExportMarkdownHtmlResponse {
+        diagnostics,
         item_id: payload.item_id,
         target_path: target.to_string_lossy().to_string(),
         warnings,

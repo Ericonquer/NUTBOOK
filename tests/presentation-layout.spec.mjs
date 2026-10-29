@@ -105,7 +105,7 @@ test("physical list layouts keep cards readable and balanced", async ({ page }) 
   expect(sevenCounts).toEqual([4, 3]);
 });
 
-test("README list-card pages use the persisted physical layout plan", async ({ page }) => {
+test("frozen list-card pages use the persisted physical layout plan", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 675 });
   await page.setContent(exportFixture("readme"));
 
@@ -135,3 +135,29 @@ test("4:3 keeps a chosen side-by-side layout as two columns", async ({ page }) =
   expect(geometry.copyWidth).toBeGreaterThan(0);
   expect(geometry.gridWidth).toBeGreaterThan(0);
 });
+
+for (const theme of ["light", "dark"]) for (const aspect of ["16-9", "4-3"]) for (const density of ["balanced", "report"]) for (const kind of ["static", "dynamic"]) {
+  test(`acceptance content survives ${theme}/${aspect}/${density}/${kind}`, async ({ page }) => {
+    await page.setContent(exportFixture("acceptance", theme, aspect, density, kind));
+    await page.evaluate(() => Promise.all([...document.images].map(image => image.decode())));
+    const body = await page.locator(".deck").innerText();
+    for (const token of ["CANARY_INTRO", "CANARY_OUTRO", "A价格", "B价格", "A速度", "B速度"]) expect(body).toContain(token);
+    expect(body.indexOf("CANARY_INTRO")).toBeLessThan(body.indexOf("CANARY_OUTRO"));
+    await expect(page.locator('img[alt="CANARY_IMAGE"]')).toHaveCount(1);
+    const comparisons = page.locator('.slide[data-slide-kind="comparison"]');
+    await expect(comparisons).toHaveCount(1);
+    const panels = comparisons.locator(".comparison-panel");
+    await expect(panels.nth(0)).toContainText("10元");
+    await expect(panels.nth(0)).not.toContainText("20元");
+    await expect(panels.nth(1)).toContainText("20元");
+    await expect(panels.nth(1)).not.toContainText("10元");
+    expect(body).not.toContain("content-preserving-fallback");
+    const bridge = await page.evaluate(async () => {
+      const b = window.__NUTBOOK_PRESENTATION__;
+      await b.whenReady();
+      await b.goTo(b.pages.at(-1).id);
+      return b.activePageId === b.pages.at(-1).id;
+    });
+    expect(bridge).toBe(true);
+  });
+}
