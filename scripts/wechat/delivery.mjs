@@ -43,28 +43,103 @@ export async function waitForDraftEditor(page) {
   if (!await page.locator(titleSelector).count()) throw Error('DRAFT_UNAVAILABLE');
 }
 
-async function verify(page, job, html, urls) {
+// Runs in the page on inert HTML; editor-only separator nodes are not article images.
+export function inspectDraftHTML(html) {
+  const t=document.createElement('template');t.innerHTML=html;
+  return {text:(t.content.textContent||'').replace(/\s+/g,''),images:[...t.content.querySelectorAll('img')]
+    .filter(i=>!i.classList.contains('ProseMirror-separator'))
+    .map(i=>i.getAttribute('src')||i.getAttribute('data-src')||'').filter(Boolean)};
+}
+export function imageIdentity(src) {
+  try {const u=new URL(src);return u.protocol==='https:'&&u.hostname==='mmbiz.qpic.cn' ? u.origin+u.pathname.replace(/\/(?:s?\d+)$/,'') : null;}catch{return null;}
+}
+export function sameImages(actual,expected) {
+  return actual.length===expected.length&&actual.every((src,i)=>imageIdentity(src)&&imageIdentity(src)===imageIdentity(expected[i]));
+}
+export function readSaveFields(request) {
+  const url=new URL(request.url());
+  if(url.origin!=='https://mp.weixin.qq.com'||url.pathname!=='/cgi-bin/operate_appmsg'||!['create','update'].includes(url.searchParams.get('sub'))||request.method()!=='POST')return null;
+  const type=request.headers()['content-type']||'',body=request.postData()||'';
+  let fields;
+  if(type.includes('application/x-www-form-urlencoded'))fields=Object.fromEntries(new URLSearchParams(body));
+  else {
+    const boundary=type.match(/boundary=(?:"([^"\r\n]*)"|([^;\s]+))/)?.slice(1).find(Boolean);
+    if(!boundary)return null;
+    fields={};
+    for(const part of body.split('--'+boundary)){
+      const split=part.indexOf('\r\n\r\n');if(split<0)continue;
+      const name=part.slice(0,split).match(/content-disposition:[^\r\n]*\bname="([^"\r\n]+)"/i)?.[1];
+      if(name)fields[name]=part.slice(split+4).replace(/\r\n$/,'');
+    }
+  }
+  // The live editor uses save_type=1 for autosave; only a full manual save is a receipt.
+  if(fields.save_type!=='0'||fields.count!=='1'||!fields.content0)return null;
+  return fields;
+}
+
+export async function verifyDraft(page,job,html,urls,{coverUrl,timeout=30000}={}) {
   await waitForDraftEditor(page);
-  await page.waitForFunction(({selector, expected}) => {
-    const b = document.querySelector(selector);
-    return b && b.querySelectorAll('img[src]').length === expected && [...b.querySelectorAll('img[src]')].every(i => i.complete && i.naturalWidth > 0);
-  }, {selector: bodySelector, expected: urls.length}, {timeout:30000});
-  const result = await page.evaluate(({bodySelector,titleSelector,html}) => {
-    const b=document.querySelector(bodySelector), t=document.createElement('template');t.innerHTML=html;
-    const norm=s=>(s||'').replace(/\s+/g,'').replace(/\u00a0/g,'');
-    return {
-      title:document.querySelector(titleSelector)?.textContent,
-      summary:document.querySelector('#js_description')?.value,
-      textMatches:norm(b.textContent)===norm(t.content.textContent),
-      images:[...b.querySelectorAll('img[src]')].map(e=>e.src),
-      cover:document.querySelector('.js_cover_preview_new')?.style.backgroundImage || ''
-    };
-  },{bodySelector,titleSelector,html});
-  if (result.title !== job.title || result.summary !== job.summary || !result.textMatches || result.images.length !== urls.length) throw Error('DRAFT_VERIFICATION_FAILED');
-  const identity = src => {const u=new URL(src);return u.origin+u.pathname.replace(/\/\d+$/,'');};
-  if(result.images.some((src,i)=>identity(src)!==identity(urls[i]))) throw Error('IMAGE_ORDER_MISMATCH');
-  if(job.coverId && !result.cover.includes('mmbiz.qpic.cn')) throw Error('COVER_NOT_SAVED');
-  return {title:result.title,imageCount:result.images.length,verified:true};
+  const expected=await page.evaluate(inspectDraftHTML,html);
+  // The title can mount before the body has been restored. Wait on content, not time alone.
+  try {
+    await page.waitForFunction(({bodySelector,titleSelector,expected,urls,title,summary})=>{
+      const b=document.querySelector(bodySelector);
+      if(!b||document.querySelector(titleSelector)?.textContent!==title||document.querySelector('#js_description')?.value!==summary)return false;
+      const identity=src=>{try{const u=new URL(src);return u.protocol==='https:'&&u.hostname==='mmbiz.qpic.cn'?u.origin+u.pathname.replace(/\/(?:s?\d+)$/,''):null;}catch{return null;}};
+      const images=[...b.querySelectorAll('img')].filter(i=>!i.classList.contains('ProseMirror-separator')).map(i=>i.getAttribute('src')||i.getAttribute('data-src')||'').filter(Boolean);
+      return (b.textContent||'').replace(/\s+/g,'')===expected.text&&images.length===urls.length&&images.every((src,i)=>identity(src)&&identity(src)===identity(urls[i]));
+    },{bodySelector,titleSelector,expected,urls,title:job.title,summary:job.summary},{timeout});
+  }catch{throw Error('DRAFT_CONTENT_MISMATCH');}
+  const actual=await page.evaluate(({bodySelector,titleSelector})=>({
+    html:document.querySelector(bodySelector)?.innerHTML||'',
+    title:document.querySelector(titleSelector)?.textContent,
+    summary:document.querySelector('#js_description')?.value,
+    cover:document.querySelector('.js_cover_preview_new')?.style.backgroundImage||''
+  }),{bodySelector,titleSelector});
+  const body=await page.evaluate(inspectDraftHTML,actual.html);
+  if(actual.title!==job.title||actual.summary!==job.summary||body.text!==expected.text||!sameImages(body.images,urls))throw Error('DRAFT_CONTENT_MISMATCH');
+  if(job.coverId){
+    const src=actual.cover.match(/url\(["']?(.*?)["']?\)/)?.[1];
+    if(!imageIdentity(src)||(coverUrl&&imageIdentity(src)!==imageIdentity(coverUrl)))throw Error('COVER_NOT_SAVED');
+  }
+  try {
+    await page.waitForFunction(selector=>{
+      const b=document.querySelector(selector);return b&&[...b.querySelectorAll('img')]
+        .filter(i=>!i.classList.contains('ProseMirror-separator')&&(i.getAttribute('src')||i.getAttribute('data-src')))
+        .every(i=>i.complete&&i.naturalWidth>0);
+    },bodySelector,{timeout});
+  }catch{throw Error('DRAFT_IMAGES_NOT_LOADED');}
+  const finalBody=await page.evaluate(selector=>document.querySelector(selector)?.innerHTML||'',bodySelector);
+  const final=await page.evaluate(inspectDraftHTML,finalBody);
+  if(final.text!==expected.text||!sameImages(final.images,urls))throw Error('DRAFT_CONTENT_MISMATCH');
+  return {title:actual.title,imageCount:body.images.length,verified:true};
+}
+
+export async function saveDraft(page,job,html,urls,coverUrl,{timeout=30000}={}) {
+  // A delayed response to a request already in flight must not satisfy this save.
+  const started=new WeakSet();const onRequest=request=>started.add(request);
+  page.on('request',onRequest);
+  const expected=await page.evaluate(inspectDraftHTML,html);
+  const id=new URL(page.url()).searchParams.get('appmsgid');
+  const response=page.waitForResponse(async response=>{
+    const request=response.request();if(!started.has(request))return false;
+    const f=readSaveFields(request);if(!f||f.title0!==job.title||f.digest0!==job.summary)return false;
+    if(id&&f.AppMsgId!==id)return false;
+    if(coverUrl&&imageIdentity(f.cdn_url0)!==imageIdentity(coverUrl))return false;
+    const body=await page.evaluate(inspectDraftHTML,f.content0);
+    return body.text===expected.text&&sameImages(body.images,urls);
+  },{timeout}).then(value=>({value}),error=>({error}));
+  try {
+    await page.getByText('保存为草稿',{exact:true}).click();
+    const received=await response;
+    if(received.error)throw Error('DRAFT_SAVE_UNCONFIRMED');
+    const result=await received.value.json();
+    if(!received.value.ok()||result.base_resp?.ret!==0||(result.ret!==undefined&&String(result.ret)!=='0'))throw Error('SAVE_REJECTED');
+    if(result.appMsgId&&id&&String(result.appMsgId)!==id)throw Error('DRAFT_SAVE_UNCONFIRMED');
+    const savedId=String(result.appMsgId||id||'');
+    if(!/^[1-9]\d*$/.test(savedId))throw Error('DRAFT_SAVE_UNCONFIRMED');
+    return savedId;
+  }finally{page.off('request',onRequest);}
 }
 
 /** checkpoint must durably persist before resolving. No credentials or session tokens go to progress. */
@@ -119,8 +194,9 @@ export async function deliverDraft({context,job,journal=null,checkpoint,progress
     if(['saved','verified'].includes(state?.stage))report('reusing');
     await waitForDraftEditor(editor);
     const savedUrl=()=>{const u=new URL(editor.url());u.searchParams.delete('token');return u.searchParams.get('appmsgid')?u.href:null;};
+    if(state?.stage==='editing')throw Error('DRAFT_INCOMPLETE');
     if(['saved','verified'].includes(state?.stage)){
-      report('reusing');const result=await verify(editor,job,state.html,state.urls);await checkpoint({...state,stage:'verified'});return {...result,reused:true};
+      report('reusing');const result=await verifyDraft(editor,job,state.html,state.urls,{coverUrl:state.coverUrl});await checkpoint({...state,stage:'verified'});return {...result,reused:true};
     }
     report('preparing');
     await editor.locator(titleSelector).fill(job.title);
@@ -159,17 +235,27 @@ export async function deliverDraft({context,job,journal=null,checkpoint,progress
       await editor.getByRole('button',{name:'下一步',exact:true}).click();
       await editor.locator('.weui-desktop-dialog').filter({hasText:'编辑封面'}).getByRole('button',{name:'确认',exact:true}).click();
     }
+    const urls=parsed.imageIds.map(id=>mapping[id]);
+    let coverUrl;
+    // WeChat crops/re-encodes the selected image into a new CDN resource.
+    // The accepted preview, not the original body-image URL, is the save identity.
+    if(job.coverId){
+      try{await editor.waitForFunction(()=>{
+        const raw=document.querySelector('.js_cover_preview_new')?.style.backgroundImage||'';
+        return /url\(["']?https:\/\/mmbiz\.qpic\.cn\//.test(raw);
+      });}catch{throw Error('COVER_NOT_SAVED');}
+      coverUrl=await editor.evaluate(()=>document.querySelector('.js_cover_preview_new').style.backgroundImage.match(/url\(["']?(.*?)["']?\)/)?.[1]);
+    }
+    await verifyDraft(editor,job,html,urls,{coverUrl});
     report('saving');
-    const response=editor.waitForResponse(r=>r.url().includes('/cgi-bin/operate_appmsg')&&r.request().method()==='POST');
-    await editor.getByText('保存为草稿',{exact:true}).click();
-    const result=await(await response).json();
-    if(result.base_resp?.ret!==0)throw Error('SAVE_REJECTED');
+    const savedId=await saveDraft(editor,job,html,urls,coverUrl);
+    try{await editor.waitForURL(u=>u.searchParams.get('appmsgid')===savedId);}catch{throw Error('DRAFT_SAVE_UNCONFIRMED');}
     const editUrl=savedUrl();if(!editUrl)throw Error('SAVE_ID_MISSING');
-    state={digest,stage:'saved',editUrl,html,urls:parsed.imageIds.map(id=>mapping[id])};await checkpoint(state);
+    state={digest,stage:'saved',editUrl,html,coverUrl,urls:parsed.imageIds.map(id=>mapping[id])};await checkpoint(state);
     check();await editor.close();pages.delete(editor);
     editor=await context.newPage();pages.add(editor);
     report('verifying');const verifyUrl=new URL(editUrl);verifyUrl.searchParams.set('token',sessionToken);await editor.goto(verifyUrl.href,{waitUntil:'domcontentloaded'});
-    const verified=await verify(editor,job,html,state.urls);
+    const verified=await verifyDraft(editor,job,html,state.urls,{coverUrl});
     await checkpoint({...state,stage:'verified'});
     progress({stage:'verified'});return verified;
   } finally {signal?.removeEventListener('abort',stop);}

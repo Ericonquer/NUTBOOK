@@ -212,14 +212,23 @@ try{
  await page.waitForFunction(()=>document.querySelector('.formatting-delivery>[role=status]:not([hidden])').textContent.startsWith('Cancelled'));
  assert.equal(await page.evaluate(()=>fixture.deliveryCalls),1);
  assert.equal(await page.locator('[data-export-editor]').inputValue(),'new input while sending');
- await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,running:false,stage:'failed',error:'DRAFT_UNAVAILABLE'};});
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,platform:'wechat',running:false,stage:'failed',error:'DRAFT_CONTENT_MISMATCH',canRecreate:true,history:[{stage:'reusing'}]};});
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('.formatting-delivery-actions button').textContent==='Create a new draft');
- await page.getByRole('button',{name:'Create a new draft',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery-actions button').textContent==='Retry sending');
+ assert.match(await page.locator('.formatting-delivery>[role=status]:not([hidden])').textContent(),/Retry sending will create a new draft; the old draft will be retained/);
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,canRecreate:false};});
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery-actions button').textContent==='Retry sending');
+ await page.evaluate(()=>{fixture.deliveryState={...fixture.deliveryState,running:false,stage:'failed',error:'DRAFT_UNAVAILABLE',canRecreate:true};});
+ await page.getByRole('button',{name:'Close sending window',exact:true}).click();
+ await page.getByRole('button',{name:'Send to WeChat',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.formatting-delivery-actions button').textContent==='Retry sending');
+ await page.getByRole('button',{name:'Retry sending',exact:true}).click();
  await page.getByRole('button',{name:'Overwrite original',exact:true}).click();
  await page.waitForFunction(()=>fixture.deliveryCalls===2);
- assert.equal(await page.evaluate(()=>fixture.sent.recreate),true);
+ assert.equal(await page.evaluate(()=>fixture.sent.recreate),false);
 
  await page.getByRole('button',{name:'Close sending window',exact:true}).click();
  await page.evaluate(()=>NutbookFormatting.leave(1));

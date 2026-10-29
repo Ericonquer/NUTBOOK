@@ -40,12 +40,14 @@ export async function readJournal(path){
   try{return JSON.parse(await readFile(path,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}
 }
 
+export const recoverableDraftErrors=new Set(['DRAFT_UNAVAILABLE','DRAFT_CONTENT_MISMATCH','DRAFT_INCOMPLETE','COVER_NOT_SAVED','DRAFT_IMAGES_NOT_LOADED','DRAFT_SAVE_UNCONFIRMED']);
+
 /** Explicit recovery only; preserve the old receipt and never reset ambiguous creation. */
 export async function replaceUnavailableDraft(directory,id,digest){
  const path=join(directory,`${id}.json`);
  const journal=await readJournal(path);
  const status=await readJournal(join(directory,`${id}.status.json`));
- if(journal?.digest!==digest || !['saved','verified'].includes(journal?.stage) || status?.jobId!==id || status?.error!=='DRAFT_UNAVAILABLE' || status?.running!==false)throw Error('RECREATE_NOT_ALLOWED');
+ if(journal?.digest!==digest || !['editing','saved','verified'].includes(journal?.stage) || status?.jobId!==id || !recoverableDraftErrors.has(status?.error) || status?.running!==false)throw Error('RECREATE_NOT_ALLOWED');
  await atomicJson(join(directory,`${id}.previous-${randomUUID()}.json`),journal);
  await unlink(path);
 }
