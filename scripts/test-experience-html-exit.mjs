@@ -2,15 +2,22 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const source=readFileSync('dist/index.html','utf8'),start=source.indexOf('      async function exitHtmlEditMode('),end=source.indexOf('      window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__',start);
-function harness(replaceSession=false){
+function harness(replaceSession=false,blockHide=false){
+ let releaseHide, signalHide;
+ const hideReady=new Promise(resolve=>signalHide=resolve),hidden=new Promise(resolve=>releaseHide=resolve);
+ const tab={id:7};
  const calls=[],state={htmlEditSession:{itemId:7,runtimeSessionId:'old',generation:1,assetRequestEpoch:0},htmlEditSessionGeneration:1,activeTabId:7,activeRuntimeHostId:7,runtimeHostLastBoundsKey:'old',runtimePatchAppliedKeys:new Set([7])};
  const noop=()=>{};
  const context=vm.createContext({appState:state,cancelHtmlEditCleanRevisionWaiter:noop,nextHtmlEditSessionGeneration:()=>++state.htmlEditSessionGeneration,
   invoke:async(command,args)=>{calls.push([command,args]);if(replaceSession&&command==='invalidate_html_edit_session_lease'){state.htmlEditSession={itemId:7,runtimeSessionId:'new',generation:++state.htmlEditSessionGeneration};}return true;},
+  getOpenTab:id=>id===7?tab:null,getActiveTab:()=>state.activeTabId===7?tab:null,
+  waitForHtmlRuntimeHost:async()=>{calls.push(['wait-host']);return true;},nativePresentationText:(zh,en)=>en,
   resolveHtmlEditLeaveChoice:noop,closeHtmlEditLeaveConfirmOverlay:noop,renderHtmlEditPresentationRail:noop,renderHtmlEditSectionNavigationRail:noop,
-  cleanupRuntimeHostSync:()=>calls.push(['invalidate-sync']),hideRuntimeSessionSurfaces:async(id,options)=>calls.push(['hide-surfaces',{id,options}]),scheduleRuntimeHostSync:()=>calls.push(['schedule-sync']),refocusActiveRuntimeHost:noop});
+  cleanupRuntimeHostSync:()=>calls.push(['invalidate-sync']),hideRuntimeSessionSurfaces:async(id,options)=>{calls.push(['hide-surfaces',{id,options}]);signalHide();if(blockHide)await hidden;},scheduleRuntimeHostSync:()=>calls.push(['schedule-sync']),refocusActiveRuntimeHost:noop});
  vm.runInContext(source.slice(start,end)+';globalThis.exit=exitHtmlEditMode;',context);
- return {state,calls,exit:context.exit};
+ const requestStart=source.indexOf('      async function requestHtmlEdit('),requestEnd=source.indexOf('      function usesInlineHtmlEditToolbarForSession',requestStart);
+ vm.runInContext(source.slice(requestStart,requestEnd)+';globalThis.request=requestHtmlEdit;',context);
+ return {state,calls,exit:context.exit,request:context.request,hideReady,releaseHide};
 }
 for(const discard of [false,true]){
  const h=harness();await h.exit({discard});
@@ -21,3 +28,18 @@ for(const discard of [false,true]){
 }
 const late=harness(true);await late.exit({discard:false});assert.equal(late.state.htmlEditSession.runtimeSessionId,'new');assert.equal(late.calls.some(([name])=>name==='hide-surfaces'),false,'late exit cannot close a newer editing session');
 console.log('HTML Done keeps the document, rebuilds through host lifecycle and ignores stale exits (VM, not native GUI)');
+
+for (const navigateAway of [false,true]) {
+ const h=harness(false,true);
+ const exiting=h.exit({discard:true});
+ await h.hideReady;
+ const request=h.request(7);
+ await Promise.resolve();
+ assert.equal(h.calls.some(([command])=>command==='get_html_edit_patch'),false,'re-entry must wait while native teardown is pending');
+ if(navigateAway)h.state.activeTabId=8;
+ h.releaseHide();await exiting;await request;
+ assert.equal(h.calls.some(([command])=>command==='get_html_edit_patch'),!navigateAway,'re-entry must recheck the active tab after teardown');
+ if(!navigateAway){const names=h.calls.map(([name])=>name);assert.ok(names.indexOf('wait-host')>names.indexOf('schedule-sync'));}
+ assert.equal(h.state.htmlEditExitTransition,null);
+}
+console.log('Re-entry waits for blocked native teardown and new-host readiness; navigation cancels stale edit intent.');

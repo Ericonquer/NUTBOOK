@@ -11690,8 +11690,7 @@
         if (!intent || (runtimeSessionId && intent.runtimeSessionId !== runtimeSessionId)) return false;
         appState.htmlEditDirtyLeaveIntent = null;
         appState.htmlEditLeavePromptOpen = false;
-        closeHtmlEditLeaveConfirmOverlay(intent.itemId);
-        intent.resolve(choice);
+        closeHtmlEditLeaveConfirmOverlay(intent.itemId).then(() => intent.resolve(choice));
         return true;
       }
 
@@ -12120,14 +12119,23 @@
       }
 
       async function requestHtmlEdit(itemId) {
+        const exiting = appState.htmlEditExitTransition;
+        if (exiting?.itemId === itemId) await exiting.promise;
         const tab = getOpenTab(itemId);
         if (!tab || getActiveTab()?.id !== itemId) return;
+        const isCurrent = () => getActiveTab()?.id === itemId && getOpenTab(itemId) === tab;
+        if (!await waitForHtmlRuntimeHost(itemId, isCurrent)) {
+          if (isCurrent()) throw new Error(nativePresentationText("HTML 正文尚未就绪，请重试", "HTML content is not ready. Please retry."));
+          return;
+        }
         const probeId = `html-edit-probe-${itemId}-${Date.now()}`;
         const access = await invoke("get_html_edit_patch", { itemId });
-        await invoke("eval_html_runtime_script_command", {
+        if (!isCurrent()) return;
+        const applied = await invoke("eval_html_runtime_script_command", {
           itemId,
           script: `window.__NUTBOOK_HTML_EDIT_PRE_PROBE_TITLE__=document.title;document.title='__NUTBOOK_HTML_EDIT_RUNTIME__:'+JSON.stringify({type:'html_edit_conversion_probe',runtimeSessionId:${JSON.stringify(probeId)},sourceItemId:${itemId},managedSourceAllowed:${access.managedSourceAllowed !== false},hasProtocol:Boolean(document.querySelector('[data-editable]')||(window.__NUTBOOK_PRESENTATION__?.version===1&&window.__NUTBOOK_PRESENTATION__?.capabilities?.managedPresenter===true&&typeof window.__NUTBOOK_PRESENTATION__?.setEditMode==='function'&&document.getElementById('nutbook-presentation-notes')))});`
         });
+        if (!applied && isCurrent()) throw new Error(nativePresentationText("HTML 正文尚未就绪，请重试", "HTML content is not ready. Please retry."));
       }
 
       function usesInlineHtmlEditToolbarForSession(session) {
@@ -13164,6 +13172,9 @@
         const reloadCommittedSource = true;
         if (session.itemId !== itemId) return;
         if (runtimeSessionId && session.runtimeSessionId !== runtimeSessionId) return;
+        if (appState.htmlEditExitTransition?.runtimeSessionId === runtimeSessionId) return appState.htmlEditExitTransition.promise;
+        const transition = { itemId, runtimeSessionId, promise: null };
+        transition.promise = (async () => {
         cancelHtmlEditCleanRevisionWaiter(runtimeSessionId);
         const exitGeneration = nextHtmlEditSessionGeneration();
         const exitIsCurrent = () => appState.htmlEditSessionGeneration === exitGeneration
@@ -13193,7 +13204,8 @@
         }
         if (!exitIsCurrent()) return;
         resolveHtmlEditLeaveChoice("keep", runtimeSessionId);
-        closeHtmlEditLeaveConfirmOverlay(itemId);
+        await closeHtmlEditLeaveConfirmOverlay(itemId);
+        if (!exitIsCurrent()) return;
         if (appState.htmlEditSession?.runtimeSessionId === runtimeSessionId) appState.htmlEditSession = null;
         renderHtmlEditPresentationRail(null);
         renderHtmlEditSectionNavigationRail(null);
@@ -13213,6 +13225,10 @@
           scheduleRuntimeHostSync();
         }
         refocusActiveRuntimeHost(itemId);
+        })();
+        appState.htmlEditExitTransition = transition;
+        try { return await transition.promise; }
+        finally { if (appState.htmlEditExitTransition === transition) appState.htmlEditExitTransition = null; }
       }
 
       window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__ = function handleHtmlEditRuntimeMessage(data) {
@@ -21965,6 +21981,9 @@ if (!chipTipController) {
 
       async function runHtmlPrimaryAction(itemId) {
         return runPrimaryAction(itemId, async () => {
+          const exiting = appState.htmlEditExitTransition;
+          if (exiting?.itemId === itemId) await exiting.promise;
+          if (getActiveTab()?.id !== itemId) return false;
           if (appState.htmlEditSession?.itemId === itemId) {
             return confirmHtmlEditLeaveIfNeeded(itemId, { source: "toolbar-primary" });
           }
