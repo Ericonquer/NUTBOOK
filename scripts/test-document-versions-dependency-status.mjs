@@ -26,13 +26,14 @@ try {
    },{language,kind});
    const summary=await page.locator('[data-warning] summary').textContent();
    if(kind==='uncertain') {
-    assert.equal(summary,language==='zh-CN'?'脚本资源未核验':'Script resources not verified');
+    assert.equal(summary,language==='zh-CN'?'静态预览说明':'About static preview');
     await page.locator('[data-save-as]').click();
     await page.waitForFunction(()=>calls.some(([command])=>command==='save_document_version_as'));
     assert.equal(await page.locator('[data-prompt]').isVisible(),false,'uncertainty is informational, not a missing-file confirmation');
     assert.equal(await page.evaluate(()=>calls.find(([c])=>c==='save_document_version_as')[1].payload.allowIncomplete),true,'preserve backend resource validation');
    } else {
-    assert.ok(summary.startsWith('1 '),'runtime uncertainty must not inflate missing/excluded counts');
+    if(kind==='unsupported')assert.equal(summary,language==='zh-CN'?'静态预览说明':'About static preview');
+    else assert.ok(summary.startsWith('1 '),'runtime uncertainty must not inflate missing-file counts');
     if(kind==='mixed'||kind==='markdown')assert.ok(summary.includes(language==='zh-CN'?'未找到':'not found'));
     await page.locator('[data-save-as]').click();
     await page.locator('[data-prompt]').waitFor({state:'visible'});

@@ -56,8 +56,25 @@ pub struct HistoryList {
     storage_path: PathBuf,
     limit_bytes: u64,
     availability:std::collections::BTreeMap<String,bool>,
+    source_status: std::collections::BTreeMap<String, String>,
     restore_allowed: bool,
+    current_source: Option<String>,
+    current_html: Option<String>,
+    current_modified_at: Option<String>,
 }
+fn history_source_status(path: &std::path::Path, expected_identity: &str) -> &'static str {
+    match std::fs::metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "missing",
+        Err(_) => "inaccessible",
+        Ok(metadata) if !metadata.is_file() => "replaced",
+        Ok(_) => match file_identity(path) {
+            Ok(identity) if identity == expected_identity => "available",
+            Ok(_) => "replaced",
+            Err(_) => "inaccessible",
+        },
+    }
+}
+
 #[tauri::command]
 pub fn list_document_versions(
     webview: tauri::Webview,
@@ -80,8 +97,19 @@ pub fn list_document_versions(
             .find(|h| h.canonical_path == path && h.file_identity == identity)
             .map(|h| h.id.clone())
     });
-    let availability=documents.iter().map(|head|(head.id.clone(),file_identity(&head.canonical_path).is_ok_and(|identity|identity==head.file_identity))).collect();
+    let source_status: std::collections::BTreeMap<String,String> = documents.iter().map(|head| (head.id.clone(), history_source_status(&head.canonical_path, &head.file_identity).to_owned())).collect();
+    let availability=source_status.iter().map(|(id,status)|(id.clone(),status == "available")).collect();
     let document_bytes=documents.iter().map(|head|Ok((head.id.clone(),store.document_usage_bytes(head)?))).collect::<Result<_,crate::core::document_versions::HistoryError>>()?;
+    let current_snapshot = target(&state, &payload).ok().and_then(|(path, root)| {
+        let path = path.canonicalize().ok()?;
+        let metadata = std::fs::metadata(&path).ok()?;
+        if !path.starts_with(root.canonicalize().ok()?) || metadata.len() > 2_000_000 { return None; }
+        let modified = chrono::DateTime::<chrono::Utc>::from(metadata.modified().ok()?).to_rfc3339();
+        let source = std::fs::read_to_string(&path).ok()?;
+        let html = if matches!(path.extension().and_then(|s|s.to_str()), Some("md" | "markdown")) { crate::core::markdown_render::render_markdown_html(&source) } else { source.clone() };
+        Some((source, modified, html))
+    });
+    let (current_source, current_modified_at, current_html) = match current_snapshot { Some((source, modified, html)) => (Some(source), Some(modified), Some(html)), None => (None, None, None) };
     let settings = store.settings()?;
     Ok(HistoryList {
         documents,
@@ -91,7 +119,11 @@ pub fn list_document_versions(
         storage_path: store.storage_path().to_owned(),
         limit_bytes: settings.limit_bytes,
         availability,
+        source_status,
         restore_allowed,
+        current_source,
+        current_html,
+        current_modified_at,
     })
 }
 #[derive(Deserialize)]
@@ -309,4 +341,23 @@ pub fn save_document_version_as(webview: tauri::Webview, state: tauri::State<'_,
     } else { crate::core::markdown_save_as::publish_archived(&store, &payload.document_id, &payload.version_id, &path, expected.as_deref(), payload.allow_incomplete)? };
     state.synchronize_history_index(&commit.document_id);
     Ok(Some(path))
+}
+
+#[cfg(test)]
+mod source_status_tests {
+    #[test]
+    fn distinguishes_missing_matching_and_replaced_file() {
+        let root = std::env::temp_dir().join(format!("nutbook-history-status-{}-{}",std::process::id(),uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("note.md");
+        assert_eq!(super::history_source_status(&path,"old"),"missing");
+        std::fs::write(&path,b"same text").unwrap();
+        let identity = super::file_identity(&path).unwrap();
+        assert_eq!(super::history_source_status(&path,&identity),"available");
+        let replacement = root.join("replacement.md");
+        std::fs::write(&replacement,b"same text").unwrap();
+        std::fs::rename(&replacement,&path).unwrap();
+        assert_eq!(super::history_source_status(&path,&identity),"replaced");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

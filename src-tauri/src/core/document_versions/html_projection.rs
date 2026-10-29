@@ -324,6 +324,22 @@ mod tests {
     use super::*;
     use std::fs;
     #[test]
+    fn fixed_canvas_history_preview_preserves_authored_geometry() {
+        let temporary = tempfile::tempdir().unwrap();
+        let external = std::env::var("NUTBOOK_FIXED_CANVAS_SOURCE").ok().map(std::path::PathBuf::from);
+        let path = external.clone().unwrap_or_else(||temporary.path().join("fixed.html"));
+        if external.is_none() { fs::write(&path, r#"<!doctype html><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}#deck{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform:translate(-50%,-50%) scale(var(--deck-scale,1))}.slide{position:absolute;inset:0;display:none}.slide.active{display:block}</style><main id="deck"><section class="slide active" data-nutbook-page-id="one"><h1>One</h1></section><section class="slide" data-nutbook-page-id="two"><h1>Two</h1></section></main>"#).unwrap(); }
+        let source=fs::read_to_string(&path).unwrap();
+        let capture=super::super::capture_html(&path,path.parent().unwrap(),source.as_bytes(),50_000_000).unwrap();
+        let projection=project(&capture.document.snapshot,&capture.document.objects,"http://127.0.0.1:18439").unwrap();
+        assert!(projection.page.contains("1920px"));
+        if let Ok(script)=std::env::var("NUTBOOK_FIXED_CANVAS_BROWSER_SCRIPT") {
+            let input=temporary.path().join("projection.json");
+            fs::write(&input,serde_json::to_vec(&serde_json::json!({"html":projection.page,"source":source,"files":projection.files})).unwrap()).unwrap();
+            assert!(std::process::Command::new("node").current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()).arg(script).arg(input).status().unwrap().success());
+        }
+    }
+    #[test]
     fn ordinary_html_keeps_author_body_geometry_inside_fitted_preview() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
             .join("tests/fixtures/document-save-versions");

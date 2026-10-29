@@ -1,20 +1,39 @@
 /* Local document history UI. Owns no editor state and never edits content DOM. */
 (() => {
   let current = null;
-  function fitHtmlPreview(host, frame) {
+  function fitHtmlPreview(host, frame, canvas = null) {
     host.classList.add('vh-html-preview');
     frame.classList.add('vh-html-view');
     const fit = () => {
       const width = host.clientWidth - 48, height = host.clientHeight - 48;
       if (width <= 0 || height <= 0) return;
-      const viewport = Math.max(800, width), scale = width / viewport;
+      const viewport = canvas?.width || Math.max(800, width);
+      const scale = canvas ? Math.min(width / canvas.width, height / canvas.height) : width / viewport;
       frame.style.width = `${viewport}px`;
-      frame.style.height = `${height / scale}px`;
+      frame.style.height = `${canvas?.height || height / scale}px`;
       frame.style.transform = `scale(${scale})`;
+      frame.style.left = `${24 + (canvas ? (width - canvas.width * scale) / 2 : 0)}px`;
+      frame.style.top = `${24 + (canvas ? (height - canvas.height * scale) / 2 : 0)}px`;
     };
     const observer = new ResizeObserver(fit);
     observer.observe(host); fit();
     return () => { observer.disconnect(); host.classList.remove('vh-html-preview'); };
+  }
+  function authoredCanvas(dom, pages) {
+    if (!pages.length) return null;
+    const rules=[];
+    for(const style of dom.querySelectorAll('style')){
+      try { const sheet=new CSSStyleSheet();sheet.replaceSync(style.textContent);for(const rule of sheet.cssRules)if(rule.selectorText)rules.push(rule); } catch (_) {}
+    }
+    for(let node=pages[0].parentElement;node&&node!==dom.documentElement;node=node.parentElement){
+      let width='',height='';
+      for(const rule of rules){try{if(node.matches(rule.selectorText)){width=rule.style.width||width;height=rule.style.height||height;}}catch(_){}}
+      width=node.style.width||width;height=node.style.height||height;
+      if(/^\d+(?:\.\d+)?px$/.test(width)&&/^\d+(?:\.\d+)?px$/.test(height)){
+        const w=parseFloat(width),h=parseFloat(height);if(w>=300&&h>=200&&w<=10000&&h<=10000)return {width:w,height:h};
+      }
+    }
+    return null;
   }
   // Parse only the backend's inert projection. The sandbox never runs scripts.
   function htmlPages(html) {
@@ -29,7 +48,7 @@
     for (const [index, page] of pages.entries()) {
       page.setAttribute('data-vh-page', String(index));
     }
-    return { dom, pages };
+    return { dom, pages, canvas: authoredCanvas(dom,pages) };
   }
   function pageHtml(model, index) {
     const copy = model.dom.cloneNode(true);
@@ -48,6 +67,44 @@
     copy.head.append(style);
     return '<!doctype html>' + copy.documentElement.outerHTML;
   }
+  function annotatedPreview(previewHtml, beforeHtml, afterHtml) {
+    const parse=html=>new DOMParser().parseFromString(html,'text/html');
+    const reference=html=>{const template=document.createElement('template');template.innerHTML=html;return {body:template.content};};
+    const preview=parse(previewHtml),before=reference(beforeHtml),after=reference(afterHtml);
+    const blocks=dom=>[...dom.body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,img')].filter(n=>n.tagName==='IMG'||(!n.querySelector('h1,h2,h3,h4,h5,h6,p,li,td,th')&&n.textContent.trim()));
+    const old=blocks(before),next=blocks(after),shown=blocks(preview);
+    const key=n=>n.dataset.id?'id:'+n.dataset.id:n.tagName==='IMG'?'image:'+n.getAttribute('src')+':'+n.getAttribute('alt'):n.textContent.trim();
+    const boundary=(node,offset)=>{const walk=preview.createTreeWalker(node,NodeFilter.SHOW_TEXT);let text,last=null;while((text=walk.nextNode())){last=text;if(offset<=text.length)return [text,offset];offset-=text.length;}return last?[last,last.length]:[node,node.childNodes.length];};
+    const mark=(node,value)=>{
+      if(node.tagName==='IMG'){node.setAttribute('data-vh-image-change','');node.setAttribute('title','图片引用已更改 / Image reference changed');return;}
+      const original=node.textContent;let prefix=0,suffix=0;
+      while(prefix<original.length&&prefix<value.length&&original[prefix]===value[prefix])prefix++;
+      while(suffix<original.length-prefix&&suffix<value.length-prefix&&original[original.length-1-suffix]===value[value.length-1-suffix])suffix++;
+      if(prefix&&/[\uD800-\uDBFF]/.test(original[prefix-1]))prefix--;
+      if(suffix&&/[\uDC00-\uDFFF]/.test(original[original.length-suffix]))suffix--;
+      const range=preview.createRange(),[start,so]=boundary(node,prefix),[end,eo]=boundary(node,original.length-suffix);range.setStart(start,so);range.setEnd(end,eo);
+      const fragment=preview.createDocumentFragment(),removed=range.extractContents();
+      if(original.length-prefix-suffix){const del=preview.createElement('del');del.className='vh-inline-removed';del.append(removed);fragment.append(del);}
+      const added=value.slice(prefix,value.length-suffix);if(added&&original.length-prefix-suffix){const arrow=preview.createElement('span');arrow.setAttribute('aria-hidden','true');arrow.style.color='#999';arrow.textContent=' → ';fragment.append(arrow);}if(added){const ins=preview.createElement('ins');ins.className='vh-inline-added';ins.textContent=added;fragment.append(ins);}range.insertNode(fragment);
+    };
+    let i=0,j=0,lastAnchor=null;
+    const apply=(a,b)=>{const node=shown[a];if(!node)return;if(!b)mark(node,'');else if(old[a].tagName==='IMG'){if(old[a].getAttribute('src')!==b.getAttribute('src'))mark(node,'');}else if(old[a].textContent!==b.textContent)mark(node,b.textContent);lastAnchor=node;};
+    const insert=(node,anchor)=>{const element=preview.createElement(node.tagName==='IMG'?'p':node.tagName.toLowerCase()),ins=preview.createElement('ins');ins.className='vh-inline-added';ins.textContent=node.tagName==='IMG'?'新增图片 / New image: '+(node.getAttribute('alt')||node.getAttribute('src')||''):node.textContent;element.append(ins);if(anchor?.parentNode)anchor.before(element);else if(lastAnchor?.parentNode)lastAnchor.after(element);else preview.body.append(element);lastAnchor=element;};
+    // Bounded sequence alignment keeps large documents responsive.
+    if(old.length*next.length>500000){for(let n=0;n<old.length;n++)apply(n,next[n]);}
+    else{
+      const grid=Array.from({length:old.length+1},()=>new Uint32Array(next.length+1));
+      for(let a=old.length-1;a>=0;a--)for(let b=next.length-1;b>=0;b--)grid[a][b]=key(old[a])===key(next[b])?grid[a+1][b+1]+1:Math.max(grid[a+1][b],grid[a][b+1]);
+      while(i<old.length||j<next.length){
+        if(i<old.length&&j<next.length&&key(old[i])===key(next[j])){apply(i,next[j]);i++;j++;continue;}
+        const removed=[],added=[];
+        while(i<old.length||j<next.length){if(i<old.length&&j<next.length&&key(old[i])===key(next[j]))break;if(j<next.length&&(i===old.length||grid[i][j+1]>=grid[i+1][j]))added.push(next[j++]);else removed.push(i++);}
+        let r=0,n=0;while(r<removed.length||n<added.length){if(r===removed.length){insert(added[n++],shown[i]);continue;}if(n===added.length){apply(removed[r++],null);continue;}const oldImage=old[removed[r]].tagName==='IMG',newImage=added[n].tagName==='IMG';if(oldImage&&!newImage){insert(added[n++],shown[removed[r]]);continue;}if(!oldImage&&newImage){apply(removed[r++],null);continue;}apply(removed[r++],added[n++]);}
+      }
+    }
+    const style=preview.createElement('style');style.textContent='.vh-inline-removed{background:#fbe7df!important;color:#9c492f!important;text-decoration:line-through!important;border-radius:2px;box-decoration-break:clone}.vh-inline-added{background:#deeee4!important;color:#164f34!important;text-decoration:none!important;border-radius:2px;box-decoration-break:clone}[data-vh-image-change]{outline:3px solid #d29340!important;outline-offset:4px}';preview.head.append(style);
+    return '<!doctype html>'+preview.documentElement.outerHTML;
+  }
   let preferenceMenuId=0;
   const words = {
     'zh-CN': {title:'版本历史',close:'关闭版本历史',empty:'还没有保存版本',source:'只读源码',preview:'静态预览',restore:'恢复此版本',remove:'删除此版本',clear:'清空此文档历史',limit:'容量上限（MB，十进制）',apply:'保存额度',used:'历史用量',incomplete:'依赖不完整；预览只使用历史中保存的资源',missing:'原文件不可用，历史仍保留',confirmDelete:'删除历史不会删除原文件。共享对象仍被引用时不会释放其空间。',confirmRestore:'恢复前的当前内容也会保留为版本。是否继续？',dirty:'当前有未保存内容，请选择如何继续恢复。',saveRestore:'保存并恢复',discardRestore:'放弃并恢复',cancel:'取消',confirm:'确认',restored:'已恢复此版本。',initial:'原始版',save:'保存版',restoredKind:'恢复版',choose:'选择一个版本',capacityNote:'降低额度不删除历史；进行中的保存可能使新额度暂时超限。',confirmIncomplete:'该版本缺少部分依赖。仅恢复已保存的内容？',error:'操作失败，草稿保留：'},
@@ -61,7 +118,7 @@
     return {entries,uncertain,actionable,missing:actionable.filter(([,dep])=>dep.state==='missing-at-save')};
   }
   function renderDependencyInfo(warning,snapshot,incomplete,en) {
-    const info=dependencyInfo(snapshot),excluded=info.actionable.length-info.missing.length;
+    const info=dependencyInfo(snapshot),excluded=info.actionable.filter(([path,dep])=>!path.startsWith('html:warning:')&&dep.state!=='missing-at-save').length;
     warning.replaceChildren();warning.open=false;warning.hidden=!incomplete&&!info.entries.length;
     if(warning.hidden)return;
     const summary=document.createElement('summary'),detail=document.createElement('div');
@@ -69,24 +126,23 @@
       summary.textContent=en?`${info.missing.length} ${snapshot.html?'resource(s)':'image(s)'} not found at save`:`${info.missing.length} ${snapshot.html?'项资源':'张图片'}未找到`;
     } else if(excluded) {
       summary.textContent=en?`${excluded} resource(s) not archived`:`${excluded} 项资源未归档`;
-    } else if(info.uncertain.length) {
-      summary.textContent=en?'Script resources not verified':'脚本资源未核验';
+    } else if(info.entries.length) {
+      summary.textContent=en?'About static preview':'静态预览说明';
     } else {
       summary.textContent=en?'Some content cannot be previewed':'部分内容无法预览';
     }
     const lines=[];
     if(info.missing.length)lines.push((en?'Missing when saved: ':'保存时未找到：')+info.missing.map(([path])=>path).join('、'));
-    const other=info.actionable.filter(([,dep])=>dep.state!=='missing-at-save');
-    if(other.length)lines.push((en?'Not archived: ':'未归档：')+[...new Set(other.map(([path])=>path.startsWith('html:warning:')?(en?'Some references could not be parsed automatically':'部分资源引用无法自动解析'):path))].join('、'));
-    if(info.uncertain.length)lines.push(en?'Recognizable local resources were saved. Additional resources loaded by scripts at runtime have not been verified. This does not mean a file is missing.':'可识别的本地资源已保存；脚本运行时额外加载的资源尚未核验，不代表已有文件缺失。');
-    if(!lines.length)lines.push(en?'The archived source remains available in read-only source view.':'仍可通过只读源码查看归档内容。');
+    const other=info.actionable.filter(([path,dep])=>dep.state!=='missing-at-save'&&!path.startsWith('html:warning:'));
+    if(other.length)lines.push((en?'Files not retained in this version: ':'此版本未保留的文件：')+other.map(([path])=>path).join('、'));
+    if(info.entries.some(([path])=>path.startsWith('html:warning:')))lines.push(en?'This preview shows the saved static page without running animations or interactive scripts. Some special references may not be reproduced; these notes do not mean the source file is missing.':'这里只显示保存的静态页面，不播放动画或运行交互。部分特殊引用可能无法还原；这不等于原文件丢失。');
     summary.title=summary.textContent;detail.textContent=lines.join('\n');warning.append(summary,detail);
   }
   async function open(ctx) {
     if(current) await current.close();
     const w=words[ctx.language()]||words['zh-CN'];
     const dialog=document.createElement(ctx.container?'div':'dialog');dialog.className='nutbook-history'+(ctx.container?' vh-embedded':'');dialog.setAttribute('aria-label',w.title);dialog.dataset.i18nSkip='true';
-    dialog.innerHTML=`<header><div><h2>${w.title}</h2></div><button type="button" data-close title="${w.close}" aria-label="${w.close}">×</button></header><div class="vh-prompt" data-prompt hidden></div><div class="vh-layout"><nav data-list aria-label="${w.title}"></nav><section class="vh-main"><div class="vh-toolbar"><div class="vh-actions vh-tabs"><button data-mode="preview" aria-pressed="true">${w.preview}</button><button data-mode="source" aria-pressed="false">${w.source}</button></div><div class="vh-pager" data-pages hidden><button type="button" data-page-prev><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><input data-page type="text" inputmode="numeric" autocomplete="off" spellcheck="false"><span data-page-count></span><button type="button" data-page-next><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div><details data-warning class="vh-dependency" hidden></details></div><p class="vh-page-title" data-page-title hidden></p><div class="vh-preview" data-frame-host></div><textarea class="vh-view" data-source readonly spellcheck="false" aria-label="${w.source}" hidden></textarea></section></div><footer class="vh-actions"><button data-restore class="vh-primary" disabled>${w.restore}</button><button data-save-as disabled></button><button data-delete disabled>${w.remove}</button><button data-clear class="vh-danger" disabled>${w.clear}</button></footer><p class="vh-status" data-status role="status" aria-live="polite"></p>`;
+    dialog.innerHTML=`<header><div><h2>${w.title}</h2></div><button type="button" data-close title="${w.close}" aria-label="${w.close}">×</button></header><div class="vh-prompt" data-prompt hidden></div><div class="vh-layout"><nav data-list aria-label="${w.title}"></nav><section class="vh-main"><div class="vh-toolbar"><div class="vh-actions vh-tabs"><button data-highlight aria-pressed="true">${ctx.language()==='en-US'?'Highlight changes':'标注差异'}</button><button data-mode="preview" aria-pressed="true">${w.preview}</button><button data-mode="source" aria-pressed="false">${w.source}</button></div><div class="vh-pager" data-pages hidden><button type="button" data-page-prev><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><input data-page type="text" inputmode="numeric" autocomplete="off" spellcheck="false"><span data-page-count></span><button type="button" data-page-next><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div><details data-warning class="vh-dependency" hidden></details></div><p class="vh-change-legend" data-change-legend hidden></p><p class="vh-page-title" data-page-title hidden></p><div class="vh-preview" data-frame-host></div><textarea class="vh-view" data-source readonly spellcheck="false" aria-label="${w.source}" hidden></textarea></section></div><footer class="vh-actions"><button data-restore class="vh-primary" disabled>${w.restore}</button><button data-save-as disabled></button><button data-delete disabled>${w.remove}</button><button data-clear class="vh-danger" disabled>${w.clear}</button></footer><p class="vh-status" data-status role="status" aria-live="polite"></p>`;
     if(ctx.onBack){const back=dialog.querySelector('[data-close]');const label=ctx.language()==='en-US'?'Back to files':'返回文件列表';back.classList.add('vh-return');back.title=label;back.setAttribute('aria-label',label);back.innerHTML=`<span aria-hidden="true">←</span> ${ctx.language()==='en-US'?'Back':'返回'}`;}
     const saveAsButton=dialog.querySelector('[data-save-as]');saveAsButton.textContent=ctx.language()==='en-US'?'Save version as…':'另存此版本…';saveAsButton.hidden=!ctx.readOnly&&!ctx.allowSaveAs;
     if(ctx.readOnly)dialog.querySelector('[data-restore]').hidden=true;
@@ -110,6 +166,11 @@
       const picker=$('[data-page]'),previous=$('[data-page-prev]'),next=$('[data-page-next]'),en=ctx.language()==='en-US';
       previous.title=en?'Previous page':'上一页';next.title=en?'Next page':'下一页';previous.setAttribute('aria-label',previous.title);next.setAttribute('aria-label',next.title);
       picker.title=en?'Page number · Enter to jump':'页码 · 按 Enter 跳转';picker.setAttribute('aria-label',picker.title);
+      const canCompare=typeof data.currentHtml==='string'&&d.id===data.activeDocumentId;
+      const renderFrame=()=>{let html=pageModel?.pages.length?pageHtml(pageModel,pageIndex):response.html;if(canCompare&&$('[data-highlight]').getAttribute('aria-pressed')==='true')html=annotatedPreview(html,response.sourceHtml||response.html,data.currentHtml);frame.srcdoc=html;};
+      $('[data-highlight]').hidden=!canCompare;
+      const legend=$('[data-change-legend]');legend.hidden=!canCompare;legend.textContent=(en?'Red strike: previous content · Green: current content':'红色删除线：旧内容 · 绿色：当前内容')+' · '+new Date(v.saved_at).toLocaleString(ctx.language())+' → '+(data.currentModifiedAt?new Date(data.currentModifiedAt).toLocaleString(ctx.language()):(en?'current file':'当前文件'));
+      $('[data-highlight]').onclick=()=>{$('[data-highlight]').setAttribute('aria-pressed',String($('[data-highlight]').getAttribute('aria-pressed')!=='true'));legend.hidden=$('[data-highlight]').getAttribute('aria-pressed')!=='true';renderFrame();};
       const showPager=()=>{const hidden=!pageModel?.pages.length||$('[data-mode="source"]').getAttribute('aria-pressed')==='true';$('[data-pages]').hidden=hidden;$('[data-page-title]').hidden=hidden;};showPager();
       syncPager=()=>{};
       if(pageModel?.pages.length){
@@ -118,12 +179,13 @@
         const sizePageInput=()=>{const digits=Math.max(3,Math.min(16,Math.max(picker.value.length,String(pageModel.pages.length).length)));picker.style.width=`calc(${digits}ch + 20px)`;};
         picker.oninput=sizePageInput;
         syncPager=()=>{picker.value=String(pageIndex+1);sizePageInput();picker.disabled=busy;picker.removeAttribute('aria-invalid');previous.disabled=busy||pageIndex===0;next.disabled=busy||pageIndex===pageModel.pages.length-1;$('[data-page-count]').textContent='/ '+pageModel.pages.length;const title=pageModel.pages[pageIndex].querySelector('h1,h2,h3')?.textContent.trim().replace(/\s+/g,' ')||'';$('[data-page-title]').textContent=title;$('[data-page-title]').title=title;pageId=pageModel.pages[pageIndex].getAttribute('data-nutbook-page-id')||pageModel.pages[pageIndex].id||null;};syncPager();
-        const go=index=>{if(busy||disposed||index<0||index>=pageModel.pages.length)return;pageIndex=index;syncPager();status('');frame.srcdoc=pageHtml(pageModel,pageIndex);};
+        const go=index=>{if(busy||disposed||index<0||index>=pageModel.pages.length)return;pageIndex=index;syncPager();status('');renderFrame();};
         previous.onclick=()=>go(pageIndex-1);next.onclick=()=>go(pageIndex+1);
         picker.onkeydown=event=>{event.stopPropagation();if(event.isComposing)return;if(event.key==='Enter'){event.preventDefault();const value=picker.value.trim();if(!/^[1-9]\d*$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)>pageModel.pages.length){picker.setAttribute('aria-invalid','true');status(en?`Enter a page from 1 to ${pageModel.pages.length}.`:`请输入 1–${pageModel.pages.length} 之间的页码。`);return;}go(Number(value)-1);}else if(event.key==='Escape'){event.preventDefault();syncPager();status('');}};
         picker.onblur=()=>{if(picker.getAttribute('aria-invalid')==='true')status('');syncPager();};
-        frame.srcdoc=pageHtml(pageModel,pageIndex);
-      }else{picker.oninput=null;picker.onkeydown=null;picker.onblur=null;previous.onclick=null;next.onclick=null;frame.srcdoc=response.html;}$('[data-frame-host]').replaceChildren(frame);if(v.snapshot.html)fitCleanup=fitHtmlPreview($('[data-frame-host]'),frame);$('[data-source]').value=response.source;renderDependencyInfo($('[data-warning]'),v.snapshot,response.incomplete,ctx.language()==='en-US');};
+        renderFrame();
+      }else{picker.oninput=null;picker.onkeydown=null;picker.onblur=null;previous.onclick=null;next.onclick=null;renderFrame();}$('[data-frame-host]').replaceChildren(frame);if(v.snapshot.html)fitCleanup=fitHtmlPreview($('[data-frame-host]'),frame,pageModel?.canvas);$('[data-source]').value=response.source;
+      renderDependencyInfo($('[data-warning]'),v.snapshot,response.incomplete,ctx.language()==='en-US');};
     function renderList(){const nav=$('[data-list]');nav.replaceChildren();for(const d of (data?.documents||[]).filter(d=>d.id===(ctx.documentId||data.activeDocumentId))){const heading=document.createElement('p');heading.textContent=d.canonical_path.split(/[\\/]/).pop()+(data.availability?.[d.id]===false?' · '+w.missing:'');heading.title=d.canonical_path;heading.className='vh-document';nav.append(heading);for(const v of [...d.versions].reverse()){const b=document.createElement('button');b.type='button';const kind=v.kind==='initial'?w.initial:v.kind==='restore'?w.restoredKind:w.save;const date=new Date(v.saved_at).toLocaleString(ctx.language(),{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});b.innerHTML=`<span class="vh-kind">${esc(kind)}</span><time>${esc(date)}</time>`;b.setAttribute('aria-current',String(version?.id===v.id));b.title=b.textContent;b.onclick=()=>run(()=>select(d,v));nav.append(b);}}if(!nav.children.length)nav.textContent=w.empty;}
     const refresh=async()=>{data=await ctx.invoke('list_document_versions',{payload:ctx.target||{}});if(disposed)return;const selected=data.documents.find(d=>d.id===(doc?.id||data.activeDocumentId));doc=selected||null;version=doc?.versions.find(v=>v.id===version?.id)||null;renderList();};
     const close=async()=>{if(disposed)return;disposed=true;pendingPrompt?.();current=null;window.removeEventListener('keydown',keys,true);if(ctx.container)dialog.remove();await revoke().catch(()=>{});if(!ctx.container)dialog.close();dialog.remove();ctx.restoreFocus?.();};current={close,embedded:Boolean(ctx.container)};
@@ -181,9 +243,20 @@
       for(const doc of data.documents){
         const row=document.createElement('tr'),name=doc.canonical_path.split(/[\\/]/).pop();
         const size=data.documentBytes?.[doc.id];
+        const status=data.sourceStatus?.[doc.id]||(data.availability?.[doc.id]===false?'inaccessible':'available');
+        const sourceMessages=en?{
+          missing:['File not found at original path','The file may have been moved, renamed or deleted. Saved versions are still kept.'],
+          replaced:['File at this path has been replaced','A file exists at the original path, but its identity has changed, possibly after an external editor saved it. These versions belong to the earlier file and are still kept.'],
+          inaccessible:['Cannot access original file','The original file cannot currently be checked. Check folder permissions and whether the drive is connected. Saved versions are still kept.']
+        }:{
+          missing:['原路径找不到文件','文件可能已移动、改名或删除。已保存的历史版本仍然保留。'],
+          replaced:['原路径文件已被替换','原路径仍有文件，但文件身份已变化，可能由其他编辑器替换保存。这些历史属于替换前的文件，仍然保留。'],
+          inaccessible:['暂时无法访问原文件','当前无法核验原文件，请检查文件夹权限或磁盘是否连接。已保存的历史版本仍然保留。']
+        };
+        const sourceMessage=sourceMessages[status];
         const segments=doc.canonical_path.split(/[\\/]/).filter(Boolean),parent=segments.slice(-3,-1).join(' / ');
         const last=doc.versions.at(-1),date=last?new Date(last.saved_at).toLocaleString(ctx.language(),{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';
-        row.innerHTML=`<td><div class="vh-file-cell"><span class="vh-file-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 12h8M8 16h6"/></svg></span><div class="vh-file-copy"><span class="vh-file-name" title="${esc(doc.canonical_path)}">${esc(name)}</span><span class="vh-file-location" title="${esc(doc.canonical_path)}">${esc(parent)}</span>${data.availability?.[doc.id]===false?`<span class="vh-file-unavailable">${en?'Source unavailable':'原文件不可用'}</span>`:''}</div></div></td><td><span class="vh-version-count">${doc.versions.length} ${en?(doc.versions.length===1?'version':'versions'):'个版本'}</span><time class="vh-last-saved" title="${esc(last?.saved_at||'')}">${esc(date)}</time></td><td class="vh-reference-bytes">${size==null?'—':bytes(size)}</td><td class="vh-file-actions"></td>`;
+        row.innerHTML=`<td><div class="vh-file-cell"><span class="vh-file-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 12h8M8 16h6"/></svg></span><div class="vh-file-copy"><span class="vh-file-name" title="${esc(doc.canonical_path)}">${esc(name)}</span><span class="vh-file-location" title="${esc(doc.canonical_path)}">${esc(parent)}</span>${sourceMessage?`<span class="vh-file-unavailable" tabindex="0" title="${esc(sourceMessage[1])}" aria-label="${esc(sourceMessage.join('。'))}">${esc(sourceMessage[0])}</span>`:''}</div></div></td><td><span class="vh-version-count">${doc.versions.length} ${en?(doc.versions.length===1?'version':'versions'):'个版本'}</span><time class="vh-last-saved" title="${esc(last?.saved_at||'')}">${esc(date)}</time></td><td class="vh-reference-bytes">${size==null?'—':bytes(size)}</td><td class="vh-file-actions"></td>`;
         const actions=row.querySelector('.vh-file-actions');
         const view=document.createElement('button');view.textContent=en?'View':'查看';view.title=en?'View this file’s versions':'查看此文件的历史';view.onclick=()=>{if(busy||!doc.versions.length)return;void close().then(()=>open({...ctx,container,target:{},documentId:doc.id,readOnly:true,canRestore:()=>false,onBack:()=>mountLibrary(container,ctx)}));};view.disabled=!doc.versions.length;view.dataset.noVersions=String(!doc.versions.length);actions.append(view);
         const clear=document.createElement('button');clear.textContent=en?'Clear':'清理';clear.title=w.clear;clear.className='vh-clear-file';clear.onclick=()=>run(async()=>{if(!doc.versions.length)return;if(await confirm((en?'Clear history for ':'清空历史：')+name+'？ '+w.confirmDelete)){await ctx.invoke('delete_document_versions',{payload:{documentId:doc.id,versionId:null,confirmed:true}});await load();}});clear.disabled=!doc.versions.length;clear.dataset.noVersions=String(!doc.versions.length);actions.append(clear);list.append(row);

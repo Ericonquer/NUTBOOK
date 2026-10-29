@@ -27,6 +27,7 @@ pub struct PreviewInfo {
     pub generation: u64,
     pub url: String,
     pub source: String,
+    pub source_html: String,
     pub html: String,
     pub incomplete: bool,
 }
@@ -227,7 +228,7 @@ impl HistoryStore {
             let incomplete = projection_html.incomplete;
             self.previews.lock().map_err(|_| invalid("preview lock"))?.insert(session.clone(), VersionPreviewSession { record, server, projection, #[cfg(windows)] windows_mapping: None });
             cleanup.committed = true;
-            return Ok(PreviewInfo { session_id: session, generation, url, source: projection_html.source, html: projection_html.page, incomplete });
+            return Ok(PreviewInfo { session_id: session, generation, url, source_html: projection_html.source.clone(), source: projection_html.source, html: projection_html.page, incomplete });
         }
         let mut replacements = BTreeMap::new();
         let mut object_names: BTreeMap<String, String> = BTreeMap::new();
@@ -322,6 +323,7 @@ impl HistoryStore {
             session_id: session,
             generation,
             url,
+            source_html: crate::core::markdown_render::render_markdown_html(&source),
             source,
             html: inline_page,
             incomplete,

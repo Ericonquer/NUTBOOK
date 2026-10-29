@@ -65,3 +65,5 @@
 .nutbook-history .vh-page-title{flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--ink-soft,#5e5e63)}
 .nutbook-history .vh-toolbar{flex-wrap:wrap}
 .nutbook-history .vh-pager,.nutbook-history .vh-dependency{margin-left:auto}
+
+.vh-change-legend{margin:0;color:#74747c;font-size:12px;line-height:1.5}
