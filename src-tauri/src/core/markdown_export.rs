@@ -361,7 +361,7 @@ fn editable_element_has_readonly_descendant(markup: &str, content_start: usize, 
     // Images are independent editable targets. A rich-text parent containing one
     // gains image editor attributes at runtime, making an untouched paragraph
     // look changed and producing HTML the rich-text sanitizer rejects on save.
-    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol", "<img"]
+    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol", "<img", "<p>", "<p "]
         .iter()
         .any(|needle| content.contains(needle))
 }

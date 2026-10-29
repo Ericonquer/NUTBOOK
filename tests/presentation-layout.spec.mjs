@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -161,3 +164,33 @@ for (const theme of ["light", "dark"]) for (const aspect of ["16-9", "4-3"]) for
     expect(bridge).toBe(true);
   });
 }
+
+test("legacy nested list targets stay clean and only the edited leaf is saved", async ({ page }) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nutbook-nested-edit-"));
+  try {
+    const target = path.join(directory, "sample.html");
+    writeFileSync(target, exportFixture("acceptance"));
+    await page.goto(pathToFileURL(target).href);
+    await page.evaluate(() => {
+      const list = document.querySelector(".figure-copy ul");
+      if (!list) throw new Error("list fixture missing");
+      list.dataset.id = "legacy-parent"; list.dataset.editable = "rich-text"; list.dataset.editRole = "content";
+    });
+    await page.addScriptTag({ path: path.join(root, "dist/assets/html-edit-runtime.js") });
+    const result = await page.evaluate(async () => {
+      const editor = window.__NUTBOOK_HTML_EDIT__;
+      await editor.enter({ itemId: 1, runtimeSessionId: "nested-save", generation: 1, inlineToolbar: true, locale: "zh-CN", patch: { changes: {} } });
+      const initial = editor.getSnapshot().changes;
+      const leaf = document.querySelector(".figure-copy li p[data-id]");
+      const id = leaf.dataset.id;
+      leaf.textContent += "新增"; leaf.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      const changes = editor.getSnapshot().changes;
+      editor.exit({ runtimeSessionId: "nested-save", discard: true });
+      return { initial, changes, id, discarded: !leaf.textContent.endsWith("新增") };
+    });
+    expect(result.initial).toEqual({});
+    expect(Object.keys(result.changes)).toEqual([result.id]);
+    expect(result.changes[result.id].html).not.toContain("data-editable");
+    expect(result.discarded).toBe(true);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
