@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,7 +108,7 @@ test("physical list layouts keep cards readable and balanced", async ({ page }) 
   expect(sevenCounts).toEqual([4, 3]);
 });
 
-test("README list-card pages use the persisted physical layout plan", async ({ page }) => {
+test("frozen list-card pages use the persisted physical layout plan", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 675 });
   await page.setContent(exportFixture("readme"));
 
@@ -134,4 +137,60 @@ test("4:3 keeps a chosen side-by-side layout as two columns", async ({ page }) =
   expect(geometry.columns).toBe(2);
   expect(geometry.copyWidth).toBeGreaterThan(0);
   expect(geometry.gridWidth).toBeGreaterThan(0);
+});
+
+for (const theme of ["light", "dark"]) for (const aspect of ["16-9", "4-3"]) for (const density of ["balanced", "report"]) for (const kind of ["static", "dynamic"]) {
+  test(`acceptance content survives ${theme}/${aspect}/${density}/${kind}`, async ({ page }) => {
+    await page.setContent(exportFixture("acceptance", theme, aspect, density, kind));
+    await page.evaluate(() => Promise.all([...document.images].map(image => image.decode())));
+    const body = await page.locator(".deck").innerText();
+    for (const token of ["CANARY_INTRO", "CANARY_OUTRO", "A价格", "B价格", "A速度", "B速度"]) expect(body).toContain(token);
+    expect(body.indexOf("CANARY_INTRO")).toBeLessThan(body.indexOf("CANARY_OUTRO"));
+    await expect(page.locator('img[alt="CANARY_IMAGE"]')).toHaveCount(1);
+    const comparisons = page.locator('.slide[data-slide-kind="comparison"]');
+    await expect(comparisons).toHaveCount(1);
+    const panels = comparisons.locator(".comparison-panel");
+    await expect(panels.nth(0)).toContainText("10元");
+    await expect(panels.nth(0)).not.toContainText("20元");
+    await expect(panels.nth(1)).toContainText("20元");
+    await expect(panels.nth(1)).not.toContainText("10元");
+    expect(body).not.toContain("content-preserving-fallback");
+    const bridge = await page.evaluate(async () => {
+      const b = window.__NUTBOOK_PRESENTATION__;
+      await b.whenReady();
+      await b.goTo(b.pages.at(-1).id);
+      return b.activePageId === b.pages.at(-1).id;
+    });
+    expect(bridge).toBe(true);
+  });
+}
+
+test("legacy nested list targets stay clean and only the edited leaf is saved", async ({ page }) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nutbook-nested-edit-"));
+  try {
+    const target = path.join(directory, "sample.html");
+    writeFileSync(target, exportFixture("acceptance"));
+    await page.goto(pathToFileURL(target).href);
+    await page.evaluate(() => {
+      const list = document.querySelector(".figure-copy ul");
+      if (!list) throw new Error("list fixture missing");
+      list.dataset.id = "legacy-parent"; list.dataset.editable = "rich-text"; list.dataset.editRole = "content";
+    });
+    await page.addScriptTag({ path: path.join(root, "dist/assets/html-edit-runtime.js") });
+    const result = await page.evaluate(async () => {
+      const editor = window.__NUTBOOK_HTML_EDIT__;
+      await editor.enter({ itemId: 1, runtimeSessionId: "nested-save", generation: 1, inlineToolbar: true, locale: "zh-CN", patch: { changes: {} } });
+      const initial = editor.getSnapshot().changes;
+      const leaf = document.querySelector(".figure-copy li p[data-id]");
+      const id = leaf.dataset.id;
+      leaf.textContent += "新增"; leaf.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      const changes = editor.getSnapshot().changes;
+      editor.exit({ runtimeSessionId: "nested-save", discard: true });
+      return { initial, changes, id, discarded: !leaf.textContent.endsWith("新增") };
+    });
+    expect(result.initial).toEqual({});
+    expect(Object.keys(result.changes)).toEqual([result.id]);
+    expect(result.changes[result.id].html).not.toContain("data-editable");
+    expect(result.discarded).toBe(true);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

@@ -25330,6 +25330,10 @@ if (!chipTipController) {
             warningCount > 0 ? "warn" : "ok"
           );
           showToast(warningCount > 0 ? formatTranslation("markdown.exportWithWarnings", { count: warningCount }) : t("markdown.exportSuccess"));
+          const fallbackCount = Array.isArray(response?.diagnostics) ? response.diagnostics.filter((entry) => entry.code === "content-preserving-fallback").length : 0;
+          if (fallbackCount > 0) {
+            setStatus([warningCount > 0 ? formatTranslation("markdown.exportImagesWarning", { count: warningCount }) : "", formatTranslation("markdown.exportLayoutFallback", { count: fallbackCount })].filter(Boolean).join(" · "), "warn");
+          }
         } catch (error) {
           appState.exportInProgress = false;
           const code = error?.code || error?.error?.code || "";

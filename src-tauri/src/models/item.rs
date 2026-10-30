@@ -400,6 +400,7 @@ pub struct ExportMarkdownHtmlPreferences {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportMarkdownHtmlResponse {
+    pub diagnostics: Vec<crate::core::markdown_export::PresentationDiagnostic>,
     pub item_id: i64,
     pub target_path: String,
     pub warnings: Vec<String>,

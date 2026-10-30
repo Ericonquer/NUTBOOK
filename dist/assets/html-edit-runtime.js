@@ -71,7 +71,11 @@
     STATE.documentRevision += 1; STATE.dirty = STATE.changes.size > 0; STATE.saveNotice = "";
     syncInlineToolbar(); emitHostMessage({ type: "html_edit_document_changed", ...stateSnapshot() }); return true;
   }
-  function editableElements() { return Array.from(document.querySelectorAll("[data-editable][data-id]")); }
+  function editableElements() {
+    // Legacy exports can mark both a list and its paragraphs. Edit only leaf
+    // targets so descendant runtime attributes never enter a parent snapshot.
+    return Array.from(document.querySelectorAll("[data-editable][data-id]")).filter((element) => !element.querySelector("[data-editable][data-id]"));
+  }
   function editRoleOf(element) {
     const role = element.getAttribute("data-edit-role");
     if (role === "short" || role === "content" || role === "plain") return role;

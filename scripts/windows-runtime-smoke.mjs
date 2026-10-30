@@ -133,10 +133,14 @@ try{
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009\uE010\uE000\n'+marker+'\n'});
  // Exercise the real OS clipboard -> editor paste -> Tauri asset writer path.
  // Windows PowerShell/Forms are runner tooling, never product dependencies.
+ // Include cold PowerShell/.NET assembly startup; keep clipboard and paste assertions strict.
+ const clipboardStarted = Date.now();
  const clipboard=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-STA','-Command',
-   "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $image=New-Object System.Drawing.Bitmap 16,16; $graphics=[System.Drawing.Graphics]::FromImage($image); try {$graphics.Clear([System.Drawing.Color]::Purple); [System.Windows.Forms.Clipboard]::SetImage($image); if(-not [System.Windows.Forms.Clipboard]::ContainsImage()){throw 'Clipboard image missing'}} finally {$graphics.Dispose();$image.Dispose()}"],
-   {windowsHide:true,encoding:'utf8',timeout:5000});
- assert.equal(clipboard.status,0,clipboard.error?.message||clipboard.stderr);
+   "$ErrorActionPreference='Stop'; Write-Output 'clipboard:process-ready'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; Write-Output 'clipboard:assemblies-ready'; $image=New-Object System.Drawing.Bitmap 16,16; $graphics=[System.Drawing.Graphics]::FromImage($image); try {$graphics.Clear([System.Drawing.Color]::Purple); [System.Windows.Forms.Clipboard]::SetImage($image); if(-not [System.Windows.Forms.Clipboard]::ContainsImage()){throw 'Clipboard image missing'}} finally {$graphics.Dispose();$image.Dispose()}"],
+   {windowsHide:true,encoding:'utf8',timeout:30000});
+ const clipboardSetup = {elapsedMs:Date.now()-clipboardStarted,status:clipboard.status,error:clipboard.error?.message||null,stdout:clipboard.stdout,stderr:clipboard.stderr};
+ writeFileSync(join(reportDir,'clipboard-setup.json'),JSON.stringify(clipboardSetup,null,2));
+ assert.equal(clipboard.status,0,JSON.stringify(clipboardSetup));
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009v\uE000'});
  await wait('clipboard-png-loaded',()=>execute(`const images=[...document.querySelectorAll('.ProseMirror img:not(.ProseMirror-separator)')];return images.length===2&&images.every(img=>img.complete&&img.naturalWidth>0&&img.getBoundingClientRect().width>0);`));
  await request('POST',`/session/${session}/element/${elementId}/value`,{text:'\uE009s\uE000'});

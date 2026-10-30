@@ -70,9 +70,20 @@ pub struct MarkdownHtmlExportInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationDiagnostic {
+    pub source_id: String,
+    pub code: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkdownHtmlExportOutput {
     pub html: String,
     pub warnings: Vec<String>,
+    pub diagnostics: Vec<PresentationDiagnostic>,
+    pub coverage: Vec<PresentationCoverage>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +234,8 @@ pub fn render_reading_html(input: MarkdownHtmlExportInput) -> Result<MarkdownHtm
     Ok(MarkdownHtmlExportOutput {
         html,
         warnings: embedder.warnings,
+        diagnostics: Vec::new(),
+        coverage: Vec::new(),
     })
 }
 
@@ -348,9 +361,83 @@ fn editable_element_has_readonly_descendant(markup: &str, content_start: usize, 
     // Images are independent editable targets. A rich-text parent containing one
     // gains image editor attributes at runtime, making an untouched paragraph
     // look changed and producing HTML the rich-text sanitizer rejects on save.
-    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol", "<img"]
+    ["<a ", "<a>", "<code", "<pre", "<table", "<blockquote", "<ul", "<ol", "<img", "<p>", "<p "]
         .iter()
         .any(|needle| content.contains(needle))
+}
+
+// Coverage reads rendered DOM text (never scripts/styles), not source substrings
+// that could be present only in CSS, notes, or diagnostics.
+fn coverage_text(html: &str) -> String {
+    use html5ever::{parse_document, tendril::TendrilSink};
+    use markup5ever_rcdom::{RcDom, Handle, NodeData};
+    fn walk(node: &Handle, out: &mut String) {
+        match &node.data {
+            NodeData::Element { name, attrs, .. } => {
+                if matches!(name.local.as_ref(), "script" | "style") { return; }
+                if name.local.as_ref() == "img" {
+                    for attr in attrs.borrow().iter().filter(|a| a.name.local.as_ref() == "alt") { out.push_str(&attr.value); }
+                }
+            }
+            NodeData::Text { contents } => out.push_str(&contents.borrow()),
+            _ => (),
+        }
+        for child in node.children.borrow().iter() { walk(child, out); }
+    }
+    let dom = parse_document(RcDom::default(), Default::default()).one(html);
+    let mut text = String::new(); walk(&dom.document, &mut text);
+    text.chars().filter(|c| !c.is_whitespace() && !matches!(c, ':' | '：')).collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationCoverage {
+    pub source_id: String,
+    pub pages: Vec<usize>,
+}
+
+fn presentation_coverage(document: &PresentationDocument, slides: &str) -> Result<Vec<PresentationCoverage>, AppError> {
+    let pages: Vec<String> = slides.split("<section class=\"slide ").skip(1).map(|part| coverage_text(&format!("<section class=\"slide {part}"))).collect();
+    let mut coverage = Vec::new();
+    for (ci, chapter) in document.chapters.iter().enumerate() {
+        for (ti, topic) in chapter.topics.iter().enumerate() {
+            for (bi, block) in topic.blocks.iter().enumerate() {
+                let markdown = match block {
+                    PresentationBlock::Paragraph(s) | PresentationBlock::Quote(s) | PresentationBlock::Image(s) => s.clone(),
+                    PresentationBlock::List(items) => items.join("\n"),
+                    PresentationBlock::Table { markdown, .. } => markdown.clone(),
+                    PresentationBlock::Code { body, .. } => format!("```\n{body}\n```"),
+                    PresentationBlock::Heading { title, .. } => title.clone(),
+                    PresentationBlock::RichList(_) => blocks_to_markdown(std::slice::from_ref(block), None, None),
+                };
+                let units = match block {
+                    PresentationBlock::List(items) => items.iter().map(|item| strip_list_marker(item).to_string()).collect::<Vec<_>>(),
+                    _ => vec![markdown],
+                };
+                for (ui, markdown) in units.iter().enumerate() {
+                let expected = coverage_text(&render_markdown_html(markdown));
+                if expected.is_empty() { continue; }
+                // A block may span multiple pages. Match its visible characters
+                // in order while recording every page used, allowing inserted
+                // repeated slide headings/footers between the fragments.
+                let mut remaining = expected.chars().peekable();
+                let mut used = Vec::new();
+                for (pi, page) in pages.iter().enumerate() {
+                    let mut matched = false;
+                    for ch in page.chars() {
+                        if remaining.peek() == Some(&ch) { remaining.next(); matched = true; }
+                        if remaining.peek().is_none() { break; }
+                    }
+                    if matched { used.push(pi + 1); }
+                    if remaining.peek().is_none() { break; }
+                }
+                if remaining.peek().is_some() { return Err(AppError::InvalidParams); }
+                coverage.push(PresentationCoverage { source_id: format!("chapter-{}-topic-{}-block-{}-unit-{}",ci+1,ti+1,bi+1,ui+1), pages: used });
+                }
+            }
+        }
+    }
+    Ok(coverage)
 }
 
 fn presentation_page_id(index: usize) -> String {
@@ -379,7 +466,7 @@ pub fn render_presentation_html(
         .map(Path::to_path_buf)
         .unwrap_or_else(PathBuf::new);
     let mut embedder = ImageEmbedder::new(source_dir);
-    let slides = render_presentation_slides(&input, &preferences, &mut embedder);
+    let (slides, audit) = render_presentation_slides(&input, &preferences, &mut embedder);
     if slides.trim().is_empty() {
         return Err(AppError::InvalidParams);
     }
@@ -439,9 +526,25 @@ pub fn render_presentation_html(
         crate::core::motion::validate_generated_resources(include_str!("../../resources/export-templates/motion-runtime.js"), &html)?;
     }
 
+    let document = parse_presentation_document(&input.markdown, &input.title);
+    let coverage = if preferences.density == PresentationDensity::Master { Vec::new() } else { presentation_coverage(&document, &slides)? };
+    let mut diagnostics = audit.into_iter().map(|detail| PresentationDiagnostic { source_id: "deck".into(), code: "layout-audit".into(), detail: Some(detail) }).collect::<Vec<_>>();
+    if preferences.density != PresentationDensity::Master {
+        for (ci, chapter) in document.chapters.iter().enumerate() {
+            for (ti, topic) in chapter.topics.iter().enumerate() {
+                let requested = topic.directive.layout.as_deref().is_some_and(|l| matches!(l, "quote" | "process" | "comparison" | "big-number" | "summary"));
+                let candidate = semantic_grouping_pass(topic).is_some_and(|g| g.confidence == Confidence::High) || detect_semantic_layout(topic).is_some();
+                if (requested || candidate) && semantic_relation_plan(&chapter.title, topic).is_none() && semantic_plan_for_topic(&chapter.title, topic, &preferences).is_none() {
+                    diagnostics.push(PresentationDiagnostic { source_id: format!("chapter-{}-topic-{}", ci+1, ti+1), code: "content-preserving-fallback".into(), detail: None });
+                }
+            }
+        }
+    }
     Ok(MarkdownHtmlExportOutput {
         html,
         warnings: embedder.warnings,
+        diagnostics,
+        coverage,
     })
 }
 
@@ -963,7 +1066,7 @@ fn render_presentation_slides(
     input: &MarkdownHtmlExportInput,
     preferences: &PresentationHtmlExportPreferences,
     embedder: &mut ImageEmbedder,
-) -> String {
+) -> (String, Vec<String>) {
     let document = parse_presentation_document(&input.markdown, &input.title);
     let source_dir = input
         .source_path
@@ -974,11 +1077,11 @@ fn render_presentation_slides(
     let total = plans.len().max(1);
     // Audit results are internal diagnostics. Only actionable export warnings,
     // such as missing embedded images, belong in the rendered document.
-    let _audit_warnings = audit_slide_plan(&plans);
+    let audit_warnings = audit_slide_plan(&plans);
     // Compute rhythm sequence
     let rhythms = assign_rhythm_sequence(&plans);
     let mut chapter_ordinal = 0usize;
-    plans
+    let html = plans
         .iter()
         .enumerate()
         .map(|(index, plan)| {
@@ -1000,7 +1103,8 @@ fn render_presentation_slides(
             )
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    (html, audit_warnings)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1798,7 +1902,27 @@ fn semantic_member_to_card(member: &SemanticMember) -> ListCardPlan {
     }
 }
 
+// Explicit comparison syntax: exactly two roots named A and B, each with
+// dimension: value children. Never infer membership from the list midpoint.
+fn explicit_comparison_plan(chapter: &str, topic: &PresentationTopic) -> Option<PresentationSlidePlan> {
+    if topic.blocks.len() != 1 { return None; }
+    let rich = match &topic.blocks[0] {
+        PresentationBlock::List(items) => upgrade_rich_list(items)?,
+        PresentationBlock::RichList(rich) => rich.clone(),
+        _ => return None,
+    };
+    if rich.items.len() != 2 { return None; }
+    let a = &rich.items[0]; let b = &rich.items[1];
+    if a.label != "A" || b.label != "B" || !a.body.is_empty() || !b.body.is_empty() { return None; }
+    if a.children.is_empty() || a.children.len() != b.children.len() { return None; }
+    if !a.children.iter().zip(&b.children).all(|(l,r)| !l.label.is_empty() && l.label == r.label && !l.body.is_empty() && !r.body.is_empty() && l.children.is_empty() && r.children.is_empty()) { return None; }
+    let cards = |items: &[RichListItem]| items.iter().map(|item| ListCardPlan { title: item.label.clone(), body_markdown: item.body.clone() }).collect();
+    Some(PresentationSlidePlan::Comparison { chapter: chapter.into(), title: topic.title.clone(), left: cards(&a.children), right: cards(&b.children) })
+}
+
 fn semantic_relation_plan(chapter: &str, topic: &PresentationTopic) -> Option<PresentationSlidePlan> {
+    if let Some(plan) = explicit_comparison_plan(chapter, topic) { return Some(plan); }
+    if topic.blocks.len() != 1 { return None; }
     let group = semantic_grouping_pass(topic)?;
     if group.confidence != Confidence::High {
         return None;
@@ -1827,15 +1951,6 @@ fn semantic_relation_plan(chapter: &str, topic: &PresentationTopic) -> Option<Pr
                 chapter: chapter.to_string(),
                 title: group.headline,
                 roots: cards,
-            })
-        }
-        RelationKind::Comparison if cards.len() >= 2 && cards.len() % 2 == 0 => {
-            let midpoint = cards.len() / 2;
-            Some(PresentationSlidePlan::Comparison {
-                chapter: chapter.to_string(),
-                title: group.headline,
-                left: cards[..midpoint].to_vec(),
-                right: cards[midpoint..].to_vec(),
             })
         }
         RelationKind::Parallel | RelationKind::Cycle | RelationKind::Comparison | RelationKind::Hierarchy => None,
@@ -1899,6 +2014,7 @@ fn try_overview_detail_split(
     budget: PresentationPageBudget,
     _preferences: &PresentationHtmlExportPreferences,
 ) -> Option<(String, Vec<(String, String)>)> {
+    if topic.blocks.len() != 1 { return None; }
     let group = semantic_grouping_pass(topic)?;
     // Only Parallel/Sequence at Medium+ confidence qualify for overview-detail
     if !matches!(group.relation, RelationKind::Parallel | RelationKind::Sequence) {
@@ -2305,6 +2421,7 @@ fn semantic_plan_for_topic(
         None
     };
     let layout = forced.or(auto)?;
+    if topic.blocks.len() != 1 { return None; }
     let all_markdown = blocks_to_markdown(&topic.blocks, None, None);
     let list_items = topic
         .blocks
@@ -2317,19 +2434,13 @@ fn semantic_plan_for_topic(
         .flatten()
         .collect::<Vec<_>>();
     match layout {
+        "comparison" => explicit_comparison_plan(chapter, topic),
         "quote" => topic.blocks.iter().find_map(|block| match block { PresentationBlock::Quote(value) => Some(PresentationSlidePlan::Quote {
             chapter: chapter.to_string(), title: topic.title.clone(), markdown: value.clone(),
         }), _ => None }),
         "process" if (3..=6).contains(&list_items.len()) => Some(PresentationSlidePlan::Process {
             chapter: chapter.to_string(), title: topic.title.clone(), steps: list_items_to_cards(&list_items),
         }),
-        "comparison" if (2..=8).contains(&list_items.len()) && list_items.len() % 2 == 0 => {
-            let midpoint = list_items.len() / 2;
-            Some(PresentationSlidePlan::Comparison {
-                chapter: chapter.to_string(), title: topic.title.clone(),
-                left: list_items_to_cards(&list_items[..midpoint]), right: list_items_to_cards(&list_items[midpoint..]),
-            })
-        }
         "big-number" => extract_primary_number(&all_markdown).map(|number| PresentationSlidePlan::BigNumber {
             chapter: chapter.to_string(), title: topic.title.clone(), number,
             supporting: markdown_inline_to_text(&all_markdown),
@@ -4261,7 +4372,7 @@ fn render_presentation_slide(
         PresentationSlidePlan::Comparison { chapter, title, left, right } => {
             let render_side = |label: &str, cards: &[ListCardPlan]| format!(
                 r#"<section class="comparison-panel"><p class="comparison-label">{label}</p>{}</section>"#,
-                cards.iter().map(|card| format!(r#"<article><h3>{}</h3><p>{}</p></article>"#, escape_html_text(&card.title), escape_html_text(&card.body_markdown))).collect::<Vec<_>>().join(""),
+                cards.iter().map(|card| format!(r#"<article><h3>{}</h3><div>{}</div></article>"#, escape_html_text(&card.title), render_markdown_html(&card.body_markdown))).collect::<Vec<_>>().join(""),
             );
             render_content_slide("comparison", preferences, active, index, total, input, chapter, title, None,
                 &format!(r#"<div class="presentation-comparison">{}{}</div>"#, render_side("A", left), render_side("B", right)), &rhythm_cls)
@@ -4645,6 +4756,7 @@ mod tests {
     };
 
     use super::{
+        presentation_coverage, parse_presentation_document, explicit_comparison_plan,
         assign_evidence_to_items, default_markdown_html_file_name, fallback_presentation_dark_template,
         fallback_presentation_light_template, fallback_reading_dark_template, fallback_reading_light_template, parse_presentation_blocks,
         landscape_card_chunks_with_capacity, list_layout_capacity_hint, plan_list_card_layout,
@@ -4698,6 +4810,45 @@ mod tests {
 
     fn template() -> String {
         "<html><head><meta charset=\"UTF-8\"><title>{{title}}</title></head><body>{{warnings}}<article>{{content}}</article><footer>{{generated_at}} {{source_file}}</footer></body></html>".to_string()
+    }
+
+    #[test]
+    fn coverage_rejects_missing_or_reordered_source_and_ignores_scripts() {
+        let doc = parse_presentation_document("# Test\n\n## Topic\n\nUNIQUE_ALPHA then UNIQUE_BETA", "Test");
+        let page = |body: &str| format!("<section class=\"slide text\">{body}</section>");
+        assert!(presentation_coverage(&doc, &page("<p>UNIQUE_ALPHA then UNIQUE_BETA</p>")).is_ok());
+        assert!(presentation_coverage(&doc, &page("<p>UNIQUE_ALPHA</p>")).is_err());
+        assert!(presentation_coverage(&doc, &page("<p>UNIQUE_BETA then UNIQUE_ALPHA</p>")).is_err());
+        assert!(presentation_coverage(&doc, &page("<script>UNIQUE_ALPHA then UNIQUE_BETA</script>")).is_err());
+    }
+
+    #[test]
+    fn explicit_comparison_requires_matching_dimensions_and_preserves_values() {
+        let parse = |md: &str| parse_presentation_document(md, "Test").chapters[0].topics[0].clone();
+        let valid = parse("## 对比\n\n- **A**\n  - **价格**：10元\n  - **速度**：快\n- **B**\n  - **价格**：20元\n  - **速度**：慢");
+        let Some(PresentationSlidePlan::Comparison { left, right, .. }) = explicit_comparison_plan("", &valid) else { panic!("explicit groups should route"); };
+        assert_eq!(left[0].title, "价格"); assert_eq!(left[0].body_markdown, "10元");
+        assert_eq!(right[0].title, "价格"); assert_eq!(right[0].body_markdown, "20元");
+        let invalid = parse("## 对比\n\n- **A**\n  - **价格**：10元\n- **B**\n  - **速度**：慢");
+        assert!(explicit_comparison_plan("", &invalid).is_none());
+    }
+
+    #[test]
+    fn mixed_semantic_topics_preserve_acceptance_content() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/presentations/markdown-rule-acceptance");
+        let output = render_presentation_html(MarkdownHtmlExportInput {
+            title: "验收".into(), source_file: "sample.md".into(), source_path: root.join("sample.md"),
+            markdown: std::fs::read_to_string(root.join("sample.md")).unwrap(), generated_at: "test".into(),
+            template_html: fallback_presentation_light_template().into(), preferences: MarkdownHtmlExportPreferences::default(),
+        }, PresentationHtmlExportPreferences { aspect_ratio: "16-9".into(), density: PresentationDensity::Balanced, output_kind: "static".into() }).unwrap();
+        assert!(output.coverage.iter().any(|entry| entry.source_id.contains("unit-2")));
+        assert!(output.coverage.iter().all(|entry| !entry.pages.is_empty()));
+        assert!(output.diagnostics.iter().any(|entry| entry.code == "content-preserving-fallback"));
+        assert!(!output.html.contains("content-preserving-fallback"));
+        for token in ["CANARY_INTRO", "CANARY_OUTRO", "CANARY_IMAGE", "A价格", "B价格", "A速度", "B速度"] { assert!(output.html.contains(token), "missing {token}"); }
+        assert!(output.html.find("CANARY_INTRO").unwrap() < output.html.find("CANARY_OUTRO").unwrap());
+        assert!(output.html.contains("data:image/svg+xml"));
+        assert_eq!(output.html.matches(r#"data-slide-kind="comparison""#).count(), 1);
     }
 
     #[test]
@@ -6820,7 +6971,10 @@ mod tests {
         )
         .expect("semantic presentation html should render");
 
-        for kind in ["quote", "process", "comparison", "big-number", "summary"] {
+        // A layout directive alone does not define comparison membership.
+        assert!(!output.html.contains(r#"data-slide-kind="comparison""#));
+        for copy in ["手工整理", "自动归档", "零散文件", "集中资料库"] { assert!(output.html.contains(copy)); }
+        for kind in ["quote", "process", "big-number", "summary"] {
             assert!(output.html.contains(&format!(r#"data-slide-kind="{kind}""#)), "missing {kind} layout");
         }
         assert!(!output.html.contains("nutbook:layout"));
@@ -6873,7 +7027,10 @@ mod tests {
         )
         .expect("automatic semantic presentation html should render");
 
-        for kind in ["process", "comparison", "summary"] {
+        // Mixed topics and ambiguous comparisons must preserve all source copy.
+        assert!(!output.html.contains(r#"data-slide-kind="comparison""#));
+        for copy in ["流程如下", "优缺点对照", "收集资料", "组织观点", "开始表达", "手工整理", "自动归档", "零散文件", "集中资料库"] { assert!(output.html.contains(copy)); }
+        for kind in ["summary"] {
             assert!(output.html.contains(&format!(r#"data-slide-kind="{kind}""#)), "missing {kind} layout");
         }
     }
