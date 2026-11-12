@@ -120,7 +120,7 @@ jobs:
           COMMIT: ${{ steps.gate.outputs.commit }}
         run: |
           set -euo pipefail
-          matrix='{"include":[{"label":"macOS Intel","artifact-name":"verified-macos-intel","asset-suffix":"_x64.dmg","source-glob":"src-tauri/target/release/bundle/dmg/*.dmg","expected-architecture":"x86_64","runner":"macos-15-intel","args":"--bundles app"},{"label":"macOS Apple Silicon","artifact-name":"verified-macos-arm","asset-suffix":"_aarch64.dmg","source-glob":"src-tauri/target/release/bundle/dmg/*.dmg","expected-architecture":"arm64","runner":"macos-14","args":"--bundles app"},{"label":"Windows","artifact-name":"verified-windows","asset-suffix":"_x64-setup.exe","source-glob":"src-tauri/target/release/bundle/nsis/*.exe","runner":"windows-latest","args":"--bundles nsis"}]}'
+          matrix='{"include":[{"label":"macOS Intel","artifact-name":"verified-macos-intel","asset-suffix":"_x64.dmg","source-glob":"src-tauri/target/release/bundle/dmg/*.dmg","expected-architecture":"x86_64","runner":"macos-15-intel","args":"--bundles app"},{"label":"macOS Apple Silicon","artifact-name":"verified-macos-arm","asset-suffix":"_aarch64.dmg","source-glob":"src-tauri/target/release/bundle/dmg/*.dmg","expected-architecture":"arm64","runner":"macos-15","args":"--bundles app"},{"label":"Windows","artifact-name":"verified-windows","asset-suffix":"_x64-setup.exe","source-glob":"src-tauri/target/release/bundle/nsis/*.exe","runner":"windows-latest","args":"--bundles nsis"}]}'
           if [ -n "$REUSE_RUN" ]; then
             grep -Eq '^[0-9]+$' <<<"$REUSE_RUN"
             prior="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN")"
