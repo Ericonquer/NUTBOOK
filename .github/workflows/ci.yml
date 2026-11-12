@@ -74,7 +74,7 @@ jobs:
 
   macos-compile:
     name: PR macOS release compile
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 18
 
     steps:
@@ -164,6 +164,8 @@ jobs:
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib compact_preview_resources_fit_windows_path_budget -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib capture_authority_survives_port_reuse -- --test-threads=1
           cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib windows_cli_alias_and_gui_images_are_rejected -- --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib windows_html_export_all_formats_smoke -- --ignored --test-threads=1
+          cargo test --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml --lib exports_native_charts_with_editable_data -- --ignored --test-threads=1
 
       - name: Build Windows application once without installer
         shell: bash

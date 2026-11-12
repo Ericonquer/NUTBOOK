@@ -138,6 +138,12 @@ Bold, italic, inline code, strikethrough, links, headings, and table operations 
 
 Typing F or S while editing text will not unexpectedly open fullscreen or presentation mode.
 
+### Export an HTML Presentation
+
+On macOS or Windows, open a supported HTML presentation and choose **More → Export Center**. Preview individual slides, then choose PDF, a long PNG image, or PPTX. PDF offers copy and editing preferences, and PNG offers two resolutions. NUTBOOK uses an installed Chrome, Edge, or Chromium browser.
+
+In PowerPoint, supported text and tables remain editable and images can be replaced individually. Charts with supported structured data can be updated through **Edit Data**. See the [chart data format](../contracts/html-pptx-chart-v1.md) for Agent-generated presentations.
+
 ## FAQ
 
 **Is NUTBOOK a knowledge base?**

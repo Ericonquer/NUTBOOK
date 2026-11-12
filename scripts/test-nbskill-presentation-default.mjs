@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {copyFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {copyFileSync,mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {validateEditableHtmlContract,validatePresentationHtmlContract} from '../integrations/nbskill/scripts/manifest-lib.mjs';
 const root=mkdtempSync(join(tmpdir(),'nbskill-presentation-default-'));
 for (const name of ['presentation.html','presentation-mark.svg']) copyFileSync(resolve('integrations/nbskill/templates',name),join(root,name));
+const source=readFileSync(join(root,'presentation.html'),'utf8');
+validateEditableHtmlContract(source);
+validatePresentationHtmlContract(source);
+const extractPptx=readFileSync(resolve('src-tauri/src/core/thumbnail/html_pptx_extract.js'),'utf8');
 const browser=await chromium.launch({headless:true});
 try {
  const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[],remote=[];
@@ -21,6 +26,14 @@ try {
  await page.keyboard.press('ArrowRight');
  assert.equal(await page.evaluate(()=>__NUTBOOK_PRESENTATION__.activePageId),'evidence');
  assert.equal(await counter.getAttribute('data-page-count'),'2 / 3');
+ const chart=page.locator('[data-nutbook-chart]');
+ assert.equal(await chart.isVisible(),true);
+ assert.deepEqual(await chart.locator('[data-label]').evaluateAll(bars=>bars.map(bar=>bar.dataset.label)),['一季度','二季度','三季度']);
+ const exported=await page.evaluate(`(${extractPptx})('evidence',innerWidth,innerHeight,0,0)`);
+ assert.equal(exported.charts.length,1);
+ assert.equal(exported.charts[0].kind,'bar');
+ assert.deepEqual(exported.charts[0].series,[{name:'订单',values:[12,18,24]}]);
+ assert.ok(exported.texts.some(text=>text.name==='evidence-title'),'the slide heading exports separately as editable text');
  await page.keyboard.press('Space');
  assert.equal(await page.evaluate(()=>__NUTBOOK_PRESENTATION__.activePageId),'finish');
  await page.keyboard.press('PageUp');

@@ -55,6 +55,10 @@ pub enum AppError {
     ExportEngineUnavailable,
     #[error("export cancelled")]
     ExportCancelled,
+    #[error("HTML export failed: {0}")]
+    HtmlExportFailed(String),
+    #[error("The selected export destination already exists or has changed")]
+    HtmlExportTargetExists,
     #[error("long image is too tall")]
     ExportLongImageTooTall,
     #[error("motion export exceeds its resource budget: {0}")]
@@ -178,6 +182,8 @@ impl AppError {
             AppError::InvalidSession => "INVALID_SESSION",
             AppError::ExportEngineUnavailable => "EXPORT_ENGINE_UNAVAILABLE",
             AppError::ExportCancelled => "EXPORT_CANCELLED",
+            AppError::HtmlExportFailed(_) => "HTML_EXPORT_FAILED",
+            AppError::HtmlExportTargetExists => "HTML_EXPORT_TARGET_EXISTS",
             AppError::ExportLongImageTooTall => "EXPORT_LONG_IMAGE_TOO_TALL",
             AppError::MotionResourceBudgetExceeded(_) => "MOTION_RESOURCE_BUDGET_EXCEEDED",
             AppError::DatabaseError => "DATABASE_ERROR",

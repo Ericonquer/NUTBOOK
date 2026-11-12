@@ -22,6 +22,10 @@ an Agent project into a general file browser.
   authorize choosing or playing effects for the user.
   Default navigation is keyboard-based with a quiet page count; do not copy
   floating previous/next buttons into every deck.
+  When the deck contains a supported data chart, follow
+  [references/presentation-charts-v1.md](references/presentation-charts-v1.md)
+  and include its source data for editable PowerPoint export. Keep the slide
+  heading, captions, and commentary as NUTBOOK-editable HTML fields.
   Run the independent browser behavior check described there before delivery.
 - Ordinary non-presentation HTML keeps the HTML edit contract. Preserve an
   existing document's IDs, capabilities and chosen effects during edits; do not

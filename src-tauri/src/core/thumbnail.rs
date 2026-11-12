@@ -27,8 +27,17 @@ use std::{
 
 #[cfg(unix)]
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use serde_json::{json, Value};
+
+#[cfg(windows)]
+use std::{io::{BufRead, BufReader}, time::{Duration, Instant}};
+#[cfg(windows)]
+#[path = "thumbnail/windows_cdp.rs"]
+mod windows_cdp;
+
+#[cfg(any(target_os = "macos", windows))]
+pub mod html_pdf;
 
 pub const HTML_SCREENSHOT_WIDTH: i32 = 1280;
 pub const HTML_SCREENSHOT_HEIGHT: i32 = 720;
@@ -746,10 +755,21 @@ pub fn static_capture_url(value: &str) -> String {
     url.to_string()
 }
 
-pub const STATIC_CAPTURE_INIT: &str = r#"window.__NUTBOOK_CAPTURE_PURPOSE__='static';window.__NUTBOOK_STATIC_PRESENTATION__=true;document.addEventListener('DOMContentLoaded',()=>{const style=document.createElement('style');style.textContent='.deck-controls,.presentation-controls,[data-nutbook-presentation-controls],[data-prev],[data-next]{display:none!important}';document.head.append(style)},{once:true});"#;
+const STATIC_CAPTURE_CONTROLS: &str = ".deck-controls,.presentation-controls,[data-nutbook-presentation-controls],[data-nutbook-runtime-control],[data-prev],[data-next]";
 
 pub(crate) fn static_capture_init_script() -> String {
-    format!("{}\n{}",STATIC_CAPTURE_INIT,include_str!("../../resources/export-templates/motion-static-capture.js"))
+    let control_style = format!("{STATIC_CAPTURE_CONTROLS}{{display:none!important}}");
+    format!(
+        r#"window.__NUTBOOK_CAPTURE_PURPOSE__='static';window.__NUTBOOK_STATIC_PRESENTATION__=true;
+        document.addEventListener('DOMContentLoaded',()=>{{
+            const style=document.createElement('style');
+            style.textContent={};
+            document.head.append(style);
+        }},{{once:true}});
+        {}"#,
+        json!(control_style),
+        include_str!("../../resources/export-templates/motion-static-capture.js")
+    )
 }
 
 pub fn static_capture_html(source: &[u8]) -> Vec<u8> {
@@ -759,7 +779,7 @@ pub fn static_capture_html(source: &[u8]) -> Vec<u8> {
     let at = lower.find("<head").and_then(|start| lower[start..].find('>').map(|end|start+end+1))
         .or_else(||lower.find("<!doctype").and_then(|start|lower[start..].find('>').map(|end|start+end+1))).unwrap_or(0);
     let init=static_capture_init_script();
-    let bootstrap = format!("<script>{init}</script><style>.deck-controls,.presentation-controls,[data-nutbook-presentation-controls],[data-prev],[data-next]{{display:none!important}}</style>");
+    let bootstrap = format!("<script>{init}</script><style>{STATIC_CAPTURE_CONTROLS}{{display:none!important}}</style>");
     let mut result=Vec::with_capacity(source.len()+bootstrap.len());
     result.extend_from_slice(&source[..at]);result.extend_from_slice(bootstrap.as_bytes());result.extend_from_slice(&source[at..]);result
 }
@@ -1004,6 +1024,10 @@ fn valid_presentation_page_id(page_id: &str) -> bool {
 }
 
 pub(crate) fn presentation_thumbnail_setup_script(page_id: &str) -> String {
+    presentation_static_setup_script(page_id, false)
+}
+
+fn presentation_static_setup_script(page_id: &str, require_active_page: bool) -> String {
     let page_id = serde_json::to_string(page_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(r#"(async()=>{{
       const pageId={page_id};
@@ -1025,6 +1049,13 @@ pub(crate) fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       await bridge.setEditMode?.(false);
       const moved=await bridge.goTo(pageId);
       if(moved===false) throw new Error("presentation page navigation failed");
+      if({require_active_page}) {{
+        const deadline=performance.now()+2000;
+        while(bridge.activePageId!==pageId) {{
+          if(performance.now()>deadline) throw new Error("presentation page did not become active");
+          await new Promise(resolve=>requestAnimationFrame(resolve));
+        }}
+      }}
       const root=document.querySelector(`[data-nutbook-page-id="${{CSS.escape(pageId)}}"]`);
       if(!root) throw new Error("presentation page root missing");
       const targetDisplay=getComputedStyle(root).display === "none" ? "block" : getComputedStyle(root).display;
@@ -1051,7 +1082,7 @@ pub(crate) fn presentation_thumbnail_setup_script(page_id: &str) -> String {
       }});
       window.__NUTBOOK_PREVIEW_ROOT_STYLES__=previousStyles;
       root.hidden=false; root.classList.add("is-active");
-      document.querySelectorAll(".deck-controls,.presentation-controls,[data-nutbook-presentation-controls]").forEach((node)=>{{ node.style.setProperty("display","none","important"); }});
+      document.querySelectorAll("{STATIC_CAPTURE_CONTROLS}").forEach((node)=>{{ node.style.setProperty("display","none","important"); }});
       await Promise.all(Array.from(root.querySelectorAll("img")).map(async(image)=>{{ try {{ if(!image.complete) await new Promise((resolve)=>{{ image.addEventListener("load",resolve,{{once:true}}); image.addEventListener("error",resolve,{{once:true}}); }}); if(image.decode) await image.decode(); }} catch(_) {{}} if(!image.complete || !image.naturalWidth) throw new Error("presentation preview image unavailable"); }}));
       await window.__NUTBOOK_STATIC_CAPTURE__?.render(pageId);
       await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -1059,16 +1090,27 @@ pub(crate) fn presentation_thumbnail_setup_script(page_id: &str) -> String {
     }})()"#)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct CdpPipe {
+    #[cfg(unix)]
     child: Child,
+    #[cfg(unix)]
     input: File,
+    #[cfg(unix)]
     output: BufReader<File>,
+    #[cfg(windows)]
+    child: windows_cdp::Process,
+    #[cfg(windows)]
+    input: windows_cdp::PipeWriter,
+    #[cfg(windows)]
+    output: BufReader<windows_cdp::PipeReader>,
     next_id: u64,
+    cancelled: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl CdpPipe {
+    #[cfg(unix)]
     fn launch(chromium_path: &Path, profile_path: &Path) -> Result<Self, String> {
         let (browser_read, host_write) = cdp_os_pipe()?;
         let (host_read, browser_write) = cdp_os_pipe()?;
@@ -1105,7 +1147,26 @@ impl CdpPipe {
             output: BufReader::new(unsafe { File::from_raw_fd(host_read) }),
             child,
             next_id: 1,
+            cancelled: None,
         })
+    }
+
+    #[cfg(windows)]
+    fn launch(chromium_path: &Path, profile_path: &Path) -> Result<Self, String> {
+        let (child, input, output) = windows_cdp::launch(chromium_path, profile_path)
+            .map_err(|error| format!("failed to launch Chromium CDP: {error}"))?;
+        Ok(Self { child, input, output: BufReader::new(output), next_id: 1, cancelled: None })
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    fn enable_export(&mut self, cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            set_nonblocking(self.input.as_raw_fd())?;
+        }
+        self.cancelled = Some(cancelled);
+        Ok(())
     }
 
     fn call(&mut self, method: &str, params: Value, session_id: Option<&str>) -> Result<Value, String> {
@@ -1114,8 +1175,10 @@ impl CdpPipe {
         let mut message = json!({ "id": id, "method": method, "params": params });
         if let Some(session_id) = session_id { message["sessionId"] = Value::String(session_id.to_string()); }
         self.write_message(&message)?;
+        let deadline = self.cancelled.as_ref().map(|_| Instant::now() + Duration::from_secs(45));
         loop {
-            let response = self.read_message(Duration::from_secs(10))?;
+            let timeout = deadline.map_or(Duration::from_secs(10), |end| end.saturating_duration_since(Instant::now()));
+            let response = self.read_message(timeout)?;
             if response.get("id").and_then(Value::as_u64) != Some(id) { continue; }
             if let Some(error) = response.get("error") { return Err(format!("CDP {method} failed: {error}")); }
             return response.get("result").cloned().ok_or_else(|| format!("CDP {method} missing result"));
@@ -1133,10 +1196,35 @@ impl CdpPipe {
         Err(format!("CDP timed out waiting for {method}"))
     }
 
+    #[cfg(unix)]
     fn write_message(&mut self, message: &Value) -> Result<(), String> {
-        let json = serde_json::to_vec(message).map_err(|error| format!("failed to encode CDP message: {error}"))?;
+        let mut json = serde_json::to_vec(message).map_err(|error| format!("failed to encode CDP message: {error}"))?;
+        if let Some(cancelled) = &self.cancelled {
+            json.push(0);
+            let mut remaining = json.as_slice();
+            let deadline = Instant::now() + Duration::from_secs(15);
+            while !remaining.is_empty() {
+                if cancelled.load(std::sync::atomic::Ordering::Acquire) || Instant::now() >= deadline {
+                    return Err("CDP export write cancelled or timed out".into());
+                }
+                match self.input.write(remaining) {
+                    Ok(0) => return Err("Chrome closed the CDP pipe".into()),
+                    Ok(bytes) => remaining = &remaining[bytes..],
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(10)),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) => return Err(format!("failed to write CDP message: {error}")),
+                }
+            }
+            return Ok(());
+        }
         self.input.write_all(&json).and_then(|_| self.input.write_all(&[0])).and_then(|_| self.input.flush())
             .map_err(|error| format!("failed to write CDP message: {error}"))
+    }
+
+    #[cfg(windows)]
+    fn write_message(&mut self, message: &Value) -> Result<(), String> {
+        let bytes = serde_json::to_vec(message).map_err(|error| error.to_string())?;
+        self.input.send(bytes, self.cancelled.as_deref())
     }
 
     fn read_message(&mut self, timeout: Duration) -> Result<Value, String> {
@@ -1145,6 +1233,9 @@ impl CdpPipe {
         let started = Instant::now();
         let mut bytes = Vec::new();
         loop {
+            if self.cancelled.as_ref().is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err("CDP task cancelled".into());
+            }
             if started.elapsed() >= timeout { return Err("CDP response timed out".to_string()); }
             let available = match self.output.fill_buf() {
                 Ok(available) => available,
@@ -1155,6 +1246,9 @@ impl CdpPipe {
                 Err(error) => return Err(format!("failed to read CDP response: {error}")),
             };
             if available.is_empty() { return Err("Chromium CDP closed unexpectedly".to_string()); }
+            if self.cancelled.is_some() && bytes.len() + available.len() > 16 * 1024 * 1024 {
+                return Err("CDP export response exceeds its size limit".into());
+            }
             if let Some(position) = available.iter().position(|byte| *byte == 0) {
                 bytes.extend_from_slice(&available[..position]);
                 self.output.consume(position + 1);
@@ -1167,8 +1261,13 @@ impl CdpPipe {
         serde_json::from_slice(&bytes).map_err(|error| format!("invalid CDP response: {error}"))
     }
 
+    #[cfg(unix)]
     fn close(&mut self) { let _ = self.child.kill(); let _ = self.child.wait(); }
 
+    #[cfg(windows)]
+    fn close(&mut self) { self.child.close(); }
+
+    #[cfg(unix)]
     fn is_running(&mut self) -> bool { self.child.try_wait().ok().flatten().is_none() }
 }
 

@@ -134,7 +134,7 @@ jobs:
 
   macos-release-compile:
     name: Release preflight / macOS release compile
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 18
 
     steps:

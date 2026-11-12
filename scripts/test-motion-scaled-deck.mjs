@@ -6,7 +6,7 @@ for(const engine of process.argv.includes('--webkit') ? [chromium,webkit] : [chr
  const browser=await engine.launch();try{
  const page=await browser.newPage({viewport:{width:1280,height:800}});
  for(const [sx,sy]of [[1,1],[.5,.5],[.65,.65],[.5,.7]]){
- await page.setContent(`<style>body{margin:0}#deck{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform:translate(-50%,-50%) scale(${sx},${sy});transform-origin:center}.slide{position:absolute;inset:0;background:white}h1{position:absolute;left:100px;top:200px;font:96px/1.12 Arial;margin:0;color:#092c83}</style><main id="deck"><section class="slide" data-nutbook-page-id="a"><h1 data-id="title">开放 OpenLuckin</h1></section></main><canvas width="1280" height="800"></canvas>`);
+ await page.setContent(`<style>body{margin:0}#deck{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform:translate(-50%,-50%) scale(${sx},${sy});transform-origin:center}.slide{position:absolute;inset:0;background:white}h1{position:absolute;left:100px;top:200px;font:96px/1.12 Arial;margin:0;color:#092c83}</style><main id="deck"><section class="slide" data-nutbook-page-id="a"><h1 data-id="title">开放 Sample Deck</h1></section></main><canvas width="1280" height="800"></canvas>`);
  await page.addScriptTag({content:code});
  const result=await page.evaluate(()=>{
  const el=document.querySelector('h1'),before=el.outerHTML,range=document.createRange();range.selectNodeContents(el);const original=range.getBoundingClientRect(),prepared=probe.textGlyphs(el),font=parseFloat(prepared.glyphs[0].font),ctx=document.querySelector('canvas').getContext('2d');

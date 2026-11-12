@@ -831,7 +831,7 @@ assert.match(
   "SKILL editor should not duplicate Triggers text inside description"
 );
 
-const htmlEditLeaveOverlay = indexHtml.match(/async function showHtmlEditLeaveConfirmOverlay\(session\) \{([\s\S]*?)\n      \}/);
+const htmlEditLeaveOverlay = indexHtml.match(/async function showHtmlEditLeaveConfirmOverlay\(session, mode = "leave"\) \{([\s\S]*?)\n      \}/);
 assert.ok(htmlEditLeaveOverlay, "HTML edit leave overlay flow should exist");
 assert.match(
   htmlEditLeaveOverlay[1],

@@ -488,6 +488,7 @@
     .pinned-actions { display:flex; gap:6px; align-items:center; }
     .pinned-actions:empty { display:none; }
     .toolbar-menu-row { display:flex; align-items:center; }
+    .toolbar-menu-row[hidden] { display:none; }
     .toolbar-menu-row .menu-option { flex:1; min-width:0; }
     .toolbar-pin .tip { left:auto; right:calc(100% + 8px); top:50%; transform:translateY(-50%); z-index:40; }
     .toolbar-pin.action { flex:0 0 30px; width:30px; height:30px; padding:0; color:#888; }
@@ -542,6 +543,10 @@
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 16.5h4"/><path d="M10 13v3.5"/></svg></span>
         <span id="presentationLabel" class="menu-option-label">全屏查看</span>
       </button>
+      <button id="htmlExportOption" class="menu-option" type="button" role="menuitem" hidden>
+        <span class="menu-option-icon" aria-hidden="true"></span>
+        <span id="htmlExportLabel" class="menu-option-label"></span>
+      </button>
       <button id="historyOption" class="menu-option" type="button" role="menuitem" aria-label="版本历史" title="版本历史">
         <span class="menu-option-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a7 7 0 1 1 1.5 5M3 4v5h5M10 6v4l3 2"/></svg></span>
         <span id="historyLabel" class="menu-option-label">版本历史</span>
@@ -584,6 +589,7 @@
       // Start unset so the first host payload, rather than this child
       // WebView's own persisted storage, is authoritative.
       toolbar: { pinned: [], capacity: 3 },
+      canExport: true,
       language: null
     };
     let controlsHover = false;
@@ -614,6 +620,8 @@
       editButton: document.getElementById("editButton"),
       editLabel: document.getElementById("editLabel"),
       nativePresentationOption: document.getElementById("nativePresentationOption"),
+      htmlExportOption: document.getElementById("htmlExportOption"),
+      htmlExportLabel: document.getElementById("htmlExportLabel"),
       nativePresentationLabel: document.getElementById("nativePresentationLabel"),
       nativePresentationProgress: document.getElementById("nativePresentationProgress"),
       presentationOption: document.getElementById("presentationOption"),
@@ -895,6 +903,14 @@
       els.favoriteButton.style.display = isHtml ? "" : "none";
       els.removeOption.style.display = isHtml ? "" : "none";
       els.nativePresentationOption.style.display = isHtml ? "" : "none";
+      els.htmlExportOption.hidden = !isHtml || !state.canExport || !/Mac|Win/i.test(navigator.platform);
+      els.htmlExportOption.style.display = els.htmlExportOption.hidden ? "none" : "";
+      els.htmlExportOption.closest(".toolbar-menu-row").hidden = els.htmlExportOption.hidden;
+      const exportLabel = t("actions.exportCenter");
+      els.htmlExportLabel.textContent = exportLabel;
+      els.htmlExportOption.setAttribute("aria-label", exportLabel);
+      els.htmlExportOption.title = exportLabel;
+      els.htmlExportOption.disabled = state.nativePresentationPreparing;
       els.editButton.style.display = isHtml ? "" : "none";
       els.addTagBtn.textContent = t("actions.addTag");
       for (const button of [els.addTagBtn, els.customTagBtn, els.customTagMore]) {
@@ -956,7 +972,8 @@
 
     const toolbarDefinitions = [
       { id: 'prepare-native-presentation', option: els.nativePresentationOption, activate: activateNativePresentation, icon: 'presentation' },
-      { id: 'toggle-runtime-presentation', option: els.presentationOption, activate: activatePresentationMode, icon: 'fullscreen' }
+      { id: 'toggle-runtime-presentation', option: els.presentationOption, activate: activatePresentationMode, icon: 'fullscreen' },
+      { id: 'export-html-center', option: els.htmlExportOption, activate: activateHtmlExportCenter, icon: 'exportCenter' }
     ];
     for (const entry of toolbarDefinitions) {
       const row = document.createElement('div');
@@ -965,6 +982,7 @@
       row.append(entry.option);
       const pin = document.createElement('button');
       pin.type = 'button'; pin.className = 'toolbar-pin action'; pin.setAttribute('role', 'menuitem');
+      pin.dataset.pinAction = entry.id;
       pin.innerHTML = NutbookDocumentToolbar.icons.pin + '<span class="tip"></span>';
       pin.addEventListener('click', event => {
         event.stopPropagation();
@@ -982,10 +1000,11 @@
         entry.pin.classList.toggle('active', active);
         entry.pin.setAttribute('aria-pressed', String(active));
         entry.pin.setAttribute('aria-label', label);
+        entry.pin.title = label;
         entry.pin.querySelector('.tip').textContent = label;
         entry.option.querySelector('.menu-option-icon').innerHTML = NutbookDocumentToolbar.icons[entry.icon === 'fullscreen' && state.isFullscreen ? 'exitFullscreen' : entry.icon];
       }
-      const visible = pinned.slice(0, Math.max(0, Math.min(3, Number(state.toolbar.capacity) || 0)));
+      const visible = pinned.filter(id => !toolbarDefinitions.find(entry => entry.id === id).option.hidden).slice(0, Math.max(0, Math.min(3, Number(state.toolbar.capacity) || 0)));
       const signature = JSON.stringify([visible, state.isEditing, state.isFullscreen, state.nativePresentationPreparing, state.language]);
       if (signature === pinnedSignature) return;
       pinnedSignature = signature;
@@ -1040,8 +1059,8 @@
       historyOption.setAttribute('aria-label', historyLabel); historyOption.title = historyLabel;
       historyOption.disabled = state.isPrimaryBusy;
       document.getElementById('historyLabel').textContent = historyLabel;
-      refreshPinnedActions();
       updateTagChips();
+      refreshPinnedActions();
       if (!state.tagMenuOpen) els.tagMenu.classList.remove("open");
     }
 
@@ -1093,6 +1112,7 @@
       state.isFullscreen = !!next.isFullscreen;
       state.isEditing = !!next.isEditing;
       state.isPrimaryBusy = !!next.isPrimaryBusy;
+      state.canExport = next.toolbar?.canExport !== false;
       const preparationChanged = state.nativePresentationPreparing !== !!(next.toolbar?.preparing ?? next.nativePresentationPreparing);
       state.nativePresentationPreparing = !!(next.toolbar?.preparing ?? next.nativePresentationPreparing);
       state.toolbar = next.toolbar || { pinned: [], capacity: 3 };
@@ -1175,7 +1195,8 @@
       }, 90);
     });
     function menuItems() {
-      return Array.from(els.menu.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+      return Array.from(els.menu.querySelectorAll('[role="menuitem"]:not(:disabled)'))
+        .filter(button => !button.closest("[hidden]") && button.style.display !== "none");
     }
     function focusMenuItem(index) {
       requestAnimationFrame(function() {
@@ -1288,6 +1309,15 @@
     });
     els.presentationOption.addEventListener("pointerdown", activatePresentationMode);
     els.presentationOption.addEventListener("click", activatePresentationMode);
+    function activateHtmlExportCenter() {
+      if (els.htmlExportOption.hidden || els.htmlExportOption.disabled) return;
+      state.menuOpen = false;
+      refresh();
+      clearMenuAutoClose();
+      emitLayout();
+      emit({ action: "export-html-center" });
+    }
+    els.htmlExportOption.addEventListener("click", activateHtmlExportCenter);
     els.nativePresentationOption.addEventListener("pointerdown", activateNativePresentation);
     els.nativePresentationOption.addEventListener("click", activateNativePresentation);
     els.menu.addEventListener("pointerdown", function(e) {
