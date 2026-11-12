@@ -138,6 +138,12 @@ macOS 使用 `Cmd`，Windows / Linux 使用 `Ctrl`。
 
 编辑文字时无需担心输入 F 或 S 会意外进入全屏或演示模式。
 
+### 导出 HTML 演示稿
+
+在 macOS 或 Windows 打开受支持的 HTML 演示稿，选择「更多 → 导出中心」。逐页预览后，可导出 PDF、PNG 长图或 PPTX。PDF 可设置复制和编辑权限，PNG 有两档清晰度。NUTBOOK 会复用已安装的 Chrome、Edge 或 Chromium。
+
+在 PowerPoint 中，受支持的文字和表格可以编辑，配图可以独立替换。符合协议的数据图表可通过「编辑数据」更新。Agent 生成演示稿时可参考[图表数据格式](../contracts/html-pptx-chart-v1.md)。
+
 ## 常见问题
 
 **NUTBOOK 是不是知识库？**

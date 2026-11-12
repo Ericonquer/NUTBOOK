@@ -6,8 +6,12 @@ Keep `data-nutbook-artifact-kind="presentation"` on `<html>` for a precise failu
 
 The default template uses Arrow/PageUp/PageDown/Space navigation and a quiet, noninteractive page count. Do not add persistent floating previous/next buttons by default. Visible navigation buttons are optional, only when the user or actual delivery context calls for them.
 
+Use the template's Ink & Paper styling by default: paper-white canvas, ink-black headings, gray secondary text and generous margins. Follow the user's requested branding or style when provided. Keep fonts offline-capable.
+
 `setManagedMode(true)` must hide any standalone navigation/page count and notes UI and stop its keyboard navigation while leaving any user-configured animation and media running. `setManagedMode(false)` restores standalone behavior. Keep it independent of `setEditMode`. Check Arrow, PageUp/PageDown, Space, F, editing focus, and IME before delivery.
 
 The `nutbook-presentation-notes` JSON block is required even when empty: `{"version":1,"pages":{}}`. Notes keys are page IDs. Paragraphs contain text runs and optional `bold`; never inject notes as HTML. Mark every visible content text and image with a stable `data-id` and supported `data-editable` target, following `nutbook-html-edit-contract-v1.md`. The page container, script, styles and controls are structural, not editable content.
+
+For slides with data charts, follow [presentation-charts-v1.md](presentation-charts-v1.md). The second example page shows a chart with structured data beside editable slide text. Remove the example chart when the deck does not need one.
 
 Use `node scripts/register.mjs --project-root ... --id ... --path ... --skill ... --kind presentation` after authoring, listing local resources as `--related path:asset`. Registration only checks static structure. Run a separate browser behavior test on the final HTML file: load it offline, navigate forward/back, verify subscriber and actual visible page, enable managed mode and verify controls/keyboard are inactive while animation continues, disable it, then verify editing targets and notes. NUTBOOK's runtime probe makes the final playback decision.

@@ -1,6 +1,6 @@
 # Third-Party Licenses / 第三方许可声明
 
-NUTBOOK 1.3.0 includes third-party software and assets. This inventory covers the complete locked JavaScript and Rust dependency graphs, including transitive, build, development and platform-specific packages; not every listed package is present in every installer.
+NUTBOOK 1.5.2 includes third-party software and assets. This inventory covers the complete locked JavaScript and Rust dependency graphs, including transitive, build, development and platform-specific packages; not every listed package is present in every installer.
 
 本清单覆盖锁文件中的直接、传递、构建、开发及平台依赖；各平台安装包实际包含的子集有所不同。上游许可条款保持有效。
 
@@ -229,6 +229,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | Package | Version | License | Source | License texts |
 | --- | --- | --- | --- | --- |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | [source](https://crates.io/crates/adler2/2.0.1) | [text](#license-1bc86297d0320153), [text](#license-30fefc3a7d6a0041), [text](#license-a21c914647d33e48) |
+| aes | 0.8.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/aes/0.8.4) | [text](#license-33e996382660b2ba), [text](#license-e8541ea93f027a6c) |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | [source](https://crates.io/crates/aho-corasick/1.1.4) | [text](#license-154c1af2b38e25e5), [text](#license-65314a6c96683f76) |
 | alloc-no-stdlib | 2.0.4 | BSD-3-Clause | [source](https://crates.io/crates/alloc-no-stdlib/2.0.4) | [text](#license-6c91ec82929f91ff) |
 | alloc-stdlib | 0.2.2 | BSD-3-Clause | [source](https://crates.io/crates/alloc-stdlib/0.2.2) | See upstream package source |
@@ -267,11 +268,13 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | bitflags | 1.3.2 | MIT/Apache-2.0 | [source](https://crates.io/crates/bitflags/1.3.2) | [text](#license-14435fbcd271e278), [text](#license-954f335b8baf5e1a) |
 | bitflags | 2.11.1 | MIT OR Apache-2.0 | [source](https://crates.io/crates/bitflags/2.11.1) | [text](#license-14435fbcd271e278), [text](#license-954f335b8baf5e1a) |
 | block-buffer | 0.10.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/block-buffer/0.10.4) | [text](#license-5ff5253f2cb9347c), [text](#license-e8541ea93f027a6c) |
+| block-padding | 0.3.3 | MIT OR Apache-2.0 | [source](https://crates.io/crates/block-padding/0.3.3) | [text](#license-5ff5253f2cb9347c), [text](#license-e8541ea93f027a6c) |
 | block2 | 0.6.2 | MIT | [source](https://crates.io/crates/block2/0.6.2) | See upstream package source |
 | blocking | 1.6.2 | Apache-2.0 OR MIT | [source](https://crates.io/crates/blocking/1.6.2) | [text](#license-30fefc3a7d6a0041), [text](#license-954f335b8baf5e1a) |
 | brotli | 8.0.2 | BSD-3-Clause AND MIT | [source](https://crates.io/crates/brotli/8.0.2) | [text](#license-2a57418d6b10947f) |
 | brotli-decompressor | 5.0.0 | BSD-3-Clause/MIT | [source](https://crates.io/crates/brotli-decompressor/5.0.0) | [text](#license-6c91ec82929f91ff) |
 | bumpalo | 3.20.2 | MIT OR Apache-2.0 | [source](https://crates.io/crates/bumpalo/3.20.2) | [text](#license-5662394bebb1a815), [text](#license-954f335b8baf5e1a) |
+| bytecount | 0.6.9 | Apache-2.0/MIT | [source](https://crates.io/crates/bytecount/0.6.9) | [text](#license-3dda214a46ef7de9), [text](#license-6dc0e068dcf3a5bc) |
 | bytemuck | 1.25.0 | Zlib OR Apache-2.0 OR MIT | [source](https://crates.io/crates/bytemuck/1.25.0) | [text](#license-0e3cbff251c122b9), [text](#license-943f36fd309fb5ea), [text](#license-dfbd1c2a36dcf9af) |
 | byteorder | 1.5.0 | Unlicense OR MIT | [source](https://crates.io/crates/byteorder/1.5.0) | [text](#license-154c1af2b38e25e5), [text](#license-65314a6c96683f76) |
 | byteorder-lite | 0.1.0 | Unlicense OR MIT | [source](https://crates.io/crates/byteorder-lite/0.1.0) | [text](#license-154c1af2b38e25e5) |
@@ -283,12 +286,14 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | cargo_metadata | 0.19.2 | MIT | [source](https://crates.io/crates/cargo_metadata/0.19.2) | [text](#license-30fefc3a7d6a0041) |
 | cargo_toml | 0.22.3 | Apache-2.0 OR MIT | [source](https://crates.io/crates/cargo_toml/0.22.3) | [text](#license-fa4363848a0f6846) |
 | caseless | 0.2.2 | MIT | [source](https://crates.io/crates/caseless/0.2.2) | [text](#license-ad9e921c98ba1940) |
+| cbc | 0.1.2 | MIT OR Apache-2.0 | [source](https://crates.io/crates/cbc/0.1.2) | [text](#license-e8541ea93f027a6c), [text](#license-f3bd9e2e7745e49d) |
 | cc | 1.2.60 | MIT OR Apache-2.0 | [source](https://crates.io/crates/cc/1.2.60) | [text](#license-84e1bbfebd74e419), [text](#license-954f335b8baf5e1a) |
 | cesu8 | 1.1.0 | Apache-2.0/MIT | [source](https://crates.io/crates/cesu8/1.1.0) | [text](#license-9691fb0518c7b100) |
 | cfb | 0.7.3 | MIT | [source](https://crates.io/crates/cfb/0.7.3) | [text](#license-3ce3e2561c6a4cd4) |
 | cfg-expr | 0.15.8 | MIT OR Apache-2.0 | [source](https://crates.io/crates/cfg-expr/0.15.8) | [text](#license-6d182023b788976d), [text](#license-7e1b38c60796dd99) |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/cfg-if/1.0.4) | [text](#license-84e1bbfebd74e419), [text](#license-954f335b8baf5e1a) |
 | chrono | 0.4.44 | MIT OR Apache-2.0 | [source](https://crates.io/crates/chrono/0.4.44) | [text](#license-ce4a94c006fa5d15) |
+| cipher | 0.4.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/cipher/0.4.4) | [text](#license-92f01fc7ca904e16), [text](#license-e8541ea93f027a6c) |
 | clap | 4.6.6 | MIT OR Apache-2.0 | [source](https://crates.io/crates/clap/4.6.6) | [text](#license-4498464c2864825d), [text](#license-6dc0e068dcf3a5bc) |
 | clap_builder | 4.6.6 | MIT OR Apache-2.0 | [source](https://crates.io/crates/clap_builder/4.6.6) | [text](#license-4498464c2864825d), [text](#license-6dc0e068dcf3a5bc) |
 | clap_derive | 4.6.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/clap_derive/4.6.4) | [text](#license-4498464c2864825d), [text](#license-6dc0e068dcf3a5bc) |
@@ -304,6 +309,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | [source](https://crates.io/crates/core-foundation-sys/0.8.7) | [text](#license-3bfacc197ff245b6), [text](#license-954f335b8baf5e1a) |
 | core-graphics | 0.25.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/core-graphics/0.25.0) | [text](#license-3bfacc197ff245b6), [text](#license-537db907352420ce), [text](#license-954f335b8baf5e1a) |
 | core-graphics-types | 0.2.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/core-graphics-types/0.2.0) | [text](#license-3bfacc197ff245b6), [text](#license-954f335b8baf5e1a) |
+| core_detect | 1.0.0 | MIT/Apache-2.0 | [source](https://crates.io/crates/core_detect/1.0.0) | [text](#license-57895cdbc8febf23), [text](#license-954f335b8baf5e1a) |
 | core_maths | 0.1.1 | MIT | [source](https://crates.io/crates/core_maths/0.1.1) | [text](#license-9ebf8c4cc0b735ca) |
 | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | [source](https://crates.io/crates/cpufeatures/0.2.17) | [text](#license-6334e52844d698f5), [text](#license-e8541ea93f027a6c) |
 | crc32fast | 1.5.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/crc32fast/1.5.0) | [text](#license-6dc0e068dcf3a5bc), [text](#license-9599127e421e1659) |
@@ -345,8 +351,10 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | dtoa-short | 0.3.5 | MPL-2.0 | [source](https://crates.io/crates/dtoa-short/0.3.5) | [text](#license-4b89d4518bd135ab) |
 | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | [source](https://crates.io/crates/dunce/1.0.5) | [text](#license-6d489af6292662d9) |
 | dyn-clone | 1.0.20 | MIT OR Apache-2.0 | [source](https://crates.io/crates/dyn-clone/1.0.20) | [text](#license-30fefc3a7d6a0041), [text](#license-85ad950cce8752f7) |
+| ecb | 0.1.2 | MIT | [source](https://crates.io/crates/ecb/0.1.2) | [text](#license-305f0f8f4db84708) |
 | embed-resource | 3.0.8 | MIT | [source](https://crates.io/crates/embed-resource/3.0.8) | [text](#license-c4be15bd543af192) |
 | embed_plist | 1.2.2 | MIT OR Apache-2.0 | [source](https://crates.io/crates/embed_plist/1.2.2) | [text](#license-283ea6cc2997a1a7), [text](#license-a29c4d8a8e7cebc9) |
+| encoding_rs | 0.8.44 | (Apache-2.0 OR MIT) AND BSD-3-Clause | [source](https://crates.io/crates/encoding_rs/0.8.44) | [text](#license-1961703c278284db), [text](#license-283ea6cc2997a1a7), [text](#license-7dc2f64024477c92), [text](#license-b1d6d97b0476a828) |
 | endi | 1.1.1 | MIT | [source](https://crates.io/crates/endi/1.1.1) | [text](#license-30fefc3a7d6a0041) |
 | entities | 1.0.1 | MIT | [source](https://crates.io/crates/entities/1.0.1) | [text](#license-f9dd11b6c2d9c3a4) |
 | enumflags2 | 0.7.12 | MIT OR Apache-2.0 | [source](https://crates.io/crates/enumflags2/0.7.12) | [text](#license-632c2870a923faab), [text](#license-de561d2b653aaad4) |
@@ -452,6 +460,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | infer | 0.19.0 | MIT | [source](https://crates.io/crates/infer/0.19.0) | [text](#license-7804ded9273b80f1) |
 | inotify | 0.11.1 | ISC | [source](https://crates.io/crates/inotify/0.11.1) | [text](#license-f68878c9ca61b25d) |
 | inotify-sys | 0.1.5 | ISC | [source](https://crates.io/crates/inotify-sys/0.1.5) | [text](#license-f68878c9ca61b25d) |
+| inout | 0.1.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/inout/0.1.4) | [text](#license-71366a4092ad07b6), [text](#license-e8541ea93f027a6c) |
 | ipnet | 2.12.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/ipnet/2.12.0) | [text](#license-9d8e882729a53481), [text](#license-c935506fff2ef821) |
 | iri-string | 0.7.12 | MIT OR Apache-2.0 | [source](https://crates.io/crates/iri-string/0.7.12) | [text](#license-283ea6cc2997a1a7), [text](#license-2a842fc03a4df8d7) |
 | is_terminal_polyfill | 1.70.2 | MIT OR Apache-2.0 | [source](https://crates.io/crates/is_terminal_polyfill/1.70.2) | [text](#license-4498464c2864825d), [text](#license-6dc0e068dcf3a5bc) |
@@ -484,6 +493,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | litemap | 0.8.2 | Unicode-3.0 | [source](https://crates.io/crates/litemap/0.8.2) | [text](#license-cde87abe221f413f) |
 | lock_api | 0.4.14 | MIT OR Apache-2.0 | [source](https://crates.io/crates/lock_api/0.4.14) | [text](#license-8d1f81ea4e87111d), [text](#license-954f335b8baf5e1a) |
 | log | 0.4.29 | MIT OR Apache-2.0 | [source](https://crates.io/crates/log/0.4.29) | [text](#license-14435fbcd271e278), [text](#license-954f335b8baf5e1a) |
+| lopdf | 0.38.0 | MIT | [source](https://crates.io/crates/lopdf/0.38.0) | [text](#license-acd31f1bfb5aa002) |
 | mac | 0.1.1 | MIT/Apache-2.0 | [source](https://crates.io/crates/mac/0.1.1) | See upstream package source |
 | maplit | 1.0.2 | MIT/Apache-2.0 | [source](https://crates.io/crates/maplit/1.0.2) | [text](#license-954f335b8baf5e1a), [text](#license-fdd1c2117bcf8157) |
 | markup5ever | 0.12.1 | MIT OR Apache-2.0 | [source](https://crates.io/crates/markup5ever/0.12.1) | [text](#license-35af0fd883383c93), [text](#license-954f335b8baf5e1a) |
@@ -493,6 +503,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | markup5ever_rcdom | 0.3.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/markup5ever_rcdom/0.3.0) | [text](#license-35af0fd883383c93), [text](#license-44d9ac7c2eed6221), [text](#license-954f335b8baf5e1a), [text](#license-cae222505fa3a925), [text](#license-d476d19a25fd2f57) |
 | match_token | 0.1.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/match_token/0.1.0) | See upstream package source |
 | matches | 0.1.10 | MIT | [source](https://crates.io/crates/matches/0.1.10) | [text](#license-818df39e5cd52e83) |
+| md-5 | 0.10.6 | MIT OR Apache-2.0 | [source](https://crates.io/crates/md-5/0.10.6) | [text](#license-4031faf6212ee744), [text](#license-e8541ea93f027a6c) |
 | memchr | 2.8.0 | Unlicense OR MIT | [source](https://crates.io/crates/memchr/2.8.0) | [text](#license-154c1af2b38e25e5), [text](#license-65314a6c96683f76) |
 | memmap2 | 0.9.11 | MIT OR Apache-2.0 | [source](https://crates.io/crates/memmap2/0.9.11) | [text](#license-b733dbc79d3d6009), [text](#license-c18ee669bac9b829) |
 | memoffset | 0.9.1 | MIT | [source](https://crates.io/crates/memoffset/0.9.1) | [text](#license-3234ac55816264ee) |
@@ -501,12 +512,15 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | mio | 1.2.0 | MIT | [source](https://crates.io/crates/mio/1.2.0) | [text](#license-c804065b0956d00a) |
 | moxcms | 0.8.1 | BSD-3-Clause OR Apache-2.0 | [source](https://crates.io/crates/moxcms/0.8.1) | [text](#license-2aa92cada6431e75), [text](#license-836a9c1227c64469) |
 | muda | 0.17.2 | Apache-2.0 OR MIT | [source](https://crates.io/crates/muda/0.17.2) | [text](#license-859a90323b684e46), [text](#license-954f335b8baf5e1a), [text](#license-b99f9d43803f2ac9) |
+| multiversion_no_op | 1.0.0 | Apache-2.0 OR MIT | [source](https://crates.io/crates/multiversion_no_op/1.0.0) | [text](#license-283ea6cc2997a1a7), [text](#license-7dc2f64024477c92), [text](#license-e08d6d9195b9428a) |
 | mutate_once | 0.1.2 | BSD-2-Clause | [source](https://crates.io/crates/mutate_once/0.1.2) | [text](#license-ac8a998b4ec5b5e2) |
 | ndk | 0.9.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/ndk/0.9.0) | See upstream package source |
 | ndk-context | 0.1.1 | MIT OR Apache-2.0 | [source](https://crates.io/crates/ndk-context/0.1.1) | See upstream package source |
 | ndk-sys | 0.6.0+11769913 | MIT OR Apache-2.0 | [source](https://crates.io/crates/ndk-sys/0.6.0+11769913) | See upstream package source |
 | new_debug_unreachable | 1.0.6 | MIT | [source](https://crates.io/crates/new_debug_unreachable/1.0.6) | [text](#license-42d8a095dbffdf17) |
 | nodrop | 0.1.14 | MIT/Apache-2.0 | [source](https://crates.io/crates/nodrop/0.1.14) | [text](#license-6ec9abcffcca73b6), [text](#license-954f335b8baf5e1a) |
+| nom | 8.0.0 | MIT | [source](https://crates.io/crates/nom/8.0.0) | [text](#license-e9f8a16f9ed6671f) |
+| nom_locate | 5.0.0 | MIT | [source](https://crates.io/crates/nom_locate/5.0.0) | [text](#license-973549bc751b2a49) |
 | notify | 8.2.0 | CC0-1.0 | [source](https://crates.io/crates/notify/8.2.0) | [text](#license-3b9a96c5f74727eb) |
 | notify-types | 2.1.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/notify-types/2.1.0) | [text](#license-4b2af3889ac2bda6), [text](#license-6f5cc4b4fa98d8f0) |
 | num-conv | 0.2.1 | MIT OR Apache-2.0 | [source](https://crates.io/crates/num-conv/0.2.1) | [text](#license-4bf96504d6e83ce5), [text](#license-4d83b119f786daf6) |
@@ -596,6 +610,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | rand_core | 0.9.5 | MIT OR Apache-2.0 | [source](https://crates.io/crates/rand_core/0.9.5) | [text](#license-179c83ef07a51414), [text](#license-2411d70acb18e15a), [text](#license-cc367a7134c2b07d) |
 | rand_hc | 0.2.0 | MIT/Apache-2.0 | [source](https://crates.io/crates/rand_hc/0.2.0) | [text](#license-2411d70acb18e15a), [text](#license-7e079b7f6983d889), [text](#license-e7330bf53074b4a9) |
 | rand_pcg | 0.2.1 | MIT OR Apache-2.0 | [source](https://crates.io/crates/rand_pcg/0.2.1) | [text](#license-2411d70acb18e15a), [text](#license-c3df7fccc8e57971), [text](#license-e7330bf53074b4a9) |
+| rangemap | 1.8.0 | MIT/Apache-2.0 | [source](https://crates.io/crates/rangemap/1.8.0) | [text](#license-669312b448b7003f), [text](#license-d67de7009d65e41e) |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | [source](https://crates.io/crates/raw-window-handle/0.6.2) | [text](#license-4bf96504d6e83ce5), [text](#license-81976b4834c3cbdd), [text](#license-aa69fda6dd940f9f) |
 | redox_syscall | 0.5.18 | MIT | [source](https://crates.io/crates/redox_syscall/0.5.18) | [text](#license-fde59e25bf5342ef) |
 | redox_users | 0.5.2 | MIT | [source](https://crates.io/crates/redox_users/0.5.2) | [text](#license-157e9bc5ce84d48f) |
@@ -649,6 +664,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | shlex | 1.3.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/shlex/1.3.0) | [text](#license-a759ce38c686a204), [text](#license-cc5ba5589dfb7bbc) |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | [source](https://crates.io/crates/signal-hook-registry/1.4.8) | [text](#license-954f335b8baf5e1a), [text](#license-aaac889d0a4a1875) |
 | simd-adler32 | 0.3.9 | MIT | [source](https://crates.io/crates/simd-adler32/0.3.9) | [text](#license-627eff66d6c4b984) |
+| simdutf8 | 0.1.5 | MIT OR Apache-2.0 | [source](https://crates.io/crates/simdutf8/0.1.5) | [text](#license-1847e0e0698142ed), [text](#license-4bf96504d6e83ce5) |
 | simplecss | 0.2.2 | Apache-2.0 OR MIT | [source](https://crates.io/crates/simplecss/0.2.2) | [text](#license-954f335b8baf5e1a), [text](#license-c1ecaa7721a2ce5c) |
 | siphasher | 0.3.11 | MIT/Apache-2.0 | [source](https://crates.io/crates/siphasher/0.3.11) | [text](#license-7b3da1c1283f45b2) |
 | siphasher | 1.0.2 | MIT/Apache-2.0 | [source](https://crates.io/crates/siphasher/1.0.2) | [text](#license-24e26e8fb783e2db) |
@@ -666,6 +682,7 @@ Material Symbols Outlined: Copyright 2026 Google LLC. All Rights Reserved. Bundl
 | string_cache | 0.9.0 | MIT OR Apache-2.0 | [source](https://crates.io/crates/string_cache/0.9.0) | [text](#license-3bfacc197ff245b6), [text](#license-954f335b8baf5e1a) |
 | string_cache_codegen | 0.5.4 | MIT OR Apache-2.0 | [source](https://crates.io/crates/string_cache_codegen/0.5.4) | [text](#license-3bfacc197ff245b6), [text](#license-954f335b8baf5e1a) |
 | string_cache_codegen | 0.6.1 | MIT OR Apache-2.0 | [source](https://crates.io/crates/string_cache_codegen/0.6.1) | [text](#license-3bfacc197ff245b6), [text](#license-954f335b8baf5e1a) |
+| stringprep | 0.1.5 | MIT/Apache-2.0 | [source](https://crates.io/crates/stringprep/0.1.5) | [text](#license-6dc0e068dcf3a5bc), [text](#license-c881b8347510cf9f) |
 | strsim | 0.11.1 | MIT | [source](https://crates.io/crates/strsim/0.11.1) | [text](#license-8fd8980cab8977a5) |
 | subtle | 2.6.1 | BSD-3-Clause | [source](https://crates.io/crates/subtle/2.6.1) | [text](#license-24fa06d8eae3c3ba) |
 | svgtypes | 0.15.3 | Apache-2.0 OR MIT | [source](https://crates.io/crates/svgtypes/0.15.3) | [text](#license-0b3a181cccee1c28), [text](#license-954f335b8baf5e1a) |
@@ -1833,7 +1850,7 @@ APPENDIX: How to apply the Apache License to your work.
 
 <a id="license-1847e0e0698142ed"></a>
 
-Used by: Rust: ident_case 1.0.1 (LICENSE)
+Used by: Rust: ident_case 1.0.1 (LICENSE); Rust: simdutf8 0.1.5 (LICENSE-MIT)
 
 ````text
 MIT License
@@ -1912,6 +1929,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+````
+
+<a id="license-1961703c278284db"></a>
+
+Used by: Rust: encoding_rs 0.8.44 (COPYRIGHT)
+
+````text
+encoding_rs is copyright Mozilla Foundation.
+
+Licensed under the Apache License, Version 2.0
+<LICENSE-APACHE or
+https://www.apache.org/licenses/LICENSE-2.0> or the MIT
+license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
+at your option. All files in the project carrying such
+notice may not be copied, modified, or distributed except
+according to those terms.
+
+This crate includes data derived from the data files supplied
+with the WHATWG Encoding Standard, which, when incorporated into
+source code, are licensed under the BSD 3-Clause License
+<LICENSE-WHATWG>.
+
+Test code within encoding_rs is dedicated to the Public Domain when so
+designated (see the individual files for PD/CC0-dedicated sections).
 ````
 
 <a id="license-1a6aa2616e740569"></a>
@@ -3061,7 +3102,7 @@ limitations under the License.
 
 <a id="license-283ea6cc2997a1a7"></a>
 
-Used by: Rust: embed_plist 1.2.2 (LICENSE-APACHE); Rust: iri-string 0.7.12 (LICENSE-APACHE.txt); Rust: kurbo 0.11.3 (LICENSE-APACHE); Rust: serialize-to-javascript 0.1.2 (LICENSE-APACHE); Rust: serialize-to-javascript-impl 0.1.2 (LICENSE-APACHE); Rust: tinyvec 1.12.0 (LICENSE-APACHE.md); Rust: ureq 2.12.1 (LICENSE-APACHE); Rust: utf8_iter 1.0.4 (LICENSE-APACHE); Rust: zeroize 1.8.2 (LICENSE-APACHE); Rust: zune-core 0.5.3 (LICENSE-APACHE); Rust: zune-jpeg 0.5.15 (LICENSE-APACHE)
+Used by: Rust: embed_plist 1.2.2 (LICENSE-APACHE); Rust: encoding_rs 0.8.44 (LICENSE-APACHE); Rust: iri-string 0.7.12 (LICENSE-APACHE.txt); Rust: kurbo 0.11.3 (LICENSE-APACHE); Rust: multiversion_no_op 1.0.0 (LICENSE-APACHE); Rust: serialize-to-javascript 0.1.2 (LICENSE-APACHE); Rust: serialize-to-javascript-impl 0.1.2 (LICENSE-APACHE); Rust: tinyvec 1.12.0 (LICENSE-APACHE.md); Rust: ureq 2.12.1 (LICENSE-APACHE); Rust: utf8_iter 1.0.4 (LICENSE-APACHE); Rust: zeroize 1.8.2 (LICENSE-APACHE); Rust: zune-core 0.5.3 (LICENSE-APACHE); Rust: zune-jpeg 0.5.15 (LICENSE-APACHE)
 
 ````text
 Apache License
@@ -4030,6 +4071,34 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
+<a id="license-305f0f8f4db84708"></a>
+
+Used by: Rust: ecb 0.1.2 (LICENSE)
+
+````text
+MIT License
+
+Copyright (c) magic-akari
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+````
+
 <a id="license-30fefc3a7d6a0041"></a>
 
 Used by: Rust: adler2 2.0.1 (LICENSE-MIT); Rust: anyhow 1.0.102 (LICENSE-MIT); Rust: async-channel 2.5.0 (LICENSE-MIT); Rust: async-executor 1.14.0 (LICENSE-MIT); Rust: async-fs 2.2.0 (LICENSE-MIT); Rust: async-io 2.6.0 (LICENSE-MIT); Rust: async-lock 3.4.2 (LICENSE-MIT); Rust: async-net 2.0.0 (LICENSE-MIT); Rust: async-process 2.5.0 (LICENSE-MIT); Rust: async-recursion 1.1.1 (LICENSE-MIT); Rust: async-signal 0.2.14 (LICENSE-MIT); Rust: async-task 4.7.1 (LICENSE-MIT); Rust: async-trait 0.1.89 (LICENSE-MIT); Rust: atomic-waker 1.1.2 (LICENSE-MIT); Rust: blocking 1.6.2 (LICENSE-MIT); Rust: camino 1.2.2 (LICENSE-MIT); Rust: cargo-platform 0.1.9 (LICENSE-MIT); Rust: cargo_metadata 0.19.2 (LICENSE-MIT); Rust: concurrent-queue 2.5.0 (LICENSE-MIT); Rust: displaydoc 0.2.5 (LICENSE-MIT); Rust: dtoa 1.0.11 (LICENSE-MIT); Rust: dyn-clone 1.0.20 (LICENSE-MIT); Rust: endi 1.1.1 (LICENSE-MIT); Rust: erased-serde 0.4.10 (LICENSE-MIT); Rust: event-listener 5.4.1 (LICENSE-MIT); Rust: event-listener-strategy 0.5.4 (LICENSE-MIT); Rust: fastrand 2.4.1 (LICENSE-MIT); Rust: futures-lite 2.6.1 (LICENSE-MIT); Rust: hermit-abi 0.5.2 (LICENSE-MIT); Rust: itoa 1.0.18 (LICENSE-MIT); Rust: kuchikiki 0.8.8-speedreader (LICENSE); Rust: leb128fmt 0.1.0 (LICENSE-MIT); Rust: linux-raw-sys 0.12.1 (LICENSE-MIT); Rust: num_enum 0.7.6 (LICENSE-MIT); Rust: num_enum_derive 0.7.6 (LICENSE-MIT); Rust: once_cell 1.21.4 (LICENSE-MIT); Rust: ordered-stream 0.2.0 (LICENSE-MIT); Rust: parking 2.2.1 (LICENSE-MIT); Rust: pin-project-lite 0.2.17 (LICENSE-MIT); Rust: piper 0.2.5 (LICENSE-MIT); Rust: polling 3.11.0 (LICENSE-MIT); Rust: prettyplease 0.2.37 (LICENSE-MIT); Rust: proc-macro-crate 1.3.1 (LICENSE-MIT); Rust: proc-macro-crate 2.0.2 (LICENSE-MIT); Rust: proc-macro-crate 3.5.0 (LICENSE-MIT); Rust: proc-macro2 1.0.106 (LICENSE-MIT); Rust: quote 1.0.45 (LICENSE-MIT); Rust: ref-cast 1.0.25 (LICENSE-MIT); Rust: ref-cast-impl 1.0.25 (LICENSE-MIT); Rust: rustc-hash 2.1.2 (LICENSE-MIT); Rust: rustix 1.1.4 (LICENSE-MIT); Rust: rustversion 1.0.22 (LICENSE-MIT); Rust: semver 1.0.28 (LICENSE-MIT); Rust: serde 1.0.228 (LICENSE-MIT); Rust: serde-untagged 0.1.9 (LICENSE-MIT); Rust: serde_core 1.0.228 (LICENSE-MIT); Rust: serde_derive 1.0.228 (LICENSE-MIT); Rust: serde_derive_internals 0.29.1 (LICENSE-MIT); Rust: serde_json 1.0.149 (LICENSE-MIT); Rust: serde_repr 0.1.20 (LICENSE-MIT); Rust: servo_arc 0.2.0 (LICENSE-MIT); Rust: servo_arc 0.4.3 (LICENSE-MIT); Rust: syn 1.0.109 (LICENSE-MIT); Rust: syn 2.0.117 (LICENSE-MIT); Rust: syn 3.0.4 (LICENSE-MIT); Rust: system-deps 6.2.2 (LICENSE-MIT); Rust: thiserror 1.0.69 (LICENSE-MIT); Rust: thiserror 2.0.18 (LICENSE-MIT); Rust: thiserror-impl 1.0.69 (LICENSE-MIT); Rust: thiserror-impl 2.0.18 (LICENSE-MIT); Rust: typeid 1.0.3 (LICENSE-MIT); Rust: unicode-ident 1.0.24 (LICENSE-MIT); Rust: utf-8 0.7.6 (LICENSE-MIT); Rust: wasi 0.11.1+wasi-snapshot-preview1 (LICENSE-MIT); Rust: wasi 0.9.0+wasi-snapshot-preview1 (LICENSE-MIT); Rust: wasip2 1.0.3+wasi-0.2.9 (LICENSE-MIT); Rust: wasm-streams 0.5.0 (LICENSE-MIT); Rust: wit-bindgen 0.51.0 (LICENSE-MIT); Rust: wit-bindgen 0.57.1 (LICENSE-MIT); Rust: wit-bindgen-core 0.51.0 (LICENSE-MIT); Rust: wit-bindgen-rust 0.51.0 (LICENSE-MIT); Rust: wit-bindgen-rust-macro 0.51.0 (LICENSE-MIT); Rust: x11 2.21.0 (LICENSE-MIT); Rust: x11-dl 2.21.0 (LICENSE-MIT); Rust: zmij 1.0.21 (LICENSE-MIT); Rust: zvariant_utils 3.3.0 (LICENSE)
@@ -4287,6 +4356,38 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+````
+
+<a id="license-33e996382660b2ba"></a>
+
+Used by: Rust: aes 0.8.4 (LICENSE-MIT)
+
+````text
+Copyright (c) 2018 Artyom Pavlov
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 ````
 
 <a id="license-33ed9a8ecf556f16"></a>
@@ -4648,6 +4749,32 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
+<a id="license-3dda214a46ef7de9"></a>
+
+Used by: Rust: bytecount 0.6.9 (LICENSE.MIT)
+
+````text
+Copyright (c) 2017 The bytecount Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+````
+
 <a id="license-3e1bef82aa0dfee4"></a>
 
 Used by: Rust: tokio 1.52.1 (LICENSE); Rust: tokio-util 0.7.18 (LICENSE)
@@ -4711,7 +4838,7 @@ SUCH DAMAGE.
 
 <a id="license-4031faf6212ee744"></a>
 
-Used by: Rust: sha2 0.10.9 (LICENSE-MIT)
+Used by: Rust: md-5 0.10.6 (LICENSE-MIT); Rust: sha2 0.10.9 (LICENSE-MIT)
 
 ````text
 Copyright (c) 2006-2009 Graydon Hoare
@@ -9847,7 +9974,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 <a id="license-4bf96504d6e83ce5"></a>
 
-Used by: Rust: fdeflate 0.3.7 (LICENSE-APACHE); Rust: field-offset 0.3.6 (LICENSE-APACHE); Rust: image 0.25.10 (LICENSE-APACHE); Rust: image-webp 0.2.4 (LICENSE-APACHE); Rust: miniz_oxide 0.8.9 (LICENSE-APACHE.md); Rust: num-conv 0.2.1 (LICENSE-Apache); Rust: pin-project-lite 0.2.17 (LICENSE-APACHE); Rust: raw-window-handle 0.6.2 (LICENSE-APACHE.md); Rust: resvg 0.45.1 (LICENSE-APACHE); Rust: sync_wrapper 1.0.2 (LICENSE); Rust: tauri 2.10.3 (LICENSE_APACHE-2.0); Rust: tauri-build 2.5.6 (LICENSE_APACHE-2.0); Rust: tauri-codegen 2.5.5 (LICENSE_APACHE-2.0); Rust: tauri-macros 2.5.5 (LICENSE_APACHE-2.0); Rust: tauri-runtime 2.10.1 (LICENSE_APACHE-2.0); Rust: tauri-runtime-wry 2.10.1 (LICENSE_APACHE-2.0); Rust: tauri-utils 2.8.3 (LICENSE_APACHE-2.0); Rust: time 0.3.47 (LICENSE-Apache); Rust: time-core 0.1.8 (LICENSE-Apache); Rust: time-macros 0.2.27 (LICENSE-Apache); Rust: usvg 0.45.1 (LICENSE-APACHE)
+Used by: Rust: fdeflate 0.3.7 (LICENSE-APACHE); Rust: field-offset 0.3.6 (LICENSE-APACHE); Rust: image 0.25.10 (LICENSE-APACHE); Rust: image-webp 0.2.4 (LICENSE-APACHE); Rust: miniz_oxide 0.8.9 (LICENSE-APACHE.md); Rust: num-conv 0.2.1 (LICENSE-Apache); Rust: pin-project-lite 0.2.17 (LICENSE-APACHE); Rust: raw-window-handle 0.6.2 (LICENSE-APACHE.md); Rust: resvg 0.45.1 (LICENSE-APACHE); Rust: simdutf8 0.1.5 (LICENSE-Apache); Rust: sync_wrapper 1.0.2 (LICENSE); Rust: tauri 2.10.3 (LICENSE_APACHE-2.0); Rust: tauri-build 2.5.6 (LICENSE_APACHE-2.0); Rust: tauri-codegen 2.5.5 (LICENSE_APACHE-2.0); Rust: tauri-macros 2.5.5 (LICENSE_APACHE-2.0); Rust: tauri-runtime 2.10.1 (LICENSE_APACHE-2.0); Rust: tauri-runtime-wry 2.10.1 (LICENSE_APACHE-2.0); Rust: tauri-utils 2.8.3 (LICENSE_APACHE-2.0); Rust: time 0.3.47 (LICENSE-Apache); Rust: time-core 0.1.8 (LICENSE-Apache); Rust: time-macros 0.2.27 (LICENSE-Apache); Rust: usvg 0.45.1 (LICENSE-APACHE)
 
 ````text
 Apache License
@@ -10471,6 +10598,38 @@ Used by: Rust: bumpalo 3.20.2 (LICENSE-MIT)
 
 ````text
 Copyright (c) 2019 Nick Fitzgerald
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+````
+
+<a id="license-57895cdbc8febf23"></a>
+
+Used by: Rust: core_detect 1.0.0 (LICENSE-MIT)
+
+````text
+Copyright (c) 2017-2020 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -11563,7 +11722,7 @@ limitations under the License.
 
 <a id="license-5ff5253f2cb9347c"></a>
 
-Used by: Rust: block-buffer 0.10.4 (LICENSE-MIT)
+Used by: Rust: block-buffer 0.10.4 (LICENSE-MIT); Rust: block-padding 0.3.3 (LICENSE-MIT)
 
 ````text
 Copyright (c) 2018-2019 The RustCrypto Project Developers
@@ -12061,6 +12220,203 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
+<a id="license-669312b448b7003f"></a>
+
+Used by: Rust: rangemap 1.8.0 (LICENSE-APACHE)
+
+````text
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   Copyright 2019-2022 Jeff Parsons, and [contributors](https://github.com/jeffparsons/rangemap/contributors)
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+````
+
 <a id="license-66a2ea9ed607dd0e"></a>
 
 Used by: Rust: unicode-script 0.5.8 (LICENSE-MIT)
@@ -12499,7 +12855,7 @@ express Statement of Purpose.
 
 <a id="license-6dc0e068dcf3a5bc"></a>
 
-Used by: Rust: ammonia 4.1.3 (LICENSE-APACHE); Rust: anstream 1.0.0 (LICENSE-APACHE); Rust: anstyle 1.0.14 (LICENSE-APACHE); Rust: anstyle-parse 1.0.0 (LICENSE-APACHE); Rust: anstyle-query 1.1.5 (LICENSE-APACHE); Rust: anstyle-wincon 3.0.11 (LICENSE-APACHE); Rust: clap 4.6.6 (LICENSE-APACHE); Rust: clap_builder 4.6.6 (LICENSE-APACHE); Rust: clap_derive 4.6.4 (LICENSE-APACHE); Rust: clap_lex 1.1.0 (LICENSE-APACHE); Rust: colorchoice 1.0.5 (LICENSE-APACHE); Rust: crc32fast 1.5.0 (LICENSE-APACHE); Rust: ctor 0.2.9 (LICENSE-APACHE); Rust: derive_builder 0.20.2 (LICENSE-APACHE); Rust: derive_builder_core 0.20.2 (LICENSE-APACHE); Rust: derive_builder_macro 0.20.2 (LICENSE-APACHE); Rust: dpi 0.1.2 (LICENSE); Rust: fallible-iterator 0.3.0 (LICENSE-APACHE); Rust: fallible-streaming-iterator 0.1.9 (LICENSE-APACHE); Rust: foreign-types 0.5.0 (LICENSE-APACHE); Rust: foreign-types-macros 0.2.3 (LICENSE-APACHE); Rust: foreign-types-shared 0.3.1 (LICENSE-APACHE); Rust: hex 0.4.3 (LICENSE-APACHE); Rust: is_terminal_polyfill 1.70.2 (LICENSE-APACHE); Rust: jni-sys 0.3.1 (LICENSE-APACHE); Rust: jni-sys 0.4.1 (LICENSE-APACHE); Rust: json-patch 3.0.1 (LICENSE-APACHE); Rust: once_cell_polyfill 1.70.2 (LICENSE-APACHE); Rust: quick-error 2.0.1 (LICENSE-APACHE); Rust: serde_spanned 0.6.9 (LICENSE-APACHE); Rust: serde_spanned 1.1.1 (LICENSE-APACHE); Rust: tao 0.34.8 (LICENSE); Rust: terminal_size 0.4.4 (LICENSE-APACHE); Rust: toml 0.8.2 (LICENSE-APACHE); Rust: toml 0.9.12+spec-1.1.0 (LICENSE-APACHE); Rust: toml_datetime 0.7.5+spec-1.1.0 (LICENSE-APACHE); Rust: toml_datetime 1.1.1+spec-1.1.0 (LICENSE-APACHE); Rust: toml_edit 0.19.15 (LICENSE-APACHE); Rust: toml_edit 0.20.2 (LICENSE-APACHE); Rust: toml_edit 0.25.11+spec-1.1.0 (LICENSE-APACHE); Rust: toml_parser 1.1.2+spec-1.1.0 (LICENSE-APACHE); Rust: toml_writer 1.1.1+spec-1.1.0 (LICENSE-APACHE); Rust: unicode_categories 0.1.1 (LICENSE-APACHE); Rust: winapi 0.3.9 (LICENSE-APACHE)
+Used by: Rust: ammonia 4.1.3 (LICENSE-APACHE); Rust: anstream 1.0.0 (LICENSE-APACHE); Rust: anstyle 1.0.14 (LICENSE-APACHE); Rust: anstyle-parse 1.0.0 (LICENSE-APACHE); Rust: anstyle-query 1.1.5 (LICENSE-APACHE); Rust: anstyle-wincon 3.0.11 (LICENSE-APACHE); Rust: bytecount 0.6.9 (LICENSE.Apache2); Rust: clap 4.6.6 (LICENSE-APACHE); Rust: clap_builder 4.6.6 (LICENSE-APACHE); Rust: clap_derive 4.6.4 (LICENSE-APACHE); Rust: clap_lex 1.1.0 (LICENSE-APACHE); Rust: colorchoice 1.0.5 (LICENSE-APACHE); Rust: crc32fast 1.5.0 (LICENSE-APACHE); Rust: ctor 0.2.9 (LICENSE-APACHE); Rust: derive_builder 0.20.2 (LICENSE-APACHE); Rust: derive_builder_core 0.20.2 (LICENSE-APACHE); Rust: derive_builder_macro 0.20.2 (LICENSE-APACHE); Rust: dpi 0.1.2 (LICENSE); Rust: fallible-iterator 0.3.0 (LICENSE-APACHE); Rust: fallible-streaming-iterator 0.1.9 (LICENSE-APACHE); Rust: foreign-types 0.5.0 (LICENSE-APACHE); Rust: foreign-types-macros 0.2.3 (LICENSE-APACHE); Rust: foreign-types-shared 0.3.1 (LICENSE-APACHE); Rust: hex 0.4.3 (LICENSE-APACHE); Rust: is_terminal_polyfill 1.70.2 (LICENSE-APACHE); Rust: jni-sys 0.3.1 (LICENSE-APACHE); Rust: jni-sys 0.4.1 (LICENSE-APACHE); Rust: json-patch 3.0.1 (LICENSE-APACHE); Rust: once_cell_polyfill 1.70.2 (LICENSE-APACHE); Rust: quick-error 2.0.1 (LICENSE-APACHE); Rust: serde_spanned 0.6.9 (LICENSE-APACHE); Rust: serde_spanned 1.1.1 (LICENSE-APACHE); Rust: stringprep 0.1.5 (LICENSE-APACHE); Rust: tao 0.34.8 (LICENSE); Rust: terminal_size 0.4.4 (LICENSE-APACHE); Rust: toml 0.8.2 (LICENSE-APACHE); Rust: toml 0.9.12+spec-1.1.0 (LICENSE-APACHE); Rust: toml_datetime 0.7.5+spec-1.1.0 (LICENSE-APACHE); Rust: toml_datetime 1.1.1+spec-1.1.0 (LICENSE-APACHE); Rust: toml_edit 0.19.15 (LICENSE-APACHE); Rust: toml_edit 0.20.2 (LICENSE-APACHE); Rust: toml_edit 0.25.11+spec-1.1.0 (LICENSE-APACHE); Rust: toml_parser 1.1.2+spec-1.1.0 (LICENSE-APACHE); Rust: toml_writer 1.1.1+spec-1.1.0 (LICENSE-APACHE); Rust: unicode_categories 0.1.1 (LICENSE-APACHE); Rust: winapi 0.3.9 (LICENSE-APACHE)
 
 ````text
 Apache License
@@ -13003,6 +13359,39 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+````
+
+<a id="license-71366a4092ad07b6"></a>
+
+Used by: Rust: inout 0.1.4 (LICENSE-MIT)
+
+````text
+Copyright (c) 2022 The RustCrypto Project Developers
+Copyright (c) 2022 Artyom Pavlov
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 ````
 
 <a id="license-739620ea44ad8f99"></a>
@@ -14571,7 +14960,7 @@ SOFTWARE.
 
 <a id="license-7dc2f64024477c92"></a>
 
-Used by: Rust: utf8_iter 1.0.4 (LICENSE-MIT)
+Used by: Rust: encoding_rs 0.8.44 (LICENSE-MIT); Rust: multiversion_no_op 1.0.0 (LICENSE-MIT); Rust: utf8_iter 1.0.4 (LICENSE-MIT)
 
 ````text
 Copyright Mozilla Foundation
@@ -16597,6 +16986,38 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
+<a id="license-92f01fc7ca904e16"></a>
+
+Used by: Rust: cipher 0.4.4 (LICENSE-MIT)
+
+````text
+Copyright (c) 2016-2020 RustCrypto Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+````
+
 <a id="license-92f2a160c78f2118"></a>
 
 Used by: Rust: roxmltree 0.20.0 (LICENSE-MIT)
@@ -16734,7 +17155,7 @@ DEALINGS IN THE SOFTWARE.
 
 <a id="license-954f335b8baf5e1a"></a>
 
-Used by: Rust: arrayvec 0.7.8 (LICENSE-APACHE); Rust: async-channel 2.5.0 (LICENSE-APACHE); Rust: async-executor 1.14.0 (LICENSE-APACHE); Rust: async-fs 2.2.0 (LICENSE-APACHE); Rust: async-io 2.6.0 (LICENSE-APACHE); Rust: async-lock 3.4.2 (LICENSE-APACHE); Rust: async-net 2.0.0 (LICENSE-APACHE); Rust: async-process 2.5.0 (LICENSE-APACHE); Rust: async-recursion 1.1.1 (LICENSE-APACHE); Rust: async-signal 0.2.14 (LICENSE-APACHE); Rust: async-task 4.7.1 (LICENSE-APACHE); Rust: atomic-waker 1.1.2 (LICENSE-APACHE); Rust: autocfg 1.5.0 (LICENSE-APACHE); Rust: base64 0.21.7 (LICENSE-APACHE); Rust: base64 0.22.1 (LICENSE-APACHE); Rust: bitflags 1.3.2 (LICENSE-APACHE); Rust: bitflags 2.11.1 (LICENSE-APACHE); Rust: blocking 1.6.2 (LICENSE-APACHE); Rust: bumpalo 3.20.2 (LICENSE-APACHE); Rust: camino 1.2.2 (LICENSE-APACHE); Rust: cc 1.2.60 (LICENSE-APACHE); Rust: cfg-if 1.0.4 (LICENSE-APACHE); Rust: concurrent-queue 2.5.0 (LICENSE-APACHE); Rust: core-foundation 0.10.1 (LICENSE-APACHE); Rust: core-foundation-sys 0.8.7 (LICENSE-APACHE); Rust: core-graphics 0.25.0 (LICENSE-APACHE); Rust: core-graphics-types 0.2.0 (LICENSE-APACHE); Rust: crossbeam-channel 0.5.15 (LICENSE-APACHE); Rust: crossbeam-utils 0.8.21 (LICENSE-APACHE); Rust: data-url 0.3.2 (LICENSE-APACHE); Rust: displaydoc 0.2.5 (LICENSE-APACHE); Rust: equivalent 1.0.2 (LICENSE-APACHE); Rust: errno 0.3.14 (LICENSE-APACHE); Rust: euclid 0.22.14 (LICENSE-APACHE); Rust: event-listener 5.4.1 (LICENSE-APACHE); Rust: event-listener-strategy 0.5.4 (LICENSE-APACHE); Rust: fastrand 2.4.1 (LICENSE-APACHE); Rust: find-msvc-tools 0.1.9 (LICENSE-APACHE); Rust: flate2 1.1.9 (LICENSE-APACHE); Rust: fnv 1.0.7 (LICENSE-APACHE); Rust: form_urlencoded 1.2.2 (LICENSE-APACHE); Rust: futf 0.1.5 (LICENSE-APACHE); Rust: futures-lite 2.6.1 (LICENSE-APACHE); Rust: getopts 0.2.24 (LICENSE-APACHE); Rust: gif 0.13.3 (LICENSE-APACHE); Rust: gif 0.14.2 (LICENSE-APACHE); Rust: glob 0.3.3 (LICENSE-APACHE); Rust: hashbrown 0.12.3 (LICENSE-APACHE); Rust: hashbrown 0.15.5 (LICENSE-APACHE); Rust: hashbrown 0.17.0 (LICENSE-APACHE); Rust: heck 0.4.1 (LICENSE-APACHE); Rust: heck 0.5.0 (LICENSE-APACHE); Rust: hermit-abi 0.5.2 (LICENSE-APACHE); Rust: html5ever 0.27.0 (LICENSE-APACHE); Rust: html5ever 0.29.1 (LICENSE-APACHE); Rust: html5ever 0.38.0 (LICENSE-APACHE); Rust: html5ever 0.39.0 (LICENSE-APACHE); Rust: httparse 1.10.1 (LICENSE-APACHE); Rust: id-arena 2.3.0 (LICENSE-APACHE); Rust: idna 1.1.0 (LICENSE-APACHE); Rust: idna_adapter 1.2.1 (LICENSE-APACHE); Rust: indexmap 1.9.3 (LICENSE-APACHE); Rust: indexmap 2.14.0 (LICENSE-APACHE); Rust: jni 0.21.1 (LICENSE-APACHE); Rust: js-sys 0.3.95 (LICENSE-APACHE); Rust: keyboard-types 0.7.0 (LICENSE-APACHE); Rust: leb128fmt 0.1.0 (LICENSE-APACHE); Rust: libappindicator 0.9.0 (LICENSE-APACHE); Rust: linux-raw-sys 0.12.1 (LICENSE-APACHE); Rust: lock_api 0.4.14 (LICENSE-APACHE); Rust: log 0.4.29 (LICENSE-APACHE); Rust: maplit 1.0.2 (LICENSE-APACHE); Rust: markup5ever 0.12.1 (LICENSE-APACHE); Rust: markup5ever 0.14.1 (LICENSE-APACHE); Rust: markup5ever 0.38.0 (LICENSE-APACHE); Rust: markup5ever 0.39.0 (LICENSE-APACHE); Rust: markup5ever_rcdom 0.3.0 (LICENSE-APACHE); Rust: mime 0.3.17 (LICENSE-APACHE); Rust: muda 0.17.2 (LICENSE-APACHE); Rust: nodrop 0.1.14 (LICENSE-APACHE); Rust: num-traits 0.2.19 (LICENSE-APACHE); Rust: once_cell 1.21.4 (LICENSE-APACHE); Rust: ordered-stream 0.2.0 (LICENSE-APACHE); Rust: parking 2.2.1 (LICENSE-APACHE); Rust: parking_lot 0.12.5 (LICENSE-APACHE); Rust: parking_lot_core 0.9.12 (LICENSE-APACHE); Rust: percent-encoding 2.3.2 (LICENSE-APACHE); Rust: piper 0.2.5 (LICENSE-APACHE); Rust: pkg-config 0.3.33 (LICENSE-APACHE); Rust: png 0.17.16 (LICENSE-APACHE); Rust: png 0.18.1 (LICENSE-APACHE); Rust: polling 3.11.0 (LICENSE-APACHE); Rust: pollster 0.4.0 (LICENSE-APACHE); Rust: proc-macro-hack 0.5.20+deprecated (LICENSE-APACHE); Rust: regex 1.12.3 (LICENSE-APACHE); Rust: regex-automata 0.4.14 (LICENSE-APACHE); Rust: regex-syntax 0.8.10 (LICENSE-APACHE); Rust: ring 0.17.14 (src/polyfill/once_cell/LICENSE-APACHE); Rust: roxmltree 0.20.0 (LICENSE-APACHE); Rust: rustc_version 0.4.1 (LICENSE-APACHE); Rust: rustix 1.1.4 (LICENSE-APACHE); Rust: rustls 0.23.40 (LICENSE-APACHE); Rust: scoped-tls 1.0.1 (LICENSE-APACHE); Rust: scopeguard 1.2.0 (LICENSE-APACHE); Rust: serde_with 3.18.0 (LICENSE-APACHE); Rust: serde_with_macros 3.18.0 (LICENSE-APACHE); Rust: servo_arc 0.2.0 (LICENSE-APACHE); Rust: servo_arc 0.4.3 (LICENSE-APACHE); Rust: signal-hook-registry 1.4.8 (LICENSE-APACHE); Rust: simplecss 0.2.2 (LICENSE-APACHE); Rust: slug 0.1.6 (LICENSE-APACHE); Rust: smallvec 1.15.1 (LICENSE-APACHE); Rust: socket2 0.6.3 (LICENSE-APACHE); Rust: stable_deref_trait 1.2.1 (LICENSE-APACHE); Rust: string_cache 0.8.9 (LICENSE-APACHE); Rust: string_cache 0.9.0 (LICENSE-APACHE); Rust: string_cache_codegen 0.5.4 (LICENSE-APACHE); Rust: string_cache_codegen 0.6.1 (LICENSE-APACHE); Rust: svgtypes 0.15.3 (LICENSE-APACHE); Rust: syn 1.0.109 (LICENSE-APACHE); Rust: system-deps 6.2.2 (LICENSE-APACHE); Rust: tempfile 3.27.0 (LICENSE-APACHE); Rust: tendril 0.4.3 (LICENSE-APACHE); Rust: tendril 0.5.0 (LICENSE-APACHE); Rust: toml_datetime 0.6.3 (LICENSE-APACHE); Rust: tray-icon 0.21.3 (LICENSE-APACHE); Rust: ttf-parser 0.25.1 (LICENSE-APACHE); Rust: unicase 2.9.0 (LICENSE-APACHE); Rust: unicode-bidi 0.3.18 (LICENSE-APACHE); Rust: unicode-bidi-mirroring 0.4.0 (LICENSE-APACHE); Rust: unicode-ccc 0.4.0 (LICENSE-APACHE); Rust: unicode-normalization 0.1.25 (LICENSE-APACHE); Rust: unicode-properties 0.1.4 (LICENSE-APACHE); Rust: unicode-segmentation 1.13.2 (LICENSE-APACHE); Rust: unicode-vo 0.1.0 (LICENSE-APACHE); Rust: unicode-width 0.2.2 (LICENSE-APACHE); Rust: unicode-xid 0.2.6 (LICENSE-APACHE); Rust: ureq 2.12.1 (src/chunked/LICENSE-APACHE); Rust: url 2.5.8 (LICENSE-APACHE); Rust: uuid 1.23.1 (LICENSE-APACHE); Rust: vcpkg 0.2.15 (LICENSE-APACHE); Rust: version_check 0.9.5 (LICENSE-APACHE); Rust: wasi 0.11.1+wasi-snapshot-preview1 (LICENSE-APACHE); Rust: wasi 0.9.0+wasi-snapshot-preview1 (LICENSE-APACHE); Rust: wasip2 1.0.3+wasi-0.2.9 (LICENSE-APACHE); Rust: wasm-bindgen 0.2.118 (LICENSE-APACHE); Rust: wasm-bindgen-futures 0.4.68 (LICENSE-APACHE); Rust: wasm-bindgen-macro 0.2.118 (LICENSE-APACHE); Rust: wasm-bindgen-macro-support 0.2.118 (LICENSE-APACHE); Rust: wasm-bindgen-shared 0.2.118 (LICENSE-APACHE); Rust: web-sys 0.3.95 (LICENSE-APACHE); Rust: web_atoms 0.2.4 (LICENSE-APACHE); Rust: weezl 0.1.12 (LICENSE-APACHE); Rust: window-vibrancy 0.6.0 (LICENSE-APACHE); Rust: wit-bindgen 0.51.0 (LICENSE-APACHE); Rust: wit-bindgen 0.57.1 (LICENSE-APACHE); Rust: wit-bindgen-core 0.51.0 (LICENSE-APACHE); Rust: wit-bindgen-rust 0.51.0 (LICENSE-APACHE); Rust: wit-bindgen-rust-macro 0.51.0 (LICENSE-APACHE); Rust: wry 0.54.4 (LICENSE-APACHE); Rust: xdg 2.5.2 (LICENSE-APACHE); Rust: xml5ever 0.18.1 (LICENSE-APACHE); Rust: yaml-rust 0.4.5 (LICENSE-APACHE)
+Used by: Rust: arrayvec 0.7.8 (LICENSE-APACHE); Rust: async-channel 2.5.0 (LICENSE-APACHE); Rust: async-executor 1.14.0 (LICENSE-APACHE); Rust: async-fs 2.2.0 (LICENSE-APACHE); Rust: async-io 2.6.0 (LICENSE-APACHE); Rust: async-lock 3.4.2 (LICENSE-APACHE); Rust: async-net 2.0.0 (LICENSE-APACHE); Rust: async-process 2.5.0 (LICENSE-APACHE); Rust: async-recursion 1.1.1 (LICENSE-APACHE); Rust: async-signal 0.2.14 (LICENSE-APACHE); Rust: async-task 4.7.1 (LICENSE-APACHE); Rust: atomic-waker 1.1.2 (LICENSE-APACHE); Rust: autocfg 1.5.0 (LICENSE-APACHE); Rust: base64 0.21.7 (LICENSE-APACHE); Rust: base64 0.22.1 (LICENSE-APACHE); Rust: bitflags 1.3.2 (LICENSE-APACHE); Rust: bitflags 2.11.1 (LICENSE-APACHE); Rust: blocking 1.6.2 (LICENSE-APACHE); Rust: bumpalo 3.20.2 (LICENSE-APACHE); Rust: camino 1.2.2 (LICENSE-APACHE); Rust: cc 1.2.60 (LICENSE-APACHE); Rust: cfg-if 1.0.4 (LICENSE-APACHE); Rust: concurrent-queue 2.5.0 (LICENSE-APACHE); Rust: core-foundation 0.10.1 (LICENSE-APACHE); Rust: core-foundation-sys 0.8.7 (LICENSE-APACHE); Rust: core-graphics 0.25.0 (LICENSE-APACHE); Rust: core-graphics-types 0.2.0 (LICENSE-APACHE); Rust: core_detect 1.0.0 (LICENSE-APACHE); Rust: crossbeam-channel 0.5.15 (LICENSE-APACHE); Rust: crossbeam-utils 0.8.21 (LICENSE-APACHE); Rust: data-url 0.3.2 (LICENSE-APACHE); Rust: displaydoc 0.2.5 (LICENSE-APACHE); Rust: equivalent 1.0.2 (LICENSE-APACHE); Rust: errno 0.3.14 (LICENSE-APACHE); Rust: euclid 0.22.14 (LICENSE-APACHE); Rust: event-listener 5.4.1 (LICENSE-APACHE); Rust: event-listener-strategy 0.5.4 (LICENSE-APACHE); Rust: fastrand 2.4.1 (LICENSE-APACHE); Rust: find-msvc-tools 0.1.9 (LICENSE-APACHE); Rust: flate2 1.1.9 (LICENSE-APACHE); Rust: fnv 1.0.7 (LICENSE-APACHE); Rust: form_urlencoded 1.2.2 (LICENSE-APACHE); Rust: futf 0.1.5 (LICENSE-APACHE); Rust: futures-lite 2.6.1 (LICENSE-APACHE); Rust: getopts 0.2.24 (LICENSE-APACHE); Rust: gif 0.13.3 (LICENSE-APACHE); Rust: gif 0.14.2 (LICENSE-APACHE); Rust: glob 0.3.3 (LICENSE-APACHE); Rust: hashbrown 0.12.3 (LICENSE-APACHE); Rust: hashbrown 0.15.5 (LICENSE-APACHE); Rust: hashbrown 0.17.0 (LICENSE-APACHE); Rust: heck 0.4.1 (LICENSE-APACHE); Rust: heck 0.5.0 (LICENSE-APACHE); Rust: hermit-abi 0.5.2 (LICENSE-APACHE); Rust: html5ever 0.27.0 (LICENSE-APACHE); Rust: html5ever 0.29.1 (LICENSE-APACHE); Rust: html5ever 0.38.0 (LICENSE-APACHE); Rust: html5ever 0.39.0 (LICENSE-APACHE); Rust: httparse 1.10.1 (LICENSE-APACHE); Rust: id-arena 2.3.0 (LICENSE-APACHE); Rust: idna 1.1.0 (LICENSE-APACHE); Rust: idna_adapter 1.2.1 (LICENSE-APACHE); Rust: indexmap 1.9.3 (LICENSE-APACHE); Rust: indexmap 2.14.0 (LICENSE-APACHE); Rust: jni 0.21.1 (LICENSE-APACHE); Rust: js-sys 0.3.95 (LICENSE-APACHE); Rust: keyboard-types 0.7.0 (LICENSE-APACHE); Rust: leb128fmt 0.1.0 (LICENSE-APACHE); Rust: libappindicator 0.9.0 (LICENSE-APACHE); Rust: linux-raw-sys 0.12.1 (LICENSE-APACHE); Rust: lock_api 0.4.14 (LICENSE-APACHE); Rust: log 0.4.29 (LICENSE-APACHE); Rust: maplit 1.0.2 (LICENSE-APACHE); Rust: markup5ever 0.12.1 (LICENSE-APACHE); Rust: markup5ever 0.14.1 (LICENSE-APACHE); Rust: markup5ever 0.38.0 (LICENSE-APACHE); Rust: markup5ever 0.39.0 (LICENSE-APACHE); Rust: markup5ever_rcdom 0.3.0 (LICENSE-APACHE); Rust: mime 0.3.17 (LICENSE-APACHE); Rust: muda 0.17.2 (LICENSE-APACHE); Rust: nodrop 0.1.14 (LICENSE-APACHE); Rust: num-traits 0.2.19 (LICENSE-APACHE); Rust: once_cell 1.21.4 (LICENSE-APACHE); Rust: ordered-stream 0.2.0 (LICENSE-APACHE); Rust: parking 2.2.1 (LICENSE-APACHE); Rust: parking_lot 0.12.5 (LICENSE-APACHE); Rust: parking_lot_core 0.9.12 (LICENSE-APACHE); Rust: percent-encoding 2.3.2 (LICENSE-APACHE); Rust: piper 0.2.5 (LICENSE-APACHE); Rust: pkg-config 0.3.33 (LICENSE-APACHE); Rust: png 0.17.16 (LICENSE-APACHE); Rust: png 0.18.1 (LICENSE-APACHE); Rust: polling 3.11.0 (LICENSE-APACHE); Rust: pollster 0.4.0 (LICENSE-APACHE); Rust: proc-macro-hack 0.5.20+deprecated (LICENSE-APACHE); Rust: regex 1.12.3 (LICENSE-APACHE); Rust: regex-automata 0.4.14 (LICENSE-APACHE); Rust: regex-syntax 0.8.10 (LICENSE-APACHE); Rust: ring 0.17.14 (src/polyfill/once_cell/LICENSE-APACHE); Rust: roxmltree 0.20.0 (LICENSE-APACHE); Rust: rustc_version 0.4.1 (LICENSE-APACHE); Rust: rustix 1.1.4 (LICENSE-APACHE); Rust: rustls 0.23.40 (LICENSE-APACHE); Rust: scoped-tls 1.0.1 (LICENSE-APACHE); Rust: scopeguard 1.2.0 (LICENSE-APACHE); Rust: serde_with 3.18.0 (LICENSE-APACHE); Rust: serde_with_macros 3.18.0 (LICENSE-APACHE); Rust: servo_arc 0.2.0 (LICENSE-APACHE); Rust: servo_arc 0.4.3 (LICENSE-APACHE); Rust: signal-hook-registry 1.4.8 (LICENSE-APACHE); Rust: simplecss 0.2.2 (LICENSE-APACHE); Rust: slug 0.1.6 (LICENSE-APACHE); Rust: smallvec 1.15.1 (LICENSE-APACHE); Rust: socket2 0.6.3 (LICENSE-APACHE); Rust: stable_deref_trait 1.2.1 (LICENSE-APACHE); Rust: string_cache 0.8.9 (LICENSE-APACHE); Rust: string_cache 0.9.0 (LICENSE-APACHE); Rust: string_cache_codegen 0.5.4 (LICENSE-APACHE); Rust: string_cache_codegen 0.6.1 (LICENSE-APACHE); Rust: svgtypes 0.15.3 (LICENSE-APACHE); Rust: syn 1.0.109 (LICENSE-APACHE); Rust: system-deps 6.2.2 (LICENSE-APACHE); Rust: tempfile 3.27.0 (LICENSE-APACHE); Rust: tendril 0.4.3 (LICENSE-APACHE); Rust: tendril 0.5.0 (LICENSE-APACHE); Rust: toml_datetime 0.6.3 (LICENSE-APACHE); Rust: tray-icon 0.21.3 (LICENSE-APACHE); Rust: ttf-parser 0.25.1 (LICENSE-APACHE); Rust: unicase 2.9.0 (LICENSE-APACHE); Rust: unicode-bidi 0.3.18 (LICENSE-APACHE); Rust: unicode-bidi-mirroring 0.4.0 (LICENSE-APACHE); Rust: unicode-ccc 0.4.0 (LICENSE-APACHE); Rust: unicode-normalization 0.1.25 (LICENSE-APACHE); Rust: unicode-properties 0.1.4 (LICENSE-APACHE); Rust: unicode-segmentation 1.13.2 (LICENSE-APACHE); Rust: unicode-vo 0.1.0 (LICENSE-APACHE); Rust: unicode-width 0.2.2 (LICENSE-APACHE); Rust: unicode-xid 0.2.6 (LICENSE-APACHE); Rust: ureq 2.12.1 (src/chunked/LICENSE-APACHE); Rust: url 2.5.8 (LICENSE-APACHE); Rust: uuid 1.23.1 (LICENSE-APACHE); Rust: vcpkg 0.2.15 (LICENSE-APACHE); Rust: version_check 0.9.5 (LICENSE-APACHE); Rust: wasi 0.11.1+wasi-snapshot-preview1 (LICENSE-APACHE); Rust: wasi 0.9.0+wasi-snapshot-preview1 (LICENSE-APACHE); Rust: wasip2 1.0.3+wasi-0.2.9 (LICENSE-APACHE); Rust: wasm-bindgen 0.2.118 (LICENSE-APACHE); Rust: wasm-bindgen-futures 0.4.68 (LICENSE-APACHE); Rust: wasm-bindgen-macro 0.2.118 (LICENSE-APACHE); Rust: wasm-bindgen-macro-support 0.2.118 (LICENSE-APACHE); Rust: wasm-bindgen-shared 0.2.118 (LICENSE-APACHE); Rust: web-sys 0.3.95 (LICENSE-APACHE); Rust: web_atoms 0.2.4 (LICENSE-APACHE); Rust: weezl 0.1.12 (LICENSE-APACHE); Rust: window-vibrancy 0.6.0 (LICENSE-APACHE); Rust: wit-bindgen 0.51.0 (LICENSE-APACHE); Rust: wit-bindgen 0.57.1 (LICENSE-APACHE); Rust: wit-bindgen-core 0.51.0 (LICENSE-APACHE); Rust: wit-bindgen-rust 0.51.0 (LICENSE-APACHE); Rust: wit-bindgen-rust-macro 0.51.0 (LICENSE-APACHE); Rust: wry 0.54.4 (LICENSE-APACHE); Rust: xdg 2.5.2 (LICENSE-APACHE); Rust: xml5ever 0.18.1 (LICENSE-APACHE); Rust: yaml-rust 0.4.5 (LICENSE-APACHE)
 
 ````text
 Apache License
@@ -17449,6 +17870,32 @@ their own copyright notices and license terms:
   has chosen for the collective work, enumerated at the top
   of this file. The only difference is the retention of
   copyright itself, held by the contributor.
+````
+
+<a id="license-973549bc751b2a49"></a>
+
+Used by: Rust: nom_locate 5.0.0 (LICENSE)
+
+````text
+Copyright 2017-2019 Florent Fayolle, Valentin Lorentz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ````
 
 <a id="license-983a293c55cd84a3"></a>
@@ -19609,6 +20056,34 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
+<a id="license-acd31f1bfb5aa002"></a>
+
+Used by: Rust: lopdf 0.38.0 (LICENSE)
+
+````text
+MIT License
+
+Copyright (c) 2016 Junfeng Liu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+````
+
 <a id="license-ad4fcfaf8d5b12b9"></a>
 
 Used by: Rust: generic-array 0.14.7 (LICENSE)
@@ -19860,6 +20335,39 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+````
+
+<a id="license-b1d6d97b0476a828"></a>
+
+Used by: Rust: encoding_rs 0.8.44 (LICENSE-WHATWG)
+
+````text
+Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
 <a id="license-b2a541f10560a218"></a>
@@ -21445,6 +21953,32 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+````
+
+<a id="license-c881b8347510cf9f"></a>
+
+Used by: Rust: stringprep 0.1.5 (LICENSE-MIT)
+
+````text
+Copyright (c) 2017 The rust-stringprep Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ````
 
 <a id="license-c9067b1cc20b89f5"></a>
@@ -23080,6 +23614,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
+<a id="license-d67de7009d65e41e"></a>
+
+Used by: Rust: rangemap 1.8.0 (LICENSE-MIT)
+
+````text
+Copyright 2019 Jeffrey Parsons
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+````
+
 <a id="license-d81c56101f7d2fd0"></a>
 
 Used by: JavaScript: mdast-util-definitions 6.0.0 (license)
@@ -23530,6 +24078,28 @@ have been licensed under extremely permissive terms.
 ------------------------------------------------------------------------------
 ````
 
+<a id="license-e08d6d9195b9428a"></a>
+
+Used by: Rust: multiversion_no_op 1.0.0 (COPYRIGHT)
+
+````text
+Copyright Mozilla Foundation
+
+Licensed under the Apache License (Version 2.0), or the MIT license,
+(the "Licenses") at your option. You may not use this file except in
+compliance with one of the Licenses. You may obtain copies of the
+Licenses at:
+
+   https://www.apache.org/licenses/LICENSE-2.0
+   https://opensource.org/licenses/MIT
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the Licenses is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the Licenses for the specific language governing permissions and
+limitations under the Licenses.
+````
+
 <a id="license-e11634cfe7bf46d5"></a>
 
 Used by: JavaScript: mdast-util-phrasing 4.1.0 (license)
@@ -23927,7 +24497,7 @@ THE SOFTWARE.
 
 <a id="license-e8541ea93f027a6c"></a>
 
-Used by: Rust: block-buffer 0.10.4 (LICENSE-APACHE); Rust: cpufeatures 0.2.17 (LICENSE-APACHE); Rust: crypto-common 0.1.7 (LICENSE-APACHE); Rust: digest 0.10.7 (LICENSE-APACHE); Rust: sha2 0.10.9 (LICENSE-APACHE)
+Used by: Rust: aes 0.8.4 (LICENSE-APACHE); Rust: block-buffer 0.10.4 (LICENSE-APACHE); Rust: block-padding 0.3.3 (LICENSE-APACHE); Rust: cbc 0.1.2 (LICENSE-APACHE); Rust: cipher 0.4.4 (LICENSE-APACHE); Rust: cpufeatures 0.2.17 (LICENSE-APACHE); Rust: crypto-common 0.1.7 (LICENSE-APACHE); Rust: digest 0.10.7 (LICENSE-APACHE); Rust: inout 0.1.4 (LICENSE-APACHE); Rust: md-5 0.10.6 (LICENSE-APACHE); Rust: sha2 0.10.9 (LICENSE-APACHE)
 
 ````text
 Apache License
@@ -24192,6 +24762,33 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+````
+
+<a id="license-e9f8a16f9ed6671f"></a>
+
+Used by: Rust: nom 8.0.0 (LICENSE)
+
+````text
+Copyright (c) 2014-2019 Geoffroy Couprie
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
 <a id="license-ea559213e0e927a2"></a>
@@ -25319,6 +25916,39 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+````
+
+<a id="license-f3bd9e2e7745e49d"></a>
+
+Used by: Rust: cbc 0.1.2 (LICENSE-MIT)
+
+````text
+Copyright (c) 2018-2022 RustCrypto Developers
+Copyright (c) 2018 Artyom Pavlov
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 ````
 
 <a id="license-f47894ff9c86dc7e"></a>

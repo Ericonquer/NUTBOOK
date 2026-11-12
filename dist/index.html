@@ -4684,7 +4684,7 @@
         color: #b13f3f;
       }
 
-      .update-modal-progress {
+      .app-progress {
         width: 100%;
         margin-top: 8px;
         height: 8px;
@@ -4696,19 +4696,19 @@
         accent-color: #111;
         background: #e5e5e5;
       }
-      .update-modal-progress::-webkit-progress-bar { background: #e5e5e5; }
-      .update-modal-progress::-webkit-progress-value { background: #111; border-radius: 999px; }
-      .update-modal-progress::-moz-progress-bar { background: #111; border-radius: 999px; }
-      .update-modal-progress:indeterminate,
-      .update-modal-progress:indeterminate::-webkit-progress-bar {
+      .app-progress::-webkit-progress-bar { background: #e5e5e5; }
+      .app-progress::-webkit-progress-value { background: #111; border-radius: 999px; }
+      .app-progress::-moz-progress-bar { background: #111; border-radius: 999px; }
+      .app-progress:indeterminate,
+      .app-progress:indeterminate::-webkit-progress-bar {
         background: linear-gradient(90deg, #e5e5e5 0 35%, #111 35% 60%, #e5e5e5 60% 100%);
         background-size: 200% 100%;
         animation: update-progress-wait 1.4s linear infinite alternate;
       }
       @keyframes update-progress-wait { from { background-position: 100% 0; } to { background-position: 0 0; } }
       @media (prefers-reduced-motion: reduce) {
-        .update-modal-progress:indeterminate,
-        .update-modal-progress:indeterminate::-webkit-progress-bar { animation: none; }
+        .app-progress:indeterminate,
+        .app-progress:indeterminate::-webkit-progress-bar { animation: none; }
       }
 
       .update-modal-actions {
@@ -4972,6 +4972,154 @@
         background: var(--surface-variant);
         border: 1px solid var(--line);
         box-shadow: 0 24px 60px rgba(20, 20, 20, 0.14);
+      }
+
+      .html-export-modal {
+        max-height: calc(100dvh - 32px);
+        overflow: auto;
+      }
+
+      .html-export-frame {
+        display: grid;
+        place-items: center;
+        min-height: 125px;
+        height: clamp(125px, 30vh, 252px);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+      }
+
+      .html-export-frame img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        object-fit: contain;
+      }
+
+      .html-export-frame.stacked {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 3px;
+        padding: 6px;
+        overflow: auto;
+      }
+
+      .html-export-frame.stacked img {
+        flex: 0 0 auto;
+        width: min(100%, 232px);
+        height: auto;
+      }
+
+      .html-export-preview-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 9px;
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      .html-export-pager {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+
+      .html-export-pager input,
+      .html-export-pager button {
+        box-sizing: border-box;
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        text-align: center;
+      }
+
+      .html-export-pager input { width: 46px; }
+      .html-export-pager button { min-width: 28px; cursor: pointer; }
+      .html-export-pager button:disabled { opacity: .45; cursor: default; }
+
+      .html-export-modal .export-preference-panel {
+        display: block;
+        height: auto;
+        min-width: 0;
+      }
+
+      .html-export-options {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .html-export-option {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        min-height: 44px;
+        padding: 7px 11px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .html-export-option + .html-export-option { border-top: 1px solid var(--line); }
+      .html-export-option-value { color: var(--ink-soft); text-align: end; font-size: 12px; }
+      .html-export-scale { display: flex; gap: 4px; }
+      .html-export-scale button {
+        padding: 4px 7px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface-variant);
+        color: var(--ink-soft);
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .html-export-scale button[aria-pressed="true"] {
+        border-color: var(--ink-soft);
+        color: var(--ink);
+        font-weight: 650;
+      }
+      .html-export-option-note {
+        margin: 9px 1px 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      .html-export-frame.stacked > span { margin: auto; font-size: 12px; }
+
+      .html-export-feedback {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font-size: 12px;
+      }
+
+      .html-export-feedback .app-progress {
+        display: block;
+        margin: 8px 0;
+      }
+
+      .html-export-path {
+        color: var(--ink-soft);
+        overflow-wrap: anywhere;
+        user-select: text;
+      }
+
+      @media (max-width: 680px) {
+        .html-export-modal .export-panel-grid { grid-template-columns: minmax(0, 1fr); }
       }
 
       .export-modal.expanded {
@@ -5469,22 +5617,22 @@
         color: #fff;
       }
 
-      .export-preference-row .preference-toggle {
+      .export-preference-row .preference-toggle,
+      .html-export-option .preference-toggle {
         flex: 0 0 auto;
-      }
-
-      .export-preference-row .preference-toggle {
         width: 34px;
         height: 20px;
         padding: 2px;
       }
 
-      .export-preference-row .preference-toggle::before {
+      .export-preference-row .preference-toggle::before,
+      .html-export-option .preference-toggle::before {
         width: 14px;
         height: 14px;
       }
 
-      .export-preference-row .preference-toggle.active::before {
+      .export-preference-row .preference-toggle.active::before,
+      .html-export-option .preference-toggle.active::before {
         transform: translateX(14px);
       }
 
@@ -9165,6 +9313,7 @@
     </div>
     <div id="confirmScrim" class="modal-scrim" aria-hidden="true"></div>
     <div id="exportScrim" class="modal-scrim" aria-hidden="true"></div>
+    <div id="htmlExportScrim" class="modal-scrim" aria-hidden="true"></div>
 
     <link rel="stylesheet" href="./markdown-formatting.css">
     <script src="./tag-editor.js"></script>
@@ -9235,6 +9384,7 @@
         runtimeSessions: [],
         htmlEditSession: null,
         nativePresentationItemId: null,
+        htmlExport: null,
         htmlEditSessionGeneration: 0,
         htmlEditToolbarVisible: false,
         htmlEditToolbarSyncInFlight: false,
@@ -9486,7 +9636,7 @@
           lastKnownReleaseNotes: null
         },
         updateStatus: {
-          currentVersion: "1.5.1",
+          currentVersion: "1.5.2",
           latestVersion: null,
           releaseUrl: null,
           releaseNotes: null,
@@ -9583,6 +9733,7 @@
         statusDot: document.getElementById("statusDot"),
         statusText: document.getElementById("statusText"),
         statusHint: document.getElementById("statusHint"),
+        htmlExportScrim: document.getElementById("htmlExportScrim"),
         toast: document.getElementById("toast"),
         exportProgress: document.getElementById("exportProgress"),
         markdownLinkTooltip: document.getElementById("markdownLinkTooltip"),
@@ -11694,7 +11845,7 @@
         return true;
       }
 
-      async function showHtmlEditLeaveConfirmOverlay(session) {
+      async function showHtmlEditLeaveConfirmOverlay(session, mode = "leave") {
         const existingIntent = appState.htmlEditDirtyLeaveIntent;
         if (existingIntent?.runtimeSessionId === session?.runtimeSessionId && existingIntent.promise) {
           return existingIntent.promise;
@@ -11715,7 +11866,8 @@
             payload: {
               itemId: session.itemId,
               bounds: htmlEditLeaveConfirmBounds(),
-              language: appState.language
+              language: appState.language,
+              mode
             }
           });
         } catch (error) {
@@ -13630,6 +13782,7 @@
       }
 
       async function confirmAppExitIfNeeded() {
+        if (appState.htmlExport) await closeHtmlExportCenter();
         if (globalThis.NutbookFormatting && !(await globalThis.NutbookFormatting.leave())) return false;
         const session = appState.htmlEditSession;
         if (session) {
@@ -15798,7 +15951,7 @@
 
       function normalizeUpdateStatus(value = {}) {
         return {
-          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.5.1",
+          currentVersion: value.currentVersion || appState.updateStatus?.currentVersion || "1.5.2",
           latestVersion: value.latestVersion || null,
           releaseUrl: value.releaseUrl || null,
           releaseNotes: typeof value.releaseNotes === "string" && value.releaseNotes.trim()
@@ -15958,7 +16111,7 @@
           <p class="update-modal-copy">${escapeHtml(description)}</p>
           ${update.status === "available" && releaseNotes ? `<section class="update-modal-notes" aria-label="${escapeAttribute(t("settings.updateNotes"))}"><h3 class="update-modal-notes-title">${escapeHtml(t("settings.updateNotes"))}</h3><div class="update-modal-notes-copy" data-i18n-skip>${window.NutbookUpdateUI.renderNotes(releaseNotes, currentLanguage())}</div></section>` : ""}
           <div class="update-modal-status" role="${statusRole}">${escapeHtml(status)}</div>
-          ${downloading ? `<progress class="update-modal-progress" max="${appState.updateDownload.totalBytes || ""}" ${appState.updateDownload.downloadedBytes > 0 && appState.updateDownload.totalBytes ? `value="${appState.updateDownload.downloadedBytes}"` : ""}></progress>` : ""}
+          ${downloading ? `<progress class="app-progress" max="${appState.updateDownload.totalBytes || ""}" ${appState.updateDownload.downloadedBytes > 0 && appState.updateDownload.totalBytes ? `value="${appState.updateDownload.downloadedBytes}"` : ""}></progress>` : ""}
           <div class="update-modal-actions">
             ${update.releaseUrl ? `<button class="button button-secondary" type="button" data-update-open-release="true">${escapeHtml(t("settings.viewFullReleaseNotes"))}</button>` : ""}
             <button class="button button-secondary" type="button" data-update-close="true">${escapeHtml(t("settings.updateLater"))}</button>
@@ -17705,6 +17858,9 @@
             }
           ];
         }
+        if (isHtmlRuntime && tab.sourceMode !== "external" && /Mac|Win/i.test(globalThis.navigator?.platform || "")) {
+          options.splice(1, 0, { action: "export-html-center", label: t("actions.exportCenter"), icon: MENU_ICON_SVG.exportCenter, disabled: false });
+        }
         if (isMarkdown || (isHtmlRuntime && tab.sourceMode !== "external")) options.splice(options.findIndex(option => option.action === "remove-from-nutbook"), 0, { action: "document-versions", label: appState.language === "en-US" ? "Version history" : "版本历史", icon: MENU_ICON_SVG.versionHistory, disabled: false });
         return options;
       }
@@ -17824,6 +17980,10 @@
               error: normalizeError, resolveImage: resolveMarkdownImageUrl
             }, tab);
           } catch (error) { showToast(normalizeError(error)); }
+          return;
+        }
+        if (action === "export-html-center") {
+          await openHtmlExportCenter(getActiveTab());
           return;
         }
         if (action === "export-markdown-center") {
@@ -18214,11 +18374,9 @@
             </div>
             ${isReading ? readingPanel : presentationPanel}
           </section>`;
-        const prefToggle = (active, key, labelKey, dataAttribute) => `
-          <div class="export-preference-row">
-            <span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
-            <button class="preference-toggle ${active ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(key)}" aria-label="${escapeAttribute(t(`markdown.${labelKey}`))}" aria-pressed="${active ? "true" : "false"}"></button>
-          </div>`;
+        const prefToggle = (active, key, labelKey, dataAttribute) =>
+          `<div class="export-preference-row"><span>${escapeHtml(t(`markdown.${labelKey}`))}</span>
+            ${exportPreferenceToggle(active, key, t(`markdown.${labelKey}`), dataAttribute)}</div>`;
         const engineStatus = `<div class="export-engine-status ${engineReady ? "ready" : "warn"}">${escapeHtml(engineReady ? t("markdown.exportEngineReady") : t("markdown.exportEngineUnavailable"))}</div>`;
         const pdfTemplates = [
           ["document", t("markdown.pdfDocument"), t("markdown.pdfDocumentDescription"), "pdf-document"],
@@ -19078,7 +19236,7 @@
               <div class="preference-title">${t("settings.autoCheckUpdates")}</div>
               <div class="preference-desc">${t("settings.autoCheckUpdatesDescription")}</div>
               <div class="settings-row-meta">
-                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.5.1")}
+                ${t("settings.updateCurrentVersion")} ${escapeHtml(appState.updateStatus.currentVersion || "1.5.2")}
                 ${latestVersionHtml()}
                 ${lastUpdateCheckedHtml()}
                 ${updateStatusInlineHtml()}
@@ -19606,7 +19764,7 @@
         if (command === "check_for_updates") {
           if (mockUpdateEnabled()) {
             return {
-              currentVersion: "1.5.1",
+              currentVersion: "1.5.2",
               latestVersion: "v0.9.1",
               releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases/tag/v0.9.1",
               hasUpdate: true,
@@ -19617,8 +19775,8 @@
             };
           }
           return {
-            currentVersion: "1.5.1",
-            latestVersion: "1.5.1",
+            currentVersion: "1.5.2",
+            latestVersion: "1.5.2",
             releaseUrl: "https://github.com/Ericonquer/NUTBOOK/releases",
             hasUpdate: false,
             checkedAt: args.checkedAt || new Date().toISOString(),
@@ -20382,6 +20540,7 @@
       }
 
       async function closeOpenTab(tabId) {
+        if (appState.htmlExport?.tab.id === tabId) await closeHtmlExportCenter();
         if (globalThis.NutbookFormatting && !(await globalThis.NutbookFormatting.leave(tabId))) return false;
         if (appState.htmlEditSession?.itemId === tabId) {
           const canLeaveHtmlEdit = await confirmHtmlEditLeaveIfNeeded(tabId);
@@ -21926,7 +22085,7 @@ if (!chipTipController) {
         htmlEditStart: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5-7.5 7.5-3.2.7.7-3.2z"/><path d="M9.8 3.7l2.5 2.5"/></svg>',
         htmlEditDone: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
         formatting: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 3h10M3 6h7M3 9h10M3 12h7"/></svg>',
-        exportCenter: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2.5M5.5 5 8 2.5 10.5 5"/><path d="M2.75 9.5v2.75c0 .69.56 1.25 1.25 1.25h8c.69 0 1.25-.56 1.25-1.25V9.5"/></svg>',
+        exportCenter: NutbookDocumentToolbar.icons.exportCenter,
         versionHistory: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7a6 6 0 1 1 1.5 5M2 3.5V7h3.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>',
         exportFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5h6.5A1.5 1.5 0 0 1 13 4v7.5"/><rect x="2.5" y="4.5" width="8.5" height="9" rx="1.5"/></svg>',
         removeFile: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5h9"/><path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5"/><path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8"/></svg>',
@@ -22273,7 +22432,7 @@ if (!chipTipController) {
       async function openNativePresentationPreparation() {
         const tab = getActiveTab();
         if (!appState.isTauri || !tab || tab.preview?.fileType !== "html-runtime" || appState.htmlEditSession?.itemId === tab.id) return;
-        if (nativePresentationSessionId || appState.nativePresentationItemId || nativePresentationPreparingItemId != null) return;
+        if (appState.htmlExport || nativePresentationSessionId || appState.nativePresentationItemId || nativePresentationPreparingItemId != null) return;
         const itemId = tab.id;
         nativePresentationPreparingItemId = itemId;
         scheduleRuntimeHostSync();
@@ -22499,6 +22658,10 @@ if (!chipTipController) {
           if (appState.activeTabId === itemId && getActiveTab()?.preview?.fileType === "html-runtime") {
             scheduleRuntimeHostSync();
           }
+          return;
+        }
+        if (action === "export-html-center") {
+          if (getActiveTab()?.id === itemId) await openHtmlExportCenter(getActiveTab());
           return;
         }
         if (action === "open-version-history") {
@@ -23641,7 +23804,7 @@ if (!chipTipController) {
 
       function runtimeControlsOverlayHeight() {
         if (appState.runtimeControlsOverlayMode === "tags") return 360;
-        if (appState.runtimeControlsOverlayMode === "more") return 220;
+        if (appState.runtimeControlsOverlayMode === "more") return /Mac/i.test(globalThis.navigator?.platform || "") ? 260 : 220;
         // A1.3：来源徽标 tooltip 展开态（多行完整来源名），须高于 hover 68px 才不会被裁。
         if (appState.runtimeControlsOverlayMode === "badge-tip") return 100;
         if (appState.runtimeControlsOverlayMode === "hover") return 68;
@@ -23713,7 +23876,7 @@ if (!chipTipController) {
       function runtimeControlsOverlayState(tab, isFullscreen) {
         return {
           itemId: tab.id,
-          toolbar: { pinned: documentToolbarPreferences.html, capacity: documentToolbarCapacity(), preparing: nativePresentationPreparingItemId === tab.id, tagEditor: { saveResult: appState.tagSaveResult || null, session: `${appState.itemOpenTokens.get(tab.id) || 0}:${currentRuntimeSurfaceToken(tab.id)}` } },
+          toolbar: { pinned: documentToolbarPreferences.html, canExport: tab.sourceMode !== "external", capacity: documentToolbarCapacity(), preparing: nativePresentationPreparingItemId === tab.id, tagEditor: { saveResult: appState.tagSaveResult || null, session: `${appState.itemOpenTokens.get(tab.id) || 0}:${currentRuntimeSurfaceToken(tab.id)}` } },
           isFavorite: Boolean(tab.item?.isFavorite),
           isFullscreen: Boolean(isFullscreen),
           isEditing: appState.htmlEditSession?.itemId === tab.id,
@@ -23829,7 +23992,7 @@ if (!chipTipController) {
       async function syncActiveRuntimeHost(runId = null) {
         if (appState.runtimeSurfacesSuspended) return;
         const tab = getActiveTab();
-        if (tab?.id === appState.nativePresentationItemId) return;
+        if (tab?.id === appState.nativePresentationItemId || appState.htmlExport?.suspended) return;
         if (!tab || !isRuntimeHostTab(tab)) {
           appState.runtimeControlsOverlayExpanded = false;
           appState.runtimeControlsOverlayMode = "default";
@@ -25264,9 +25427,357 @@ if (!chipTipController) {
         return Boolean(saved) && getActiveTab() === tab && !isMarkdownTabDirty(tab);
       }
 
+      function htmlExportError(error) {
+        const key = {
+          EXPORT_ENGINE_UNAVAILABLE: "htmlExport.engineMissing",
+          HTML_EXPORT_TARGET_EXISTS: "htmlExport.exists",
+          EDIT_CONFLICT: "htmlExport.conflict",
+          IO_ERROR: "htmlExport.destinationUnavailable"
+        }[error?.code];
+        return key ? t(key) : `${t("htmlExport.failed")} · ${normalizeError(error)}`;
+      }
+
+      function exportPreferenceToggle(active, key, label, dataAttribute, disabled = false) {
+        return `<button class="preference-toggle ${active ? "active" : ""}" type="button" ${dataAttribute}="${escapeAttribute(key)}"
+          aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}" aria-pressed="${Boolean(active)}" ${disabled ? "disabled" : ""}></button>`;
+      }
+
+      function renderHtmlExportCenter(current, focusSelector) {
+        if (appState.htmlExport !== current || !current.suspended) return;
+        const scrim = els.htmlExportScrim;
+        const info = current.info;
+        const format = current.format;
+        const busy = Boolean(current.job) || current.starting;
+        const progress = current.progress;
+        const parts = info?.pngParts[current.scale - 1];
+        const label = value => value === "png" ? t("markdown.exportLongImage") : value.toUpperCase();
+        const title = escapeHtml(t("htmlExport.title"));
+        const row = (name, value) => `<div class="html-export-option"><span>${escapeHtml(t(name))}</span><span class="html-export-option-value">${escapeHtml(value)}</span></div>`;
+        const toggle = (name, field) => `<div class="html-export-option"><span>${escapeHtml(t(name))}</span>
+          ${exportPreferenceToggle(current[field], field, t(name), "data-html-permission", busy)}</div>`;
+        const note = name => `<p class="html-export-option-note">${escapeHtml(t(name))}</p>`;
+        const details = format === "png"
+          ? `<div class="html-export-option"><span>${escapeHtml(t("htmlExport.scale"))}</span>
+              <div class="html-export-scale" role="group" aria-label="${escapeAttribute(t("htmlExport.scale"))}">${[1, 2].map(scale => `<button type="button" data-html-scale="${scale}" data-html-focus="scale-${scale}" aria-pressed="${scale === current.scale}" ${busy ? "disabled" : ""}>${escapeHtml(t(scale === 1 ? "htmlExport.scale1" : "htmlExport.scale2"))}</button>`).join("")}</div>
+            </div>${row("htmlExport.output", parts ? t("htmlExport.parts").replace("{count}", parts) : "–")}`
+          : format === "pptx"
+            ? row("htmlExport.body", t("htmlExport.pptxText"))
+              + row("htmlExport.pictures", t("htmlExport.pptxPictures"))
+              + row("htmlExport.background", t("htmlExport.pptxBackground"))
+            : row("htmlExport.pagination", t("htmlExport.pdfPagination"))
+              + toggle("htmlExport.allowCopy", "allowCopy")
+              + toggle("htmlExport.allowEdit", "allowEdit");
+        const options = `<div class="html-export-options">${details}</div>`
+          + (format === "png" ? note(parts > 1 ? "htmlExport.split" : "htmlExport.pngNote")
+            : format === "pptx" ? note("htmlExport.pptxNote") : note("htmlExport.pdfNote"));
+        const progressText = current.cancelling ? t("htmlExport.cancelling")
+          : progress ? (progress.page < progress.total ? t("htmlExport.progress").replace("{page}", progress.page + 1).replace("{total}", progress.total) : t("htmlExport.printing"))
+            : busy ? t("htmlExport.selectDestination") : "";
+        const notice = current.error
+          ? `<div class="export-error-banner" role="alert">${escapeHtml(current.error)}</div>`
+          : (current.result || current.notice || busy)
+            ? `<div class="html-export-feedback" role="status" aria-live="polite">
+                <div>${escapeHtml(current.result ? t("htmlExport.done") : current.notice || progressText)}</div>
+                ${progress ? `<progress class="app-progress" aria-label="${escapeAttribute(t("htmlExport.printing"))}" ${progress.total ? `max="${progress.total}" value="${progress.page}"` : ""}></progress>` : ""}
+                ${current.result || current.destination ? `<div class="html-export-path">${escapeHtml(current.result || current.destination)}</div>` : ""}
+              </div>` : "";
+        const page = current.page;
+        const preview = current.previews.get(page);
+        const next = format === "png" ? current.previews.get(page + 1) : null;
+        const previewImage = slide => `<img src="${escapeAttribute(slide.image)}" alt="${escapeAttribute(t("htmlExport.previewPage").replace("{page}", slide.page).replace("{total}", info.pages))}">`;
+        const previewStatus = current.previewError === page
+          ? `<span role="status">${escapeHtml(t("htmlExport.previewUnavailable"))}
+              <button type="button" class="export-action-button" data-html-preview-retry>${escapeHtml(t("htmlExport.retryPreview"))}</button></span>`
+          : `<span role="status">${escapeHtml(current.error && !info ? t("htmlExport.previewUnavailable") : t("htmlExport.loading"))}</span>`;
+        const arrow = (offset, key, symbol) => {
+          const label = escapeAttribute(t(key));
+          return `<button type="button" data-html-page-step="${offset}" data-html-focus="step-${offset}" aria-label="${label}" title="${label}" ${busy || page + offset < 1 || page + offset > info.pages ? "disabled" : ""}>${symbol}</button>`;
+        };
+        const previousFocus = scrim.contains(document.activeElement) ? document.activeElement.dataset.htmlFocus : null;
+        scrim.classList.add("open");
+        scrim.setAttribute("aria-hidden", "false");
+        scrim.innerHTML = `
+          <div class="export-modal html-export-modal" role="dialog" aria-modal="true" aria-labelledby="htmlExportTitle" tabindex="-1">
+            <div class="export-header"><h3 id="htmlExportTitle" class="export-title">${title}</h3>
+              <button class="export-close" type="button" data-html-close data-html-focus="close" title="${escapeAttribute(t("markdown.closeExportDialog"))}" aria-label="${escapeAttribute(t("markdown.closeExportDialog"))}" ${busy ? "disabled" : ""}>×</button></div>
+            <div class="settings-tabbar export-format-tabbar" role="group" aria-label="${escapeAttribute(t("htmlExport.output"))}">${["pdf", "png", "pptx"].map(key => `<button class="settings-tab ${format === key ? "active" : ""}" type="button" data-html-format="${key}" data-html-focus="${key}" aria-pressed="${format === key}" ${busy ? "disabled" : ""}>${escapeHtml(label(key))}</button>`).join("")}</div>
+            <section class="export-panel-grid">
+              <div class="html-export-preview">
+                <div class="export-panel-title">${escapeHtml(t("htmlExport.preview"))}</div>
+                <div class="html-export-frame ${preview && format === "png" ? "stacked" : ""}">
+                  ${preview ? previewImage(preview) + (next ? previewImage(next) : "") : previewStatus}
+                </div>
+                ${info ? `<div class="html-export-preview-controls">
+                  <div class="html-export-pager">
+                    ${arrow(-1, "htmlExport.previousPage", "‹")}
+                    <input data-html-page data-html-focus="page" type="text" inputmode="numeric" maxlength="3" value="${page}" aria-label="${escapeAttribute(t("htmlExport.jumpPage"))}" title="${escapeAttribute(t("htmlExport.jumpPage"))}" ${busy ? "disabled" : ""}>
+                    <span aria-hidden="true">/ ${info.pages}</span>
+                    ${arrow(1, "htmlExport.nextPage", "›")}
+                  </div>
+                  <small>${info.width} × ${info.height}</small></div>` : ""}
+              </div>
+              <aside class="export-preference-panel"><div class="export-panel-title">${escapeHtml(t("markdown.exportPreferences"))}</div>${options}</aside>
+            </section>
+            ${notice}
+            <div class="export-actions">
+              ${busy ? `<button type="button" class="export-action-button" data-html-stop data-html-focus="stop" ${!progress || current.cancelling ? "disabled" : ""}>${escapeHtml(t("htmlExport.stop"))}</button>`
+                : `<button type="button" class="export-action-button" data-html-close data-html-focus="dismiss">${escapeHtml(t(current.result ? "htmlExport.close" : "actions.cancel"))}</button>
+                  <button type="button" class="export-action-button primary" data-html-submit data-html-focus="submit" ${info ? "" : "disabled"}>${escapeHtml(t("htmlExport.submit").replace("{format}", label(format)))}</button>`}
+            </div>
+          </div>`;
+        const dialog = scrim.firstElementChild;
+        dialog.addEventListener("keydown", event => {
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            event.preventDefault();
+            if (!busy) closeHtmlExportCenter().catch(console.error);
+          }
+          if (event.key === "Tab") {
+            const buttons = Array.from(dialog.querySelectorAll("button:not(:disabled), input:not(:disabled)"));
+            if (!buttons.length || (event.shiftKey && (document.activeElement === buttons[0] || document.activeElement === dialog))
+                || (!event.shiftKey && document.activeElement === buttons.at(-1))) {
+              event.preventDefault();
+              (event.shiftKey ? buttons.at(-1) : buttons[0])?.focus();
+            }
+          }
+        });
+        scrim.querySelectorAll("[data-html-close]").forEach(button => button.onclick = () => closeHtmlExportCenter().catch(console.error));
+        scrim.querySelectorAll("[data-html-format]").forEach(button => button.onclick = () => {
+          current.format = button.dataset.htmlFormat;
+          current.error = current.info ? "" : current.error;
+          current.result = current.notice = current.destination = "";
+          renderHtmlExportCenter(current, `[data-html-format="${current.format}"]`);
+          loadHtmlExportPreview(current);
+        });
+        const goToPage = (value, focus) => {
+          if (value === current.page) return;
+          current.page = value;
+          current.previewError = null;
+          renderHtmlExportCenter(current, focus);
+          loadHtmlExportPreview(current);
+        };
+        scrim.querySelectorAll("[data-html-page-step]").forEach(button => button.onclick = () => {
+          goToPage(current.page + Number(button.dataset.htmlPageStep), `[data-html-focus="${button.dataset.htmlFocus}"]`);
+        });
+        const pageInput = scrim.querySelector("[data-html-page]");
+        if (pageInput) {
+          pageInput.onchange = () => {
+            const text = pageInput.value.trim();
+            if (!/^\d+$/.test(text)) {
+              pageInput.value = current.page;
+              return;
+            }
+            const page = Math.min(info.pages, Math.max(1, Number(text)));
+            pageInput.value = page;
+            goToPage(page, "[data-html-page]");
+          };
+          pageInput.onkeydown = event => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              pageInput.onchange();
+            }
+          };
+        }
+        scrim.querySelector("[data-html-preview-retry]")?.addEventListener("click", () => {
+          current.previewError = null;
+          renderHtmlExportCenter(current);
+          loadHtmlExportPreview(current);
+        });
+        scrim.querySelectorAll("[data-html-permission]").forEach(button => button.onclick = () => {
+          const field = button.dataset.htmlPermission;
+          current[field] = !current[field];
+          current.error = current.result = current.notice = current.destination = "";
+          renderHtmlExportCenter(current, `[data-html-permission="${field}"]`);
+        });
+        scrim.querySelectorAll("[data-html-scale]").forEach(button => button.onclick = () => {
+          current.scale = Number(button.dataset.htmlScale);
+          current.error = "";
+          current.result = current.notice = current.destination = "";
+          renderHtmlExportCenter(current, `[data-html-scale="${current.scale}"]`);
+        });
+        scrim.querySelector("[data-html-submit]")?.addEventListener("click", () => submitHtmlExport(current));
+        scrim.querySelector("[data-html-stop]")?.addEventListener("click", () => cancelHtmlExport(current));
+        if (focusSelector || previousFocus) {
+          const target = scrim.querySelector(focusSelector || `[data-html-focus="${previousFocus}"]`);
+          (target && !target.disabled ? target : dialog).focus();
+        } else if (!scrim.contains(document.activeElement)) {
+          dialog.focus();
+        }
+      }
+
+      async function loadHtmlExportPreview(current) {
+        if (current.previewRequest || current.closed || appState.htmlExport !== current) return;
+        current.previewRequest = true;
+        try {
+          while (!current.closed && appState.htmlExport === current && !current.starting && !current.job) {
+            const candidates = [current.page];
+            if (current.format === "png" && current.page < current.info?.pages) candidates.push(current.page + 1);
+            const page = candidates.find(page => !current.previews.has(page) && current.previewError !== page);
+            if (!page) break;
+            try {
+              const info = await invoke("inspect_html_export", {
+                itemId: current.tab.id, expectedFileHash: current.expectedFileHash, page
+              });
+              if (current.closed || appState.htmlExport !== current) break;
+              if (info.preview?.page !== page) throw Error("Unexpected preview page");
+              if (!current.info) current.error = "";
+              current.info = info;
+              current.previews.set(page, info.preview);
+              if (current.previews.size > 12) {
+                const oldest = [...current.previews.keys()].find(key => !candidates.includes(key));
+                current.previews.delete(oldest);
+              }
+            } catch (error) {
+              if (!current.info) current.error = htmlExportError(error);
+              current.previewError = page;
+              renderHtmlExportCenter(current);
+              if (current.page === page || !current.info) break;
+            }
+            const active = els.htmlExportScrim.querySelector("[data-html-page]");
+            if (!active || active !== document.activeElement || active.value === String(current.page)) {
+              renderHtmlExportCenter(current);
+            }
+          }
+        } finally {
+          current.previewRequest = false;
+        }
+      }
+
+      async function cancelHtmlExport(current) {
+        if (!current.job || !current.progress || current.cancelling) return;
+        current.cancelling = true;
+        renderHtmlExportCenter(current);
+        try {
+          await invoke("cancel_html_export", { jobId: current.jobId });
+        } catch (error) {
+          current.cancelling = false;
+          current.error = htmlExportError(error);
+          renderHtmlExportCenter(current);
+        }
+      }
+
+      async function closeHtmlExportCenter() {
+        const current = appState.htmlExport;
+        if (!current) return;
+        current.closed = true;
+        if (current.hiding) await current.hiding.catch(() => {});
+        if (current.job) {
+          if (current.progress) await cancelHtmlExport(current);
+          await current.job.catch(() => {});
+        }
+        if (appState.htmlExport !== current) return;
+        appState.htmlExport = null;
+        els.htmlExportScrim.classList.remove("open");
+        els.htmlExportScrim.setAttribute("aria-hidden", "true");
+        els.htmlExportScrim.replaceChildren();
+        if (current.suspended) {
+          cleanupRuntimeHostSync();
+          appState.activeRuntimeHostId = null;
+          appState.runtimeHostLastBoundsKey = null;
+          scheduleRuntimeHostSync();
+        }
+      }
+
+      async function submitHtmlExport(current) {
+        if (appState.htmlExport !== current || current.closed || current.starting || current.job || !current.info) return;
+        current.starting = true;
+        current.error = current.result = current.notice = current.destination = "";
+        const jobId = crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))]
+          .map(byte => byte.toString(16).padStart(2, "0")).join("");
+        current.jobId = jobId;
+        renderHtmlExportCenter(current);
+        let unlisten;
+        try {
+          unlisten = await listenRaw("html-export-progress", ({ payload }) => {
+            if (payload.jobId !== jobId || appState.htmlExport !== current || current.cancelling) return;
+            current.progress = payload;
+            if (payload.destination) current.destination = payload.destination;
+            renderHtmlExportCenter(current);
+          });
+          if (appState.htmlExport !== current || current.closed || getActiveTab() !== current.tab) return;
+          const options = current.format === "png"
+            ? { format: "png", scale: current.scale, parts: current.info.pngParts[current.scale - 1] }
+            : current.format === "pdf"
+              ? { format: "pdf", allowCopy: current.allowCopy, allowEdit: current.allowEdit }
+              : { format: "pptx", ...(current.pptxViewport ? { viewport: current.pptxViewport } : {}) };
+          current.job = invoke("export_html_presentation", {
+            itemId: current.tab.id,
+            jobId,
+            expectedFileHash: current.expectedFileHash,
+            language: appState.language,
+            options
+          });
+          current.result = await current.job;
+        } catch (error) {
+          if (error?.code === "EXPORT_CANCELLED") {
+            if (current.cancelling) current.notice = t("htmlExport.cancelled");
+          } else {
+            current.error = htmlExportError(error);
+          }
+        } finally {
+          try { await unlisten?.(); } catch {}
+          current.job = current.progress = null;
+          current.starting = current.cancelling = false;
+          if (!current.result) current.destination = "";
+          if (!current.closed) {
+            renderHtmlExportCenter(current, "[data-html-submit]");
+            loadHtmlExportPreview(current);
+          }
+        }
+      }
+
+      async function openHtmlExportCenter(tab) {
+        if (!tab || tab.preview?.fileType !== "html-runtime" || tab.sourceMode === "external"
+            || appState.htmlExport || appState.exportDialogOpen || appState.nativePresentationItemId
+            || nativePresentationPreparingItemId != null) return;
+        const current = { tab, format: "pdf", scale: 1, page: 1, previews: new Map(), allowCopy: true, allowEdit: true };
+        appState.htmlExport = current;
+        try {
+          let expectedFileHash = tab.detail?.fileHash || "";
+          const session = appState.htmlEditSession;
+          if (session?.itemId === tab.id) {
+            const refreshed = await refreshHtmlEditRuntimeState(session, session.documentRevision);
+            if (current.closed || getActiveTab() !== tab || appState.htmlEditSession !== session) return;
+            if (!refreshed || session.composing || session.presentationNotes?.composing) return;
+            if (htmlEditLeaveRequiresSave(session)) {
+              if (await showHtmlEditLeaveConfirmOverlay(session, "export") !== "save") return;
+              const saved = await saveActiveHtmlEditPatch();
+              if (!saved?.saved || !saved.canLeave || appState.htmlEditSession !== session
+                  || current.closed || getActiveTab() !== tab || htmlEditLeaveRequiresSave(session)) return;
+            }
+            expectedFileHash = session.sourceFileHash;
+            await exitHtmlEditMode({ runtimeSessionId: session.runtimeSessionId, discard: false });
+          }
+          if (current.closed || getActiveTab() !== tab) return;
+          if (appState.runtimeFullscreenItemId === tab.id) await toggleActiveHtmlRuntimePresentationMode();
+          if (current.closed || getActiveTab() !== tab) return;
+          current.expectedFileHash = expectedFileHash;
+          const mount = document.getElementById("runtimeHostMount");
+          if (mount) {
+            const { width, height } = runtimeHostBounds(mount);
+            if (width >= 320 && height >= 240) current.pptxViewport = [width, height];
+          }
+          current.suspended = true;
+          current.hiding = hideRuntimeHostForNativePresentation(tab.id);
+          await current.hiding;
+          current.hiding = null;
+          if (current.closed || getActiveTab() !== tab) {
+            await closeHtmlExportCenter();
+            return;
+          }
+          renderHtmlExportCenter(current);
+          await loadHtmlExportPreview(current);
+        } catch (error) {
+          current.error = htmlExportError(error);
+          renderHtmlExportCenter(current);
+        } finally {
+          if (!current.suspended && appState.htmlExport === current) appState.htmlExport = null;
+        }
+      }
+
       async function openMarkdownExportDialog() {
         const tab = getActiveTab();
-        if (!tab || tab.preview?.fileType !== "markdown") return;
+        if (!tab || tab.preview?.fileType !== "markdown" || appState.htmlExport) return;
         if (appState.exportInProgress) {
           setStatus(t("markdown.exportingLongImage"), "warn");
           return;

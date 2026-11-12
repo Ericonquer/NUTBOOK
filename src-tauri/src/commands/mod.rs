@@ -1,6 +1,7 @@
 pub mod agent_projects;
 pub mod default_apps;
 pub mod html_edit;
+pub mod html_export;
 pub mod native_presentation;
 pub mod items;
 pub mod library;

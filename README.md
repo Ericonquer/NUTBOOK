@@ -132,14 +132,15 @@ The installer bundles no Node.js or browser, only the Playwright driver and publ
 
 ## Latest Version
 
-### 1.5.1 · Windows Compatibility and Resource Reliability
+### 1.5.2 · HTML Export Center
 
-- Fix Windows file cards, local Markdown images, native HTML opening, and GUI/CLI startup conflicts.
-- Preserve archived images using bounded native resource sessions and compact preview paths, with cleanup on close.
-- Add Windows application and protocol regression gates; candidate installers are validated separately from normal PR checks.
+- Export supported HTML presentations as PDF, long PNG images, or PPTX on macOS and Windows. The export center includes slide previews, PDF copy and edit preferences, and two PNG resolutions.
+- Export supported text and tables as editable PowerPoint objects and keep images separately replaceable. Structured column, line, and pie charts include an embedded workbook for editing data in PowerPoint.
+- nbskill 1.5.0 adds the chart data contract and an Ink & Paper default presentation template.
 
 ### Earlier Releases
 
+- **1.5.1**: Windows file and application compatibility, more reliable local preview resources, and Windows regression checks.
 - **1.5.0**: Markdown / HTML file history, direct draft delivery, and editable presenter notes.
 - **1.4.0**: Ordered multi-tags, Motion Center, animated backgrounds, and page transitions.
 - **1.3.0**: Markdown publishing workspace, separate platform drafts, and customizable toolbar.

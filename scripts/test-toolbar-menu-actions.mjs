@@ -968,6 +968,117 @@ try {
   assert.equal(mainUi.exportDialog.actionStyle, "8px", "export actions must receive their styles");
   assert.equal(mainUi.exportDialog.pdfSelected, true, "format tabs must switch inside the export center");
   assert.equal(mainUi.exportDialog.completed, true, "HTML export must finish through the mock command");
+  const pdfFlow = await mainPage.evaluate(async () => {
+    const tab = { id: 41, sourceMode: "library", preview: { fileType: "html-runtime" }, detail: { fileHash: "old-hash" }, item: { fileName: "演示样稿.html" } };
+    const mount = document.createElement("div");
+    mount.id = "runtimeHostMount";
+    mount.style.cssText = "position:fixed;width:1152px;height:648px;visibility:hidden";
+    document.body.prepend(mount);
+    appState.tabs = [tab];
+    appState.activeTabId = tab.id;
+    const calls = [];
+    const session = { itemId: tab.id, runtimeSessionId: "session", documentRevision: 1, sourceFileHash: "old-hash", dirty: true };
+    appState.htmlEditSession = session;
+    refreshHtmlEditRuntimeState = async () => true;
+    htmlEditLeaveRequiresSave = current => current.dirty;
+    showHtmlEditLeaveConfirmOverlay = async (_, mode) => { calls.push(mode); return "save"; };
+    saveActiveHtmlEditPatch = async () => {
+      session.dirty = false;
+      session.sourceFileHash = "new-hash";
+      return { saved: true, canLeave: true };
+    };
+    exitHtmlEditMode = async () => { appState.htmlEditSession = null; };
+    hideRuntimeHostForNativePresentation = async () => { calls.push("hide-runtime"); };
+    let onProgress, rejectJob, jobStarted, completePptx;
+    const previewPages = [];
+    const started = new Promise(resolve => { jobStarted = resolve; });
+    listenRaw = async (_event, handler) => {
+      onProgress = handler;
+      return () => { onProgress = null; };
+    };
+    invoke = async (command, args) => {
+      if (command === "inspect_html_export") {
+        previewPages.push(args.page);
+        if (args.page === 1) calls.push(args.expectedFileHash);
+        return { pages: 24, width: 1920, height: 1080, preview: { page: args.page, image: "data:image/png;base64," }, pngParts: [1, 2] };
+      }
+      if (command === "export_html_presentation") {
+        calls.push(args.expectedFileHash, args.options);
+        if (args.options.format === "pdf") return "/tmp/演示样稿.pdf";
+        if (args.options.format === "pptx") return "/tmp/演示样稿.pptx";
+        return new Promise((_, reject) => {
+          rejectJob = reject;
+          onProgress({ payload: { jobId: args.jobId, page: 0, total: 3 } });
+          jobStarted();
+        });
+      }
+      if (command === "cancel_html_export") {
+        calls.push("cancel");
+        rejectJob({ code: "EXPORT_CANCELLED" });
+      }
+    };
+    await window.__NUTBOOK_HANDLE_HTML_RUNTIME_CONTROLS_ACTION__({ itemId: tab.id, action: "export-html-center" });
+    const dialog = els.htmlExportScrim;
+    const formats = [...dialog.querySelectorAll("[data-html-format]")].map(node => node.dataset.htmlFormat);
+    const initialPreviewPages = previewPages.slice();
+    const pager = dialog.querySelector("[data-html-page]");
+    pager.value = "22";
+    pager.dispatchEvent(new Event("change"));
+    for (let attempt = 0; attempt < 50 && !dialog.querySelector(".html-export-frame img")?.alt.includes("22"); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const jumpedToPage = dialog.querySelector(".html-export-frame img")?.alt;
+    const copyToggle = dialog.querySelector('[data-html-permission="allowCopy"]');
+    const toggleStyle = getComputedStyle(copyToggle);
+    const toggleShape = [toggleStyle.width, toggleStyle.height, toggleStyle.borderRadius];
+    copyToggle.click();
+    const copyPressed = dialog.querySelector('[data-html-permission="allowCopy"]').getAttribute("aria-pressed");
+    dialog.querySelector("[data-html-submit]").click();
+    for (let attempt = 0; attempt < 50 && !dialog.textContent.includes("演示样稿.pdf"); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    dialog.querySelector('[data-html-format="pptx"]').click();
+    const pptxSettings = dialog.textContent;
+    dialog.querySelector('[data-html-format="png"]').click();
+    dialog.querySelector('[data-html-scale="2"]').click();
+    const pngSettings = dialog.textContent;
+    dialog.querySelector("[data-html-submit]").click();
+    await started;
+    const progress = dialog.querySelector(".html-export-feedback").textContent;
+    const progressStyle = getComputedStyle(dialog.querySelector(".html-export-feedback progress"));
+    const progressTheme = [progressStyle.appearance, progressStyle.accentColor];
+    const cancelLabel = dialog.querySelector("[data-html-stop]").textContent;
+    dialog.querySelector("[data-html-stop]").click();
+    for (let attempt = 0; attempt < 50 && onProgress; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const cancelled = dialog.textContent;
+    const stayedOpen = dialog.classList.contains("open");
+    dialog.querySelector('[data-html-format="pptx"]').click();
+    dialog.querySelector("[data-html-submit]").click();
+    for (let attempt = 0; attempt < 50 && !dialog.textContent.includes("演示样稿.pptx"); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    completePptx = dialog.querySelector(".html-export-feedback")?.textContent;
+    await closeHtmlExportCenter();
+    mount.remove();
+    return { calls, formats, progress, cancelLabel, pptxSettings, pngSettings, cancelled, stayedOpen, completePptx, initialPreviewPages, jumpedToPage, toggleShape, copyPressed, progressTheme,
+      closed: !dialog.classList.contains("open"), listenerRemoved: onProgress == null };
+  });
+  assert.deepEqual(pdfFlow.calls, ["export", "hide-runtime", "new-hash", "new-hash", {format:"pdf",allowCopy:false,allowEdit:true}, "new-hash", {format:"png",scale:2,parts:2}, "cancel", "new-hash", {format:"pptx",viewport:[1152,648]}]);
+  assert.deepEqual(pdfFlow.formats, ["pdf", "png", "pptx"]);
+  assert.deepEqual(pdfFlow.initialPreviewPages, [1]);
+  assert.match(pdfFlow.jumpedToPage, /22.*24/);
+  assert.deepEqual(pdfFlow.toggleShape, ["34px", "20px", "999px"]);
+  assert.equal(pdfFlow.copyPressed, "false");
+  assert.match(pdfFlow.pptxSettings, /独立图片/);
+  assert.match(pdfFlow.pngSettings, /2 张 PNG/);
+  assert.equal(pdfFlow.cancelLabel, "取消导出");
+  assert.match(pdfFlow.progress, /1.*3/);
+  assert.deepEqual(pdfFlow.progressTheme, ["none", "rgb(17, 17, 17)"]);
+  assert.match(pdfFlow.cancelled, /已取消导出/);
+  assert.match(pdfFlow.completePptx, /导出完成[\s\S]*演示样稿\.pptx/);
+  assert.ok(pdfFlow.stayedOpen && pdfFlow.closed && pdfFlow.listenerRemoved);
   assert.deepEqual(mainPageErrors, [], "main page must not throw during settings and export actions");
 
   const runtimePage = await browser.newPage();
@@ -1075,6 +1186,14 @@ try {
   await runtimePage.keyboard.press("ArrowDown");
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.classList.contains("toolbar-pin")), true);
   await runtimePage.keyboard.press("ArrowDown");
+  const htmlPdfVisible = await runtimePage.locator("#htmlExportOption").isVisible();
+  if (htmlPdfVisible) {
+    assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "htmlExportOption");
+    assert.equal(await runtimePage.locator("#htmlExportOption").getAttribute("title"), "导出中心");
+    await runtimePage.keyboard.press("ArrowDown");
+    assert.equal(await runtimePage.evaluate(() => document.activeElement?.dataset.pinAction), "export-html-center");
+    await runtimePage.keyboard.press("ArrowDown");
+  }
   assert.equal(await runtimePage.evaluate(() => document.activeElement?.id), "historyOption");
   assert.equal(await runtimePage.locator('#historyOption').getAttribute('title'), '版本历史');
   await runtimePage.keyboard.press("ArrowDown");
@@ -1096,7 +1215,41 @@ try {
   await runtimePage.locator("#moreButton").click();
   await runtimePage.waitForFunction(() => document.getElementById("menu")?.classList.contains("open"));
   const nativeMenuBottom = await runtimePage.locator("#menu").evaluate(node => node.getBoundingClientRect().bottom);
-  assert.ok(nativeMenuBottom <= 220, `four-option HTML menu must fit its ${220}px host overlay, got ${nativeMenuBottom}`);
+  const menuBudget = htmlPdfVisible ? 260 : 220;
+  assert.ok(nativeMenuBottom <= menuBudget, `HTML menu must fit its ${menuBudget}px host overlay, got ${nativeMenuBottom}`);
+  if (htmlPdfVisible) {
+    await runtimePage.evaluate(() => {
+      window.__htmlPdfActions = [];
+      window.__htmlToolbarPins = [];
+      new MutationObserver(() => {
+        const prefix = "__NUTBOOK_HTML_CONTROLS__:";
+        if (!document.title.startsWith(prefix)) return;
+        const payload = JSON.parse(document.title.slice(prefix.length));
+        if (payload.action === "export-html-center") window.__htmlPdfActions.push(payload);
+        if (payload.action === "toggle-toolbar-pin") window.__htmlToolbarPins.push(payload);
+      }).observe(document.querySelector("title"), { childList: true, subtree: true, characterData: true });
+    });
+    await runtimePage.locator('.toolbar-pin[data-pin-action="export-html-center"]').click();
+    await runtimePage.waitForFunction(() => window.__htmlToolbarPins.some(action => action.name === "export-html-center"));
+    const icon = await runtimePage.locator("#htmlExportOption svg").innerHTML();
+    assert.equal(icon, await mainPage.evaluate(() => {
+      const template = document.createElement("template");
+      template.innerHTML = MENU_ICON_SVG.exportCenter;
+      return template.content.firstElementChild.innerHTML;
+    }));
+    await runtimePage.evaluate(() => {
+      window.__NUTBOOK_UPDATE_OVERLAY_STATE__({
+        ...window.__NUTBOOK_RUNTIME_CONTROLS__,
+        toolbar: { pinned: ["export-html-center"], capacity: 3 }
+      });
+    });
+    assert.equal(await runtimePage.locator("#pinnedActions button[aria-label='导出中心'] svg").innerHTML(), icon);
+    await runtimePage.locator("#pinnedActions button[aria-label='导出中心']").click();
+    await runtimePage.waitForFunction(() => window.__htmlPdfActions.length === 1);
+    assert.equal(await runtimePage.evaluate(() => window.__htmlPdfActions[0].itemId), 41);
+    await runtimePage.locator("#moreButton").click();
+    await runtimePage.waitForFunction(() => document.getElementById("menu")?.classList.contains("open"));
+  }
   await runtimePage.locator("#nativePresentationOption").dispatchEvent("pointerdown");
   assert.equal(await runtimePage.locator("#nativePresentationProgress").isVisible(), true, "probing must show feedback in the native controls surface immediately");
   assert.match(await runtimePage.locator("#nativePresentationProgress").textContent(), /正在检查演示/);

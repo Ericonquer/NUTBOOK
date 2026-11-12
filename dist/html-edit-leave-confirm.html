@@ -101,7 +101,7 @@
   <script src="./i18n.js?v=20260525-update-check"></script>
   <script>
     const i18n = window.NutbookI18n;
-    const config = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ || {}; const itemId = config.itemId ?? null; const requestId = config.requestId || ""; const copyMode = config.mode === "create-copy"; const removeMode = config.mode === "remove"; const fileName = config.fileName || "";
+    const config = window.__NUTBOOK_HTML_EDIT_LEAVE_CONFIRM__ || {}; const itemId = config.itemId ?? null; const requestId = config.requestId || ""; const copyMode = config.mode === "create-copy"; const removeMode = config.mode === "remove"; const exportMode = config.mode === "export"; const fileName = config.fileName || "";
     const language = config.language === "en-US" ? "en-US" : "zh-CN";
     i18n?.setLanguage?.(language);
     const t = (key, fallback) => i18n?.lookup(key, language) ?? fallback;
@@ -121,6 +121,12 @@
         keep = t("actions.cancel", "取消");
         discard = "";
         save = t("actions.confirmRemove", "确认移除");
+      } else if (exportMode) {
+        title = t("htmlExport.title", "导出 PDF");
+        message = t("htmlExport.saveMessage", "保存当前修改后再导出 PDF。");
+        keep = t("actions.cancel", "取消");
+        discard = "";
+        save = t("htmlEdit.saveAndContinue", "保存并继续");
       } else if (copyMode) {
         title = t("htmlEdit.createCopyTitle", "此文件不支持 Nutbook 编辑协议");
         message = t("htmlEdit.createCopyMessage", "是否尝试创建一个可编辑副本？原文件不会修改。");
@@ -140,7 +146,7 @@
       els.keepButton.setAttribute("aria-label", keep);
       els.keepButton.setAttribute("title", keep);
       els.discardButton.textContent = discard;
-      els.discardButton.hidden = copyMode || removeMode;
+      els.discardButton.hidden = copyMode || removeMode || exportMode;
       els.discardButton.setAttribute("aria-label", discard);
       els.discardButton.setAttribute("title", discard);
       els.saveButton.textContent = save;

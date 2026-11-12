@@ -1,8 +1,9 @@
 (function () {
   const key = 'nutbook.documentToolbar.v1';
-  const allowed = { markdown: ['format-markdown', 'export-markdown-center', 'export-markdown'], html: ['prepare-native-presentation', 'toggle-runtime-presentation'] };
+  const allowed = { markdown: ['format-markdown', 'export-markdown-center', 'export-markdown'], html: ['prepare-native-presentation', 'toggle-runtime-presentation', 'export-html-center'] };
   const svg = (path) => `<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const icons = {
+    exportCenter: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2.5M5.5 5 8 2.5 10.5 5"/><path d="M2.75 9.5v2.75c0 .69.56 1.25 1.25 1.25h8c.69 0 1.25-.56 1.25-1.25V9.5"/></svg>',
     pin: svg('<path d="m7 3 6 0-1 5 3 3H5l3-3-1-5ZM10 11v6"/>'),
     fullscreen: svg('<path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/>'),
     exitFullscreen: svg('<path d="M3 7h4V3m6 0v4h4M7 17v-4H3m10 4v-4h4"/>'),

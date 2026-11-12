@@ -1,6 +1,6 @@
 {
   "package": "nbskill",
-  "version": "1.4.8",
+  "version": "1.5.0",
   "files": [
     {
       "path": "evals/evals.json",
@@ -38,9 +38,14 @@
       "bytes": 6496
     },
     {
+      "path": "references/presentation-charts-v1.md",
+      "sha256": "b23fa2d4f4dfbefd8249c111f87814d1190744c5d97f928865bf877109465ea1",
+      "bytes": 2012
+    },
+    {
       "path": "references/presentation-html-v1.md",
-      "sha256": "e3b63c6ff1513fe9e7b775817438ee05611ac82c465c31f7eb4cb5d8915ca19f",
-      "bytes": 2767
+      "sha256": "35834604daff073b8a19e730172e27535aece16407d30775cef082fa7b18435d",
+      "bytes": 3228
     },
     {
       "path": "scripts/install.mjs",
@@ -104,8 +109,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "0cf802d4103ca9b30323fdc7f08cbe7dab5f19fbab4d04b7ba42287aad9af5fe",
-      "bytes": 12177
+      "sha256": "0920d8f4793cbb4962de74ec4b74e3bb44baa8ab3ea20b9bc92c6c5ac41e8eb9",
+      "bytes": 12458
     },
     {
       "path": "templates/manifest.json",
@@ -114,27 +119,27 @@
     },
     {
       "path": "templates/motion-presentation.html",
-      "sha256": "cfff92c31228412b8f11ee7b27ef83c2c66216176e651c752d17ee679d1a7741",
-      "bytes": 363801
+      "sha256": "e654c0cbaff042d515d62eb83b3a4b1ff9b7a7079b0f26dc3c70c1e484e348cc",
+      "bytes": 365639
     },
     {
       "path": "templates/presentation-mark.svg",
-      "sha256": "16f247b666d927a79ea6a3c17ef276ed716fb246013b2d255011f467bc3f3bbb",
+      "sha256": "03f20c2f2247006f0131bb684865d5e8a7454190a320fa6f0e01f24a03cb4153",
       "bytes": 310
     },
     {
       "path": "templates/presentation.html",
-      "sha256": "cfff92c31228412b8f11ee7b27ef83c2c66216176e651c752d17ee679d1a7741",
-      "bytes": 363801
+      "sha256": "e654c0cbaff042d515d62eb83b3a4b1ff9b7a7079b0f26dc3c70c1e484e348cc",
+      "bytes": 365639
     },
     {
       "path": "templates/presentation.source.html",
-      "sha256": "10c99450575f447a6895235c5e940c24b32a343024d04bc2e048320b75362702",
-      "bytes": 4855
+      "sha256": "6f641bd9bdc234158bd05ab5cc1136e09f0b6bb87c57cf47f0e49318322684da",
+      "bytes": 6693
     },
     {
       "path": "VERSION",
-      "sha256": "7df3598542760c06a06a832d7cbc12bd20b3fd1beae5c8c0399e9642f7073717",
+      "sha256": "acb57a7135b2d7d6e665f67f056e21353023b93835f54def1ae523bf76f1bfb3",
       "bytes": 6
     }
   ]

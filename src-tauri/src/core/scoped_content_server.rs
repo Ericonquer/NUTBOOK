@@ -1088,10 +1088,10 @@ enum Resolved {
 }
 
 fn resolve_request(raw_path: &str, shared: &ServerShared) -> Resolved {
-    resolve_in_root(raw_path, &shared.canonical_root, shared.max_body_bytes)
+    resolve_in_root(raw_path, &shared.canonical_root, shared.max_body_bytes, shared._capture_slot.is_some())
 }
 
-fn resolve_in_root(raw_path: &str, root: &Path, max_bytes: u64) -> Resolved {
+fn resolve_in_root(raw_path: &str, root: &Path, max_bytes: u64, capture: bool) -> Resolved {
     let not_found = Resolved::Simple {
         status: "404 Not Found",
         content_type: "text/plain; charset=utf-8",
@@ -1164,6 +1164,12 @@ fn resolve_in_root(raw_path: &str, root: &Path, max_bytes: u64) -> Resolved {
     }
 
     let content_type = content_type_for_path(&canonical_candidate);
+    if capture
+        && content_type.starts_with("text/html")
+        && raw_path.split_once('?').is_some_and(|(_, query)| query == "nutbook-capture=pdf-print")
+    {
+        return Resolved::CaptureHtml { body: b"<!doctype html><html><head><title>PDF</title></head><body></body></html>".to_vec() };
+    }
     if content_type.starts_with("text/html") && raw_path.split_once('?').is_some_and(|(_,query)| query.split('&').any(|part| part == "nutbook-capture=static")) {
         return match std::fs::read(&canonical_candidate) {
             Ok(source) => Resolved::CaptureHtml { body: crate::core::thumbnail::static_capture_html(&source) },
@@ -1181,7 +1187,7 @@ fn resolve_in_root(raw_path: &str, root: &Path, max_bytes: u64) -> Resolved {
 /// is capped even if a file grows after metadata was checked.
 pub(crate) fn resource_response(root: &Path, path: &str, head: bool) -> tauri::http::Response<Vec<u8>> {
     use std::io::Read;
-    let (status, mime, body, size) = match resolve_in_root(path, root, MAX_RESPONSE_BODY_BYTES) {
+    let (status, mime, body, size) = match resolve_in_root(path, root, MAX_RESPONSE_BODY_BYTES, false) {
         Resolved::File { path, content_type, size } => {
             if head { (200, content_type, Vec::new(), size) }
             else {

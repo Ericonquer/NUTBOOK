@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NUTBOOK 原生图表验收样本</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #18222b; font-family: system-ui, sans-serif; }
+    .page { width: 100vw; height: 100vh; padding: 8vh 6vw; background: #f5f6f8; }
+    h1 { margin: 0 0 6vh; font-size: 4.2vw; }
+    .charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2vw; }
+    figure { margin: 0; height: 54vh; padding: 2vw; background: white; border-radius: 1vw; }
+    figcaption { font-size: 1.7vw; font-weight: 600; margin-bottom: 2vh; }
+    svg { display: block; width: 100%; height: 74%; overflow: visible; }
+  </style>
+</head>
+<body>
+  <section class="page active" data-nutbook-page-id="charts">
+    <h1>季度运营样本</h1>
+    <div class="charts">
+      <figure data-nutbook-chart='{"kind":"bar","title":"季度订单","categories":["一季度","二季度","三季度"],"series":[{"name":"订单","values":[12,18,24]}]}'>
+        <figcaption>季度订单</figcaption>
+        <svg viewBox="0 0 240 180" role="img" aria-label="季度订单柱状图">
+          <path d="M20 148H224" stroke="#b6c0c8"/>
+          <path d="M40 88h38v60H40zM102 58h38v90h-38zM164 28h38v120h-38z" fill="#367d75"/>
+          <g text-anchor="middle" font-size="12" fill="#18222b">
+            <text x="59" y="169">一季度</text><text x="121" y="169">二季度</text><text x="183" y="169">三季度</text>
+          </g>
+        </svg>
+      </figure>
+      <figure data-nutbook-chart='{"kind":"line","title":"季度到访","categories":["一季度","二季度","三季度"],"series":[{"name":"到访","values":[18,12,24]},{"name":"预约","values":[10,11,17]}]}'>
+        <figcaption>季度到访</figcaption>
+        <svg viewBox="0 0 240 180" role="img" aria-label="季度到访与预约折线图">
+          <path d="M20 148H224" stroke="#b6c0c8"/>
+          <path d="M59 58L121 88L183 28" fill="none" stroke="#367d75" stroke-width="5"/>
+          <path d="M59 98L121 93L183 63" fill="none" stroke="#b67837" stroke-width="5"/>
+          <g text-anchor="middle" font-size="12" fill="#18222b">
+            <text x="59" y="169">一季度</text><text x="121" y="169">二季度</text><text x="183" y="169">三季度</text>
+          </g>
+        </svg>
+      </figure>
+      <figure data-nutbook-chart='{"kind":"pie","title":"渠道分布","categories":["线上","门店"],"series":[{"name":"订单占比","values":[75,25]}]}'>
+        <figcaption>渠道分布</figcaption>
+        <svg viewBox="0 0 240 180" role="img" aria-label="线上占 75%，门店占 25%">
+          <circle cx="120" cy="76" r="68" fill="#367d75"/>
+          <path d="M120 76V8A68 68 0 0 0 52 76Z" fill="#b67837"/>
+          <text x="120" y="169" text-anchor="middle" font-size="12" fill="#18222b">线上 75% · 门店 25%</text>
+        </svg>
+      </figure>
+    </div>
+  </section>
+  <script>
+    window.__NUTBOOK_PRESENTATION__ = {
+      version: 1,
+      capabilities: { managedPresenter: true },
+      pages: [{ id: "charts", title: "季度运营样本", index: 1 }],
+      activePageId: "charts",
+      async whenReady() { return true; },
+      async goTo(id) { return id === "charts"; },
+      subscribe() { return () => {}; },
+      async setManagedMode() { return true; },
+      async setEditMode() { return true; }
+    };
+  </script>
+</body>
+</html>

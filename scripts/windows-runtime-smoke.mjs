@@ -210,6 +210,11 @@ try{
    }return false;
  });
  await request('POST',`/session/${session}/window`,{handle:mainHandle});
+ await execute(`void window.__NUTBOOK_HANDLE_HTML_RUNTIME_CONTROLS_ACTION__({itemId:getActiveTab().id,action:'export-html-center'});`);
+ await wait('html-export-center-preview',()=>execute(`return document.querySelector('#htmlExportScrim.open .html-export-frame img')?.naturalWidth>0
+   && document.querySelectorAll('#htmlExportScrim [data-html-format]').length===3;`),20000);
+ await execute(`document.querySelector('#htmlExportScrim [data-html-close]').click();`);
+ await wait('html-export-center-restored',()=>execute(`return !appState.htmlExport && appState.activeRuntimeHostId===getActiveTab()?.id;`));
  await execute(`window.__smokeEditEvents=[];const original=window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__;window.__NUTBOOK_HANDLE_HTML_EDIT_RUNTIME_MESSAGE__=function(data){window.__smokeEditEvents.push({type:data?.type,itemId:data?.itemId,sourceItemId:data?.sourceItemId,session:data?.runtimeSessionId,generation:data?.generation,hasProtocol:data?.hasProtocol,managedSourceAllowed:data?.managedSourceAllowed});if(window.__smokeEditEvents.length>100)window.__smokeEditEvents.shift();return original(data);};`);
  // Keep IPC lifecycle evidence in the host and exported CI report, even if a
  // destroyed child cannot report its final state.
