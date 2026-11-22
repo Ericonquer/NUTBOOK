@@ -333,6 +333,10 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     card.y = Math.round(y);
     card.node.style.left = `${card.x}px`;
     card.node.style.top = `${card.y}px`;
+    if (card.detachHandle) {
+      card.detachHandle.style.left = `${card.x + cardWidth(card) - 30}px`;
+      card.detachHandle.style.top = `${card.y + 4}px`;
+    }
     if (card.usageButton) {
       card.usageButton.style.left = `${card.x + cardWidth(card) - (card.node.classList.contains("has-image-thumbnail") ? 48 : 34)}px`;
       const usageTop = card.node.classList.contains("has-image-thumbnail") ? cardHeight(card) - 34 : 5;
@@ -378,6 +382,20 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       }
       if (["note", "markdown", "link"].includes(card.kind)) node.append(excerpt);
       card.node = node;
+      if (card.issue_id) {
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = "nuts-tool-icon nuts-detach-handle";
+        handle.dataset.cardId = card.id;
+        const label = copy("拖出议题", "Drag out of issue");
+        handle.setAttribute("aria-label", label);
+        handle.dataset.tooltip = label;
+        handle.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 5H4v10h4m1-5h7m-3-3 3 3-3 3"/></svg>';
+        handle.onclick = event => {
+          if (event.detail === 0) moveBackToBoard(card).catch(report);
+        };
+        card.detachHandle = handle;
+      }
       if (imageKinds.has(card.kind)) {
         node.classList.add("nuts-image-card");
         node.setAttribute("aria-label", node.title);
@@ -394,6 +412,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       position(card, card.x, card.y);
       cards.set(card.id, card);
       cardLayer.append(node);
+      if (card.detachHandle) cardLayer.append(card.detachHandle);
       if (card.usageButton) cardLayer.append(card.usageButton, card.resizeHandle);
     }
     for (const id of selected) if (!cards.has(id) || cards.get(id).issue_id) selected.delete(id);
@@ -816,14 +835,15 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   viewport.addEventListener("pointerdown", event => {
     if (savingGroup || (event.button !== 0 && event.button !== 1)) return;
     suppressClick = false;
-    const card = cards.get(event.target.closest(".nuts-card")?.dataset.cardId);
+    const card = cards.get(event.target.closest(".nuts-card, .nuts-detach-handle")?.dataset.cardId);
     const panning = event.button === 1 || viewport.classList.contains("is-panning");
     const issueId = !card && !panning ? event.target.closest(".nuts-group")?.dataset.issueId : undefined;
     const members = issueId ? [...cards.values()].filter(member => member.issue_id === issueId)
       .map(member => ({ card: member, x: member.x, y: member.y })) : [];
     gesture = { id: event.pointerId, start: point(event), clientX: event.clientX, clientY: event.clientY,
       left: cameraX, top: cameraY, card, panning, additive: event.shiftKey,
-      x: card?.x, y: card?.y, moved: false, issueId, members };
+      x: card?.x, y: card?.y, moved: false, issueId, members,
+      detaching: !panning && Boolean(card?.issue_id && event.target.closest(".nuts-detach-handle")) };
     if (panning) event.preventDefault();
   });
   viewport.addEventListener("pointermove", event => {
@@ -852,7 +872,11 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     if (gesture.card) {
       markDropIssue(gesture, event);
       position(gesture.card, gesture.x + end.x - start.x, gesture.y + end.y - start.y);
-      if (gesture.card.issue_id) renderGroups();
+      if (gesture.detaching) {
+        const allowed = canDetachAt(event);
+        viewport.classList.toggle("nuts-detach-ready", allowed);
+        viewport.dataset.detachHint = copy("松开后移回白板", "Release to move to the board");
+      } else if (gesture.card.issue_id) renderGroups();
       return;
     }
     const x = Math.min(start.x, end.x), y = Math.min(start.y, end.y);
@@ -876,6 +900,39 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     }
   }
 
+  function canDetachAt(event, moving = gesture?.card) {
+    const target = document.elementsFromPoint(event.clientX, event.clientY).find(element =>
+      !moving || ![moving.node, moving.detachHandle, moving.resizeHandle, moving.usageButton]
+        .some(node => node?.contains(element)));
+    if (!target || !viewport.contains(target) || target.closest("button")) return false;
+    return ![...groupLayer.children].some(frame => {
+      const bounds = frame.getBoundingClientRect();
+      return event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    });
+  }
+
+  async function moveBackToBoard(card) {
+    const right = Math.max(...[...cards.values()].map(entry => entry.x + cardWidth(entry)));
+    await detach(card, right + 24, card.y);
+    if (visible()) await focusCard(card.id);
+  }
+
+  async function focusCard(id) {
+    const card = cards.get(id);
+    if (!card) return;
+    cameraX = (viewport.clientWidth - cardWidth(card) * scale) / 2 - card.x * scale;
+    cameraY = (viewport.clientHeight - cardHeight(card) * scale) / 2 - card.y * scale;
+    paintCamera();
+    card.node.focus({ preventScroll: true });
+  }
+
+  async function detach(card, x, y) {
+    await invoke("nuts_board_detach_card", { boardId, issueId: card.issue_id, cardId: card.id, x, y });
+    await reload();
+    await onCardRemoved();
+  }
+
   function restoreGesture(current) {
     if (!current?.moved || current.panning) return;
     if (current.card) position(current.card, current.x, current.y);
@@ -887,7 +944,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     if (gesture?.id !== event.pointerId) return;
     const current = gesture;
     gesture = null;
-    viewport.classList.remove("is-dragging-canvas");
+    viewport.classList.remove("is-dragging-canvas", "nuts-detach-ready");
     marquee.hidden = true;
     groupLayer.querySelector(".nuts-group-drop")?.classList.remove("nuts-group-drop");
     if (!current.moved) return;
@@ -905,7 +962,10 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     } else if (current.card && !current.panning) {
       const card = current.card;
       try {
-        if (current.dropIssue) {
+        if (current.detaching) {
+          if (canDetachAt(event, card)) await detach(card, card.x, card.y);
+          else restoreGesture(current);
+        } else if (current.dropIssue) {
           await invoke("nuts_board_attach_card", { boardId, issueId: current.dropIssue, cardId: card.id, x: card.x, y: card.y });
           await reload();
         } else await invoke("nuts_board_move", { id: card.id, x: card.x, y: card.y });
@@ -922,13 +982,19 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   }
   window.addEventListener("pointerup", event => finish(event, false));
   window.addEventListener("pointercancel", event => finish(event, true));
+  window.addEventListener("keydown", event => {
+    if (event.key === "Escape" && gesture?.detaching) {
+      event.preventDefault();
+      finish({ pointerId: gesture.id }, true);
+    }
+  });
   window.addEventListener("blur", () => { spaceDown = false; paintPan(); });
 
   return {
     contextMenu(target, event) {
       const destination = boardId;
       const at = event.detail === 0 && !event.clientX && !event.clientY ? origin() : point(event);
-      const card = cards.get(target.closest(".nuts-card, .nuts-image-resize")?.dataset.cardId);
+      const card = cards.get(target.closest(".nuts-card, .nuts-image-resize, .nuts-detach-handle")?.dataset.cardId);
       const issueId = card?.issue_id || target.closest(".nuts-group")?.dataset.issueId;
       return {
         kind: card?.issue_id ? "nuts-issue-card" : issueId ? "nuts-issue-group" : card ? "nuts-board-card" : "nuts-board",
@@ -937,6 +1003,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
           if (action === "nuts-note") openForm("note", at, destination);
           if (action === "nuts-material") await chooseMaterials(destination, at);
           if (action === "nuts-fit") document.getElementById("nutsZoomFit").click();
+          if (action === "nuts-detach-card" && card) await moveBackToBoard(card);
           if (action === "nuts-remove-card" && card) await confirmRemoval(destination, [card.id], card.issue_id);
           if (action === "nuts-open-issue" && issueId) await refreshIssues(issueId);
         },
@@ -953,12 +1020,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     },
     async locate(id) {
       if (!cards.has(id)) await reload();
-      const card = cards.get(id);
-      if (!card) return;
-      cameraX = (viewport.clientWidth - cardWidth(card) * scale) / 2 - card.x * scale;
-      cameraY = (viewport.clientHeight - cardHeight(card) * scale) / 2 - card.y * scale;
-      paintCamera();
-      card.node.focus({ preventScroll: true });
+      await focusCard(id);
     },
     localize,
     async open(listen) {
@@ -980,7 +1042,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       loading += 1;
       restoreGesture(gesture);
       gesture = null;
-      viewport.classList.remove("is-dragging-canvas");
+      viewport.classList.remove("is-dragging-canvas", "nuts-detach-ready");
       marquee.hidden = true;
       renderGroups();
       dropTarget = dropTarget.catch(() => {}).then(() => invoke("nuts_board_drop_target", { active: visible() }));

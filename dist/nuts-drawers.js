@@ -1,4 +1,4 @@
-window.NutbookNutsDrawers = function ({ copy, openIssue, locateCard, report }) {
+window.NutbookNutsDrawers = function ({ copy, openIssue, locateCard, openManagement, report }) {
   const cabinet = document.getElementById("nutsCabinet");
   const buttons = document.getElementById("nutsDrawerButtons");
   const pane = document.getElementById("nutsDrawer");
@@ -66,6 +66,17 @@ window.NutbookNutsDrawers = function ({ copy, openIssue, locateCard, report }) {
         action(entry.id).catch(report);
       });
       items.append(row);
+    }
+    if (current === 3) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "nuts-drawer-item";
+      more.textContent = more.title = copy("查看全部议题", "View all issues");
+      more.onclick = () => {
+        close(false);
+        openManagement().catch(report);
+      };
+      items.append(more);
     }
   }
 

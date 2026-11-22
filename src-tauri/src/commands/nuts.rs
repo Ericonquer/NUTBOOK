@@ -1,6 +1,32 @@
 use crate::{core::nuts, state::AppState};
 
 #[tauri::command]
+pub fn nuts_set_archived(state: tauri::State<'_, AppState>, id: String, archived: bool) -> Result<(), String> {
+    nuts::set_archived(&state.app_data_dir, &id, archived)
+}
+
+#[tauri::command]
+pub fn nuts_board_detach_card(state: tauri::State<'_, AppState>, board_id: String, issue_id: String, card_id: String, x: i64, y: i64) -> Result<(), String> {
+    nuts::board::detach_card(&state.app_data_dir, &board_id, &issue_id, &card_id, x, y)
+}
+
+#[tauri::command]
+pub fn nuts_claim_setup(state: tauri::State<'_, AppState>) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let directory = state.app_data_dir.clone();
+    let deployed = directory.join("cli").join(if cfg!(windows) { "nutbook.exe" } else { "nutbook" });
+    let cli = if cfg!(debug_assertions) {
+        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        let sibling = executable.with_file_name(if cfg!(windows) { "nutbook-cli-bin.exe" } else { "nutbook-cli-bin" });
+        if sibling.is_file() { sibling } else { deployed }
+    } else { deployed };
+    if !cli.is_file() {
+        return Err("NUTBOOK CLI is unavailable for this installation".into());
+    }
+    Ok((cli, directory))
+}
+
+
+#[tauri::command]
 pub fn nuts_list(state: tauri::State<'_, AppState>) -> Result<Vec<nuts::Issue>, String> {
     nuts::list(&state.app_data_dir)
 }

@@ -97,7 +97,7 @@ pub fn list(data_dir: &Path, board_id: &str) -> Result<Vec<Card>> {
     let db = open(data_dir)?;
     let mut query = db
         .prepare("SELECT board_cards.id, COALESCE(nuts_link_previews.title, board_cards.title), substr(board_cards.markdown, 1, 360), kind, x, y,
-            board_cards.issue_id, issues.title, CASE WHEN kind = 'link' THEN board_cards.markdown END, nuts_link_previews.image, nuts_link_previews.card_id IS NOT NULL, nuts_image_scales.percent FROM board_cards LEFT JOIN nuts_image_scales ON nuts_image_scales.card_id = board_cards.id LEFT JOIN nuts_link_previews ON nuts_link_previews.card_id = board_cards.id LEFT JOIN issues ON issues.id = board_cards.issue_id  WHERE COALESCE((SELECT board_id FROM nuts_card_boards WHERE card_id = board_cards.id), 'default') = ?1 ORDER BY board_cards.rowid")
+            board_cards.issue_id, issues.title, CASE WHEN kind = 'link' THEN board_cards.markdown END, nuts_link_previews.image, nuts_link_previews.card_id IS NOT NULL, nuts_image_scales.percent FROM board_cards LEFT JOIN nuts_image_scales ON nuts_image_scales.card_id = board_cards.id LEFT JOIN nuts_link_previews ON nuts_link_previews.card_id = board_cards.id LEFT JOIN issues ON issues.id = board_cards.issue_id  WHERE COALESCE((SELECT board_id FROM nuts_card_boards WHERE card_id = board_cards.id), 'default') = ?1 AND NOT EXISTS (SELECT 1 FROM nuts_archived_issues WHERE issue_id = board_cards.issue_id) ORDER BY board_cards.rowid")
         .map_err(|error| error.to_string())?;
     let rows = query
         .query_map([board_id], |row| {
@@ -128,40 +128,7 @@ pub fn remove(data_dir: &Path, board_id: &str, ids: &[String], issue_id: Option<
     ensure_board(&tx, board_id)?;
     for id in ids {
         if let Some(issue_id) = issue_id {
-            let (title, markdown): (String, String) = tx.query_row(
-                "SELECT title, markdown FROM board_cards WHERE id = ?1 AND issue_id = ?2",
-                params![id, issue_id], |row| Ok((row.get(0)?, row.get(1)?)),
-            ).map_err(|error| error.to_string())?;
-            let (mut source, mut names, from_board): (String, String, bool) = tx.query_row(
-                "SELECT source, source_name, EXISTS(SELECT 1 FROM nuts_issue_boards WHERE issue_id = ?1)
-                 FROM issues WHERE id = ?1",
-                [issue_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            ).map_err(|error| error.to_string())?;
-            if from_board {
-                let mut statement = tx.prepare(
-                    "SELECT title, markdown FROM board_cards WHERE issue_id = ?1 AND id <> ?2 ORDER BY rowid",
-                ).map_err(|error| error.to_string())?;
-                let remaining = statement.query_map(params![issue_id, id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                }).map_err(|error| error.to_string())?;
-                source.clear();
-                let mut titles = Vec::new();
-                for material in remaining {
-                    let (title, markdown) = material.map_err(|error| error.to_string())?;
-                    source.push_str(&format!("## {title}\n\n{markdown}\n\n"));
-                    titles.push(title);
-                }
-                names = titles.join(" · ");
-            } else {
-                let section = format!("\n\n## {title}\n\n{markdown}\n");
-                let name = format!(" · {title}");
-                let section_start = source.rfind(&section).ok_or("Issue material changed")?;
-                let name_start = names.rfind(&name).ok_or("Issue material name changed")?;
-                source.replace_range(section_start..section_start + section.len(), "");
-                names.replace_range(name_start..name_start + name.len(), "");
-            }
-            tx.execute("UPDATE issues SET source = ?2, source_name = ?3 WHERE id = ?1",
-                params![issue_id, source, names]).map_err(|error| error.to_string())?;
+            remove_material(&tx, id, issue_id)?;
         }
         let removed = tx.execute(
             "DELETE FROM board_cards WHERE id = ?1 AND issue_id IS ?3
@@ -179,6 +146,61 @@ pub fn remove(data_dir: &Path, board_id: &str, ids: &[String], issue_id: Option<
             .map_err(|error| error.to_string())?;
         tx.execute("DELETE FROM nuts_link_previews WHERE card_id = ?1", [id])
             .map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())
+}
+
+fn remove_material(tx: &rusqlite::Transaction<'_>, id: &str, issue_id: &str) -> Result<()> {
+    let (title, markdown): (String, String) = tx.query_row(
+        "SELECT title, markdown FROM board_cards WHERE id = ?1 AND issue_id = ?2",
+        params![id, issue_id], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|error| error.to_string())?;
+    let (mut source, mut names, from_board): (String, String, bool) = tx.query_row(
+        "SELECT source, source_name, EXISTS(SELECT 1 FROM nuts_issue_boards WHERE issue_id = ?1)
+         FROM issues WHERE id = ?1",
+        [issue_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(|error| error.to_string())?;
+    if from_board {
+        let mut statement = tx.prepare(
+            "SELECT title, markdown FROM board_cards WHERE issue_id = ?1 AND id <> ?2 ORDER BY rowid",
+        ).map_err(|error| error.to_string())?;
+        let remaining = statement.query_map(params![issue_id, id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|error| error.to_string())?;
+        source.clear();
+        let mut titles = Vec::new();
+        for material in remaining {
+            let (title, markdown) = material.map_err(|error| error.to_string())?;
+            source.push_str(&format!("## {title}\n\n{markdown}\n\n"));
+            titles.push(title);
+        }
+        names = titles.join(" · ");
+    } else {
+        let section = format!("\n\n## {title}\n\n{markdown}\n");
+        let name = format!(" · {title}");
+        let section_start = source.rfind(&section).ok_or("Issue material changed")?;
+        let name_start = names.rfind(&name).ok_or("Issue material name changed")?;
+        source.replace_range(section_start..section_start + section.len(), "");
+        names.replace_range(name_start..name_start + name.len(), "");
+    }
+    tx.execute("UPDATE issues SET source = ?2, source_name = ?3 WHERE id = ?1",
+        params![issue_id, source, names]).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn detach_card(data_dir: &Path, board_id: &str, issue_id: &str, id: &str, x: i64, y: i64) -> Result<()> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    remove_material(&tx, id, issue_id)?;
+    let changed = tx.execute(
+        "UPDATE board_cards SET issue_id = NULL, x = ?4, y = ?5 WHERE id = ?1 AND issue_id = ?3
+         AND COALESCE((SELECT board_id FROM nuts_card_boards WHERE card_id = ?1), 'default') = ?2
+         AND NOT EXISTS (SELECT 1 FROM nuts_archived_issues WHERE issue_id = ?3)",
+        params![id, board_id, issue_id, x, y],
+    ).map_err(|error| error.to_string())?;
+    if changed != 1 {
+        return Err("Selection changed. Select the card again.".into());
     }
     tx.commit().map_err(|error| error.to_string())
 }
@@ -539,5 +561,21 @@ mod tests {
         crate::core::nuts::reopen(dir, &issue).unwrap();
         let next = crate::core::nuts::claim(dir, &issue, None).unwrap();
         assert!(next.source.contains("https://example.org/study"));
+        detach_card(dir, DEFAULT, &issue, &link, -500, 900).unwrap();
+        let detached = list(dir, DEFAULT).unwrap().into_iter().find(|card| card.id == link).unwrap();
+        assert_eq!((detached.x, detached.y, detached.issue_id), (-500, 900, None));
+        let next_issue = crate::core::nuts::list(dir).unwrap().remove(0);
+        assert!(!next_issue.source_name.contains("example.org"));
+        crate::core::nuts::submit(dir, &issue, &next.token, "## Draft").unwrap();
+        crate::core::nuts::save_result(dir, &issue, 1, |_| Ok(())).unwrap();
+        crate::core::nuts::set_archived(dir, &issue, true).unwrap();
+        assert_eq!(list(dir, DEFAULT).unwrap().len(), 1);
+        assert!(crate::core::nuts::claim(dir, &issue, Some("supplement".into())).is_err());
+        assert!(crate::core::nuts::reopen(dir, &issue).is_err());
+        crate::core::nuts::set_archived(dir, &issue, false).unwrap();
+        assert_eq!(list(dir, DEFAULT).unwrap().len(), 3);
+        crate::core::nuts::reopen(dir, &issue).unwrap();
+        let restored = crate::core::nuts::claim_next(dir, Some(DEFAULT)).unwrap().unwrap();
+        assert!(!restored.source.contains("https://example.org/study"));
     }
 }

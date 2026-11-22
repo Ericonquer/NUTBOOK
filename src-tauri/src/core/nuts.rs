@@ -28,6 +28,8 @@ pub struct Issue {
     status: String,
     result_version: Option<i64>,
     board_id: String,
+    latest_version: Option<i64>,
+    archived_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -60,6 +62,7 @@ fn open(data_dir: &Path) -> Result<Connection> {
             id TEXT PRIMARY KEY, title TEXT NOT NULL, source_name TEXT NOT NULL,
             source TEXT NOT NULL, status TEXT NOT NULL, token TEXT, supplemental TEXT
         );
+        CREATE TABLE IF NOT EXISTS nuts_archived_issues (issue_id TEXT PRIMARY KEY, archived_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_review_rounds (
             issue_id TEXT NOT NULL, next_version INTEGER NOT NULL, base_version INTEGER NOT NULL,
             comments TEXT NOT NULL, feedback TEXT NOT NULL, PRIMARY KEY(issue_id,next_version)
@@ -113,6 +116,8 @@ fn read_issue(row: &rusqlite::Row<'_>) -> rusqlite::Result<Issue> {
         status: row.get(3)?,
         result_version: row.get(4)?,
         board_id: row.get(5)?,
+        latest_version: row.get(6)?,
+        archived_at: row.get(7)?,
     })
 }
 
@@ -170,13 +175,31 @@ pub fn list(data_dir: &Path) -> Result<Vec<Issue>> {
     let mut statement = db
         .prepare("SELECT id, title, source_name, status,
             (SELECT version FROM results WHERE issue_id = issues.id),
-            COALESCE((SELECT board_id FROM nuts_issue_boards WHERE issue_id = issues.id), 'default') FROM issues ORDER BY rowid DESC")
+            COALESCE((SELECT board_id FROM nuts_issue_boards WHERE issue_id = issues.id), 'default'), (SELECT MAX(version) FROM drafts WHERE issue_id = issues.id),
+            (SELECT archived_at FROM nuts_archived_issues WHERE issue_id = issues.id) FROM issues ORDER BY rowid DESC")
         .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([], read_issue)
         .map_err(|error| error.to_string())?;
     rows.collect::<rusqlite::Result<_>>()
         .map_err(|error| error.to_string())
+}
+
+pub fn set_archived(data_dir: &Path, id: &str, archived: bool) -> Result<()> {
+    let db = open(data_dir)?;
+    let changed = if archived {
+        db.execute(
+            "INSERT OR IGNORE INTO nuts_archived_issues SELECT id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             FROM issues WHERE id = ?1 AND status = 'done'",
+            [id],
+        )
+    } else {
+        db.execute("DELETE FROM nuts_archived_issues WHERE issue_id = ?1", [id])
+    }.map_err(|error| error.to_string())?;
+    if changed == 0 {
+        return Err("Only a completed issue can be archived, and only an archived issue can be restored".into());
+    }
+    Ok(())
 }
 
 pub fn drafts(data_dir: &Path, id: &str) -> Result<Vec<Draft>> {
@@ -247,13 +270,17 @@ fn claim_in(tx: &Connection, id: &str, supplement: Option<String>) -> Result<Cla
         .query_row(
             "SELECT id, title, source_name, status,
             (SELECT version FROM results WHERE issue_id = issues.id),
-            COALESCE((SELECT board_id FROM nuts_issue_boards WHERE issue_id = issues.id), 'default'), source, supplemental FROM issues WHERE id = ?1",
+            COALESCE((SELECT board_id FROM nuts_issue_boards WHERE issue_id = issues.id), 'default'), (SELECT MAX(version) FROM drafts WHERE issue_id = issues.id),
+            (SELECT archived_at FROM nuts_archived_issues WHERE issue_id = issues.id), source, supplemental FROM issues WHERE id = ?1",
             [id],
-            |row| Ok((read_issue(row)?, row.get(6)?, row.get(7)?)),
+            |row| Ok((read_issue(row)?, row.get(8)?, row.get(9)?)),
         )
         .optional()
         .map_err(|error| error.to_string())?
         .ok_or("Issue not found")?;
+    if issue.archived_at.is_some() {
+        return Err("Restore this issue before claiming it".into());
+    }
     let expected = if supplement.is_some() {
         "review"
     } else {
@@ -467,7 +494,7 @@ pub fn reopen(data_dir: &Path, issue_id: &str) -> Result<()> {
         .map_err(|e| e.to_string())?;
     let updated = tx
         .execute(
-            "UPDATE issues SET status = 'open', token = NULL WHERE id = ?1 AND status IN ('claimed', 'done')",
+            "UPDATE issues SET status = 'open', token = NULL WHERE id = ?1 AND status IN ('claimed', 'done') AND NOT EXISTS (SELECT 1 FROM nuts_archived_issues WHERE issue_id = ?1)",
             [issue_id],
         )
         .map_err(|error| error.to_string())?;

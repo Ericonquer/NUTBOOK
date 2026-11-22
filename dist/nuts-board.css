@@ -684,3 +684,45 @@
   transform: none;
 }
 #nutsWorkspace #nutsBoard .nuts-image-resize.is-resizing::after { opacity: 1; }
+
+#nutsManageIssues { margin-inline-start: auto; }
+#nutsManagementPage { height: 100%; overflow: auto; padding: 24px; }
+.nuts-management-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.nuts-management-toolbar h1 { margin: 0 auto 0 0; font-size: 22px; }
+.nuts-management-toolbar input { padding: 7px 10px; min-width: 130px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); }
+.nuts-management-toolbar input:focus-visible,
+#nutsWorkspace :is(#nutsManageIssues, #nutsManagementPage button, .nuts-detach-handle, .nuts-claim-copy, .nuts-archive-action):focus-visible {
+  outline: 2px solid var(--ink-soft) !important;
+  outline-offset: 2px;
+}
+#nutsWorkspace :is(#nutsManageIssues, #nutsManagementPage button) {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#nutsWorkspace :is(#nutsManageIssues, #nutsManagementPage button):is(:hover, [aria-pressed="true"]) { background: var(--surface-muted); }
+.nuts-management-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.nuts-management-results.is-archive { grid-template-columns: minmax(0, 1fr); }
+.nuts-management-results section { background: var(--surface-muted); border-radius: 9px; padding: 10px; min-width: 0; }
+.nuts-management-results h2 { margin: 0 0 10px; font-size: 14px; }
+.nuts-management-results section button { display: grid; gap: 5px; width: 100%; text-align: start; margin-bottom: 6px; overflow-wrap: anywhere; }
+.nuts-management-results small { color: var(--ink-soft); }
+@media (max-width: 650px) { .nuts-management-results { grid-template-columns: minmax(0, 1fr); } }
+#nutsWorkspace .nuts-detach-handle[data-tooltip] { position: absolute; width: 26px; height: 26px; z-index: 3; opacity: 0; background: var(--paper); cursor: grab; }
+#nutsWorkspace .nuts-card:is(:hover, :focus-visible) + .nuts-detach-handle { opacity: .8; }
+#nutsWorkspace .nuts-detach-handle:is(:hover, :focus-visible) { opacity: 1; }
+#nutsBoardViewport.nuts-detach-ready::after {
+  content: attr(data-detach-hint);
+  position: absolute;
+  inset: auto auto 55px 50%;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 10px;
+  pointer-events: none;
+  z-index: 5;
+}
