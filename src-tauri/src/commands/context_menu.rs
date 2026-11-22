@@ -38,6 +38,21 @@ pub async fn show_context_menu(app: tauri::AppHandle, webview: tauri::Webview, k
             add("reveal", label("在文件管理器中显示", "Show in File Manager"), true)?;
         }
         "tab" => add("close-tab", label("关闭标签页", "Close Tab"), true)?,
+        "nuts-board" | "nuts-board-card" => {
+            if kind == "nuts-board-card" {
+                add("nuts-remove-card", label("移除卡片", "Remove Card"), true)?;
+            }
+            add("nuts-note", label("记一条 NUT", "Write a NUT"), true)?;
+            add("nuts-material", label("添加素材", "Add Materials"), true)?;
+            add("nuts-fit", label("适应内容", "Fit Content"), true)?;
+        }
+        "nuts-issue-card" | "nuts-issue-group" => {
+            add("nuts-open-issue", label("打开议题", "Open Issue"), true)?;
+            if kind == "nuts-issue-card" {
+                add("nuts-remove-card", label("移除卡片", "Remove Card"), true)?;
+            }
+            add("nuts-fit", label("适应内容", "Fit Content"), true)?;
+        }
         "app" => {
             add("add-folder", label("添加文件夹", "Add Folder"), true)?;
             add("add-file", label("添加文件", "Add File"), true)?;

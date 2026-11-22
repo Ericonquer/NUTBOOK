@@ -1,0 +1,124 @@
+{
+  "scenes": [
+    {
+      "id": "quick",
+      "name": "Quick notes",
+      "about": "Capture NUTs and materials, then group related ideas.",
+      "rules": "Keep the original materials and their sources. Create a separate deliverable based on the current goal and submit it for review.",
+      "tasks": [
+        {
+          "name": "Organize into a note",
+          "goal": "Write a note that states the topic, main points, and open questions.",
+          "key": "整理成笔记"
+        }
+      ]
+    },
+    {
+      "id": "article",
+      "name": "Content creation",
+      "about": "Go from source material and candidate topics to an outline or first draft.",
+      "rules": "Cite sources for verifiable claims. Ask the author to confirm personal experiences and opinions. Review the outline before writing a long draft, and submit the draft for approval before saving it as a result.",
+      "tasks": [
+        {
+          "name": "Assess a topic",
+          "goal": "Write one page on the intended reader, a promising angle, available material, and points to verify.",
+          "key": "判断选题"
+        },
+        {
+          "name": "Make an outline",
+          "goal": "Propose an angle, section structure, and material for each section. Submit it for review.",
+          "key": "做提纲"
+        },
+        {
+          "name": "Write a first draft",
+          "goal": "Submit an outline for approval, then write a sourced first draft.",
+          "key": "写初稿"
+        }
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "about": "Screen sources, compare evidence, and prepare a research brief.",
+      "rules": "Keep source citations and original materials. Distinguish evidence, inference, and hypotheses. State the limitations of the evidence and any open questions.",
+      "tasks": [
+        {
+          "name": "Screen sources",
+          "goal": "Screen sources for relevance and evidence quality. Explain what you included or excluded.",
+          "key": "筛选资料"
+        },
+        {
+          "name": "Compare evidence",
+          "goal": "Compare research design, findings, and limitations across sources in a table.",
+          "key": "比较证据"
+        },
+        {
+          "name": "Write a research brief",
+          "goal": "Cover the research question, evidence, limitations, and next steps.",
+          "key": "撰写调研简报"
+        }
+      ]
+    },
+    {
+      "id": "product",
+      "name": "Product and projects",
+      "about": "Group feedback and screenshots into problems, then compare possible solutions.",
+      "rules": "Separate raw feedback from analysis. State the scope, tradeoffs, and acceptance criteria. Ask the user to decide open questions.",
+      "tasks": [
+        {
+          "name": "Summarize feedback",
+          "goal": "Group feedback by problem and identify the available evidence and impact.",
+          "key": "归纳反馈"
+        },
+        {
+          "name": "Compare options",
+          "goal": "Create a table of candidate options, tradeoffs, and assumptions to test.",
+          "key": "比较方案"
+        },
+        {
+          "name": "Draft an implementation plan",
+          "goal": "State the goal, scope, acceptance criteria, and decisions the user needs to make.",
+          "key": "起草实施方案"
+        }
+      ]
+    }
+  ],
+  "ruleTemplates": [
+    {
+      "id": "general",
+      "name": "General organization",
+      "steps": [
+        "Read the issue materials and list what is known and what needs confirmation.",
+        "Propose an approach and prepare a draft for the current goal.",
+        "Submit the draft for user review."
+      ]
+    },
+    {
+      "id": "article",
+      "name": "Article writing",
+      "steps": [
+        "Organize sources and flag claims to verify.",
+        "Propose an angle and outline. Wait for approval before drafting.",
+        "Distinguish direct quotations, inferences, and experiences the author needs to supply."
+      ]
+    },
+    {
+      "id": "product",
+      "name": "Product and projects",
+      "steps": [
+        "Summarize raw feedback and separate observations from analysis.",
+        "Explain scope, tradeoffs, and acceptance criteria.",
+        "Ask the user to resolve open decisions."
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "steps": [
+        "Define the research question and scope.",
+        "Summarize evidence, sources, and limitations. Record hypotheses to test.",
+        "Submit a research brief and follow-up questions for review."
+      ]
+    }
+  ]
+}

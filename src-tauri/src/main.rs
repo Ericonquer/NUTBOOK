@@ -376,6 +376,40 @@ fn main() {
             let handler: Box<
                 dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync,
             > = Box::new(tauri::generate_handler![
+            commands::nuts::nuts_scene_catalog,
+            commands::nuts::nuts_board_config,
+            commands::nuts::nuts_save_rules,
+            commands::nuts::nuts_issue_context,
+            commands::nuts::nuts_attach_library_item,
+            commands::nuts::nuts_withdraw,
+            commands::nuts::nuts_boards,
+            commands::nuts::nuts_create_board,
+            commands::nuts::nuts_board_cards,
+            commands::nuts::nuts_board_note,
+            commands::nuts::nuts_board_file,
+            commands::nuts::nuts_choose_materials,
+            commands::nuts::nuts_board_move,
+            commands::nuts::nuts_board_link,
+            commands::nuts::nuts_refresh_link_preview,
+            commands::nuts::nuts_image_thumbnail,
+            commands::nuts::nuts_paste_image,
+            commands::nuts::nuts_image_usage,
+            commands::nuts::nuts_remove_board_cards,
+            commands::nuts::nuts_board_attach_card,
+            commands::nuts::nuts_board_move_group,
+            commands::nuts::nuts_board_issue,
+            commands::nuts::nuts_board_open_issue,
+            commands::nuts::nuts_board_drop_target,
+            commands::nuts::nuts_list,
+            commands::nuts::nuts_references,
+            commands::nuts::nuts_adopt_reference,
+            commands::nuts::nuts_add_issue_file,
+            commands::nuts::nuts_create,
+            commands::nuts::nuts_drafts,
+            commands::nuts::nuts_review_history,
+            commands::nuts::nuts_queue_review,
+            commands::nuts::nuts_save_result,
+            commands::nuts::nuts_reopen,
             commands::context_menu::show_context_menu,
             commands::context_menu::reveal_context_item,
             commands::context_menu::set_native_ui_language,
@@ -677,7 +711,13 @@ fn main() {
                 ..
             } => {
                 if let tauri::DragDropEvent::Drop { paths, .. } = &drag {
-                    enqueue_native_drag_drop(app, &label, paths);
+                    let board_drop = label == "main"
+                        && app.state::<AppState>().nuts_board_drop_target.load(std::sync::atomic::Ordering::Relaxed);
+                    if board_drop {
+                        let _ = app.emit_to("main", "nuts-board-file-drop", paths);
+                    } else {
+                        enqueue_native_drag_drop(app, &label, paths);
+                    }
                 }
             }
             _ => {}

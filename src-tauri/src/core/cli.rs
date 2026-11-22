@@ -557,7 +557,7 @@ fn remove_project(database: &Database, path: &Path) -> Result<CliResponse, CliFa
     Ok(response("removed", path, Some(library.id), Some("project source and bindings removed; files were kept".to_string())))
 }
 
-fn active_item_for_path(database: &Database, path: &str) -> Result<Option<crate::models::ItemSummary>, CliFailure> {
+pub(crate) fn active_item_for_path(database: &Database, path: &str) -> Result<Option<crate::models::ItemSummary>, CliFailure> {
     let mut page = 1;
     loop {
         let result = database.list_items(&ListItemsQuery { include_deleted: Some(false), page: Some(page), page_size: Some(500), ..Default::default() }).map_err(database_failure)?;
