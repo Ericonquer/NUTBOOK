@@ -1,6 +1,14 @@
 use crate::{core::nuts, state::AppState};
 
 #[tauri::command]
+pub fn nuts_search_cards(
+    state: tauri::State<'_, AppState>,
+    query: String,
+) -> Result<Vec<nuts::board::SearchCard>, String> {
+    nuts::board::search_cards(&state.app_data_dir, &query)
+}
+
+#[tauri::command]
 pub fn nuts_set_archived(state: tauri::State<'_, AppState>, id: String, archived: bool) -> Result<(), String> {
     nuts::set_archived(&state.app_data_dir, &id, archived)
 }
@@ -394,6 +402,15 @@ pub fn nuts_attach_library_item(
         .get_item_detail(item_id)
         .map_err(|error| error.to_string())?;
     nuts::references::attach_library_item(&state.app_data_dir, &issue_id, &item.summary)
+}
+
+#[tauri::command]
+pub fn nuts_remove_library_item(
+    state: tauri::State<'_, AppState>,
+    issue_id: String,
+    path: String,
+) -> Result<(), String> {
+    nuts::references::remove_library_item(&state.app_data_dir, &issue_id, &path)
 }
 
 #[tauri::command]

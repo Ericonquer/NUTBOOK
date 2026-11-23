@@ -2,6 +2,7 @@
   const fileOutline = '<path d="M5 2.5h6l4 4v11H5zM11 2.5v4h4"/>';
   const icons = {
     file: fileOutline,
+    issue: '<rect x="4" y="3" width="12" height="14" rx="2"/><path d="M7 7h6M7 10h6M7 13h3"/>',
     text: fileOutline + '<path d="M7.5 10h5m-5 3h4"/>',
     word: fileOutline + '<path d="m7.2 10.1 1 3.6 1.8-2.6 1.8 2.6 1-3.6"/>',
     markdown: '<path d="M2.5 5h15v10h-15zM5 12V8l2 2 2-2v4m4-4v4m-1.5-1.5L13 12l1.5-1.5"/>',
@@ -19,7 +20,7 @@
     ["ppt", "slides"], ["pptx", "slides"],
     ["xls", "spreadsheet"], ["xlsx", "spreadsheet"],
     ["png", "image"], ["jpg", "image"], ["jpeg", "image"], ["gif", "image"], ["webp", "image"],
-    ["link", "link"],
+    ["link", "link"], ["issue", "issue"],
   ]);
 
   window.createNutsMaterialIcon = (format, url) => {

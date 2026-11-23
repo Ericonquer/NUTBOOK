@@ -8997,6 +8997,17 @@
       <main id="mainShell" class="main-shell home-mode">
         <div class="topbar" data-tauri-drag-region>
           <div id="tabsWrap" class="tabs-wrap"></div>
+          <div class="topbar-right nuts-topbar" data-i18n-skip>
+            <div id="nutsSearchField" class="topbar-search-field" data-open="false">
+              <button id="nutsSearchButton" class="icon-button topbar-add-button" type="button" aria-expanded="false" aria-controls="nutsSearchInput"></button>
+              <input type="search" id="nutsSearchInput" class="input search-input" role="combobox" aria-controls="nutsSearchResults" aria-expanded="false" aria-autocomplete="list" hidden>
+              <div id="nutsSearchPopup" class="recent-search-popup">
+                <div id="nutsSearchStatus" role="status"></div>
+                <div id="nutsSearchResults" role="listbox" hidden></div>
+              </div>
+            </div>
+            <button id="nutsManageIssues" class="icon-button topbar-add-button" type="button"></button>
+          </div>
           <div class="topbar-right">
             <div class="topbar-search-field" data-has-value="false">
               <svg class="icon-svg" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.55"></circle><path d="m12 12 4 4" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"></path></svg>
@@ -9075,7 +9086,6 @@
           <button type="button" id="nutsNewBoard" class="nuts-tool-icon" aria-label="新建白板" data-tooltip="新建白板"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M10 5v10M5 10h10"/></svg></button>
         </div>
         <div class="nuts-board-actions">
-          <button type="button" id="nutsManageIssues" class="nuts-tool-icon"></button>
           <button type="button" id="nutsBoardRules" class="nuts-tool-icon" aria-label="工作规则" title="工作规则"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10v14H5zM8 7h4m-4 3h4m-4 3h3"/></svg></button>
           <button type="button" id="nutsAddMarkdown" class="nuts-tool-icon" aria-label="添加 Markdown"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11.5l5-5a2 2 0 0 1 2.8 2.8l-6 6a3.3 3.3 0 0 1-4.7-4.7l6-6"/></svg></button>
           <button type="button" id="nutsNewNote" class="nuts-tool-icon nuts-capture-tool" aria-label="记 NUT"><img class="nuts-mascot" src="./assets/nuts/nut-icon-v7.png" alt="" draggable="false"></button>
@@ -9127,7 +9137,7 @@
           <button type="button" id="nutsZoomOut" aria-label="缩小" title="缩小">−</button>
           <output id="nutsZoom">100%</output>
           <button type="button" id="nutsZoomIn" aria-label="放大" title="放大">＋</button>
-          <button type="button" id="nutsZoomFit" title="适应内容">适应内容</button>
+          <button type="button" id="nutsZoomFit" class="nuts-tool-icon" aria-label="适应内容" data-tooltip="适应内容"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/><rect x="6.5" y="7" width="7" height="6" rx="1"/></svg></button>
         </div>
         <div id="nutsSelection" hidden>
           <span id="nutsSelectedCount" role="status"></span>
@@ -9189,7 +9199,7 @@
             <p role="status"></p>
             <div class="nuts-management-results"></div>
           </section>
-          <section id="nutsIssuePage" hidden>
+          <section id="nutsIssuePage" tabindex="-1" hidden>
             <div class="nuts-issue-content">
               <p id="nutsIssueMessage" role="status"></p>
               <section id="nutsIssues" aria-label="议题"></section>
@@ -16543,6 +16553,7 @@
           return;
         }
         nutsBoard.localize();
+        localizeNutsTopbar();
         for (const row of nutsById.values()) {
           for (const node of row.querySelectorAll("[data-signature]")) delete node.dataset.signature;
         }
@@ -26848,13 +26859,217 @@ if (!chipTipController) {
       nutsManagementSearch.oninput = () => renderNutsManagement(nutsManagementIssues);
       async function openNutsManagement() {
         nutsManagementBoard = nutsBoard.current();
-        nutsManagementScope.setAttribute("aria-pressed", "false");
+        nutsManagementScope.setAttribute("aria-pressed", "true");
         nutsManagementArchive.setAttribute("aria-pressed", "false");
         nutsManagementSearch.value = "";
         nutsManagementMessage.textContent = "";
+        if (appState.activeTabId === nutsManagementId) renderNutsManagement(nutsManagementIssues);
         await activateNutsTab(null, true);
       }
       nutsManageButton.onclick = openNutsManagement;
+
+      const nutsSearchButton = document.getElementById("nutsSearchButton");
+      const nutsSearchField = document.getElementById("nutsSearchField");
+      const nutsSearchPopup = document.getElementById("nutsSearchPopup");
+      const nutsSearchInput = document.getElementById("nutsSearchInput");
+      const nutsSearchResults = document.getElementById("nutsSearchResults");
+      const nutsSearchStatus = document.getElementById("nutsSearchStatus");
+      let nutsBoardOpening;
+      let nutsSearchRequest = 0;
+      let nutsSearchTimer;
+      let nutsSearchComposing = false;
+      let nutsSearchIndex = -1;
+      let nutsSearchItems = [];
+
+      function localizeNutsTopbar() {
+        const search = nutsCopy("搜索 NUTS", "Search NUTS");
+        for (const [button, icon, label] of [
+          [nutsManageButton, nutsIssueIcons.manage, nutsCopy("全部议题", "All issues")],
+          [nutsSearchButton, '<circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/>', search],
+        ]) {
+          if (!button.firstChild) {
+            button.innerHTML = `<svg class="icon-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" aria-hidden="true">${icon}</svg><span class="topbar-button-tooltip" aria-hidden="true"></span>`;
+          }
+          button.setAttribute("aria-label", label);
+          button.lastElementChild.textContent = label;
+        }
+        nutsSearchInput.placeholder = search;
+        nutsSearchResults.setAttribute("aria-label", search);
+        nutsSearchInput.setAttribute("aria-label", search);
+      }
+
+      function selectNutsSearchResult(index) {
+        nutsSearchResults.children[nutsSearchIndex]?.setAttribute("aria-selected", "false");
+        nutsSearchIndex = index;
+        const option = nutsSearchResults.children[index];
+        if (!option) {
+          nutsSearchInput.removeAttribute("aria-activedescendant");
+          return;
+        }
+        option.setAttribute("aria-selected", "true");
+        nutsSearchInput.setAttribute("aria-activedescendant", option.id);
+        option.scrollIntoView({ block: "nearest" });
+      }
+
+      function resetNutsSearch() {
+        clearTimeout(nutsSearchTimer);
+        nutsSearchRequest += 1;
+        selectNutsSearchResult(-1);
+        nutsSearchItems = [];
+        nutsSearchResults.replaceChildren();
+        nutsSearchResults.hidden = true;
+        nutsSearchInput.setAttribute("aria-expanded", "false");
+        nutsSearchStatus.textContent = "";
+        nutsSearchPopup.classList.remove("open");
+      }
+
+      async function openNutsSearchResult(result) {
+        if (!result || nutsSearchField.dataset.open !== "true") return;
+        nutsSearchButton.classList.add("suppress-tooltip");
+        closeNutsSearch();
+        try {
+          if (result.issue) {
+            await activateNutsTab(result.issue);
+            if (getActiveTab()?.nutsIssueId === result.issue.id && !nutsSearchField.contains(document.activeElement)) {
+              nutsIssuePage.focus({ preventScroll: true });
+            }
+            return;
+          }
+          await activateNutsTab(null);
+          const opening = nutsBoardOpening;
+          await opening;
+          if (appState.activeTabId !== nutsBoardId || opening !== nutsBoardOpening) return;
+          await nutsBoard.switchBoard(result.boardId);
+          if (appState.activeTabId !== nutsBoardId || nutsBoard.current() !== result.boardId) return;
+          if (!(await nutsBoard.locate(result.id, result.boardId))) {
+            nutsBoardMessage.textContent = nutsCopy("找不到该卡片", "Card not found");
+          }
+        } catch (error) { setStatus(normalizeError(error), "error"); }
+      }
+
+      function closeNutsSearch(restoreFocus = false) {
+        if (nutsSearchField.dataset.open !== "true") return;
+        nutsSearchField.dataset.open = "false";
+        nutsSearchButton.setAttribute("aria-expanded", "false");
+        if (restoreFocus) nutsSearchButton.focus();
+        nutsSearchInput.hidden = true;
+        nutsSearchComposing = false;
+        nutsSearchInput.value = "";
+        resetNutsSearch();
+      }
+
+      nutsSearchButton.addEventListener("focus", () => nutsSearchButton.classList.remove("suppress-tooltip"));
+      document.addEventListener("pointermove", event => {
+        if (!nutsSearchButton.contains(event.target)) nutsSearchButton.classList.remove("suppress-tooltip");
+      });
+      nutsSearchButton.onclick = () => {
+        if (nutsSearchField.dataset.open === "true") {
+          closeNutsSearch(true);
+          return;
+        }
+        nutsSearchField.dataset.open = "true";
+        nutsSearchButton.setAttribute("aria-expanded", "true");
+        nutsSearchInput.hidden = false;
+        nutsSearchInput.focus();
+      };
+      document.addEventListener("pointerdown", event => {
+        if (!nutsSearchField.contains(event.target)) closeNutsSearch();
+      });
+      nutsSearchField.addEventListener("focusout", event => {
+        if (event.relatedTarget && !nutsSearchField.contains(event.relatedTarget)) closeNutsSearch();
+      });
+      nutsSearchField.addEventListener("keydown", event => {
+        if (event.key !== "Escape" || event.isComposing || nutsSearchComposing || nutsSearchField.dataset.open !== "true") return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeNutsSearch(true);
+      });
+      function scheduleNutsSearch() {
+        resetNutsSearch();
+        const query = nutsSearchInput.value.trim();
+        if (!query || nutsSearchField.dataset.open !== "true") return;
+        const request = nutsSearchRequest;
+        const isCurrent = () => request === nutsSearchRequest && nutsSearchField.dataset.open === "true";
+        nutsSearchPopup.classList.add("open");
+        nutsSearchStatus.textContent = nutsCopy("正在搜索…", "Searching…");
+        nutsSearchTimer = setTimeout(async () => {
+          try {
+            const [cards, issues, boards] = await Promise.all([
+              invoke("nuts_search_cards", { query }), invoke("nuts_list"), invoke("nuts_boards"),
+            ]);
+            if (!isCurrent()) return;
+            const boardNames = new Map(boards.map(board => [board.id, board.name]));
+            const boardName = id => id === "default" ? nutsBoard.nameFor(id) : boardNames.get(id) || id;
+            nutsSearchItems = [
+              ...cards.map(card => ({
+                id: card.id, title: card.title, boardId: card.board_id,
+                kind: card.kind, detail: [boardName(card.board_id)],
+              })),
+              ...issues.filter(issue => issue.title.toLowerCase().includes(query.toLowerCase())).map(issue => ({
+                issue, title: issue.title, kind: "issue",
+                detail: [boardName(issue.board_id || "default"),
+                  issue.archived_at ? nutsCopy("已归档", "Archived") : nutsIssueStatus(issue)],
+              })),
+            ];
+            nutsSearchStatus.textContent = nutsSearchItems.length ? "" : nutsCopy("没有匹配的结果", "No matching results");
+            for (const [index, result] of nutsSearchItems.entries()) {
+              const option = document.createElement("div");
+              option.id = `nuts-search-result-${index}`;
+              option.className = "recent-search-option";
+              option.setAttribute("role", "option");
+              option.setAttribute("aria-selected", "false");
+              const title = document.createElement("strong");
+              title.textContent = result.title;
+              const detail = document.createElement("small");
+              const icon = window.createNutsMaterialIcon(result.kind);
+              const type = document.createElement("span");
+              type.className = "nuts-search-result-type";
+              type.textContent = {
+                note: nutsCopy("灵感", "Idea"),
+                issue: nutsCopy("议题", "Issue"),
+                link: nutsCopy("链接", "Link"),
+                markdown: "Markdown",
+                image: nutsCopy("图片", "Image"),
+              }[icon.dataset.materialIcon] || nutsCopy("白板卡片", "Board card");
+              detail.append(type, ` · ${result.detail.join(" · ")}`);
+              const text = document.createElement("div");
+              text.className = "nuts-search-result-text";
+              text.append(title, detail);
+              option.append(icon, text);
+              option.onpointerdown = event => event.preventDefault();
+              option.onclick = () => openNutsSearchResult(result);
+              nutsSearchResults.append(option);
+            }
+            nutsSearchResults.hidden = !nutsSearchItems.length;
+            nutsSearchInput.setAttribute("aria-expanded", String(!nutsSearchResults.hidden));
+            if (nutsSearchItems.length) selectNutsSearchResult(0);
+          } catch (error) {
+            if (isCurrent()) nutsSearchStatus.textContent = normalizeError(error);
+          }
+        }, 140);
+      }
+      nutsSearchInput.addEventListener("compositionstart", () => {
+        nutsSearchComposing = true;
+        resetNutsSearch();
+      });
+      nutsSearchInput.addEventListener("compositionend", () => {
+        nutsSearchComposing = false;
+        scheduleNutsSearch();
+      });
+      nutsSearchInput.oninput = event => {
+        if (!nutsSearchComposing && !event.isComposing) scheduleNutsSearch();
+      };
+      nutsSearchInput.onkeydown = event => {
+        if (event.isComposing || nutsSearchComposing || !nutsSearchItems.length) return;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const direction = event.key === "ArrowDown" ? 1 : -1;
+          selectNutsSearchResult((nutsSearchIndex + direction + nutsSearchItems.length) % nutsSearchItems.length);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          openNutsSearchResult(nutsSearchItems[nutsSearchIndex]);
+        }
+      };
 
       function nutsIssueStatus(issue) {
         return {
@@ -27105,8 +27320,38 @@ if (!chipTipController) {
         }
       }
 
+      function nutsMaterialRemoveButton(onRemove) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        setNutsIssueIcon(remove, "remove", nutsCopy("移除素材", "Remove material"));
+        remove.onclick = async () => {
+          remove.disabled = true;
+          try { await onRemove(); }
+          catch (error) { nutsMessage.textContent = normalizeError(error); }
+          finally { remove.disabled = false; }
+        };
+        return remove;
+      }
+
+      function nutsMaterialRow(material, onRemove, extra, open) {
+        const row = document.createElement("div");
+        row.className = "nuts-material-link-row";
+        row.append(material);
+        if (open) {
+          const button = document.createElement("button");
+          button.type = "button";
+          setNutsIssueIcon(button, "external", nutsCopy("打开原文", "Open original"));
+          button.onclick = open;
+          row.append(button);
+        }
+        if (extra) row.append(extra);
+        row.append(nutsMaterialRemoveButton(onRemove));
+        return row;
+      }
+
       function renderNutsInputs(container, entries, issueId, boardId) {
         for (const card of entries) {
+          const remove = () => nutsBoard.confirmRemoval(boardId, [card.id], issueId);
           if (card.kind === "note") {
             const note = document.createElement("div");
             note.className = "nuts-issue-note";
@@ -27120,7 +27365,7 @@ if (!chipTipController) {
             icon.alt = "";
             const content = document.createElement("div");
             content.append(label, body);
-            note.append(icon, content);
+            note.append(icon, content, nutsMaterialRemoveButton(remove));
             container.append(note);
             continue;
           }
@@ -27128,24 +27373,10 @@ if (!chipTipController) {
           const action = link ? () => invoke("open_external_url_command", { payload: { url: card.body } })
             .catch(error => { nutsMessage.textContent = normalizeError(error); }) : undefined;
           const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, action, card.body);
-          if (link) {
-            file.classList.add("nuts-external-material");
-            const row = document.createElement("div");
-            row.className = "nuts-material-link-row";
-            const remove = document.createElement("button");
-            remove.type = "button";
-            setNutsIssueIcon(remove, "remove", nutsCopy("移除卡片", "Remove card"));
-            remove.onclick = () => nutsBoard.confirmRemoval(boardId, [card.id], issueId);
-            row.append(file, remove);
-            container.append(row);
-          } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(card.kind)) {
-            const row = document.createElement("div");
-            row.className = "nuts-material-link-row";
-            row.append(file, nutsImageUsageButton(card, boardId, issueId));
-            container.append(row);
-          } else {
-            container.append(file);
-          }
+          if (link) file.classList.add("nuts-external-material");
+          const usage = ["png", "jpg", "jpeg", "gif", "webp"].includes(card.kind)
+            ? nutsImageUsageButton(card, boardId, issueId) : null;
+          container.append(nutsMaterialRow(file, remove, usage, action));
         }
       }
 
@@ -27217,16 +27448,20 @@ if (!chipTipController) {
         let lookup = 0;
         async function searchLibrary() {
           const request = ++lookup;
+          const keyword = query.value.trim();
+          matches.replaceChildren();
+          if (!keyword || search.hidden) return;
           try {
-            const results = await invoke("list_items", { browseMode: "all", keyword: query.value.trim(), pageSize: 12 });
+            const results = await invoke("list_items", { browseMode: "all", keyword, pageSize: 12 });
             if (request !== lookup || !search.isConnected || search.hidden) return;
-            matches.replaceChildren();
             for (const raw of results.items || []) {
               const item = normalizeItemSummary(raw);
               const pick = nutsIssueFile(item.title || item.fileName, item.fileExt.toUpperCase(), item.fileExt, async () => {
                 pick.disabled = true;
                 try {
                   await invoke("nuts_attach_library_item", { issueId, itemId: item.id });
+                  if (getActiveTab()?.nutsIssueId !== issueId) return;
+                  nutsEpoch += 1;
                   sources.hidden = search.hidden = true;
                   add.setAttribute("aria-expanded", "false");
                   await loadNutsIssues();
@@ -27268,7 +27503,7 @@ if (!chipTipController) {
         renderNutsInputs(list, materials, issueId, boardId);
         if (count) related.append(list);
         for (const ref of libraryRefs) {
-          list.append(nutsIssueFile(ref.title, ref.format.toUpperCase(), ref.format, async () => {
+          const open = async () => {
             try {
               const found = await invoke("find_item_by_path", { payload: { filePath: ref.path } });
               if (!found) throw new Error(nutsCopy("资料已从库中移除", "File is no longer in the library"));
@@ -27276,7 +27511,21 @@ if (!chipTipController) {
               if (!appState.items.some(entry => entry.id === item.id)) appState.items.push(item);
               await openItem(item.id);
             } catch (error) { nutsMessage.textContent = normalizeError(error); }
-          }));
+          };
+          const file = nutsIssueFile(ref.title, ref.format.toUpperCase(), ref.format, open);
+          list.append(nutsMaterialRow(file, async () => {
+            const confirmed = await appConfirm({
+              title: nutsCopy("移除素材", "Remove material"),
+              message: nutsCopy("从议题和白板移除这条引用？源文件会保留在资料库。", "Remove this reference from the issue and board? The source file stays in the library."),
+              confirmText: nutsCopy("移除素材", "Remove material"),
+            });
+            if (!confirmed) return;
+            await invoke("nuts_remove_library_item", { issueId, path: ref.path });
+            if (getActiveTab()?.nutsIssueId === issueId) {
+              nutsEpoch += 1;
+              await loadNutsIssues();
+            }
+          }, null, open));
         }
 
         for (const reference of entries) {
@@ -27390,11 +27639,13 @@ if (!chipTipController) {
           nutsDrawers.close(false);
           nutsBoard.close().catch(error => setStatus(normalizeError(error), "error"));
         }
+        closeNutsSearch();
         if (!id) return;
+        localizeNutsTopbar();
         if (boardVisible) {
-          setNutsIssueIcon(nutsManageButton, "manage", nutsCopy("全部议题", "Issues"));
-          nutsBoard.open(listenRaw).catch(error => { nutsBoardMessage.textContent = normalizeError(error); });
+          nutsBoardOpening = nutsBoard.open(listenRaw).catch(error => { nutsBoardMessage.textContent = normalizeError(error); });
         } else {
+          nutsIssuePage.setAttribute("aria-label", tab.item.fileName);
           nutsIssuePage.scrollTop = 0;
           nutsMessage.textContent = "";
           for (const [issueId, row] of nutsById) row.hidden = issueId !== tab.nutsIssueId;
@@ -27439,7 +27690,6 @@ if (!chipTipController) {
             return;
           }
           if (active.id === nutsBoardId) {
-            setNutsIssueIcon(nutsManageButton, "manage", nutsCopy("全部议题", "Issues"));
             const boardId = nutsBoard.current();
             const cards = await invoke("nuts_board_cards", { boardId });
             if (epoch === nutsEpoch && boardId === nutsBoard.current()) {
@@ -27481,14 +27731,23 @@ if (!chipTipController) {
               row.dataset.issueId = issue.id;
               const action = row.querySelector(".nuts-issue-action");
               action.addEventListener("click", async () => {
+                const active = () => getActiveTab()?.nutsIssueId === issue.id;
                 action.disabled = true;
+                nutsMessage.textContent = "";
                 try {
                   if (row.dataset.stage === "draft") await invoke("nuts_board_open_issue", { id: issue.id });
                   else if (row.dataset.stage === "open") await invoke("nuts_withdraw", { issueId: issue.id });
                   else await invoke("nuts_reopen", { issueId: issue.id });
-                  await loadNutsIssues();
-                } catch (error) { nutsMessage.textContent = normalizeError(error); }
-                finally { action.disabled = false; }
+                } catch (error) {
+                  if (active()) nutsMessage.textContent = normalizeError(error);
+                } finally {
+                  try {
+                    if (active()) {
+                      nutsEpoch += 1;
+                      await loadNutsIssues();
+                    }
+                  } finally { action.disabled = false; }
+                }
               });
               nutsById.set(issue.id, row);
               nutsIssues.append(row);
@@ -27506,6 +27765,7 @@ if (!chipTipController) {
             setNutsIssueIcon(reviewAction, "review", nutsCopy("查看最新稿", "View latest draft"));
             row.hidden = false;
             summary.textContent = issue.title;
+            nutsIssuePage.setAttribute("aria-label", issue.title);
             statusLine.textContent = issue.archived_at ? nutsCopy("已归档", "Archived") : nutsIssueStatus(issue);
             claimCopy.hidden = issue.status !== "open";
             setNutsIssueIcon(claimCopy, "copy", nutsCopy("复制领取指令", "Copy claim instructions"));
@@ -27533,7 +27793,6 @@ if (!chipTipController) {
             metadataTitle.textContent = nutsCopy("议题 ID", "Issue ID");
             identifier.textContent = issue.id;
             agentTitle.textContent = nutsCopy("审阅稿", "Drafts");
-            reopen.classList.toggle("nuts-primary-action", issue.status === "draft");
             row.dataset.stage = issue.status;
             const actionLabel = issue.status === "draft" ? nutsCopy("开放给 Agent 领取", "Open for agent claim")
               : issue.status === "open" ? nutsCopy("撤回任务", "Withdraw task")

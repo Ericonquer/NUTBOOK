@@ -365,15 +365,18 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       node.type = "button";
       node.className = "nuts-card";
       node.dataset.cardId = card.id;
-      const cardLabel = card.issue_title ? `${card.title} · ${card.issue_title}` : card.title;
+      const isNote = card.kind === "note";
+      const label = isNote ? card.excerpt : card.title;
+      const cardLabel = card.issue_title ? `${label} · ${card.issue_title}` : label;
       node.setAttribute("aria-label", cardLabel);
       if (!card.issue_id) node.title = cardLabel;
       const caption = document.createElement("span");
       caption.className = "nuts-card-caption";
       const captionText = document.createElement("span");
       captionText.textContent = card.kind === "link" ? copy("链接", "Link") : card.kind === "note" ? "NUT" : card.kind === "markdown" ? "Markdown" : card.kind.toUpperCase();
+      if (card.library_format) captionText.textContent = card.library_format.toUpperCase();
       const hasExcerpt = ["note", "markdown", "link"].includes(card.kind);
-      const icon = window.createNutsMaterialIcon(card.kind, card.url);
+      const icon = window.createNutsMaterialIcon(card.library_format || card.kind, card.url);
       caption.append(captionText);
       if (hasExcerpt) caption.prepend(icon);
       const title = document.createElement("strong");
@@ -381,8 +384,10 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       title.textContent = card.title;
       const excerpt = document.createElement("span");
       excerpt.className = "nuts-card-copy";
-      excerpt.textContent = card.kind === "note" ? card.excerpt.split("\n").slice(1).join("\n") : card.excerpt;
-      node.append(caption, title);
+      excerpt.textContent = card.excerpt;
+      node.append(caption);
+      if (isNote) node.classList.add("nuts-note-card");
+      else node.append(title);
       if (card.preview_image) {
         const image = document.createElement("img");
         image.className = "nuts-link-cover";
@@ -399,7 +404,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         node.append(icon);
       }
       card.node = node;
-      if (card.issue_id) {
+      if (card.issue_id && card.kind !== "library") {
         const handle = document.createElement("button");
         handle.type = "button";
         handle.className = "nuts-tool-icon nuts-detach-handle";
@@ -423,9 +428,10 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         card.resizeHandle.dataset.cardId = card.id;
       }
       showThumbnail(card, thumbnails.get(card.id));
+      cardLayer.append(node);
+      if (isNote) card.height = node.offsetHeight;
       position(card, card.x, card.y);
       cards.set(card.id, card);
-      cardLayer.append(node);
       if (card.detachHandle) cardLayer.append(card.detachHandle);
       if (card.usageButton) cardLayer.append(card.usageButton, card.resizeHandle);
     }
@@ -946,11 +952,15 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
 
   async function focusCard(id) {
     const card = cards.get(id);
-    if (!card) return;
+    if (!card) return false;
     cameraX = (viewport.clientWidth - cardWidth(card) * scale) / 2 - card.x * scale;
     cameraY = (viewport.clientHeight - cardHeight(card) * scale) / 2 - card.y * scale;
     paintCamera();
     card.node.focus({ preventScroll: true });
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      card.node.animate([{ outline: "3px solid var(--ink)" }, { outline: "3px solid transparent" }], 1400);
+    }
+    return true;
   }
 
   async function detach(card, x, y) {
@@ -1023,7 +1033,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       const card = cards.get(target.closest(".nuts-card, .nuts-image-resize, .nuts-detach-handle")?.dataset.cardId);
       const issueId = card?.issue_id || target.closest(".nuts-group")?.dataset.issueId;
       return {
-        kind: card?.issue_id ? "nuts-issue-card" : issueId ? "nuts-issue-group" : card ? "nuts-board-card" : "nuts-board",
+        kind: card?.kind === "library" ? "nuts-library-card" : card?.issue_id ? "nuts-issue-card" : issueId ? "nuts-issue-group" : card ? "nuts-board-card" : "nuts-board",
         async run(action) {
           if (!visible() || boardId !== destination) return;
           if (action === "nuts-note") openForm("note", at, destination);
@@ -1044,9 +1054,9 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       if (!boardChoices.length) boardChoices = await invoke("nuts_boards");
       if (visible()) openForm("note", destination === boardId ? origin() : { x: 30, y: 52 }, destination);
     },
-    async locate(id) {
+    async locate(id, destination = boardId) {
       if (!cards.has(id)) await reload();
-      await focusCard(id);
+      return visible() && destination === boardId && focusCard(id);
     },
     localize,
     async open(listen) {

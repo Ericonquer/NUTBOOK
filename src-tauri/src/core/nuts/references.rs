@@ -457,30 +457,88 @@ pub fn attach_library_item(
     if !Path::new(&item.file_path).is_file() {
         return Err("The source file is no longer available".into());
     }
-    let db = open(data_dir)?;
-    db.execute(
-        "INSERT INTO nuts_library_refs (issue_id, path, title, format)
-         SELECT id, ?2, ?3, ?4 FROM issues WHERE id = ?1
-         ON CONFLICT(issue_id, path) DO NOTHING",
-        params![
-            issue_id,
-            item.file_path,
-            item.title.as_deref().unwrap_or(&item.file_name),
-            item.file_type
-        ],
-    )
-    .map_err(|error| error.to_string())?;
-    let exists = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM issues WHERE id=?1)",
-            [issue_id],
-            |row| row.get::<_, bool>(0),
-        )
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
-    if !exists {
-        return Err("Issue not found".into());
+    let board_id: String = tx.query_row(
+        "SELECT COALESCE(b.board_id, 'default') FROM issues i
+         LEFT JOIN nuts_issue_boards b ON b.issue_id = i.id WHERE i.id = ?1",
+        [issue_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT INTO nuts_library_refs (issue_id, path, title, format)
+         VALUES (?1, ?2, ?3, ?4) ON CONFLICT(issue_id, path) DO NOTHING",
+        params![issue_id, item.file_path, item.title.as_deref().unwrap_or(&item.file_name), item.file_type],
+    ).map_err(|error| error.to_string())?;
+    sync_library_cards(&tx, &board_id)?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+const MISSING_LIBRARY_CARDS: &str = "SELECT r.issue_id, r.path, r.title FROM nuts_library_refs r
+    JOIN issues i ON i.id = r.issue_id
+    LEFT JOIN nuts_issue_boards b ON b.issue_id = r.issue_id
+    WHERE COALESCE(b.board_id, 'default') = ?1 AND NOT EXISTS (
+      SELECT 1 FROM board_cards c WHERE c.issue_id = r.issue_id AND c.kind = 'library' AND c.markdown = r.path
+    ) ORDER BY r.rowid";
+
+pub(super) fn backfill_library_cards(db: &mut Connection, board_id: &str) -> Result<()> {
+    let missing: bool = db.query_row(&format!("SELECT EXISTS({MISSING_LIBRARY_CARDS})"), [board_id], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if !missing {
+        return Ok(());
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    sync_library_cards(&tx, board_id)?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+fn sync_library_cards(tx: &Transaction<'_>, board_id: &str) -> Result<()> {
+    let mut query = tx.prepare(MISSING_LIBRARY_CARDS).map_err(|error| error.to_string())?;
+    let missing = query.query_map([board_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+    }).map_err(|error| error.to_string())?.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    for (issue_id, path, title) in missing {
+        let (x, y) = tx.query_row(
+            "SELECT COALESCE(MAX(c.x + CASE WHEN c.kind IN ('png','jpg','jpeg','gif','webp')
+                    THEN MAX(220, 12 + 440 * COALESCE(s.percent,100) / 100) ELSE 220 END) + 24,
+                    (SELECT MAX(other.x) + 700 FROM board_cards other
+                       LEFT JOIN nuts_card_boards b ON b.card_id = other.id
+                       WHERE COALESCE(b.board_id, 'default') = ?2), 30),
+                    COALESCE(MIN(c.y), 52)
+             FROM board_cards c LEFT JOIN nuts_image_scales s ON s.card_id = c.id WHERE c.issue_id = ?1",
+            params![issue_id, board_id], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        ).map_err(|error| error.to_string())?;
+        let id = Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO board_cards (id, title, markdown, kind, x, y, issue_id)
+             VALUES (?1, ?2, ?3, 'library', ?4, ?5, ?6)",
+            params![id, title, path, x, y, issue_id],
+        ).map_err(|error| error.to_string())?;
+        tx.execute("INSERT INTO nuts_card_boards VALUES (?1, ?2)", params![id, board_id])
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+pub fn remove_library_item(data_dir: &Path, issue_id: &str, path: &str) -> Result<()> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM nuts_library_refs WHERE issue_id = ?1 AND path = ?2", params![issue_id, path])
+        .map_err(|error| error.to_string())?;
+    let mut query = tx.prepare(
+        "SELECT id FROM board_cards WHERE issue_id = ?1 AND markdown = ?2 AND kind = 'library'",
+    ).map_err(|error| error.to_string())?;
+    let ids = query.query_map(params![issue_id, path], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    drop(query);
+    for id in ids {
+        super::board::delete_card(&tx, &id)?;
+    }
+    tx.commit().map_err(|error| error.to_string())
 }
 
 pub(super) fn library_items(db: &Connection, issue_id: &str) -> Result<Vec<LibraryReference>> {

@@ -215,7 +215,7 @@ pub fn issue_context(data_dir: &Path, id: &str, language: &str) -> Result<Value>
     let mut query = db
         .prepare(
             "SELECT id, title, kind, CASE WHEN kind IN ('note','link') THEN markdown ELSE '' END
-         FROM board_cards WHERE issue_id = ?1
+         FROM board_cards WHERE issue_id = ?1 AND kind <> 'library'
            AND NOT EXISTS (SELECT 1 FROM nuts_reference_cards WHERE card_id = board_cards.id)
          ORDER BY rowid",
         )
