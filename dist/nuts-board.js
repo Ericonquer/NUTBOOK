@@ -539,10 +539,22 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   }
 
   function closeForm() {
+    const returningFromNote = editor?.kind === "note";
     editor = null;
-    if (formPanel.open) formPanel.close();
+    if (formPanel.open) {
+      formPanel.close();
+      if (returningFromNote && document.activeElement === viewport) {
+        viewport.setAttribute("data-capture-focus-return", "");
+      }
+    }
     paintSelection();
   }
+
+  function clearCaptureFocusReturn() {
+    viewport.removeAttribute("data-capture-focus-return");
+  }
+  viewport.addEventListener("blur", clearCaptureFocusReturn);
+  viewport.addEventListener("keydown", clearCaptureFocusReturn);
 
   document.getElementById("nutsBoardCancel").onclick = closeForm;
   formPanel.addEventListener("cancel", event => {

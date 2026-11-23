@@ -17,6 +17,9 @@
 #nutsWorkspace :is(#nutsBoardViewport, .nuts-review-document):focus-visible {
   outline-offset: -2px;
 }
+#nutsWorkspace #nutsBoardViewport[data-capture-focus-return]:focus-visible {
+  outline: none !important;
+}
 
 #nutsWorkspace[hidden], #nutsWorkspace [hidden] { display: none !important; }
 .main-shell.nuts-mode { grid-template-rows: auto minmax(0, 1fr); }
@@ -154,6 +157,16 @@
 #nutsFormPanel[data-kind="issue"] .nuts-mascot { display: none; }
 #nutsBoardInput { box-sizing: border-box; display: block; width: 100%; color: var(--ink); resize: vertical; min-height: 156px; max-height: 45vh; padding: 4px 24px 18px; background: transparent; border: 0; border-radius: 0; font-size: 14px; line-height: 1.65; }
 #nutsBoardInput:focus { outline: none; box-shadow: none; }
+#nutsFormPanel[data-kind="note"] #nutsBoardInput {
+  width: calc(100% - 32px);
+  margin: 0 16px 4px;
+  padding-inline: 8px;
+  border-radius: 7px;
+}
+#nutsFormPanel[data-kind="note"] #nutsBoardInput:focus-visible {
+  outline: 1px solid var(--ink-soft) !important;
+  outline-offset: -1px;
+}
 #nutsFormPanel[data-kind="issue"] #nutsBoardInput {
   width: calc(100% - 48px);
   min-height: 0;
