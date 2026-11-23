@@ -70,7 +70,7 @@ try{
  assert.ok(value.scroll<=value.width,'even an unbroken long path wraps inside its panel');
  assert.equal(value.text,await page.evaluate(()=>appState.libraries.find(item=>item.id===502).rootPath));
  assert.equal(await page.locator('.confirm-detail-label').evaluate(node=>getComputedStyle(node).whiteSpace),'nowrap');
- await page.locator('.confirm-card').screenshot({path:'/tmp/nutbook-remove-source-path.png'});
+ await page.locator('[aria-labelledby="appConfirmTitle"]').screenshot({path:'/tmp/nutbook-remove-source-path.png'});
  await page.locator('[data-confirm-cancel]').click();
  assert.equal(await page.evaluate(()=>appState.libraries.some(item=>item.id===502)),true,'cancelling must keep the source');
  assert.deepEqual(errors,[]);
