@@ -73,6 +73,12 @@
 .nuts-card-title, .nuts-card-copy { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .nuts-card-title { -webkit-line-clamp: 1; }
 .nuts-card-copy { -webkit-line-clamp: 3; font-size: 12px; }
+#nutsBoard .nuts-note-card { height: auto; min-height: 116px; }
+.nuts-note-card .nuts-card-copy {
+  display: block;
+  white-space: pre-wrap;
+  font-size: inherit;
+}
 #nutsMarquee { position: absolute; border: 1px solid #476aae; background: #476aae24; pointer-events: none; z-index: 2; }
 #nutsBoardForm [hidden], #nutsMarquee[hidden] { display: none; }
 .nuts-group { position: absolute; border: 1px dashed var(--ink-soft); border-radius: 12px; background: var(--surface-muted); pointer-events: none; }
@@ -285,7 +291,10 @@
 #nutsBoardMessage:not(:empty) { padding-top: 4px; }
 #nutsViewTools { gap: 2px; padding: 3px; font-size: 12px; line-height: 1; }
 #nutsViewTools button { display: grid; place-items: center; min-width: 23px; height: 24px; padding: 0 5px; font-size: 12px; }
-#nutsViewTools #nutsPan { appearance: none; width: 25px; height: 24px; }
+#nutsViewTools :is(#nutsPan, #nutsZoomFit) { appearance: none; width: 25px; height: 24px; }
+#nutsViewTools #nutsZoomFit { background: transparent; }
+#nutsViewTools #nutsZoomFit:not(:disabled):hover { background: var(--surface-muted); }
+#nutsWorkspace #nutsZoomFit[data-tooltip]::after { left: auto; right: 0; transform: none; }
 #nutsViewTools #nutsPan[aria-pressed="true"] { color: var(--surface); background: var(--ink); }
 #nutsBoardViewport.is-dragging-canvas, #nutsBoardViewport.is-dragging-canvas * { cursor: grabbing; }
 #nutsViewTools svg { width: 15px; height: 15px; }
@@ -396,10 +405,11 @@
 
 /* Issue actions stay visible while the reading area scrolls. */
 #nutsIssuePage { background: var(--paper, #fff); }
+#nutsIssuePage:focus-visible { outline: none !important; }
 #nutsIssuePage .nuts-issue-content { max-width: 900px; margin-inline: auto; padding: 0 clamp(20px, 5vw, 52px) 48px; box-sizing: border-box; }
 #nutsIssuePage button { padding: 8px 12px; border: 0; border-radius: 8px; background: var(--surface-muted); cursor: pointer; }
 #nutsIssuePage button:hover { background: var(--surface-variant); }
-#nutsIssuePage .nuts-primary-action, #nutsWorkspace #nutsSaveRules { color: var(--surface); background: var(--ink); }
+#nutsWorkspace #nutsSaveRules { color: var(--surface); background: var(--ink); }
 #nutsIssuePage { scroll-padding-top: 72px; }
 .nuts-issue-toolbar {
   position: sticky;
@@ -556,7 +566,6 @@
 #nutsIssues .nuts-draft:not(.nuts-draft-latest) { background: transparent; border: 1px solid var(--line); }
 .nuts-draft-latest summary { font-weight: 650; }
 
-#nutsIssuePage button.nuts-primary-action:hover { background: var(--ink-soft); color: var(--paper); }
 .nuts-reference-sources { display: flex; gap: 8px; margin-block: 10px; }
 #nutsIssuePage .nuts-reference-sources button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--ink-soft); }
 .nuts-note-label { color: var(--ink-soft); font-size: 11px; font-weight: 600; }
@@ -564,16 +573,17 @@
 
 #nutsIssuePage .nuts-material-list .nuts-issue-note {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: start;
   gap: 10px;
   width: auto;
   margin: 4px 4px 8px;
   padding: 10px 12px;
-  background: var(--surface);
+  background: var(--surface-variant);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+#nutsIssuePage .nuts-issue-note > .nuts-issue-icon-button { align-self: center; }
 .nuts-issue-note img { width: 24px; height: 24px; object-fit: contain; }
 
 .nuts-draft-version {
@@ -783,12 +793,12 @@
 #nutsIssuePage .nuts-issue-icon-button:is(:hover, :focus-visible) { z-index: 3; }
 #nutsIssuePage .nuts-issue-icon-button:is(:hover, :focus-visible)::after { visibility: visible; }
 
-#nutsIssuePage .nuts-issue-icon-button:not(.nuts-primary-action) {
+#nutsIssuePage button.nuts-issue-icon-button {
   appearance: none;
   background: transparent;
   color: var(--ink-soft);
 }
-#nutsIssuePage .nuts-issue-icon-button:not(.nuts-primary-action, :disabled):hover {
+#nutsIssuePage .nuts-issue-icon-button:not(:disabled):hover {
   background: var(--surface-muted);
   color: var(--ink);
 }
@@ -1052,3 +1062,38 @@
 
 #nutsWorkspace .nuts-drawer-management { margin-inline-start: auto; }
 #nutsWorkspace .nuts-drawer-management[data-tooltip]::after { top: auto; bottom: calc(100% + 7px); left: auto; right: 0; transform: none; }
+
+.topbar-right.nuts-topbar { display: none; }
+.main-shell.nuts-mode .topbar-right.nuts-topbar { display: flex; }
+.nuts-topbar .topbar-add-button:focus-visible {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 2px;
+}
+.nuts-topbar .topbar-add-button:focus-visible .topbar-button-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.nuts-topbar .topbar-button-tooltip { left: auto; right: 0; transform: translateY(-4px); }
+.nuts-topbar .topbar-add-button:hover .topbar-button-tooltip { transform: translateY(0); }
+
+#nutsSearchButton.suppress-tooltip .topbar-button-tooltip { visibility: hidden; opacity: 0; }
+#nutsSearchField { flex: none; }
+#nutsSearchField[data-open="false"] { width: 28px; background: transparent; }
+#nutsSearchField[data-open="true"] { width: min(232px, 42vw); background: #f3f3f5; }
+#nutsSearchField > button { position: absolute; inset: 1px auto auto 1px; z-index: 1; }
+#nutsSearchField[data-open="true"] .search-input { opacity: 1; pointer-events: auto; }
+#nutsSearchPopup {
+  position: absolute;
+  inset: calc(100% + 6px) 0 auto auto;
+  width: min(320px, calc(100vw - 24px));
+}
+#nutsSearchResults { max-height: min(52vh, 420px); overflow: auto; }
+#nutsSearchResults .recent-search-option { align-items: flex-start; overflow-wrap: anywhere; }
+#nutsSearchResults .nuts-material-icon { width: 24px; height: 24px; --material-icon-glyph: 16px; }
+.nuts-search-result-text { display: grid; gap: 3px; min-width: 0; }
+#nutsSearchResults .nuts-search-result-type { color: var(--ink); font-weight: 600; }
+#nutsSearchResults [role="option"]:hover,
+#nutsSearchResults [aria-selected="true"] { background: var(--surface-muted); }
+#nutsSearchStatus:not(:empty) { padding: 6px 8px; font-size: 12px; }
+#nutsSearchResults small, #nutsSearchStatus { color: var(--ink-soft); }

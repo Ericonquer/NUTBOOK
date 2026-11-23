@@ -78,6 +78,75 @@ pub(super) fn ensure_board(db: &rusqlite::Connection, board_id: &str) -> Result<
 }
 
 #[derive(Serialize)]
+pub struct SearchCard {
+    id: String,
+    title: String,
+    board_id: String,
+    kind: String,
+}
+
+fn is_han(character: char) -> bool {
+    matches!(character, '\u{3400}'..='\u{4dbf}' | '\u{4e00}'..='\u{9fff}'
+        | '\u{f900}'..='\u{faff}' | '\u{20000}'..='\u{323af}')
+}
+
+fn matches_with_extra_han(longer: &[char], shorter: &[char]) -> bool {
+    // Keep both ends anchored so short queries cannot match across unrelated words.
+    (1..shorter.len()).any(|gap| {
+        is_han(longer[gap]) && longer[..gap] == shorter[..gap] && longer[gap + 1..] == shorter[gap..]
+    })
+}
+
+pub fn search_cards(data_dir: &Path, query: &str) -> Result<Vec<SearchCard>> {
+    let db = open(data_dir)?;
+    let mut statement = db.prepare(
+        "SELECT c.id, COALESCE(p.title, c.title), COALESCE(cb.board_id, 'default'),
+                COALESCE((SELECT format FROM nuts_library_refs r
+                    WHERE c.kind = 'library' AND r.issue_id = c.issue_id AND r.path = c.markdown), c.kind),
+                CASE WHEN c.kind = 'note' THEN c.markdown ELSE '' END
+         FROM board_cards c
+         LEFT JOIN nuts_link_previews p ON p.card_id = c.id
+         LEFT JOIN nuts_card_boards cb ON cb.card_id = c.id
+         WHERE NOT EXISTS (SELECT 1 FROM nuts_archived_issues WHERE issue_id = c.issue_id)
+         ORDER BY c.rowid DESC",
+    ).map_err(|error| error.to_string())?;
+    let rows = statement.query_map([], |row| {
+        Ok((SearchCard {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            board_id: row.get(2)?,
+            kind: row.get(3)?,
+        }, row.get::<_, String>(4)?))
+    }).map_err(|error| error.to_string())?;
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let query_chars: Vec<_> = query.chars().collect();
+    let allow_approximate = query_chars.len() >= 2 && query_chars.iter().copied().all(is_han);
+    let matches_approximately = |text: &str| {
+        let chars: Vec<_> = text.chars().collect();
+        let length = query_chars.len();
+        chars.windows(length + 1).any(|window| matches_with_extra_han(window, &query_chars))
+            || (length >= 3 && chars.windows(length - 1).any(|window| matches_with_extra_han(&query_chars, window)))
+    };
+    let mut matches = Vec::new();
+    let mut approximate = Vec::new();
+    for row in rows {
+        let (card, body) = row.map_err(|error| error.to_string())?;
+        let title = card.title.to_lowercase();
+        let body = body.to_lowercase();
+        if title.contains(&query) || body.contains(&query) {
+            matches.push(card);
+        } else if allow_approximate && (matches_approximately(&title) || matches_approximately(&body)) {
+            approximate.push(card);
+        }
+    }
+    matches.extend(approximate);
+    Ok(matches)
+}
+
+#[derive(Serialize)]
 pub struct Card {
     id: String,
     title: String,
@@ -90,15 +159,20 @@ pub struct Card {
     url: Option<String>,
     preview_image: Option<String>,
     preview_ready: bool,
+    library_format: Option<String>,
     image_scale: Option<u16>,
 }
 
 pub fn list(data_dir: &Path, board_id: &str) -> Result<Vec<Card>> {
     let mut db = open(data_dir)?;
     super::references::backfill_board(&mut db, board_id)?;
+    super::references::backfill_library_cards(&mut db, board_id)?;
     let mut query = db
-        .prepare("SELECT board_cards.id, COALESCE(nuts_link_previews.title, board_cards.title), substr(board_cards.markdown, 1, 360), kind, x, y,
-            board_cards.issue_id, issues.title, CASE WHEN kind = 'link' THEN board_cards.markdown END, nuts_link_previews.image, nuts_link_previews.card_id IS NOT NULL, nuts_image_scales.percent FROM board_cards LEFT JOIN nuts_image_scales ON nuts_image_scales.card_id = board_cards.id LEFT JOIN nuts_link_previews ON nuts_link_previews.card_id = board_cards.id LEFT JOIN issues ON issues.id = board_cards.issue_id  WHERE COALESCE((SELECT board_id FROM nuts_card_boards WHERE card_id = board_cards.id), 'default') = ?1 AND NOT EXISTS (SELECT 1 FROM nuts_archived_issues WHERE issue_id = board_cards.issue_id) ORDER BY board_cards.rowid")
+        .prepare("SELECT board_cards.id, COALESCE(nuts_link_previews.title, board_cards.title), CASE WHEN kind = 'note' THEN board_cards.markdown ELSE substr(board_cards.markdown, 1, 360) END, kind, x, y,
+            board_cards.issue_id, issues.title, CASE WHEN kind = 'link' THEN board_cards.markdown END, nuts_link_previews.image, nuts_link_previews.card_id IS NOT NULL, nuts_image_scales.percent,
+            (SELECT format FROM nuts_library_refs r WHERE board_cards.kind = 'library'
+             AND r.issue_id = board_cards.issue_id AND r.path = board_cards.markdown)
+            FROM board_cards LEFT JOIN nuts_image_scales ON nuts_image_scales.card_id = board_cards.id LEFT JOIN nuts_link_previews ON nuts_link_previews.card_id = board_cards.id LEFT JOIN issues ON issues.id = board_cards.issue_id  WHERE COALESCE((SELECT board_id FROM nuts_card_boards WHERE card_id = board_cards.id), 'default') = ?1 AND NOT EXISTS (SELECT 1 FROM nuts_archived_issues WHERE issue_id = board_cards.issue_id) ORDER BY board_cards.rowid")
         .map_err(|error| error.to_string())?;
     let rows = query
         .query_map([board_id], |row| {
@@ -115,6 +189,7 @@ pub fn list(data_dir: &Path, board_id: &str) -> Result<Vec<Card>> {
                 preview_image: row.get(9)?,
                 preview_ready: row.get(10)?,
                 image_scale: row.get(11)?,
+                library_format: row.get(12)?,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -129,7 +204,12 @@ pub fn remove(data_dir: &Path, board_id: &str, ids: &[String], issue_id: Option<
     ensure_board(&tx, board_id)?;
     for id in ids {
         if let Some(issue_id) = issue_id {
-            if !super::references::unlink_card(&tx, id)? {
+            let removed_library = tx.execute(
+                "DELETE FROM nuts_library_refs WHERE issue_id = ?2 AND path = (
+                    SELECT markdown FROM board_cards WHERE id = ?1 AND issue_id = ?2 AND kind = 'library'
+                )", params![id, issue_id],
+            ).map_err(|error| error.to_string())?;
+            if removed_library == 0 && !super::references::unlink_card(&tx, id)? {
                 remove_material(&tx, id, issue_id)?;
             }
         }
@@ -168,7 +248,7 @@ pub(super) fn remove_material(tx: &rusqlite::Transaction<'_>, id: &str, issue_id
     ).map_err(|error| error.to_string())?;
     if from_board {
         let mut statement = tx.prepare(
-            "SELECT title, markdown FROM board_cards WHERE issue_id = ?1 AND id <> ?2
+            "SELECT title, markdown FROM board_cards WHERE issue_id = ?1 AND id <> ?2 AND kind <> 'library'
                 AND NOT EXISTS (SELECT 1 FROM nuts_reference_cards WHERE card_id = board_cards.id)
                 ORDER BY rowid",
         ).map_err(|error| error.to_string())?;
@@ -200,6 +280,13 @@ pub fn detach_card(data_dir: &Path, board_id: &str, issue_id: &str, id: &str, x:
     let mut db = open(data_dir)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
+    let library_card = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM board_cards WHERE id = ?1 AND kind = 'library')",
+        [id], |row| row.get::<_, bool>(0),
+    ).map_err(|error| error.to_string())?;
+    if library_card {
+        return Err("Remove this library reference from the issue instead".into());
+    }
     if !super::references::unlink_card(&tx, id)? {
         remove_material(&tx, id, issue_id)?;
     }
@@ -422,6 +509,47 @@ pub fn open_issue(data_dir: &Path, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_finds_full_note_body_and_card_titles_across_boards() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let other = create_board(dir, "Other", "article", "en-US").unwrap();
+        let body = format!("为什么AI 这么厉害，大多数人却没办法用AI 赚到钱？\n{}真正赚到钱", "还有很多人想知道怎么".repeat(50));
+        let note = add(dir, &other, "Idea", &body, "note", 0, 0).unwrap();
+        let file = add(dir, DEFAULT, "ÉTUDE.md", &body, "markdown", 0, 0).unwrap();
+
+        assert_eq!(list(dir, &other).unwrap()[0].excerpt, body);
+        for query in ["赚钱", "赚到钱", "真正赚钱", "到钱"] {
+            let results = search_cards(dir, query).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, note);
+            assert_eq!(results[0].board_id, other);
+        }
+        let short = add(dir, DEFAULT, "怎么赚钱", "正文", "note", 0, 0).unwrap();
+        assert!(search_cards(dir, "怎么赚到钱").unwrap().iter().any(|card| card.id == short));
+        assert!(search_cards(dir, "赚了很多钱").unwrap().is_empty());
+        let results = search_cards(dir, "étude").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, file);
+        assert_eq!(results[0].board_id, DEFAULT);
+    }
+
+    #[test]
+    fn search_matches_one_extra_han_character_and_ranks_exact_first() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let exact = add(dir, DEFAULT, "一起复盘", "正文", "note", 0, 0).unwrap();
+        let approximate = add(dir, DEFAULT, "周报", "明天复个盘", "note", 0, 0).unwrap();
+        add(dir, DEFAULT, "计划", "安排复习，盘点资料", "note", 0, 0).unwrap();
+
+        let ids = |query| {
+            search_cards(dir, query).unwrap().into_iter().map(|card| card.id).collect::<Vec<_>>()
+        };
+        assert_eq!(ids("复盘"), [exact.clone(), approximate.clone()]);
+        assert_eq!(ids("复个盘"), [approximate, exact]);
+        assert!(ids(" ").is_empty());
+    }
+
     #[test]
     fn batch_removal_rolls_back_if_selection_crosses_boards() {
         let temp = tempfile::tempdir().unwrap();

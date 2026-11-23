@@ -622,6 +622,12 @@ mod tests {
         assert!(save_result(dir, &id, 1, None, index).is_err());
         references::attach_library_item(dir, &id, &item).unwrap();
         references::attach_library_item(dir, &id, &item).unwrap();
+        let cards = serde_json::to_value(board::list(dir, "default").unwrap()).unwrap();
+        let cards = cards.as_array().unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0]["issue_id"], id);
+        assert_eq!(cards[0]["kind"], "library");
+        assert_eq!(cards[0]["library_format"], item.file_type);
         let again = claim(dir, &id, Some("补充发现".into())).unwrap();
         let references = serde_json::to_value(&again).unwrap();
         assert_eq!(
@@ -637,6 +643,21 @@ mod tests {
         assert_ne!(revised.file_path, item.file_path);
         assert_eq!(fs::read_to_string(&item.file_path).unwrap(), "# 人工编辑");
         assert_eq!(list(dir).unwrap()[0].result_version, Some(3));
+        references::remove_library_item(dir, &id, &item.file_path).unwrap();
+        let db = open(dir).unwrap();
+        assert!(references::library_items(&db, &id).unwrap().is_empty());
+        assert!(board::list(dir, "default").unwrap().is_empty());
+        assert_eq!(fs::read_to_string(&item.file_path).unwrap(), "# 人工编辑");
+        db.execute(
+            "INSERT INTO nuts_library_refs VALUES (?1, ?2, 'Existing reference', 'markdown')",
+            rusqlite::params![id, item.file_path],
+        ).unwrap();
+        let cards = serde_json::to_value(board::list(dir, "default").unwrap()).unwrap();
+        let card_id = cards[0]["id"].as_str().unwrap().to_owned();
+        board::remove(dir, "default", &[card_id], Some(&id)).unwrap();
+        assert!(references::library_items(&db, &id).unwrap().is_empty());
+        assert!(board::list(dir, "default").unwrap().is_empty());
+        assert!(std::path::Path::new(&item.file_path).is_file());
     }
 
     #[test]

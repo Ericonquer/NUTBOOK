@@ -46,10 +46,12 @@ pub async fn show_context_menu(app: tauri::AppHandle, webview: tauri::Webview, k
             add("nuts-material", label("添加素材", "Add Materials"), true)?;
             add("nuts-fit", label("适应内容", "Fit Content"), true)?;
         }
-        "nuts-issue-card" | "nuts-issue-group" => {
+        "nuts-issue-card" | "nuts-library-card" | "nuts-issue-group" => {
             add("nuts-open-issue", label("打开议题", "Open Issue"), true)?;
             if kind == "nuts-issue-card" {
                 add("nuts-detach-card", label("移回白板", "Move to Board"), true)?;
+            }
+            if matches!(kind, "nuts-issue-card" | "nuts-library-card") {
                 add("nuts-remove-card", label("移除卡片", "Remove Card"), true)?;
             }
             add("nuts-fit", label("适应内容", "Fit Content"), true)?;
