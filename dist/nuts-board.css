@@ -6,8 +6,15 @@
   font-weight: 600;
   letter-spacing: -0.01em;
 }
-#nutsWorkspace :is(button, [role="option"]):focus-visible {
-  outline: 1px solid var(--ink-soft) !important;
+#nutsWorkspace :is(button, input, textarea, select, summary, a[href], [role="option"], [tabindex]):focus-visible {
+  outline: 2px solid var(--ink-soft) !important;
+  outline-offset: 2px;
+}
+/* Dialog headings receive initial focus to announce context. The title is not a control. */
+#nutsWorkspace #nutsReviewTitle:focus {
+  outline: none !important;
+}
+#nutsWorkspace :is(#nutsBoardViewport, .nuts-review-document):focus-visible {
   outline-offset: -2px;
 }
 
@@ -21,7 +28,6 @@
 #nutsBoardMessage { grid-row: 6; color: var(--ink-soft); margin: 0; }
 #nutsBoardArea { position: relative; grid-row: 3; min-height: 0; }
 #nutsWorkspace button:not(.button) { color: var(--ink); }
-#nutsWorkspace button:focus-visible, #nutsWorkspace select:focus-visible { outline: 2px solid #476aae !important; outline-offset: 2px; }
 #nutsBoardForm button, #nutsIssuePage button, #nutsDrawerClose {
   padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); cursor: pointer;
 }
@@ -36,15 +42,58 @@
 #nutsBoardViewport.is-panning { cursor: grab; }
 #nutsBoard .nuts-card { position: absolute; overflow: hidden; display: flex; flex-direction: column; gap: 6px; width: 220px; height: 116px; padding: 11px; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--paper, white); color: var(--ink); cursor: grab; }
 #nutsBoard .nuts-card[aria-pressed="true"] { border-color: #476aae; box-shadow: inset 0 0 0 1px #476aae; }
-#nutsBoard .nuts-card:focus-visible { outline: 2px solid #476aae !important; outline-offset: 2px; }
-.nuts-card-caption { font-size: 11px; color: var(--ink-soft); }
+.nuts-card-caption { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); }
+.nuts-material-icon {
+  --material-icon-glyph: 20px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 34px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-variant);
+  color: var(--ink-soft);
+}
+.nuts-material-icon :is(svg, img) {
+  display: block;
+  width: var(--material-icon-glyph);
+  height: var(--material-icon-glyph);
+}
+.nuts-card-caption .nuts-material-icon {
+  --material-icon-glyph: 15px;
+  width: 22px;
+  height: 22px;
+}
+.nuts-card-attachment-icon { margin-top: auto; }
 .nuts-card-title, .nuts-card-copy { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .nuts-card-title { -webkit-line-clamp: 1; }
 .nuts-card-copy { -webkit-line-clamp: 3; font-size: 12px; }
 #nutsMarquee { position: absolute; border: 1px solid #476aae; background: #476aae24; pointer-events: none; z-index: 2; }
 #nutsBoardForm [hidden], #nutsMarquee[hidden] { display: none; }
 .nuts-group { position: absolute; border: 1px dashed var(--ink-soft); border-radius: 12px; background: var(--surface-muted); pointer-events: none; }
-.nuts-group > button { position: absolute; top: 2px; left: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 1; pointer-events: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; padding: 2px 7px; cursor: pointer; }
+.nuts-group > button {
+  appearance: none;
+  position: absolute;
+  inset: 5px auto auto 6px;
+  box-sizing: border-box;
+  height: 32px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  z-index: 1;
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  padding-inline: 10px;
+}
+.nuts-group > button:hover { background: var(--paper); border-color: var(--line-strong); }
 .nuts-references:empty { display: none; }
 #nutsCabinet { grid-row: 4; position: relative; }
 #nutsDrawerButtons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); }
@@ -144,9 +193,71 @@
 .nuts-board-toolbar { justify-content: flex-start; gap: 14px; }
 #nutsTagline { margin: 0; font-size: 13px; color: var(--ink-soft); }
 .nuts-board-strip { grid-row: 2; display: flex; align-items: flex-end; gap: 16px; min-width: 0; }
-#nutsBoardList { position: relative; z-index: 1; flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; align-items: end; gap: 3px; margin: 0 0 -11px; padding-left: 9px; scrollbar-width: none; }
-#nutsBoardList button { flex: none; padding: 7px 12px 8px; border: 1px solid var(--line); border-radius: 8px 8px 0 0; background: var(--surface-muted); white-space: nowrap; font-size: 13px; }
-#nutsBoardList button[aria-current="page"] { background: var(--surface-variant); border-bottom-color: var(--surface-variant); }
+.nuts-board-tabs {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  margin-block-end: -11px;
+  padding-inline-start: 3px;
+}
+#nutsBoardList {
+  --tab-join-radius: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: end;
+  gap: calc(2 * var(--tab-join-radius));
+  padding-inline: var(--tab-join-radius);
+  scrollbar-width: none;
+}
+#nutsWorkspace #nutsNewBoard {
+  appearance: none;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+#nutsWorkspace #nutsNewBoard:hover { background: var(--surface-muted); color: var(--ink); }
+#nutsBoardList button {
+  --tab-surface: var(--surface-muted);
+  position: relative;
+  flex: none;
+  padding: 7px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  background: var(--tab-surface);
+  white-space: nowrap;
+  font-size: 13px;
+}
+#nutsBoardList button[aria-current="page"] {
+  --tab-surface: var(--surface-variant);
+  background: var(--tab-surface);
+  border-bottom-color: var(--tab-surface);
+}
+#nutsBoardList button::before,
+#nutsBoardList button::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  width: calc(var(--tab-join-radius) + 1px);
+  height: calc(var(--tab-join-radius) + 1px);
+  background: radial-gradient(circle at 0 0,
+    transparent calc(var(--tab-join-radius) - .5px),
+    var(--line) var(--tab-join-radius),
+    var(--tab-surface) calc(var(--tab-join-radius) + 1px));
+  pointer-events: none;
+}
+#nutsBoardList button::before { right: 100%; }
+#nutsBoardList button::after { left: 100%; transform: scaleX(-1); }
 #nutsBoardList button:focus-visible { outline-offset: -3px; }
 #nutsBoardViewport { border-top-left-radius: 8px; }
 .nuts-board-actions { flex: none; align-self: center; padding-bottom: 3px; }
@@ -311,8 +422,6 @@
 .nuts-issue-file strong, .nuts-issue-file small { display: block; overflow-wrap: anywhere; }
 .nuts-issue-file strong { font-size: 13px; }
 #nutsIssues .nuts-issue-file small { margin-top: 3px; font-size: 11px; }
-.nuts-issue-file-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; background: var(--surface-muted); border-radius: 6px; }
-.nuts-issue-file-icon svg { width: 16px; height: 16px; }
 .nuts-reference-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #nutsIssues .nuts-reference-header h2 { margin-bottom: 0; }
 .nuts-reference-search { max-width: 560px; margin-block: 10px; }
@@ -363,10 +472,17 @@
 
 #nutsBoard .nuts-card.has-image-thumbnail { padding: 5px; gap: 2px; }
 #nutsBoard .has-image-thumbnail .nuts-card-caption { display: none; }
+#nutsBoard .has-image-thumbnail .nuts-card-attachment-icon {
+  position: absolute;
+  --material-icon-glyph: 16px;
+  inset: auto auto 7px 8px;
+  width: 24px;
+  height: 24px;
+}
 #nutsBoard .has-image-thumbnail .nuts-card-title {
   display: block;
   flex: none;
-  padding-inline: 4px 48px;
+  padding-inline: 33px 48px;
   font-size: 11px;
   font-weight: 400;
   line-height: 28px;
@@ -486,12 +602,65 @@
 .nuts-review-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 32%); }
 .nuts-review-layout > * { overflow: auto; padding: 18px; overflow-wrap: anywhere; }
 .nuts-review-document { font-size: 15px; line-height: 1.7; border-block: 1px solid var(--line); }
-.nuts-review-layout aside { background: var(--surface); border-inline-start: 1px solid var(--line); }
+.nuts-review-layout aside {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background: var(--surface);
+  border-inline-start: 1px solid var(--line);
+}
+.nuts-review-tools {
+  position: relative;
+  z-index: 1;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.nuts-review-comments {
+  grid-row: 2;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 18px 18px;
+}
 #nutsReviewDialog button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; cursor: pointer; }
-#nutsReviewDialog footer button { background: var(--ink); color: var(--paper); }
+#nutsWorkspace #nutsReviewDialog footer button {
+  appearance: none;
+  background: var(--ink);
+  color: var(--paper);
+}
+#nutsWorkspace #nutsReviewDialog footer button:disabled {
+  opacity: 1;
+  cursor: default;
+  background: transparent;
+  color: var(--ink-soft);
+}
+#nutsWorkspace #nutsReviewDialog footer button:not(:disabled):hover { background: var(--ink-soft); }
+.nuts-review-document img { display: block; max-width: 100%; height: auto; }
 .nuts-review-comment { padding: 9px; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
-.nuts-review-comment p { white-space: pre-wrap; }
-.nuts-review-comment button { text-align: start; overflow-wrap: anywhere; }
+.nuts-review-comment p { margin: 9px 0 10px; white-space: pre-wrap; }
+.nuts-review-excerpt {
+  margin: 5px 0 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--surface-variant);
+}
+#nutsReviewDialog .nuts-review-quote {
+  appearance: none;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+#nutsReviewDialog .nuts-review-quote:hover { color: var(--ink); text-decoration: underline; }
 .nuts-review-hint { color: var(--ink-soft); font-size: 12px; }
 #nutsReviewDialog textarea { width: 100%; box-sizing: border-box; }
 ::highlight(nuts-review) { background-color: #ffd76d; color: #262016; }
@@ -600,17 +769,21 @@
 #nutsIssuePage .nuts-issue-icon-button:is(:hover, :focus-visible) { z-index: 3; }
 #nutsIssuePage .nuts-issue-icon-button:is(:hover, :focus-visible)::after { visibility: visible; }
 
-#nutsIssuePage :is(.nuts-issue-back, .nuts-issue-action[data-icon="withdraw"], .nuts-reference-header .nuts-issue-icon-button, .nuts-material-link-row button[data-icon="remove"]) {
+#nutsIssuePage .nuts-issue-icon-button:not(.nuts-primary-action) {
+  appearance: none;
   background: transparent;
   color: var(--ink-soft);
 }
-#nutsIssuePage :is(.nuts-issue-back, .nuts-issue-action[data-icon="withdraw"], .nuts-reference-header .nuts-issue-icon-button, .nuts-material-link-row button[data-icon="remove"]):is(:hover, :focus-visible) {
+#nutsIssuePage .nuts-issue-icon-button:not(.nuts-primary-action, :disabled):hover {
   background: var(--surface-muted);
   color: var(--ink);
 }
 
 #nutsBoard .nuts-image-card .nuts-card-caption { padding-inline-end: 25px; }
-#nutsWorkspace #nutsBoard .nuts-card-image-usage {
+#nutsWorkspace #nutsBoard :is(.nuts-card-image-usage, .nuts-detach-handle[data-tooltip]) {
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
   position: absolute;
   width: 28px;
   height: 28px;
@@ -619,12 +792,10 @@
   background: transparent;
   color: var(--ink-soft);
 }
-#nutsWorkspace #nutsBoard .nuts-card-image-usage:is(:hover, :focus-visible),
-#nutsIssuePage .nuts-material-link-row button[data-icon="imageUsage"]:is(:hover, :focus-visible) {
+#nutsWorkspace #nutsBoard :is(.nuts-card-image-usage, .nuts-detach-handle):is(:hover, :focus-visible) {
   background: var(--surface-muted);
   color: var(--ink);
 }
-#nutsIssuePage .nuts-material-link-row button[data-icon="imageUsage"] { background: transparent; color: var(--ink-soft); }
 #nutsImageUsage { color: var(--ink); }
 #nutsImageUsage::backdrop { background: #33333d40; backdrop-filter: blur(3px); }
 .nuts-image-role-options {
@@ -685,34 +856,172 @@
 }
 #nutsWorkspace #nutsBoard .nuts-image-resize.is-resizing::after { opacity: 1; }
 
-#nutsManageIssues { margin-inline-start: auto; }
-#nutsManagementPage { height: 100%; overflow: auto; padding: 24px; }
-.nuts-management-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.nuts-management-toolbar h1 { margin: 0 auto 0 0; font-size: 22px; }
-.nuts-management-toolbar input { padding: 7px 10px; min-width: 130px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); }
-.nuts-management-toolbar input:focus-visible,
-#nutsWorkspace :is(#nutsManageIssues, #nutsManagementPage button, .nuts-detach-handle, .nuts-claim-copy, .nuts-archive-action):focus-visible {
-  outline: 2px solid var(--ink-soft) !important;
+#nutsManagementPage {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 36px clamp(20px, 4vw, 48px) 48px;
+  container-type: inline-size;
+}
+#nutsManagementPage > * { width: min(100%, 920px); margin-inline: auto; }
+.nuts-management-toolbar,
+.nuts-management-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nuts-management-toolbar {
+  justify-content: space-between;
+  align-items: end;
+  row-gap: 16px;
+  padding-block-end: 18px;
+  margin-block-end: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.nuts-management-toolbar h1 { margin: 0; font-size: 23px; line-height: 1.25; letter-spacing: -.025em; }
+.nuts-management-heading p { margin: 5px 0 0; font-size: 12px; color: var(--ink-soft); }
+.nuts-management-tools { gap: 3px; min-width: 0; max-width: 100%; }
+.nuts-management-tools .nuts-tool-icon { flex: none; }
+.nuts-management-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 9px;
+  margin-inline-end: 5px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+.nuts-management-search input {
+  appearance: none;
+  width: clamp(105px, 16vw, 176px);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.nuts-management-search input::placeholder { color: var(--ink-soft); opacity: 1; }
+.nuts-management-search:focus-within {
+  outline: 2px solid var(--ink-soft);
   outline-offset: 2px;
 }
-#nutsWorkspace :is(#nutsManageIssues, #nutsManagementPage button) {
-  border: 1px solid var(--line);
+#nutsWorkspace .nuts-management-search input:focus-visible { outline: none !important; }
+#nutsWorkspace :is(#nutsManageIssues, .nuts-management-tools button, .nuts-drawer-management) {
+  appearance: none;
+  border: 0;
   border-radius: 7px;
-  background: var(--paper);
-  padding: 6px 10px;
+  background: transparent;
+  color: var(--ink-soft);
   cursor: pointer;
 }
-#nutsWorkspace :is(#nutsManageIssues, #nutsManagementPage button):is(:hover, [aria-pressed="true"]) { background: var(--surface-muted); }
-.nuts-management-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+#nutsWorkspace :is(#nutsManageIssues, .nuts-management-tools button, .nuts-drawer-management):is(:hover, [aria-pressed="true"]) {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+#nutsWorkspace .nuts-management-tools [data-tooltip]:not(:hover, :focus-visible)::after { display: none; }
+#nutsWorkspace :is(#nutsManageIssues, .nuts-management-tools [data-tooltip])::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+#nutsManagementPage > [role="status"]:empty { display: none; }
+.nuts-management-results {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
 .nuts-management-results.is-archive { grid-template-columns: minmax(0, 1fr); }
-.nuts-management-results section { background: var(--surface-muted); border-radius: 9px; padding: 10px; min-width: 0; }
-.nuts-management-results h2 { margin: 0 0 10px; font-size: 14px; }
-.nuts-management-results section button { display: grid; gap: 5px; width: 100%; text-align: start; margin-bottom: 6px; overflow-wrap: anywhere; }
-.nuts-management-results small { color: var(--ink-soft); }
-@media (max-width: 650px) { .nuts-management-results { grid-template-columns: minmax(0, 1fr); } }
-#nutsWorkspace .nuts-detach-handle[data-tooltip] { position: absolute; width: 26px; height: 26px; z-index: 3; opacity: 0; background: var(--paper); cursor: grab; }
-#nutsWorkspace .nuts-card:is(:hover, :focus-visible) + .nuts-detach-handle { opacity: .8; }
-#nutsWorkspace .nuts-detach-handle:is(:hover, :focus-visible) { opacity: 1; }
+.nuts-management-results section {
+  min-width: 0;
+  min-height: 146px;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-variant);
+}
+.nuts-management-results.is-archive section { min-height: 0; }
+.nuts-management-results h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0 2px 2px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 650;
+}
+.nuts-management-results h2::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--ink-soft);
+  border-radius: 50%;
+}
+.nuts-management-results [data-stage="working"] h2::before { background: #c63643; border-color: #c63643; }
+.nuts-management-results [data-stage="done"] h2::before { background: #238353; border-color: #238353; }
+.nuts-management-results [data-stage="archive"] h2::before { display: none; }
+.nuts-management-results h2 span {
+  margin-inline-start: auto;
+  color: var(--ink-soft);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.nuts-management-results section button {
+  appearance: none;
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.nuts-management-results section button:hover { border-color: var(--ink-soft); }
+.nuts-management-results strong { font-size: 14px; line-height: 1.45; font-weight: 650; }
+.nuts-management-card-status {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.nuts-management-card-status::before {
+  content: "";
+  flex: 0 0 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.nuts-management-card-status[data-status="open"] { color: var(--ink); }
+.nuts-management-card-status[data-status="claimed"] { background: #f9ebed; color: #96313a; }
+.nuts-management-card-status[data-status="review"] { background: #faf0df; color: #754b14; }
+.nuts-management-card-status[data-status="done"] { background: #e6f2e9; color: #216645; }
+.nuts-management-results small { font-size: 11px; color: var(--ink-soft); }
+.nuts-management-empty { grid-column: 1 / -1; margin: 0; color: var(--ink-soft); font-size: 12px; }
+@container (max-width: 560px) {
+  .nuts-management-results { grid-template-columns: minmax(0, 1fr); }
+  .nuts-management-results section { min-height: 0; }
+}
+#nutsWorkspace #nutsBoard .nuts-detach-handle { z-index: 3; opacity: 0; cursor: grab; }
+#nutsWorkspace #nutsBoard .nuts-card:is(:hover, :focus-visible) + .nuts-detach-handle,
+#nutsWorkspace #nutsBoard .nuts-detach-handle:is(:hover, :focus-visible) { opacity: 1; }
 #nutsBoardViewport.nuts-detach-ready::after {
   content: attr(data-detach-hint);
   position: absolute;
@@ -726,3 +1035,6 @@
   pointer-events: none;
   z-index: 5;
 }
+
+#nutsWorkspace .nuts-drawer-management { margin-inline-start: auto; }
+#nutsWorkspace .nuts-drawer-management[data-tooltip]::after { top: auto; bottom: calc(100% + 7px); left: auto; right: 0; transform: none; }

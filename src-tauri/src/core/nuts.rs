@@ -1,14 +1,17 @@
 pub mod link_preview;
 pub mod board;
+pub mod draft_assets;
+pub mod handoff;
 pub mod materials;
 pub mod references;
+pub mod result_references;
 pub mod review;
 pub mod settings;
 
 use std::{
     fs,
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
     time::Duration,
 };
 
@@ -72,6 +75,10 @@ fn open(data_dir: &Path) -> Result<Connection> {
             issue_id TEXT NOT NULL, version INTEGER NOT NULL, token TEXT UNIQUE NOT NULL,
             markdown TEXT NOT NULL, PRIMARY KEY(issue_id, version)
         );
+        CREATE TABLE IF NOT EXISTS nuts_draft_images (
+            issue_id TEXT NOT NULL, version INTEGER NOT NULL, name TEXT NOT NULL,
+            bytes BLOB NOT NULL, PRIMARY KEY(issue_id, version, name)
+        );
         CREATE TABLE IF NOT EXISTS board_cards (
             id TEXT PRIMARY KEY, title TEXT NOT NULL, markdown TEXT NOT NULL, kind TEXT NOT NULL,
             x INTEGER NOT NULL, y INTEGER NOT NULL, issue_id TEXT
@@ -99,6 +106,13 @@ fn open(data_dir: &Path) -> Result<Connection> {
             id TEXT PRIMARY KEY, issue_id TEXT NOT NULL, url TEXT NOT NULL,
             title TEXT NOT NULL, reason TEXT NOT NULL, adopted INTEGER NOT NULL DEFAULT 0,
             UNIQUE(issue_id, url)
+        );
+        CREATE TABLE IF NOT EXISTS nuts_reference_cards (
+            ref_id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE, created_for_reference INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS nuts_result_reference_options (
+            issue_id TEXT NOT NULL, version INTEGER NOT NULL, keep INTEGER NOT NULL,
+            PRIMARY KEY(issue_id, version)
         );
         CREATE TABLE IF NOT EXISTS results (
             issue_id TEXT PRIMARY KEY, version INTEGER NOT NULL
@@ -343,7 +357,17 @@ fn claim_in(tx: &Connection, id: &str, supplement: Option<String>) -> Result<Cla
     })
 }
 
+pub fn submit_file(data_dir: &Path, id: &str, token: &str, path: &Path) -> Result<i64> {
+    let markdown = read_markdown(path)?;
+    let assets = draft_assets::collect(path, &markdown)?;
+    submit_with_assets(data_dir, id, token, &markdown, &assets)
+}
+
 pub fn submit(data_dir: &Path, id: &str, token: &str, markdown: &str) -> Result<i64> {
+    submit_with_assets(data_dir, id, token, markdown, &[])
+}
+
+fn submit_with_assets(data_dir: &Path, id: &str, token: &str, markdown: &str, assets: &[draft_assets::Asset]) -> Result<i64> {
     validate_markdown(markdown)?;
     let mut db = open(data_dir)?;
     let tx = db
@@ -358,11 +382,12 @@ pub fn submit(data_dir: &Path, id: &str, token: &str, markdown: &str) -> Result<
         .optional()
         .map_err(|error| error.to_string())?;
     if let Some((version, previous)) = already {
-        return if previous == markdown {
-            Ok(version)
-        } else {
-            Err("This claim already has a different draft".into())
-        };
+        if previous != markdown {
+            return Err("This claim already has a different draft".into());
+        }
+        draft_assets::store(&tx, id, version, assets)?;
+        tx.commit().map_err(|error| error.to_string())?;
+        return Ok(version);
     }
     let updated = tx.execute(
         "UPDATE issues SET status = 'review', token = NULL WHERE id = ?1 AND token = ?2 AND status = 'claimed'",
@@ -383,6 +408,7 @@ pub fn submit(data_dir: &Path, id: &str, token: &str, markdown: &str) -> Result<
         params![id, version, token, markdown],
     )
     .map_err(|error| error.to_string())?;
+    draft_assets::store(&tx, id, version, assets)?;
     tx.commit().map_err(|error| error.to_string())?;
     Ok(version)
 }
@@ -391,6 +417,7 @@ pub fn save_result<T>(
     data_dir: &Path,
     issue_id: &str,
     version: i64,
+    keep_references: Option<bool>,
     index: impl FnOnce(&Path) -> Result<T>,
 ) -> Result<T> {
     let error = |error: rusqlite::Error| error.to_string();
@@ -414,6 +441,17 @@ pub fn save_result<T>(
     if status != "review" && published != Some(version) {
         return Err("This version is no longer available to save as the result".into());
     }
+    let stored_choice: Option<bool> = tx.query_row(
+        "SELECT keep FROM nuts_result_reference_options WHERE issue_id = ?1 AND version = ?2",
+        params![issue_id,version], |row| row.get(0),
+    ).optional().map_err(error)?;
+    let keep_references = if published == Some(version) {
+        stored_choice.unwrap_or(true)
+    } else {
+        keep_references.unwrap_or(false)
+    };
+    let markdown = result_references::for_result(&markdown, keep_references);
+    validate_markdown(&markdown)?;
     let issue_id = Uuid::parse_str(issue_id).map_err(|_| "Invalid issue ID")?;
     let directory = data_dir.join("nuts-results").join(issue_id.to_string());
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
@@ -433,7 +471,9 @@ pub fn save_result<T>(
             }
         })
         .collect();
-    let path: PathBuf = directory.join(format!("NUTS - {safe_title} - v{version}.md"));
+    let path = draft_assets::prepare_result(&tx, &issue_id.to_string(), version,
+        directory.join(format!("NUTS - {safe_title} - v{version}.md")))?;
+    let directory = path.parent().ok_or("Result directory is missing")?;
 
     if !path.is_file() {
         let mut staged =
@@ -457,6 +497,11 @@ pub fn save_result<T>(
         tx.commit().map_err(error)?;
         return Ok(indexed);
     }
+    tx.execute(
+        "INSERT INTO nuts_result_reference_options VALUES (?1,?2,?3)
+         ON CONFLICT(issue_id,version) DO UPDATE SET keep=excluded.keep",
+        params![issue_id.to_string(), version, keep_references],
+    ).map_err(error)?;
     tx.execute(
         "INSERT INTO results (issue_id, version) VALUES (?1, ?2) ON CONFLICT(issue_id) DO UPDATE SET version=excluded.version",
         params![issue_id.to_string(), version],
@@ -544,7 +589,7 @@ mod tests {
         let second = claim(dir, &id, Some("# 新证据".into())).unwrap();
         submit(dir, &id, &second.token, "# 第二版").unwrap();
 
-        assert!(save_result(dir, &id, 2, |_| Err::<(), _>("index failed".into())).is_err());
+        assert!(save_result(dir, &id, 2, None, |_| Err::<(), _>("index failed".into())).is_err());
         assert_eq!(list(dir).unwrap()[0].status, "review");
 
         let index = |path: &Path| {
@@ -563,18 +608,18 @@ mod tests {
                 .map_err(|error| error.message)?
                 .ok_or_else(|| "Missing library item".into())
         };
-        let item = save_result(dir, &id, 2, index).unwrap();
+        let item = save_result(dir, &id, 2, None, index).unwrap();
         assert_eq!(fs::read_to_string(&item.file_path).unwrap(), "# 第二版");
         assert_eq!(list(dir).unwrap()[0].result_version, Some(2));
         assert_eq!(drafts(dir, &id).unwrap()[1].markdown, "# 第一版");
         fs::write(&item.file_path, "# 人工编辑").unwrap();
-        let reopened = save_result(dir, &id, 2, index).unwrap();
+        let reopened = save_result(dir, &id, 2, None, index).unwrap();
         assert_eq!(reopened.id, item.id);
         assert_eq!(
             fs::read_to_string(reopened.file_path).unwrap(),
             "# 人工编辑"
         );
-        assert!(save_result(dir, &id, 1, index).is_err());
+        assert!(save_result(dir, &id, 1, None, index).is_err());
         references::attach_library_item(dir, &id, &item).unwrap();
         references::attach_library_item(dir, &id, &item).unwrap();
         let again = claim(dir, &id, Some("补充发现".into())).unwrap();
@@ -585,10 +630,10 @@ mod tests {
         );
         assert_eq!(references["library_references"][0]["path"], item.file_path);
         assert_eq!(again.previous.unwrap().version, 2);
-        save_result(dir, &id, 2, index).unwrap();
+        save_result(dir, &id, 2, None, index).unwrap();
         assert_eq!(list(dir).unwrap()[0].status, "claimed");
         submit(dir, &id, &again.token, "# 第三版").unwrap();
-        let revised = save_result(dir, &id, 3, index).unwrap();
+        let revised = save_result(dir, &id, 3, None, index).unwrap();
         assert_ne!(revised.file_path, item.file_path);
         assert_eq!(fs::read_to_string(&item.file_path).unwrap(), "# 人工编辑");
         assert_eq!(list(dir).unwrap()[0].result_version, Some(3));

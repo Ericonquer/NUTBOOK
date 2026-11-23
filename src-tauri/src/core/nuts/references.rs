@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 use serde::Serialize;
 use url::Url;
 use uuid::Uuid;
@@ -71,16 +71,232 @@ pub fn recommend(
 }
 
 pub fn adopt(data_dir: &Path, issue_id: &str, id: &str) -> Result<()> {
-    let changed = open(data_dir)?
+    let mut db = open(data_dir)?;
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    adopt_in(&tx, issue_id, id)?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+fn adopt_in(tx: &Transaction<'_>, issue_id: &str, id: &str) -> Result<()> {
+    let (url, title, board_id, has_card): (String, String, String, bool) = tx
+        .query_row(
+            "SELECT r.url, r.title, COALESCE(b.board_id, 'default'),
+            EXISTS(SELECT 1 FROM nuts_reference_cards WHERE ref_id = r.id)
+         FROM issue_refs r LEFT JOIN nuts_issue_boards b ON b.issue_id = r.issue_id
+         WHERE r.id = ?1 AND r.issue_id = ?2
+           AND NOT EXISTS(SELECT 1 FROM nuts_archived_issues WHERE issue_id = r.issue_id)",
+            params![id, issue_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    if !has_card {
+        let mut query = tx
+            .prepare(
+                "SELECT c.id, c.markdown, c.issue_id IS NOT NULL FROM board_cards c
+             LEFT JOIN nuts_card_boards b ON b.card_id = c.id
+             WHERE c.kind = 'link' AND COALESCE(b.board_id, 'default') = ?1
+               AND (c.issue_id = ?2 OR c.issue_id IS NULL)
+             ORDER BY (c.issue_id IS NOT NULL) DESC, c.rowid",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = query
+            .query_map(params![board_id, issue_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        let mut existing = None;
+        for row in rows {
+            let (card, link, attached) = row.map_err(|error| error.to_string())?;
+            if same_link(&link, &url) {
+                existing = Some((card, attached));
+                break;
+            }
+        }
+        let created = existing.is_none();
+        let (card, already_attached) =
+            existing.unwrap_or_else(|| (Uuid::new_v4().to_string(), false));
+        if already_attached {
+            super::board::remove_material(tx, &card, issue_id)?;
+        } else {
+            let (x,y): (i64,i64) = tx.query_row(
+                "SELECT COALESCE(MAX(c.x + CASE WHEN c.kind IN ('png','jpg','jpeg','gif','webp')
+                       THEN MAX(220, 12 + 440 * COALESCE(s.percent,100) / 100) ELSE 220 END) + 24,
+                        (SELECT MAX(other.x) + 700 FROM board_cards other
+                         LEFT JOIN nuts_card_boards b ON b.card_id = other.id
+                         WHERE COALESCE(b.board_id, 'default') = ?2), 30),
+                        COALESCE(MIN(c.y), 52)
+                 FROM board_cards c LEFT JOIN nuts_image_scales s ON s.card_id = c.id
+                 WHERE c.issue_id = ?1",
+                params![issue_id, board_id], |row| Ok((row.get(0)?,row.get(1)?)),
+            ).map_err(|error| error.to_string())?;
+            if created {
+                tx.execute(
+                    "INSERT INTO board_cards (id,title,markdown,kind,x,y,issue_id)
+                     VALUES (?1,?2,?3,'link',?4,?5,?6)",
+                    params![card, title, url, x, y, issue_id],
+                )
+                .map_err(|error| error.to_string())?;
+                tx.execute(
+                    "INSERT INTO nuts_card_boards VALUES (?1,?2)",
+                    params![card, board_id],
+                )
+                .map_err(|error| error.to_string())?;
+            } else {
+                tx.execute(
+                    "UPDATE board_cards SET issue_id = ?2, x = ?3, y = ?4 WHERE id = ?1",
+                    params![card, issue_id, x, y],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        tx.execute(
+            "INSERT INTO nuts_reference_cards VALUES (?1,?2,?3)",
+            params![id, card, created],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    tx.execute("UPDATE issue_refs SET adopted = 1 WHERE id = ?1", [id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn same_link(candidate: &str, reference: &str) -> bool {
+    Url::parse(candidate.trim()).is_ok_and(|mut url| {
+        url.set_fragment(None);
+        url.as_str() == reference
+    })
+}
+
+pub(super) fn backfill_board(db: &mut Connection, board_id: &str) -> Result<()> {
+    const PENDING: &str = "SELECT r.issue_id,r.id FROM issue_refs r
+        LEFT JOIN nuts_issue_boards b ON b.issue_id = r.issue_id
+        WHERE r.adopted = 1 AND COALESCE(b.board_id, 'default') = ?1
+          AND NOT EXISTS(SELECT 1 FROM nuts_reference_cards WHERE ref_id = r.id)
+          AND NOT EXISTS(SELECT 1 FROM nuts_archived_issues WHERE issue_id = r.issue_id)";
+    let exists: bool = db
+        .query_row(&format!("SELECT EXISTS({PENDING})"), [board_id], |row| {
+            row.get(0)
+        })
+        .map_err(|error| error.to_string())?;
+    if !exists {
+        return Ok(());
+    }
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    let refs = {
+        let mut query = tx.prepare(PENDING).map_err(|error| error.to_string())?;
+        let rows = query
+            .query_map([board_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| error.to_string())?
+    };
+    for (issue_id, id) in refs {
+        adopt_in(&tx, &issue_id, &id)?;
+    }
+    tx.commit().map_err(|error| error.to_string())
+}
+
+pub fn revoke(data_dir: &Path, issue_id: &str, id: &str) -> Result<()> {
+    use rusqlite::OptionalExtension;
+    let mut db = open(data_dir)?;
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    let changed = tx
         .execute(
-            "UPDATE issue_refs SET adopted = 1 WHERE issue_id = ?1 AND id = ?2",
+            "UPDATE issue_refs SET adopted = 0 WHERE issue_id = ?1 AND id = ?2",
             params![issue_id, id],
         )
         .map_err(|error| error.to_string())?;
-    if changed == 0 {
+    if changed != 1 {
         return Err("Recommendation not found in this issue".into());
     }
-    Ok(())
+    let linked: Option<(String, bool)> = tx
+        .query_row(
+            "SELECT card_id, created_for_reference FROM nuts_reference_cards WHERE ref_id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if let Some((card, created)) = linked {
+        tx.execute("DELETE FROM nuts_reference_cards WHERE ref_id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+        if created {
+            super::board::delete_card(&tx, &card)?;
+        } else {
+            tx.execute(
+                "UPDATE board_cards SET issue_id = NULL WHERE id = ?1 AND issue_id = ?2",
+                params![card, issue_id],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    tx.commit().map_err(|error| error.to_string())
+}
+
+pub(super) fn attach_matching_card(
+    tx: &Transaction<'_>,
+    issue_id: &str,
+    card_id: &str,
+    url: &str,
+) -> Result<bool> {
+    let mut query = tx
+        .prepare(
+            "SELECT r.id,r.url,EXISTS(SELECT 1 FROM nuts_reference_cards WHERE ref_id = r.id)
+         FROM issue_refs r WHERE r.issue_id = ?1",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = query
+        .query_map([issue_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, bool>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (id, reference, already_linked) = row.map_err(|error| error.to_string())?;
+        if !same_link(url, &reference) {
+            continue;
+        }
+        if already_linked {
+            return Err("This reference already has a card in the issue".into());
+        }
+        tx.execute(
+            "INSERT INTO nuts_reference_cards VALUES (?1,?2,0)",
+            params![id, card_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute("UPDATE issue_refs SET adopted = 1 WHERE id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub(super) fn unlink_card(tx: &Transaction<'_>, card: &str) -> Result<bool> {
+    let changed = tx.execute(
+        "UPDATE issue_refs SET adopted = 0 WHERE id = (SELECT ref_id FROM nuts_reference_cards WHERE card_id = ?1)",
+        [card],
+    ).map_err(|error| error.to_string())?;
+    tx.execute(
+        "DELETE FROM nuts_reference_cards WHERE card_id = ?1",
+        [card],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(changed == 1)
 }
 
 pub fn list(data_dir: &Path, issue_id: &str) -> Result<Vec<Reference>> {
@@ -140,6 +356,89 @@ mod tests {
         assert_eq!(revision.references.len(), 1);
         assert_eq!(revision.references[0].url, "https://example.org/");
         assert_eq!(revision.references[0].title, "来源");
+    }
+    #[test]
+    fn reference_cards_backfill_reuse_and_follow_board_operations() {
+        use nuts::board;
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let note = board::add(dir, "default", "观察", "原素材", "note", 30, 52).unwrap();
+        let original = board::add(
+            dir,
+            "default",
+            "原始链接卡",
+            "https://EXAMPLE.org/#part",
+            "link",
+            300,
+            52,
+        )
+        .unwrap();
+        let issue =
+            board::create_issue(dir, "default", "课堂", &[note, original.clone()], None, "")
+                .unwrap();
+        let reused =
+            recommend(dir, &issue, "https://example.org/", "推荐链接", "推荐理由").unwrap();
+        let generated =
+            recommend(dir, &issue, "https://example.net/", "另一个链接", "补充").unwrap();
+        let db = open(dir).unwrap();
+        db.execute(
+            "UPDATE issue_refs SET adopted = 1 WHERE issue_id = ?1",
+            [&issue],
+        )
+        .unwrap();
+        let count = |sql| db.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM board_cards"), 2);
+        board::list(dir, "default").unwrap();
+        board::list(dir, "default").unwrap();
+        adopt(dir, &issue, &reused).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM board_cards"), 3);
+        assert_eq!(count("SELECT COUNT(*) FROM nuts_reference_cards"), 2);
+        let original_link: String = db
+            .query_row(
+                "SELECT card_id FROM nuts_reference_cards WHERE ref_id=?1",
+                [&reused],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(original_link, original);
+        board::open_issue(dir, &issue).unwrap();
+        let claim = nuts::claim(dir, &issue, None).unwrap();
+        assert_eq!(claim.references.len(), 2);
+        assert!(claim.source.contains("原素材"));
+        assert!(!claim.source.contains("EXAMPLE.org"));
+
+        revoke(dir, &issue, &generated).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM board_cards"), 2);
+        board::detach_card(dir, "default", &issue, &original, -50, 100).unwrap();
+        assert!(list(dir, &issue)
+            .unwrap()
+            .iter()
+            .all(|reference| !reference.adopted));
+        assert_eq!(
+            count("SELECT COUNT(*) FROM board_cards WHERE issue_id IS NULL"),
+            1
+        );
+        assert_eq!(claim.references.len(), 2);
+        nuts::reopen(dir, &issue).unwrap();
+        let next = nuts::claim(dir, &issue, None).unwrap();
+        assert!(next.references.is_empty());
+        assert!(!next.source.contains("example.net"));
+        board::attach_card(dir, "default", &issue, &original, 300, 52).unwrap();
+        assert_eq!(
+            list(dir, &issue)
+                .unwrap()
+                .iter()
+                .filter(|reference| reference.adopted)
+                .count(),
+            1
+        );
+        revoke(dir, &issue, &reused).unwrap();
+        assert_eq!(
+            count("SELECT COUNT(*) FROM board_cards WHERE issue_id IS NULL"),
+            1
+        );
+        assert_eq!(count("SELECT COUNT(*) FROM nuts_reference_cards"), 0);
+        assert_eq!(list(dir, &issue).unwrap()[0].reason, "推荐理由");
     }
 }
 

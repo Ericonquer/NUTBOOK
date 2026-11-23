@@ -77,8 +77,7 @@ fn run_nuts(args: &[String], json: bool) {
                 Ok(serde_json::json!({ "id": reference_id }))
             }
             [operation, id, token, path] if operation == "submit" => {
-                let draft = nuts::read_markdown(std::path::Path::new(path))?;
-                let version = nuts::submit(&app_data, id, token, &draft)?;
+                let version = nuts::submit_file(&app_data, id, token, std::path::Path::new(path))?;
                 Ok(serde_json::json!({ "version": version }))
             }
             _ => return Err("Unknown NUTS command or arguments. See nutbook --help.".into()),

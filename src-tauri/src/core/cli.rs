@@ -581,9 +581,9 @@ fn reject_protected_root(path: &Path) -> Result<(), CliFailure> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn home_dir() -> Result<PathBuf, CliFailure> { env::var_os("HOME").map(PathBuf::from).ok_or_else(|| failure("home_unavailable", "home directory is unavailable")) }
+pub(super) fn home_dir() -> Result<PathBuf, CliFailure> { env::var_os("HOME").map(PathBuf::from).ok_or_else(|| failure("home_unavailable", "home directory is unavailable")) }
 #[cfg(target_os = "windows")]
-fn home_dir() -> Result<PathBuf, CliFailure> {
+pub(super) fn home_dir() -> Result<PathBuf, CliFailure> {
     env::var_os("USERPROFILE").map(PathBuf::from)
         .or_else(|| match (env::var_os("HOMEDRIVE"), env::var_os("HOMEPATH")) { (Some(drive), Some(path)) => Some(PathBuf::from(drive).join(path)), _ => None })
         .ok_or_else(|| failure("home_unavailable", "USERPROFILE is unavailable"))

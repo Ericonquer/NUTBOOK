@@ -215,7 +215,9 @@ pub fn issue_context(data_dir: &Path, id: &str, language: &str) -> Result<Value>
     let mut query = db
         .prepare(
             "SELECT id, title, kind, CASE WHEN kind IN ('note','link') THEN markdown ELSE '' END
-         FROM board_cards WHERE issue_id = ?1 ORDER BY rowid",
+         FROM board_cards WHERE issue_id = ?1
+           AND NOT EXISTS (SELECT 1 FROM nuts_reference_cards WHERE card_id = board_cards.id)
+         ORDER BY rowid",
         )
         .map_err(|error| error.to_string())?;
     let materials = query

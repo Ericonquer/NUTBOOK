@@ -12,7 +12,7 @@ const ROLES: [&str; 3] = ["extract_info", "illustration", "generation_reference"
 
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 pub const FORMATS: &[&str] = &[
-    "md", "markdown", "html", "htm", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "png",
+    "md", "markdown", "txt", "html", "htm", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "png",
     "jpg", "jpeg", "gif", "webp",
 ];
 
@@ -298,20 +298,22 @@ mod tests {
     #[test]
     fn imported_file_remains_readable_after_source_is_removed() {
         let temp = tempfile::tempdir().unwrap();
-        let original = temp.path().join("观察.html");
-        let contents =
+        let html: &[u8] =
             include_bytes!("../../../../tests/fixtures/document-save-versions/ordinary.html");
-        fs::write(&original, contents).unwrap();
-        let id = import(temp.path(), "default", &original, -450, 2100).unwrap();
-        fs::remove_file(original).unwrap();
-        let issue =
-            board::create_issue(temp.path(), "default", "阅读记录", &[id], None, "").unwrap();
-        board::open_issue(temp.path(), &issue).unwrap();
-        let claim = crate::core::nuts::claim(temp.path(), &issue, None).unwrap();
-        let serialized = serde_json::to_value(claim).unwrap();
-        let source = serialized["source"].as_str().unwrap();
-        let path = source.split('`').nth(1).unwrap();
-        assert_eq!(fs::read(path).unwrap(), contents);
-        assert!(source.contains("观察.html"));
+        for (name, contents) in [("观察.html", html), ("会议记录.TXT", "第一条观察\r\n".as_bytes())] {
+            let original = temp.path().join(name);
+            fs::write(&original, contents).unwrap();
+            let id = import(temp.path(), "default", &original, -450, 2100).unwrap();
+            fs::remove_file(original).unwrap();
+            let issue =
+                board::create_issue(temp.path(), "default", "阅读记录", &[id], None, "").unwrap();
+            board::open_issue(temp.path(), &issue).unwrap();
+            let claim = crate::core::nuts::claim(temp.path(), &issue, None).unwrap();
+            let serialized = serde_json::to_value(claim).unwrap();
+            let source = serialized["source"].as_str().unwrap();
+            let path = source.split('`').nth(1).unwrap();
+            assert_eq!(fs::read(path).unwrap(), contents);
+            assert!(source.contains(name));
+        }
     }
 }

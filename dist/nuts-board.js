@@ -9,6 +9,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   const submit = document.getElementById("nutsBoardSubmit");
   const marquee = document.getElementById("nutsMarquee");
   const groupLayer = document.getElementById("nutsGroupLayer");
+  const groupHeaderSpace = 44;
   const cardLayer = document.getElementById("nutsCardLayer");
   const makeIssue = document.getElementById("nutsMakeIssue");
   const zoom = document.getElementById("nutsZoom");
@@ -63,13 +64,22 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   function button(id, label) {
     const element = document.getElementById(id);
     if (element.classList.contains("nuts-tool-icon")) {
-      element.setAttribute("aria-label", label);
-      element.dataset.tooltip = label;
-      element.removeAttribute("title");
+      labelIcon(element, label);
     } else {
       element.textContent = label;
       element.title = label;
     }
+  }
+
+  function labelIcon(element, label) {
+    element.setAttribute("aria-label", label);
+    element.dataset.tooltip = label;
+    element.removeAttribute("title");
+  }
+
+  function labelResize(handle, card) {
+    const percent = card.image_scale ?? 100;
+    labelIcon(handle, copy(`缩放图片 · ${percent}%`, `Resize image · ${percent}%`));
   }
 
   const previewAttempts = new Set();
@@ -141,15 +151,14 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     handle.className = "nuts-tool-icon nuts-image-resize";
     handle.hidden = true;
     handle.innerHTML = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m5 15 10-10m-6 11 7-7m-3 7 3-3"/></svg>';
-    const label = copy("缩放图片", "Resize image");
-    handle.setAttribute("aria-label", label);
-    handle.dataset.tooltip = label;
+    labelResize(handle, card);
     const destination = boardId;
     let drag;
     let saving = false;
 
     function resize(current, percent) {
       current.image_scale = percent;
+      labelResize(current.resizeHandle, current);
       showThumbnail(current, thumbnails.get(current.id));
       if (current.issue_id) renderGroups();
     }
@@ -182,7 +191,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         width: preview.width, height: preview.height,
       };
       handle.classList.add("is-resizing");
-      handle.dataset.tooltip = `${label} · ${drag.percent}%`;
     });
     handle.addEventListener("pointermove", event => {
       if (drag?.id !== event.pointerId) return;
@@ -191,7 +199,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       const dy = (event.clientY - drag.y) / drag.zoom;
       const delta = (dx * drag.width + dy * drag.height) / (drag.width ** 2 + drag.height ** 2);
       resize(card, Math.min(150, Math.max(25, Math.round(drag.percent + 100 * delta))));
-      handle.dataset.tooltip = `${label} · ${card.image_scale}%`;
     });
     const finishResize = event => {
       if (drag?.id !== event.pointerId) return;
@@ -199,7 +206,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       const { percent } = drag;
       drag = undefined;
       handle.classList.remove("is-resizing");
-      handle.dataset.tooltip = label;
       if (event.type === "pointerup") void save(percent);
       else if (cards.get(card.id) === card) resize(card, percent);
     };
@@ -217,7 +223,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       if (saving || drag || !thumbnails.get(card.id)) return;
       const previous = card.image_scale ?? 100;
       resize(card, Math.min(150, Math.max(25, previous + steps[event.key] * 5)));
-      handle.dataset.tooltip = `${label} · ${card.image_scale}%`;
       void save(previous);
     });
     return handle;
@@ -321,7 +326,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         groupLayer.append(frame);
       }
       const left = Math.min(...members.map(card => card.x)) - 10;
-      const top = Math.min(...members.map(card => card.y)) - 30;
+      const top = Math.min(...members.map(card => card.y)) - groupHeaderSpace;
       const right = Math.max(...members.map(card => card.x + cardWidth(card))) + 10;
       const bottom = Math.max(...members.map(card => card.y + cardHeight(card))) + 10;
       Object.assign(frame.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
@@ -360,10 +365,17 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       node.type = "button";
       node.className = "nuts-card";
       node.dataset.cardId = card.id;
-      node.title = card.issue_title ? `${card.title} · ${card.issue_title}` : card.title;
+      const cardLabel = card.issue_title ? `${card.title} · ${card.issue_title}` : card.title;
+      node.setAttribute("aria-label", cardLabel);
+      if (!card.issue_id) node.title = cardLabel;
       const caption = document.createElement("span");
       caption.className = "nuts-card-caption";
-      caption.textContent = card.kind === "link" ? copy("链接", "Link") : card.kind === "note" ? "NUT" : card.kind === "markdown" ? "Markdown" : card.kind.toUpperCase();
+      const captionText = document.createElement("span");
+      captionText.textContent = card.kind === "link" ? copy("链接", "Link") : card.kind === "note" ? "NUT" : card.kind === "markdown" ? "Markdown" : card.kind.toUpperCase();
+      const hasExcerpt = ["note", "markdown", "link"].includes(card.kind);
+      const icon = window.createNutsMaterialIcon(card.kind, card.url);
+      caption.append(captionText);
+      if (hasExcerpt) caption.prepend(icon);
       const title = document.createElement("strong");
       title.className = "nuts-card-title";
       title.textContent = card.title;
@@ -380,16 +392,19 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         node.classList.add("has-link-cover");
         node.append(image);
       }
-      if (["note", "markdown", "link"].includes(card.kind)) node.append(excerpt);
+      if (hasExcerpt) {
+        node.append(excerpt);
+      } else {
+        icon.classList.add("nuts-card-attachment-icon");
+        node.append(icon);
+      }
       card.node = node;
       if (card.issue_id) {
         const handle = document.createElement("button");
         handle.type = "button";
         handle.className = "nuts-tool-icon nuts-detach-handle";
         handle.dataset.cardId = card.id;
-        const label = copy("拖出议题", "Drag out of issue");
-        handle.setAttribute("aria-label", label);
-        handle.dataset.tooltip = label;
+        labelIcon(handle, copy("拖出议题", "Drag out of issue"));
         handle.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 5H4v10h4m1-5h7m-3-3 3 3-3 3"/></svg>';
         handle.onclick = event => {
           if (event.detail === 0) moveBackToBoard(card).catch(report);
@@ -398,7 +413,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       }
       if (imageKinds.has(card.kind)) {
         node.classList.add("nuts-image-card");
-        node.setAttribute("aria-label", node.title);
         const usage = imageUsageButton(card, boardId, card.issue_id);
         usage.classList.add("nuts-card-image-usage", "nuts-tool-icon");
         for (const type of ["pointerdown", "click", "dblclick"]) {
@@ -654,7 +668,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     const entries = [...cards.values()];
     if (!entries.length) { cameraX = cameraY = 0; setZoom(1); return; }
     const left = Math.min(...entries.map(card => card.x)) - 16;
-    const top = Math.min(...entries.map(card => card.y)) - 32;
+    const top = Math.min(...entries.map(card => card.y - (card.issue_id ? groupHeaderSpace + 2 : 32)));
     const right = Math.max(...entries.map(card => card.x + cardWidth(card))) + 16;
     const bottom = Math.max(...entries.map(card => card.y + cardHeight(card))) + 16;
     setZoom(Math.min(1, (viewport.clientWidth - 24) / (right - left), (viewport.clientHeight - 52) / (bottom - top)));
@@ -1085,6 +1099,12 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       zoom.setAttribute("aria-label", zoom.title);
       board.setAttribute("aria-label", copy("NUTS 白板", "NUTS board"));
       document.getElementById("nutsBoardHint").textContent = copy("双击空白记 NUT · 粘贴链接或拖入文件 · 框选或点选归拢", "Double-click to capture · Paste links or drop files · Drag a box or click cards to group");
+      for (const card of cards.values()) {
+        if (card.usageButton) labelIcon(card.usageButton, copy("图片用途", "Image use"));
+        if (card.resizeHandle) labelResize(card.resizeHandle, card);
+        if (card.detachHandle) labelIcon(card.detachHandle, copy("拖出议题", "Drag out of issue"));
+      }
+      viewport.dataset.detachHint = copy("松开后移回白板", "Release to move to the board");
       paintSelection();
       renderBoardList();
   }

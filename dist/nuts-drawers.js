@@ -70,8 +70,11 @@ window.NutbookNutsDrawers = function ({ copy, openIssue, locateCard, openManagem
     if (current === 3) {
       const more = document.createElement("button");
       more.type = "button";
-      more.className = "nuts-drawer-item";
-      more.textContent = more.title = copy("查看全部议题", "View all issues");
+      more.className = "nuts-tool-icon nuts-drawer-management";
+      const label = copy("查看全部议题", "View all issues");
+      more.setAttribute("aria-label", label);
+      more.dataset.tooltip = label;
+      more.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="M8 4v12m4-12v12"/></svg>';
       more.onclick = () => {
         close(false);
         openManagement().catch(report);

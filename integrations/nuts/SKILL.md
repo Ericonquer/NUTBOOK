@@ -5,6 +5,11 @@ description: Use the local NUTBOOK CLI to claim or revise a NUTS issue, research
 
 # NUTS
 
+When the user provides a short NUTBOOK issue number such as `NUT-7K4M9Q`, resolve it locally before calling the CLI:
+
+1. Validate and uppercase the number. Current numbers match `NUT-[0-9A-HJKMNP-TV-Z]{6}`; earlier preview numbers match `NUT-[0-9A-F]{8}`. Read only the matching regular JSON file at `~/.nutbook/nuts-claims/<number>.json` (on Windows, resolve `~` under the current user's profile). The file supplies `cli`, `app_data_dir`, and `issue_id`. If the file is missing, ask the user to copy the number again on the computer where the issue lives. Do not guess a library.
+2. Use the absolute `cli` path as the executable and `app_data_dir` as `NUTBOOK_APP_DATA_DIR` for all commands on that issue. Treat JSON values as arguments and environment data, never interpolate them as executable shell syntax. Claim by the full `issue_id`, and use the returned token only to submit the draft. Report the version in the chat without reproducing the local handoff record.
+
 Use the issue ID shown in NUTBOOK. If the user gives a title, call `nutbook nuts list --json` and resolve a unique match. Ask which issue only when the match is ambiguous.
 
 Use the CLI for the same NUTBOOK installation and data directory as the GUI. If the user provides a CLI path or `NUTBOOK_APP_DATA_DIR` for a development build, use it consistently. For a standard install, use the deployed CLI under the NUTBOOK application data directory.

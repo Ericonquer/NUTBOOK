@@ -4,7 +4,9 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, i
   const [header, layout, footer] = dialog.children;
   const [title, close] = header.children;
   const [article, sidebar] = layout.children;
-  const [select, whole, list, form, hint] = sidebar.children;
+  const [tools, commentsPane] = sidebar.children;
+  const [select, whole] = tools.children;
+  const [list, form, hint] = commentsPane.children;
   const [selectionLabel, input, add, cancel] = form.children;
   const [status, submit] = footer.children;
   const data = { issueId, version };
@@ -121,10 +123,14 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, i
       if (comment.quote) {
         const quote = document.createElement("button");
         quote.type = "button";
+        quote.className = "nuts-review-quote";
         quote.textContent = comment.quote;
         quote.title = copy("定位原文", "Locate in draft");
         quote.onclick = () => locate(comment);
-        row.append(quote);
+        const excerpt = document.createElement("blockquote");
+        excerpt.className = "nuts-review-excerpt";
+        excerpt.append(quote);
+        row.append(excerpt);
         const range = findRange(comment);
         if (range) ranges.push(range);
       } else {
@@ -171,7 +177,10 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, i
   try { comments = canEdit ? JSON.parse(localStorage.getItem(key) || "[]") : []; } catch {}
   title.textContent = copy(`审阅 · 第 ${version} 版`, `Review · Version ${version}`);
   article.innerHTML = markdownToHtml(markdown);
-  article.scrollTop = sidebar.scrollTop = 0;
+  for (const paragraph of article.querySelectorAll("p")) {
+    if (/^<!-- \/?nuts-review-references -->$/.test(paragraph.textContent.trim())) paragraph.hidden = true;
+  }
+  article.scrollTop = commentsPane.scrollTop = 0;
   list.replaceChildren();
   form.hidden = true;
   input.value = "";
@@ -185,7 +194,7 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, i
   set(submit, "提交并开放修订", "Submit and open revision");
   set(hint, "如果正在与 Agent 对话，也可以直接说明怎么改，请它把新版提交回此议题。", "You can also ask the agent in chat to revise and submit a new draft to this issue.");
   set(status, "正在读取批注…", "Loading comments…");
-  select.hidden = whole.hidden = submit.hidden = !canEdit;
+  tools.hidden = submit.hidden = !canEdit;
   select.disabled = whole.disabled = submit.disabled = true;
   close.onclick = () => { if (!sending) dialog.close(); };
   dialog.oncancel = event => { if (sending) event.preventDefault(); };
@@ -258,9 +267,33 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, i
     }
   };
 
+  async function renderImages() {
+    for (const paragraph of article.querySelectorAll("p")) {
+      if (paragraph.childElementCount) continue;
+      const match = /^!\[([^\]]*)\]\(((?:\.\/)?asset\/[^/\\()]+)\)$/.exec(paragraph.textContent.trim());
+      if (!match) continue;
+      const [, alt, url] = match;
+      let source;
+      try {
+        source = await invoke("nuts_draft_image", { ...data, url });
+      } catch {}
+      if (!active) return;
+      if (!source) continue;
+      const original = document.createElement("span");
+      original.hidden = true;
+      original.textContent = paragraph.textContent;
+      const image = document.createElement("img");
+      image.alt = alt;
+      image.addEventListener("load", positionMarkers, { once: true });
+      image.src = source;
+      paragraph.replaceChildren(original, image);
+    }
+  }
+
   const resizeObserver = new ResizeObserver(positionMarkers);
   dialog.showModal();
   resizeObserver.observe(article);
+  void renderImages();
   try {
     saved = await invoke("nuts_review_history", data);
     if (active) status.textContent = "";

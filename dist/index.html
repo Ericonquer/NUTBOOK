@@ -5943,6 +5943,33 @@
         accent-color: #242429;
       }
 
+      .confirm-optional {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: fit-content;
+        min-height: 24px;
+        margin: 0 0 16px;
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.5;
+        cursor: pointer;
+      }
+
+      .confirm-optional input {
+        flex: none;
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: #242429;
+        cursor: inherit;
+      }
+
+      [data-confirm-optional]:focus-visible {
+        outline: 2px solid var(--ink-soft);
+        outline-offset: 2px;
+      }
+
       .confirm-selection-label {
         display: block;
         color: #242429;
@@ -9040,12 +9067,14 @@
       <header class="nuts-board-toolbar">
         <h1>NUTS</h1>
         <p id="nutsTagline">随手记下，慢慢长成。</p>
-        <button type="button" id="nutsManageIssues"></button>
       </header>
       <div class="nuts-board-strip">
-        <nav id="nutsBoardList" aria-label="白板"></nav>
+        <div class="nuts-board-tabs">
+          <nav id="nutsBoardList" aria-label="白板"></nav>
+          <button type="button" id="nutsNewBoard" class="nuts-tool-icon" aria-label="新建白板" data-tooltip="新建白板"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M10 5v10M5 10h10"/></svg></button>
+        </div>
         <div class="nuts-board-actions">
-          <button type="button" id="nutsNewBoard" class="nuts-tool-icon" aria-label="新建白板" title="新建白板"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M10 7v6m-3-3h6"/></svg></button>
+          <button type="button" id="nutsManageIssues" class="nuts-tool-icon"></button>
           <button type="button" id="nutsBoardRules" class="nuts-tool-icon" aria-label="工作规则" title="工作规则"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10v14H5zM8 7h4m-4 3h4m-4 3h3"/></svg></button>
           <button type="button" id="nutsAddMarkdown" class="nuts-tool-icon" aria-label="添加 Markdown"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11.5l5-5a2 2 0 0 1 2.8 2.8l-6 6a3.3 3.3 0 0 1-4.7-4.7l6-6"/></svg></button>
           <button type="button" id="nutsNewNote" class="nuts-tool-icon nuts-capture-tool" aria-label="记 NUT"><img class="nuts-mascot" src="./assets/nuts/nut-icon-v7.png" alt="" draggable="false"></button>
@@ -9133,20 +9162,28 @@
             <div class="nuts-review-layout">
               <article class="nuts-review-document" tabindex="0"></article>
               <aside aria-label="Review comments">
-                <button type="button"></button><button type="button"></button><div></div>
-                <form hidden><p></p><textarea required maxlength="4000" rows="4" aria-label="修改意见"></textarea><button type="submit"></button><button type="button"></button></form>
-                <p class="nuts-review-hint"></p>
+                <div class="nuts-review-tools"><button type="button"></button><button type="button"></button></div>
+                <div class="nuts-review-comments">
+                  <div></div>
+                  <form hidden><p></p><textarea required maxlength="4000" rows="4" aria-label="修改意见"></textarea><button type="submit"></button><button type="button"></button></form>
+                  <p class="nuts-review-hint"></p>
+                </div>
               </aside>
             </div>
             <footer><span role="status"></span><button type="button"></button></footer>
           </dialog>
           <section id="nutsManagementPage" hidden>
             <header class="nuts-management-toolbar">
-              <h1></h1>
-              <input type="search">
-              <button type="button" class="nuts-board-scope" aria-pressed="false"></button>
-              <button type="button" class="nuts-schedule-copy"></button>
-              <button type="button" class="nuts-archive-view" aria-pressed="false"></button>
+              <div class="nuts-management-heading"><h1></h1><p></p></div>
+              <div class="nuts-management-tools">
+                <label class="nuts-management-search">
+                  <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/></svg>
+                  <input type="search">
+                </label>
+                <button type="button" class="nuts-board-scope nuts-tool-icon" aria-pressed="false"></button>
+                <button type="button" class="nuts-schedule-copy nuts-tool-icon"></button>
+                <button type="button" class="nuts-archive-view nuts-tool-icon" aria-pressed="false"></button>
+              </div>
             </header>
             <p role="status"></p>
             <div class="nuts-management-results"></div>
@@ -9459,6 +9496,7 @@
     <script src="./i18n.js?v=20260525-update-check"></script>
     <script src="./assets/markdown-document-title.js?v=20260821-b3"></script>
     <script src="./nuts-picker.js"></script>
+    <script src="./nuts-material-icons.js"></script>
     <script src="./nuts-board.js"></script>
     <script src="./nuts-drawers.js"></script>
     <script src="./nuts-review.js"></script>
@@ -11355,8 +11393,11 @@
         });
       }
 
-      function appConfirm({ title = t("actions.confirm"), message = "", note = "", detail = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
-        if (!els.confirmScrim) return Promise.resolve(window.confirm(message || title));
+      function appConfirm({ title = t("actions.confirm"), message = "", note = "", detail = "", optionalCheckbox = "", confirmText = t("actions.confirm"), cancelText = t("actions.cancel"), danger = false } = {}) {
+        if (!els.confirmScrim) {
+          const confirmed = window.confirm(message || title);
+          return Promise.resolve(confirmed && optionalCheckbox ? { checked: false } : confirmed);
+        }
         return new Promise((resolve) => {
           const previousFocus = document.activeElement;
           const handleBackdropClick = (event) => {
@@ -11395,6 +11436,7 @@
               <h3 id="appConfirmTitle" class="confirm-title">${escapeHtml(title)}</h3>
               <p id="appConfirmMessage" class="confirm-message">${escapeHtml(message)}</p>
               ${note ? `<p class="confirm-note">${escapeHtml(note)}</p>` : ""}
+              ${optionalCheckbox ? `<label class="confirm-optional"><input type="checkbox" data-confirm-optional /><span>${escapeHtml(optionalCheckbox)}</span></label>` : ""}
               ${detail ? `<div class="confirm-detail"><span class="confirm-detail-label">${escapeHtml(t("settings.originalFilePath"))}</span><span class="confirm-detail-value" data-i18n-skip>${escapeHtml(detail)}</span></div>` : ""}
               <div class="confirm-actions">
                 <button class="button button-secondary" type="button" data-confirm-cancel>${escapeHtml(cancelText)}</button>
@@ -11406,7 +11448,10 @@
           els.confirmScrim.setAttribute("aria-hidden", "false");
           document.addEventListener("keydown", handleKeydown, true);
           els.confirmScrim.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => close(false));
-          els.confirmScrim.querySelector("[data-confirm-ok]")?.addEventListener("click", () => close(true));
+          els.confirmScrim.querySelector("[data-confirm-ok]")?.addEventListener("click", () => {
+            const checkbox = els.confirmScrim.querySelector("[data-confirm-optional]");
+            close(checkbox ? { checked: checkbox.checked } : true);
+          });
           els.confirmScrim.addEventListener("click", handleBackdropClick);
           els.confirmScrim.querySelector("[data-confirm-cancel]")?.focus();
         });
@@ -26821,11 +26866,6 @@ if (!chipTipController) {
         }[issue.status];
       }
 
-      function nutsTextButton(button, label) {
-        button.textContent = label;
-        button.title = label;
-      }
-
       function renderNutsManagement(issues) {
         nutsManagementIssues = issues;
         const archive = nutsManagementArchive.getAttribute("aria-pressed") === "true";
@@ -26834,51 +26874,69 @@ if (!chipTipController) {
         nutsManagementSearch.placeholder = search;
         nutsManagementSearch.setAttribute("aria-label", search);
         nutsManagement.querySelector("h1").textContent = archive ? nutsCopy("已归档议题", "Archived issues") : nutsCopy("全部议题", "Issues");
-        nutsTextButton(nutsManagementScope, all ? nutsCopy("全部白板", "All boards") : nutsCopy("当前白板", "Current board"));
-        nutsTextButton(nutsScheduleCopy, nutsCopy("复制定时领取指令", "Copy scheduled claim instructions"));
+        const scopeName = all ? nutsCopy("全部白板", "All boards")
+          : nutsBoard.nameFor(nutsManagementBoard) || nutsCopy("当前白板", "Current board");
+        nutsManagement.querySelector(".nuts-management-heading p").textContent = scopeName;
+        setNutsIssueIcon(nutsManagementScope, all ? "boards" : "board", all
+          ? nutsCopy("切到当前白板", "Show current board")
+          : nutsCopy("切到全部白板", "Show all boards"));
+        setNutsIssueIcon(nutsScheduleCopy, "schedule", nutsCopy("复制定时领取指令", "Copy scheduled claim instructions"));
         nutsScheduleCopy.hidden = archive || all;
-        nutsTextButton(nutsManagementArchive, archive ? nutsCopy("返回看板", "Back to board view") : nutsCopy("归档", "Archive"));
+        setNutsIssueIcon(nutsManagementArchive, archive ? "back" : "archive", archive ? nutsCopy("返回看板", "Back to board view") : nutsCopy("归档", "Archive"));
         const query = nutsManagementSearch.value.trim().toLocaleLowerCase();
         const visible = issues.filter(issue => Boolean(issue.archived_at) === archive
           && (all || issue.board_id === nutsManagementBoard) && issue.title.toLocaleLowerCase().includes(query));
         if (archive) visible.sort((a, b) => b.archived_at.localeCompare(a.archived_at));
-        const signature = JSON.stringify([appState.language, archive, visible, visible.map(issue => nutsBoard.nameFor(issue.board_id))]);
+        const signature = JSON.stringify([appState.language, archive, all, Boolean(query), visible, visible.map(issue => nutsBoard.nameFor(issue.board_id))]);
         if (signature === nutsManagementSignature) return;
         nutsManagementSignature = signature;
-        const columns = archive ? [[nutsCopy("归档历史", "Archive history"), visible]] : [
-          [nutsCopy("待处理", "To do"), visible.filter(issue => ["draft", "open"].includes(issue.status))],
-          [nutsCopy("进行中", "In progress"), visible.filter(issue => ["claimed", "review"].includes(issue.status))],
-          [nutsCopy("已完成", "Done"), visible.filter(issue => issue.status === "done")],
+        const columns = archive ? [["archive", nutsCopy("归档历史", "Archive history"), visible]] : [
+          ["todo", nutsCopy("待处理", "To do"), visible.filter(issue => ["draft", "open"].includes(issue.status))],
+          ["working", nutsCopy("进行中", "In progress"), visible.filter(issue => ["claimed", "review"].includes(issue.status))],
+          ["done", nutsCopy("已完成", "Done"), visible.filter(issue => issue.status === "done")],
         ];
         const focused = document.activeElement?.dataset.nutsIssue;
         nutsManagementResults.classList.toggle("is-archive", archive);
-        nutsManagementResults.replaceChildren(...columns.map(([label, entries]) => {
+        nutsManagementResults.replaceChildren(...columns.map(([stage, label, entries]) => {
           const column = document.createElement("section");
+          column.dataset.stage = stage;
           const heading = document.createElement("h2");
-          heading.textContent = `${label} · ${entries.length}`;
+          heading.textContent = label;
+          const count = document.createElement("span");
+          count.textContent = entries.length;
+          heading.append(count);
           column.append(heading);
           for (const issue of entries) {
             const button = document.createElement("button");
             button.type = "button";
             button.dataset.nutsIssue = issue.id;
-            button.title = nutsCopy(`打开议题「${issue.title}」`, `Open issue: ${issue.title}`);
-            button.setAttribute("aria-label", button.title);
             const title = document.createElement("strong");
             title.textContent = issue.title;
+            const status = document.createElement("span");
+            status.className = "nuts-management-card-status";
+            status.dataset.status = issue.status;
+            status.textContent = nutsIssueStatus(issue);
             const detail = document.createElement("small");
             const version = issue.latest_version;
-            detail.textContent = [nutsIssueStatus(issue),
+            detail.textContent = [
               version == null ? null : nutsCopy(`第 ${version} 版`, `Version ${version}`),
-              nutsBoard.nameFor(issue.board_id),
+              all ? nutsBoard.nameFor(issue.board_id) : null,
               issue.result_version != null && issue.status !== "done" ? nutsCopy("已有成果", "Result available") : null,
               archive ? new Date(issue.archived_at).toLocaleDateString(appState.language) : null,
             ].filter(Boolean).join(" · ");
-            button.append(title, detail);
+            button.append(title, status);
+            if (detail.textContent) button.append(detail);
             button.onclick = () => activateNutsTab(issue);
             column.append(button);
           }
           return column;
         }));
+        if (!visible.length && (query || archive)) {
+          const empty = document.createElement("p");
+          empty.className = "nuts-management-empty";
+          empty.textContent = query ? nutsCopy("没有匹配的议题", "No matching issues") : nutsCopy("暂无归档议题", "No archived issues");
+          nutsManagementResults.append(empty);
+        }
         if (focused) [...nutsManagementResults.querySelectorAll("button")]
           .find(button => button.dataset.nutsIssue === focused)?.focus();
       }
@@ -26894,11 +26952,11 @@ if (!chipTipController) {
         return appState.language === "en-US" ? english : chinese;
       }
 
-      async function openNutsResult(issueId, version, feedback) {
+      async function openNutsResult(issueId, version, feedback, keepReferences) {
         const epoch = nutsEpoch;
         feedback.textContent = nutsCopy("正在处理成果…", "Preparing result…");
         try {
-          const result = await invoke("nuts_save_result", { issueId, version });
+          const result = await invoke("nuts_save_result", { issueId, version, keepReferences });
           const item = normalizeItemSummary(result);
           await refreshLibrariesAfterFilesystemSync();
           feedback.textContent = "";
@@ -26915,6 +26973,14 @@ if (!chipTipController) {
       }
 
       const nutsIssueIcons = {
+        board: '<rect x="3.5" y="4.5" width="13" height="11" rx="2"/>',
+        boards: '<rect x="3" y="3.5" width="11" height="10" rx="1.5"/><path d="M6 16.5h9.5A1.5 1.5 0 0 0 17 15V7"/>',
+        copy: '<rect x="7" y="7" width="9.5" height="10" rx="1.5"/><path d="M12.5 4h-7A1.5 1.5 0 0 0 4 5.5v7"/>',
+        manage: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M8 4v12m4-12v12"/>',
+        archive: '<rect x="3" y="4" width="14" height="3" rx="1"/><path d="M4.5 7v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V7M8 10h4"/>',
+        restore: '<path d="M10 12V3m-3 3 3-3 3 3M6 9H4a1 1 0 0 0-1 1v1h3m8 0h3v-1a1 1 0 0 0-1-1h-2M4.5 11v5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-5"/>',
+        schedule: '<circle cx="10" cy="10" r="6.5"/><path d="M10 6.5V10l2.5 1.5"/>',
+        external: '<path d="M7 13l6-6M8 7h5v5"/>',
         imageUsage: '<path d="M4 5h12M4 10h12M4 15h12"/><path d="M7 3v4m6 1v4m-4 1v4"/>',
         back: '<path d="m9 5-5 5 5 5M4 10h12"/>',
         remove: '<path d="M6 6l8 8m0-8-8 8"/>',
@@ -26923,6 +26989,7 @@ if (!chipTipController) {
         withdraw: '<path d="m7 5-4 4 4 4M3 9h9a4 4 0 0 1 0 8h-2"/>',
         send: '<path d="m3 3 14 7-14 7 3-7zM6 10h11"/>',
         reopen: '<path d="M5 7a6 6 0 1 1-1 6M5 3v4H1"/>',
+        revise: '<path d="m4 13 9-9a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2l-9 9-4 1 1-4ZM11.8 5.2l3 3"/>',
         review: '<path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z"/><circle cx="10" cy="10" r="2"/>',
       };
 
@@ -26943,7 +27010,7 @@ if (!chipTipController) {
         return heading;
       }
 
-      function nutsIssueFile(title, subtitle, open) {
+      function nutsIssueFile(title, subtitle, format, open, url) {
         const row = document.createElement(open ? "button" : "div");
         if (open) {
           row.type = "button";
@@ -26951,10 +27018,7 @@ if (!chipTipController) {
           row.onclick = open;
         }
         row.className = "nuts-issue-file";
-        const icon = document.createElement("span");
-        icon.className = "nuts-issue-file-icon";
-        icon.setAttribute("aria-hidden", "true");
-        icon.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5h6l4 4v11H5zM11 2.5v4h4M7.5 10h5m-5 3h5"/></svg>';
+        const icon = window.createNutsMaterialIcon(format, url);
         const copy = document.createElement("span");
         const name = document.createElement("strong");
         const detail = document.createElement("small");
@@ -27062,7 +27126,7 @@ if (!chipTipController) {
           const link = card.kind === "link";
           const action = link ? () => invoke("open_external_url_command", { payload: { url: card.body } })
             .catch(error => { nutsMessage.textContent = normalizeError(error); }) : undefined;
-          const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), action);
+          const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, action, card.body);
           if (link) {
             file.classList.add("nuts-external-material");
             const row = document.createElement("div");
@@ -27158,7 +27222,7 @@ if (!chipTipController) {
             matches.replaceChildren();
             for (const raw of results.items || []) {
               const item = normalizeItemSummary(raw);
-              const pick = nutsIssueFile(item.title || item.fileName, item.fileExt.toUpperCase(), async () => {
+              const pick = nutsIssueFile(item.title || item.fileName, item.fileExt.toUpperCase(), item.fileExt, async () => {
                 pick.disabled = true;
                 try {
                   await invoke("nuts_attach_library_item", { issueId, itemId: item.id });
@@ -27203,7 +27267,7 @@ if (!chipTipController) {
         renderNutsInputs(list, materials, issueId, boardId);
         if (count) related.append(list);
         for (const ref of libraryRefs) {
-          list.append(nutsIssueFile(ref.title, ref.format.toUpperCase(), async () => {
+          list.append(nutsIssueFile(ref.title, ref.format.toUpperCase(), ref.format, async () => {
             try {
               const found = await invoke("find_item_by_path", { payload: { filePath: ref.path } });
               if (!found) throw new Error(nutsCopy("资料已从库中移除", "File is no longer in the library"));
@@ -27215,26 +27279,34 @@ if (!chipTipController) {
         }
 
         for (const reference of entries) {
-          const section = reference.adopted ? list : pending;
+          const open = () => invoke("open_external_url_command", { payload: { url: reference.url } })
+            .catch(error => { nutsMessage.textContent = normalizeError(error); });
           const row = nutsIssueFile(reference.title, reference.reason || nutsCopy("链接", "Link"),
-            () => invoke("open_external_url_command", { payload: { url: reference.url } })
-              .catch(error => { nutsMessage.textContent = normalizeError(error); }));
-          if (reference.adopted) { section.append(row); continue; }
-          const recommendation = document.createElement("div");
-          recommendation.className = "nuts-issue-recommendation";
-          const accept = document.createElement("button");
-          accept.type = "button";
-          setNutsIssueIcon(accept, "attach", nutsCopy("加入议题素材", "Add to issue materials"));
-          accept.onclick = async () => {
-            accept.disabled = true;
+            "link", reference.adopted ? undefined : open, reference.url);
+          const wrapper = document.createElement("div");
+          wrapper.className = reference.adopted ? "nuts-material-link-row" : "nuts-issue-recommendation";
+          wrapper.append(row);
+          if (reference.adopted) {
+            const openButton = document.createElement("button");
+            openButton.type = "button";
+            setNutsIssueIcon(openButton, "external", nutsCopy("打开原文", "Open original"));
+            openButton.onclick = open;
+            wrapper.append(openButton);
+          }
+          const action = document.createElement("button");
+          action.type = "button";
+          setNutsIssueIcon(action, reference.adopted ? "remove" : "attach",
+            reference.adopted ? nutsCopy("撤销采纳", "Undo adoption") : nutsCopy("加入议题素材", "Add to issue materials"));
+          action.onclick = async () => {
+            action.disabled = true;
             try {
-              await invoke("nuts_adopt_reference", { issueId, id: reference.id });
+              await invoke(reference.adopted ? "nuts_revoke_reference" : "nuts_adopt_reference", { issueId, id: reference.id });
               await loadNutsIssues();
             } catch (error) { nutsMessage.textContent = normalizeError(error); }
-            finally { accept.disabled = false; }
+            finally { action.disabled = false; }
           };
-          recommendation.append(row, accept);
-          section.append(recommendation);
+          wrapper.append(action);
+          (reference.adopted ? list : pending).append(wrapper);
         }
         container.append(related);
         if (entries.some(ref => !ref.adopted)) container.append(pending);
@@ -27319,7 +27391,7 @@ if (!chipTipController) {
         }
         if (!id) return;
         if (boardVisible) {
-          nutsTextButton(nutsManageButton, nutsCopy("全部议题", "Issues"));
+          setNutsIssueIcon(nutsManageButton, "manage", nutsCopy("全部议题", "Issues"));
           nutsBoard.open(listenRaw).catch(error => { nutsBoardMessage.textContent = normalizeError(error); });
         } else {
           nutsIssuePage.scrollTop = 0;
@@ -27366,7 +27438,7 @@ if (!chipTipController) {
             return;
           }
           if (active.id === nutsBoardId) {
-            nutsTextButton(nutsManageButton, nutsCopy("全部议题", "Issues"));
+            setNutsIssueIcon(nutsManageButton, "manage", nutsCopy("全部议题", "Issues"));
             const boardId = nutsBoard.current();
             const cards = await invoke("nuts_board_cards", { boardId });
             if (epoch === nutsEpoch && boardId === nutsBoard.current()) {
@@ -27431,24 +27503,24 @@ if (!chipTipController) {
             setNutsIssueIcon(back, "back", boardName ? nutsCopy(`回到「${boardName}」`, `Back to ${boardName}`)
               : nutsCopy("返回白板", "Back to board"));
             setNutsIssueIcon(reviewAction, "review", nutsCopy("查看最新稿", "View latest draft"));
-            reviewAction.classList.add("nuts-primary-action");
             row.hidden = false;
             summary.textContent = issue.title;
             statusLine.textContent = issue.archived_at ? nutsCopy("已归档", "Archived") : nutsIssueStatus(issue);
             claimCopy.hidden = issue.status !== "open";
-            nutsTextButton(claimCopy, nutsCopy("复制领取指令", "Copy claim instructions"));
+            setNutsIssueIcon(claimCopy, "copy", nutsCopy("复制领取指令", "Copy claim instructions"));
             claimCopy.onclick = async () => {
+              claimCopy.disabled = true;
               try {
-                const [cli, directory] = await invoke("nuts_claim_setup");
-                const settings = JSON.stringify({ cli, NUTBOOK_APP_DATA_DIR: directory, issueId: issue.id });
+                const number = await invoke("nuts_claim_number", { issueId: issue.id });
                 await writeClipboardText(nutsCopy(
-                  `请在本机领取并完成这个 NUTS 议题。用以下 CLI 和数据目录执行 nuts claim <issueId> --json，按返回的目标、规则和素材工作。修订时按 previous 和 extra 修改。完成后用同一 CLI 执行 nuts submit <issueId> <token> <Markdown 路径> --json，报告稿件版本。设置：${settings}`,
-                  `Claim and complete this local NUTS issue. Use the CLI and data directory below to run nuts claim <issueId> --json. Follow the returned goal, rules and materials. For revisions, use previous and extra. Submit with nuts submit <issueId> <token> <Markdown path> --json using the same CLI, then report the version. Settings: ${settings}`));
+                  `请领取并完成 NUTBOOK 议题 ${number}。`,
+                  `Please claim and complete NUTBOOK issue ${number}.`));
                 nutsMessage.textContent = nutsCopy("已复制，可粘贴到 Codex", "Copied. Paste into Codex.");
               } catch (error) { nutsMessage.textContent = normalizeError(error); }
+              finally { claimCopy.disabled = false; }
             };
             archiveAction.hidden = issue.status !== "done";
-            nutsTextButton(archiveAction, issue.archived_at ? nutsCopy("恢复议题", "Restore issue") : nutsCopy("归档议题", "Archive issue"));
+            setNutsIssueIcon(archiveAction, issue.archived_at ? "restore" : "archive", issue.archived_at ? nutsCopy("恢复议题", "Restore issue") : nutsCopy("归档议题", "Archive issue"));
             archiveAction.onclick = async () => {
               archiveAction.disabled = true;
               try {
@@ -27465,7 +27537,8 @@ if (!chipTipController) {
             const actionLabel = issue.status === "draft" ? nutsCopy("开放给 Agent 领取", "Open for agent claim")
               : issue.status === "open" ? nutsCopy("撤回任务", "Withdraw task")
               : issue.status === "done" ? nutsCopy("继续完善", "Continue work") : nutsCopy("重新开放", "Reopen");
-            setNutsIssueIcon(reopen, issue.status === "draft" ? "send" : issue.status === "open" ? "withdraw" : "reopen", actionLabel);
+            const actionIcon = { draft: "send", open: "withdraw", done: "revise" }[issue.status] || "reopen";
+            setNutsIssueIcon(reopen, actionIcon, actionLabel);
             reopen.hidden = Boolean(issue.archived_at) || !["draft", "open", "claimed", "done"].includes(issue.status);
             reviewAction.hidden = issue.status !== "review" || !versions.firstElementChild;
             resultPane.hidden = issue.result_version == null;
@@ -27478,7 +27551,7 @@ if (!chipTipController) {
                 resultPane.dataset.signature = signature;
                 const feedback = document.createElement("small");
                 feedback.setAttribute("role", "status");
-                const file = nutsIssueFile(issue.title, subtitle, async () => {
+                const file = nutsIssueFile(issue.title, subtitle, "markdown", async () => {
                   file.disabled = true;
                   try { await openNutsResult(issue.id, resultVersion, feedback); }
                   finally { file.disabled = false; }
@@ -27541,19 +27614,29 @@ if (!chipTipController) {
                 feedback.setAttribute("role", "status");
                 action.addEventListener("click", async () => {
                   action.disabled = true;
+                  const epoch = nutsEpoch;
                   try {
+                    const section = await invoke("nuts_result_references", { issueId: issue.id, version: draft.version });
+                    if (epoch !== nutsEpoch || row.dataset.stage !== "review") return;
+                    const sectionTitle = section?.heading || nutsCopy("审阅参考资料", "Review references");
                     const confirmed = await appConfirm({
-                      title: nutsCopy("存为成果并入库？", "Save this version to the library?"),
+                      title: nutsCopy("存为成果？", "Save as result?"),
                       message: nutsCopy(
-                        `第 ${draft.version} 版会生成独立 Markdown 文件并加入资料库，议题将标记为已收为成果。`,
-                        `Version ${draft.version} will become a Markdown file in the library and the issue will be marked as completed.`
+                        `第 ${draft.version} 版将作为 Markdown 加入资料库。`,
+                        `Version ${draft.version} will be added to the library as Markdown.`
                       ),
+                      note: section ? nutsCopy(
+                        `默认排除文末「${sectionTitle}」。`,
+                        `“${sectionTitle}” is left out by default.`
+                      ) : "",
+                      optionalCheckbox: section ? nutsCopy("保留参考资料", "Keep references") : "",
                       confirmText: nutsCopy("存为成果", "Save as result"),
                     });
-                    if (confirmed && row.dataset.stage === "review") {
-                      await openNutsResult(issue.id, draft.version, feedback);
+                    if (confirmed && epoch === nutsEpoch && row.dataset.stage === "review") {
+                      await openNutsResult(issue.id, draft.version, feedback, confirmed.checked === true);
                     }
-                  } finally { action.disabled = false; }
+                  } catch (error) { feedback.textContent = normalizeError(error); }
+                  finally { action.disabled = false; }
                 });
                 heading.onclick = event => {
                   event.preventDefault();

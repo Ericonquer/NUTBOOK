@@ -25,6 +25,11 @@ pub fn nuts_claim_setup(state: tauri::State<'_, AppState>) -> Result<(std::path:
     Ok((cli, directory))
 }
 
+#[tauri::command]
+pub fn nuts_claim_number(state: tauri::State<'_, AppState>, issue_id: String) -> Result<String, String> {
+    let (cli, directory) = nuts_claim_setup(state)?;
+    nuts::handoff::publish(&directory, &cli, &issue_id)
+}
 
 #[tauri::command]
 pub fn nuts_list(state: tauri::State<'_, AppState>) -> Result<Vec<nuts::Issue>, String> {
@@ -42,6 +47,16 @@ pub fn nuts_create(
 }
 
 #[tauri::command]
+pub fn nuts_draft_image(
+    state: tauri::State<'_, AppState>,
+    issue_id: String,
+    version: i64,
+    url: String,
+) -> Result<Option<String>, String> {
+    nuts::draft_assets::image_url(&state.app_data_dir, &issue_id, version, &url)
+}
+
+#[tauri::command]
 pub fn nuts_drafts(
     state: tauri::State<'_, AppState>,
     issue_id: String,
@@ -55,15 +70,25 @@ pub fn nuts_reopen(state: tauri::State<'_, AppState>, issue_id: String) -> Resul
 }
 
 #[tauri::command]
+pub fn nuts_result_references(
+    state: tauri::State<'_, AppState>,
+    issue_id: String,
+    version: i64,
+) -> Result<Option<nuts::result_references::ReferenceSection>, String> {
+    nuts::result_references::preview(&state.app_data_dir, &issue_id, version)
+}
+
+#[tauri::command]
 pub async fn nuts_save_result(
     app: tauri::AppHandle,
     issue_id: String,
     version: i64,
+    keep_references: Option<bool>,
 ) -> Result<crate::models::ItemSummary, String> {
     use tauri::Manager;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        nuts::save_result(&state.app_data_dir, &issue_id, version, |path| {
+        nuts::save_result(&state.app_data_dir, &issue_id, version, keep_references, |path| {
             let path = path.to_str().ok_or("Invalid result path")?;
             let response = crate::core::cli::execute_with_app_state(
                 &state,
@@ -234,6 +259,15 @@ pub fn nuts_adopt_reference(
     id: String,
 ) -> Result<(), String> {
     nuts::references::adopt(&state.app_data_dir, &issue_id, &id)
+}
+
+#[tauri::command]
+pub fn nuts_revoke_reference(
+    state: tauri::State<'_, AppState>,
+    issue_id: String,
+    id: String,
+) -> Result<(), String> {
+    nuts::references::revoke(&state.app_data_dir, &issue_id, &id)
 }
 
 #[tauri::command]
