@@ -557,7 +557,7 @@ fn remove_project(database: &Database, path: &Path) -> Result<CliResponse, CliFa
     Ok(response("removed", path, Some(library.id), Some("project source and bindings removed; files were kept".to_string())))
 }
 
-fn active_item_for_path(database: &Database, path: &str) -> Result<Option<crate::models::ItemSummary>, CliFailure> {
+pub(crate) fn active_item_for_path(database: &Database, path: &str) -> Result<Option<crate::models::ItemSummary>, CliFailure> {
     let mut page = 1;
     loop {
         let result = database.list_items(&ListItemsQuery { include_deleted: Some(false), page: Some(page), page_size: Some(500), ..Default::default() }).map_err(database_failure)?;
@@ -581,9 +581,9 @@ fn reject_protected_root(path: &Path) -> Result<(), CliFailure> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn home_dir() -> Result<PathBuf, CliFailure> { env::var_os("HOME").map(PathBuf::from).ok_or_else(|| failure("home_unavailable", "home directory is unavailable")) }
+pub(super) fn home_dir() -> Result<PathBuf, CliFailure> { env::var_os("HOME").map(PathBuf::from).ok_or_else(|| failure("home_unavailable", "home directory is unavailable")) }
 #[cfg(target_os = "windows")]
-fn home_dir() -> Result<PathBuf, CliFailure> {
+pub(super) fn home_dir() -> Result<PathBuf, CliFailure> {
     env::var_os("USERPROFILE").map(PathBuf::from)
         .or_else(|| match (env::var_os("HOMEDRIVE"), env::var_os("HOMEPATH")) { (Some(drive), Some(path)) => Some(PathBuf::from(drive).join(path)), _ => None })
         .ok_or_else(|| failure("home_unavailable", "USERPROFILE is unavailable"))

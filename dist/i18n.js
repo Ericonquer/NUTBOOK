@@ -16,6 +16,7 @@
       nav: {
         browse: "浏览",
         type: "类型",
+        workspace: "工作区",
         all: "所有文件",
         recent: "最近使用",
         starred: "我的收藏",
@@ -957,6 +958,7 @@
       nav: {
         browse: "Browse",
         type: "Type",
+        workspace: "Workspace",
         all: "All Files",
         recent: "Recent",
         starred: "Favorites",

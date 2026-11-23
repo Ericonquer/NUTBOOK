@@ -90,6 +90,15 @@ pub fn fetch_raster_cancelable(
     fetch_with_transport(raw, cancelled, public_request)
 }
 fn public_request(u: &url::Url, deadline: Instant) -> Result<ureq::Response, String> {
+    public_web_request(u, deadline, "image/png,image/jpeg,image/webp,image/gif")
+}
+
+pub(super) fn public_web_request(
+    u: &url::Url,
+    deadline: Instant,
+    accept: &str,
+) -> Result<ureq::Response, String> {
+    image_url(u.as_str())?;
     let host = u
         .host_str()
         .ok_or("Missing host")?
@@ -126,7 +135,7 @@ fn public_request(u: &url::Url, deadline: Instant) -> Result<ureq::Response, Str
         .build();
     let response = agent
         .get(u.as_str())
-        .set("Accept", "image/png,image/jpeg,image/webp,image/gif")
+        .set("Accept", accept)
         .call()
         .map_err(|error| match error {
             ureq::Error::Status(code, _) => {

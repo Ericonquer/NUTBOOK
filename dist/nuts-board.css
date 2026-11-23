@@ -1,0 +1,1054 @@
+/* Match the host dialog body and action typography. */
+#nutsWorkspace dialog { font-size: 13px; }
+#nutsWorkspace dialog :is(h2, .nuts-capture-heading) { font-size: 16px; font-weight: 700; }
+#nutsWorkspace :is(.nuts-capture-actions button, .nuts-new-board-actions button, #nutsDraftRule, #nutsSelection button, #nutsIssuePage button) {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+#nutsWorkspace :is(button, input, textarea, select, summary, a[href], [role="option"], [tabindex]):focus-visible {
+  outline: 2px solid var(--ink-soft) !important;
+  outline-offset: 2px;
+}
+/* Dialog headings receive initial focus to announce context. The title is not a control. */
+#nutsWorkspace #nutsReviewTitle:focus {
+  outline: none !important;
+}
+#nutsWorkspace :is(#nutsBoardViewport, .nuts-review-document):focus-visible {
+  outline-offset: -2px;
+}
+#nutsWorkspace #nutsBoardViewport[data-capture-focus-return]:focus-visible {
+  outline: none !important;
+}
+
+#nutsWorkspace[hidden], #nutsWorkspace [hidden] { display: none !important; }
+.main-shell.nuts-mode { grid-template-rows: auto minmax(0, 1fr); }
+.main-shell.nuts-mode > :is(.workspace, .document-toolbar, .footer-bar),
+.main-shell.nuts-mode .topbar-right { display: none; }
+#nutsWorkspace { grid-row: 2; min-width: 0; min-height: 0; overflow: clip; }
+#nutsBoardPage { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; gap: 10px; height: 100%; padding: 12px 16px 14px; }
+#nutsBoardMessage:empty, #nutsIssueMessage:empty { display: none; }
+#nutsBoardMessage { grid-row: 6; color: var(--ink-soft); margin: 0; }
+#nutsBoardArea { position: relative; grid-row: 3; min-height: 0; }
+#nutsWorkspace button:not(.button) { color: var(--ink); }
+#nutsBoardForm button, #nutsIssuePage button, #nutsDrawerClose {
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); cursor: pointer;
+}
+#nutsWorkspace button:disabled { opacity: .5; cursor: default; }
+.nuts-board-toolbar { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 0; }
+.nuts-board-toolbar h1 { margin: 0; font-size: 25px; }
+.nuts-board-actions { display: flex; align-items: center; gap: 8px; }
+#nutsBoardHint { grid-row: 5; margin: 0; color: var(--ink-soft); font-size: 13px; }
+#nutsBoardViewport { position: relative; overflow: clip; touch-action: none; height: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-variant); }
+#nutsBoardViewport { background-image: radial-gradient(var(--ink-soft) .65px, transparent .65px); background-size: 20px 20px; }
+#nutsBoard { position: absolute; width: 0; height: 0; inset: 0 auto auto 0; transform-origin: 0 0; user-select: none; }
+#nutsBoardViewport.is-panning { cursor: grab; }
+#nutsBoard .nuts-card { position: absolute; overflow: hidden; display: flex; flex-direction: column; gap: 6px; width: 220px; height: 116px; padding: 11px; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--paper, white); color: var(--ink); cursor: grab; }
+#nutsBoard .nuts-card[aria-pressed="true"] { border-color: #476aae; box-shadow: inset 0 0 0 1px #476aae; }
+.nuts-card-caption { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); }
+.nuts-material-icon {
+  --material-icon-glyph: 20px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 34px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-variant);
+  color: var(--ink-soft);
+}
+.nuts-material-icon :is(svg, img) {
+  display: block;
+  width: var(--material-icon-glyph);
+  height: var(--material-icon-glyph);
+}
+.nuts-card-caption .nuts-material-icon {
+  --material-icon-glyph: 15px;
+  width: 22px;
+  height: 22px;
+}
+.nuts-card-attachment-icon { margin-top: auto; }
+.nuts-card-title, .nuts-card-copy { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.nuts-card-title { -webkit-line-clamp: 1; }
+.nuts-card-copy { -webkit-line-clamp: 3; font-size: 12px; }
+#nutsMarquee { position: absolute; border: 1px solid #476aae; background: #476aae24; pointer-events: none; z-index: 2; }
+#nutsBoardForm [hidden], #nutsMarquee[hidden] { display: none; }
+.nuts-group { position: absolute; border: 1px dashed var(--ink-soft); border-radius: 12px; background: var(--surface-muted); pointer-events: none; }
+.nuts-group > button {
+  appearance: none;
+  position: absolute;
+  inset: 5px auto auto 6px;
+  box-sizing: border-box;
+  height: 32px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  z-index: 1;
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  padding-inline: 10px;
+}
+.nuts-group > button:hover { background: var(--paper); border-color: var(--line-strong); }
+.nuts-references:empty { display: none; }
+#nutsCabinet { grid-row: 4; position: relative; }
+#nutsDrawerButtons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); }
+.nuts-drawer-toggle { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: 0 2px 0 var(--line); text-align: left; cursor: pointer; }
+.nuts-drawer-toggle:hover, .nuts-drawer-toggle[aria-expanded="true"] { background: var(--surface-variant); }
+.nuts-drawer-slot { width: 17px; height: 6px; flex: none; border-radius: 5px; background: var(--line); box-shadow: inset 0 1px 2px #0002; }
+.nuts-drawer-caption { display: grid; align-items: center; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; width: 100%; font-variant-numeric: tabular-nums; }
+.nuts-drawer-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.nuts-drawer-caption > span { font-size: 12px; color: var(--ink-soft); }
+.nuts-drawer-caption i { width: 6px; height: 6px; border-radius: 50%; background: #c63643; }
+.nuts-drawer-toggle:last-child i { background: #238353; }
+#nutsDrawer { --drawer-width: min(440px, 92%); position: absolute; z-index: 3; bottom: calc(100% + 8px); left: clamp(calc(var(--drawer-width) / 2), var(--drawer-center), calc(100% - var(--drawer-width) / 2)); width: var(--drawer-width); max-height: min(45vh, 330px); overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 36px #16162130; transform: translateX(-50%); animation: nuts-drawer-rise 140ms ease-out; }
+@keyframes nuts-drawer-rise { from { opacity: .55; transform: translate(-50%, 7px); } }
+@media (prefers-reduced-motion: reduce) { #nutsDrawer { animation: none; } }
+#nutsDrawer header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+#nutsDrawer h2 { font-size: 15px; margin: 0; }
+#nutsDrawerItems { display: grid; gap: 5px; }
+#nutsDrawerItems p { color: var(--ink-soft); margin: 8px 0; }
+.nuts-drawer-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border: 0; border-radius: 6px; background: var(--surface-variant); text-align: left; cursor: pointer; }
+.nuts-drawer-item strong { overflow-wrap: anywhere; }
+.nuts-drawer-item small { flex: none; color: var(--ink-soft); }
+#nutsDrawerShade { position: absolute; z-index: 2; inset: 0; width: 100%; border: 0; border-radius: 12px; background: #87878e15; backdrop-filter: blur(4px); cursor: default; }
+#nutsIssuePage { height: 100%; overflow: auto; }
+.nuts-issue-content { max-width: 820px; margin-inline: auto; padding: 26px 24px; }
+#nutsIssues h1 { margin: 16px 0 4px; }
+#nutsIssues h3 { font-size: 15px; }
+#nutsIssues small { display: block; overflow-wrap: anywhere; color: var(--ink-soft); }
+#nutsIssues article > p { margin: 4px 0; }
+.nuts-draft { padding: 10px 12px; margin-top: 10px; background: var(--surface-variant); border-radius: 9px; }
+.nuts-draft summary { cursor: pointer; }
+.nuts-draft > button { margin-top: 10px; }
+.nuts-draft article { overflow-wrap: anywhere; }
+#nutsBoardPage, #nutsDrawer, #nutsBoardViewport, #nutsBoard .nuts-card { box-sizing: border-box; }
+#nutsWorkspace .nuts-tool-icon { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; }
+#nutsWorkspace .nuts-tool-icon[aria-pressed="true"] { background: var(--surface-muted); }
+.nuts-mascot { display: block; width: 22px; height: 22px; object-fit: contain; flex: none; pointer-events: none; }
+#nutsEntry .nuts-nav-state { position: relative; display: grid; place-items: center; width: 20px; height: 20px; flex: none; opacity: .64; }
+#nutsEntry.active .nuts-nav-state { opacity: 1; }
+.nuts-nav-state > img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.nuts-reading-eyes { animation: nuts-reading 4.8s ease-in-out infinite; }
+@keyframes nuts-reading {
+  0%, 8%, 45%, 54%, 100% { transform: translate(-2px, 1px); }
+  23%, 29% { transform: translate(1px, 1px) rotate(-5deg); }
+  33% { transform: translate(1px, 1px) rotate(-5deg) scaleY(.2); }
+  37% { transform: translate(1px, 1px) rotate(-5deg); }
+  41% { transform: translate(-2px, 1px); }
+  69%, 76% { transform: translate(1px, 2px) rotate(-5deg); }
+  82% { transform: translate(-2px, 1px); }
+}
+@media (prefers-reduced-motion: reduce) { .nuts-reading-eyes { animation: none; } }
+.tab-chip .nuts-mascot { width: 17px; height: 17px; }
+#nutsFormPanel { width: min(520px, calc(100% - 32px)); max-height: 80vh; padding: 0; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 64px #2020253b; }
+#nutsFormPanel::backdrop { background: #33333d40; backdrop-filter: blur(3px); }
+#nutsBoardForm { display: block; width: auto; margin: 0; }
+#nutsBoardForm label { display: block; }
+.nuts-capture-heading { display: flex; align-items: center; gap: 8px; padding: 22px 24px 12px; }
+.nuts-capture-heading .nuts-mascot { width: 28px; height: 28px; }
+#nutsFormPanel[data-kind="issue"] .nuts-mascot { display: none; }
+#nutsBoardInput { box-sizing: border-box; display: block; width: 100%; color: var(--ink); resize: vertical; min-height: 156px; max-height: 45vh; padding: 4px 24px 18px; background: transparent; border: 0; border-radius: 0; font-size: 14px; line-height: 1.65; }
+#nutsBoardInput:focus { outline: none; box-shadow: none; }
+#nutsFormPanel[data-kind="note"] #nutsBoardInput {
+  width: calc(100% - 32px);
+  margin: 0 16px 4px;
+  padding-inline: 8px;
+  border-radius: 7px;
+}
+#nutsFormPanel[data-kind="note"] #nutsBoardInput:focus-visible {
+  outline: 1px solid var(--ink-soft) !important;
+  outline-offset: -1px;
+}
+#nutsFormPanel[data-kind="issue"] #nutsBoardInput {
+  width: calc(100% - 48px);
+  min-height: 0;
+  height: 58px;
+  margin: 0 24px 12px;
+  padding: 8px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+#nutsFormPanel[data-kind="issue"] #nutsBoardInput:focus { border-color: var(--ink-soft); }
+.nuts-capture-actions { display: flex; justify-content: flex-end; gap: 8px; align-items: center; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--surface-variant); }
+.nuts-capture-actions kbd { margin-right: auto; color: var(--ink-soft); }
+#nutsWorkspace #nutsBoardSubmit { background: var(--ink); color: var(--surface); }
+#nutsCaptureError:empty { display: none; }
+#nutsCaptureError { color: #ad2935; margin: 4px 24px 12px; }
+.nuts-capture-flight { position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none; transform-origin: 0 0; }
+.nuts-capture-flight .nuts-mascot { width: 36px; height: 36px; }
+.nuts-flight-paper { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); overflow: hidden; width: min(340px, 65vw); padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); white-space: nowrap; text-overflow: ellipsis; box-shadow: 0 5px 20px #2222; }
+#nutsBoardList { grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#nutsBoardList button { padding: 5px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
+#nutsBoardList button:hover, #nutsBoardList button[aria-current="page"] { background: var(--surface-muted); border-color: var(--line); }
+#nutsViewTools { position: absolute; inset: 10px 10px auto auto; display: flex; align-items: center; gap: 3px; padding: 4px; z-index: 1; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: 0 2px 8px #0001; }
+#nutsViewTools button, .nuts-new-board-actions button { padding: 6px 9px; border: 0; border-radius: 6px; background: var(--surface-variant); cursor: pointer; }
+#nutsViewTools output { min-width: 3.3em; text-align: center; font-variant-numeric: tabular-nums; }
+#nutsViewTools button:hover, #nutsViewTools button[aria-pressed="true"] { background: var(--surface-muted); }
+#nutsSelection { display: flex; align-items: center; gap: 6px; white-space: nowrap; position: absolute; z-index: 1; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: 0 2px 8px #0002; }
+#nutsNewBoardDialog { width: min(420px, calc(100% - 32px)); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+#nutsNewBoardDialog::backdrop { background: #33333d40; backdrop-filter: blur(3px); }
+#nutsNewBoardDialog h2 { margin: 0 0 14px; }
+#nutsNewBoardDialog label { display: grid; gap: 6px; }
+#nutsNewBoardName { padding: 8px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 7px; }
+#nutsNewBoardName:focus { outline: none; box-shadow: none; border-color: var(--ink-soft); }
+#nutsNewBoardError:empty { display: none; }
+.nuts-new-board-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#nutsWorkspace #nutsNewBoardSubmit { background: var(--ink); color: var(--surface); }
+
+.nuts-board-toolbar { justify-content: flex-start; gap: 14px; }
+#nutsTagline { margin: 0; font-size: 13px; color: var(--ink-soft); }
+.nuts-board-strip { grid-row: 2; display: flex; align-items: flex-end; gap: 16px; min-width: 0; }
+.nuts-board-tabs {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  margin-block-end: -11px;
+  padding-inline-start: 3px;
+}
+#nutsBoardList {
+  --tab-join-radius: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: end;
+  gap: calc(2 * var(--tab-join-radius));
+  padding-inline: var(--tab-join-radius);
+  scrollbar-width: none;
+}
+#nutsWorkspace #nutsNewBoard {
+  appearance: none;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+#nutsWorkspace #nutsNewBoard:hover { background: var(--surface-muted); color: var(--ink); }
+#nutsBoardList button {
+  --tab-surface: var(--surface-muted);
+  position: relative;
+  flex: none;
+  padding: 7px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  background: var(--tab-surface);
+  white-space: nowrap;
+  font-size: 13px;
+}
+#nutsBoardList button[aria-current="page"] {
+  --tab-surface: var(--surface-variant);
+  background: var(--tab-surface);
+  border-bottom-color: var(--tab-surface);
+}
+#nutsBoardList button::before,
+#nutsBoardList button::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  width: calc(var(--tab-join-radius) + 1px);
+  height: calc(var(--tab-join-radius) + 1px);
+  background: radial-gradient(circle at 0 0,
+    transparent calc(var(--tab-join-radius) - .5px),
+    var(--line) var(--tab-join-radius),
+    var(--tab-surface) calc(var(--tab-join-radius) + 1px));
+  pointer-events: none;
+}
+#nutsBoardList button::before { right: 100%; }
+#nutsBoardList button::after { left: 100%; transform: scaleX(-1); }
+#nutsBoardList button:focus-visible { outline-offset: -3px; }
+#nutsBoardViewport { border-top-left-radius: 8px; }
+.nuts-board-actions { flex: none; align-self: center; padding-bottom: 3px; }
+#nutsWorkspace .nuts-board-actions .nuts-tool-icon {
+  appearance: none; display: grid; place-items: center; line-height: 0;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer;
+}
+#nutsWorkspace .nuts-board-actions .nuts-tool-icon:hover { background: var(--surface-muted); }
+.nuts-board-actions :is(svg, img) { display: block; margin: 0; }
+.nuts-board-actions .nuts-mascot { transform: translateY(-1px); }
+#nutsBoardMessage:not(:empty) { padding-top: 4px; }
+#nutsViewTools { gap: 2px; padding: 3px; font-size: 12px; line-height: 1; }
+#nutsViewTools button { display: grid; place-items: center; min-width: 23px; height: 24px; padding: 0 5px; font-size: 12px; }
+#nutsViewTools #nutsPan { appearance: none; width: 25px; height: 24px; }
+#nutsViewTools #nutsPan[aria-pressed="true"] { color: var(--surface); background: var(--ink); }
+#nutsBoardViewport.is-dragging-canvas, #nutsBoardViewport.is-dragging-canvas * { cursor: grabbing; }
+#nutsViewTools svg { width: 15px; height: 15px; }
+#nutsViewTools output { min-width: 3em; }
+.nuts-group { pointer-events: auto; cursor: grab; box-sizing: border-box; }
+.nuts-group > button { cursor: grab; }
+.nuts-group:active, .nuts-group > button:active { cursor: grabbing; }
+#nutsSceneAbout, #nutsIssueRuleHint { margin: 5px 0 12px; color: var(--ink-soft); font-size: 13px; }
+#nutsRulesDialog { width: min(520px, calc(100% - 32px)); max-height: 85vh; padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+#nutsRulesDialog::backdrop { background: #33333d40; backdrop-filter: blur(3px); }
+#nutsRulesDialog h2 { margin: 0 0 14px; }
+#nutsRulesForm label, #nutsIssueTemplateFields label { display: grid; gap: 5px; margin-bottom: 10px; }
+#nutsWorkspace :is(#nutsRulesForm, #nutsIssueTemplateFields, #nutsNewBoardForm) :is(select, input, textarea) { font: inherit; box-sizing: border-box; width: 100%; padding: 8px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 7px; }
+#nutsWorkspace :is(#nutsRulesForm, #nutsIssueTemplateFields, #nutsNewBoardForm) :is(select, input, textarea):focus { outline: none; box-shadow: none; border-color: var(--ink-soft); }
+#nutsIssueTemplateFields { padding: 0 24px 10px; }
+#nutsRuleText, #nutsIssueGoal { resize: vertical; }
+#nutsRulesError:empty { display: none; }
+#nutsDraftRule { border: 1px solid var(--line); border-radius: 7px; background: var(--surface-variant); padding: 6px 9px; }
+.nuts-context { margin: 12px 0; }
+.nuts-context p, .nuts-context pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+#nutsWorkspace .nuts-tool-icon[data-tooltip] { position: relative; }
+#nutsWorkspace .nuts-tool-icon[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #22232a;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+#nutsWorkspace .nuts-tool-icon[data-tooltip]:is(:hover, :focus-visible) { z-index: 4; }
+#nutsWorkspace .nuts-tool-icon[data-tooltip]:is(:hover, :focus-visible)::after { opacity: 1; }
+#nutsWorkspace .nuts-board-actions { position: relative; z-index: 2; }
+#nutsWorkspace .nuts-board-actions .nuts-tool-icon:last-child::after { left: auto; right: 0; transform: none; }
+.nuts-group.nuts-group-drop { border-color: #476aae; box-shadow: inset 0 0 0 1px #476aae; }
+#nutsCaptureDestination { display: flex; align-items: center; gap: 8px; padding: 0 24px 10px; font-size: 12px; color: var(--ink-soft); }
+#nutsCaptureBoard { max-width: 60%; }
+.nuts-picker-field { display: grid; gap: 5px; margin-bottom: 10px; }
+.nuts-picker { min-width: 0; }
+#nutsWorkspace .nuts-picker-trigger {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  text-align: left;
+  cursor: pointer;
+}
+.nuts-picker-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nuts-picker-trigger::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.4px 1.4px 0;
+  transform: translateY(-2px) rotate(45deg);
+}
+#nutsWorkspace .nuts-picker-trigger:is(:hover, [aria-expanded="true"]) { border-color: var(--ink-soft); }
+#nutsWorkspace .nuts-picker :is(.nuts-picker-trigger, [role="option"]):focus-visible {
+  outline: 1px solid var(--ink-soft) !important;
+  outline-offset: -2px;
+}
+.nuts-picker-menu {
+  box-sizing: border-box;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #0002;
+}
+#nutsWorkspace .nuts-picker-menu [role="option"] {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: transparent;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+#nutsWorkspace .nuts-picker-menu [role="option"]:is(:hover, :focus-visible, [aria-selected="true"]) { background: var(--surface-muted); }
+.nuts-picker-menu [role="option"]::before { content: ""; }
+.nuts-picker-menu [role="option"][aria-selected="true"]::before { content: "✓"; }
+
+/* Issue actions stay visible while the reading area scrolls. */
+#nutsIssuePage { background: var(--paper, #fff); }
+#nutsIssuePage .nuts-issue-content { max-width: 900px; margin-inline: auto; padding: 0 clamp(20px, 5vw, 52px) 48px; box-sizing: border-box; }
+#nutsIssuePage button { padding: 8px 12px; border: 0; border-radius: 8px; background: var(--surface-muted); cursor: pointer; }
+#nutsIssuePage button:hover { background: var(--surface-variant); }
+#nutsIssuePage .nuts-primary-action, #nutsWorkspace #nutsSaveRules { color: var(--surface); background: var(--ink); }
+#nutsIssuePage { scroll-padding-top: 72px; }
+.nuts-issue-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  background: var(--paper);
+  box-shadow: 0 1px var(--line);
+}
+.nuts-issue-header { margin: 26px 0 20px; }
+#nutsIssues .nuts-issue-header h1 { margin: 8px 0 5px; font-size: 31px; line-height: 1.2; letter-spacing: -.055em; overflow-wrap: anywhere; }
+#nutsIssues .nuts-issue-state { margin: 0; font-size: 12px; font-weight: 650; }
+.nuts-issue-rules { margin: 9px 0 12px; }
+.nuts-issue-rules summary { font-size: 13px; color: var(--ink-soft); cursor: pointer; }
+.nuts-issue-rules pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.5; }
+#nutsIssues .nuts-issue-section { margin: 24px 0 0; }
+#nutsIssues .nuts-issue-section h2 { margin: 0 0 8px; font-size: 16px; line-height: 1.3; }
+#nutsIssues .nuts-reference-heading { font-size: 14px !important; }
+#nutsIssues .nuts-issue-section p { margin: 6px 0; line-height: 1.55; overflow-wrap: anywhere; }
+.nuts-issue-muted { font-size: 14px; color: var(--ink-soft); }
+.nuts-agent-actions { display: flex; flex: none; align-items: center; gap: 10px; }
+.nuts-issue-metadata { color: var(--ink-soft); font-size: 12px; }
+.nuts-issue-metadata summary { cursor: pointer; }
+.nuts-issue-note, #nutsIssuePage .nuts-issue-file { width: 100%; max-width: 560px; box-sizing: border-box; margin-top: 6px; }
+.nuts-issue-note { border-radius: 8px; padding: 8px 12px; background: var(--surface-variant); }
+.nuts-issue-note summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+#nutsIssues .nuts-issue-note p { white-space: pre-wrap; font-size: 13px; }
+#nutsIssuePage .nuts-issue-file { display: flex; align-items: center; gap: 9px; text-align: left; padding: 10px 12px; background: var(--surface-variant); border-radius: 8px; }
+#nutsIssuePage button.nuts-issue-file:hover { background: var(--surface-muted); }
+.nuts-issue-file strong, .nuts-issue-file small { display: block; overflow-wrap: anywhere; }
+.nuts-issue-file strong { font-size: 13px; }
+#nutsIssues .nuts-issue-file small { margin-top: 3px; font-size: 11px; }
+.nuts-reference-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#nutsIssues .nuts-reference-header h2 { margin-bottom: 0; }
+.nuts-reference-search { max-width: 560px; margin-block: 10px; }
+.nuts-reference-search input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); font-size: 13px; }
+.nuts-reference-search input:focus { outline: none; border-color: var(--ink-soft); }
+.nuts-issue-recommendation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding-inline-end: 10px;
+  border-radius: 8px;
+  background: var(--surface-variant);
+}
+#nutsIssuePage .nuts-issue-recommendation .nuts-issue-file {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  background: transparent;
+}
+#nutsIssuePage .nuts-issue-recommendation .nuts-issue-file:hover {
+  background: var(--surface-muted);
+}
+.nuts-issue-recommendation > .nuts-issue-icon-button { flex: none; }
+
+#nutsRulesDialog { padding: 22px 24px 0; }
+#nutsRulesDialog h2 { margin-bottom: 17px; }
+#nutsRulesForm .nuts-rules-actions { align-items: center; border-top: 1px solid var(--line); margin: 14px -24px 0; padding: 13px 24px; }
+#nutsRuleTemplatesTitle { margin-inline-end: auto; padding-inline: 0; color: var(--ink-soft); background: transparent; }
+#nutsRuleTemplatesTitle:hover { color: var(--ink); }
+#nutsRuleTemplates { background: var(--surface-variant); border-radius: 7px; padding: 10px; }
+#nutsRulesForm > label > span, #nutsRulesForm > label { font-size: 13px; }
+#nutsRulesForm #nutsRuleText { line-height: 1.55; font-size: 14px; }
+
+#nutsSelectedCount { padding-inline: 6px; color: var(--ink-soft); font-size: 12px; }
+#nutsSelection .nuts-tool-icon {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+#nutsSelection .nuts-tool-icon:is(:hover, :focus-visible) { background: var(--surface-muted); }
+#nutsWorkspace #nutsSelection .nuts-tool-icon[data-tooltip]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+}
+
+#nutsBoard .nuts-card.has-image-thumbnail { padding: 5px; gap: 2px; }
+#nutsBoard .has-image-thumbnail .nuts-card-caption { display: none; }
+#nutsBoard .has-image-thumbnail .nuts-card-attachment-icon {
+  position: absolute;
+  --material-icon-glyph: 16px;
+  inset: auto auto 7px 8px;
+  width: 24px;
+  height: 24px;
+}
+#nutsBoard .has-image-thumbnail .nuts-card-title {
+  display: block;
+  flex: none;
+  padding-inline: 33px 48px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 28px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nuts-image-thumbnail {
+  display: block;
+  flex: none;
+  align-self: center;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+#nutsBoard .nuts-card.has-link-cover { padding-inline-end: 80px; }
+.nuts-link-cover {
+  position: absolute;
+  inset: 11px 11px auto auto;
+  width: 60px;
+  height: 92px;
+  object-fit: cover;
+  border-radius: 5px;
+  pointer-events: none;
+}
+
+#nutsIssues .nuts-issue-header:has(+ .nuts-context:not([hidden])) { margin-bottom: 7px; }
+#nutsIssues .nuts-context {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-soft);
+}
+#nutsIssues .nuts-context h2 { flex: none; margin: 0; font-size: 15px; font-weight: 650; }
+#nutsIssues .nuts-context p { min-width: 0; margin: 0; font-size: 15px; }
+.nuts-material-list {
+  margin-top: 10px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+#nutsIssuePage .nuts-material-list :is(.nuts-issue-note, .nuts-issue-file) {
+  max-width: none;
+  margin: 0;
+  background: transparent;
+}
+#nutsIssuePage .nuts-material-list :is(.nuts-issue-note, button.nuts-issue-file):hover {
+  background: var(--surface-muted);
+}
+.nuts-material-link-row { display: flex; align-items: center; gap: 6px; padding-inline-end: 8px; }
+.nuts-material-link-row .nuts-issue-file { flex: 1; min-width: 0; }
+.nuts-material-link-row .nuts-issue-icon-button { flex: none; }
+.nuts-external-material::after { content: "↗"; margin-inline-start: auto; color: var(--ink-soft); }
+.nuts-issue-footer { display: grid; gap: 10px; margin-top: 24px; }
+.nuts-issue-footer .nuts-issue-rules { margin: 0; }
+#nutsIssues .nuts-draft:not(.nuts-draft-latest) { background: transparent; border: 1px solid var(--line); }
+.nuts-draft-latest summary { font-weight: 650; }
+
+#nutsIssuePage button.nuts-primary-action:hover { background: var(--ink-soft); color: var(--paper); }
+.nuts-reference-sources { display: flex; gap: 8px; margin-block: 10px; }
+#nutsIssuePage .nuts-reference-sources button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--ink-soft); }
+.nuts-note-label { color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+#nutsIssues .nuts-issue-note p { margin: 3px 0 0; }
+
+#nutsIssuePage .nuts-material-list .nuts-issue-note {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: auto;
+  margin: 4px 4px 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.nuts-issue-note img { width: 24px; height: 24px; object-fit: contain; }
+
+.nuts-draft-version {
+  position: relative;
+  margin-top: 10px;
+}
+.nuts-draft-version .nuts-draft { margin-top: 0; }
+.nuts-draft-version.has-save-action > .nuts-draft > summary {
+  min-height: 32px;
+  line-height: 32px;
+  padding-inline-end: 112px;
+}
+#nutsIssuePage .nuts-save-draft {
+  position: absolute;
+  inset: 10px 12px auto auto;
+  min-height: 32px;
+}
+.nuts-draft-version > small:empty { display: none; }
+
+#nutsReviewDialog {
+  width: min(1120px, calc(100vw - 44px));
+  height: min(820px, calc(100vh - 60px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+}
+#nutsReviewDialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+#nutsReviewDialog::backdrop { background: #24242d66; }
+#nutsReviewDialog > :is(header, footer) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--surface);
+}
+#nutsReviewDialog h2 { margin: 0; }
+.nuts-review-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 32%); }
+.nuts-review-layout > * { overflow: auto; padding: 18px; overflow-wrap: anywhere; }
+.nuts-review-document { font-size: 15px; line-height: 1.7; border-block: 1px solid var(--line); }
+.nuts-review-layout aside {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background: var(--surface);
+  border-inline-start: 1px solid var(--line);
+}
+.nuts-review-tools {
+  position: relative;
+  z-index: 1;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.nuts-review-comments {
+  grid-row: 2;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 18px 18px;
+}
+#nutsReviewDialog button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; cursor: pointer; }
+#nutsWorkspace #nutsReviewDialog footer button {
+  appearance: none;
+  background: var(--ink);
+  color: var(--paper);
+}
+#nutsWorkspace #nutsReviewDialog footer button:disabled {
+  opacity: 1;
+  cursor: default;
+  background: transparent;
+  color: var(--ink-soft);
+}
+#nutsWorkspace #nutsReviewDialog footer button:not(:disabled):hover { background: var(--ink-soft); }
+.nuts-review-document img { display: block; max-width: 100%; height: auto; }
+.nuts-review-comment { padding: 9px; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+.nuts-review-comment p { margin: 9px 0 10px; white-space: pre-wrap; }
+.nuts-review-excerpt {
+  margin: 5px 0 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--surface-variant);
+}
+#nutsReviewDialog .nuts-review-quote {
+  appearance: none;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+#nutsReviewDialog .nuts-review-quote:hover { color: var(--ink); text-decoration: underline; }
+.nuts-review-hint { color: var(--ink-soft); font-size: 12px; }
+#nutsReviewDialog textarea { width: 100%; box-sizing: border-box; }
+::highlight(nuts-review) { background-color: #ffd76d; color: #262016; }
+#nutsIssues .nuts-draft > summary { list-style: none; }
+#nutsIssues .nuts-draft > summary::-webkit-details-marker { display: none; }
+.nuts-review-comment:focus { outline: 2px solid var(--ink-soft); outline-offset: -2px; }
+
+#nutsReviewDialog .nuts-review-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+#nutsReviewDialog .nuts-review-icon:hover { background: var(--surface-muted); }
+#nutsReviewDialog .nuts-review-icon + .nuts-review-icon { margin-inline-start: 6px; }
+.nuts-review-document { position: relative; padding-inline-start: 42px; }
+#nutsReviewDialog .nuts-review-marker,
+.nuts-review-number {
+  display: inline-grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 5px;
+  background: #ffd76d;
+  color: #262016;
+  font-size: 11px;
+  font-weight: 650;
+}
+#nutsReviewDialog .nuts-review-marker {
+  position: absolute;
+  inset-inline-start: 12px;
+  padding: 0;
+  border: 0;
+}
+.nuts-review-marker::before { content: attr(data-number); }
+.nuts-review-number { margin-inline-end: 7px; vertical-align: middle; }
+#nutsIssues .nuts-draft > summary:focus-visible { outline: 1px solid var(--ink-soft); outline-offset: 2px; }
+
+
+#nutsIssuePage .nuts-issue-results .nuts-issue-file { max-width: none; }
+.nuts-issue-row-action { margin-inline-start: auto; flex: none; font-size: 12px; font-weight: 600; }
+#nutsIssues .nuts-draft > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+#nutsIssues .nuts-draft summary:hover .nuts-issue-row-action { text-decoration: underline; }
+#nutsIssuePage .nuts-save-draft { background: var(--paper); border: 1px solid var(--line); }
+#nutsIssuePage .nuts-save-draft:hover { background: var(--surface-muted); }
+
+#nutsReviewDialog .nuts-review-icon[data-tooltip] { position: relative; }
+#nutsReviewDialog .nuts-review-icon[data-tooltip]:is(:hover, :focus-visible) { z-index: 1; }
+#nutsReviewDialog .nuts-review-icon[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  inset: calc(100% + 6px) auto auto 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #22232a;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+}
+#nutsReviewDialog header .nuts-review-icon[data-tooltip]::after {
+  inset-inline: auto 0;
+}
+#nutsReviewDialog .nuts-review-icon[data-tooltip]:is(:hover, :focus-visible)::after {
+  visibility: visible;
+}
+#nutsReviewDialog .nuts-review-comment .nuts-review-icon[data-tooltip]::after {
+  inset-block: auto calc(100% + 6px);
+}
+
+#nutsIssuePage .nuts-issue-icon-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+#nutsIssuePage .nuts-issue-icon-button[hidden] { display: none; }
+#nutsIssuePage .nuts-issue-icon-button::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 4;
+  inset: calc(100% + 6px) 0 auto auto;
+  width: max-content;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #22232a;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.25;
+  pointer-events: none;
+  visibility: hidden;
+}
+#nutsIssuePage .nuts-issue-back::after { inset-inline: 0 auto; }
+#nutsIssuePage .nuts-issue-icon-button:is(:hover, :focus-visible) { z-index: 3; }
+#nutsIssuePage .nuts-issue-icon-button:is(:hover, :focus-visible)::after { visibility: visible; }
+
+#nutsIssuePage .nuts-issue-icon-button:not(.nuts-primary-action) {
+  appearance: none;
+  background: transparent;
+  color: var(--ink-soft);
+}
+#nutsIssuePage .nuts-issue-icon-button:not(.nuts-primary-action, :disabled):hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+#nutsBoard .nuts-image-card .nuts-card-caption { padding-inline-end: 25px; }
+#nutsWorkspace #nutsBoard :is(.nuts-card-image-usage, .nuts-detach-handle[data-tooltip]) {
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+#nutsWorkspace #nutsBoard :is(.nuts-card-image-usage, .nuts-detach-handle):is(:hover, :focus-visible) {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+#nutsImageUsage { color: var(--ink); }
+#nutsImageUsage::backdrop { background: #33333d40; backdrop-filter: blur(3px); }
+.nuts-image-role-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  border: 0;
+  margin: 12px 0;
+  padding: 0;
+}
+.nuts-image-role-options legend { margin-bottom: 7px; }
+.nuts-image-role-options label {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 3px;
+  text-align: center;
+  cursor: pointer;
+}
+.nuts-image-role-options input { margin: 0; accent-color: #242429; }
+.nuts-image-role-options input:focus { outline: none; }
+.nuts-image-role-options input:focus-visible {
+  outline: 1px solid var(--ink-soft);
+  outline-offset: 2px;
+}
+.nuts-image-usage-note { display: grid; gap: 6px; }
+.nuts-image-usage-note textarea { width: 100%; box-sizing: border-box; }
+.nuts-image-usage-note textarea:focus {
+  outline: 1px solid var(--ink-soft);
+  outline-offset: -1px;
+}
+#nutsImageUsage .confirm-actions { margin-top: 16px; }
+#nutsImageUsage [role="status"]:empty { display: none; }
+
+#nutsWorkspace #nutsBoard .nuts-image-resize {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+#nutsWorkspace #nutsBoard .nuts-image-resize:is(:hover, :focus-visible, .is-resizing) {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+#nutsWorkspace #nutsBoard .nuts-image-resize[data-tooltip]::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: auto;
+  right: 0;
+  transform: none;
+}
+#nutsWorkspace #nutsBoard .nuts-image-resize.is-resizing::after { opacity: 1; }
+
+#nutsManagementPage {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 36px clamp(20px, 4vw, 48px) 48px;
+  container-type: inline-size;
+}
+#nutsManagementPage > * { width: min(100%, 920px); margin-inline: auto; }
+.nuts-management-toolbar,
+.nuts-management-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nuts-management-toolbar {
+  justify-content: space-between;
+  align-items: end;
+  row-gap: 16px;
+  padding-block-end: 18px;
+  margin-block-end: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.nuts-management-toolbar h1 { margin: 0; font-size: 23px; line-height: 1.25; letter-spacing: -.025em; }
+.nuts-management-heading p { margin: 5px 0 0; font-size: 12px; color: var(--ink-soft); }
+.nuts-management-tools { gap: 3px; min-width: 0; max-width: 100%; }
+.nuts-management-tools .nuts-tool-icon { flex: none; }
+.nuts-management-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 9px;
+  margin-inline-end: 5px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+.nuts-management-search input {
+  appearance: none;
+  width: clamp(105px, 16vw, 176px);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.nuts-management-search input::placeholder { color: var(--ink-soft); opacity: 1; }
+.nuts-management-search:focus-within {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 2px;
+}
+#nutsWorkspace .nuts-management-search input:focus-visible { outline: none !important; }
+#nutsWorkspace :is(#nutsManageIssues, .nuts-management-tools button, .nuts-drawer-management) {
+  appearance: none;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+#nutsWorkspace :is(#nutsManageIssues, .nuts-management-tools button, .nuts-drawer-management):is(:hover, [aria-pressed="true"]) {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+#nutsWorkspace .nuts-management-tools [data-tooltip]:not(:hover, :focus-visible)::after { display: none; }
+#nutsWorkspace :is(#nutsManageIssues, .nuts-management-tools [data-tooltip])::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+#nutsManagementPage > [role="status"]:empty { display: none; }
+.nuts-management-results {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+.nuts-management-results.is-archive { grid-template-columns: minmax(0, 1fr); }
+.nuts-management-results section {
+  min-width: 0;
+  min-height: 146px;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-variant);
+}
+.nuts-management-results.is-archive section { min-height: 0; }
+.nuts-management-results h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0 2px 2px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 650;
+}
+.nuts-management-results h2::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--ink-soft);
+  border-radius: 50%;
+}
+.nuts-management-results [data-stage="working"] h2::before { background: #c63643; border-color: #c63643; }
+.nuts-management-results [data-stage="done"] h2::before { background: #238353; border-color: #238353; }
+.nuts-management-results [data-stage="archive"] h2::before { display: none; }
+.nuts-management-results h2 span {
+  margin-inline-start: auto;
+  color: var(--ink-soft);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.nuts-management-results section button {
+  appearance: none;
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.nuts-management-results section button:hover { border-color: var(--ink-soft); }
+.nuts-management-results strong { font-size: 14px; line-height: 1.45; font-weight: 650; }
+.nuts-management-card-status {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.nuts-management-card-status::before {
+  content: "";
+  flex: 0 0 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.nuts-management-card-status[data-status="open"] { color: var(--ink); }
+.nuts-management-card-status[data-status="claimed"] { background: #f9ebed; color: #96313a; }
+.nuts-management-card-status[data-status="review"] { background: #faf0df; color: #754b14; }
+.nuts-management-card-status[data-status="done"] { background: #e6f2e9; color: #216645; }
+.nuts-management-results small { font-size: 11px; color: var(--ink-soft); }
+.nuts-management-empty { grid-column: 1 / -1; margin: 0; color: var(--ink-soft); font-size: 12px; }
+@container (max-width: 560px) {
+  .nuts-management-results { grid-template-columns: minmax(0, 1fr); }
+  .nuts-management-results section { min-height: 0; }
+}
+#nutsWorkspace #nutsBoard .nuts-detach-handle { z-index: 3; opacity: 0; cursor: grab; }
+#nutsWorkspace #nutsBoard .nuts-card:is(:hover, :focus-visible) + .nuts-detach-handle,
+#nutsWorkspace #nutsBoard .nuts-detach-handle:is(:hover, :focus-visible) { opacity: 1; }
+#nutsBoardViewport.nuts-detach-ready::after {
+  content: attr(data-detach-hint);
+  position: absolute;
+  inset: auto auto 55px 50%;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 10px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#nutsWorkspace .nuts-drawer-management { margin-inline-start: auto; }
+#nutsWorkspace .nuts-drawer-management[data-tooltip]::after { top: auto; bottom: calc(100% + 7px); left: auto; right: 0; transform: none; }

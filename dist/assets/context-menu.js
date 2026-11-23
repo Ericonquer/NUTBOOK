@@ -26,7 +26,7 @@
     // click in that session through Nutbook's compact editing menu instead
     // of letting WebKit expose unsupported replace/font/developer commands.
     const htmlEditing = Boolean(window.__NUTBOOK_HTML_EDIT__?.isEditing?.());
-    const pageContext = window.__NUTBOOK_CONTEXT_PROVIDER__?.(target);
+    const pageContext = window.__NUTBOOK_CONTEXT_PROVIDER__?.(target, event);
     const context = htmlEditing
       ? { kind: 'edit', target }
       : pageContext

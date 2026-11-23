@@ -43,3 +43,5 @@ pub mod markdown_save_as;
 
 pub mod platform;
 pub mod content_resource;
+
+pub mod nuts;

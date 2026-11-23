@@ -61,6 +61,7 @@ pub struct AppState {
     //（见 core::external_open::global_inbox），不随 AppState 生命周期。
     pub external_sessions: crate::core::external_open::ExternalSessionRegistry,
     pub app_data_dir: PathBuf,
+    pub nuts_board_drop_target: std::sync::atomic::AtomicBool,
     document_history: Mutex<Option<Arc<crate::core::document_versions::HistoryStore>>>,
 }
 
@@ -120,6 +121,7 @@ impl AppState {
             system_chrome_thumbnails_enabled: Mutex::new(system_chrome_enabled),
             external_sessions: crate::core::external_open::ExternalSessionRegistry::default(),
             app_data_dir,
+            nuts_board_drop_target: std::sync::atomic::AtomicBool::new(false),
             document_history: Mutex::new(None),
         }
     }
