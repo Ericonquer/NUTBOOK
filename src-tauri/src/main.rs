@@ -417,6 +417,7 @@ fn main() {
             commands::nuts::nuts_review_history,
             commands::nuts::nuts_queue_review,
             commands::nuts::nuts_save_result,
+            commands::nuts::nuts_export_markdown,
             commands::nuts::nuts_result_references,
             commands::nuts::nuts_reopen,
             commands::context_menu::show_context_menu,
