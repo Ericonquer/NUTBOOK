@@ -9173,7 +9173,7 @@
             <div class="nuts-review-layout">
               <article class="nuts-review-document" tabindex="0"></article>
               <aside aria-label="Review comments">
-                <div class="nuts-review-tools"><button type="button"></button><button type="button"></button></div>
+                <div class="nuts-review-tools"><button type="button"></button><button type="button"></button><button type="button"></button></div>
                 <div class="nuts-review-comments">
                   <div></div>
                   <form hidden><p></p><textarea required maxlength="4000" rows="4" aria-label="修改意见"></textarea><button type="submit"></button><button type="button"></button></form>
@@ -9181,7 +9181,7 @@
                 </div>
               </aside>
             </div>
-            <footer><span role="status"></span><button type="button"></button></footer>
+            <footer><span role="status"></span><button type="button"></button><span role="status"></span></footer>
           </dialog>
           <section id="nutsManagementPage" hidden>
             <header class="nuts-management-toolbar">
@@ -27168,6 +27168,26 @@ if (!chipTipController) {
         return appState.language === "en-US" ? english : chinese;
       }
 
+      function wireNutsMarkdownExport(button, feedback, issueId, version, result) {
+        const label = nutsCopy("导出 Markdown 和配图", "Export Markdown and images");
+        setNutsIssueIcon(button, "download", label);
+        button.classList.add("nuts-markdown-export");
+        if (!result) button.classList.add("nuts-review-icon");
+        button.onclick = async () => {
+          button.disabled = true;
+          feedback.textContent = nutsCopy("正在导出…", "Exporting…");
+          try {
+            const folder = await invoke("nuts_export_markdown", { issueId, version, result });
+            feedback.textContent = folder ? nutsCopy(`已导出到 ${folder}`, `Exported to ${folder}`) : "";
+          } catch (error) {
+            const message = normalizeError(error);
+            feedback.textContent = nutsCopy(`导出失败：${message}`, `Export failed: ${message}`);
+          } finally {
+            button.disabled = false;
+          }
+        };
+      }
+
       async function openNutsResult(issueId, version, feedback, keepReferences) {
         const epoch = nutsEpoch;
         feedback.textContent = nutsCopy("正在处理成果…", "Preparing result…");
@@ -27189,6 +27209,7 @@ if (!chipTipController) {
       }
 
       const nutsIssueIcons = {
+        download: '<path d="M10 3v9m-4-4 4 4 4-4M4 13v3h12v-3"/>',
         board: '<rect x="3.5" y="4.5" width="13" height="11" rx="2"/>',
         boards: '<rect x="3" y="3.5" width="11" height="10" rx="1.5"/><path d="M6 16.5h9.5A1.5 1.5 0 0 0 17 15V7"/>',
         copy: '<rect x="7" y="7" width="9.5" height="10" rx="1.5"/><path d="M12.5 4h-7A1.5 1.5 0 0 0 4 5.5v7"/>',
@@ -27821,7 +27842,15 @@ if (!chipTipController) {
                 openLabel.className = "nuts-issue-row-action";
                 openLabel.textContent = file.title;
                 file.append(openLabel);
-                resultPane.replaceChildren(nutsIssueHeading(resultTitle), file, feedback);
+                const exportButton = document.createElement("button");
+                exportButton.type = "button";
+                const exportFeedback = document.createElement("small");
+                exportFeedback.setAttribute("role", "status");
+                wireNutsMarkdownExport(exportButton, exportFeedback, issue.id, resultVersion, true);
+                const header = document.createElement("div");
+                header.className = "nuts-reference-header";
+                header.append(nutsIssueHeading(resultTitle), exportButton);
+                resultPane.replaceChildren(header, file, feedback, exportFeedback);
               }
             }
             const [drafts, suggestions, context] = await Promise.all([
@@ -27901,7 +27930,7 @@ if (!chipTipController) {
                 heading.onclick = event => {
                   event.preventDefault();
                   void window.openNutbookNutsReview({
-                    invoke, copy: nutsCopy, markdownToHtml, issueId: issue.id, version: draft.version,
+                    invoke, copy: nutsCopy, markdownToHtml, wireExport: wireNutsMarkdownExport, issueId: issue.id, version: draft.version,
                     markdown: draft.markdown, canEdit: row.dataset.stage === "review",
                     pointerOpened: event.detail > 0,
                     onQueued: async () => {

@@ -1,6 +1,25 @@
 use crate::{core::nuts, state::AppState};
 
 #[tauri::command]
+pub async fn nuts_export_markdown(
+    app: tauri::AppHandle,
+    issue_id: String,
+    version: i64,
+    result: bool,
+) -> Result<Option<std::path::PathBuf>, String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(destination) = rfd::FileDialog::new().pick_folder() else {
+            return Ok(None);
+        };
+        let state = app.state::<AppState>();
+        nuts::export::export(&state.app_data_dir, &issue_id, version, result, &destination).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub fn nuts_search_cards(
     state: tauri::State<'_, AppState>,
     query: String,

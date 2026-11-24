@@ -622,6 +622,10 @@
   padding: 12px 18px;
   background: var(--surface);
 }
+#nutsReviewDialog > header {
+  position: relative;
+  z-index: 2;
+}
 #nutsReviewDialog h2 { margin: 0; }
 .nuts-review-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 32%); }
 .nuts-review-layout > * { overflow: auto; padding: 18px; overflow-wrap: anywhere; }
@@ -728,6 +732,14 @@
 
 
 #nutsIssuePage .nuts-issue-results .nuts-issue-file { max-width: none; }
+#nutsIssuePage .nuts-issue-results > small[role="status"]:not(:empty) {
+  display: block;
+  margin-block-start: 8px;
+  overflow-wrap: anywhere;
+}
+#nutsIssuePage .nuts-issue-results .nuts-reference-header {
+  margin-block-end: 12px;
+}
 .nuts-issue-row-action { margin-inline-start: auto; flex: none; font-size: 12px; font-weight: 600; }
 #nutsIssues .nuts-draft > summary {
   display: flex;
@@ -764,6 +776,21 @@
 #nutsReviewDialog .nuts-review-comment .nuts-review-icon[data-tooltip]::after {
   inset-block: auto calc(100% + 6px);
 }
+
+#nutsWorkspace .nuts-markdown-export:focus-visible {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 2px;
+}
+#nutsReviewDialog .nuts-review-tools .nuts-review-icon[hidden] { display: none; }
+#nutsReviewDialog .nuts-review-tools .nuts-markdown-export:disabled { background: transparent; }
+#nutsReviewDialog .nuts-review-tools .nuts-review-icon[hidden] + .nuts-markdown-export {
+  margin-inline-start: 0;
+}
+#nutsWorkspace .nuts-markdown-export:disabled {
+  opacity: .55;
+  cursor: default;
+}
+#nutsReviewDialog footer [role="status"] { overflow-wrap: anywhere; }
 
 #nutsIssuePage .nuts-issue-icon-button {
   position: relative;

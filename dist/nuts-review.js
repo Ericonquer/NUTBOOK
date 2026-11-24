@@ -1,14 +1,16 @@
-window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, issueId, version, markdown, canEdit, pointerOpened, onQueued }) {
+window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, wireExport, issueId, version, markdown, canEdit, pointerOpened, onQueued }) {
   const dialog = document.getElementById("nutsReviewDialog");
   if (dialog.open) return;
   const [header, layout, footer] = dialog.children;
   const [title, close] = header.children;
   const [article, sidebar] = layout.children;
   const [tools, commentsPane] = sidebar.children;
-  const [select, whole] = tools.children;
+  const [select, whole, exportButton] = tools.children;
   const [list, form, hint] = commentsPane.children;
   const [selectionLabel, input, add, cancel] = form.children;
-  const [status, submit] = footer.children;
+  const [status, submit, exportFeedback] = footer.children;
+  exportFeedback.textContent = "";
+  wireExport(exportButton, exportFeedback, issueId, version, false);
   const data = { issueId, version };
   const key = `nuts-review:${issueId}:${version}`;
   let comments = [];
@@ -194,10 +196,10 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, i
   set(submit, "提交并开放修订", "Submit and open revision");
   set(hint, "如果正在与 Agent 对话，也可以直接说明怎么改，请它把新版提交回此议题。", "You can also ask the agent in chat to revise and submit a new draft to this issue.");
   set(status, "正在读取批注…", "Loading comments…");
-  tools.hidden = submit.hidden = !canEdit;
+  select.hidden = whole.hidden = submit.hidden = hint.hidden = !canEdit;
   select.disabled = whole.disabled = submit.disabled = true;
-  close.onclick = () => { if (!sending) dialog.close(); };
-  dialog.oncancel = event => { if (sending) event.preventDefault(); };
+  close.onclick = () => { if (!sending && !exportButton.disabled) dialog.close(); };
+  dialog.oncancel = event => { if (sending || exportButton.disabled) event.preventDefault(); };
   dialog.addEventListener("close", () => {
     active = false;
     document.removeEventListener("selectionchange", syncSelection);

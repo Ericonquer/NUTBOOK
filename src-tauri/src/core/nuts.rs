@@ -1,5 +1,6 @@
 pub mod link_preview;
 pub mod board;
+pub mod export;
 pub mod draft_assets;
 pub mod handoff;
 pub mod materials;
@@ -413,6 +414,26 @@ fn submit_with_assets(data_dir: &Path, id: &str, token: &str, markdown: &str, as
     Ok(version)
 }
 
+fn safe_file_title(title: &str) -> String {
+    title
+        .trim_matches(['.', ' '])
+        .chars()
+        .take(48)
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect()
+}
+
+fn result_file_name(title: &str, version: i64) -> String {
+    format!("NUTS - {} - v{version}.md", safe_file_title(title))
+}
+
 pub fn save_result<T>(
     data_dir: &Path,
     issue_id: &str,
@@ -458,21 +479,8 @@ pub fn save_result<T>(
     let directory = directory
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let safe_title: String = title
-        .trim_matches(['.', ' '])
-        .chars()
-        .take(48)
-        .map(|ch| {
-            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-            {
-                '_'
-            } else {
-                ch
-            }
-        })
-        .collect();
     let path = draft_assets::prepare_result(&tx, &issue_id.to_string(), version,
-        directory.join(format!("NUTS - {safe_title} - v{version}.md")))?;
+        directory.join(result_file_name(&title, version)))?;
     let directory = path.parent().ok_or("Result directory is missing")?;
 
     if !path.is_file() {
