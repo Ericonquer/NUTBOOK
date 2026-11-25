@@ -168,6 +168,27 @@ pub(super) fn prepare_result(
     version: i64,
     mut path: PathBuf,
 ) -> Result<PathBuf> {
+    write_result_assets(db, id, version, &mut path, false)?;
+    Ok(path)
+}
+
+pub(super) fn restore_result_assets(
+    db: &Connection,
+    id: &str,
+    version: i64,
+    mut path: PathBuf,
+) -> Result<PathBuf> {
+    write_result_assets(db, id, version, &mut path, true)?;
+    Ok(path)
+}
+
+fn write_result_assets(
+    db: &Connection,
+    id: &str,
+    version: i64,
+    path: &mut PathBuf,
+    exact_path: bool,
+) -> Result<()> {
     let mut query = db.prepare(
         "SELECT name, bytes FROM nuts_draft_images WHERE issue_id = ?1 AND version = ?2 ORDER BY name",
     ).map_err(|error| error.to_string())?;
@@ -175,7 +196,7 @@ pub(super) fn prepare_result(
         .query(params![id, version])
         .map_err(|error| error.to_string())?;
     let Some(first) = rows.next().map_err(|error| error.to_string())? else {
-        return Ok(path);
+        return Ok(());
     };
     let mut next = Some(first);
     let filename = path
@@ -183,9 +204,9 @@ pub(super) fn prepare_result(
         .ok_or("Result filename is missing")?
         .to_os_string();
     let result_dir = path.with_file_name(format!("v{version}"));
-    if !path.is_file() || result_dir.join(&filename).is_file() {
+    if !exact_path && (!path.is_file() || result_dir.join(&filename).is_file()) {
         create_real_directory(&result_dir)?;
-        path = result_dir.join(filename);
+        *path = result_dir.join(filename);
     }
     let directory = path
         .parent()
@@ -215,7 +236,7 @@ pub(super) fn prepare_result(
         }
         next = rows.next().map_err(|error| error.to_string())?;
     }
-    Ok(path)
+    Ok(())
 }
 
 fn create_real_directory(path: &Path) -> Result<()> {

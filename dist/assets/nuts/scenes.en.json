@@ -4,20 +4,37 @@
       "id": "quick",
       "name": "Quick notes",
       "about": "Capture NUTs and materials, then group related ideas.",
-      "rules": "Keep the original materials and their sources. Create a separate deliverable based on the current goal and submit it for review.",
+      "rules": "## Organizing material\n- Keep traceable sources, dates, and quotations. Preserve meaningful differences when merging duplicates.\n- Separate source facts, your assessment, and open questions. Mark missing information explicitly.\n- Group material by topic or use. Keep examples and data that clarify the main points.\n- List actionable follow-ups. Name owners and deadlines only when the material supports them.",
       "tasks": [
         {
           "name": "Organize into a note",
           "goal": "Write a note that states the topic, main points, and open questions.",
           "key": "整理成笔记"
         }
-      ]
+      ],
+      "skill": {
+        "version": 2,
+        "instructions": "Read the issue goal and supplied material, then organize it into an editable Markdown note.",
+        "workflows": [
+          {
+            "id": "organize",
+            "name": "Organize notes",
+            "steps": [
+              "Write a descriptive title and identify what the note records in its opening sentence.",
+              "Consolidate duplicates and group points by topic. Attribute important figures and quotations.",
+              "Check qualifiers against the sources before submitting. Keep open questions and agreed follow-ups."
+            ],
+            "description": "Turn scattered material into a traceable note."
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
       "id": "article",
       "name": "Content creation",
       "about": "Go from source material and candidate topics to an outline or first draft.",
-      "rules": "Cite sources for verifiable claims. Ask the author to confirm personal experiences and opinions. Review the outline before writing a long draft, and submit the draft for approval before saving it as a result.",
+      "rules": "## Audience and sources\n- Define the reader, the question they need answered, and the judgment or method the article delivers. Organize the material around one main claim.\n- Verify names, figures, dates, quotations, and examples against sources you actually read. Distinguish source facts, the author's views, and inference.\n- First-person experiences and views must come from material the author supplied or approved. Flag missing facts, experiences, or positions that would change the central argument.\n- Use approved samples for perspective, wording, and rhythm. Follow the issue's requirements for platform, voice, and length.\n\n## Editing out generic AI phrasing\n- Open with a concrete problem, an event, or a verifiable judgment. Cut generic setup and say what happened.\n- Replace abstract evaluations with observable actions, details, or outcomes. Narrow claims when the material offers limited support.\n- Remove interchangeable aphorisms, repeated recaps, and formulaic transitions. Avoid forced triplets and repeated rhetorical contrasts.\n- Vary paragraph length and headings to suit the argument. Read awkward sentences aloud and preserve the author's distinctive phrasing and useful terminology.\n\n## Illustrations and submission\n- Define what each visual should explain. Choose charts, process diagrams, examples, or decorative images accordingly. Place visuals beside the relevant text.\n- Attribute data and factual imagery. Label illustrative or generated images where readers could mistake them for documentary evidence.\n- Submit reviewable Markdown and sources actually used. Put questions for the author and production notes in a review section outside the article.",
       "tasks": [
         {
           "name": "Assess a topic",
@@ -31,16 +48,61 @@
         },
         {
           "name": "Write a first draft",
-          "goal": "Submit an outline for approval, then write a sourced first draft.",
+          "goal": "Write a reviewable long-form draft and list the sources used.",
           "key": "写初稿"
+        },
+        {
+          "name": "Draft and illustrate",
+          "key": "写稿并配图",
+          "goal": "Submit a reviewable Markdown article with illustrations where they help explain the text. Provide an image brief if illustrations cannot be produced."
         }
-      ]
+      ],
+      "skill": {
+        "version": 2,
+        "instructions": "Select drafting or illustration workflows based on the issue. Use the editorial pass when writing or revising prose, and submit the result for review.",
+        "workflows": [
+          {
+            "id": "write",
+            "name": "Draft an article",
+            "steps": [
+              "Use the issue goal, materials, and approved samples to identify the audience, question, platform, and length. State the central claim and identify the evidence supporting it.",
+              "Outline a question for each section. Deliver a pitch, outline, or draft according to the issue goal. Draft directly when the brief and evidence suffice. If critical information is missing, ask specific questions and submit what can be reviewed.",
+              "Check important facts and quotations before submitting. Attribute claims where needed and list sources consulted and used."
+            ],
+            "reference": "# Draft submission checklist\n\n- Open with the reader’s question or a concrete angle.\n- Check that every section advances the argument and supports key claims.\n- List the sources used and flag remaining questions for the author.\n",
+            "description": "Turn a topic and source material into a reviewable draft."
+          },
+          {
+            "id": "edit",
+            "name": "Edit out generic AI phrasing",
+            "steps": [
+              "Read the opening and section leads. Replace generic setup, abstract claims, and formulaic transitions with sourced events, actions, details, or judgments.",
+              "Check that each paragraph adds information. Combine repeated points, cut unnecessary parallel lists and headings, and simplify awkward sentences while preserving the author's voice.",
+              "Check edits for invented experiences, judgments, figures, or causal claims. Submit the revised text and flag remaining questions for the author."
+            ],
+            "reference": "# Editorial pass\n\n- Before: “Rapid advances in technology are transforming collaboration.”\n- After: “The team used to copy review comments into three places. Now they leave one comment on the issue.”\n\nThese are fictional examples. Use concrete details supported by your sources.\n",
+            "description": "Cut generic phrasing and repetition while preserving the author's voice."
+          },
+          {
+            "id": "illustrate",
+            "name": "Illustrate an article",
+            "steps": [
+              "Choose covers and inline visuals based on the brief and platform. For each, identify its purpose, required information, and placement. Prefer authorized materials, verifiable data, and explanatory diagrams.",
+              "Use the charting, layout, or image tools available to the agent. Check labels, figures, attribution, and cropping. If the tools needed are unavailable, deliver an image brief with placement, aspect ratio, visual content, source, and alt text.",
+              "Save finished images in asset/ beside the draft as PNG, JPEG, or WebP and link them using relative Markdown paths. Keep each image under 10 MiB and the total at or below 24 MiB. Verify the files before submitting. For a WeChat article cover, use an approximately 2.35:1 image after a standalone <!-- nutbook-cover --> marker and blank line."
+            ],
+            "reference": "# Illustration submission checklist\n\nRecord the placement, purpose, dimensions, aspect ratio, source, and alt text for each visual.\n\n- Example: `![9 of 24 slips discussed variations of the story](./asset/question-count.png)`\n- Open the draft and verify the image loads, figures are accurate, and labels remain readable.\n- If the image is unavailable, supply the image brief.\n",
+            "description": "Plan where visuals help and submit them with the draft."
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
       "id": "research",
       "name": "Research",
       "about": "Screen sources, compare evidence, and prepare a research brief.",
-      "rules": "Keep source citations and original materials. Distinguish evidence, inference, and hypotheses. State the limitations of the evidence and any open questions.",
+      "rules": "## Scope and evidence\n- Define the research question, time frame, and scope. Include evidence relevant to the question and explain important exclusions.\n- Cite traceable original reports, data, or observation records. Assess provenance, sample, method, recency, and relevance.\n- Put evidence beside each major finding. Check time frames, samples, and denominators before comparing numbers. Disclose mismatched definitions.\n- Separate observations, inferences, and untested hypotheses. Record conflicting findings and explain differences in evidence quality.\n- Identify gaps that could change the conclusion and an actionable verification step for each.",
       "tasks": [
         {
           "name": "Screen sources",
@@ -57,13 +119,38 @@
           "goal": "Cover the research question, evidence, limitations, and next steps.",
           "key": "撰写调研简报"
         }
-      ]
+      ],
+      "skill": {
+        "version": 2,
+        "instructions": "Organize verifiable evidence around one question and submit screening results, an evidence matrix, or a research brief as requested.",
+        "workflows": [
+          {
+            "id": "evidence",
+            "name": "Screen and compare evidence",
+            "steps": [
+              "Define the question, scope, and inclusion criteria. Start with original data or full sources.",
+              "Compare methods, periods, samples, findings, and limitations. Record sources and disagreements, preserving denominators, units, and definitions."
+            ],
+            "description": "Screen evidence by method, sample, and source, then compare findings."
+          },
+          {
+            "id": "brief",
+            "name": "Write a research brief",
+            "steps": [
+              "Lead with the findings that answer the research question. Put the evidence beside each finding.",
+              "Separate observations from inferences. State where the findings apply, identify gaps, and propose a verification step."
+            ],
+            "description": "Summarize findings, evidence, and verification steps in a brief."
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
       "id": "product",
       "name": "Product and projects",
       "about": "Group feedback and screenshots into problems, then compare possible solutions.",
-      "rules": "Separate raw feedback from analysis. State the scope, tradeoffs, and acceptance criteria. Ask the user to decide open questions.",
+      "rules": "## Problems and proposals\n- Identify who encounters the problem, when it occurs, and what happens. Attach feedback, screenshots, or data. Distinguish original feedback, analysis, and untested needs.\n- State success criteria in terms of observable results. Name the scope, dependencies, constraints, and deferred work.\n- Compare viable options using the same criteria for user impact, implementation cost, risk, and reversibility. Support recommendations with evidence.\n- Give acceptance steps from the actual entry point, with inputs and expected results. Cover failure, cancellation, and retry where relevant.\n- List decisions for the product or project owner. Use confirmed owners, dates, and commitments and mark open items explicitly.",
       "tasks": [
         {
           "name": "Summarize feedback",
@@ -80,45 +167,32 @@
           "goal": "State the goal, scope, acceptance criteria, and decisions the user needs to make.",
           "key": "起草实施方案"
         }
-      ]
-    }
-  ],
-  "ruleTemplates": [
-    {
-      "id": "general",
-      "name": "General organization",
-      "steps": [
-        "Read the issue materials and list what is known and what needs confirmation.",
-        "Propose an approach and prepare a draft for the current goal.",
-        "Submit the draft for user review."
-      ]
-    },
-    {
-      "id": "article",
-      "name": "Article writing",
-      "steps": [
-        "Organize sources and flag claims to verify.",
-        "Propose an angle and outline. Wait for approval before drafting.",
-        "Distinguish direct quotations, inferences, and experiences the author needs to supply."
-      ]
-    },
-    {
-      "id": "product",
-      "name": "Product and projects",
-      "steps": [
-        "Summarize raw feedback and separate observations from analysis.",
-        "Explain scope, tradeoffs, and acceptance criteria.",
-        "Ask the user to resolve open decisions."
-      ]
-    },
-    {
-      "id": "research",
-      "name": "Research",
-      "steps": [
-        "Define the research question and scope.",
-        "Summarize evidence, sources, and limitations. Record hypotheses to test.",
-        "Submit a research brief and follow-up questions for review."
-      ]
+      ],
+      "skill": {
+        "version": 2,
+        "instructions": "Produce a feedback synthesis, options comparison, decision record, or action plan according to the goal. Tie decisions to evidence and make acceptance steps executable.",
+        "workflows": [
+          {
+            "id": "scope",
+            "name": "Define the problem and compare options",
+            "steps": [
+              "Group feedback by user scenario, preserving examples and affected users. Define observable success criteria.",
+              "Compare viable options using the same criteria. State the recommendation, assumptions, and decisions that still need approval."
+            ],
+            "description": "Synthesize feedback, define the problem, and compare options."
+          },
+          {
+            "id": "plan",
+            "name": "Plan implementation and acceptance",
+            "steps": [
+              "Describe scope, sequence, dependencies, and decisions. Write concrete action items.",
+              "Name the real entry point and expected result for each key requirement. Include likely failure paths and recovery steps."
+            ],
+            "description": "Turn the proposal into action items with clear acceptance steps."
+          }
+        ]
+      },
+      "ruleVersion": 2
     }
   ]
 }

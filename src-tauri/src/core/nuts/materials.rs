@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{self, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -15,6 +15,40 @@ pub const FORMATS: &[&str] = &[
     "md", "markdown", "txt", "html", "htm", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "png",
     "jpg", "jpeg", "gif", "webp",
 ];
+
+pub fn markdown_path(data_dir: &Path, board_id: &str, card_id: &str, issue_id: Option<&str>) -> Result<PathBuf> {
+    let (body, source): (String, Option<String>) = super::open(data_dir)?
+        .query_row(
+            "SELECT c.markdown, s.path FROM board_cards c
+             LEFT JOIN nuts_markdown_sources s ON s.card_id = c.id
+             LEFT JOIN nuts_card_boards b ON b.card_id = c.id
+             WHERE c.id = ?1 AND c.kind = 'markdown' AND COALESCE(b.board_id, 'default') = ?2
+               AND (?3 IS NULL OR c.issue_id = ?3)",
+            params![card_id, board_id, issue_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or("Markdown material is no longer available")?;
+    if let Some(source) = source.map(PathBuf::from).filter(|path| path.is_file()) {
+        return Ok(source);
+    }
+
+    let id = uuid::Uuid::parse_str(card_id).map_err(|error| error.to_string())?;
+    let directory = data_dir.join("nuts-materials").join(id.to_string());
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let target = directory.join("material.md");
+    if !target.is_file() {
+        let mut staged = tempfile::NamedTempFile::new_in(directory).map_err(|error| error.to_string())?;
+        staged.write_all(body.as_bytes()).map_err(|error| error.to_string())?;
+        match staged.persist_noclobber(&target) {
+            Ok(_) => {}
+            Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists && target.is_file() => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Ok(target)
+}
 
 pub fn import(data_dir: &Path, board_id: &str, path: &Path, x: i64, y: i64) -> Result<String> {
     import_material(data_dir, board_id, path, (x, y), None)
@@ -47,6 +81,7 @@ fn import_material(
         .and_then(|name| name.to_str())
         .ok_or("Invalid file name")?;
     if matches!(ext.as_str(), "md" | "markdown") {
+        let absolute_path = std::path::absolute(path).map_err(|error| error.to_string())?;
         return board::add_card(
             data_dir,
             board_id,
@@ -55,6 +90,7 @@ fn import_material(
             "markdown",
             position,
             issue_id,
+            absolute_path.to_str(),
         );
     }
     let source = fs::File::open(path).map_err(|e| e.to_string())?;
@@ -78,7 +114,7 @@ fn import_material(
     let (_, saved) = staged.keep().map_err(|e| e.to_string())?;
     let content = format!("Local attachment ({ext}): `{}`", saved.display());
     match board::add_card(
-        data_dir, board_id, title, &content, &ext, position, issue_id,
+        data_dir, board_id, title, &content, &ext, position, issue_id, None,
     ) {
         Ok(id) => Ok(id),
         Err(error) => {
@@ -268,6 +304,27 @@ mod tests {
         let bytes = STANDARD.decode(url.strip_prefix("data:image/png;base64,").unwrap()).unwrap();
         let thumbnail = image::load_from_memory(&bytes).unwrap();
         assert_eq!((thumbnail.width(), thumbnail.height()), (880, 440));
+    }
+
+    #[test]
+    fn opens_full_markdown_from_the_board_and_its_issue_after_source_removal() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let source = dir.join("观察记录.md");
+        let body = format!("# Observations\n\n{}\n\nLast paragraph.", "Evidence. ".repeat(80));
+        fs::write(&source, &body).unwrap();
+        let card = import(dir, "default", &source, 0, 0).unwrap();
+        let issue = board::create_issue(dir, "default", "Research", &[card.clone()], None, "").unwrap();
+        let issue_card = import_for_issue(dir, "default", &issue, &source).unwrap();
+        assert_eq!(markdown_path(dir, "default", &card, None).unwrap(), source);
+        assert_eq!(markdown_path(dir, "default", &issue_card, Some(&issue)).unwrap(), source);
+        fs::remove_file(source).unwrap();
+
+        assert_eq!(fs::read_to_string(markdown_path(dir, "default", &card, None).unwrap()).unwrap(), body);
+        assert_eq!(fs::read_to_string(markdown_path(dir, "default", &card, Some(&issue)).unwrap()).unwrap(), body);
+        assert_eq!(fs::read_to_string(markdown_path(dir, "default", &issue_card, Some(&issue)).unwrap()).unwrap(), body);
+        assert!(markdown_path(dir, "wrong-board", &card, None).is_err());
+        assert!(markdown_path(dir, "default", &card, Some("wrong-issue")).is_err());
     }
 
     #[test]

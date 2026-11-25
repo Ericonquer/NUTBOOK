@@ -198,6 +198,20 @@ pub async fn nuts_board_file(
 }
 
 #[tauri::command]
+pub fn nuts_open_markdown_material(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    board_id: String,
+    card_id: String,
+    issue_id: Option<String>,
+) -> Result<(), String> {
+    let path = nuts::materials::markdown_path(&state.app_data_dir, &board_id, &card_id, issue_id.as_deref())?;
+    let path = path.to_str().ok_or("Markdown material path is not valid UTF-8")?;
+    super::external::external_open_enqueue(app, "nuts-material".into(), vec![path.into()])
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn nuts_choose_materials(
     app: tauri::AppHandle,
     language: Option<String>,
@@ -298,8 +312,21 @@ pub fn nuts_revoke_reference(
 }
 
 #[tauri::command]
-pub fn nuts_boards(state: tauri::State<'_, AppState>) -> Result<Vec<nuts::board::Board>, String> {
+pub fn nuts_boards(state: tauri::State<'_, AppState>, language: Option<String>) -> Result<Vec<nuts::board::Board>, String> {
+    if let Some(language) = language.as_deref() {
+        nuts::settings::remember_default_language(&state.app_data_dir, language)?;
+    }
     nuts::board::boards(&state.app_data_dir)
+}
+
+#[tauri::command]
+pub fn nuts_rename_board(state: tauri::State<'_, AppState>, board_id: String, name: String) -> Result<(), String> {
+    nuts::board::rename_board(&state.app_data_dir, &board_id, &name)
+}
+
+#[tauri::command]
+pub fn nuts_remove_empty_board(state: tauri::State<'_, AppState>, board_id: String, check_only: bool) -> Result<bool, String> {
+    nuts::board::remove_empty_board(&state.app_data_dir, &board_id, check_only)
 }
 
 #[tauri::command]
@@ -308,13 +335,60 @@ pub fn nuts_create_board(
     name: String,
     scene: String,
     language: Option<String>,
+    rules: Option<String>,
+    skills: Option<Vec<nuts::board_files::BoardSkill>>,
 ) -> Result<String, String> {
-    nuts::board::create_board(
+    nuts::board::create_board_with_files(
         &state.app_data_dir,
         &name,
         &scene,
         language.as_deref().unwrap_or("zh-CN"),
+        rules.as_deref(),
+        skills.as_deref().unwrap_or_default(),
     )
+}
+
+#[tauri::command]
+pub fn nuts_open_board_folder(state: tauri::State<'_, AppState>, board_id: String) -> Result<(), String> {
+    let path = nuts::settings::open_folder_path(&state.app_data_dir, &board_id)?;
+    crate::core::platform::open_path(&path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn nuts_open_board_skill_folder(
+    state: tauri::State<'_, AppState>,
+    board_id: String,
+    skill_id: String,
+) -> Result<(), String> {
+    let path = nuts::settings::open_skill_folder_path(&state.app_data_dir, &board_id, &skill_id)?;
+    crate::core::platform::open_path(&path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn nuts_render_skill_markdown(
+    markdown: String,
+    file_name: String,
+    strip_first_heading: bool,
+) -> Result<nuts::board_files::SkillDocumentPreview, String> {
+    nuts::board_files::render_preview(&markdown, &file_name, strip_first_heading)
+}
+
+#[tauri::command]
+pub async fn nuts_choose_board_skill() -> Result<Option<nuts::board_files::BoardSkill>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new().pick_folder()
+            .map(|path| nuts::board_files::read_skill(&path))
+            .transpose()
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub fn nuts_import_board_skill(
+    state: tauri::State<'_, AppState>,
+    board_id: String,
+    skill: nuts::board_files::BoardSkill,
+) -> Result<(), String> {
+    nuts::settings::import_skill(&state.app_data_dir, &board_id, &skill)
 }
 
 #[tauri::command]
@@ -336,13 +410,45 @@ pub fn nuts_scene_catalog(language: Option<String>) -> Result<serde_json::Value,
 pub fn nuts_board_config(
     state: tauri::State<'_, AppState>,
     board_id: String,
-    language: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    nuts::settings::config(
-        &state.app_data_dir,
-        &board_id,
-        language.as_deref().unwrap_or("zh-CN"),
-    )
+    nuts::settings::config(&state.app_data_dir, &board_id)
+}
+
+#[tauri::command]
+pub async fn nuts_import_rules() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .add_filter("Markdown", &["md", "markdown"])
+            .pick_file()
+            .map(|path| nuts::read_markdown(&path))
+            .transpose()
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn nuts_export_rules(
+    app: tauri::AppHandle,
+    board_id: String,
+) -> Result<Option<std::path::PathBuf>, String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let text = nuts::settings::export_rules(&state.app_data_dir, &board_id)?;
+        let Some(path) = rfd::FileDialog::new().set_file_name("AGENTS.md")
+            .add_filter("Markdown", &["md", "markdown"]).save_file() else {
+            return Ok(None);
+        };
+        use std::io::Write;
+        let parent = path.parent().ok_or("Choose an export directory")?;
+        let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|error| error.to_string())?;
+        staged.write_all(text.as_bytes()).map_err(|error| error.to_string())?;
+        staged.persist(&path).map_err(|error| error.to_string())?;
+        Ok(Some(path))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

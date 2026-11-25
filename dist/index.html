@@ -9075,6 +9075,39 @@
         </div>
 
         <section id="nutsWorkspace" aria-label="NUTS" data-i18n-skip hidden>
+      <dialog id="nutsSkillsDialog" aria-labelledby="nutsSkillsTitle">
+        <header class="nuts-skills-header">
+          <h2 id="nutsSkillsTitle" tabindex="-1" autofocus>白板 Skill</h2>
+          <div class="nuts-skills-actions">
+            <button id="nutsSkillsBack" type="button" class="nuts-tool-icon" aria-label="返回列表" data-tooltip="返回列表" hidden><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5-5 5 5 5M4 10h12"/></svg></button>
+            <button id="nutsSkillsImport" type="button" class="nuts-skills-action-button">导入 Skill</button>
+            <button id="nutsSkillsClose" type="button" class="nuts-tool-icon" aria-label="关闭" data-tooltip="关闭"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button>
+          </div>
+        </header>
+        <p id="nutsSkillsStatus" role="status"></p>
+        <div class="nuts-skills-layout">
+          <section id="nutsSkillsOverview" aria-labelledby="nutsSkillsListTitle" hidden>
+            <h3 id="nutsSkillsListTitle"></h3>
+            <ul id="nutsSkillsList" class="nuts-skills-list" role="list" aria-labelledby="nutsSkillsListTitle"></ul>
+          </section>
+          <section id="nutsSkillsReader" aria-labelledby="nutsSkillDocumentTitle" hidden>
+            <div class="nuts-skill-document-heading">
+              <div class="nuts-skill-document-summary">
+                <h3 id="nutsSkillDocumentTitle" tabindex="-1"></h3>
+                <p id="nutsSkillDescription" hidden></p>
+              </div>
+              <button id="nutsSkillMetadataToggle" type="button" class="nuts-tool-icon" aria-label="Skill 声明" data-tooltip="Skill 声明" aria-controls="nutsSkillMetadata" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5m0-7v.2"/></svg></button>
+            </div>
+            <div id="nutsSkillMetadata" tabindex="0" hidden></div>
+            <section id="nutsSkillsReferences" aria-labelledby="nutsSkillsReferencesTitle" hidden>
+              <h4 id="nutsSkillsReferencesTitle">参考文件</h4>
+              <div id="nutsSkillsFiles"></div>
+            </section>
+            <article id="nutsSkillDocument" class="markdown-preview" tabindex="0"></article>
+          </section>
+        </div>
+      </dialog>
+
           <section id="nutsBoardPage" aria-label="NUTS">
       <header class="nuts-board-toolbar">
         <h1>NUTS</h1>
@@ -9086,7 +9119,9 @@
           <button type="button" id="nutsNewBoard" class="nuts-tool-icon" aria-label="新建白板" data-tooltip="新建白板"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M10 5v10M5 10h10"/></svg></button>
         </div>
         <div class="nuts-board-actions">
+          <button type="button" id="nutsOpenBoardFolder" class="nuts-tool-icon" aria-label="打开白板文件夹" data-tooltip="打开白板文件夹"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5h5l1.5 2h8.5v8.5h-15z"/></svg></button>
           <button type="button" id="nutsBoardRules" class="nuts-tool-icon" aria-label="工作规则" title="工作规则"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10v14H5zM8 7h4m-4 3h4m-4 3h3"/></svg></button>
+          <button type="button" id="nutsBoardSkills" class="nuts-tool-icon" aria-label="白板 Skill" data-tooltip="白板 Skill" aria-haspopup="dialog"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 3 7 4-7 4-7-4 7-4ZM3 10.5l7 4 7-4M3 14l7 4 7-4"/></svg></button>
           <button type="button" id="nutsAddMarkdown" class="nuts-tool-icon" aria-label="添加 Markdown"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11.5l5-5a2 2 0 0 1 2.8 2.8l-6 6a3.3 3.3 0 0 1-4.7-4.7l6-6"/></svg></button>
           <button type="button" id="nutsNewNote" class="nuts-tool-icon nuts-capture-tool" aria-label="记 NUT"><img class="nuts-mascot" src="./assets/nuts/nut-icon-v7.png" alt="" draggable="false"></button>
         </div>
@@ -9097,6 +9132,20 @@
           <div class="nuts-picker-field"><span id="nutsSceneLabel">从场景开始</span><div class="nuts-picker" id="nutsSceneSelect"></div></div>
           <p id="nutsSceneAbout"></p>
           <label><span id="nutsNewBoardLabel">白板名称</span><input id="nutsNewBoardName" autofocus required maxlength="45"></label>
+          <section class="nuts-new-board-section" aria-labelledby="nutsNewBoardDefaultsTitle">
+            <div class="nuts-new-board-section-heading">
+              <button id="nutsNewBoardDefaultsTitle" type="button" class="nuts-new-board-section-toggle" aria-controls="nutsNewBoardRulePreview" aria-expanded="false">默认规则</button>
+              <button type="button" id="nutsNewBoardImportRules" class="nuts-skills-action-button">导入规则</button>
+            </div>
+            <pre id="nutsNewBoardRulePreview" hidden></pre>
+          </section>
+          <section class="nuts-new-board-section" aria-labelledby="nutsNewBoardSkillsTitle">
+            <div class="nuts-new-board-section-heading">
+              <button id="nutsNewBoardSkillsTitle" type="button" class="nuts-new-board-section-toggle" aria-controls="nutsNewBoardSkillPreview" aria-expanded="false">默认 Skills</button>
+              <button type="button" id="nutsNewBoardImportSkill" class="nuts-skills-action-button">导入 Skill</button>
+            </div>
+            <div id="nutsNewBoardSkillPreview" hidden></div>
+          </section>
           <p id="nutsNewBoardError" role="status"></p>
           <div class="nuts-new-board-actions"><button type="button" id="nutsNewBoardCancel">取消</button><button type="submit" id="nutsNewBoardSubmit">创建白板</button></div>
         </form>
@@ -9105,11 +9154,15 @@
         <form id="nutsRulesForm">
           <h2 id="nutsRulesTitle">白板工作规则</h2>
           <label><span id="nutsRuleNameLabel">规则名称</span><input id="nutsRuleName" required maxlength="100"></label>
-          <label>AGENTS.md<textarea id="nutsRuleText" rows="10" required></textarea></label>
+          <label id="nutsCurrentRules" hidden><span id="nutsCurrentRulesLabel">当前已保存规则</span><textarea id="nutsCurrentRuleText" rows="4" readonly></textarea></label>
+          <label><span id="nutsRuleTextLabel">AGENTS.md</span><textarea id="nutsRuleText" rows="10" required></textarea></label>
+          <div class="nuts-new-board-actions">
+            <button type="button" id="nutsImportRules">导入 Markdown</button>
+            <button type="button" id="nutsExportRules">导出 AGENTS.md</button>
+          </div>
           <div id="nutsRuleTemplates" class="nuts-rule-templates" hidden>
-            <label><span id="nutsRuleGoalLabel">想用这张白板做什么？</span><input id="nutsRuleGoal"></label>
             <div class="nuts-picker-field"><span id="nutsRuleTemplateLabel">起步模板</span><div class="nuts-picker" id="nutsRuleTemplate"></div></div>
-            <button type="button" id="nutsDraftRule">生成规则草稿</button>
+            <button type="button" id="nutsDraftRule">载入默认规则</button>
           </div>
           <p id="nutsRulesError" role="status"></p>
           <div class="nuts-rules-actions nuts-new-board-actions"><button type="button" id="nutsRuleTemplatesTitle" aria-expanded="false" aria-controls="nutsRuleTemplates">查看模板</button><button type="button" id="nutsRulesCancel">取消</button><button type="submit" id="nutsSaveRules">保存白板规则</button></div>
@@ -9509,6 +9562,7 @@
     <script src="./nuts-picker.js"></script>
     <script src="./nuts-material-icons.js"></script>
     <script src="./nuts-board.js"></script>
+    <script src="./nuts-skills.js"></script>
     <script src="./nuts-drawers.js"></script>
     <script src="./nuts-review.js"></script>
     <script>
@@ -27344,6 +27398,7 @@ if (!chipTipController) {
       function nutsMaterialRemoveButton(onRemove) {
         const remove = document.createElement("button");
         remove.type = "button";
+        remove.dataset.nutsMaterialAction = "remove";
         setNutsIssueIcon(remove, "remove", nutsCopy("移除素材", "Remove material"));
         remove.onclick = async () => {
           remove.disabled = true;
@@ -27354,20 +27409,32 @@ if (!chipTipController) {
         return remove;
       }
 
-      function nutsMaterialRow(material, onRemove, extra, open) {
+      function nutsMaterialRow(material, onRemove, extra, open, openLabel = nutsCopy("打开原文", "Open original")) {
         const row = document.createElement("div");
         row.className = "nuts-material-link-row";
         row.append(material);
         if (open) {
           const button = document.createElement("button");
           button.type = "button";
-          setNutsIssueIcon(button, "external", nutsCopy("打开原文", "Open original"));
+          button.dataset.nutsMaterialAction = "open";
+          setNutsIssueIcon(button, "external", openLabel);
           button.onclick = open;
           row.append(button);
         }
         if (extra) row.append(extra);
         row.append(nutsMaterialRemoveButton(onRemove));
         return row;
+      }
+
+      async function openNutsMarkdownMaterial(card, boardId, issueId = null) {
+        const epoch = nutsEpoch;
+        try {
+          await invoke("nuts_open_markdown_material", { boardId, cardId: card.id, issueId });
+        } catch (error) {
+          if (epoch === nutsEpoch) {
+            (nutsBoardPage.hidden ? nutsMessage : nutsBoardMessage).textContent = normalizeError(error);
+          }
+        }
       }
 
       function renderNutsInputs(container, entries, issueId, boardId) {
@@ -27392,12 +27459,14 @@ if (!chipTipController) {
           }
           const link = card.kind === "link";
           const action = link ? () => invoke("open_external_url_command", { payload: { url: card.body } })
-            .catch(error => { nutsMessage.textContent = normalizeError(error); }) : undefined;
+            .catch(error => { nutsMessage.textContent = normalizeError(error); })
+            : card.kind === "markdown" ? () => openNutsMarkdownMaterial(card, boardId, issueId) : undefined;
           const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, action, card.body);
           if (link) file.classList.add("nuts-external-material");
           const usage = ["png", "jpg", "jpeg", "gif", "webp"].includes(card.kind)
             ? nutsImageUsageButton(card, boardId, issueId) : null;
-          container.append(nutsMaterialRow(file, remove, usage, action));
+          const openLabel = card.kind === "markdown" ? nutsCopy("打开 Markdown", "Open Markdown") : undefined;
+          container.append(nutsMaterialRow(file, remove, usage, action, openLabel));
         }
       }
 
@@ -27415,6 +27484,7 @@ if (!chipTipController) {
         header.className = "nuts-reference-header";
         const add = document.createElement("button");
         add.type = "button";
+        add.dataset.nutsAddMaterial = "";
         setNutsIssueIcon(add, "add", nutsCopy("添加资料", "Add reference"));
         const count = materials.length + libraryRefs.length + entries.filter(ref => ref.adopted).length;
         header.append(nutsIssueHeading(nutsCopy(`议题素材 · ${count}`, `Materials · ${count}`)), add);
@@ -27622,13 +27692,18 @@ if (!chipTipController) {
         if (!nutsBoardPage.hidden) await activateNutsTab(issue);
       }
 
+      const nutsSkills = window.createNutbookNutsSkills({ copy: nutsCopy, invoke });
+
       const nutsBoard = window.NutbookNutsBoard({
-        invoke, copy: nutsCopy, confirm: appConfirm,
+        invoke, copy: nutsCopy, confirm: appConfirm, notify: showToast,
         report: error => { (nutsBoardPage.hidden ? nutsMessage : nutsBoardMessage).textContent = normalizeError(error); },
         refreshIssues: openNutsIssue,
         onCardRemoved: loadNutsIssues,
         imageUsageButton: nutsImageUsageButton,
+        openMarkdownMaterial: openNutsMarkdownMaterial,
+        skills: nutsSkills,
         onBoardChange: () => {
+          nutsSkills.close();
           nutsEpoch += 1;
           nutsDrawers.close(false);
           nutsDrawers.update([], []);
@@ -27646,6 +27721,7 @@ if (!chipTipController) {
       function syncNutsWorkspace(tab) {
         const id = isNutsTab(tab) ? tab.id : null;
         if (id === nutsSurfaceId) return;
+        nutsSkills.close();
         const boardWasVisible = !nutsBoardPage.hidden && !nutsWorkspace.hidden;
         nutsSurfaceId = id;
         nutsEpoch += 1;
@@ -27856,7 +27932,7 @@ if (!chipTipController) {
             const [drafts, suggestions, context] = await Promise.all([
               invoke("nuts_drafts", { issueId: issue.id }),
               invoke("nuts_references", { issueId: issue.id }),
-              invoke("nuts_issue_context", { issueId: issue.id }),
+              invoke("nuts_issue_context", { issueId: issue.id, language: nutsCopy("zh-CN", "en-US") }),
             ]);
             if (epoch !== nutsEpoch) return;
             agentPane.hidden = drafts.length === 0;
@@ -27877,14 +27953,18 @@ if (!chipTipController) {
                 contextPane.append(goalTitle, goal);
               }
               const rules = document.createElement("details");
+              rules.className = "nuts-issue-board-rules";
               const label = document.createElement("summary");
               const hint = context.snapshot ? nutsCopy("本轮采用", "Used for this claim") : nutsCopy("继承自白板", "From this board");
               label.textContent = `${nutsCopy("本轮规则", "Rules for this round")} · ${context.rules.name} · v${context.rules.version} · ${hint}`;
               const body = document.createElement("pre");
               body.textContent = context.rules.text;
-              rules.open = rulesPane.querySelector("details")?.open || false;
+              rules.open = rulesPane.querySelector(".nuts-issue-board-rules")?.open || false;
               rules.append(label, body);
+              const skillsExpanded = rulesPane.querySelector(".nuts-issue-skills")?.open || false;
+              const skills = nutsSkills.issueDisclosure(context.rules, context.snapshot, skillsExpanded);
               rulesPane.replaceChildren(rules);
+              if (skills) rulesPane.append(skills);
             }
             renderNutsReferences(references, issue.id, issue.board_id || "default", suggestions, context.library_refs || [], context.materials || []);
             for (const draft of drafts.slice().sort((a, b) => a.version - b.version)) {
@@ -28407,13 +28487,64 @@ if (!chipTipController) {
 
       window.__NUTBOOK_NATIVE_MENU__ = handleNativeMenuAction;
       window.__NUTBOOK_CONTEXT_FIND__ = openActiveDocumentFind;
+
+      function nutsIssueContextMenu(tab, target) {
+        const management = tab.id === nutsManagementId;
+        const card = management ? target.closest("[data-nuts-issue]") : null;
+        const issueId = management ? card?.dataset.nutsIssue : tab.nutsIssueId;
+        const material = management ? null : target.closest(".nuts-material-link-row, .nuts-issue-note");
+        const remove = material?.querySelector('[data-nuts-material-action="remove"]');
+        const open = material?.querySelector('[data-nuts-material-action="open"]');
+        const archive = nutsManagementArchive.getAttribute("aria-pressed") === "true";
+        const kind = management
+          ? card ? "nuts-issue-list-card" : archive ? "nuts-issue-archive-list" : "nuts-issue-list"
+          : remove ? open ? "nuts-issue-material" : "nuts-issue-material-static" : "nuts-issue-page";
+        return {
+          kind,
+          language: appState.language,
+          async run(action) {
+            if (getActiveTab()?.id !== tab.id) return;
+            try {
+              if (action === "nuts-open-issue" && card) {
+                const issue = nutsManagementIssues.find(entry => entry.id === issueId);
+                if (issue) await activateNutsTab(issue);
+              }
+              if (action === "nuts-search-issues") nutsManagementSearch.focus();
+              if (action === "nuts-toggle-issue-archive" && archive === (nutsManagementArchive.getAttribute("aria-pressed") === "true")) {
+                nutsManagementArchive.click();
+              }
+              if (action === "nuts-copy-issue-id" && issueId) {
+                await writeClipboardText(issueId);
+                showToast(nutsCopy("已复制议题 ID", "Issue ID copied"));
+              }
+              if (action === "nuts-add-issue-material") {
+                const row = nutsById.get(issueId);
+                const add = row?.querySelector("[data-nuts-add-material]");
+                if (add?.getAttribute("aria-expanded") === "true") {
+                  row.querySelector(".nuts-reference-sources button")?.focus();
+                } else add?.click();
+              }
+              if (action === "nuts-open-issue-material") open?.click();
+              if (action === "nuts-remove-issue-material") remove?.click();
+            } catch (error) {
+              if (getActiveTab()?.id === tab.id) (management ? nutsManagementMessage : nutsMessage).textContent = normalizeError(error);
+            }
+          },
+        };
+      }
+
       window.__NUTBOOK_CONTEXT_PROVIDER__ = (target, event) => {
-        if (getActiveTab()?.id === nutsBoardId && target.closest("#nutsBoardViewport")) {
+        const active = getActiveTab();
+        if (active?.id === nutsBoardId && target.closest("#nutsBoardViewport")) {
           return { ...nutsBoard.contextMenu(target, event), language: appState.language };
+        }
+        const editable = target.closest('input, textarea, [contenteditable="true"]');
+        if (!editable && ((active?.id === nutsManagementId && nutsManagement.contains(target))
+          || (active?.nutsIssueId && nutsIssuePage.contains(target)))) {
+          return nutsIssueContextMenu(active, target);
         }
         const card = target.closest("[data-open-item], [data-inspector-item]");
         const chip = target.closest("[data-tab-id]");
-        const editable = target.closest('input, textarea, [contenteditable="true"]');
         const itemId = Number(card?.dataset.openItem || card?.dataset.inspectorItem);
         const item = appState.items.find((entry) => entry.id === itemId);
         const tabId = chip?.dataset.tabId;

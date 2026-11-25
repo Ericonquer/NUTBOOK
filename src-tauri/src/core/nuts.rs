@@ -1,5 +1,6 @@
 pub mod link_preview;
 pub mod board;
+pub mod board_files;
 pub mod export;
 pub mod draft_assets;
 pub mod handoff;
@@ -87,9 +88,11 @@ fn open(data_dir: &Path) -> Result<Connection> {
         CREATE TABLE IF NOT EXISTS nuts_boards (id TEXT PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_board_locales (board_id TEXT PRIMARY KEY, language TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_board_scenes (board_id TEXT PRIMARY KEY, scene TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS nuts_board_file_initialized (board_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS nuts_board_rules (board_id TEXT PRIMARY KEY, name TEXT NOT NULL, text TEXT NOT NULL, version INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_issue_tasks (issue_id TEXT PRIMARY KEY, template TEXT, goal TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_claim_rules (token TEXT PRIMARY KEY, issue_id TEXT NOT NULL, rules TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS nuts_markdown_sources (card_id TEXT PRIMARY KEY, path TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_card_boards (card_id TEXT PRIMARY KEY, board_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS nuts_image_scales (card_id TEXT PRIMARY KEY, percent INTEGER NOT NULL CHECK(percent BETWEEN 25 AND 150));
         CREATE TABLE IF NOT EXISTS nuts_image_usage (card_id TEXT PRIMARY KEY, roles INTEGER NOT NULL, note TEXT NOT NULL);
@@ -113,6 +116,10 @@ fn open(data_dir: &Path) -> Result<Connection> {
         );
         CREATE TABLE IF NOT EXISTS nuts_result_reference_options (
             issue_id TEXT NOT NULL, version INTEGER NOT NULL, keep INTEGER NOT NULL,
+            PRIMARY KEY(issue_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS nuts_result_paths (
+            issue_id TEXT NOT NULL, version INTEGER NOT NULL, path TEXT NOT NULL,
             PRIMARY KEY(issue_id, version)
         );
         CREATE TABLE IF NOT EXISTS results (
@@ -242,7 +249,7 @@ pub fn claim(data_dir: &Path, id: &str, supplement: Option<String>) -> Result<Cl
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
-    let result = claim_in(&tx, id, supplement)?;
+    let result = claim_in(data_dir, &tx, id, supplement)?;
     tx.commit().map_err(|error| error.to_string())?;
     Ok(result)
 }
@@ -266,7 +273,7 @@ pub fn claim_next(data_dir: &Path, board_id: Option<&str>) -> Result<Option<Clai
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    let next = issue.map(|id| claim_in(&tx, &id, None)).transpose()?;
+    let next = issue.map(|id| claim_in(data_dir, &tx, &id, None)).transpose()?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(next)
 }
@@ -280,7 +287,7 @@ fn enqueue_open(db: &Connection, id: &str) -> Result<()> {
     .map_err(|e| e.to_string())
 }
 
-fn claim_in(tx: &Connection, id: &str, supplement: Option<String>) -> Result<Claim> {
+fn claim_in(data_dir: &Path, tx: &Connection, id: &str, supplement: Option<String>) -> Result<Claim> {
     let (mut issue, source, existing): (Issue, String, Option<String>) = tx
         .query_row(
             "SELECT id, title, source_name, status,
@@ -318,7 +325,7 @@ fn claim_in(tx: &Connection, id: &str, supplement: Option<String>) -> Result<Cla
     let references = references::read(tx, id, true)?;
     let library_references = references::library_items(tx, id)?;
     let images = materials::issue_images(tx, id)?;
-    let rules = settings::load_rules(tx, &issue.board_id)?;
+    let rules = settings::load_rules(data_dir, tx, &issue.board_id)?;
     let task = settings::load_task(tx, id)?;
     let token = Uuid::new_v4().to_string();
     tx.execute(
@@ -434,6 +441,31 @@ fn result_file_name(title: &str, version: i64) -> String {
     format!("NUTS - {} - v{version}.md", safe_file_title(title))
 }
 
+fn result_path(
+    db: &Connection,
+    data_dir: &Path,
+    issue_id: &str,
+    version: i64,
+    filename: &str,
+) -> Result<std::path::PathBuf> {
+    let stored: Option<String> = db.query_row(
+        "SELECT path FROM nuts_result_paths WHERE issue_id = ?1 AND version = ?2",
+        params![issue_id, version], |row| row.get(0),
+    ).optional().map_err(|error| error.to_string())?;
+    if let Some(path) = stored {
+        return Ok(path.into());
+    }
+    let id = Uuid::parse_str(issue_id).map_err(|_| "Invalid issue ID")?;
+    let root = data_dir.join("nuts-results").join(id.to_string());
+    let versioned = root.join(format!("v{version}"));
+    let direct = root.join(filename);
+    Ok(if versioned.join(filename).exists() || (!direct.exists() && versioned.is_dir()) {
+        versioned.join(filename)
+    } else {
+        direct
+    })
+}
+
 pub fn save_result<T>(
     data_dir: &Path,
     issue_id: &str,
@@ -446,14 +478,15 @@ pub fn save_result<T>(
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(error)?;
-    let (title, status, markdown, published): (String, String, String, Option<i64>) = tx
+    let (title, status, markdown, published, board_id): (String, String, String, Option<i64>, String) = tx
         .query_row(
-            "SELECT issues.title, issues.status, drafts.markdown, results.version
+            "SELECT issues.title, issues.status, drafts.markdown, results.version,
+                COALESCE((SELECT board_id FROM nuts_issue_boards WHERE issue_id = issues.id), 'default')
          FROM drafts JOIN issues ON issues.id = drafts.issue_id
          LEFT JOIN results ON results.issue_id = issues.id
          WHERE drafts.issue_id = ?1 AND drafts.version = ?2",
             params![issue_id, version],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .optional()
         .map_err(error)?
@@ -462,25 +495,52 @@ pub fn save_result<T>(
     if status != "review" && published != Some(version) {
         return Err("This version is no longer available to save as the result".into());
     }
-    let stored_choice: Option<bool> = tx.query_row(
-        "SELECT keep FROM nuts_result_reference_options WHERE issue_id = ?1 AND version = ?2",
-        params![issue_id,version], |row| row.get(0),
-    ).optional().map_err(error)?;
-    let keep_references = if published == Some(version) {
-        stored_choice.unwrap_or(true)
+    let filename = result_file_name(&title, version);
+    let existing = (published == Some(version))
+        .then(|| result_path(&tx, data_dir, issue_id, version, &filename))
+        .transpose()?;
+    if let Some(path) = &existing {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_file() => {
+                let indexed = index(path)?;
+                tx.commit().map_err(error)?;
+                return Ok(indexed);
+            }
+            Ok(_) => return Err("The saved result is not a regular file".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+
+    let keep_references = if existing.is_some() {
+        tx.query_row(
+            "SELECT keep FROM nuts_result_reference_options WHERE issue_id = ?1 AND version = ?2",
+            params![issue_id, version],
+            |row| row.get(0),
+        ).optional().map_err(error)?.unwrap_or(true)
     } else {
         keep_references.unwrap_or(false)
     };
     let markdown = result_references::for_result(&markdown, keep_references);
     validate_markdown(&markdown)?;
     let issue_id = Uuid::parse_str(issue_id).map_err(|_| "Invalid issue ID")?;
-    let directory = data_dir.join("nuts-results").join(issue_id.to_string());
-    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let directory = directory
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    let path = draft_assets::prepare_result(&tx, &issue_id.to_string(), version,
-        directory.join(result_file_name(&title, version)))?;
+    let path = if let Some(path) = existing {
+        let parent = path.parent().ok_or("Result directory is missing")?;
+        if !parent.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+            return Err("The result directory is missing or invalid".into());
+        }
+        let filename = path.file_name().ok_or("Result filename is missing")?;
+        let directory = parent.canonicalize().map_err(|error| error.to_string())?;
+        draft_assets::restore_result_assets(&tx, &issue_id.to_string(), version, directory.join(filename))?
+    } else {
+        let folder = settings::result_folder(data_dir, &tx, &board_id)?;
+        let root = folder.join(settings::results_directory_name(&tx, &board_id)?);
+        board_files::ensure_directory(&root)?;
+        let directory = root.join(issue_id.to_string());
+        board_files::ensure_directory(&directory)?;
+        let directory = directory.canonicalize().map_err(|error| error.to_string())?;
+        draft_assets::prepare_result(&tx, &issue_id.to_string(), version, directory.join(filename))?
+    };
     let directory = path.parent().ok_or("Result directory is missing")?;
 
     if !path.is_file() {
@@ -496,15 +556,17 @@ pub fn save_result<T>(
         staged
             .persist_noclobber(&path)
             .map_err(|error| error.to_string())?;
-    } else if published != Some(version) && read_markdown(&path)? != markdown {
+    } else if !fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file()) || read_markdown(&path)? != markdown {
         return Err("An existing file conflicts with this result".into());
     }
 
     let indexed = index(&path)?;
-    if published == Some(version) {
-        tx.commit().map_err(error)?;
-        return Ok(indexed);
-    }
+    let stored_path = path.to_str().ok_or("Result path is not valid UTF-8")?;
+    tx.execute(
+        "INSERT INTO nuts_result_paths VALUES (?1, ?2, ?3)
+         ON CONFLICT(issue_id,version) DO UPDATE SET path=excluded.path",
+        params![issue_id.to_string(), version, stored_path],
+    ).map_err(error)?;
     tx.execute(
         "INSERT INTO nuts_result_reference_options VALUES (?1,?2,?3)
          ON CONFLICT(issue_id,version) DO UPDATE SET keep=excluded.keep",
@@ -562,6 +624,117 @@ pub fn reopen(data_dir: &Path, issue_id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_board_file_edits_apply_to_new_claims_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path();
+        let custom = board_files::BoardSkill {
+            id: "my-style".into(),
+            files: std::collections::BTreeMap::from([
+                ("SKILL.md".into(), "# Style guide\n\nRead references/voice.md".into()),
+                ("references/voice.md".into(), "Use the original wording.".into()),
+            ]),
+        };
+        let original = "# Rules\n\nKeep the original example.";
+        let board_id = board::create_board_with_files(
+            data, "Article board", "article", "en-US", Some(original), &[custom],
+        ).unwrap();
+        let config = settings::config(data, &board_id).unwrap();
+        let folder = std::path::PathBuf::from(config["folder"].as_str().unwrap());
+        assert_eq!(fs::read_to_string(folder.join("AGENTS.md")).unwrap(), original);
+        assert!(folder.join("results").is_dir());
+        assert!(!folder.join("成果").exists());
+        assert!(folder.join("skills/illustrate/references/checklist.md").is_file());
+
+        let new_issue = || {
+            let card = board::add(data, &board_id, "Evidence", "Evidence", "note", 0, 0).unwrap();
+            let id = board::create_issue(data, &board_id, "Article", &[card], None, "").unwrap();
+            board::open_issue(data, &id).unwrap();
+            id
+        };
+        let first_id = new_issue();
+        let first = claim(data, &first_id, None).unwrap();
+
+        fs::write(folder.join("AGENTS.md"), "# External revision").unwrap();
+        fs::write(folder.join("skills/my-style/references/voice.md"), "Use compact paragraphs.").unwrap();
+        assert!(settings::save_rules(data, &board_id, "Stale", "# Stale", first.rules.version).is_err());
+
+        let second = claim(data, &new_issue(), None).unwrap();
+        assert_eq!(second.rules.version, first.rules.version + 1);
+        assert_eq!(second.rules.text, "# External revision");
+        let style = second.rules.file_skills.unwrap().into_iter().find(|skill| skill.id == "my-style").unwrap();
+        assert_eq!(style.files["references/voice.md"], "Use compact paragraphs.");
+        let historical = settings::issue_context(data, &first_id, "en-US").unwrap();
+        assert_eq!(historical["rules"], serde_json::to_value(first.rules).unwrap());
+    }
+
+    #[test]
+    fn migrates_older_saved_rules_and_keeps_localized_folder_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path();
+        let id = Uuid::new_v4().to_string();
+        let db = open(data).unwrap();
+        db.execute("INSERT INTO nuts_boards VALUES (?1, 'Existing board')", [&id]).unwrap();
+        db.execute("INSERT INTO nuts_board_scenes VALUES (?1, 'research')", [&id]).unwrap();
+        db.execute(
+            "INSERT INTO nuts_board_rules VALUES (?1, 'My rules', 'Keep this text', 9)", [&id],
+        ).unwrap();
+        let config = settings::config(data, &id).unwrap();
+        let folder = std::path::PathBuf::from(config["folder"].as_str().unwrap());
+        assert_eq!(config["rules"]["version"], 9);
+        assert_eq!(fs::read_to_string(folder.join("AGENTS.md")).unwrap(), "Keep this text");
+        assert!(folder.join("skills/brief/SKILL.md").is_file());
+        assert!(folder.join("成果").is_dir());
+
+        settings::remember_default_language(data, "en-US").unwrap();
+        let default = settings::open_folder_path(data, "default").unwrap();
+        assert!(default.join("results").is_dir());
+        settings::remember_default_language(data, "zh-CN").unwrap();
+        assert_eq!(settings::results_directory_name(&db, "default").unwrap(), "results");
+    }
+
+    #[test]
+    fn saved_rules_and_scene_skill_are_captured_at_claim_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        for scene in ["research", "product", "article", "quick"] {
+            let board_id = board::create_board(dir, scene, scene, "en-US").unwrap();
+            let open_issue = || {
+                let card = board::add(dir, &board_id, "Evidence", "Source notes", "note", 0, 0).unwrap();
+                let id = board::create_issue(dir, &board_id, "Review evidence", &[card], None, "").unwrap();
+                board::open_issue(dir, &id).unwrap();
+                id
+            };
+            let first_id = open_issue();
+            let first = claim(dir, &first_id, None).unwrap();
+            let skill = first.rules.scene_skill.as_ref().unwrap();
+            assert_eq!(skill.id, scene);
+            assert_eq!(skill.version, 2);
+            assert!(first.rules.text.lines().filter(|line| line.starts_with("- ")).count() >= 4);
+            assert!(!skill.workflows.is_empty());
+            assert!(skill.workflows.iter().all(|workflow| !workflow.steps.is_empty()));
+            if scene == "article" {
+                assert!(first.rules.text.contains("Editing out generic AI phrasing"));
+                let workflows = skill.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
+                assert_eq!(workflows, ["write", "edit", "illustrate"]);
+            }
+
+            let imported = "# Rules\n\nCite evidence for each conclusion.";
+            let saved = settings::save_rules(dir, &board_id, "Rules", imported, first.rules.version).unwrap();
+            assert!(settings::save_rules(dir, &board_id, "Stale", "Stale import", first.rules.version).is_err());
+            assert_eq!(settings::export_rules(dir, &board_id).unwrap(), imported);
+
+            let next = claim(dir, &open_issue(), None).unwrap();
+            assert_eq!(next.rules.version, saved.version);
+            assert_eq!(next.rules.text, imported);
+            assert_eq!(next.rules.scene_skill.unwrap().id, scene);
+            let context = settings::issue_context(dir, &first_id, "en-US").unwrap();
+            assert_eq!(context["rules"]["version"], first.rules.version);
+            assert_eq!(context["rules"]["text"], first.rules.text);
+            assert_eq!(context["rules"]["scene_skill"], serde_json::to_value(skill).unwrap());
+        }
+    }
 
     #[test]
     fn next_claim_follows_open_order_and_board_scope() {

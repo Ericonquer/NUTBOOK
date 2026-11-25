@@ -59,8 +59,7 @@ fn run_nuts(args: &[String], json: bool) {
                 Ok(serde_json::json!({ "id": id }))
             }
             [operation, id] if operation == "board-config" => {
-                let language = env::var("NUTBOOK_LANGUAGE").unwrap_or_else(|_| "zh-CN".into());
-                Ok(nuts::settings::config(&app_data, id, &language)?)
+                Ok(nuts::settings::config(&app_data, id)?)
             }
             [operation, id, version, name, path] if operation == "save-rules" => {
                 let expected = version.parse().map_err(|_| "Expected a rules version number")?;

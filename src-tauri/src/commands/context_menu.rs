@@ -56,6 +56,32 @@ pub async fn show_context_menu(app: tauri::AppHandle, webview: tauri::Webview, k
             }
             add("nuts-fit", label("适应内容", "Fit Content"), true)?;
         }
+        "nuts-issue-list" | "nuts-issue-archive-list" => {
+            add("nuts-search-issues", label("搜索议题", "Search Issues"), true)?;
+            let archive_label = if kind == "nuts-issue-list" {
+                label("查看已归档议题", "View Archived Issues")
+            } else {
+                label("返回看板", "Back to Board View")
+            };
+            add("nuts-toggle-issue-archive", archive_label, true)?;
+        }
+        "nuts-issue-list-card" => {
+            add("nuts-open-issue", label("打开议题", "Open Issue"), true)?;
+            add("nuts-copy-issue-id", label("复制议题 ID", "Copy Issue ID"), true)?;
+        }
+        "nuts-issue-page" => {
+            if selected {
+                menu.append(&PredefinedMenuItem::copy(&app, Some(label("复制", "Copy"))).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            }
+            add("nuts-add-issue-material", label("添加素材", "Add Materials"), true)?;
+            add("nuts-copy-issue-id", label("复制议题 ID", "Copy Issue ID"), true)?;
+        }
+        "nuts-issue-material" | "nuts-issue-material-static" => {
+            if kind == "nuts-issue-material" {
+                add("nuts-open-issue-material", label("打开素材", "Open Material"), true)?;
+            }
+            add("nuts-remove-issue-material", label("移除素材", "Remove Material"), true)?;
+        }
         "app" => {
             add("add-folder", label("添加文件夹", "Add Folder"), true)?;
             add("add-file", label("添加文件", "Add File"), true)?;

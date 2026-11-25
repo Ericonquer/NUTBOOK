@@ -1,10 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{board, open, Result};
+use super::{board, board_files::{self, BoardSkill}, open, Result};
 
 const CATALOG: &str = include_str!("../../../../dist/assets/nuts/scenes.json");
 const CATALOG_EN: &str = include_str!("../../../../dist/assets/nuts/scenes.en.json");
@@ -14,6 +14,33 @@ pub struct Rules {
     pub name: String,
     pub text: String,
     pub version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_skill: Option<SceneSkill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_skills: Option<Vec<BoardSkill>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SceneSkill {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub version: u32,
+    pub instructions: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workflows: Vec<SceneWorkflow>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SceneWorkflow {
+    pub id: String,
+    pub name: String,
+    pub steps: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -54,59 +81,175 @@ fn board_scene(db: &Connection, board_id: &str) -> Result<String> {
     .map_err(|e| e.to_string())
 }
 
-pub fn config(data_dir: &Path, board_id: &str, language: &str) -> Result<Value> {
-    let db = open(data_dir)?;
-    board::ensure_board(&db, board_id)?;
-    let id = board_scene(&db, board_id)?;
-    Ok(
-        serde_json::json!({ "scene": id, "rules": load_rules_for_language(&db, board_id, language)? }),
-    )
+fn board_language(db: &Connection, board_id: &str) -> Result<String> {
+    let language: Option<String> = db.query_row(
+        "SELECT language FROM nuts_board_locales WHERE board_id = ?1",
+        [board_id],
+        |row| row.get(0),
+    ).optional().map_err(|error| error.to_string())?;
+    Ok(language.unwrap_or_else(|| "zh-CN".into()))
 }
 
-pub(super) fn load_rules(db: &Connection, board_id: &str) -> Result<Rules> {
-    let language: Option<String> = db
-        .query_row(
-            "SELECT language FROM nuts_board_locales WHERE board_id = ?1",
-            [board_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
-    load_rules_for_language(db, board_id, language.as_deref().unwrap_or("zh-CN"))
+pub fn remember_default_language(data_dir: &Path, language: &str) -> Result<()> {
+    open(data_dir)?.execute(
+        "INSERT OR IGNORE INTO nuts_board_locales
+         SELECT 'default', ?1 WHERE NOT EXISTS(
+            SELECT 1 FROM nuts_board_file_initialized WHERE board_id = 'default'
+         )",
+        [language],
+    ).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
-fn load_rules_for_language(db: &Connection, board_id: &str, language: &str) -> Result<Rules> {
-    let stored = db
-        .query_row(
-            "SELECT name, text, version FROM nuts_board_rules WHERE board_id = ?1",
-            [board_id],
-            |row| {
-                Ok(Rules {
-                    name: row.get(0)?,
-                    text: row.get(1)?,
-                    version: row.get(2)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
-    if let Some(rules) = stored {
-        return Ok(rules);
+pub(super) fn results_directory_name(db: &Connection, board_id: &str) -> Result<&'static str> {
+    Ok(board_files::result_directory_name(&board_language(db, board_id)?))
+}
+
+fn workspace(
+    data_dir: &Path,
+    db: &Connection,
+    board_id: &str,
+    imported_rules: Option<&str>,
+    imported_skills: &[BoardSkill],
+) -> Result<(PathBuf, Rules, SceneSkill)> {
+    board::ensure_board(db, board_id)?;
+    let language = board_language(db, board_id)?;
+    let language = language.as_str();
+    let id = board_scene(db, board_id)?;
+    let preset = localized_scene(&id, language)?;
+    let mut skill: SceneSkill = serde_json::from_value(preset["skill"].clone())
+        .map_err(|error| error.to_string())?;
+    skill.id = id;
+    skill.name = preset["name"].as_str().unwrap_or(&skill.id).into();
+    let stored: Option<(String, String, i64)> = db.query_row(
+        "SELECT name, text, version FROM nuts_board_rules WHERE board_id = ?1",
+        [board_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional().map_err(|error| error.to_string())?;
+    let heading = if language == "en-US" { "Board rules" } else { "白板工作规则" };
+    let (name, recorded, mut version) = stored.clone().unwrap_or_else(|| {
+        let text = imported_rules.map(str::to_owned).unwrap_or_else(|| format!(
+            "# {heading}\n\n{}\n", preset["rules"].as_str().unwrap_or("")
+        ));
+        (skill.name.clone(), text, preset["ruleVersion"].as_i64().unwrap_or(1))
+    });
+    let initialized = folder_initialized(db, board_id)?;
+    let target = board_files::board_directory(data_dir, board_id)?;
+    if initialized && !target.is_dir() {
+        return Err("The whiteboard folder is missing. Restore it before continuing.".into());
     }
-    let preset = localized_scene(&board_scene(db, board_id)?, language)?;
-    let heading = if language == "en-US" {
-        "Board rules"
-    } else {
-        "白板工作规则"
+    let folder = board_files::ensure(data_dir, board_id, &recorded, &skill, language, imported_skills)?;
+    if !initialized {
+        db.execute("INSERT INTO nuts_board_file_initialized VALUES (?1)", [board_id])
+            .map_err(|error| error.to_string())?;
+    }
+    let text = board_files::read_rules(&folder)?;
+    if text != recorded {
+        version += 1;
+    }
+    let rules = Rules { name, text, version, scene_skill: None, file_skills: None };
+    if stored.is_none() || rules.text != recorded {
+        remember_rules(db, board_id, &rules)?;
+    }
+    Ok((folder, rules, skill))
+}
+
+fn remember_rules(db: &Connection, board_id: &str, rules: &Rules) -> Result<()> {
+    db.execute(
+        "INSERT INTO nuts_board_rules VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(board_id) DO UPDATE SET name=excluded.name, text=excluded.text, version=excluded.version",
+        params![board_id, rules.name, rules.text, rules.version],
+    ).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub(super) fn initialize_folder(
+    data_dir: &Path,
+    db: &Connection,
+    board_id: &str,
+    imported_rules: Option<&str>,
+    imported_skills: &[BoardSkill],
+) -> Result<()> {
+    if let Some(text) = imported_rules {
+        super::validate_markdown(text)?;
+    }
+    workspace(data_dir, db, board_id, imported_rules, imported_skills)?;
+    Ok(())
+}
+
+pub(super) fn load_rules(data_dir: &Path, db: &Connection, board_id: &str) -> Result<Rules> {
+    let (folder, mut rules, skill) = workspace(data_dir, db, board_id, None, &[])?;
+    let files = board_files::read_skills(&folder)?;
+    if board_files::read_rules(&folder)? != rules.text || board_files::read_skills(&folder)? != files {
+        return Err("Board files changed during the claim. Try again.".into());
+    }
+    rules.file_skills = Some(files);
+    rules.scene_skill = Some(skill);
+    Ok(rules)
+}
+
+pub fn config(data_dir: &Path, board_id: &str) -> Result<Value> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+    let (folder, mut rules, skill) = workspace(data_dir, &tx, board_id, None, &[])?;
+    let scene = skill.id.clone();
+    rules.scene_skill = Some(skill);
+    let skill_error = match board_files::read_skills(&folder) {
+        Ok(skills) => { rules.file_skills = Some(skills); None }
+        Err(error) => Some(error),
     };
-    Ok(Rules {
-        name: preset["name"].as_str().unwrap_or("").into(),
-        text: format!(
-            "# {heading}\n\n{}\n",
-            preset["rules"].as_str().unwrap_or("")
-        ),
-        version: 1,
-    })
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "scene": scene, "rules": rules, "folder": folder, "skill_error": skill_error }))
+}
+
+fn folder_initialized(db: &Connection, board_id: &str) -> Result<bool> {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM nuts_board_file_initialized WHERE board_id = ?1)", [board_id],
+        |row| row.get(0),
+    ).map_err(|error| error.to_string())
+}
+
+pub(super) fn result_folder(data_dir: &Path, db: &Connection, board_id: &str) -> Result<PathBuf> {
+    board::ensure_board(db, board_id)?;
+    let path = board_files::board_directory(data_dir, board_id)?;
+    if !folder_initialized(db, board_id)? {
+        initialize_folder(data_dir, db, board_id, None, &[])?;
+    }
+    if !path.symlink_metadata().is_ok_and(|meta| meta.is_dir())
+        || !path.parent().is_some_and(|parent| parent.symlink_metadata().is_ok_and(|meta| meta.is_dir()))
+    {
+        return Err("The whiteboard folder is missing or invalid".into());
+    }
+    Ok(path)
+}
+
+pub fn open_folder_path(data_dir: &Path, board_id: &str) -> Result<PathBuf> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+    let path = result_folder(data_dir, &tx, board_id)?;
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
+pub fn open_skill_folder_path(data_dir: &Path, board_id: &str, skill_id: &str) -> Result<PathBuf> {
+    let board = open_folder_path(data_dir, board_id)?;
+    board_files::skill_folder(&board, skill_id)
+}
+
+pub fn import_skill(data_dir: &Path, board_id: &str, skill: &BoardSkill) -> Result<()> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+    let (folder, _, _) = workspace(data_dir, &tx, board_id, None, &[])?;
+    board_files::add_skill(&folder, skill)?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+pub fn export_rules(data_dir: &Path, board_id: &str) -> Result<String> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+    let (_, rules, _) = workspace(data_dir, &tx, board_id, None, &[])?;
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(rules.text)
 }
 
 pub fn save_rules(
@@ -123,25 +266,18 @@ pub fn save_rules(
     }
     super::validate_markdown(text)?;
     let mut db = open(data_dir)?;
-    let tx = db
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(|e| e.to_string())?;
-    board::ensure_board(&tx, board_id)?;
-    let version = load_rules(&tx, board_id)?.version;
-    if version != expected {
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+    let (folder, mut rules, _) = workspace(data_dir, &tx, board_id, None, &[])?;
+    if rules.version != expected {
         return Err("Board rules changed. Reopen the rules before editing.".into());
     }
-    tx.execute(
-        "INSERT INTO nuts_board_rules VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(board_id) DO UPDATE SET name=excluded.name, text=excluded.text, version=excluded.version",
-        params![board_id, name, text, version+1],
-    ).map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(Rules {
-        name: name.into(),
-        text: text.into(),
-        version: version + 1,
-    })
+    board_files::save_rules(&folder, &rules.text, text)?;
+    rules.name = name.into();
+    rules.text = text.into();
+    rules.version += 1;
+    remember_rules(&tx, board_id, &rules)?;
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(rules)
 }
 
 pub(super) fn save_task(
@@ -189,7 +325,7 @@ pub(super) fn load_task(db: &Connection, id: &str) -> Result<Task> {
 }
 
 pub fn issue_context(data_dir: &Path, id: &str, language: &str) -> Result<Value> {
-    let db = open(data_dir)?;
+    let mut db = open(data_dir)?;
     let board_id: String = db.query_row("SELECT COALESCE((SELECT board_id FROM nuts_issue_boards WHERE issue_id = issues.id), 'default') FROM issues WHERE id = ?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
     let snapshot = db
         .query_row(
@@ -201,7 +337,12 @@ pub fn issue_context(data_dir: &Path, id: &str, language: &str) -> Result<Value>
         .map_err(|e| e.to_string())?;
     let rules = match &snapshot {
         Some(json) => serde_json::from_str(json).map_err(|e| e.to_string())?,
-        None => load_rules_for_language(&db, &board_id, language)?,
+        None => {
+            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+            let rules = load_rules(data_dir, &tx, &board_id)?;
+            tx.commit().map_err(|error| error.to_string())?;
+            rules
+        }
     };
     let task = load_task(&db, id)?;
     let preset = localized_scene(&board_scene(&db, &board_id)?, language)?;
