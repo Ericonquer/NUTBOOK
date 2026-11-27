@@ -31,7 +31,7 @@ OSStatus nut_capture_register(void (*callback)(void)) {
     on_capture = callback;
     OSStatus status = InstallApplicationEventHandler(pressed, 1, &type, NULL, &handler);
     if (status == noErr) {
-        status = RegisterEventHotKey(kVK_ANSI_N, cmdKey | optionKey, capture_id,
+        status = RegisterEventHotKey(kVK_ANSI_N, controlKey, capture_id,
             GetApplicationEventTarget(), kEventHotKeyExclusive, &hot_key);
     }
     if (status != noErr) nut_capture_unregister();

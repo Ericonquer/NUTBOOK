@@ -306,6 +306,13 @@ fn main() {
                 _ => None,
             };
             if let Some(key) = native_history_key {
+                if let Some(window) = app.get_webview_window(quick_capture::WINDOW) {
+                    if window.is_focused().unwrap_or(false) {
+                        let edit = if key == "CmdOrCtrl+Z" { "undo" } else { "redo" };
+                        let _ = window.eval(format!("document.execCommand('{edit}');"));
+                        return;
+                    }
+                }
                 let active_item = app.state::<AppState>().active_html_edit_item.lock().ok().and_then(|item| *item);
                 if let Some(item_id) = active_item {
                     let _ = dispatch_html_runtime_shortcut(app, item_id, key);
@@ -450,7 +457,10 @@ fn main() {
             commands::context_menu::show_context_menu,
             commands::context_menu::reveal_context_item,
             set_native_ui_language,
-            quick_capture::take_pending_nut_capture,
+            quick_capture::quick_nut_generation,
+            quick_capture::quick_nut_language,
+            quick_capture::quick_nut_window_action,
+            quick_capture::notify_quick_nut_saved,
             commands::context_menu::context_find_in_document,
             get_cached_agent_projects,
             discover_agent_projects,
@@ -692,6 +702,14 @@ fn main() {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
+            } if label == quick_capture::WINDOW => {
+                api.prevent_close();
+                quick_capture::request_close(app);
+            }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
             } if label == "main" => {
                 if nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_close(app) {
                     api.prevent_close();
@@ -717,12 +735,15 @@ fn main() {
                     return;
                 }
                 api.prevent_exit();
+                quick_capture::hide_for_quit(app);
                 let _ = quick_capture::reveal(app);
                 request_html_edit_app_exit_decision(app);
             }
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen { has_visible_windows: false, .. } => {
-                let _ = quick_capture::reveal(app);
+            tauri::RunEvent::Reopen { .. } => {
+                if app.get_window("main").is_some_and(|window| !window.is_visible().unwrap_or(false)) {
+                    let _ = quick_capture::reveal(app);
+                }
             }
             tauri::RunEvent::Exit => {
                 quick_capture::release_shortcut();
@@ -805,6 +826,13 @@ fn main() {
 /// 其余（未知 label）一律拒绝。注意：PR C 不拦截导航/外链，本表只管
 /// invoke 命令边界；新页面/弹窗仍按内容面 caller 对待。
 fn webview_may_invoke(label: &str, command: &str) -> bool {
+    if label == quick_capture::WINDOW {
+        return matches!(
+            command,
+            "quick_nut_generation" | "quick_nut_language" | "quick_nut_window_action"
+                | "notify_quick_nut_saved" | "nuts_boards" | "nuts_board_note"
+        );
+    }
     if label == "main"
         || label == "detached"
         || label == "settings-overlay"

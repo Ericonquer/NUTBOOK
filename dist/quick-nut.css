@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light;
+  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; background: transparent; }
+body { margin: 0; padding: 12px; color: var(--ink); }
+#nutsWorkspace { position: relative; height: 100%; }
+#nutsWorkspace:not([data-open]) { visibility: hidden; }
+#quickNutForm {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+header, footer, #quickNutDrag { display: flex; align-items: center; gap: 8px; }
+#quickNutDrag { flex: 1; align-self: stretch; cursor: grab; user-select: none; }
+#quickNutDrag:active { cursor: grabbing; }
+#quickNutDrag img { width: 22px; height: 22px; object-fit: contain; }
+h1 { font-size: 14px; margin: 0; }
+button, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+.icon-button:not(:disabled):is(:hover, :focus-visible, [aria-pressed="true"]) { background: var(--surface-muted); }
+#nutsWorkspace .icon-button[data-tooltip]::after { right: 0; left: auto; transform: none; }
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+button:focus-visible, textarea:focus-visible {
+  outline: 1px solid var(--ink-soft);
+  outline-offset: 2px;
+}
+textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  padding: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  outline-offset: -2px;
+  line-height: 1.65;
+  font-size: 14px;
+}
+textarea::placeholder, #quickNutStatus, #quickNutBoardLabel { color: var(--ink-soft); }
+#quickNutStatus:empty { display: none; }
+#quickNutStatus { margin: 0; line-height: 1.25; overflow-wrap: anywhere; }
+#quickNutBoardLabel { flex: none; white-space: nowrap; }
+#quickNutBoard { flex: 1; }
+#nutsWorkspace #quickNutSave {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 7px 10px;
+  white-space: nowrap;
+  border: 1px solid var(--ink);
+  border-radius: 7px;
+}
+#nutsWorkspace #quickNutSave[data-tooltip]::after { top: auto; bottom: calc(100% + 7px); right: 0; left: auto; transform: none; }
+#nutsWorkspace #quickNutSave:hover:not(:disabled) { background: var(--ink-soft); border-color: var(--ink-soft); }
+#nutsWorkspace #quickNutSave:disabled {
+  opacity: 1;
+  color: var(--ink-soft);
+  background: var(--surface-muted);
+  border-color: var(--line);
+}

@@ -16,13 +16,6 @@
 
       :root {
         --bg: #f9f9fb;
-        --surface: #f9f9fb;
-        --surface-variant: #f3f3f5;
-        --surface-muted: #eeeef0;
-        --paper: #ffffff;
-        --ink: #1a1c1d;
-        --ink-soft: #5e5e63;
-        --line: #e2e2e4;
         --line-strong: #cfcfd3;
         --accent: #000000;
         --accent-soft: #ececef;
@@ -8902,6 +8895,7 @@
     <link rel="stylesheet" href="./tag-discovery.css" />
     <link rel="stylesheet" href="./tag-management.css" />
     <link rel="stylesheet" href="./document-versions.css" />
+    <link rel="stylesheet" href="./surface-colors.css" />
     <link rel="stylesheet" href="./nuts-board.css" />
     <link rel="stylesheet" href="./settings-file-management.css" />
 </head>
@@ -28155,10 +28149,10 @@ if (!chipTipController) {
           openingCapture = false;
         }
       }
-      window.__NUTBOOK_CAPTURE__ = async () => {
-        try {
-          if (await invoke("take_pending_nut_capture")) await requestNutsCapture();
-        } catch (error) { showToast(normalizeError(error)); }
+      window.__NUTBOOK_QUICK_NUT_SAVED__ = boardId => {
+        if (appState.activeTabId === nutsBoardId && nutsBoard.current() === boardId) {
+          nutsBoard.reload().catch(error => { nutsBoardMessage.textContent = normalizeError(error); });
+        }
       };
       document.addEventListener("keydown", event => {
         if (!appState.isTauri || appState.isSettingsOverlay || event.defaultPrevented
@@ -32377,7 +32371,6 @@ if (!chipTipController) {
 
       if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
       boot();
-      if (appState.isTauri && !appState.isSettingsOverlay) void window.__NUTBOOK_CAPTURE__();
 
     </script>
     <script src="assets/context-menu.js"></script>

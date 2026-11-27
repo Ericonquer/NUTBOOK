@@ -361,16 +361,16 @@ pub fn add(
     x: i64,
     y: i64,
 ) -> Result<String> {
-    add_card(data_dir, board_id, title, markdown, kind, (x, y), None, None)
+    add_card(data_dir, board_id, title, markdown, kind, Some((x, y)), None, None)
 }
 
-pub(super) fn add_card(
+pub(crate) fn add_card(
     data_dir: &Path,
     board_id: &str,
     title: &str,
     markdown: &str,
     kind: &str,
-    (x, y): (i64, i64),
+    position: Option<(i64, i64)>,
     issue_id: Option<&str>,
     markdown_source: Option<&str>,
 ) -> Result<String> {
@@ -380,6 +380,19 @@ pub(super) fn add_card(
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
     ensure_board(&tx, board_id)?;
+    let (x, y) = match position {
+        Some(point) => point,
+        None => {
+            let x = tx.query_row(
+                "SELECT COALESCE(MAX(x), -210) + 240
+                   FROM board_cards LEFT JOIN nuts_card_boards ON card_id = board_cards.id
+                  WHERE COALESCE(board_id, 'default') = ?1 AND y BETWEEN 20 AND 84",
+                [board_id],
+                |row| row.get(0),
+            ).map_err(|error| error.to_string())?;
+            (x, 52)
+        }
+    };
     tx.execute(
         "INSERT INTO board_cards (id, title, markdown, kind, x, y) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, title, markdown, kind, x, y],
@@ -564,6 +577,23 @@ pub fn open_issue(data_dir: &Path, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn standalone_notes_take_separate_positions_on_the_selected_board() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let board = create_board(dir, "Classroom", "custom", "en-US").unwrap();
+        add(dir, &board, "Sample", "Observation", "note", 30, 52).unwrap();
+
+        for text in ["First capture", "Second capture"] {
+            add_card(dir, &board, text, text, "note", None, None, None).unwrap();
+        }
+
+        let cards = list(dir, &board).unwrap();
+        let positions: Vec<_> = cards.iter().map(|card| (card.x, card.y)).collect();
+        assert_eq!(positions, [(30, 52), (270, 52), (510, 52)]);
+        assert!(list(dir, DEFAULT).unwrap().is_empty());
+    }
+
     #[test]
     fn renames_and_deletes_only_empty_boards() {
         let temp = tempfile::tempdir().unwrap();

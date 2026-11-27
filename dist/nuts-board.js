@@ -67,8 +67,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
   let savingGroup = false;
   let scale = 1;
   let cameraX = 0, cameraY = 0;
-  const draftKey = "nuts.capture.draft";
-  let captureDraft = localStorage.getItem(draftKey) || "";
+  let captureDraft = "";
   let composingNote = false;
   let spaceDown = false;
   let dropSubscription;
@@ -703,7 +702,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
         const position = destination === boardId ? editor.point : { x: 30, y: 52 };
         await invoke("nuts_board_note", { boardId: destination, markdown: input, ...position });
         captureDraft = "";
-        localStorage.removeItem(draftKey);
         closeForm();
         if (destination === boardId) {
           animateCapture(start, input.split("\n")[0]);
@@ -1516,8 +1514,6 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
           : copy("正在保存，请稍候。", "Saving. Please wait.");
         return false;
       }
-      if (captureDraft) localStorage.setItem(draftKey, captureDraft);
-      else localStorage.removeItem(draftKey);
       if (editor?.kind === "note") closeForm();
       return true;
     },

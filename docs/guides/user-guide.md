@@ -102,9 +102,9 @@ Use `Cmd` on macOS and `Ctrl` on Windows / Linux.
 
 ### Capture a NUT from another app
 
-With NUTBOOK running, press `⌘⌥N` on macOS or `Ctrl+Alt+N` on Windows. You can also choose **New NUT** from the NUTBOOK menu bar or system tray icon. Type your note, select its board, then press `Cmd/Ctrl+Enter` to save. The card appears on the selected board.
+With NUTBOOK running, press `Control + N` on macOS or `Ctrl+Alt+N` on Windows. You can also choose **New NUT** from the NUTBOOK menu bar or system tray icon. Drag the small window to move it, or click the pin to keep it on top. Type your note, select its board, then press `Cmd/Ctrl+Enter` to save. The window closes by default. When pinned, it stays open with the saved note.
 
-Closing the main window keeps NUTBOOK available. Choose **Quit NUTBOOK** from the icon menu to exit and release the shortcut. If the menu reports that the shortcut is unavailable, use **New NUT** there. To retry the shortcut, release it in the other app and restart NUTBOOK.
+Closing the main window keeps NUTBOOK available. Choose **Quit NUTBOOK** from the icon menu to exit, release the shortcut, and discard any unsaved NUT text. If the menu reports that the shortcut is unavailable, use **New NUT** there. To retry the shortcut, release it in the other app and restart NUTBOOK.
 
 ### General
 
