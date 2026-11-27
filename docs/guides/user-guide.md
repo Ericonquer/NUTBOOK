@@ -100,6 +100,12 @@ Click the pencil in the presenter's notes area to edit the current slide's notes
 
 Use `Cmd` on macOS and `Ctrl` on Windows / Linux.
 
+### Capture a NUT from another app
+
+With NUTBOOK running, press `⌘⌥N` on macOS or `Ctrl+Alt+N` on Windows. You can also choose **New NUT** from the NUTBOOK menu bar or system tray icon. Type your note, select its board, then press `Cmd/Ctrl+Enter` to save. The card appears on the selected board.
+
+Closing the main window keeps NUTBOOK available. Choose **Quit NUTBOOK** from the icon menu to exit and release the shortcut. If the menu reports that the shortcut is unavailable, use **New NUT** there. To retry the shortcut, release it in the other app and restart NUTBOOK.
+
 ### General
 
 | Shortcut               | Action           | Context                                         |

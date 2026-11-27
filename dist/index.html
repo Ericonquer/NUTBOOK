@@ -14029,6 +14029,7 @@
       }
 
       async function confirmAppExitIfNeeded() {
+        if (!nutsBoard.prepareCaptureExit()) return false;
         if (appState.htmlExport) await closeHtmlExportCenter();
         if (globalThis.NutbookFormatting && !(await globalThis.NutbookFormatting.leave())) return false;
         const session = appState.htmlEditSession;
@@ -28129,17 +28130,43 @@ if (!chipTipController) {
       }
 
       document.getElementById("nutsEntry").addEventListener("click", () => activateNutsTab());
+      let openingCapture = false;
+      async function requestNutsCapture() {
+        if (!appState.isTauri || appState.isSettingsOverlay || openingCapture || appExitRequestInFlight) return;
+        if (document.getElementById("nutsFormPanel").open && document.getElementById("nutsFormPanel").dataset.kind === "note") {
+          document.getElementById("nutsBoardInput").focus();
+          return;
+        }
+        if (document.querySelector("dialog[open]") || appState.isSettingsOpen ||
+            appState.htmlEditLeavePromptOpen || els.confirmScrim?.classList.contains("open")) {
+          showToast(nutsCopy("请先完成当前操作，再记 NUT。", "Finish the current action before capturing a NUT."));
+          return;
+        }
+        openingCapture = true;
+        try {
+          const fallback = !isNutsTab(getActiveTab());
+          await activateNutsTab();
+          if (appState.activeTabId !== nutsBoardId) return;
+          await nutsBoardOpening;
+          if (appState.activeTabId === nutsBoardId) await nutsBoard.capture(fallback ? "default" : undefined);
+        } catch (error) {
+          showToast(normalizeError(error));
+        } finally {
+          openingCapture = false;
+        }
+      }
+      window.__NUTBOOK_CAPTURE__ = async () => {
+        try {
+          if (await invoke("take_pending_nut_capture")) await requestNutsCapture();
+        } catch (error) { showToast(normalizeError(error)); }
+      };
       document.addEventListener("keydown", event => {
         if (!appState.isTauri || appState.isSettingsOverlay || event.defaultPrevented
-          || event.isComposing || event.altKey || event.shiftKey
+          || event.isComposing || event.keyCode === 229 || event.altKey || event.shiftKey
           || (!(event.metaKey || event.ctrlKey)) || event.key.toLowerCase() !== "n"
           || document.querySelector("dialog[open]") || appState.isSettingsOpen) return;
         event.preventDefault();
-        const fallback = !isNutsTab(getActiveTab());
-        (async () => {
-          await activateNutsTab();
-          await nutsBoard.capture(fallback ? "default" : undefined);
-        })().catch(error => { nutsBoardMessage.textContent = normalizeError(error); });
+        void requestNutsCapture();
       });
       async function addSingleFileFromMenu() {
         const fallbackPath = els.libraryPath.value || "/Users/example/Documents/NUTBOOK";
@@ -32350,6 +32377,7 @@ if (!chipTipController) {
 
       if (!appState.isSettingsOverlay) invokeRaw?.("set_native_ui_language", { language: appState.language }).catch(console.error);
       boot();
+      if (appState.isTauri && !appState.isSettingsOverlay) void window.__NUTBOOK_CAPTURE__();
 
     </script>
     <script src="assets/context-menu.js"></script>

@@ -1,4 +1,9 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rerun-if-changed=src/quick_capture/macos.c");
+        println!("cargo:rustc-link-lib=framework=Carbon");
+        cc::Build::new().file("src/quick_capture/macos.c").compile("nut_capture");
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         // tauri-build's resource defaults to rustc-link-arg-bins, leaving lib
         // tests/examples without Common Controls v6. Link one manifest to every
