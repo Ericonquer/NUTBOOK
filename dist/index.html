@@ -9075,6 +9075,39 @@
         </div>
 
         <section id="nutsWorkspace" aria-label="NUTS" data-i18n-skip hidden>
+      <dialog id="nutsSkillsDialog" aria-labelledby="nutsSkillsTitle">
+        <header class="nuts-skills-header">
+          <h2 id="nutsSkillsTitle" tabindex="-1" autofocus>白板 Skill</h2>
+          <div class="nuts-skills-actions">
+            <button id="nutsSkillsBack" type="button" class="nuts-tool-icon" aria-label="返回列表" data-tooltip="返回列表" hidden><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5-5 5 5 5M4 10h12"/></svg></button>
+            <button id="nutsSkillsImport" type="button" class="nuts-skills-action-button">导入 Skill</button>
+            <button id="nutsSkillsClose" type="button" class="nuts-tool-icon" aria-label="关闭" data-tooltip="关闭"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button>
+          </div>
+        </header>
+        <p id="nutsSkillsStatus" role="status"></p>
+        <div class="nuts-skills-layout">
+          <section id="nutsSkillsOverview" aria-labelledby="nutsSkillsListTitle" hidden>
+            <h3 id="nutsSkillsListTitle"></h3>
+            <ul id="nutsSkillsList" class="nuts-skills-list" role="list" aria-labelledby="nutsSkillsListTitle"></ul>
+          </section>
+          <section id="nutsSkillsReader" aria-labelledby="nutsSkillDocumentTitle" hidden>
+            <div class="nuts-skill-document-heading">
+              <div class="nuts-skill-document-summary">
+                <h3 id="nutsSkillDocumentTitle" tabindex="-1"></h3>
+                <p id="nutsSkillDescription" hidden></p>
+              </div>
+              <button id="nutsSkillMetadataToggle" type="button" class="nuts-tool-icon" aria-label="Skill 声明" data-tooltip="Skill 声明" aria-controls="nutsSkillMetadata" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 9v4.5m0-7v.2"/></svg></button>
+            </div>
+            <div id="nutsSkillMetadata" tabindex="0" hidden></div>
+            <section id="nutsSkillsReferences" aria-labelledby="nutsSkillsReferencesTitle" hidden>
+              <h4 id="nutsSkillsReferencesTitle">参考文件</h4>
+              <div id="nutsSkillsFiles"></div>
+            </section>
+            <article id="nutsSkillDocument" class="markdown-preview" tabindex="0"></article>
+          </section>
+        </div>
+      </dialog>
+
           <section id="nutsBoardPage" aria-label="NUTS">
       <header class="nuts-board-toolbar">
         <h1>NUTS</h1>
@@ -9086,7 +9119,9 @@
           <button type="button" id="nutsNewBoard" class="nuts-tool-icon" aria-label="新建白板" data-tooltip="新建白板"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M10 5v10M5 10h10"/></svg></button>
         </div>
         <div class="nuts-board-actions">
+          <button type="button" id="nutsOpenBoardFolder" class="nuts-tool-icon" aria-label="打开白板文件夹" data-tooltip="打开白板文件夹"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5h5l1.5 2h8.5v8.5h-15z"/></svg></button>
           <button type="button" id="nutsBoardRules" class="nuts-tool-icon" aria-label="工作规则" title="工作规则"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10v14H5zM8 7h4m-4 3h4m-4 3h3"/></svg></button>
+          <button type="button" id="nutsBoardSkills" class="nuts-tool-icon" aria-label="白板 Skill" data-tooltip="白板 Skill" aria-haspopup="dialog"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 3 7 4-7 4-7-4 7-4ZM3 10.5l7 4 7-4M3 14l7 4 7-4"/></svg></button>
           <button type="button" id="nutsAddMarkdown" class="nuts-tool-icon" aria-label="添加 Markdown"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11.5l5-5a2 2 0 0 1 2.8 2.8l-6 6a3.3 3.3 0 0 1-4.7-4.7l6-6"/></svg></button>
           <button type="button" id="nutsNewNote" class="nuts-tool-icon nuts-capture-tool" aria-label="记 NUT"><img class="nuts-mascot" src="./assets/nuts/nut-icon-v7.png" alt="" draggable="false"></button>
         </div>
@@ -9097,6 +9132,20 @@
           <div class="nuts-picker-field"><span id="nutsSceneLabel">从场景开始</span><div class="nuts-picker" id="nutsSceneSelect"></div></div>
           <p id="nutsSceneAbout"></p>
           <label><span id="nutsNewBoardLabel">白板名称</span><input id="nutsNewBoardName" autofocus required maxlength="45"></label>
+          <section class="nuts-new-board-section" aria-labelledby="nutsNewBoardDefaultsTitle">
+            <div class="nuts-new-board-section-heading">
+              <button id="nutsNewBoardDefaultsTitle" type="button" class="nuts-new-board-section-toggle" aria-controls="nutsNewBoardRulePreview" aria-expanded="false">默认规则</button>
+              <button type="button" id="nutsNewBoardImportRules" class="nuts-skills-action-button">导入规则</button>
+            </div>
+            <pre id="nutsNewBoardRulePreview" hidden></pre>
+          </section>
+          <section class="nuts-new-board-section" aria-labelledby="nutsNewBoardSkillsTitle">
+            <div class="nuts-new-board-section-heading">
+              <button id="nutsNewBoardSkillsTitle" type="button" class="nuts-new-board-section-toggle" aria-controls="nutsNewBoardSkillPreview" aria-expanded="false">默认 Skills</button>
+              <button type="button" id="nutsNewBoardImportSkill" class="nuts-skills-action-button">导入 Skill</button>
+            </div>
+            <div id="nutsNewBoardSkillPreview" hidden></div>
+          </section>
           <p id="nutsNewBoardError" role="status"></p>
           <div class="nuts-new-board-actions"><button type="button" id="nutsNewBoardCancel">取消</button><button type="submit" id="nutsNewBoardSubmit">创建白板</button></div>
         </form>
@@ -9105,11 +9154,15 @@
         <form id="nutsRulesForm">
           <h2 id="nutsRulesTitle">白板工作规则</h2>
           <label><span id="nutsRuleNameLabel">规则名称</span><input id="nutsRuleName" required maxlength="100"></label>
-          <label>AGENTS.md<textarea id="nutsRuleText" rows="10" required></textarea></label>
+          <label id="nutsCurrentRules" hidden><span id="nutsCurrentRulesLabel">当前已保存规则</span><textarea id="nutsCurrentRuleText" rows="4" readonly></textarea></label>
+          <label><span id="nutsRuleTextLabel">AGENTS.md</span><textarea id="nutsRuleText" rows="10" required></textarea></label>
+          <div class="nuts-new-board-actions">
+            <button type="button" id="nutsImportRules">导入 Markdown</button>
+            <button type="button" id="nutsExportRules">导出 AGENTS.md</button>
+          </div>
           <div id="nutsRuleTemplates" class="nuts-rule-templates" hidden>
-            <label><span id="nutsRuleGoalLabel">想用这张白板做什么？</span><input id="nutsRuleGoal"></label>
             <div class="nuts-picker-field"><span id="nutsRuleTemplateLabel">起步模板</span><div class="nuts-picker" id="nutsRuleTemplate"></div></div>
-            <button type="button" id="nutsDraftRule">生成规则草稿</button>
+            <button type="button" id="nutsDraftRule">载入默认规则</button>
           </div>
           <p id="nutsRulesError" role="status"></p>
           <div class="nuts-rules-actions nuts-new-board-actions"><button type="button" id="nutsRuleTemplatesTitle" aria-expanded="false" aria-controls="nutsRuleTemplates">查看模板</button><button type="button" id="nutsRulesCancel">取消</button><button type="submit" id="nutsSaveRules">保存白板规则</button></div>
@@ -9509,6 +9562,7 @@
     <script src="./nuts-picker.js"></script>
     <script src="./nuts-material-icons.js"></script>
     <script src="./nuts-board.js"></script>
+    <script src="./nuts-skills.js"></script>
     <script src="./nuts-drawers.js"></script>
     <script src="./nuts-review.js"></script>
     <script>
@@ -26841,8 +26895,8 @@ if (!chipTipController) {
           const boardId = nutsManagementBoard;
           const settings = JSON.stringify({ cli, NUTBOOK_APP_DATA_DIR: directory, boardId });
           await writeClipboardText(nutsCopy(
-            `请创建本地定时任务，按我指定的频率检查这块 NUTS 白板。每次执行时，用以下 CLI 和数据目录运行 nuts claim-next --board <boardId> --json。返回 null 就结束。领取成功后按目标、规则和素材完成工作，修订时使用 previous 和 extra。使用同一 CLI 运行 nuts submit <issueId> <token> <Markdown 路径> --json。每次最多处理一条，报告交稿版本。设置：${settings}`,
-            `Create a local automation to check this NUTS board at the frequency I specify. On each run use the CLI and data directory below to run nuts claim-next --board <boardId> --json. Stop if it returns null. Otherwise follow the goal, rules and materials, using previous and extra for revisions. Submit with nuts submit <issueId> <token> <Markdown path> --json using the same CLI. Process at most one issue per run and report the submitted version. Settings: ${settings}`));
+            `请创建本地定时任务，按我指定的频率检查这块 NUTS 白板。每次用下方 CLI 与数据目录执行 nuts claim-task --board <boardId> --json，返回 null 即结束。kind 为 issue 时，按素材和批注完成 Markdown，用 nuts submit <issueId> <token> <稿件路径> --json 交稿。kind 为 retrospective 时，有 prepared_proposal 就原样重试；否则只依据已采纳稿件与实际批注，提炼一条可复用改进。提案 JSON 用 {"reason":"依据","change":{"target":"skill","skill_id":"实际 Skill ID","instruction":"一条规则"}}，白板偏好用 target "rules" 且省略 skill_id，缺少依据或改动已覆盖时用 "change":null。用 nuts finish-retro <id> <token> <提案路径> --json 完成。每次最多处理一条，只有已更新、写回冲突或真实失败需要汇报。设置：${settings}`,
+            `Create a local automation to check this NUTS board at my specified frequency. Run nuts claim-task --board <boardId> --json using the CLI and data directory below. Stop on null. For kind issue, use the supplied materials and feedback and run nuts submit <issueId> <token> <Markdown path> --json. For kind retrospective, retry prepared_proposal unchanged if present. Otherwise derive one reusable improvement from the accepted draft and explicit feedback. Write JSON {"reason":"evidence","change":{"target":"skill","skill_id":"captured Skill ID","instruction":"one rule"}}. For a board preference use target "rules" and omit skill_id. Use "change":null when evidence is missing or the rule already exists. Run nuts finish-retro <id> <token> <proposal path> --json. Process at most one task per run and report applied changes, conflicts, or failures. Settings: ${settings}`));
           nutsManagementMessage.textContent = nutsCopy("已复制。粘贴到 Codex 并指定检查频率。", "Copied. Paste into Codex and specify the frequency.");
         } catch (error) { nutsManagementMessage.textContent = normalizeError(error); }
         finally { nutsScheduleCopy.disabled = false; }
@@ -27221,6 +27275,7 @@ if (!chipTipController) {
         imageUsage: '<path d="M4 5h12M4 10h12M4 15h12"/><path d="M7 3v4m6 1v4m-4 1v4"/>',
         back: '<path d="m9 5-5 5 5 5M4 10h12"/>',
         remove: '<path d="M6 6l8 8m0-8-8 8"/>',
+        trash: '<path d="M3.5 5.5h13m-8.5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5m-7 0 .7 10a1.5 1.5 0 0 0 1.5 1.4h5.6a1.5 1.5 0 0 0 1.5-1.4l.7-10M8 8.5v5m4-5v5"/>',
         add: '<path d="M10 4v12M4 10h12"/>',
         attach: '<path d="M4 5h7m-7 5h5m-5 5h5m5-6v8m-4-4h8"/>',
         withdraw: '<path d="m7 5-4 4 4 4M3 9h9a4 4 0 0 1 0 8h-2"/>',
@@ -27344,6 +27399,7 @@ if (!chipTipController) {
       function nutsMaterialRemoveButton(onRemove) {
         const remove = document.createElement("button");
         remove.type = "button";
+        remove.dataset.nutsMaterialAction = "remove";
         setNutsIssueIcon(remove, "remove", nutsCopy("移除素材", "Remove material"));
         remove.onclick = async () => {
           remove.disabled = true;
@@ -27354,20 +27410,46 @@ if (!chipTipController) {
         return remove;
       }
 
-      function nutsMaterialRow(material, onRemove, extra, open) {
+      function nutsMaterialRow(material, onRemove, extra, open, openLabel = nutsCopy("打开原文", "Open original")) {
         const row = document.createElement("div");
         row.className = "nuts-material-link-row";
         row.append(material);
         if (open) {
           const button = document.createElement("button");
           button.type = "button";
-          setNutsIssueIcon(button, "external", nutsCopy("打开原文", "Open original"));
+          button.dataset.nutsMaterialAction = "open";
+          setNutsIssueIcon(button, "external", openLabel);
           button.onclick = open;
           row.append(button);
         }
         if (extra) row.append(extra);
         row.append(nutsMaterialRemoveButton(onRemove));
         return row;
+      }
+
+      function isNutsSystemMaterial(card) {
+        return ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(card.kind);
+      }
+
+      function nutsMaterialSizeLimitNotice(path, error) {
+        const limit = /^File exceeds the (\d+) MiB limit$/.exec(normalizeError(error))?.[1];
+        if (!limit) return "";
+        const name = path.split(/[\\/]/).pop();
+        return nutsCopy(`文件过大：${name}（上限 ${limit} MiB）`, `File too large: ${name} (${limit} MiB limit)`);
+      }
+
+      async function openNutsMaterial(card, boardId, issueId = null) {
+        const epoch = nutsEpoch;
+        const command = card.kind === "markdown" ? "nuts_open_markdown_material" : "nuts_open_system_material";
+        try {
+          await invoke(command, { boardId, cardId: card.id, issueId });
+        } catch (error) {
+          if (epoch === nutsEpoch) {
+            const message = nutsBoardPage.hidden ? nutsMessage : nutsBoardMessage;
+            message.textContent = card.kind === "markdown" ? normalizeError(error)
+              : `${nutsCopy("无法用系统默认应用打开文件", "Could not open the file in the default app")} · ${card.title} (${normalizeError(error)})`;
+          }
+        }
       }
 
       function renderNutsInputs(container, entries, issueId, boardId) {
@@ -27391,13 +27473,17 @@ if (!chipTipController) {
             continue;
           }
           const link = card.kind === "link";
+          const systemFile = isNutsSystemMaterial(card);
           const action = link ? () => invoke("open_external_url_command", { payload: { url: card.body } })
-            .catch(error => { nutsMessage.textContent = normalizeError(error); }) : undefined;
-          const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, action, card.body);
+            .catch(error => { nutsMessage.textContent = normalizeError(error); })
+            : card.kind === "markdown" || systemFile ? () => openNutsMaterial(card, boardId, issueId) : undefined;
+          const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, systemFile ? undefined : action, card.body);
           if (link) file.classList.add("nuts-external-material");
           const usage = ["png", "jpg", "jpeg", "gif", "webp"].includes(card.kind)
             ? nutsImageUsageButton(card, boardId, issueId) : null;
-          container.append(nutsMaterialRow(file, remove, usage, action));
+          const openLabel = systemFile ? nutsCopy("用系统默认应用打开", "Open in the default app")
+            : card.kind === "markdown" ? nutsCopy("打开 Markdown", "Open Markdown") : undefined;
+          container.append(nutsMaterialRow(file, remove, usage, action, openLabel));
         }
       }
 
@@ -27415,6 +27501,7 @@ if (!chipTipController) {
         header.className = "nuts-reference-header";
         const add = document.createElement("button");
         add.type = "button";
+        add.dataset.nutsAddMaterial = "";
         setNutsIssueIcon(add, "add", nutsCopy("添加资料", "Add reference"));
         const count = materials.length + libraryRefs.length + entries.filter(ref => ref.adopted).length;
         header.append(nutsIssueHeading(nutsCopy(`议题素材 · ${count}`, `Materials · ${count}`)), add);
@@ -27452,10 +27539,16 @@ if (!chipTipController) {
             const paths = await invoke("nuts_choose_materials", { language: nutsCopy("zh-CN", "en-US") });
             if (!paths?.length || !fileSource.isConnected) return;
             const failures = [];
+            const oversized = [];
             for (const path of paths) {
               try { await invoke("nuts_add_issue_file", { issueId, boardId, path }); }
-              catch (error) { failures.push(`${path.split(/[\\/]/).pop()} · ${normalizeError(error)}`); }
+              catch (error) {
+                const notice = nutsMaterialSizeLimitNotice(path, error);
+                if (notice) oversized.push(notice);
+                else failures.push(`${path.split(/[\\/]/).pop()} · ${normalizeError(error)}`);
+              }
             }
+            if (fileSource.isConnected && oversized.length) showToast(oversized.join(" · "), { duration: 4500 });
             sources.hidden = search.hidden = true;
             add.setAttribute("aria-expanded", "false");
             await loadNutsIssues();
@@ -27622,13 +27715,24 @@ if (!chipTipController) {
         if (!nutsBoardPage.hidden) await activateNutsTab(issue);
       }
 
+      const nutsSkills = window.createNutbookNutsSkills({ copy: nutsCopy, invoke });
+
       const nutsBoard = window.NutbookNutsBoard({
-        invoke, copy: nutsCopy, confirm: appConfirm,
+        invoke, copy: nutsCopy, confirm: appConfirm, notify: showToast,
         report: error => { (nutsBoardPage.hidden ? nutsMessage : nutsBoardMessage).textContent = normalizeError(error); },
         refreshIssues: openNutsIssue,
+        deleteIssue: async id => {
+          const issue = (await invoke("nuts_list")).find(entry => entry.id === id);
+          if (issue) await deleteNutsIssue(issue);
+        },
         onCardRemoved: loadNutsIssues,
         imageUsageButton: nutsImageUsageButton,
+        systemMaterial: isNutsSystemMaterial,
+        openMaterial: openNutsMaterial,
+        sizeLimitNotice: nutsMaterialSizeLimitNotice,
+        skills: nutsSkills,
         onBoardChange: () => {
+          nutsSkills.close();
           nutsEpoch += 1;
           nutsDrawers.close(false);
           nutsDrawers.update([], []);
@@ -27646,6 +27750,7 @@ if (!chipTipController) {
       function syncNutsWorkspace(tab) {
         const id = isNutsTab(tab) ? tab.id : null;
         if (id === nutsSurfaceId) return;
+        nutsSkills.close();
         const boardWasVisible = !nutsBoardPage.hidden && !nutsWorkspace.hidden;
         nutsSurfaceId = id;
         nutsEpoch += 1;
@@ -27696,6 +27801,39 @@ if (!chipTipController) {
         nutsStatusRefreshTimer = setInterval(loadNutsIssues, 1500);
       }
 
+      const nutsIssueDeletes = new Set();
+      async function deleteNutsIssue(issue) {
+        if (nutsIssueDeletes.has(issue.id)) return;
+        nutsIssueDeletes.add(issue.id);
+        try {
+          const confirmed = await appConfirm({
+            title: nutsCopy("删除议题", "Delete issue"),
+            message: nutsCopy(`确定删除「${issue.title}」？`, `Delete “${issue.title}”?`),
+            note: nutsCopy("议题及审阅、复盘记录会永久移除。卡片默认回到原白板，资料库引用保留在资料库。原始文件和已保存的成果文件会保留。",
+              "The issue and its review and retrospective history will be removed permanently. Cards return to their board by default. Library references, original files, and saved results stay in place."),
+            optionalCheckbox: nutsCopy("同时删除议题内的卡片", "Also delete cards in the issue"),
+            confirmText: nutsCopy("删除议题", "Delete issue"),
+            danger: true,
+          });
+          if (!confirmed) return;
+          await invoke("nuts_delete_issue", { id: issue.id, deleteCards: confirmed.checked === true });
+          nutsEpoch += 1;
+          nutsById.get(issue.id)?.remove();
+          nutsById.delete(issue.id);
+          const issueTab = getOpenTab(`nuts:issue:${issue.id}`);
+          if (issueTab && getActiveTab()?.id === issueTab.id) {
+            await activateNutsTab();
+            if (issue.board_id) await nutsBoard.switchBoard(issue.board_id);
+          }
+          if (issueTab) await closeOpenTab(issueTab.id);
+          await nutsBoard.reload();
+          await loadNutsIssues();
+          showToast(nutsCopy("已删除议题", "Issue deleted"));
+        } finally {
+          nutsIssueDeletes.delete(issue.id);
+        }
+      }
+
       async function loadNutsIssues() {
         const epoch = nutsEpoch;
         if (nutsRefreshRequest === epoch) return;
@@ -27728,11 +27866,15 @@ if (!chipTipController) {
                 <div class="nuts-agent-actions"><span class="nuts-issue-state" role="status"></span>
                   <button type="button" class="nuts-issue-action" hidden></button>
                   <button type="button" class="nuts-review-action" hidden></button>
-                  <button type="button" class="nuts-claim-copy" hidden></button>
                   <button type="button" class="nuts-archive-action" hidden></button>
+                  <button type="button" class="nuts-issue-delete"></button>
                 </div>
               </div>
-              <header class="nuts-issue-header"><h1></h1></header>
+              <header class="nuts-issue-header"><h1></h1>
+                <p class="nuts-claim-hint" hidden><span></span>
+                  <button type="button" class="nuts-claim-copy"></button>
+                </p>
+              </header>
               <section class="nuts-context nuts-issue-section" hidden></section>
               <section class="nuts-agent nuts-issue-section" hidden><h2></h2><div class="nuts-versions"></div></section>
               <section class="nuts-issue-results nuts-issue-section" hidden></section>
@@ -27775,11 +27917,12 @@ if (!chipTipController) {
             }
             const [toolbar, header, contextPane, agentPane, resultPane, references, footer] = row.children;
             const [back, actions] = toolbar.children;
-            const [statusLine, reopen, reviewAction, claimCopy, archiveAction] = actions.children;
+            const [statusLine, reopen, reviewAction, archiveAction, deleteIssue] = actions.children;
             const [rulesPane, metadata] = footer.children;
             const [metadataTitle, identifier] = metadata.children;
             const [agentTitle, versions] = agentPane.children;
-            const summary = header.firstElementChild;
+            const [summary, claimHint] = header.children;
+            const [claimHintText, claimCopy] = claimHint.children;
             const boardName = nutsBoard.nameFor(issue.board_id || "default");
             setNutsIssueIcon(back, "back", boardName ? nutsCopy(`回到「${boardName}」`, `Back to ${boardName}`)
               : nutsCopy("返回白板", "Back to board"));
@@ -27788,7 +27931,8 @@ if (!chipTipController) {
             summary.textContent = issue.title;
             nutsIssuePage.setAttribute("aria-label", issue.title);
             statusLine.textContent = issue.archived_at ? nutsCopy("已归档", "Archived") : nutsIssueStatus(issue);
-            claimCopy.hidden = issue.status !== "open";
+            claimHint.hidden = issue.status !== "open";
+            claimHintText.textContent = nutsCopy("可等待 Agent 领取，也可复制任务 ID 即时指派。", "Wait for an agent to claim this, or copy the task ID to assign it directly.");
             setNutsIssueIcon(claimCopy, "copy", nutsCopy("复制领取指令", "Copy claim instructions"));
             claimCopy.onclick = async () => {
               claimCopy.disabled = true;
@@ -27797,9 +27941,16 @@ if (!chipTipController) {
                 await writeClipboardText(nutsCopy(
                   `请领取并完成 NUTBOOK 议题 ${number}。`,
                   `Please claim and complete NUTBOOK issue ${number}.`));
-                nutsMessage.textContent = nutsCopy("已复制，可粘贴到 Codex", "Copied. Paste into Codex.");
+                nutsMessage.textContent = nutsCopy("已复制，可发给 Agent", "Copied. Send to an agent.");
               } catch (error) { nutsMessage.textContent = normalizeError(error); }
               finally { claimCopy.disabled = false; }
+            };
+            setNutsIssueIcon(deleteIssue, "trash", nutsCopy("删除议题", "Delete issue"));
+            deleteIssue.onclick = async () => {
+              deleteIssue.disabled = true;
+              try { await deleteNutsIssue(issue); }
+              catch (error) { nutsMessage.textContent = normalizeError(error); }
+              finally { deleteIssue.disabled = false; }
             };
             archiveAction.hidden = issue.status !== "done";
             setNutsIssueIcon(archiveAction, issue.archived_at ? "restore" : "archive", issue.archived_at ? nutsCopy("恢复议题", "Restore issue") : nutsCopy("归档议题", "Archive issue"));
@@ -27856,7 +28007,7 @@ if (!chipTipController) {
             const [drafts, suggestions, context] = await Promise.all([
               invoke("nuts_drafts", { issueId: issue.id }),
               invoke("nuts_references", { issueId: issue.id }),
-              invoke("nuts_issue_context", { issueId: issue.id }),
+              invoke("nuts_issue_context", { issueId: issue.id, language: nutsCopy("zh-CN", "en-US") }),
             ]);
             if (epoch !== nutsEpoch) return;
             agentPane.hidden = drafts.length === 0;
@@ -27877,14 +28028,18 @@ if (!chipTipController) {
                 contextPane.append(goalTitle, goal);
               }
               const rules = document.createElement("details");
+              rules.className = "nuts-issue-board-rules";
               const label = document.createElement("summary");
               const hint = context.snapshot ? nutsCopy("本轮采用", "Used for this claim") : nutsCopy("继承自白板", "From this board");
               label.textContent = `${nutsCopy("本轮规则", "Rules for this round")} · ${context.rules.name} · v${context.rules.version} · ${hint}`;
               const body = document.createElement("pre");
               body.textContent = context.rules.text;
-              rules.open = rulesPane.querySelector("details")?.open || false;
+              rules.open = rulesPane.querySelector(".nuts-issue-board-rules")?.open || false;
               rules.append(label, body);
+              const skillsExpanded = rulesPane.querySelector(".nuts-issue-skills")?.open || false;
+              const skills = nutsSkills.issueDisclosure(context.rules, context.snapshot, skillsExpanded);
               rulesPane.replaceChildren(rules);
+              if (skills) rulesPane.append(skills);
             }
             renderNutsReferences(references, issue.id, issue.board_id || "default", suggestions, context.library_refs || [], context.materials || []);
             for (const draft of drafts.slice().sort((a, b) => a.version - b.version)) {
@@ -28407,13 +28562,69 @@ if (!chipTipController) {
 
       window.__NUTBOOK_NATIVE_MENU__ = handleNativeMenuAction;
       window.__NUTBOOK_CONTEXT_FIND__ = openActiveDocumentFind;
+
+      function nutsIssueContextMenu(tab, target) {
+        const management = tab.id === nutsManagementId;
+        const card = management ? target.closest("[data-nuts-issue]") : null;
+        const issueId = management ? card?.dataset.nutsIssue : tab.nutsIssueId;
+        const material = management ? null : target.closest(".nuts-material-link-row, .nuts-issue-note");
+        const remove = material?.querySelector('[data-nuts-material-action="remove"]');
+        const open = material?.querySelector('[data-nuts-material-action="open"]');
+        const archive = nutsManagementArchive.getAttribute("aria-pressed") === "true";
+        const kind = management
+          ? card ? "nuts-issue-list-card" : archive ? "nuts-issue-archive-list" : "nuts-issue-list"
+          : remove ? open ? "nuts-issue-material" : "nuts-issue-material-static" : "nuts-issue-page";
+        return {
+          kind,
+          language: appState.language,
+          async run(action) {
+            if (getActiveTab()?.id !== tab.id) return;
+            try {
+              if (action === "nuts-open-issue" && card) {
+                const issue = nutsManagementIssues.find(entry => entry.id === issueId);
+                if (issue) await activateNutsTab(issue);
+              }
+              if (action === "nuts-search-issues") nutsManagementSearch.focus();
+              if (action === "nuts-toggle-issue-archive" && archive === (nutsManagementArchive.getAttribute("aria-pressed") === "true")) {
+                nutsManagementArchive.click();
+              }
+              if (action === "nuts-delete-issue" && issueId) {
+                const issue = nutsManagementIssues.find(entry => entry.id === issueId);
+                if (issue) await deleteNutsIssue(issue);
+                else nutsById.get(issueId)?.querySelector(".nuts-issue-delete")?.click();
+              }
+              if (action === "nuts-copy-issue-id" && issueId) {
+                await writeClipboardText(issueId);
+                showToast(nutsCopy("已复制议题 ID", "Issue ID copied"));
+              }
+              if (action === "nuts-add-issue-material") {
+                const row = nutsById.get(issueId);
+                const add = row?.querySelector("[data-nuts-add-material]");
+                if (add?.getAttribute("aria-expanded") === "true") {
+                  row.querySelector(".nuts-reference-sources button")?.focus();
+                } else add?.click();
+              }
+              if (action === "nuts-open-issue-material") open?.click();
+              if (action === "nuts-remove-issue-material") remove?.click();
+            } catch (error) {
+              if (getActiveTab()?.id === tab.id) (management ? nutsManagementMessage : nutsMessage).textContent = normalizeError(error);
+            }
+          },
+        };
+      }
+
       window.__NUTBOOK_CONTEXT_PROVIDER__ = (target, event) => {
-        if (getActiveTab()?.id === nutsBoardId && target.closest("#nutsBoardViewport")) {
+        const active = getActiveTab();
+        if (active?.id === nutsBoardId && target.closest("#nutsBoardViewport")) {
           return { ...nutsBoard.contextMenu(target, event), language: appState.language };
+        }
+        const editable = target.closest('input, textarea, [contenteditable="true"]');
+        if (!editable && ((active?.id === nutsManagementId && nutsManagement.contains(target))
+          || (active?.nutsIssueId && nutsIssuePage.contains(target)))) {
+          return nutsIssueContextMenu(active, target);
         }
         const card = target.closest("[data-open-item], [data-inspector-item]");
         const chip = target.closest("[data-tab-id]");
-        const editable = target.closest('input, textarea, [contenteditable="true"]');
         const itemId = Number(card?.dataset.openItem || card?.dataset.inspectorItem);
         const item = appState.items.find((entry) => entry.id === itemId);
         const tabId = chip?.dataset.tabId;

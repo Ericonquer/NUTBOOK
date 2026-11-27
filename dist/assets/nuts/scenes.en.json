@@ -3,21 +3,61 @@
     {
       "id": "quick",
       "name": "Quick notes",
-      "about": "Capture NUTs and materials, then group related ideas.",
-      "rules": "Keep the original materials and their sources. Create a separate deliverable based on the current goal and submit it for review.",
+      "about": "Collect ideas and source material for notes or follow-ups.",
+      "rules": "## Organizing material\n- Keep traceable sources, dates, and quotations. Preserve meaningful differences when merging duplicates.\n- Separate source facts, your assessment, and open questions. Mark missing information explicitly.\n- Group material by topic or use. Keep examples and data that clarify the main points.\n- List actionable follow-ups. Name owners and deadlines only when the material supports them.",
       "tasks": [
         {
           "name": "Organize into a note",
           "goal": "Write a note that states the topic, main points, and open questions.",
           "key": "整理成笔记"
+        },
+        {
+          "name": "Extract follow-ups",
+          "goal": "List agreed actions, known owners, and decisions still open.",
+          "key": "提取待办"
         }
-      ]
+      ],
+      "skill": {
+        "version": 4,
+        "instructions": "Read the goal and the cards. Choose a note to preserve an observation or a follow-up list to resume work.",
+        "workflows": [
+          {
+            "id": "organize",
+            "name": "Organize notes",
+            "description": "Turn scraps, excerpts, and later observations into a short note with traceable details.",
+            "steps": [
+              "Identify the event or question that ties the cards together. Put them in the order a reader needs, distinguishing the original note from later additions.",
+              "Map the cards, reconcile updates and disputed dates, then choose a thematic or chronological note. [Reconcile source cards](references/source-map.md)",
+              "Merge accounts of the same detail. Put the source title beside significant figures and quotations. Preserve conflicting accounts with their dates when available.",
+              "Submit a searchable title, the observations, and any question worth revisiting. For two weeks of classroom notes, keep the weeks distinct and attribute a change seen in just one group to that observation."
+            ],
+            "references": {
+              "source-map.md": "# Reconcile source cards\nWorking columns: card | recorded date | event date | observation or wording | relation to other cards. A later note was written later; only an explicit correction or cancellation supersedes an earlier commitment.\n\nMonday says “Friday trial planned.” Thursday says “postponed, date open.” Write “The Friday trial was postponed; no new date was set,” and cite both cards. If Thursday only reports a rumor, retain that attribution. Count forwarded copies once and retain independently added details.\n\nLeave the working table out of the final note unless an audit is requested. Check that the title is searchable by event and each date and number can be traced to a card.\n"
+            }
+          },
+          {
+            "id": "follow-up",
+            "name": "Extract follow-ups",
+            "description": "Recover agreed actions and unresolved decisions from chat excerpts or meeting notes.",
+            "steps": [
+              "Find who agreed to do what. Keep the card title and any conditions. Treat “we could try this” as a suggestion.",
+              "Reconcile promises, suggestions, cancellations, and conditions across messages before listing actions. [Action register](references/commitment-register.md)",
+              "Write checkable actions. Include owners, dates, and completion signals where the notes supply them. Identify replies that an action depends on.",
+              "Deliver the checklist and a short list of unresolved questions. If every item is tentative, say that no action has been agreed."
+            ],
+            "references": {
+              "commitment-register.md": "# Action register\nCreate a row per action and object, retaining wording and message order. Fill owner, prerequisite, due date, status, observable completion, and source. Leave unknown dates open.\n\n- “Perhaps try on Friday” proposes an idea. “I will send the list Friday” commits an owner.\n- “I’ll send it upon approval” belongs under waiting until approval is recorded.\n- “Sent” closes the matching item. “Resend the corrected version” opens a distinct action. Use the latest agreed date and cite the update.\n- “Someone needs to circulate it” is unassigned. The speaker is not automatically the owner.\n\nReplay the timeline. Every checkbox should map to a live commitment. Keep completed, cancelled, and merely discussed items out of the active checklist.\n"
+            }
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
       "id": "article",
       "name": "Content creation",
       "about": "Go from source material and candidate topics to an outline or first draft.",
-      "rules": "Cite sources for verifiable claims. Ask the author to confirm personal experiences and opinions. Review the outline before writing a long draft, and submit the draft for approval before saving it as a result.",
+      "rules": "## Audience and sources\n- Define the reader, the question they need answered, and the judgment or method the article delivers. Organize the material around one main claim.\n- Verify names, figures, dates, quotations, and examples against sources you actually read. Distinguish source facts, the author's views, and inference.\n- First-person experiences and views must come from material the author supplied or approved. Flag missing facts, experiences, or positions that would change the central argument.\n- Use approved samples for perspective, wording, and rhythm. Follow the issue's requirements for platform, voice, and length.\n\n## Editing out generic AI phrasing\n- Open with a concrete problem, an event, or a verifiable judgment. Cut generic setup and say what happened.\n- Replace abstract evaluations with observable actions, details, or outcomes. Narrow claims when the material offers limited support.\n- Remove interchangeable aphorisms, repeated recaps, and formulaic transitions. Avoid forced triplets and repeated rhetorical contrasts.\n- Vary paragraph length and headings to suit the argument. Read awkward sentences aloud and preserve the author's distinctive phrasing and useful terminology.\n\n## Illustrations and submission\n- Define what each visual should explain. Choose charts, process diagrams, examples, or decorative images accordingly. Place visuals beside the relevant text.\n- Attribute data and factual imagery. Label illustrative or generated images where readers could mistake them for documentary evidence.\n- Submit reviewable Markdown and sources actually used. Put questions for the author and production notes in a review section outside the article.",
       "tasks": [
         {
           "name": "Assess a topic",
@@ -31,16 +71,93 @@
         },
         {
           "name": "Write a first draft",
-          "goal": "Submit an outline for approval, then write a sourced first draft.",
+          "goal": "Write a reviewable long-form draft and list the sources used.",
           "key": "写初稿"
+        },
+        {
+          "name": "Draft and illustrate",
+          "key": "写稿并配图",
+          "goal": "Submit a reviewable Markdown article with illustrations where they help explain the text. Provide an image brief if illustrations cannot be produced."
+        },
+        {
+          "name": "Edit an existing draft",
+          "goal": "Use the draft, sources, and comments to cut generic or repetitive passages and return the revised text.",
+          "key": "润色已有稿件"
         }
-      ]
+      ],
+      "skill": {
+        "version": 4,
+        "instructions": "Deliver the angle, outline, draft, or revision requested. Run the prose edit on a finished draft. Use the illustration workflow when the issue or board calls for images.",
+        "workflows": [
+          {
+            "id": "write",
+            "name": "Write from source material",
+            "description": "Develop an angle, outline, or complete article around a reader’s question and the supplied evidence.",
+            "steps": [
+              "Read the goal, board rules, material, and any approved sample. For a revision, read the previous draft and comments. State the question readers should be able to answer and pick one concrete scene that speaks to it.",
+              "Match each central claim with an observation, figure, or quotation. Record its source and limits. Narrow unsupported claims. If a section depends on the author's position, leave a specific question for review. [Build paragraphs from evidence cards](references/argument-cards.md)",
+              "Choose the article form from the author’s position and available evidence. Write one plausible objection. Flag weak sections in outlines and develop supported ones into continuous prose for a draft. [Article form, opening, and revision](references/draft-and-revise.md)",
+              "For an angle, deliver the audience, premise, evidence, and gap. For an outline, give each section a reader question, material, and point to land. For a draft, open with the chosen scene, explain why it matters, and build to a judgment or action the reader can use.",
+              "Apply review comments and recheck affected details. Deliver continuous prose with a title. List sources used at the end and flag outstanding author questions separately. For a full draft, run the editorial pass; use the illustration workflow when visuals are requested."
+            ],
+            "reference": "# Example from a classroom note\nMaterial: Of 24 question slips collected in one lesson, nine mentioned different versions of the story. The lesson plan called for retelling and sequencing.\n\nAngle for fellow teachers: Which questions did students bring up that the plan left out?\n\nOutline: Reconstruct how the questions were collected, compare them with the plan, then identify what to record next time. A draft could open with “The plan asked students to retell the story and put its events in order. Nine of the 24 slips raised a question about different versions.”\n\nCheck the denominator before submitting. The record counts slips. It cannot establish which teaching method works better.\n",
+            "references": {
+              "argument-cards.md": "# Build paragraphs from evidence cards\nFor each central claim record the reader question, tentative answer, one concrete source, how far it supports the answer, and the strongest alternative explanation. Narrow unsupported claims before deciding whether to keep them.\n\nExample: nine slips mention different versions. Students introduced a question outside the lesson plan. The teacher's prompt could have shaped those questions, but the record omits its wording. Identify that as something to observe next time. Question counts cannot establish teaching effectiveness.\n\nOrder cards so the reader first encounters the problem and then sees the evidence and limits. Expand the cards into scenes or arguments. Keep the working table out of a finished article unless requested.\n",
+              "draft-and-revise.md": "# Article form, opening, and revision\nAn observation note opens with a traceable event and the question it raised. An opinion piece states a debatable judgment, addresses a strong objection, and bounds its evidence. A how-to follows reader actions with observable results and one common failure. Attribute product announcements; first-hand test language requires actual records.\n\nFrom an approved sample, extract transferable features such as viewpoint, quotation placement, or detail per paragraph. Do not import its experiences. For a new author, infer tone from audience and purpose without requiring a personal brand.\n\nMap review comments to passages. A changed number may also appear in the headline, caption, or conclusion. For each section check the reader question, evidence, and reason the next paragraph follows. Move unresolved checks after the article.\n"
+            }
+          },
+          {
+            "id": "edit",
+            "name": "Edit out generic AI phrasing",
+            "description": "Revise existing prose to keep the author’s observations and voice and cut interchangeable passages.",
+            "steps": [
+              "For a diagnosis, deliver located suggestions. For a rewrite, work on a separate draft. Extract the figures, quotations, attributions, and qualifiers such as ‘may’ or ‘so far’ that must survive the edit.",
+              "Scan the draft and section headings using the [Editorial stoplist and repairs](references/stoplist.md) and any board-specific exclusions. Mark locations and protect quoted wording and fixed terms before editing.",
+              "Use [Triage structural signals](references/structural-triage.md) to separate direct repairs, contextual checks, and author review.",
+              "Read the openings and closings of three adjacent paragraphs side by side. For each candidate, note its location, exact wording, where the reader learned this already, and what deletion would cost. Look for the same object under several names or a repeated pivot that delays each point. Mark passages with an identifiable reading problem. [Passage review sheet](references/passage-review.md)",
+              "Choose one justified edit per passage. Cut a recap, restore a consistent term, or replace an inflated judgment with the sourced action. Preserve meaningful contrasts, direct quotations, and authorial idioms. For a lone word or punctuation mark, inspect the neighbouring sentences before deciding.",
+              "Compare each changed passage with the original for subject, negation, scope, and time. Restore lost qualifiers and revert edits that bring no identifiable gain in clarity. Return the requested diagnosis or complete edited draft. Reserve editorial notes for decisions the author needs to make. [Check the revision against the source](references/revision-diff.md)"
+            ],
+            "reference": "# A worked edit\nDraft: “The activity inspired deep thinking and breathed new life into the classroom.”\n\nRecord: In week two, one group looked for textual evidence and changed its question from “Which version is true?” to “Which details do the versions explain differently?”\n\nEdit: “In week two, one group looked for textual evidence. They began by asking which version was true and ended up asking which details the versions explained differently.”\n\nCheck: The record supports one group and the change in its question. It offers no basis for a judgment about the entire class or the teacher's feelings.\n\n## An edit to reject\nOriginal: “So far, only the night shift has tried the form.” Rewriting it as “The team adopted the form” changes both scope and status. Keep the original even if the preceding sentence also uses “tried.”\n",
+            "references": {
+              "passage-review.md": "# Passage review sheet\nTake three consecutive paragraphs and identify what each adds. For a suspect sentence, record location, wording, reading difficulty, information to preserve, and proposed action. Undo the deletion if it loses a causal link or the author's position.\n\nExample: “Importantly, this change is significant. Starting this week, the attendant enters the name once.” The first sentence leaves the significance unspecified. The second gives a checkable change. Keep it. If the first sentence actually records concern about missed night-shift entries, retain the concern and inspect its source.\n\nFor diagnosis, show the original passage and a local edit. For a draft, apply justified changes to the text. Word frequencies cannot establish authorship.\n",
+              "revision-diff.md": "# Check the revision against the source\nInspect changed sentences in two passes. First check names, dates, quotations, values, and units. Then check negation, scope, certainty, and causality.\n\n| Original meaning | Unsafe edit | Reason to revert |\n| --- | --- | --- |\n| Two interviewees mentioned it | Users generally believe it | Broader population |\n| Discovered after the trial | Caused by the trial | Sequence becomes cause |\n| Author fears missing an entry | An entry was missed | Concern becomes fact |\n\nReread one paragraph on either side of the edit to check references. Restore the original if sounding more human is the only justification. Put decisions that require the author after the draft.\n",
+              "stoplist.md": "# Editorial stoplist and repairs\n\nScan authorial prose, headings, and section endings. Record the passage and the proposed local repair. A match is an editorial cue.\n\n| Pattern | Flag examples | Repair |\n| --- | --- | --- |\n| Generic opening | in today’s fast-paced world · in an ever-evolving landscape · in this day and age | Open with the event or question in the source. |\n| Empty lead-in | it goes without saying that · needless to say · it is worth noting that | Try reading the sentence from the following clause. Keep any real qualification. |\n| Unsupported acclaim | a game changer · a quantum leap · a paradigm-shifting breakthrough · takes it to the next level | Name the documented change. Cut the praise if no change is evidenced. |\n| Stock ending | only time will tell · the possibilities are endless · the future is brighter than ever | End on the last useful finding, unresolved question, or agreed action. |\n| Manufactured alarm | blood ran cold, chilling to think, sends shivers down your spine | State the observed risk and who or what it affects. Preserve literal reactions and attributed quotes. |\n| Combat clichés | a death blow, a killer move, the most brutal part, a knockout punch | State what changed and what happened afterward. Keep literal uses and meaningful figures of speech. |\n| Imagined reader rebuttal | your first instinct is probably, many people will assume | State the misunderstanding and checkable difference. Remove unsupported claims about how many people hold the view. |\n| Classroom scaffolding | pay close attention to, you must see, only then can you see | Name what matters and why. Keep actionable safety or task instructions. |\n| Prescribed reaction | more disturbing still, what's fascinating is, you'll discover that | Give the observation and attribute any reaction. |\n| Manufactured suspense and stock endings | our story begins X years ago, interchangeable aphorisms closing each section, stacked metaphors, overconfident verdicts | Open with the relevant event. Keep backstory when it explains the outcome. End on new information and preserve qualifications. |\n| Invented labels | an undefined term standing in for a real action | Describe who does what. Keep genuine defined terms. |\n\nUse typographic quotation marks in authorial prose. For Chinese passages, use curly double and nested single quotation marks rather than corner brackets. Avoid decorative quotes. Preserve verbatim source punctuation where required. Replace empty headings such as “Conclusion” with a heading that states what the last section delivers. A short draft without sections needs no extra heading.\n\n**Inspect in context.** “Significant” may describe a statistical test; check the reported measure. “From X to Y” may convey actual endpoints. Keep technical terms, meaningful transitions, and statements of uncertainty. Repetition alone is insufficient reason to change a precise term.\n\n**Board-specific terms.** Apply explicit house exclusions to the author's prose. Treat an approved quotation, official title, code identifier, or defined term as protected. If a mandatory exclusion conflicts with a verbatim quotation, flag it for review or use a clearly attributed paraphrase if permitted.\n\n**Worked pass.** Draft: ‘Needless to say, the trial was a game changer. One participant wrote, “For me it was a game changer.” The median wait fell from eight minutes to six.’ Drop the lead-in and unsupported verdict. Keep the attributed quote and the measured change. In a diagnosis, show the original, the proposed edit, and why. In a rewrite, deliver the edited draft.\n",
+              "structural-triage.md": "# Triage structural signals\n\nRecord the passage, its neighbors, and the reason for flagging it. Apply explicit board style constraints first. Treat other matches as reading checks.\n\n| Tier | Signal | Action |\n| --- | --- | --- |\n| Direct repair | Empty verdict cue such as “The bottom line is:” | State the useful judgment directly. Keep colons that introduce definitions, quotations, or procedures. |\n| Direct repair | Synonyms used to rename the same entity | Confirm the referent and restore its established name. Preserve distinctions between genuinely different terms. |\n| Review in context | Repeated “not X but Y” framing or consecutive bridge phrases | Read adjacent paragraphs together. Keep an actual correction or causal transition. Start the rest with their new information. |\n| Review in context | Stacked premodifiers, nested dash asides, or semicolons joining several scenes | Identify the main clause and every condition. Separate the clauses when the reader would have to backtrack. Preserve quotations and meaningful parallel structure. |\n| Flag for human review | Heading density, uniform sentence lengths, or metaphor fit | Point to a concrete reading problem. Leave section changes to the author. Keep metaphors by default and preserve natural sentence lengths. |\n\nPrecise numbers, ordinary connectors, professional vocabulary, similar neighboring sentences, and paragraph openings without a backward reference do not alone warrant edits. Apply punctuation limits or additional exclusions when the board explicitly sets them.\n\nIf two sections repeat a corrective construction, retain it where it corrects a real misunderstanding. Start the other section at its new fact. Revert an edit that loses a qualifier such as “may.” Rescan edited passages and read their neighbors for broken references or missing transitions.\n"
+            }
+          },
+          {
+            "id": "illustrate",
+            "name": "Illustrate the article",
+            "description": "Create images that travel with the draft, or provide a production brief when image tools are unavailable.",
+            "steps": [
+              "Set the delivery surfaces, character identity, and visual direction before storyboarding. Keep the choices and their basis on the production sheet for the entire series. [Identity, visual direction, and delivery spec](references/art-direction.md)",
+              "Read the draft, platform requirements, and attachment roles. Identify the reader question and placement for each image. A cover introduces the angle. An inline visual explains a comparison, sequence, or piece of evidence. Distinguish data to extract, approved illustrations, and generation references.",
+              "For an illustrated article, read section by section and note where a reader could get stuck. Use a sequence for instructions, a side-by-side view for outcomes under different conditions, or successive scenes for a turning point over time. Skip passages already clear in prose or an existing screenshot. For a single requested image, work from its target passage. [Shot planning worksheet](references/shot-list.md)",
+              "Make one production row per image: preceding sentence | relationship to explain | required objects, values and connections | layout and ratio | source. Plot quantities directly from data. For a scene, use an available image tool. Inspect identity and composition references separately and specify what each constrains. [Cover composition and image brief](references/cover-and-brief.md)",
+              "Select permitted material or draw with available tools. Retain units and denominators for comparisons and show order for processes. Use reference images according to their assigned role. Label illustrative scenes that might look like documentary photos.",
+              "Save finished PNG, JPEG, or WebP files directly in assets/ beside the draft. Insert relative image links after the relevant paragraphs. Limit each image to 10 MiB and the total to 24 MiB. For a WeChat article cover, compose at about 2.35:1. At the top of the body put <!-- nutbook-cover --> on its own line, a blank line, then a standalone cover image.",
+              "Pilot, inspect, and revise frames by delivery position. Check whether a reader can identify the required action and outcome in each image. [Pilot individual frames and revise by anchor](references/frame-production.md)",
+              "Open each file and check labels, crops, and attribution at a reduced size. Verify every image link. If an image cannot be produced, deliver the text and a brief specifying placement, purpose, ratio, composition, source, and alt text. Omit the missing image link. [Inspect and repair the rendered image](references/visual-qa.md)"
+            ],
+            "reference": "# Example: show what 9 of 24 means\nPlacement: after the paragraph on collecting the slips. Draw 24 equal slip symbols. Pattern nine and label them “mentioned different versions.” Label the other 15 “other slips.” The record gives no finer breakdown.\n\nSource: the classroom observation. Check that the numbers remain legible at thumbnail size and that both groups remain distinguishable in grayscale. Once the image exists, the draft can use:\n`![Nine of 24 slips mentioned different versions of the story](./assets/question-slips.png)`\n\nFor a production brief, specify a landscape layout, these counts and groups, the target paragraph, and the caption.\n\n## From brief to image\nCover example: for an article about changing trains, place a passenger at a fork reading a sign. Specify the passenger position, track directions, sign location, and room for the title. Compose at the platform ratio and shrink to card width to check that the fork is legible.\n\nInline example: to explain a missed transfer alert, draw only the stops, trigger time, and outcome supported by the text. Trace every arrow. Fix a reversed connection and check again. Try the hardest panel before making a series. Reread the target paragraph before insertion. Keep suitable existing images and save revisions under fresh filenames before updating links.\n\n## Turn an argument into a drawable action\nSuppose the source says two applications require the same signer. Preserve three things: two applications, their separate paths, and one signing point. Show two stacks of paper sliding toward one stamp. A character may operate the stamp. If the character obscures one stack at thumbnail size, move it aside or show just the hand. Draw a backlog only if the source documents waiting.\n\nBrief the image tool one frame at a time: source sentence, visible action, relative positions, required labels, aspect ratio, and purpose of each reference. Hide the title and try to identify both paths and their common signing point. If either disappears, revise the layout and check again.\n",
+            "references": {
+              "shot-list.md": "# Shot planning worksheet\nTake one sentence from the target paragraph. Close the article and write a question the image should answer. If you have a topic but no answer, recover the specific relationship from the paragraph.\n\n| Placement | Reader question | Treatment | Required elements |\n| --- | --- | --- | --- |\n| After “both orders need one signer” | Which step is shared? | Two paths converge | Two applications, one signing point |\n| After the before/after passage | Which action disappears? | Matched side-by-side view | Identical starting point, changed step highlighted |\n\nNumber dependent steps and branch parallel paths. Skip narrative already clear in prose. Before producing a series, check whether two frames answer the same question. Merge them or keep the clearer frame.\n",
+              "cover-and-brief.md": "# Cover composition and image brief\nRecord the article title and display surface. Turn its most concrete subject, action, and obstacle into one scene. Mark subject position, direction of movement, and space that interface text may cover.\n\nBrief one image at a time:\n- Purpose, delivery dimensions, crop boundary.\n- Who acts where, and what foreground and background explain.\n- Required objects, counts, connections, and wording. For exact lettering, reserve space and typeset it after generating the base.\n- Which reference constrains identity and which conveys viewpoint or composition.\n- Source passage and the misreading to avoid.\n\nFor a transfer cover, place the traveller on the left and two routes on the right, with space below for the title. Recompose a square entry separately if needed. At phone-list size, if only the face survives and the fork disappears, widen or rearrange the shot.\n",
+              "visual-qa.md": "# Inspect and repair the rendered image\nOpen the finished file, hide its title, and answer the shot-list question. Count objects and arrows and trace input to outcome. Reconcile chart values, units, and denominators. Repeat at target thumbnail size. Redraw incorrect data, reroute reversed connections, or simplify and reposition illegible labels. Repeat the failed check after repair.\n\nReread the target paragraph before insertion and check for an existing image in the same spot. Save the revised image separately, update its link, and resolve all image paths from the draft directory. Check that a required cover marker appears once. Deliver readable files with the draft. If production is unavailable, supply the brief and alt text and identify the missing capability.\n",
+              "art-direction.md": "# Identity, visual direction, and delivery spec\n1. Read the issue, board preferences, and permitted images. Open identity and composition references separately. Record invariant silhouette, identifying marks, and colors, along with poses and camera angles that may change. Respect attachments supplied only for data extraction.\n2. Reuse the named IP. When branded artwork is explicit but identity evidence is missing, ask one focused question or request the reference. Plan identity-independent shots meanwhile. Without brand requirements, charts can use geometry and scenes can use ordinary people. Explain how the treatment serves the reader.\n3. Set the delivery sheet: platform and use | dimensions or ratio | title overlay and safe area | cover count | inline count. Follow issue specifications first. State reversible size assumptions. Estimate the count by distinct reader questions and finalize after reviewing sections.\n4. Lock line treatment, palette, type hierarchy, and background on a representative frame. Vary information structure and action across images. Pilot the hardest frame, inspect identity, thumbnail readability, and labels, then produce the series. When revising, inventory images that can be reused or relabeled.\n",
+              "frame-production.md": "# Pilot individual frames and revise by anchor\nAssign each delivery position an ID. Convert its purpose into a question a reader can answer. Record the paragraph anchor, output dimensions or ratio, identity reference, visible action and outcome, and individual filename. Covers and inline frames may need different proportions. For two distinct answers, identify the objects that make each relationship visible.\n\nGenerate the hardest frame on its own and actually supply the identity reference to the image tool. Open the result at article width, hide the title, and answer the question. Holding an object only communicates possession; to depict checking, show both items being compared and the action connecting them. Repair that frame if the action is unclear. Once accepted, record reusable features, medium, and palette. Generate subsequent outputs individually at their intended ratios with the identity reference and pilot as needed. Generate, save, and inspect separate deliverables individually; use contact sheets for inspection afterward. With only one image call available, deliver a verified pilot and mark the remainder pending.\n\nFor a revision, resolve the target image from its paragraph anchor. Record checksums of the draft and images or retain a read-only copy. Supply the original target image and specify the changed object or action, invariant identity, and geometry. Save a new file and patch the affected link and wording in the latest draft. Inspect other mentions of the changed fact and flag any dependent image. Recheck unaffected image hashes and repeat the thumbnail question on the revised frame.\n\n## Check each route for extraneous details\nFor comparisons and branching procedures, list the actions and props required for each route. List any elements exclusive to the other route. If only walk-ins get a number ticket, require one in their scene and check that it is absent from the appointment scene. After thumbnail inspection, inspect full-size frames for unsupported steps, signs, and props that change the story. Repair affected frames within budget. If a material defect remains, mark the affected frame as a draft and identify it in delivery.\n"
+            }
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
       "id": "research",
       "name": "Research",
-      "about": "Screen sources, compare evidence, and prepare a research brief.",
-      "rules": "Keep source citations and original materials. Distinguish evidence, inference, and hypotheses. State the limitations of the evidence and any open questions.",
+      "about": "Investigate an industry or topic using original records, comparable evidence, and a research report.",
+      "rules": "## Scope and evidence\n- Define the research question, time frame, and scope. Include evidence relevant to the question and explain important exclusions.\n- Cite traceable original reports, data, or observation records. Assess provenance, sample, method, recency, and relevance.\n- Put evidence beside each major finding. Check time frames, samples, and denominators before comparing numbers. Disclose mismatched definitions.\n- Separate observations, inferences, and untested hypotheses. Record conflicting findings and explain differences in evidence quality.\n- Identify gaps that could change the conclusion and an actionable verification step for each.",
       "tasks": [
         {
           "name": "Screen sources",
@@ -56,14 +173,88 @@
           "name": "Write a research brief",
           "goal": "Cover the research question, evidence, limitations, and next steps.",
           "key": "撰写调研简报"
+        },
+        {
+          "name": "Deep research",
+          "goal": "Define the scope of an industry or topic, investigate original sources on separate tracks, and report findings, limits, and unresolved questions.",
+          "key": "深度调研"
         }
-      ]
+      ],
+      "skill": {
+        "version": 4,
+        "instructions": "Choose screening, comparison, briefing, or deep research according to the goal. Use deep research when evidence must be located and verified.",
+        "workflows": [
+          {
+            "id": "screen",
+            "name": "Screen sources",
+            "description": "Select records, reports, or links that can answer a specific research question.",
+            "steps": [
+              "Specify the population, outcome, and time window. Write an inclusion criterion before inspecting each source. Record when only an abstract or title is accessible. When the issue supplies excerpts and restricts external lookup, screen the available text. Cite the attachment ID and passage and identify what requires the full record.",
+              "Pilot the inclusion criteria on a borderline record before screening the set. Track duplicates, out-of-scope records, and unavailable text separately. [Screening log](references/inclusion-log.md)",
+              "Capture the title, locator, method or material type, and question it can answer. Trace reposts to the original and count that evidence once.",
+              "Deliver included, excluded, and unresolved items with one reason per item. Identify the missing type of evidence and where to look for it."
+            ],
+            "references": {
+              "inclusion-log.md": "# Screening log\nExtract population, setting, measure, and period. Separate eligibility requirements from preferences. If a pilot excludes direct evidence unexpectedly, revise the rule and re-screen earlier items.\n\nEach row: source and locator | accessible material | criteria met | decision | reason. An original interview can explain abandonment; traffic totals describe volume. Group a repost with the original while retaining its locator. A matching title with inaccessible text stays unresolved.\n\nCount independent originals, list borderline items, and state which missing information would change eligibility. Keep relevance separate from evidential strength: a small sample can be directly relevant for generating leads.\n"
+            }
+          },
+          {
+            "id": "evidence",
+            "name": "Compare evidence",
+            "description": "Compare findings on one question and explain which figures support a comparison.",
+            "steps": [
+              "Extract each relevant finding and its locator. Tabulate the time window, unit of observation, denominator, method, and limitation.",
+              "Fill the comparison basis before converting, juxtaposing, or pooling findings. State what could invalidate each important interpretation. [Comparability worksheet](references/comparison-sheet.md)",
+              "Align definitions before comparing. A count of slips in week one and a single group followed in week two can be described side by side. They supply no class-wide improvement rate.",
+              "Deliver the table and its interpretation. Identify agreements, conflicts, or incompatible measurements. Label possible explanations as hypotheses and specify the record needed to test them."
+            ],
+            "references": {
+              "comparison-sheet.md": "# Comparability worksheet\nRecord source, observation unit, counting method, inclusion rule, numerator, denominator, period, repeated observations, and locator. Keep original units until equivalence is established. Mark unknowns.\n\nEight of twenty support contacts mention refunds; two of five interviewees mention refunds. Both equal 40%, yet “10 of 25 users” is unsupported. Report that refunds arose in both channels. A follow-up could deduplicate people and align the question and time window.\n\nGroup results into directly comparable, comparable under a condition, and side-by-side only. Investigate definitions and selection before interpreting a conflict as a real difference. Preserve unresolved findings separately.\n"
+            }
+          },
+          {
+            "id": "brief",
+            "name": "Write a research brief",
+            "description": "Give a decision maker a sourced answer, its limits, and a practical follow-up investigation.",
+            "steps": [
+              "Read the decision question, screened material, and any comparisons. Answer in one sentence, indicating how far the evidence goes.",
+              "Compress the brief around one reader decision. Write support, contrary evidence, and action conditions for pivotal claims, then trace them back to sources. [Decision brief worksheet](references/decision-brief.md)",
+              "Organize the body by finding. Give each a source locator and supporting detail. Discuss evidence that cuts against it. Treat causal explanations from observations as tentative.",
+              "Close with the gap most likely to change the judgment. Specify where to get the next record and which results to compare. Submit the brief with the sources used."
+            ],
+            "references": {
+              "decision-brief.md": "# Decision brief worksheet\nIdentify who must decide what and under which conditions. Answer with the narrowest useful judgment supported by the material. Expand evidence that could affect that decision.\n- Finding: claim, original locator, and specific observation or value.\n- Boundary: whom the sample covers, whom it misses, and plausible alternative explanations.\n- Action: reversible next step and the outcome that would justify expansion or a pause.\n\nA single-class pilot may justify tracking missed orders in that class. It cannot justify a school-wide rollout. Describe how to sample the evidence needed to expand. Drop background that does not affect the decision and place disagreements beside the relevant findings.\n"
+            }
+          },
+          {
+            "id": "deep-research",
+            "name": "Deep research",
+            "description": "Investigate an industry landscape, trend, drivers, or research question across multiple sources.",
+            "steps": [
+              "Turn the topic into a researchable question. Define geography, period, population, and measures, then identify subquestions that could change the answer. Read issue materials and respect search permissions. [Question map and search log](references/question-map.md)",
+              "Open separate search tracks for pivotal claims. Assign a source class, rival hypothesis, effort budget, and return fields to each. Choose isolated contexts or sequential evidence cards according to the environment. [Search tracks and context budget](references/search-chains.md)",
+              "Choose originals by question. Use statistics or administrative records for magnitude and change, disclosures and survey methods for industry structure, and study design and comparators for effects. Read the primary record and retain definitions, samples, denominators, and periods.",
+              "Open the material and assign each independent source an ID in working notes. Record the supported claim, title and URL or file location, page or section, applicable date, and limitation. Trace syndicated items to their common origin. Use snippets as leads to the full text. [Evidence ledger and conflicts](references/evidence-ledger.md)",
+              "In a second pass, change the query to address the gap most likely to change the conclusion. Look for rival explanations, exceptions beyond the geography or sample, and revisions. Align definitions, periods, and populations before explaining differences.",
+              "Trace each central claim back to its evidence. Stop once the decision is supported or further searches only return the same original. Deliver the answer, supporting and contrary evidence, scope, and a concrete follow-up. Turn unsupported assertions into open questions and list sources actually used. [Audit each claim before delivery](references/claim-audit.md)"
+            ],
+            "reference": "# Industry and topic research exercise\nExample: Did a city's reusable-container pilot expand uptake or improve returns? Track issues, returns, and unique users separately. Check that the population and observation window match and that cross-city comparisons use compatible metrics. If the pilot ended before the return window closed, leave return rates unresolved.\n\nOpen the report with the answer, then show the landscape and trend, plausible explanations, disagreement, and limits. Link every central claim to an original and a page or section. Identify the biggest gap and where to look next. This is a worked example.\n",
+            "references": {
+              "question-map.md": "# Question map and search log\nWrite one answerable question and what observation could change the answer. For industries, define market, geography, period, and value-chain segment. For research topics, identify the population, outcome, and comparison. Record publication and observation dates separately.\n\nExample: reusable containers in urban meal delivery.\n| Subquestion | Initial originals | Evidence that could change the answer |\n| --- | --- | --- |\n| How widespread is adoption? | Municipal records, operator disclosures, and definitions | Circulation counts include many repeat issues |\n| What affects returns? | Pilot records or comparison studies | Return rates improve only with dense collection networks |\n| How far does this transfer? | Other cities' studies or discontinued pilots | Low-density areas differ on cost and access |\n\nLog query, original read, remaining gap, and next query each round. Combine subject, place, period, and measure in searches. Send only public information to external search.\n",
+              "evidence-ledger.md": "# Evidence ledger and conflict resolution\n| ID | Supported claim | Original and location | Measure and limitation |\n| --- | --- | --- | --- |\n| E1 | The pilot issued more containers | Municipal pilot bulletin, table 2 | Counts issues, including repeat use |\n| E2 | Some respondents used containers | Independent survey, section 3 | Counts people at sampled sites |\n\nIssues and individual users cannot be converted. Align place, period, definition, and denominator. For effects, check enrolment, baseline, comparators, follow-up, and attrition. Judge each source against the specific claim. A launch announcement establishes what was announced; size estimates require recoverable data. Count copies of a bulletin once and preserve unresolved conflicts with locators.\n",
+              "claim-audit.md": "# Audit each claim before delivery\nCopy the conclusion and attach evidence IDs to each falsifiable clause. Open each cited passage and verify subject, scope, degree, and date. When a clause depends on two records, state the inference connecting them.\n\nTry to disprove the main conclusion. Under what condition would it fail? Look for that condition in the evidence. A claim about overnight returns at three branches requires evidence for each branch. If two are confirmed, name those two and leave the third open.\n\nLead the brief with the decision the evidence supports, then its sources and the conditions that could overturn it. Treat inaccessible links as leads. Finish when readers can trace the conclusion to the records.\n",
+              "search-chains.md": "# Search tracks and context budget\nFor “What conditions allow reusable containers to scale in urban meal delivery?”:\n- Measure adoption and change. Align denominators for issues, orders, and unique customers.\n- Investigate mechanisms such as collection access, deposits, and reuse costs. Read pilot design and comparisons.\n- Look for unsuccessful or discontinued programs and other cities to test transferability.\n\nGive each track the main question, subquestion, known sources, scope, and budget. Allocate searches by impact and reserve capacity for the finding most likely to change the decision. Use separate contexts when the host permits them. In one context, process batches and carry only located evidence and open questions forward.\n\nReturn subquestion, finding, original and pinpoint location, population/period/denominator, counterexample, and gap. Merge shared originals and reopen passages for conflicts. Continue only where new evidence could materially change the answer.\n"
+            }
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
       "id": "product",
       "name": "Product and projects",
       "about": "Group feedback and screenshots into problems, then compare possible solutions.",
-      "rules": "Separate raw feedback from analysis. State the scope, tradeoffs, and acceptance criteria. Ask the user to decide open questions.",
+      "rules": "## Problems and proposals\n- Identify who encounters the problem, when it occurs, and what happens. Attach feedback, screenshots, or data. Distinguish original feedback, analysis, and untested needs.\n- State success criteria in terms of observable results. Name the scope, dependencies, constraints, and deferred work.\n- Compare viable options using the same criteria for user impact, implementation cost, risk, and reversibility. Support recommendations with evidence.\n- Give acceptance steps from the actual entry point, with inputs and expected results. Cover failure, cancellation, and retry where relevant.\n- List decisions for the product or project owner. Use confirmed owners, dates, and commitments and mark open items explicitly.",
       "tasks": [
         {
           "name": "Summarize feedback",
@@ -79,46 +270,89 @@
           "name": "Draft an implementation plan",
           "goal": "State the goal, scope, acceptance criteria, and decisions the user needs to make.",
           "key": "起草实施方案"
+        },
+        {
+          "name": "Verify product behavior",
+          "goal": "Verify a product capability, default, or upgrade behavior and report scope, original evidence, and reproduction results.",
+          "key": "核查产品行为"
         }
-      ]
-    }
-  ],
-  "ruleTemplates": [
-    {
-      "id": "general",
-      "name": "General organization",
-      "steps": [
-        "Read the issue materials and list what is known and what needs confirmation.",
-        "Propose an approach and prepare a draft for the current goal.",
-        "Submit the draft for user review."
-      ]
+      ],
+      "skill": {
+        "version": 4,
+        "instructions": "Read the goal to select a feedback summary, option comparison, or implementation plan. Identify decisions still awaiting an owner’s judgment.",
+        "workflows": [
+          {
+            "id": "feedback",
+            "name": "Summarize feedback",
+            "description": "Reconstruct evidenced user problems from tickets, screenshots, or interviews.",
+            "steps": [
+              "Identify the user, entry point, attempted action, expectation, and observed result. Cite a specific ticket or screenshot and mark missing steps as unknown.",
+              "Build an incident matrix distinguishing repeat reports, multiple artifacts from one event, and independent reporters. Check for exceptions before submitting. [Reconstruct incidents](references/incident-matrix.md)",
+              "Group by the step that failed. Retain reproduction clues from repeat reports while counting people and reports separately. Separate suggestions such as “add a reminder” from the action that was blocked.",
+              "Deliver one problem statement, representative evidence, known impact, and conditions to check per group. If the list showed no draft after saving, leave persistence as an open question."
+            ],
+            "references": {
+              "incident-matrix.md": "# Reconstruct incidents\nExtract feedback ID, reporter or anonymous status, time and environment, user intent, action, observable outcome, and suggestion. Preserve “could not find it” as an observation. Deletion requires independent evidence.\n\nCluster by failed step and outcome. Two screenshots from one ticket can document one incident; two anonymous messages do not establish two people. Report severity separately from frequency. A single blocking case can merit early investigation.\n\nExample: “No acknowledgement after offline save. Tickets 3 and 4 repeat one reporter’s account. First occurrence unknown. The screenshot shows the editor remained open. Compare file contents and reopen after disconnecting.” A separate list filter hiding a file belongs in another cluster.\n"
+            }
+          },
+          {
+            "id": "scope",
+            "name": "Compare product options",
+            "description": "Present decision-ready options and trade-offs for one user problem.",
+            "steps": [
+              "Extract the affected path, constraints, and observable success criterion from feedback. For example, a user can find the draft in the list immediately after saving.",
+              "Put hard constraints above the option matrix. Eliminate infeasible options before testing sensitivity among the remaining choices. [Comparable options and trade-offs](references/option-record.md)",
+              "Compare feasible options against the same inputs, including the status quo when useful. Tabulate user impact, basis for effort estimates, dependencies, risk, and reversibility. Mark unsupported estimates for investigation.",
+              "Recommend an option under stated conditions, give the reason, and identify evidence that would change it. Name any remaining trade-off for the decision maker. Distinguish a recommendation from an approved decision."
+            ],
+            "references": {
+              "option-record.md": "# Comparable options and trade-offs\nSet a common sample, success criterion, hard requirements, and negotiable dimensions. With a runnable sample, exercise each feasible option using the same input and record observations. With design descriptions only, walk through the same path on paper and label predictions, assumptions, and checks still needed. Record dependencies, reversal cost, and the basis of estimates in both cases.\n\nIf offline submission is required, a cloud-only queue fails the hard requirement even if it acknowledges fastest. Compare feasible alternatives on offline save, restart recovery, and duplicate submission. State which measurement an unknown estimate needs. Avoid summing subjective scores into a precise ranking.\n\nRecommend conditionally and identify a counterexample that would reverse the choice. If one unknown decides the outcome, design the cheapest test and state what observation would switch the recommendation. Trace an approved decision to its record.\n"
+            }
+          },
+          {
+            "id": "plan",
+            "name": "Plan implementation and acceptance",
+            "description": "Turn a chosen direction into ordered work with verifiable completion criteria.",
+            "steps": [
+              "Extract the goal, selected option, constraints, and scope from the issue or decision record. If a decision is pending, state the assumption the plan depends on.",
+              "Trace the smallest usable path from the user's entry point to the outcome. Order tasks by dependency and name each input, deliverable, and completion condition. Include owners and dates only when agreed.",
+              "Fill in sample, starting state, action, observable outcome, and recovery for the first usable slice before sequencing the remaining work. [Acceptance slice](references/acceptance-slice.md)",
+              "For each critical step specify a usable sample, action, and expected result. For example, save a uniquely titled draft, return to the list, reopen and check its text, then try cancelling a save.",
+              "Deliver the sequence and acceptance checklist. Explain how to detect and recover from failures and which decisions block the next step."
+            ],
+            "references": {
+              "acceptance-slice.md": "# Acceptance slice\nChoose a real object to take end to end, such as an offline draft with a unique title and two paragraphs. Define the entry point, usable sample, and observable result before splitting work packages.\n\n| Work | Precondition | Deliverable | Completion check |\n| --- | --- | --- | --- |\n| Save a draft | Two paragraphs in the editor | Reopenable record | Save, close, reopen; order preserved |\n| Retry a failure | Write failure can be induced | Retained, retryable edit | Restore writes, retry once, get one record |\n| Discard changes | A saved version exists | Restorable old version | Edit, discard, reopen original text |\n\nOrder blocking dependencies first and identify independent work. Assign dates and owners only with evidence. Separate observed from expected results and mark unexecuted paths pending. Cover cancellation, failures, and repeated actions where they affect this change.\n"
+            }
+          },
+          {
+            "id": "verify-product",
+            "name": "Verify product behavior",
+            "description": "Check announced capabilities against product versions and observable behavior.",
+            "steps": [
+              "Specify the product, platform, version, and initial state. Check availability, defaults, upgraded installations, and explicit overrides separately.",
+              "Read official docs, release notes, and implementation for the matching version. Where an isolated reproduction is inexpensive, test clean, retained, and overridden states with the same input. [Trace a release lead to effective behavior](references/history-probe.md)",
+              "Record environment, action, result, and locator for each case. Label observations, source-based inferences, and announcement claims. Bound findings where evidence is missing and describe the test that would resolve them."
+            ],
+            "references": {
+              "history-probe.md": "# Trace a release lead to effective behavior\nStart with the feature, configuration key, and observed behavior. Treat any version supplied by the initial query as a hypothesis. Run a version-free search of tags, implementation history, or tests for an earlier counterexample. Return a locator and an open claim per track. Read further only where the gap could change the answer.\n\n## Optional Git example for software version research\nUse this route when the claim concerns a software version, default setting, or upgrade and a local repository is available. Set key to a configuration key or behavior term and tag to a candidate release. Each command informs the next, so set path and commit as evidence becomes available.\n```sh\ngit grep -n -F \"$key\" \"$tag\" --\ngit log --all -G \"$key\" --oneline -- \"$path\"\ngit show \"$commit\" -- \"$path\"\ngit tag --contains \"$commit\" --sort=version:refname\n```\nUse a path found by the first command. The history search uses a regex; escape metacharacters where needed. Containment alone does not establish release order. Check maintenance branches, backports, prereleases, and adjacent stable tags. Note shallow history or missing tags. Without a checkout, open tagged source, tests, or a diff on the host.\n\n## Resolve precedence\nTrace explicit input, persisted state, and initialization defaults to the actual read or write. Separate fresh runs, upgrades retaining old state, and explicit overrides. For each row record input, branch taken, observable outcome, and tag/file/symbol. Check whether a cache, temporary file, or surface representation really corresponds to the object in the question.\n\nBefore claiming a first release, inspect its relevant predecessor. With only positive evidence, bound the finding to the earliest verified release. Label source inference and runtime observation separately. Where practical, run the same isolated sample against adjacent versions. Keep the final counterexample locator.\n\nA major-version manual describes a family. A constructor default describes one stage. For effective output or retained-state claims, trace the final writer. When an exact executable and cheap isolated fixture are available, run fresh and retained-state cases on independent copies before delivering. Record executable version, starting state, exit status and resulting bytes or values. If execution is unavailable, bound the assertion to the exact passage or code path verified.\n"
+            }
+          }
+        ]
+      },
+      "ruleVersion": 2
     },
     {
-      "id": "article",
-      "name": "Article writing",
-      "steps": [
-        "Organize sources and flag claims to verify.",
-        "Propose an angle and outline. Wait for approval before drafting.",
-        "Distinguish direct quotations, inferences, and experiences the author needs to supply."
-      ]
-    },
-    {
-      "id": "product",
-      "name": "Product and projects",
-      "steps": [
-        "Summarize raw feedback and separate observations from analysis.",
-        "Explain scope, tradeoffs, and acceptance criteria.",
-        "Ask the user to resolve open decisions."
-      ]
-    },
-    {
-      "id": "research",
-      "name": "Research",
-      "steps": [
-        "Define the research question and scope.",
-        "Summarize evidence, sources, and limitations. Record hypotheses to test.",
-        "Submit a research brief and follow-up questions for review."
-      ]
+      "id": "custom",
+      "name": "Custom",
+      "about": "Start with an empty board, then add your own rules and Skills.",
+      "rules": "",
+      "tasks": [],
+      "skill": {
+        "version": 4,
+        "instructions": "",
+        "workflows": []
+      },
+      "ruleVersion": 1
     }
   ]
 }

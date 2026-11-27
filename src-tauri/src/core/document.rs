@@ -683,25 +683,29 @@ fn render_frontmatter_rows_html(rows: Vec<(&str, Vec<String>)>) -> String {
     html
 }
 
+pub(super) fn markdown_preview_parts(
+    raw: &str,
+    show_skill_frontmatter: bool,
+) -> (std::borrow::Cow<'_, str>, String) {
+    let Some(frontmatter) = split_markdown_frontmatter(raw) else {
+        return (std::borrow::Cow::Borrowed(raw), String::new());
+    };
+    let metadata = if show_skill_frontmatter {
+        render_frontmatter_html(&frontmatter)
+    } else {
+        String::new()
+    };
+    (std::borrow::Cow::Owned(frontmatter.body), metadata)
+}
+
 fn render_markdown_as_html_with_options(
     raw: &str,
     skip_first_h1: bool,
     show_skill_frontmatter: bool,
 ) -> String {
-    let mut html = String::new();
+    let (raw, mut html) = markdown_preview_parts(raw, show_skill_frontmatter);
     let mut paragraph = Vec::new();
     let mut skipped_first_h1 = false;
-    let frontmatter = split_markdown_frontmatter(raw);
-    let markdown_body;
-    let raw = if let Some(frontmatter) = frontmatter.as_ref() {
-        if show_skill_frontmatter {
-            html.push_str(&render_frontmatter_html(frontmatter));
-        }
-        markdown_body = frontmatter.body.as_str();
-        markdown_body
-    } else {
-        raw
-    };
 
     fn flush_paragraph(html: &mut String, paragraph: &mut Vec<String>) {
         if paragraph.is_empty() {
@@ -815,7 +819,7 @@ pub fn render_markdown_body_as_html(raw: &str) -> String {
     render_markdown_as_html_with_options(raw, true, false)
 }
 
-fn is_skill_markdown_file_name(file_name: &str) -> bool {
+pub(super) fn is_skill_markdown_file_name(file_name: &str) -> bool {
     std::path::Path::new(file_name)
         .file_name()
         .and_then(|value| value.to_str())

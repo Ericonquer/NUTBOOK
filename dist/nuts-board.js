@@ -1,4 +1,4 @@
-window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssues, onBoardChange, onCardRemoved, imageUsageButton }) {
+window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, deleteIssue, onBoardChange, onCardRemoved, imageUsageButton, systemMaterial, openMaterial, sizeLimitNotice, skills }) {
   const page = document.getElementById("nutsBoardPage");
   const visible = () => !page.hidden && !page.parentElement.hidden;
   const board = document.getElementById("nutsBoard");
@@ -9,7 +9,8 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   const submit = document.getElementById("nutsBoardSubmit");
   const marquee = document.getElementById("nutsMarquee");
   const groupLayer = document.getElementById("nutsGroupLayer");
-  const groupHeaderSpace = 44;
+  const groupHeaderSpace = 40;
+  let focusedIssueId = null;
   const cardLayer = document.getElementById("nutsCardLayer");
   const makeIssue = document.getElementById("nutsMakeIssue");
   const zoom = document.getElementById("nutsZoom");
@@ -19,13 +20,23 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   const boardForm = document.getElementById("nutsNewBoardForm");
   const boardName = document.getElementById("nutsNewBoardName");
   const boardError = document.getElementById("nutsNewBoardError");
+  const boardRulePreview = document.getElementById("nutsNewBoardRulePreview");
+  const boardRuleToggle = document.getElementById("nutsNewBoardDefaultsTitle");
+  const boardSkillToggle = document.getElementById("nutsNewBoardSkillsTitle");
+  const boardSkillPreview = document.getElementById("nutsNewBoardSkillPreview");
+  const boardImportRules = document.getElementById("nutsNewBoardImportRules");
+  const boardImportSkill = document.getElementById("nutsNewBoardImportSkill");
+  let newBoardRules = null;
+  const newBoardSkills = new Map();
   const createBoard = document.getElementById("nutsNewBoardSubmit");
   const sceneSelect = window.NutbookNutsPicker("nutsSceneSelect", "nutsSceneLabel", applyScene);
   const sceneAbout = document.getElementById("nutsSceneAbout");
   const rulesDialog = document.getElementById("nutsRulesDialog");
   const ruleName = document.getElementById("nutsRuleName");
   const ruleText = document.getElementById("nutsRuleText");
-  const ruleGoal = document.getElementById("nutsRuleGoal");
+  const currentRules = document.getElementById("nutsCurrentRules");
+  const importRules = document.getElementById("nutsImportRules");
+  const exportRules = document.getElementById("nutsExportRules");
   const ruleTemplate = window.NutbookNutsPicker("nutsRuleTemplate", "nutsRuleTemplateLabel");
   const ruleTemplates = document.getElementById("nutsRuleTemplates");
   const ruleTemplateToggle = document.getElementById("nutsRuleTemplatesTitle");
@@ -302,6 +313,38 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     viewport.focus({ preventScroll: true });
   });
 
+  function focusIssue(id) {
+    const next = id || null;
+    if (focusedIssueId === next) return;
+    focusedIssueId = next;
+    for (const frame of groupLayer.children) {
+      frame.classList.toggle("nuts-group-focused", frame.dataset.issueId === focusedIssueId);
+    }
+  }
+
+  function resizeIssueFolder(frame, width, height) {
+    const widthStyle = `${width}px`, heightStyle = `${height}px`;
+    if (frame.style.width === widthStyle && frame.style.height === heightStyle) return;
+    frame.style.width = widthStyle;
+    frame.style.height = heightStyle;
+    const titleWidth = frame.querySelector(".nuts-group-title").offsetWidth;
+    frame.style.setProperty("--issue-title-width", `${titleWidth}px`);
+    const tabEnd = Math.max(80, titleWidth + 44);
+    const right = width - .5;
+    const bottom = height - .5;
+    const tabTop = `M .5 10 Q .5 .5 10 .5 H ${tabEnd} C ${tabEnd + 12} .5 ${tabEnd + 10} 28 ${tabEnd + 24} 28`;
+    const silhouette = [
+      tabTop,
+      `H ${width - 12} Q ${right} 28 ${right} 40`,
+      `V ${height - 12} Q ${right} ${bottom} ${width - 12} ${bottom}`,
+      `H 12 Q .5 ${bottom} .5 ${height - 12} Z`,
+    ].join(" ");
+    const [shape, tab, edge] = frame.firstElementChild.children;
+    shape.setAttribute("d", silhouette);
+    tab.setAttribute("d", `${tabTop} H .5 Z`);
+    edge.setAttribute("d", silhouette);
+  }
+
   function renderGroups() {
     const groups = new Map();
     for (const card of cards.values()) {
@@ -315,21 +358,52 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         frame = document.createElement("div");
         frame.className = "nuts-group";
         frame.dataset.issueId = id;
+        frame.classList.toggle("nuts-group-focused", id === focusedIssueId);
+        const outline = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        outline.setAttribute("class", "nuts-group-outline");
+        outline.setAttribute("aria-hidden", "true");
+        for (const part of ["shape", "tab", "edge"]) {
+          const path = document.createElementNS(outline.namespaceURI, "path");
+          path.setAttribute("class", `nuts-group-${part}`);
+          outline.append(path);
+        }
+        const tab = outline.children[1];
         const title = document.createElement("button");
         title.type = "button";
-        title.textContent = members[0].issue_title;
-        title.title = copy(`打开议题「${title.textContent}」`, `Open issue: ${title.textContent}`);
-        title.addEventListener("click", event => {
+        title.className = "nuts-group-title";
+        const caption = document.createElement("span");
+        caption.textContent = members[0].issue_title;
+        title.setAttribute("aria-label", copy(`打开议题「${caption.textContent}」`, `Open issue: ${caption.textContent}`));
+        title.append(caption);
+        frame.addEventListener("click", event => {
+          if (!title.contains(event.target) && event.target !== tab) return;
           if ((!suppressClick && !viewport.classList.contains("is-panning")) || event.detail === 0) refreshIssues(id).catch(report);
         });
-        frame.append(title);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "nuts-group-delete";
+        const removeLabel = copy("删除议题", "Delete issue");
+        remove.setAttribute("aria-label", removeLabel);
+        remove.dataset.tooltip = removeLabel;
+        remove.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>';
+        remove.addEventListener("pointerdown", event => {
+          if (event.button === 0) event.stopPropagation();
+        });
+        remove.onclick = async () => {
+          remove.disabled = true;
+          try { await deleteIssue(id); }
+          catch (error) { report(error); }
+          finally { remove.disabled = false; }
+        };
+        frame.append(outline, title, remove);
         groupLayer.append(frame);
       }
       const left = Math.min(...members.map(card => card.x)) - 10;
       const top = Math.min(...members.map(card => card.y)) - groupHeaderSpace;
       const right = Math.max(...members.map(card => card.x + cardWidth(card))) + 10;
       const bottom = Math.max(...members.map(card => card.y + cardHeight(card))) + 10;
-      Object.assign(frame.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
+      Object.assign(frame.style, { left: `${left}px`, top: `${top}px` });
+      resizeIssueFolder(frame, right - left, bottom - top);
     }
   }
 
@@ -370,6 +444,17 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       const cardLabel = card.issue_title ? `${label} · ${card.issue_title}` : label;
       node.setAttribute("aria-label", cardLabel);
       if (!card.issue_id) node.title = cardLabel;
+      if (card.kind === "markdown" || systemMaterial(card)) {
+        const openLabel = card.kind === "markdown" ? copy("打开 Markdown 素材", "Open Markdown material")
+          : copy("双击用系统默认应用打开", "Double-click to open in the default app");
+        node.title = `${openLabel} · ${cardLabel}`;
+        node.setAttribute("aria-label", node.title);
+        node.addEventListener("click", event => {
+          if (event.target.closest("button") === node && event.detail === 0) {
+            openMaterial(card, boardId);
+          }
+        });
+      }
       const caption = document.createElement("span");
       caption.className = "nuts-card-caption";
       const captionText = document.createElement("span");
@@ -453,13 +538,23 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
 
   async function addPaths(paths, destination = boardId, target = origin()) {
     const failures = [];
+    const oversized = [];
+    let imported = false;
     try {
       for (const [offset, path] of paths.entries()) {
-        try { await invoke("nuts_board_file", { boardId: destination, path, x: target.x + offset * 22, y: target.y + offset * 22 }); }
-        catch (error) { failures.push(String(error)); }
+        try {
+          await invoke("nuts_board_file", { boardId: destination, path, x: target.x + offset * 22, y: target.y + offset * 22 });
+          imported = true;
+        } catch (error) {
+          const notice = sizeLimitNotice(path, error);
+          if (notice) oversized.push(notice);
+          else failures.push(String(error));
+        }
       }
-      await reload();
+      if (!visible() || destination !== boardId) return;
+      if (oversized.length) notify(oversized.join(" · "), { duration: 4500 });
       if (failures.length) report(failures.join(" · "));
+      if (imported) await reload();
     } catch (error) { report(error); }
   }
 
@@ -489,6 +584,11 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     motion.finished.then(() => flight.remove(), () => flight.remove());
   }
 
+  function boardLabel(choice) {
+    return choice.id === "default" && (!choice.name || choice.name === "随手记")
+      ? copy("随手记", "Quick notes") : choice.name;
+  }
+
   function openForm(kind, point = origin(), destination = boardId) {
     if (editor) return;
     editor = { kind, point, boardId: destination, ids: [...selected], ready: kind === "note" };
@@ -498,7 +598,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       const choices = boardChoices.length ? boardChoices : [{ id: "default" }];
       captureBoard.setOptions(choices.map(choice => ({
         value: choice.id,
-        label: choice.id === "default" ? copy("随手记", "Quick notes") : choice.name,
+        label: boardLabel(choice),
       })), destination);
       document.getElementById("nutsCaptureDestinationLabel").textContent = copy("收进白板", "Save to board");
     }
@@ -695,22 +795,232 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     paintCamera();
   };
 
+  const tabGestureLabel = () => copy("双击标签改名 · 长按显示删除按钮", "Double-click the tab to rename · Hold to show the Delete button");
+  let gestureHint;
+  let gestureHintTimer;
+  let showedGestureHint = false;
+
+  function hideGestureHint() {
+    clearTimeout(gestureHintTimer);
+    gestureHint?.remove();
+    gestureHint = null;
+  }
+
+  function showFirstTabHint(id) {
+    if (showedGestureHint || boardId !== id || !visible()) return;
+    const key = "nuts.boardTabGestureHint.seen";
+    try { if (localStorage.getItem(key)) return; } catch {}
+    const tab = boardList.querySelector('[aria-current="page"]');
+    if (!tab || tab.dataset.boardId !== id) return;
+    tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const strip = boardList.parentElement;
+    gestureHint = document.createElement("span");
+    gestureHint.className = "nuts-tab-gesture-hint";
+    gestureHint.setAttribute("role", "status");
+    strip.append(gestureHint);
+    gestureHint.textContent = tabGestureLabel();
+    const offset = tab.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+    gestureHint.style.left = Math.max(0, Math.min(offset, strip.clientWidth - gestureHint.offsetWidth)) + "px";
+    showedGestureHint = true;
+    try { localStorage.setItem(key, "1"); } catch {}
+    gestureHintTimer = setTimeout(hideGestureHint, 6000);
+  }
+
+  boardList.addEventListener("pointerdown", hideGestureHint);
+  boardList.addEventListener("keydown", hideGestureHint);
+
+  function updateCurrentBoardTab() {
+    for (const tab of boardList.querySelectorAll(".nuts-board-tab")) {
+      if (tab.dataset.boardId === boardId) tab.setAttribute("aria-current", "page");
+      else tab.removeAttribute("aria-current");
+    }
+  }
+
+  function editBoardName(choice, tab) {
+    if (tab.hidden) return;
+    const form = document.createElement("form");
+    form.className = "nuts-board-name-form";
+    const input = document.createElement("input");
+    input.value = boardLabel(choice);
+    input.required = true;
+    input.maxLength = 45;
+    input.setAttribute("aria-label", copy("白板名称", "Board name"));
+    form.append(input);
+    tab.hidden = true;
+    tab.after(form);
+    input.focus();
+    input.select();
+    const close = restoreFocus => {
+      form.remove();
+      tab.hidden = false;
+      if (restoreFocus) tab.focus();
+    };
+    input.onblur = () => { if (!input.readOnly) close(false); };
+    input.onkeydown = event => {
+      if (event.isComposing) return;
+      if (event.key === "Escape" && !input.readOnly) {
+        event.preventDefault();
+        close(true);
+      }
+      if (event.key === "Enter") event.stopPropagation();
+    };
+    form.onsubmit = async event => {
+      event.preventDefault();
+      if (input.readOnly) return;
+      const name = input.value.trim();
+      if (!name || name === choice.name) { close(true); return; }
+      input.readOnly = true;
+      try {
+        await invoke("nuts_rename_board", { boardId: choice.id, name });
+        const current = boardChoices.find(item => item.id === choice.id);
+        if (current) current.name = name;
+        choice.name = tab.textContent = name;
+        close(form.isConnected && document.activeElement === input);
+      } catch (error) {
+        report(error);
+        input.readOnly = false;
+        if (document.activeElement !== input) close(false);
+      }
+    };
+  }
+
+  async function deleteEmptyBoard(choice, button) {
+    if (button.disabled) return;
+    if (boardChoices.length <= 1) {
+      notify(copy("至少保留一个白板。", "Keep at least one board."));
+      return;
+    }
+    button.disabled = true;
+    const canDelete = checkOnly => invoke("nuts_remove_empty_board", { boardId: choice.id, checkOnly });
+    const occupied = () => notify(copy("白板内还有内容，无法删除。", "Board still has content and cannot be deleted."));
+    try {
+      if (!await canDelete(true)) { occupied(); return; }
+      const confirmed = await confirm({
+        title: copy("删除白板", "Delete board"),
+        message: copy(`确定删除「${boardLabel(choice)}」？`, `Delete “${boardLabel(choice)}”?`),
+        cancelText: copy("取消", "Cancel"),
+        confirmText: copy("删除白板", "Delete board"),
+        danger: true,
+      });
+      if (!confirmed) return;
+      if (!await canDelete(false)) { occupied(); return; }
+      boardChoices = boardChoices.filter(item => item.id !== choice.id);
+      renderBoardList();
+      if (boardId === choice.id) await switchBoard(boardChoices[0].id);
+      boardList.querySelector('[aria-current="page"]')?.focus();
+    } catch (error) {
+      report(error);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function renderBoardList() {
     boardList.replaceChildren();
     for (const choice of boardChoices) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = choice.id === "default" ? copy("随手记", "Quick notes") : choice.name;
-      button.title = button.textContent;
-      if (choice.id === boardId) button.setAttribute("aria-current", "page");
-      button.onclick = () => switchBoard(choice.id).catch(report);
-      boardList.append(button);
+      const entry = document.createElement("div");
+      entry.className = "nuts-board-tab-entry";
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = "nuts-board-tab";
+      tab.dataset.boardId = choice.id;
+      tab.textContent = boardLabel(choice);
+      tab.title = tabGestureLabel();
+      entry.append(tab);
+      let held = false;
+      tab.onclick = () => {
+        if (held) { held = false; return; }
+        switchBoard(choice.id).catch(report);
+      };
+      {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "nuts-board-delete";
+        remove.inert = true;
+        const label = copy("删除白板", "Delete board");
+        remove.title = label;
+        remove.setAttribute("aria-label", label);
+        remove.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>';
+        let hideTimer;
+        let hoveringDelete = false;
+        const clearHideTimer = () => clearTimeout(hideTimer);
+        const hideRemove = () => {
+          clearHideTimer();
+          hoveringDelete = false;
+          remove.inert = true;
+        };
+        const scheduleHide = () => {
+          clearHideTimer();
+          if (remove.inert || hoveringDelete || document.activeElement === remove) return;
+          hideTimer = setTimeout(() => {
+            if (!remove.disabled) hideRemove();
+          }, 4000);
+        };
+        remove.onpointerenter = event => {
+          if (event.pointerType === "touch") return;
+          hoveringDelete = true;
+          clearHideTimer();
+        };
+        remove.onpointerleave = () => {
+          hoveringDelete = false;
+          scheduleHide();
+        };
+        remove.onfocus = clearHideTimer;
+        remove.onclick = async () => {
+          await deleteEmptyBoard(choice, remove);
+          scheduleHide();
+        };
+        const startRename = () => {
+          hideRemove();
+          editBoardName(choice, tab);
+        };
+        tab.ondblclick = startRename;
+        let timer, origin;
+        const stop = () => clearTimeout(timer);
+        tab.onpointerdown = event => {
+          if (event.button !== 0) return;
+          held = false;
+          origin = [event.clientX, event.clientY];
+          stop();
+          timer = setTimeout(() => {
+            held = true;
+            remove.inert = false;
+            scheduleHide();
+          }, 500);
+        };
+        tab.onpointermove = event => {
+          if (origin && Math.hypot(event.clientX - origin[0], event.clientY - origin[1]) > 6) stop();
+        };
+        tab.onpointerup = tab.onpointerleave = tab.onpointercancel = stop;
+        tab.oncontextmenu = event => { if (held) event.preventDefault(); };
+        entry.onkeydown = event => {
+          if (event.target === tab && event.key === "F2") { event.preventDefault(); startRename(); }
+          if (event.target === tab && event.key === "Delete") {
+            event.preventDefault();
+            remove.inert = false;
+            remove.focus();
+          }
+          if (event.key === "Escape" && !remove.inert && !remove.disabled) {
+            hideRemove();
+            tab.focus();
+          }
+        };
+        entry.onfocusout = event => {
+          if (event.relatedTarget && !entry.contains(event.relatedTarget) && !remove.disabled) hideRemove();
+          else if (event.target === remove && event.relatedTarget) queueMicrotask(scheduleHide);
+        };
+        entry.append(remove);
+      }
+      boardList.append(entry);
     }
+    updateCurrentBoardTab();
   }
 
   async function switchBoard(id) {
     if (id === boardId) return;
+    hideGestureHint();
     boardId = id;
+    focusIssue(null);
     gesture = null;
     marquee.hidden = true;
     selected.clear();
@@ -720,25 +1030,90 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     cameraX = cameraY = 0;
     setZoom(1);
     paintSelection();
-    renderBoardList();
+    updateCurrentBoardTab();
     onBoardChange();
     await reload();
   }
   let defaultSceneName = "";
+  function setNewBoardSectionOpen(toggle, preview, open) {
+    toggle.setAttribute("aria-expanded", String(open));
+    preview.hidden = !open;
+  }
+  boardRuleToggle.onclick = () => setNewBoardSectionOpen(boardRuleToggle, boardRulePreview, boardRulePreview.hidden);
+  boardSkillToggle.onclick = () => setNewBoardSectionOpen(boardSkillToggle, boardSkillPreview, boardSkillPreview.hidden);
+
+  function showNewBoardPreset(option) {
+    const preset = option.preset;
+    boardRulePreview.textContent = (newBoardRules ?? preset.rules) || copy("暂无规则", "No rules yet");
+    boardRuleToggle.textContent = newBoardRules === null
+      ? copy("默认规则", "Default rules")
+      : copy("待导入规则", "Rules to import");
+    boardRuleToggle.title = boardRuleToggle.textContent;
+    const builtins = skills.sceneSkills(preset.skill)
+      .filter(skill => !newBoardSkills.has(skill.id.toLowerCase()));
+    const imported = skills.fileSkills([...newBoardSkills.values()]);
+    const items = [...builtins, ...imported];
+    boardSkillToggle.textContent = imported.length
+      ? copy("白板 Skills", "Board Skills")
+      : copy("默认 Skills", "Default Skills");
+    boardSkillToggle.title = boardSkillToggle.textContent;
+    boardSkillPreview.replaceChildren(items.length ? skills.preview(items) : copy("暂无 Skills", "No Skills yet"));
+  }
   function applyScene(option) {
     if (!option) return;
     if (!boardName.value || boardName.value === defaultSceneName) boardName.value = option.label;
     defaultSceneName = option.label;
-    sceneAbout.textContent = option.about;
+    sceneAbout.textContent = option.preset.about;
+    showNewBoardPreset(option);
   }
+  function setNewBoardBusy(busy) {
+    createBoard.disabled = boardImportRules.disabled = boardImportSkill.disabled = busy;
+    document.getElementById("nutsNewBoardCancel").disabled = busy;
+  }
+  async function selectNewBoardFile(kind) {
+    if (createBoard.disabled) return;
+    setNewBoardBusy(true);
+    boardError.textContent = "";
+    try {
+      if (kind === "rules") {
+        const text = await invoke("nuts_import_rules");
+        if (text === null) return;
+        newBoardRules = text;
+        setNewBoardSectionOpen(boardRuleToggle, boardRulePreview, true);
+        boardRulePreview.scrollTop = 0;
+      } else {
+        const skill = await invoke("nuts_choose_board_skill");
+        if (skill === null) return;
+        newBoardSkills.set(skill.id.toLowerCase(), skill);
+        setNewBoardSectionOpen(boardSkillToggle, boardSkillPreview, true);
+      }
+      showNewBoardPreset(sceneSelect.selected);
+    } catch (error) {
+      boardError.textContent = String(error);
+    } finally {
+      setNewBoardBusy(false);
+      (kind === "rules" ? boardImportRules : boardImportSkill).focus();
+    }
+  }
+  boardImportRules.onclick = () => selectNewBoardFile("rules");
+  boardImportSkill.onclick = () => selectNewBoardFile("skill");
+  document.getElementById("nutsBoardSkills").onclick = () => skills.openBoard(boardId);
+  document.getElementById("nutsOpenBoardFolder").onclick = () =>
+    invoke("nuts_open_board_folder", { boardId }).catch(report);
+
   document.getElementById("nutsNewBoard").onclick = async () => {
     const current = boardId;
     try {
       const catalog = await getCatalog();
       if (!visible() || boardId !== current || boardDialog.open) return;
       boardForm.reset();
+      newBoardRules = null;
+      newBoardSkills.clear();
+      setNewBoardSectionOpen(boardRuleToggle, boardRulePreview, false);
+      setNewBoardSectionOpen(boardSkillToggle, boardSkillPreview, false);
+      boardRulePreview.scrollTop = 0;
       boardError.textContent = "";
-      sceneSelect.setOptions(catalog.scenes.map(scene => ({ value: scene.id, label: scene.name, about: scene.about })));
+      sceneSelect.setOptions(catalog.scenes.map(scene => ({ value: scene.id, label: scene.name, preset: scene })));
       applyScene(sceneSelect.selected);
       boardDialog.showModal();
       boardName.focus();
@@ -750,16 +1125,66 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     try {
       const [catalog, config] = await Promise.all([getCatalog(), invoke("nuts_board_config", { boardId: current })]);
       if (!visible() || boardId !== current || rulesDialog.open) return;
-      rulesSession = { boardId: current, version: config.rules.version, templates: catalog.ruleTemplates };
+      rulesSession = { boardId: current, version: config.rules.version, savedText: config.rules.text, templates: catalog.scenes };
       ruleName.value = config.rules.name;
       ruleText.value = config.rules.text;
-      ruleGoal.value = "";
+      setRuleImportPreview(false);
       showRuleTemplates(false);
       rulesError.textContent = "";
-      ruleTemplate.setOptions(catalog.ruleTemplates.map(item => ({ label: item.name, value: item.id })));
+      ruleTemplate.setOptions(catalog.scenes.map(item => ({ label: item.name, value: item.id })), config.scene);
       rulesDialog.showModal();
       ruleText.focus();
     } catch (error) { report(error); }
+  };
+  function setRuleImportPreview(importing) {
+    currentRules.hidden = !importing;
+    document.getElementById("nutsCurrentRuleText").value = importing ? rulesSession.savedText : "";
+    updateRulePreviewLabels();
+  }
+  function updateRulePreviewLabels() {
+    button("nutsRuleTextLabel", currentRules.hidden ? "AGENTS.md" : copy("待导入规则", "Rules to import"));
+    button("nutsSaveRules", currentRules.hidden ? copy("保存白板规则", "Save board rules") : copy("确认导入并保存", "Confirm import and save"));
+  }
+  function setRuleFileBusy(busy) {
+    importRules.disabled = busy;
+    exportRules.disabled = busy;
+    saveRules.disabled = busy;
+    ruleTemplateToggle.disabled = busy;
+    document.getElementById("nutsDraftRule").disabled = busy;
+    ruleText.readOnly = busy;
+  }
+  importRules.onclick = async () => {
+    if (!rulesSession || saveRules.disabled) return;
+    rulesError.textContent = "";
+    setRuleFileBusy(true);
+    let imported = false;
+    try {
+      const text = await invoke("nuts_import_rules");
+      if (text === null) return;
+      ruleText.value = text;
+      setRuleImportPreview(true);
+      showRuleTemplates(false);
+      imported = true;
+    } catch (error) {
+      rulesError.textContent = String(error);
+    } finally {
+      setRuleFileBusy(false);
+      (imported ? ruleText : importRules).focus();
+    }
+  };
+  exportRules.onclick = async () => {
+    if (!rulesSession || saveRules.disabled) return;
+    rulesError.textContent = "";
+    setRuleFileBusy(true);
+    try {
+      const path = await invoke("nuts_export_rules", { boardId: rulesSession.boardId });
+      if (path) rulesError.textContent = copy("已导出 AGENTS.md", "Exported AGENTS.md");
+    } catch (error) {
+      rulesError.textContent = String(error);
+    } finally {
+      setRuleFileBusy(false);
+      exportRules.focus();
+    }
   };
   function showRuleTemplates(open) {
     ruleTemplates.hidden = !open;
@@ -769,9 +1194,12 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   document.getElementById("nutsDraftRule").onclick = () => {
     const template = rulesSession?.templates.find(item => item.id === ruleTemplate.value);
     if (!template) return;
+    setRuleImportPreview(false);
     ruleName.value = template.name;
-    ruleText.value = [copy("# 白板工作规则", "# Board rules"), ruleGoal.value.trim(), copy("## 工作步骤", "## Workflow"),
-      template.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")].filter(Boolean).join("\n\n");
+    ruleText.value = [
+      copy("# 白板工作规则", "# Board rules"),
+      template.rules,
+    ].filter(Boolean).join("\n\n");
     showRuleTemplates(false);
     ruleText.focus();
   };
@@ -795,22 +1223,29 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     if (createBoard.disabled) return;
     const name = boardName.value.trim();
     if (!name) { boardName.focus(); return; }
-    createBoard.disabled = true;
+    setNewBoardBusy(true);
     try {
-      const id = await invoke("nuts_create_board", { name, scene: sceneSelect.value });
+      const id = await invoke("nuts_create_board", {
+        name, scene: sceneSelect.value, language: copy("zh-CN", "en-US"),
+        rules: newBoardRules, skills: [...newBoardSkills.values()],
+      });
       boardChoices.push({ id, name });
+      renderBoardList();
       boardDialog.close();
       await switchBoard(id);
+      showFirstTabHint(id);
     } catch (error) {
       if (boardDialog.open) boardError.textContent = String(error);
       else report(error);
-    } finally { createBoard.disabled = false; }
+    } finally { setNewBoardBusy(false); }
   };
 
   viewport.addEventListener("dblclick", event => {
     if (viewport.classList.contains("is-panning")) return;
     const card = cards.get(event.target.closest(".nuts-card")?.dataset.cardId);
-    if (card?.kind === "link") {
+    if (card && (card.kind === "markdown" || systemMaterial(card))) {
+      openMaterial(card, boardId);
+    } else if (card?.kind === "link") {
       invoke("open_external_url_command", { payload: { url: card.url || card.excerpt } }).catch(report);
     } else if (!event.target.closest(".nuts-card, .nuts-group")) openForm("note", point(event));
   });
@@ -864,12 +1299,24 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     } else selected.clear();
     paintSelection();
   });
+  viewport.addEventListener("focusin", event => {
+    if (event.target === viewport && gesture?.issueId) return;
+    const card = cards.get(event.target.closest("[data-card-id]")?.dataset.cardId);
+    focusIssue(card?.issue_id || event.target.closest(".nuts-group")?.dataset.issueId);
+  });
+  viewport.addEventListener("focusout", event => {
+    if (event.relatedTarget && !viewport.contains(event.relatedTarget)) focusIssue(null);
+  });
+  document.addEventListener("pointerdown", event => {
+    if (focusedIssueId && !viewport.contains(event.target)) focusIssue(null);
+  });
   viewport.addEventListener("pointerdown", event => {
     if (savingGroup || (event.button !== 0 && event.button !== 1)) return;
     suppressClick = false;
     const card = cards.get(event.target.closest(".nuts-card, .nuts-detach-handle")?.dataset.cardId);
     const panning = event.button === 1 || viewport.classList.contains("is-panning");
     const issueId = !card && !panning ? event.target.closest(".nuts-group")?.dataset.issueId : undefined;
+    if (!panning) focusIssue(card?.issue_id || issueId);
     const members = issueId ? [...cards.values()].filter(member => member.issue_id === issueId)
       .map(member => ({ card: member, x: member.x, y: member.y })) : [];
     gesture = { id: event.pointerId, start: point(event), clientX: event.clientX, clientY: event.clientY,
@@ -923,9 +1370,9 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     for (const frame of frames) frame.classList.remove("nuts-group-drop");
     current.dropIssue = undefined;
     if (!current.card || current.card.issue_id || current.panning) return;
-    for (const frame of frames.reverse()) {
-      const bounds = frame.getBoundingClientRect();
-      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) continue;
+    for (const element of document.elementsFromPoint(event.clientX, event.clientY)) {
+      const frame = element.closest(".nuts-group");
+      if (!frame) continue;
       current.dropIssue = frame.dataset.issueId;
       frame.classList.add("nuts-group-drop");
       break;
@@ -933,15 +1380,12 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
   }
 
   function canDetachAt(event, moving = gesture?.card) {
-    const target = document.elementsFromPoint(event.clientX, event.clientY).find(element =>
+    const elements = document.elementsFromPoint(event.clientX, event.clientY);
+    const target = elements.find(element =>
       !moving || ![moving.node, moving.detachHandle, moving.resizeHandle, moving.usageButton]
         .some(node => node?.contains(element)));
     if (!target || !viewport.contains(target) || target.closest("button")) return false;
-    return ![...groupLayer.children].some(frame => {
-      const bounds = frame.getBoundingClientRect();
-      return event.clientX >= bounds.left && event.clientX <= bounds.right
-        && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
-    });
+    return !elements.some(element => element.closest(".nuts-group"));
   }
 
   async function moveBackToBoard(card) {
@@ -1024,7 +1468,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       finish({ pointerId: gesture.id }, true);
     }
   });
-  window.addEventListener("blur", () => { spaceDown = false; paintPan(); });
+  window.addEventListener("blur", () => { spaceDown = false; paintPan(); focusIssue(null); });
 
   return {
     contextMenu(target, event) {
@@ -1042,17 +1486,25 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
           if (action === "nuts-detach-card" && card) await moveBackToBoard(card);
           if (action === "nuts-remove-card" && card) await confirmRemoval(destination, [card.id], card.issue_id);
           if (action === "nuts-open-issue" && issueId) await refreshIssues(issueId);
+          if (action === "nuts-delete-issue" && issueId) await deleteIssue(issueId);
         },
       };
     },
     confirmRemoval,
+    reload,
     current: () => boardId,
     switchBoard,
-    nameFor: id => id === "default" ? copy("随手记", "Quick notes") : boardChoices.find(choice => choice.id === id)?.name,
+    nameFor: id => {
+      const choice = boardChoices.find(choice => choice.id === id);
+      return choice ? boardLabel(choice) : undefined;
+    },
     async capture(destination = boardId) {
       if (!visible() || boardDialog.open || rulesDialog.open) return;
-      if (!boardChoices.length) boardChoices = await invoke("nuts_boards");
-      if (visible()) openForm("note", destination === boardId ? origin() : { x: 30, y: 52 }, destination);
+      if (!boardChoices.length) boardChoices = await invoke("nuts_boards", { language: copy("zh-CN", "en-US") });
+      if (!boardChoices.some(choice => choice.id === destination)) {
+        destination = boardChoices.find(choice => choice.id === boardId)?.id ?? boardChoices[0]?.id;
+      }
+      if (visible() && destination) openForm("note", destination === boardId ? origin() : { x: 30, y: 52 }, destination);
     },
     async locate(id, destination = boardId) {
       if (!cards.has(id)) await reload();
@@ -1061,7 +1513,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
     localize,
     async open(listen) {
       localize();
-      const next = await invoke("nuts_boards");
+      const next = await invoke("nuts_boards", { language: copy("zh-CN", "en-US") });
       if (!visible()) return;
       boardChoices = next;
       renderBoardList();
@@ -1072,11 +1524,14 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
         dropTarget = dropTarget.catch(() => {}).then(() => invoke("nuts_board_drop_target", { active: visible() }));
         await dropTarget;
       }
-      await reload();
+      if (boardChoices.some(choice => choice.id === boardId)) await reload();
+      else await switchBoard(boardChoices[0].id);
     },
     close() {
+      hideGestureHint();
       loading += 1;
       restoreGesture(gesture);
+      focusIssue(null);
       gesture = null;
       viewport.classList.remove("is-dragging-canvas", "nuts-detach-ready");
       marquee.hidden = true;
@@ -1091,17 +1546,23 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, refreshIssu
       for (const [id, label] of Object.entries({
         nutsSceneLabel: copy("从场景开始", "Start from a scene"),
         nutsBoardRules: copy("工作规则", "Board rules"),
+        nutsOpenBoardFolder: copy("打开白板文件夹", "Open board folder"),
+        nutsBoardSkills: copy("白板 Skill", "Board Skills"),
+        nutsNewBoardImportRules: copy("导入规则", "Import rules"),
+        nutsNewBoardImportSkill: copy("导入 Skill", "Import Skill"),
         nutsRulesTitle: copy("白板工作规则", "Board rules"),
         nutsRuleNameLabel: copy("规则名称", "Rule name"),
         nutsRuleTemplatesTitle: copy("查看模板", "See templates"),
-        nutsRuleGoalLabel: copy("想用这张白板做什么？", "What is this board for?"),
         nutsRuleTemplateLabel: copy("起步模板", "Starter template"),
-        nutsDraftRule: copy("生成规则草稿", "Draft rules"),
+        nutsDraftRule: copy("载入默认规则", "Load default rules"),
         nutsRulesCancel: copy("取消", "Cancel"),
-        nutsSaveRules: copy("保存白板规则", "Save board rules"),
+        nutsCurrentRulesLabel: copy("当前已保存规则", "Current saved rules"),
+        nutsImportRules: copy("导入 Markdown", "Import Markdown"),
+        nutsExportRules: copy("导出 AGENTS.md", "Export AGENTS.md"),
         nutsIssueTemplateLabel: copy("议题模板", "Issue template"),
         nutsIssueGoalLabel: copy("这次想做成什么？", "What should this produce?"),
       })) button(id, label);
+      updateRulePreviewLabels();
       button("nutsNewBoard", copy("新建白板", "New board"));
       button("nutsNewBoardTitle", copy("新建白板", "New board"));
       button("nutsNewBoardLabel", copy("白板名称", "Board name"));

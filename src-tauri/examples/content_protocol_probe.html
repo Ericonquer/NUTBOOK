@@ -4,10 +4,13 @@
 <h1>Resource protocol compatibility gate</h1><img id="image" src="/image.svg"><pre id="result">Testing…</pre>
 <script>
 addEventListener('load',async()=>{
+ const stage=name=>{void window.__TAURI_INTERNALS__.invoke('protocol_probe_stage',{stage:name}).catch(()=>{});};
+ stage('document loaded');
  const result={origin:location.origin,href:location.href,css:getComputedStyle(document.body).getPropertyValue('--probe-css').trim()==='ready',module:window.probeModule===true,image:document.querySelector('#image').naturalWidth===10};
  try { const r=await fetch('/data.json'); result.fetch=(await r.json()).canary==='A'; }catch(e){result.fetch=false;result.fetchError=String(e)}
  try { const r=await fetch(window.probeOther);result.crossDenied=!r.ok; }catch(e){result.crossDenied=true;result.crossError=String(e)}
  try { result.resourceBurst=(await Promise.all(Array.from({length:96},async(_,i)=>{const r=await fetch('/data.json?burst='+i);return r.ok&&(await r.json()).canary==='A'}))).every(Boolean); }catch(e){result.resourceBurst=false;result.burstError=String(e)}
+ stage('resource requests finished');
  if(window.probeMappedOrigin){
    await window.probeMappingReady;
    const loadFrame=(origin,navigate)=>new Promise(resolve=>{
@@ -31,6 +34,7 @@ addEventListener('load',async()=>{
  try { const r=await fetch('/data.json');result.revoked=!r.ok; }catch(e){result.revoked=true;}
  result.ok=(!window.probeMappedOrigin||(result.mappedFrames.opaqueSrcdoc===10&&result.mappedFrames.opaqueNavigated===10))&&result.resourceBurst&&result.oldAddressDenied&&result.crypto&&result.storage&&result.revoked&&result.css&&result.module&&result.image&&result.fetch&&result.crossDenied;
  document.querySelector('#result').textContent=JSON.stringify(result,null,2);
+ stage('browser checks finished');
  await window.__TAURI_INTERNALS__.invoke('protocol_probe_report',{report:result});
 });
 </script>

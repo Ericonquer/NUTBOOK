@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::{open, validate_markdown, Result};
 
+#[cfg(test)]
 const DEFAULT: &str = "default";
 
 #[derive(Serialize)]
@@ -17,7 +18,7 @@ pub struct Board {
 pub fn boards(data_dir: &Path) -> Result<Vec<Board>> {
     let db = open(data_dir)?;
     let mut query = db
-        .prepare("SELECT id, name FROM nuts_boards ORDER BY rowid")
+        .prepare("SELECT id, name FROM nuts_boards ORDER BY (id = 'default') DESC, rowid")
         .map_err(|e| e.to_string())?;
     let rows = query
         .query_map([], |row| {
@@ -27,17 +28,21 @@ pub fn boards(data_dir: &Path) -> Result<Vec<Board>> {
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut boards = vec![Board {
-        id: DEFAULT.into(),
-        name: "随手记".into(),
-    }];
-    for row in rows {
-        boards.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(boards)
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())
 }
 
 pub fn create_board(data_dir: &Path, name: &str, scene: &str, language: &str) -> Result<String> {
+    create_board_with_files(data_dir, name, scene, language, None, &[])
+}
+
+pub fn create_board_with_files(
+    data_dir: &Path,
+    name: &str,
+    scene: &str,
+    language: &str,
+    rules: Option<&str>,
+    skills: &[super::board_files::BoardSkill],
+) -> Result<String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 45 {
         return Err("Enter a board name of up to 45 characters".into());
@@ -58,13 +63,56 @@ pub fn create_board(data_dir: &Path, name: &str, scene: &str, language: &str) ->
         params![id, language],
     )
     .map_err(|e| e.to_string())?;
+    super::settings::initialize_folder(data_dir, &tx, &id, rules, skills)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(id)
 }
 
+pub fn rename_board(data_dir: &Path, board_id: &str, name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 45 {
+        return Err("Enter a board name of up to 45 characters".into());
+    }
+    let changed = open(data_dir)?
+        .execute("UPDATE nuts_boards SET name = ?2 WHERE id = ?1", params![board_id, name])
+        .map_err(|error| error.to_string())?;
+    if changed == 0 {
+        return Err("This board cannot be renamed".into());
+    }
+    Ok(())
+}
+
+pub fn remove_empty_board(data_dir: &Path, board_id: &str, check_only: bool) -> Result<bool> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    ensure_board(&tx, board_id)?;
+    let count: i64 = tx.query_row("SELECT COUNT(*) FROM nuts_boards", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if count <= 1 {
+        return Err("Keep at least one board".into());
+    }
+    let occupied: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM board_cards c LEFT JOIN nuts_card_boards b ON c.id = b.card_id WHERE COALESCE(b.board_id, 'default') = ?1)
+             OR EXISTS(SELECT 1 FROM issues i LEFT JOIN nuts_issue_boards b ON i.id = b.issue_id WHERE COALESCE(b.board_id, 'default') = ?1)",
+        [board_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    if occupied {
+        return Ok(false);
+    }
+    if !check_only {
+        tx.execute("DELETE FROM nuts_board_rules WHERE board_id = ?1", [board_id]).map_err(|error| error.to_string())?;
+        tx.execute("DELETE FROM nuts_board_locales WHERE board_id = ?1", [board_id]).map_err(|error| error.to_string())?;
+        tx.execute("DELETE FROM nuts_board_scenes WHERE board_id = ?1", [board_id]).map_err(|error| error.to_string())?;
+        tx.execute("DELETE FROM nuts_board_file_initialized WHERE board_id = ?1", [board_id]).map_err(|error| error.to_string())?;
+        tx.execute("DELETE FROM nuts_boards WHERE id = ?1", [board_id]).map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
 pub(super) fn ensure_board(db: &rusqlite::Connection, board_id: &str) -> Result<()> {
-    if board_id != DEFAULT
-        && !db
+    if !db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM nuts_boards WHERE id = ?1)",
                 [board_id],
@@ -231,6 +279,8 @@ pub(super) fn delete_card(tx: &rusqlite::Transaction<'_>, id: &str) -> Result<()
         tx.execute(&format!("DELETE FROM {table} WHERE card_id = ?1"), [id])
             .map_err(|error| error.to_string())?;
     }
+    tx.execute("DELETE FROM nuts_markdown_sources WHERE card_id = ?1", [id])
+        .map_err(|error| error.to_string())?;
     tx.execute("DELETE FROM board_cards WHERE id = ?1", [id])
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -311,7 +361,7 @@ pub fn add(
     x: i64,
     y: i64,
 ) -> Result<String> {
-    add_card(data_dir, board_id, title, markdown, kind, (x, y), None)
+    add_card(data_dir, board_id, title, markdown, kind, (x, y), None, None)
 }
 
 pub(super) fn add_card(
@@ -322,6 +372,7 @@ pub(super) fn add_card(
     kind: &str,
     (x, y): (i64, i64),
     issue_id: Option<&str>,
+    markdown_source: Option<&str>,
 ) -> Result<String> {
     validate_markdown(markdown)?;
     let id = Uuid::new_v4().to_string();
@@ -339,6 +390,10 @@ pub(super) fn add_card(
         params![id, board_id],
     )
     .map_err(|e| e.to_string())?;
+    if let Some(path) = markdown_source {
+        tx.execute("INSERT INTO nuts_markdown_sources VALUES (?1, ?2)", params![id, path])
+            .map_err(|error| error.to_string())?;
+    }
     if let Some(issue_id) = issue_id {
         let (x, y) = tx.query_row(
             "SELECT COALESCE(MAX(x) + 240, 30), COALESCE(MIN(y), 52)
@@ -510,6 +565,53 @@ pub fn open_issue(data_dir: &Path, id: &str) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn renames_and_deletes_only_empty_boards() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let id = create_board(dir, "Original", "research", "en-US").unwrap();
+        rename_board(dir, &id, " Renamed ").unwrap();
+        assert_eq!(boards(dir).unwrap()[1].name, "Renamed");
+        assert_eq!(super::super::settings::config(dir, &id).unwrap()["scene"], "research");
+        rename_board(dir, DEFAULT, "Other").unwrap();
+        assert_eq!(boards(dir).unwrap()[0].name, "Other");
+
+        assert!(remove_empty_board(dir, &id, true).unwrap());
+        let card = add(dir, &id, "Source", "Evidence", "note", 0, 0).unwrap();
+        assert!(!remove_empty_board(dir, &id, false).unwrap());
+        let issue = create_issue(dir, &id, "Issue", &[card.clone()], None, "").unwrap();
+        remove(dir, &id, &[card], Some(&issue)).unwrap();
+        assert!(!remove_empty_board(dir, &id, false).unwrap());
+
+        let empty = create_board(dir, "Mistake", "article", "en-US").unwrap();
+        assert!(remove_empty_board(dir, &empty, false).unwrap());
+        assert!(!boards(dir).unwrap().iter().any(|board| board.id == empty));
+        assert!(add(dir, &empty, "Late import", "Evidence", "note", 0, 0).is_err());
+    }
+
+    #[test]
+    fn deleting_the_first_board_preserves_legacy_content_and_keeps_one_board() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path();
+        assert!(remove_empty_board(data, DEFAULT, false).is_err());
+        let custom = create_board(data, "自定义", "custom", "zh-CN").unwrap();
+        let db = open(data).unwrap();
+        db.execute("INSERT INTO board_cards VALUES ('legacy','Legacy','text','note',0,0,NULL)", []).unwrap();
+        assert!(!remove_empty_board(data, DEFAULT, false).unwrap());
+        db.execute("DELETE FROM board_cards WHERE id='legacy'", []).unwrap();
+        assert!(remove_empty_board(data, DEFAULT, false).unwrap());
+        assert_eq!(boards(data).unwrap().into_iter().map(|b| b.id).collect::<Vec<_>>(), [custom.clone()]);
+        assert!(remove_empty_board(data, &custom, false).is_err());
+        assert!(add(data, DEFAULT, "Late", "text", "note", 0, 0).is_err());
+        let issue = super::super::create(data, "Imported", "source.md", "Source").unwrap();
+        let claim = super::super::claim_next(data, Some(&custom)).unwrap().unwrap();
+        assert_eq!(claim.issue.id, issue);
+        assert_eq!(claim.issue.board_id, custom);
+        assert!(claim.rules.text.is_empty());
+        assert!(claim.rules.file_skills.unwrap().is_empty());
+        assert!(claim.task.template.is_none());
+    }
+
+    #[test]
     fn search_finds_full_note_body_and_card_titles_across_boards() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
@@ -616,18 +718,20 @@ mod tests {
             list(dir, &other).unwrap()[0].issue_id.as_deref(),
             Some(other_issue.as_str())
         );
+        let config = super::super::settings::config(dir, &other).unwrap();
+        let initial = config["rules"]["version"].as_i64().unwrap();
         let rules =
-            super::super::settings::save_rules(dir, &other, "验证规则", "保留证据", 1).unwrap();
-        assert_eq!(rules.version, 2);
-        assert!(super::super::settings::save_rules(dir, &other, "旧编辑", "冲突", 1).is_err());
+            super::super::settings::save_rules(dir, &other, "验证规则", "保留证据", initial).unwrap();
+        assert_eq!(rules.version, initial + 1);
+        assert!(super::super::settings::save_rules(dir, &other, "旧编辑", "冲突", initial).is_err());
         open_issue(dir, &other_issue).unwrap();
         let claim = crate::core::nuts::claim(dir, &other_issue, None).unwrap();
         assert_eq!(claim.task.template.as_deref(), Some("做提纲"));
         assert_eq!(claim.task.goal, "比较课堂问题");
         assert_eq!(claim.rules.text, "保留证据");
-        super::super::settings::save_rules(dir, &other, "新规则", "另行规则", 2).unwrap();
+        super::super::settings::save_rules(dir, &other, "新规则", "另行规则", rules.version).unwrap();
         let from_issue = super::super::settings::issue_context(dir, &other_issue, "en-US").unwrap();
-        assert_eq!(from_issue["rules"]["version"], 2);
+        assert_eq!(from_issue["rules"]["version"], rules.version);
         assert_eq!(from_issue["rules"]["text"], "保留证据");
         move_card(dir, &note, 65, 75).unwrap();
         assert_eq!(

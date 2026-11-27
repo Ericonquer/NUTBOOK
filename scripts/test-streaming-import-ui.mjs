@@ -30,8 +30,18 @@ try{
  await page.locator('[data-open-item="1"]').dblclick();await page.waitForFunction(()=>getActiveTab()?.id===1);
  await publish(100);await page.waitForFunction(()=>appState.items.length===100);assert.equal(await page.evaluate(()=>getActiveTab()?.id),1,'later batches do not navigate away from an opened file');
  await page.evaluate(()=>showAllFilesHome());
- await page.locator('#itemList').evaluate(n=>n.scrollTop=250);const scroll=await page.locator('#itemList').evaluate(n=>n.scrollTop);await page.evaluate(()=>appState.tagBatchSelected.add(1));
- await publish(150);await page.waitForFunction(()=>document.querySelectorAll('[data-open-item]').length===150);assert.ok(Math.abs(await page.locator('#itemList').evaluate(n=>n.scrollTop)-scroll)<3,'append keeps the scroll anchor');assert.equal(await page.evaluate(()=>appState.tagBatchSelected.has(1)),true);
+ const anchor=await page.locator('#itemList').evaluate(list=>{
+  list.scrollTop=250;
+  appState.tagBatchSelected.add(1);
+  const top=list.getBoundingClientRect().top;
+  const card=[...list.querySelectorAll('[data-open-item]')].find(item=>item.getBoundingClientRect().bottom>top);
+  return {id:card.dataset.openItem,offset:card.getBoundingClientRect().top-top,scrollTop:list.scrollTop};
+ });
+ assert.ok(anchor.scrollTop>0,'fixture must scroll before appending files');
+ await publish(150);await page.waitForFunction(()=>document.querySelectorAll('[data-open-item]').length===150);
+ const offset=await page.locator('#itemList').evaluate((list,id)=>list.querySelector(`[data-open-item="${id}"]`).getBoundingClientRect().top-list.getBoundingClientRect().top,anchor.id);
+ assert.ok(Math.abs(offset-anchor.offset)<3,`append keeps card ${anchor.id} in place (${anchor.offset} → ${offset})`);
+ assert.equal(await page.evaluate(()=>appState.tagBatchSelected.has(1)),true);
  await page.locator('#folderIngestCancelChip').click();await page.waitForFunction(()=>firstResolved);assert.equal(await page.locator('[data-open-item]').count(),150);assert.match(await page.locator('[data-task-message]').textContent(),/保留 150/);
  await page.evaluate(()=>{appState.isSettingsOpen=true;appState.settingsTab='libraries';appState.settingsLibrarySection='folders';renderSettingsPanel();});
  const warning=page.locator('[data-settings-scan-incomplete="880"]');await warning.waitFor();await warning.hover();await page.locator('#sourceScanTooltip').waitFor();assert.match(await page.locator('#sourceScanTooltip').textContent(),/点击“扫描”可继续/);

@@ -272,7 +272,7 @@ window.openNutbookNutsReview = async function ({ invoke, copy, markdownToHtml, w
   async function renderImages() {
     for (const paragraph of article.querySelectorAll("p")) {
       if (paragraph.childElementCount) continue;
-      const match = /^!\[([^\]]*)\]\(((?:\.\/)?asset\/[^/\\()]+)\)$/.exec(paragraph.textContent.trim());
+      const match = /^!\[([^\]]*)\]\(((?:\.\/)?assets?\/[^/\\()]+)\)$/.exec(paragraph.textContent.trim());
       if (!match) continue;
       const [, alt, url] = match;
       let source;

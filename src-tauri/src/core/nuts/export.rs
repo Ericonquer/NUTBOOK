@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{draft_assets, open, result_file_name, safe_file_title, Result};
+use super::{draft_assets, open, result_file_name, result_path, safe_file_title, Result};
 use crate::core::document_versions::{capture_markdown, relocate_markdown, Dependency};
 use rusqlite::params;
 
@@ -15,7 +15,7 @@ pub fn export(
     result: bool,
     destination: &Path,
 ) -> Result<PathBuf> {
-    let id = uuid::Uuid::parse_str(issue_id).map_err(|_| "Invalid issue ID")?;
+    uuid::Uuid::parse_str(issue_id).map_err(|_| "Invalid issue ID")?;
     let mut db = open(data_dir)?;
     let tx = db.transaction().map_err(|error| error.to_string())?;
     let title: String = tx
@@ -35,14 +35,7 @@ pub fn export(
             |_| Ok(()),
         )
         .map_err(|_| "This result version is no longer available")?;
-        let root = data_dir.join("nuts-results").join(id.to_string());
-        let versioned = root.join(format!("v{version}"));
-        let versioned_file = versioned.join(&filename);
-        let path = if versioned_file.exists() {
-            versioned_file
-        } else {
-            root.join(&filename)
-        };
+        let path = result_path(&tx, data_dir, issue_id, version, &filename)?;
         if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
             return Err("The saved result file is missing or is not a regular file".into());
         }
@@ -74,7 +67,7 @@ pub fn export(
         .tempdir_in(destination)
         .map_err(|error| error.to_string())?;
     let mut replacements = BTreeMap::new();
-    let assets = staged.path().join("asset");
+    let assets = staged.path().join(draft_assets::ASSETS_DIR);
     for (reference, dependency) in &snapshot.snapshot.dependencies {
         match dependency {
             Dependency::Captured { object, .. } => {
@@ -91,7 +84,7 @@ pub fn export(
                 fs::create_dir_all(&assets).map_err(|error| error.to_string())?;
                 fs::write(assets.join(&name), &snapshot.objects[object])
                     .map_err(|error| error.to_string())?;
-                replacements.insert(reference.clone(), format!("asset/{name}"));
+                replacements.insert(reference.clone(), format!("{}/{name}", draft_assets::ASSETS_DIR));
             }
             _ if reference.starts_with("https://")
                 || reference.starts_with("http://")
@@ -198,7 +191,10 @@ mod tests {
                 i64::from(version)
             );
         }
+        let board_folder = nuts::settings::open_folder_path(&data, "default").unwrap();
+        assert_eq!(fs::read_dir(board_folder.join("成果")).unwrap().count(), 0);
         let saved = nuts::save_result(&data, &id, 2, None, |path| Ok(path.to_path_buf())).unwrap();
+        assert!(saved.starts_with(board_folder.canonicalize().unwrap().join("成果")));
         let edited = "# Manually edited result\n\n![Figure][image]\n\n[image]: asset/figure.png";
         fs::write(&saved, edited).unwrap();
         let destination = root.join("exports");
@@ -221,7 +217,7 @@ mod tests {
             let references = image_references(&markdown);
             assert_eq!(references.len(), 1);
             let relative = references.first().unwrap();
-            assert!(relative.starts_with("asset/"));
+            assert!(relative.starts_with("assets/"));
             assert_eq!(
                 image::open(moved.join(relative)).unwrap().width(),
                 version as u32

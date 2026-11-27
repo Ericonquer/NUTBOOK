@@ -52,6 +52,18 @@ fn run_nuts(args: &[String], json: bool) {
             [operation] if operation == "claim-next" => serde_json::to_value(nuts::claim_next(&app_data, None)?),
             [operation, flag, id] if operation == "claim-next" && flag == "--board" =>
                 serde_json::to_value(nuts::claim_next(&app_data, Some(id))?),
+            [operation] if operation == "retros" =>
+                serde_json::to_value(nuts::retro::list(&app_data, None)?),
+            [operation, flag, id] if operation == "retros" && flag == "--board" =>
+                serde_json::to_value(nuts::retro::list(&app_data, Some(id))?),
+            [operation] if operation == "claim-task" =>
+                serde_json::to_value(nuts::retro::claim_scheduled(&app_data, None)?),
+            [operation, flag, id] if operation == "claim-task" && flag == "--board" =>
+                serde_json::to_value(nuts::retro::claim_scheduled(&app_data, Some(id))?),
+            [operation, id, token, path] if operation == "finish-retro" =>
+                serde_json::to_value(nuts::retro::finish(&app_data, id, token, std::path::Path::new(path))?),
+            [operation, id] if operation == "undo-retro" =>
+                serde_json::to_value(nuts::retro::undo(&app_data, id)?),
             [operation] if operation == "boards" => serde_json::to_value(nuts::board::boards(&app_data)?),
             [operation, name, scene] if operation == "create-board" => {
                 let language = env::var("NUTBOOK_LANGUAGE").unwrap_or_else(|_| "zh-CN".into());
@@ -59,8 +71,7 @@ fn run_nuts(args: &[String], json: bool) {
                 Ok(serde_json::json!({ "id": id }))
             }
             [operation, id] if operation == "board-config" => {
-                let language = env::var("NUTBOOK_LANGUAGE").unwrap_or_else(|_| "zh-CN".into());
-                Ok(nuts::settings::config(&app_data, id, &language)?)
+                Ok(nuts::settings::config(&app_data, id)?)
             }
             [operation, id, version, name, path] if operation == "save-rules" => {
                 let expected = version.parse().map_err(|_| "Expected a rules version number")?;
@@ -96,5 +107,5 @@ fn exit_failure(json: bool, error: CliFailure) -> ! {
 }
 
 fn print_help() {
-    println!("Nutbook CLI\n\nUsage:\n  nutbook add <path> [--json]\n  nutbook remove <path> [--json]\n  nutbook add-project <path> [--json]\n  nutbook remove-project <path> [--json]\n  nutbook doctor [--json]\n  nutbook nuts list [--json]\n  nutbook nuts claim-next [--board <board-id>] [--json]\n  nutbook nuts boards [--json]\n  nutbook nuts create-board <name> <quick|article|research|product> [--json]\n  nutbook nuts board-config <board-id> [--json]\n  nutbook nuts save-rules <board-id> <version> <name> <path.md> [--json]\n  nutbook nuts claim <issue-id> [--json]\n  nutbook nuts revise <issue-id> <supplement.md> [--json]\n  nutbook nuts recommend <issue-id> <url> <title> <reason> [--json]\n  nutbook nuts submit <issue-id> <token> <draft.md> [--json]\n  nutbook --version\n  nutbook --help");
+    println!("Nutbook CLI\n\nUsage:\n  nutbook add <path> [--json]\n  nutbook remove <path> [--json]\n  nutbook add-project <path> [--json]\n  nutbook remove-project <path> [--json]\n  nutbook doctor [--json]\n  nutbook nuts list [--json]\n  nutbook nuts claim-next [--board <board-id>] [--json]\n  nutbook nuts claim-task [--board <board-id>] [--json]\n  nutbook nuts finish-retro <id> <token> <proposal.json> [--json]\n  nutbook nuts undo-retro <id> [--json]\n  nutbook nuts retros [--board <board-id>] [--json]\n  nutbook nuts boards [--json]\n  nutbook nuts create-board <name> <quick|article|research|product|custom> [--json]\n  nutbook nuts board-config <board-id> [--json]\n  nutbook nuts save-rules <board-id> <version> <name> <path.md> [--json]\n  nutbook nuts claim <issue-id> [--json]\n  nutbook nuts revise <issue-id> <supplement.md> [--json]\n  nutbook nuts recommend <issue-id> <url> <title> <reason> [--json]\n  nutbook nuts submit <issue-id> <token> <draft.md> [--json]\n  nutbook --version\n  nutbook --help");
 }
