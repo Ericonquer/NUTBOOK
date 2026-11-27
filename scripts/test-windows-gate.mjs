@@ -1,18 +1,61 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {dirname,join,resolve} from 'node:path';
 const workflow=readFileSync('.github/workflows/ci.yml','utf8');
 const gate=workflow.slice(workflow.indexOf('  cross-platform-gate:'));
-const run=gate.slice(gate.indexOf('        run: |')+'        run: |'.length).trim().split('\n').map(x=>x.trim()).join('\n');
+const windowsGate=workflow.slice(workflow.indexOf('  windows-compile:'),workflow.indexOf('  cross-platform-gate:'));
+const lastRun=job=>job.slice(job.indexOf('        run: |')+'        run: |'.length).trim().split('\n').map(x=>x.trim()).join('\n');
 assert(workflow.includes('cargo build --release --features tauri/custom-protocol'), 'native smoke must embed production frontend');
 assert(workflow.includes('name: PR Windows release compile'), 'preserve existing required ruleset context');
-assert(run.includes('"$WINDOWS" = success'));
+assert(lastRun(gate).includes('"$WINDOWS" = success'));
+assert.match(windowsGate,/if: always\(\)\s+needs: \[windows-probe-build, windows-probe, windows-app-build, windows-runtime\]/);
+assert.match(workflow,/  windows-app-build:\s+name: [^\n]+\s+needs: windows-probe\s/);
+assert.match(workflow,/artifact-ids: \$\{\{ needs\.windows-probe-build\.outputs\.artifact-id \}\}/);
+assert.match(workflow,/artifact-ids: \$\{\{ needs\.windows-app-build\.outputs\.artifact-id \}\}/);
 if(process.platform!=='win32'){
- const execute=env=>spawnSync('bash',['-e','-c',run],{env:{...process.env,...env}}).status;
- const ready={QUALITY:'success',MACOS:'success',WINDOWS:'success'};
- assert.equal(execute(ready),0);
- for(const key of Object.keys(ready))for(const bad of ['failure','cancelled','skipped','neutral','', 'timed_out'])assert.notEqual(execute({...ready,[key]:bad}),0,`${key}=${bad} must block`);
+ for(const [job,keys] of [[gate,['QUALITY','MACOS','WINDOWS']],[windowsGate,['PROBE_BUILD','PROBE','APP_BUILD','RUNTIME']]]){
+  const execute=env=>spawnSync('bash',['-e','-c',lastRun(job)],{env:{...process.env,...env}}).status;
+  const ready=Object.fromEntries(keys.map(key=>[key,'success']));
+  assert.equal(execute(ready),0);
+  for(const key of keys)for(const bad of ['failure','cancelled','skipped','neutral','', 'timed_out'])assert.notEqual(execute({...ready,[key]:bad}),0,`${key}=${bad} must block`);
+ }
 }
+const fixture=mkdtempSync(join(tmpdir(),'nutbook-ci-artifact-'));
+try {
+ const script=resolve('scripts/windows-ci-artifact.mjs');
+ const gitEnvironment={...process.env};
+ const localGitVariables=spawnSync('git',['rev-parse','--local-env-vars'],{encoding:'utf8'});
+ assert.equal(localGitVariables.status,0,localGitVariables.stderr||localGitVariables.error?.message);
+ for(const name of localGitVariables.stdout.trim().split(/\s+/))delete gitEnvironment[name];
+ const git=(...args)=>{
+  const result=spawnSync('git',args,{cwd:fixture,encoding:'utf8',env:gitEnvironment});
+  assert.equal(result.status,0,result.stderr||result.error?.message);
+  return result.stdout.trim();
+ };
+ git('init','--quiet');
+ git('-c','user.name=CI','-c','user.email=ci@example.invalid','-c','commit.gpgsign=false','commit','--quiet','--allow-empty','-m','fixture');
+ const sha=git('rev-parse','HEAD');
+ const sources=['examples/content_protocol_probe.exe','NUTBOOK.exe','nutbook-cli-bin.exe','export-templates/template.html','nbskill/SKILL.md','publishing-runtime/worker.js'];
+ for(const name of sources){
+  const path=join(fixture,'src-tauri','target','release',name);
+  mkdirSync(dirname(path),{recursive:true});
+  writeFileSync(path,name);
+ }
+ for(const [kind,file] of [['probe','content_protocol_probe.exe'],['app','NUTBOOK.exe']]){
+  const directory=join(fixture,kind);
+  const run=(mode,overrides={})=>spawnSync(process.execPath,[script,mode,kind,directory],{
+   cwd:fixture,encoding:'utf8',env:{...gitEnvironment,GITHUB_SHA:sha,GITHUB_RUN_ID:'123',...overrides},
+  });
+  const stage=run('stage');assert.equal(stage.status,0,stage.stderr);
+  const verify=run('verify');assert.equal(verify.status,0,verify.stderr);
+  assert.notEqual(run('verify',{GITHUB_RUN_ID:'124'}).status,0,'cross-run artifact must fail');
+  assert.notEqual(run('verify',{GITHUB_SHA:'0'.repeat(40)}).status,0,'different checkout SHA must fail');
+  writeFileSync(join(directory,file),'changed bytes');
+  assert.notEqual(run('verify').status,0,'changed bytes must fail');
+ }
+}finally{rmSync(fixture,{recursive:true,force:true});}
 const smoke=readFileSync('scripts/windows-runtime-smoke.mjs','utf8');
 assert(smoke.includes("assert.equal(process.platform,'win32'"));
 assert(smoke.includes("assert(report.success"));

@@ -2,8 +2,22 @@
 use nutbook_backend::core::content_resource::{self, ContentResource};
 use tauri::Manager;
 struct ProbeGrants(std::sync::Mutex<Vec<ContentResource>>);
+
+fn record_stage(stage: &str) {
+    let time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+    eprintln!("protocol probe {} ms: {stage}", time.as_millis());
+}
+
+#[tauri::command]
+fn protocol_probe_stage(stage: String) {
+    if matches!(stage.as_str(), "document loaded" | "resource requests finished" | "browser checks finished") {
+        record_stage(&stage);
+    }
+}
+
 #[tauri::command]
 fn protocol_probe_report(app: tauri::AppHandle, report: serde_json::Value) {
+    record_stage("report received");
     let path = std::env::var("NUTBOOK_PROTOCOL_PROBE_OUT").expect("probe output path");
     std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     app.exit(if report["ok"] == true { 0 } else { 1 });
@@ -24,6 +38,7 @@ fn resource_count() -> usize {
     { std::fs::read_dir("/dev/fd").expect("native descriptor counter").count() }
 }
 fn main() {
+    record_stage("process started");
     #[cfg(unix)]
     unsafe {
         let mut limit: libc::rlimit = std::mem::zeroed();
@@ -44,10 +59,12 @@ fn main() {
     ] { std::fs::write(fixture.join(name),body).unwrap(); }
     // Session churn must not consume ports, FDs or persistent identities.
     let fd_before = resource_count();
+    record_stage("resource churn started");
     for _ in 0..10_000 {
         drop(ContentResource::start(&fixture).unwrap());
     }
     let fd_after = resource_count();
+    record_stage("resource churn finished");
     assert!(
         fd_after <= fd_before + 2,
         "closed grants leaked file descriptors"
@@ -68,7 +85,8 @@ fn main() {
         .manage(ProbeGrants(std::sync::Mutex::new(vec![primary, foreign])))
         .invoke_handler(tauri::generate_handler![
             protocol_probe_report,
-            protocol_probe_revoke
+            protocol_probe_revoke,
+            protocol_probe_stage
         ])
         .register_asynchronous_uri_scheme_protocol(
             content_resource::SCHEME,
@@ -79,6 +97,7 @@ fn main() {
         .on_page_load(|webview, payload| {
             #[cfg(windows)]
             if webview.label() == "protocol-probe" && payload.event() == tauri::webview::PageLoadEvent::Finished {
+                record_stage("WebView2 page loaded");
                 use windows_core::{HSTRING, Interface};
                 use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_3, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS};
                 let webview = webview.clone();
@@ -91,6 +110,7 @@ fn main() {
                         let _ = send.send(());
                     }).unwrap();
                     receive.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
+                    record_stage("WebView2 mapping ready");
                     webview.eval("window.__mappingReadyResolve?.();").unwrap();
                 });
             }
@@ -98,6 +118,7 @@ fn main() {
             let _ = (webview, payload);
         })
         .setup(move |app| {
+            record_stage("WebView creation started");
             tauri::WebviewWindowBuilder::new(
                 app,
                 "protocol-probe",
@@ -112,9 +133,11 @@ fn main() {
             .initialization_script(format!("window.probeMappedOrigin={};window.probeMappingReady=new Promise(resolve=>window.__mappingReadyResolve=resolve);", if cfg!(windows) {serde_json::to_string(&format!("http://nb-history-probe-{}.invalid",std::process::id())).unwrap()} else {"null".into()}))
             .title("Nutbook resource protocol compatibility gate")
             .build()?;
+            record_stage("WebView created");
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(20));
+                record_stage("WebView watchdog fired");
                 handle.exit(2);
             });
             Ok(())

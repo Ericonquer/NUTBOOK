@@ -115,11 +115,19 @@ try{
    if(message.method==='Target.attachedToTarget'){
      command('Log.enable',{},message.params.sessionId);command('Network.enable',{},message.params.sessionId);
    }
+   if(message.method==='Runtime.consoleAPICalled'&&message.params.args?.[0]?.value==='nutbook-smoke-presentation'){
+     const phase=message.params.args[1]?.value;
+     if(phase){
+       (report.presentationClosePhases??=[]).push(phase);
+       console.log(phase);
+       writeFileSync(join(reportDir,'presentation-close.json'),JSON.stringify(report.presentationClosePhases,null,2));
+     }
+   }
    if(message.error||message.method==='Log.entryAdded'||message.method==='Network.loadingFailed'||(message.method==='Network.responseReceived'&&message.params.response.status>=400)){
      browserDiagnostics.push(JSON.stringify(message).slice(0,4096));if(browserDiagnostics.length>200)browserDiagnostics.shift();
    }
  });
- command('Log.enable');command('Network.enable');command('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:false,flatten:true});
+ command('Log.enable');command('Network.enable');command('Runtime.enable');command('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:false,flatten:true});
  const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
  session=created.sessionId;assert(session,'WebDriver session missing');
  const mainHandle=await request('GET',`/session/${session}/window`);
@@ -260,7 +268,24 @@ try{
  await wait('presentation-saved-after-restore',()=>execute(`return !!appState.htmlEditSession&&!appState.htmlEditSession.dirty&&!appState.htmlEditSession.saveInFlight;`));
  assert(readFileSync(deck,'utf8').includes('Unsaved minimize acceptance'),'Restored edit must persist to the original exported file');
  writeFileSync(join(reportDir,'saved-presentation.html'),readFileSync(deck));
- await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1];(async()=>{const id=getActiveTab().id;await exitHtmlEditMode();await closeOpenTab(id);})().then(()=>done(true),error=>done({error:String(error)}));`,args:[]}).then(result=>assert.equal(result,true));
+ console.log('Presentation saved to disk, starting exit and close');
+ const closeResult=await request('POST',`/session/${session}/execute/async`,{script:`
+   const done=arguments[arguments.length-1];
+   const tabId=getActiveTab().id;
+   const mark=phase=>console.info('nutbook-smoke-presentation',JSON.stringify({phase,tabId,time:Date.now(),editSession:appState.htmlEditSession?.runtimeSessionId,activeHost:appState.activeRuntimeHostId,hostSync:appState.runtimeHostSyncInFlight}));
+   (async()=>{
+     mark('exit started');
+     await exitHtmlEditMode();
+     mark('exit returned');
+     if(appState.htmlEditSession)throw Error('Presentation editor is still active');
+     mark('close started');
+     const closed=await closeOpenTab(tabId);
+     mark('close returned');
+     return {closed,removed:!getOpenTab(tabId)};
+   })().then(done,error=>done({error:String(error)}));
+ `,args:[]});
+ assert.deepEqual(closeResult,{closed:true,removed:true});
+ report.checks.push({name:'presentation-closed-after-save'});
  await request('POST',`/session/${session}/execute/async`,{script:`const done=arguments[arguments.length-1];showAllFilesHome().then(()=>done(true),error=>done({error:String(error)}));`,args:[]}).then(result=>assert.equal(result,true));
  await execute(`const item=appState.items.find(item=>item.fileName==='exported-presentation.html');if(!item)throw Error('Saved presentation card missing');document.querySelector('[data-open-trigger="'+item.id+'"]').click();`);
  await wait('presentation-reopened-after-restore',async()=>{
@@ -320,6 +345,7 @@ try{
  report.success=true;
  writeFileSync(join(reportDir,'driver.log'),logs.join('\n'));
 }catch(error){report.error=error.stack;process.exitCode=1;
+ writeFileSync(join(reportDir,'report.json'),JSON.stringify(report,null,2));
  if(session)try{report.surfaceStates=[];for(const handle of await request('GET',`/session/${session}/window/handles`)){await request('POST',`/session/${session}/window`,{handle});report.surfaceStates.push(await execute(`return {url:location.href,title:document.title,coverTitle:document.querySelector('.cover-title')?.textContent,hidden:document.hidden,editor:window.__NUTBOOK_HTML_EDIT__?.isEditing(),toolbar:!!document.querySelector('#nutbook-html-edit-inline-toolbar'),host:typeof appState==='undefined'?null:{activeId:appState.activeTabId,suspended:appState.runtimeSurfacesSuspended,session:appState.htmlEditSession?{itemId:appState.htmlEditSession.itemId,sessionId:appState.htmlEditSession.runtimeSessionId,generation:appState.htmlEditSession.generation,dirty:appState.htmlEditSession.dirty,pages:appState.htmlEditSession.presentation?.pages?.length}:null,primaryDisabled:document.querySelector('#documentPrimaryButton')?.disabled,status:document.querySelector('#statusText')?.textContent,editEvents:window.__smokeEditEvents,runtimeTrace:window.__smokeRuntimeTrace,exitSession:appState.htmlEditExitTransition?.runtimeSessionId,activeHost:appState.activeRuntimeHostId,hostSyncInFlight:appState.runtimeHostSyncInFlight,hostSyncPending:appState.runtimeHostSyncPending,primaryBusy:primaryActionBusyItemId,pendingSuspend:!!appState.runtimeSurfaceSuspendPromise,lifecycleEpoch:appState.runtimeSurfaceLifecycleEpoch}};`));}}catch{}
  if(debugEndpoint)try{report.failureTargets=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)}).then(r=>r.json());}catch{}if(session){try{report.failureState=await execute(`return {url:location.href,activeTab:typeof getActiveTab==='function'?(()=>{const tab=getActiveTab();return tab?{id:tab.id,dirty:tab.isDirty,computedDirty:isMarkdownTabDirty(tab),baseline:tab.markdownBaseline,draft:tab.draft,editor:markdownContentForTab(tab)}:null})():null,saveBusy:document.querySelector('#documentPrimaryButton')?.getAttribute('aria-busy'),images:[...document.images].map(img=>({src:img.src,complete:img.complete,width:img.naturalWidth,rect:img.getBoundingClientRect().toJSON()}))};`);}catch{}try{const png=await request('GET',`/session/${session}/screenshot`);writeFileSync(join(reportDir,'failure.png'),Buffer.from(png,'base64'));}catch{}}}
 finally{
