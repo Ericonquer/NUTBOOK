@@ -400,6 +400,7 @@ fn main() {
             commands::nuts::nuts_board_file,
             commands::nuts::nuts_choose_materials,
             commands::nuts::nuts_open_markdown_material,
+            commands::nuts::nuts_open_office_material,
             commands::nuts::nuts_board_move,
             commands::nuts::nuts_board_link,
             commands::nuts::nuts_refresh_link_preview,

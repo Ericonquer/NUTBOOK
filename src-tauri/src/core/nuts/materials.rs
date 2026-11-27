@@ -10,11 +10,41 @@ use super::{board, read_markdown, Result};
 const IMAGE_KINDS: &str = "('png', 'jpg', 'jpeg', 'gif', 'webp')";
 const ROLES: [&str; 3] = ["extract_info", "illustration", "generation_reference"];
 
-const MAX_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_MIB: u64 = 100;
+const MAX_BYTES: u64 = MAX_MIB * 1024 * 1024;
 pub const FORMATS: &[&str] = &[
     "md", "markdown", "txt", "html", "htm", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "png",
     "jpg", "jpeg", "gif", "webp",
 ];
+
+pub fn office_path(data_dir: &Path, board_id: &str, card_id: &str, issue_id: Option<&str>) -> Result<PathBuf> {
+    let (kind, attachment): (String, String) = super::open(data_dir)?
+        .query_row(
+            "SELECT c.kind, c.markdown FROM board_cards c
+             LEFT JOIN nuts_card_boards b ON b.card_id = c.id
+             WHERE c.id = ?1 AND c.kind IN ('doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx')
+               AND COALESCE(b.board_id, 'default') = ?2 AND (?3 IS NULL OR c.issue_id = ?3)",
+            params![card_id, board_id, issue_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or("Office material is no longer available")?;
+    let saved = Path::new(attachment_path(&kind, &attachment).ok_or("Office attachment path is missing")?);
+    let file_name = saved.file_name().ok_or("Invalid Office attachment path")?;
+    let root = data_dir.join("nuts-materials");
+    let path = root.join(file_name);
+    let metadata = fs::symlink_metadata(&path).map_err(|_| "Office attachment is missing")?;
+    let canonical_path = path.canonicalize().map_err(|_| "Office attachment is missing")?;
+    if !metadata.is_file()
+        || path.extension().and_then(|ext| ext.to_str()) != Some(kind.as_str())
+        || !saved.is_absolute()
+        || saved.canonicalize().ok().as_ref() != Some(&canonical_path)
+    {
+        return Err("Invalid Office attachment path".into());
+    }
+    Ok(path)
+}
 
 pub fn markdown_path(data_dir: &Path, board_id: &str, card_id: &str, issue_id: Option<&str>) -> Result<PathBuf> {
     let (body, source): (String, Option<String>) = super::open(data_dir)?
@@ -95,8 +125,11 @@ fn import_material(
     }
     let source = fs::File::open(path).map_err(|e| e.to_string())?;
     let metadata = source.metadata().map_err(|e| e.to_string())?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_BYTES {
-        return Err("Choose a nonempty file up to 100 MiB".into());
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err("Choose a nonempty file".into());
+    }
+    if metadata.len() > MAX_BYTES {
+        return Err(format!("File exceeds the {MAX_MIB} MiB limit"));
     }
     let root = data_dir.join("nuts-materials");
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
@@ -106,8 +139,11 @@ fn import_material(
         .tempfile_in(root)
         .map_err(|e| e.to_string())?;
     let size = io::copy(&mut source.take(MAX_BYTES + 1), &mut staged).map_err(|e| e.to_string())?;
-    if size == 0 || size > MAX_BYTES {
-        return Err("Choose a nonempty file up to 100 MiB".into());
+    if size == 0 {
+        return Err("Choose a nonempty file".into());
+    }
+    if size > MAX_BYTES {
+        return Err(format!("File exceeds the {MAX_MIB} MiB limit"));
     }
     staged.flush().map_err(|e| e.to_string())?;
     staged.as_file().sync_all().map_err(|e| e.to_string())?;
@@ -260,6 +296,44 @@ pub fn image_thumbnail(data_dir: &Path, card_id: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_imported_office_copies_only_for_their_board_and_issue() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let note = board::add(dir, "default", "Note", "Note", "note", 0, 0).unwrap();
+        let issue = board::create_issue(dir, "default", "Issue", &[note], None, "").unwrap();
+        for ext in ["doc", "docx", "ppt", "pptx", "xls", "xlsx"] {
+            let original = dir.join(format!("议题附件.{ext}"));
+            fs::write(&original, ext).unwrap();
+            let card = import_for_issue(dir, "default", &issue, &original).unwrap();
+            fs::remove_file(original).unwrap();
+            let path = office_path(dir, "default", &card, Some(&issue)).unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(), ext);
+            assert_eq!(office_path(dir, "default", &card, None).unwrap(), path);
+            assert!(office_path(dir, "wrong-board", &card, None).is_err());
+            assert!(office_path(dir, "default", &card, Some("wrong-issue")).is_err());
+            fs::remove_file(path).unwrap();
+            assert!(office_path(dir, "default", &card, None).is_err());
+        }
+        let outside = dir.join("outside.docx");
+        fs::write(&outside, b"not imported").unwrap();
+        let body = format!("Local attachment (docx): `{}`", outside.display());
+        let card = board::add(dir, "default", "Outside", &body, "docx", 0, 0).unwrap();
+        assert!(office_path(dir, "default", &card, None).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_pdf_without_creating_an_attachment_or_card() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let original = dir.join("large.pdf");
+        fs::File::create(&original).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        let error = import(dir, "default", &original, 0, 0).unwrap_err();
+        assert_eq!(error, "File exceeds the 100 MiB limit");
+        assert!(board::list(dir, "default").unwrap().is_empty());
+        assert!(!dir.join("nuts-materials").exists());
+    }
 
     #[test]
     fn pasted_image_usage_follows_the_card_into_the_next_claim() {

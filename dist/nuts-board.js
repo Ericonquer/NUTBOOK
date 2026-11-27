@@ -1,4 +1,4 @@
-window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, deleteIssue, onBoardChange, onCardRemoved, imageUsageButton, openMarkdownMaterial, skills }) {
+window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, deleteIssue, onBoardChange, onCardRemoved, imageUsageButton, officeMaterial, openMaterial, sizeLimitNotice, skills }) {
   const page = document.getElementById("nutsBoardPage");
   const visible = () => !page.hidden && !page.parentElement.hidden;
   const board = document.getElementById("nutsBoard");
@@ -444,13 +444,14 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       const cardLabel = card.issue_title ? `${label} · ${card.issue_title}` : label;
       node.setAttribute("aria-label", cardLabel);
       if (!card.issue_id) node.title = cardLabel;
-      if (card.kind === "markdown") {
-        const openLabel = copy("打开 Markdown 素材", "Open Markdown material");
+      if (card.kind === "markdown" || officeMaterial(card)) {
+        const openLabel = card.kind === "markdown" ? copy("打开 Markdown 素材", "Open Markdown material")
+          : copy("双击用系统默认应用打开", "Double-click to open in the default app");
         node.title = `${openLabel} · ${cardLabel}`;
         node.setAttribute("aria-label", node.title);
         node.addEventListener("click", event => {
           if (event.target.closest("button") === node && event.detail === 0) {
-            openMarkdownMaterial(card, boardId);
+            openMaterial(card, boardId);
           }
         });
       }
@@ -537,13 +538,23 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
 
   async function addPaths(paths, destination = boardId, target = origin()) {
     const failures = [];
+    const oversized = [];
+    let imported = false;
     try {
       for (const [offset, path] of paths.entries()) {
-        try { await invoke("nuts_board_file", { boardId: destination, path, x: target.x + offset * 22, y: target.y + offset * 22 }); }
-        catch (error) { failures.push(String(error)); }
+        try {
+          await invoke("nuts_board_file", { boardId: destination, path, x: target.x + offset * 22, y: target.y + offset * 22 });
+          imported = true;
+        } catch (error) {
+          const notice = sizeLimitNotice(path, error);
+          if (notice) oversized.push(notice);
+          else failures.push(String(error));
+        }
       }
-      await reload();
+      if (!visible() || destination !== boardId) return;
+      if (oversized.length) notify(oversized.join(" · "), { duration: 4500 });
       if (failures.length) report(failures.join(" · "));
+      if (imported) await reload();
     } catch (error) { report(error); }
   }
 
@@ -1232,8 +1243,8 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
   viewport.addEventListener("dblclick", event => {
     if (viewport.classList.contains("is-panning")) return;
     const card = cards.get(event.target.closest(".nuts-card")?.dataset.cardId);
-    if (card?.kind === "markdown") {
-      openMarkdownMaterial(card, boardId);
+    if (card && (card.kind === "markdown" || officeMaterial(card))) {
+      openMaterial(card, boardId);
     } else if (card?.kind === "link") {
       invoke("open_external_url_command", { payload: { url: card.url || card.excerpt } }).catch(report);
     } else if (!event.target.closest(".nuts-card, .nuts-group")) openForm("note", point(event));
