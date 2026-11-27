@@ -217,7 +217,7 @@ pub fn nuts_open_markdown_material(
 }
 
 #[tauri::command]
-pub async fn nuts_open_office_material(
+pub async fn nuts_open_system_material(
     app: tauri::AppHandle,
     board_id: String,
     card_id: String,
@@ -226,7 +226,7 @@ pub async fn nuts_open_office_material(
     use tauri::Manager;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let path = nuts::materials::office_path(&state.app_data_dir, &board_id, &card_id, issue_id.as_deref())?;
+        let path = nuts::materials::system_path(&state.app_data_dir, &board_id, &card_id, issue_id.as_deref())?;
         crate::core::platform::open_path(&path).map_err(|error| error.to_string())
     })
     .await

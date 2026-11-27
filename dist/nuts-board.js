@@ -1,4 +1,4 @@
-window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, deleteIssue, onBoardChange, onCardRemoved, imageUsageButton, officeMaterial, openMaterial, sizeLimitNotice, skills }) {
+window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, deleteIssue, onBoardChange, onCardRemoved, imageUsageButton, systemMaterial, openMaterial, sizeLimitNotice, skills }) {
   const page = document.getElementById("nutsBoardPage");
   const visible = () => !page.hidden && !page.parentElement.hidden;
   const board = document.getElementById("nutsBoard");
@@ -444,7 +444,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       const cardLabel = card.issue_title ? `${label} · ${card.issue_title}` : label;
       node.setAttribute("aria-label", cardLabel);
       if (!card.issue_id) node.title = cardLabel;
-      if (card.kind === "markdown" || officeMaterial(card)) {
+      if (card.kind === "markdown" || systemMaterial(card)) {
         const openLabel = card.kind === "markdown" ? copy("打开 Markdown 素材", "Open Markdown material")
           : copy("双击用系统默认应用打开", "Double-click to open in the default app");
         node.title = `${openLabel} · ${cardLabel}`;
@@ -1243,7 +1243,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
   viewport.addEventListener("dblclick", event => {
     if (viewport.classList.contains("is-panning")) return;
     const card = cards.get(event.target.closest(".nuts-card")?.dataset.cardId);
-    if (card && (card.kind === "markdown" || officeMaterial(card))) {
+    if (card && (card.kind === "markdown" || systemMaterial(card))) {
       openMaterial(card, boardId);
     } else if (card?.kind === "link") {
       invoke("open_external_url_command", { payload: { url: card.url || card.excerpt } }).catch(report);

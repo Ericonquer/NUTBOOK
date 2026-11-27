@@ -27427,8 +27427,8 @@ if (!chipTipController) {
         return row;
       }
 
-      function isNutsOfficeMaterial(card) {
-        return ["doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(card.kind);
+      function isNutsSystemMaterial(card) {
+        return ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(card.kind);
       }
 
       function nutsMaterialSizeLimitNotice(path, error) {
@@ -27440,7 +27440,7 @@ if (!chipTipController) {
 
       async function openNutsMaterial(card, boardId, issueId = null) {
         const epoch = nutsEpoch;
-        const command = card.kind === "markdown" ? "nuts_open_markdown_material" : "nuts_open_office_material";
+        const command = card.kind === "markdown" ? "nuts_open_markdown_material" : "nuts_open_system_material";
         try {
           await invoke(command, { boardId, cardId: card.id, issueId });
         } catch (error) {
@@ -27473,15 +27473,15 @@ if (!chipTipController) {
             continue;
           }
           const link = card.kind === "link";
-          const office = isNutsOfficeMaterial(card);
+          const systemFile = isNutsSystemMaterial(card);
           const action = link ? () => invoke("open_external_url_command", { payload: { url: card.body } })
             .catch(error => { nutsMessage.textContent = normalizeError(error); })
-            : card.kind === "markdown" || office ? () => openNutsMaterial(card, boardId, issueId) : undefined;
-          const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, office ? undefined : action, card.body);
+            : card.kind === "markdown" || systemFile ? () => openNutsMaterial(card, boardId, issueId) : undefined;
+          const file = nutsIssueFile(card.title, link ? nutsCopy("链接", "Link") : card.kind.toUpperCase(), card.kind, systemFile ? undefined : action, card.body);
           if (link) file.classList.add("nuts-external-material");
           const usage = ["png", "jpg", "jpeg", "gif", "webp"].includes(card.kind)
             ? nutsImageUsageButton(card, boardId, issueId) : null;
-          const openLabel = office ? nutsCopy("用系统默认应用打开", "Open in the default app")
+          const openLabel = systemFile ? nutsCopy("用系统默认应用打开", "Open in the default app")
             : card.kind === "markdown" ? nutsCopy("打开 Markdown", "Open Markdown") : undefined;
           container.append(nutsMaterialRow(file, remove, usage, action, openLabel));
         }
@@ -27727,7 +27727,7 @@ if (!chipTipController) {
         },
         onCardRemoved: loadNutsIssues,
         imageUsageButton: nutsImageUsageButton,
-        officeMaterial: isNutsOfficeMaterial,
+        systemMaterial: isNutsSystemMaterial,
         openMaterial: openNutsMaterial,
         sizeLimitNotice: nutsMaterialSizeLimitNotice,
         skills: nutsSkills,
