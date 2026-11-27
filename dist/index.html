@@ -26895,8 +26895,8 @@ if (!chipTipController) {
           const boardId = nutsManagementBoard;
           const settings = JSON.stringify({ cli, NUTBOOK_APP_DATA_DIR: directory, boardId });
           await writeClipboardText(nutsCopy(
-            `请创建本地定时任务，按我指定的频率检查这块 NUTS 白板。每次执行时，用以下 CLI 和数据目录运行 nuts claim-next --board <boardId> --json。返回 null 就结束。领取成功后按目标、规则和素材完成工作，修订时使用 previous 和 extra。使用同一 CLI 运行 nuts submit <issueId> <token> <Markdown 路径> --json。每次最多处理一条，报告交稿版本。设置：${settings}`,
-            `Create a local automation to check this NUTS board at the frequency I specify. On each run use the CLI and data directory below to run nuts claim-next --board <boardId> --json. Stop if it returns null. Otherwise follow the goal, rules and materials, using previous and extra for revisions. Submit with nuts submit <issueId> <token> <Markdown path> --json using the same CLI. Process at most one issue per run and report the submitted version. Settings: ${settings}`));
+            `请创建本地定时任务，按我指定的频率检查这块 NUTS 白板。每次用下方 CLI 与数据目录执行 nuts claim-task --board <boardId> --json，返回 null 即结束。kind 为 issue 时，按素材和批注完成 Markdown，用 nuts submit <issueId> <token> <稿件路径> --json 交稿。kind 为 retrospective 时，有 prepared_proposal 就原样重试；否则只依据已采纳稿件与实际批注，提炼一条可复用改进。提案 JSON 用 {"reason":"依据","change":{"target":"skill","skill_id":"实际 Skill ID","instruction":"一条规则"}}，白板偏好用 target "rules" 且省略 skill_id，缺少依据或改动已覆盖时用 "change":null。用 nuts finish-retro <id> <token> <提案路径> --json 完成。每次最多处理一条，只有已更新、写回冲突或真实失败需要汇报。设置：${settings}`,
+            `Create a local automation to check this NUTS board at my specified frequency. Run nuts claim-task --board <boardId> --json using the CLI and data directory below. Stop on null. For kind issue, use the supplied materials and feedback and run nuts submit <issueId> <token> <Markdown path> --json. For kind retrospective, retry prepared_proposal unchanged if present. Otherwise derive one reusable improvement from the accepted draft and explicit feedback. Write JSON {"reason":"evidence","change":{"target":"skill","skill_id":"captured Skill ID","instruction":"one rule"}}. For a board preference use target "rules" and omit skill_id. Use "change":null when evidence is missing or the rule already exists. Run nuts finish-retro <id> <token> <proposal path> --json. Process at most one task per run and report applied changes, conflicts, or failures. Settings: ${settings}`));
           nutsManagementMessage.textContent = nutsCopy("已复制。粘贴到 Codex 并指定检查频率。", "Copied. Paste into Codex and specify the frequency.");
         } catch (error) { nutsManagementMessage.textContent = normalizeError(error); }
         finally { nutsScheduleCopy.disabled = false; }
@@ -27275,6 +27275,7 @@ if (!chipTipController) {
         imageUsage: '<path d="M4 5h12M4 10h12M4 15h12"/><path d="M7 3v4m6 1v4m-4 1v4"/>',
         back: '<path d="m9 5-5 5 5 5M4 10h12"/>',
         remove: '<path d="M6 6l8 8m0-8-8 8"/>',
+        trash: '<path d="M3.5 5.5h13m-8.5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5m-7 0 .7 10a1.5 1.5 0 0 0 1.5 1.4h5.6a1.5 1.5 0 0 0 1.5-1.4l.7-10M8 8.5v5m4-5v5"/>',
         add: '<path d="M10 4v12M4 10h12"/>',
         attach: '<path d="M4 5h7m-7 5h5m-5 5h5m5-6v8m-4-4h8"/>',
         withdraw: '<path d="m7 5-4 4 4 4M3 9h9a4 4 0 0 1 0 8h-2"/>',
@@ -27698,6 +27699,10 @@ if (!chipTipController) {
         invoke, copy: nutsCopy, confirm: appConfirm, notify: showToast,
         report: error => { (nutsBoardPage.hidden ? nutsMessage : nutsBoardMessage).textContent = normalizeError(error); },
         refreshIssues: openNutsIssue,
+        deleteIssue: async id => {
+          const issue = (await invoke("nuts_list")).find(entry => entry.id === id);
+          if (issue) await deleteNutsIssue(issue);
+        },
         onCardRemoved: loadNutsIssues,
         imageUsageButton: nutsImageUsageButton,
         openMarkdownMaterial: openNutsMarkdownMaterial,
@@ -27772,6 +27777,39 @@ if (!chipTipController) {
         nutsStatusRefreshTimer = setInterval(loadNutsIssues, 1500);
       }
 
+      const nutsIssueDeletes = new Set();
+      async function deleteNutsIssue(issue) {
+        if (nutsIssueDeletes.has(issue.id)) return;
+        nutsIssueDeletes.add(issue.id);
+        try {
+          const confirmed = await appConfirm({
+            title: nutsCopy("删除议题", "Delete issue"),
+            message: nutsCopy(`确定删除「${issue.title}」？`, `Delete “${issue.title}”?`),
+            note: nutsCopy("议题及审阅、复盘记录会永久移除。卡片默认回到原白板，资料库引用保留在资料库。原始文件和已保存的成果文件会保留。",
+              "The issue and its review and retrospective history will be removed permanently. Cards return to their board by default. Library references, original files, and saved results stay in place."),
+            optionalCheckbox: nutsCopy("同时删除议题内的卡片", "Also delete cards in the issue"),
+            confirmText: nutsCopy("删除议题", "Delete issue"),
+            danger: true,
+          });
+          if (!confirmed) return;
+          await invoke("nuts_delete_issue", { id: issue.id, deleteCards: confirmed.checked === true });
+          nutsEpoch += 1;
+          nutsById.get(issue.id)?.remove();
+          nutsById.delete(issue.id);
+          const issueTab = getOpenTab(`nuts:issue:${issue.id}`);
+          if (issueTab && getActiveTab()?.id === issueTab.id) {
+            await activateNutsTab();
+            if (issue.board_id) await nutsBoard.switchBoard(issue.board_id);
+          }
+          if (issueTab) await closeOpenTab(issueTab.id);
+          await nutsBoard.reload();
+          await loadNutsIssues();
+          showToast(nutsCopy("已删除议题", "Issue deleted"));
+        } finally {
+          nutsIssueDeletes.delete(issue.id);
+        }
+      }
+
       async function loadNutsIssues() {
         const epoch = nutsEpoch;
         if (nutsRefreshRequest === epoch) return;
@@ -27804,11 +27842,15 @@ if (!chipTipController) {
                 <div class="nuts-agent-actions"><span class="nuts-issue-state" role="status"></span>
                   <button type="button" class="nuts-issue-action" hidden></button>
                   <button type="button" class="nuts-review-action" hidden></button>
-                  <button type="button" class="nuts-claim-copy" hidden></button>
                   <button type="button" class="nuts-archive-action" hidden></button>
+                  <button type="button" class="nuts-issue-delete"></button>
                 </div>
               </div>
-              <header class="nuts-issue-header"><h1></h1></header>
+              <header class="nuts-issue-header"><h1></h1>
+                <p class="nuts-claim-hint" hidden><span></span>
+                  <button type="button" class="nuts-claim-copy"></button>
+                </p>
+              </header>
               <section class="nuts-context nuts-issue-section" hidden></section>
               <section class="nuts-agent nuts-issue-section" hidden><h2></h2><div class="nuts-versions"></div></section>
               <section class="nuts-issue-results nuts-issue-section" hidden></section>
@@ -27851,11 +27893,12 @@ if (!chipTipController) {
             }
             const [toolbar, header, contextPane, agentPane, resultPane, references, footer] = row.children;
             const [back, actions] = toolbar.children;
-            const [statusLine, reopen, reviewAction, claimCopy, archiveAction] = actions.children;
+            const [statusLine, reopen, reviewAction, archiveAction, deleteIssue] = actions.children;
             const [rulesPane, metadata] = footer.children;
             const [metadataTitle, identifier] = metadata.children;
             const [agentTitle, versions] = agentPane.children;
-            const summary = header.firstElementChild;
+            const [summary, claimHint] = header.children;
+            const [claimHintText, claimCopy] = claimHint.children;
             const boardName = nutsBoard.nameFor(issue.board_id || "default");
             setNutsIssueIcon(back, "back", boardName ? nutsCopy(`回到「${boardName}」`, `Back to ${boardName}`)
               : nutsCopy("返回白板", "Back to board"));
@@ -27864,7 +27907,8 @@ if (!chipTipController) {
             summary.textContent = issue.title;
             nutsIssuePage.setAttribute("aria-label", issue.title);
             statusLine.textContent = issue.archived_at ? nutsCopy("已归档", "Archived") : nutsIssueStatus(issue);
-            claimCopy.hidden = issue.status !== "open";
+            claimHint.hidden = issue.status !== "open";
+            claimHintText.textContent = nutsCopy("可等待 Agent 领取，也可复制任务 ID 即时指派。", "Wait for an agent to claim this, or copy the task ID to assign it directly.");
             setNutsIssueIcon(claimCopy, "copy", nutsCopy("复制领取指令", "Copy claim instructions"));
             claimCopy.onclick = async () => {
               claimCopy.disabled = true;
@@ -27873,9 +27917,16 @@ if (!chipTipController) {
                 await writeClipboardText(nutsCopy(
                   `请领取并完成 NUTBOOK 议题 ${number}。`,
                   `Please claim and complete NUTBOOK issue ${number}.`));
-                nutsMessage.textContent = nutsCopy("已复制，可粘贴到 Codex", "Copied. Paste into Codex.");
+                nutsMessage.textContent = nutsCopy("已复制，可发给 Agent", "Copied. Send to an agent.");
               } catch (error) { nutsMessage.textContent = normalizeError(error); }
               finally { claimCopy.disabled = false; }
+            };
+            setNutsIssueIcon(deleteIssue, "trash", nutsCopy("删除议题", "Delete issue"));
+            deleteIssue.onclick = async () => {
+              deleteIssue.disabled = true;
+              try { await deleteNutsIssue(issue); }
+              catch (error) { nutsMessage.textContent = normalizeError(error); }
+              finally { deleteIssue.disabled = false; }
             };
             archiveAction.hidden = issue.status !== "done";
             setNutsIssueIcon(archiveAction, issue.archived_at ? "restore" : "archive", issue.archived_at ? nutsCopy("恢复议题", "Restore issue") : nutsCopy("归档议题", "Archive issue"));
@@ -28512,6 +28563,11 @@ if (!chipTipController) {
               if (action === "nuts-search-issues") nutsManagementSearch.focus();
               if (action === "nuts-toggle-issue-archive" && archive === (nutsManagementArchive.getAttribute("aria-pressed") === "true")) {
                 nutsManagementArchive.click();
+              }
+              if (action === "nuts-delete-issue" && issueId) {
+                const issue = nutsManagementIssues.find(entry => entry.id === issueId);
+                if (issue) await deleteNutsIssue(issue);
+                else nutsById.get(issueId)?.querySelector(".nuts-issue-delete")?.click();
               }
               if (action === "nuts-copy-issue-id" && issueId) {
                 await writeClipboardText(issueId);

@@ -41,6 +41,8 @@ pub struct SceneWorkflow {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub references: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -93,7 +95,7 @@ fn board_language(db: &Connection, board_id: &str) -> Result<String> {
 pub fn remember_default_language(data_dir: &Path, language: &str) -> Result<()> {
     open(data_dir)?.execute(
         "INSERT OR IGNORE INTO nuts_board_locales
-         SELECT 'default', ?1 WHERE NOT EXISTS(
+         SELECT 'default', ?1 WHERE EXISTS(SELECT 1 FROM nuts_boards WHERE id='default') AND NOT EXISTS(
             SELECT 1 FROM nuts_board_file_initialized WHERE board_id = 'default'
          )",
         [language],
@@ -128,9 +130,10 @@ fn workspace(
     ).optional().map_err(|error| error.to_string())?;
     let heading = if language == "en-US" { "Board rules" } else { "白板工作规则" };
     let (name, recorded, mut version) = stored.clone().unwrap_or_else(|| {
-        let text = imported_rules.map(str::to_owned).unwrap_or_else(|| format!(
-            "# {heading}\n\n{}\n", preset["rules"].as_str().unwrap_or("")
-        ));
+        let defaults = preset["rules"].as_str().unwrap_or("");
+        let text = imported_rules.map(str::to_owned).unwrap_or_else(|| {
+            if defaults.is_empty() { String::new() } else { format!("# {heading}\n\n{defaults}\n") }
+        });
         (skill.name.clone(), text, preset["ruleVersion"].as_i64().unwrap_or(1))
     });
     let initialized = folder_initialized(db, board_id)?;
@@ -264,7 +267,7 @@ pub fn save_rules(
     if name.is_empty() || name.chars().count() > 100 {
         return Err("Enter a rule name of up to 100 characters".into());
     }
-    super::validate_markdown(text)?;
+    if !text.is_empty() { super::validate_markdown(text)?; }
     let mut db = open(data_dir)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
     let (folder, mut rules, _) = workspace(data_dir, &tx, board_id, None, &[])?;

@@ -8,6 +8,7 @@ pub mod materials;
 pub mod references;
 pub mod result_references;
 pub mod review;
+pub mod retro;
 pub mod settings;
 
 use std::{
@@ -127,6 +128,16 @@ fn open(data_dir: &Path) -> Result<Connection> {
         );",
     )
     .map_err(|error| error.to_string())?;
+    // Older databases represented the first board implicitly.
+    db.execute_batch(
+        "SAVEPOINT migrate_nuts_boards;
+         CREATE TABLE IF NOT EXISTS nuts_board_registry (id INTEGER PRIMARY KEY CHECK(id=1));
+         INSERT OR IGNORE INTO nuts_boards (id,name)
+           SELECT 'default','随手记' WHERE NOT EXISTS (SELECT 1 FROM nuts_board_registry);
+         INSERT OR IGNORE INTO nuts_board_registry VALUES (1);
+         RELEASE migrate_nuts_boards;",
+    ).map_err(|error| error.to_string())?;
+    db.execute_batch(retro::SCHEMA).map_err(|error| error.to_string())?;
     Ok(db)
 }
 
@@ -187,6 +198,11 @@ pub fn create(data_dir: &Path, title: &str, source_name: &str, markdown: &str) -
         "INSERT INTO issues (id, title, source_name, source, status) VALUES (?1, ?2, ?3, ?4, 'open')",
         params![id, title, source_name, markdown],
     ).map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT INTO nuts_issue_boards (issue_id, board_id)
+         SELECT ?1,id FROM nuts_boards ORDER BY (id='default') DESC,rowid LIMIT 1",
+        [&id],
+    ).map_err(|error| error.to_string())?;
     enqueue_open(&tx, &id)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(id)
@@ -205,6 +221,37 @@ pub fn list(data_dir: &Path) -> Result<Vec<Issue>> {
         .map_err(|error| error.to_string())?;
     rows.collect::<rusqlite::Result<_>>()
         .map_err(|error| error.to_string())
+}
+
+pub fn delete_issue(data_dir: &Path, id: &str, delete_cards: bool) -> Result<()> {
+    let mut db = open(data_dir)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM nuts_reference_cards WHERE ref_id IN
+        (SELECT id FROM issue_refs WHERE issue_id=?1)", [id]).map_err(|error| error.to_string())?;
+    let cards_to_delete = {
+        let mut query = tx.prepare("SELECT id FROM board_cards WHERE issue_id=?1 AND (?2 OR kind='library')")
+            .map_err(|error| error.to_string())?;
+        let rows = query.query_map(params![id, delete_cards], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())?
+    };
+    for card in cards_to_delete {
+        board::delete_card(&tx, &card)?;
+    }
+    tx.execute("UPDATE board_cards SET issue_id=NULL WHERE issue_id=?1", [id])
+        .map_err(|error| error.to_string())?;
+    for table in [
+        "nuts_archived_issues", "nuts_review_rounds", "nuts_open_order", "nuts_draft_images",
+        "nuts_issue_tasks", "nuts_claim_rules", "nuts_issue_boards", "nuts_library_refs",
+        "issue_refs", "nuts_result_reference_options", "nuts_result_paths", "nuts_retros",
+        "drafts", "results",
+    ] {
+        tx.execute(&format!("DELETE FROM {table} WHERE issue_id=?1"), [id])
+            .map_err(|error| error.to_string())?;
+    }
+    tx.execute("DELETE FROM issues WHERE id=?1", [id]).map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())
 }
 
 pub fn set_archived(data_dir: &Path, id: &str, archived: bool) -> Result<()> {
@@ -582,6 +629,9 @@ pub fn save_result<T>(
         [issue_id.to_string()],
     )
     .map_err(error)?;
+    if published != Some(version) {
+        retro::enqueue(&tx, &issue_id.to_string(), version, &board_id)?;
+    }
     tx.commit().map_err(error)?;
     Ok(indexed)
 }
@@ -626,6 +676,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deleting_an_issue_can_move_materials_back_to_the_same_board() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path();
+        let board_id = board::create_board(data, "Board", "quick", "en-US").unwrap();
+        let card = board::add(data, &board_id, "Material", "Keep this", "note", 0, 0).unwrap();
+        let issue = board::create_issue(data, &board_id, "One", &[card.clone()], None, "").unwrap();
+        let db = open(data).unwrap();
+        db.execute("INSERT INTO board_cards VALUES ('library','Reference','original.md','library',0,0,?1)",
+            [&issue]).unwrap();
+        db.execute("INSERT INTO nuts_card_boards VALUES ('library',?1)", [&board_id]).unwrap();
+
+        delete_issue(data, &issue, false).unwrap();
+
+        let cards = board::list(data, &board_id).unwrap();
+        let row = serde_json::to_value(&cards[0]).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(row["id"], card);
+        assert!(row["issue_id"].is_null());
+        assert!(list(data).unwrap().is_empty());
+    }
+
+    #[test]
+    fn deleting_an_issue_frees_the_board_and_preserves_the_saved_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path();
+        let other = board::create_board(data, "Other", "custom", "en-US").unwrap();
+        let card = board::add(data, "default", "Material", "Example", "note", 0, 0).unwrap();
+        let issue = board::create_issue(data, "default", "One", &[card], None, "").unwrap();
+        board::open_issue(data, &issue).unwrap();
+        let first = claim(data, &issue, None).unwrap();
+        submit(data, &issue, &first.token, "# Saved").unwrap();
+        let result = save_result(data, &issue, 1, None, |path| Ok(path.to_path_buf())).unwrap();
+        let late = claim(data, &issue, Some("Update".into())).unwrap();
+        assert!(!board::remove_empty_board(data, "default", false).unwrap());
+
+        delete_issue(data, &issue, true).unwrap();
+        delete_issue(data, &issue, true).unwrap();
+        assert!(submit(data, &issue, &late.token, "# Late draft").is_err());
+        assert!(board::list(data, "default").unwrap().is_empty());
+        assert!(retro::list(data, Some("default")).unwrap().is_empty());
+        assert_eq!(fs::read_to_string(result).unwrap(), "# Saved");
+        assert!(board::remove_empty_board(data, "default", false).unwrap());
+        assert!(board::remove_empty_board(data, &other, false).is_err());
+    }
+
+    #[test]
     fn external_board_file_edits_apply_to_new_claims_only() {
         let temp = tempfile::tempdir().unwrap();
         let data = temp.path();
@@ -656,6 +752,7 @@ mod tests {
         let first_id = new_issue();
         let first = claim(data, &first_id, None).unwrap();
 
+        fs::write(folder.join("skills/write/SKILL.md"), "# My writing workflow").unwrap();
         fs::write(folder.join("AGENTS.md"), "# External revision").unwrap();
         fs::write(folder.join("skills/my-style/references/voice.md"), "Use compact paragraphs.").unwrap();
         assert!(settings::save_rules(data, &board_id, "Stale", "# Stale", first.rules.version).is_err());
@@ -663,7 +760,10 @@ mod tests {
         let second = claim(data, &new_issue(), None).unwrap();
         assert_eq!(second.rules.version, first.rules.version + 1);
         assert_eq!(second.rules.text, "# External revision");
-        let style = second.rules.file_skills.unwrap().into_iter().find(|skill| skill.id == "my-style").unwrap();
+        let captured = second.rules.file_skills.unwrap();
+        let writing = captured.iter().find(|skill| skill.id == "write").unwrap();
+        assert_eq!(writing.files["SKILL.md"], "# My writing workflow");
+        let style = captured.iter().find(|skill| skill.id == "my-style").unwrap();
         assert_eq!(style.files["references/voice.md"], "Use compact paragraphs.");
         let historical = settings::issue_context(data, &first_id, "en-US").unwrap();
         assert_eq!(historical["rules"], serde_json::to_value(first.rules).unwrap());
@@ -710,7 +810,17 @@ mod tests {
             let first = claim(dir, &first_id, None).unwrap();
             let skill = first.rules.scene_skill.as_ref().unwrap();
             assert_eq!(skill.id, scene);
-            assert_eq!(skill.version, 2);
+            let packages = first.rules.file_skills.as_ref().unwrap();
+            for workflow in &skill.workflows {
+                let package = packages.iter().find(|p| p.id == workflow.id).unwrap();
+                assert!(!workflow.references.is_empty());
+                for (name, expected) in &workflow.references {
+                    let path = format!("references/{name}");
+                    assert_eq!(package.files.get(&path), Some(expected));
+                    assert!(package.files["SKILL.md"].contains(&format!("]({path})")));
+                }
+            }
+            assert_eq!(skill.version, 4);
             assert!(first.rules.text.lines().filter(|line| line.starts_with("- ")).count() >= 4);
             assert!(!skill.workflows.is_empty());
             assert!(skill.workflows.iter().all(|workflow| !workflow.steps.is_empty()));

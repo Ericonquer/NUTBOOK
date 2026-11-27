@@ -67,7 +67,7 @@ pub fn export(
         .tempdir_in(destination)
         .map_err(|error| error.to_string())?;
     let mut replacements = BTreeMap::new();
-    let assets = staged.path().join("asset");
+    let assets = staged.path().join(draft_assets::ASSETS_DIR);
     for (reference, dependency) in &snapshot.snapshot.dependencies {
         match dependency {
             Dependency::Captured { object, .. } => {
@@ -84,7 +84,7 @@ pub fn export(
                 fs::create_dir_all(&assets).map_err(|error| error.to_string())?;
                 fs::write(assets.join(&name), &snapshot.objects[object])
                     .map_err(|error| error.to_string())?;
-                replacements.insert(reference.clone(), format!("asset/{name}"));
+                replacements.insert(reference.clone(), format!("{}/{name}", draft_assets::ASSETS_DIR));
             }
             _ if reference.starts_with("https://")
                 || reference.starts_with("http://")
@@ -217,7 +217,7 @@ mod tests {
             let references = image_references(&markdown);
             assert_eq!(references.len(), 1);
             let relative = references.first().unwrap();
-            assert!(relative.starts_with("asset/"));
+            assert!(relative.starts_with("assets/"));
             assert_eq!(
                 image::open(moved.join(relative)).unwrap().width(),
                 version as u32

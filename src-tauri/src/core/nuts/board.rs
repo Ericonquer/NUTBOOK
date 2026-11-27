@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::{open, validate_markdown, Result};
 
+#[cfg(test)]
 const DEFAULT: &str = "default";
 
 #[derive(Serialize)]
@@ -17,7 +18,7 @@ pub struct Board {
 pub fn boards(data_dir: &Path) -> Result<Vec<Board>> {
     let db = open(data_dir)?;
     let mut query = db
-        .prepare("SELECT id, name FROM nuts_boards ORDER BY rowid")
+        .prepare("SELECT id, name FROM nuts_boards ORDER BY (id = 'default') DESC, rowid")
         .map_err(|e| e.to_string())?;
     let rows = query
         .query_map([], |row| {
@@ -27,14 +28,7 @@ pub fn boards(data_dir: &Path) -> Result<Vec<Board>> {
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut boards = vec![Board {
-        id: DEFAULT.into(),
-        name: "随手记".into(),
-    }];
-    for row in rows {
-        boards.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(boards)
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())
 }
 
 pub fn create_board(data_dir: &Path, name: &str, scene: &str, language: &str) -> Result<String> {
@@ -89,16 +83,18 @@ pub fn rename_board(data_dir: &Path, board_id: &str, name: &str) -> Result<()> {
 }
 
 pub fn remove_empty_board(data_dir: &Path, board_id: &str, check_only: bool) -> Result<bool> {
-    if board_id == DEFAULT {
-        return Err("The default board cannot be deleted".into());
-    }
     let mut db = open(data_dir)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
     ensure_board(&tx, board_id)?;
+    let count: i64 = tx.query_row("SELECT COUNT(*) FROM nuts_boards", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if count <= 1 {
+        return Err("Keep at least one board".into());
+    }
     let occupied: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM nuts_card_boards b JOIN board_cards c ON c.id = b.card_id WHERE b.board_id = ?1)
-             OR EXISTS(SELECT 1 FROM nuts_issue_boards b JOIN issues i ON i.id = b.issue_id WHERE b.board_id = ?1)",
+        "SELECT EXISTS(SELECT 1 FROM board_cards c LEFT JOIN nuts_card_boards b ON c.id = b.card_id WHERE COALESCE(b.board_id, 'default') = ?1)
+             OR EXISTS(SELECT 1 FROM issues i LEFT JOIN nuts_issue_boards b ON i.id = b.issue_id WHERE COALESCE(b.board_id, 'default') = ?1)",
         [board_id], |row| row.get(0),
     ).map_err(|error| error.to_string())?;
     if occupied {
@@ -116,8 +112,7 @@ pub fn remove_empty_board(data_dir: &Path, board_id: &str, check_only: bool) -> 
 }
 
 pub(super) fn ensure_board(db: &rusqlite::Connection, board_id: &str) -> Result<()> {
-    if board_id != DEFAULT
-        && !db
+    if !db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM nuts_boards WHERE id = ?1)",
                 [board_id],
@@ -570,15 +565,15 @@ pub fn open_issue(data_dir: &Path, id: &str) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn renames_and_deletes_only_empty_custom_boards() {
+    fn renames_and_deletes_only_empty_boards() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
         let id = create_board(dir, "Original", "research", "en-US").unwrap();
         rename_board(dir, &id, " Renamed ").unwrap();
         assert_eq!(boards(dir).unwrap()[1].name, "Renamed");
         assert_eq!(super::super::settings::config(dir, &id).unwrap()["scene"], "research");
-        assert!(rename_board(dir, DEFAULT, "Other").is_err());
-        assert!(remove_empty_board(dir, DEFAULT, false).is_err());
+        rename_board(dir, DEFAULT, "Other").unwrap();
+        assert_eq!(boards(dir).unwrap()[0].name, "Other");
 
         assert!(remove_empty_board(dir, &id, true).unwrap());
         let card = add(dir, &id, "Source", "Evidence", "note", 0, 0).unwrap();
@@ -591,6 +586,29 @@ mod tests {
         assert!(remove_empty_board(dir, &empty, false).unwrap());
         assert!(!boards(dir).unwrap().iter().any(|board| board.id == empty));
         assert!(add(dir, &empty, "Late import", "Evidence", "note", 0, 0).is_err());
+    }
+
+    #[test]
+    fn deleting_the_first_board_preserves_legacy_content_and_keeps_one_board() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path();
+        assert!(remove_empty_board(data, DEFAULT, false).is_err());
+        let custom = create_board(data, "自定义", "custom", "zh-CN").unwrap();
+        let db = open(data).unwrap();
+        db.execute("INSERT INTO board_cards VALUES ('legacy','Legacy','text','note',0,0,NULL)", []).unwrap();
+        assert!(!remove_empty_board(data, DEFAULT, false).unwrap());
+        db.execute("DELETE FROM board_cards WHERE id='legacy'", []).unwrap();
+        assert!(remove_empty_board(data, DEFAULT, false).unwrap());
+        assert_eq!(boards(data).unwrap().into_iter().map(|b| b.id).collect::<Vec<_>>(), [custom.clone()]);
+        assert!(remove_empty_board(data, &custom, false).is_err());
+        assert!(add(data, DEFAULT, "Late", "text", "note", 0, 0).is_err());
+        let issue = super::super::create(data, "Imported", "source.md", "Source").unwrap();
+        let claim = super::super::claim_next(data, Some(&custom)).unwrap().unwrap();
+        assert_eq!(claim.issue.id, issue);
+        assert_eq!(claim.issue.board_id, custom);
+        assert!(claim.rules.text.is_empty());
+        assert!(claim.rules.file_skills.unwrap().is_empty());
+        assert!(claim.task.template.is_none());
     }
 
     #[test]

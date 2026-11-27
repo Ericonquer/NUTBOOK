@@ -56,11 +56,14 @@ window.createNutbookNutsSkills = function ({ copy, invoke }) {
   }
 
   function sceneSkills(scene) {
-    if (!scene) return [];
-    const workflows = scene.workflows?.length ? scene.workflows : [scene];
+    if (!scene || scene.id === "custom") return [];
+    const workflows = scene.workflows ?? [scene];
     return workflows.map(workflow => {
       const steps = (workflow.steps || []).map((step, index) => `${index + 1}. ${step}`);
-      const files = { "SKILL.md": [`# ${workflow.name || scene.id}`, scene.instructions, steps.join("\n")].filter(Boolean).join("\n\n") };
+      const files = { "SKILL.md": [`# ${workflow.name || scene.id}`, workflow.description || scene.instructions, steps.join("\n")].filter(Boolean).join("\n\n") };
+      for (const [name, text] of Object.entries(workflow.references || {})) {
+        files[`references/${name}`] = text;
+      }
       if (workflow.reference) files["references/checklist.md"] = workflow.reference;
       return { id: workflow.id, name: workflow.name || scene.id, description: workflow.description || "", files };
     });

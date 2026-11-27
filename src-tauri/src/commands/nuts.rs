@@ -28,6 +28,11 @@ pub fn nuts_search_cards(
 }
 
 #[tauri::command]
+pub fn nuts_delete_issue(state: tauri::State<'_, AppState>, id: String, delete_cards: Option<bool>) -> Result<(), String> {
+    nuts::delete_issue(&state.app_data_dir, &id, delete_cards.unwrap_or(false))
+}
+
+#[tauri::command]
 pub fn nuts_set_archived(state: tauri::State<'_, AppState>, id: String, archived: bool) -> Result<(), String> {
     nuts::set_archived(&state.app_data_dir, &id, archived)
 }

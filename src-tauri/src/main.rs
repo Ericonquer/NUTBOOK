@@ -414,6 +414,7 @@ fn main() {
             commands::nuts::nuts_board_drop_target,
             commands::nuts::nuts_list,
             commands::nuts::nuts_set_archived,
+            commands::nuts::nuts_delete_issue,
             commands::nuts::nuts_board_detach_card,
             commands::nuts::nuts_claim_setup,
             commands::nuts::nuts_claim_number,

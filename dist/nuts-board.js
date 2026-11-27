@@ -1,4 +1,4 @@
-window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, onBoardChange, onCardRemoved, imageUsageButton, openMarkdownMaterial, skills }) {
+window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, refreshIssues, deleteIssue, onBoardChange, onCardRemoved, imageUsageButton, openMarkdownMaterial, skills }) {
   const page = document.getElementById("nutsBoardPage");
   const visible = () => !page.hidden && !page.parentElement.hidden;
   const board = document.getElementById("nutsBoard");
@@ -327,8 +327,9 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     if (frame.style.width === widthStyle && frame.style.height === heightStyle) return;
     frame.style.width = widthStyle;
     frame.style.height = heightStyle;
-    const title = frame.lastElementChild;
-    const tabEnd = Math.max(80, title.offsetWidth + 20);
+    const titleWidth = frame.querySelector(".nuts-group-title").offsetWidth;
+    frame.style.setProperty("--issue-title-width", `${titleWidth}px`);
+    const tabEnd = Math.max(80, titleWidth + 44);
     const right = width - .5;
     const bottom = height - .5;
     const tabTop = `M .5 10 Q .5 .5 10 .5 H ${tabEnd} C ${tabEnd + 12} .5 ${tabEnd + 10} 28 ${tabEnd + 24} 28`;
@@ -369,6 +370,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
         const tab = outline.children[1];
         const title = document.createElement("button");
         title.type = "button";
+        title.className = "nuts-group-title";
         const caption = document.createElement("span");
         caption.textContent = members[0].issue_title;
         title.setAttribute("aria-label", copy(`打开议题「${caption.textContent}」`, `Open issue: ${caption.textContent}`));
@@ -377,7 +379,23 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
           if (!title.contains(event.target) && event.target !== tab) return;
           if ((!suppressClick && !viewport.classList.contains("is-panning")) || event.detail === 0) refreshIssues(id).catch(report);
         });
-        frame.append(outline, title);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "nuts-group-delete";
+        const removeLabel = copy("删除议题", "Delete issue");
+        remove.setAttribute("aria-label", removeLabel);
+        remove.dataset.tooltip = removeLabel;
+        remove.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>';
+        remove.addEventListener("pointerdown", event => {
+          if (event.button === 0) event.stopPropagation();
+        });
+        remove.onclick = async () => {
+          remove.disabled = true;
+          try { await deleteIssue(id); }
+          catch (error) { report(error); }
+          finally { remove.disabled = false; }
+        };
+        frame.append(outline, title, remove);
         groupLayer.append(frame);
       }
       const left = Math.min(...members.map(card => card.x)) - 10;
@@ -555,6 +573,11 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     motion.finished.then(() => flight.remove(), () => flight.remove());
   }
 
+  function boardLabel(choice) {
+    return choice.id === "default" && (!choice.name || choice.name === "随手记")
+      ? copy("随手记", "Quick notes") : choice.name;
+  }
+
   function openForm(kind, point = origin(), destination = boardId) {
     if (editor) return;
     editor = { kind, point, boardId: destination, ids: [...selected], ready: kind === "note" };
@@ -564,7 +587,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       const choices = boardChoices.length ? boardChoices : [{ id: "default" }];
       captureBoard.setOptions(choices.map(choice => ({
         value: choice.id,
-        label: choice.id === "default" ? copy("随手记", "Quick notes") : choice.name,
+        label: boardLabel(choice),
       })), destination);
       document.getElementById("nutsCaptureDestinationLabel").textContent = copy("收进白板", "Save to board");
     }
@@ -761,6 +784,40 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     paintCamera();
   };
 
+  const tabGestureLabel = () => copy("双击标签改名 · 长按显示删除按钮", "Double-click the tab to rename · Hold to show the Delete button");
+  let gestureHint;
+  let gestureHintTimer;
+  let showedGestureHint = false;
+
+  function hideGestureHint() {
+    clearTimeout(gestureHintTimer);
+    gestureHint?.remove();
+    gestureHint = null;
+  }
+
+  function showFirstTabHint(id) {
+    if (showedGestureHint || boardId !== id || !visible()) return;
+    const key = "nuts.boardTabGestureHint.seen";
+    try { if (localStorage.getItem(key)) return; } catch {}
+    const tab = boardList.querySelector('[aria-current="page"]');
+    if (!tab || tab.dataset.boardId !== id) return;
+    tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const strip = boardList.parentElement;
+    gestureHint = document.createElement("span");
+    gestureHint.className = "nuts-tab-gesture-hint";
+    gestureHint.setAttribute("role", "status");
+    strip.append(gestureHint);
+    gestureHint.textContent = tabGestureLabel();
+    const offset = tab.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+    gestureHint.style.left = Math.max(0, Math.min(offset, strip.clientWidth - gestureHint.offsetWidth)) + "px";
+    showedGestureHint = true;
+    try { localStorage.setItem(key, "1"); } catch {}
+    gestureHintTimer = setTimeout(hideGestureHint, 6000);
+  }
+
+  boardList.addEventListener("pointerdown", hideGestureHint);
+  boardList.addEventListener("keydown", hideGestureHint);
+
   function updateCurrentBoardTab() {
     for (const tab of boardList.querySelectorAll(".nuts-board-tab")) {
       if (tab.dataset.boardId === boardId) tab.setAttribute("aria-current", "page");
@@ -773,7 +830,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     const form = document.createElement("form");
     form.className = "nuts-board-name-form";
     const input = document.createElement("input");
-    input.value = choice.name;
+    input.value = boardLabel(choice);
     input.required = true;
     input.maxLength = 45;
     input.setAttribute("aria-label", copy("白板名称", "Board name"));
@@ -818,6 +875,10 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
 
   async function deleteEmptyBoard(choice, button) {
     if (button.disabled) return;
+    if (boardChoices.length <= 1) {
+      notify(copy("至少保留一个白板。", "Keep at least one board."));
+      return;
+    }
     button.disabled = true;
     const canDelete = checkOnly => invoke("nuts_remove_empty_board", { boardId: choice.id, checkOnly });
     const occupied = () => notify(copy("白板内还有内容，无法删除。", "Board still has content and cannot be deleted."));
@@ -825,7 +886,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       if (!await canDelete(true)) { occupied(); return; }
       const confirmed = await confirm({
         title: copy("删除白板", "Delete board"),
-        message: copy(`确定删除「${choice.name}」？`, `Delete “${choice.name}”?`),
+        message: copy(`确定删除「${boardLabel(choice)}」？`, `Delete “${boardLabel(choice)}”?`),
         cancelText: copy("取消", "Cancel"),
         confirmText: copy("删除白板", "Delete board"),
         danger: true,
@@ -834,7 +895,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       if (!await canDelete(false)) { occupied(); return; }
       boardChoices = boardChoices.filter(item => item.id !== choice.id);
       renderBoardList();
-      if (boardId === choice.id) await switchBoard("default");
+      if (boardId === choice.id) await switchBoard(boardChoices[0].id);
       boardList.querySelector('[aria-current="page"]')?.focus();
     } catch (error) {
       report(error);
@@ -852,27 +913,54 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       tab.type = "button";
       tab.className = "nuts-board-tab";
       tab.dataset.boardId = choice.id;
-      const fixed = choice.id === "default";
-      tab.textContent = fixed ? copy("随手记", "Quick notes") : choice.name;
-      tab.title = fixed ? tab.textContent : copy("双击改名 · 长按显示删除", "Double-click to rename · Hold to show Delete");
+      tab.textContent = boardLabel(choice);
+      tab.title = tabGestureLabel();
       entry.append(tab);
       let held = false;
       tab.onclick = () => {
         if (held) { held = false; return; }
         switchBoard(choice.id).catch(report);
       };
-      if (!fixed) {
+      {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "nuts-board-delete";
-        remove.hidden = true;
+        remove.inert = true;
         const label = copy("删除白板", "Delete board");
         remove.title = label;
         remove.setAttribute("aria-label", label);
         remove.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>';
-        remove.onclick = () => deleteEmptyBoard(choice, remove);
+        let hideTimer;
+        let hoveringDelete = false;
+        const clearHideTimer = () => clearTimeout(hideTimer);
+        const hideRemove = () => {
+          clearHideTimer();
+          hoveringDelete = false;
+          remove.inert = true;
+        };
+        const scheduleHide = () => {
+          clearHideTimer();
+          if (remove.inert || hoveringDelete || document.activeElement === remove) return;
+          hideTimer = setTimeout(() => {
+            if (!remove.disabled) hideRemove();
+          }, 4000);
+        };
+        remove.onpointerenter = event => {
+          if (event.pointerType === "touch") return;
+          hoveringDelete = true;
+          clearHideTimer();
+        };
+        remove.onpointerleave = () => {
+          hoveringDelete = false;
+          scheduleHide();
+        };
+        remove.onfocus = clearHideTimer;
+        remove.onclick = async () => {
+          await deleteEmptyBoard(choice, remove);
+          scheduleHide();
+        };
         const startRename = () => {
-          remove.hidden = true;
+          hideRemove();
           editBoardName(choice, tab);
         };
         tab.ondblclick = startRename;
@@ -885,7 +973,8 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
           stop();
           timer = setTimeout(() => {
             held = true;
-            remove.hidden = false;
+            remove.inert = false;
+            scheduleHide();
           }, 500);
         };
         tab.onpointermove = event => {
@@ -897,16 +986,17 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
           if (event.target === tab && event.key === "F2") { event.preventDefault(); startRename(); }
           if (event.target === tab && event.key === "Delete") {
             event.preventDefault();
-            remove.hidden = false;
+            remove.inert = false;
             remove.focus();
           }
-          if (event.key === "Escape" && !remove.hidden && !remove.disabled) {
-            remove.hidden = true;
+          if (event.key === "Escape" && !remove.inert && !remove.disabled) {
+            hideRemove();
             tab.focus();
           }
         };
         entry.onfocusout = event => {
-          if (event.relatedTarget && !entry.contains(event.relatedTarget) && !remove.disabled) remove.hidden = true;
+          if (event.relatedTarget && !entry.contains(event.relatedTarget) && !remove.disabled) hideRemove();
+          else if (event.target === remove && event.relatedTarget) queueMicrotask(scheduleHide);
         };
         entry.append(remove);
       }
@@ -917,6 +1007,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
 
   async function switchBoard(id) {
     if (id === boardId) return;
+    hideGestureHint();
     boardId = id;
     focusIssue(null);
     gesture = null;
@@ -942,7 +1033,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
 
   function showNewBoardPreset(option) {
     const preset = option.preset;
-    boardRulePreview.textContent = newBoardRules ?? preset.rules;
+    boardRulePreview.textContent = (newBoardRules ?? preset.rules) || copy("暂无规则", "No rules yet");
     boardRuleToggle.textContent = newBoardRules === null
       ? copy("默认规则", "Default rules")
       : copy("待导入规则", "Rules to import");
@@ -955,7 +1046,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       ? copy("白板 Skills", "Board Skills")
       : copy("默认 Skills", "Default Skills");
     boardSkillToggle.title = boardSkillToggle.textContent;
-    boardSkillPreview.replaceChildren(skills.preview(items));
+    boardSkillPreview.replaceChildren(items.length ? skills.preview(items) : copy("暂无 Skills", "No Skills yet"));
   }
   function applyScene(option) {
     if (!option) return;
@@ -1131,6 +1222,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
       renderBoardList();
       boardDialog.close();
       await switchBoard(id);
+      showFirstTabHint(id);
     } catch (error) {
       if (boardDialog.open) boardError.textContent = String(error);
       else report(error);
@@ -1383,17 +1475,25 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
           if (action === "nuts-detach-card" && card) await moveBackToBoard(card);
           if (action === "nuts-remove-card" && card) await confirmRemoval(destination, [card.id], card.issue_id);
           if (action === "nuts-open-issue" && issueId) await refreshIssues(issueId);
+          if (action === "nuts-delete-issue" && issueId) await deleteIssue(issueId);
         },
       };
     },
     confirmRemoval,
+    reload,
     current: () => boardId,
     switchBoard,
-    nameFor: id => id === "default" ? copy("随手记", "Quick notes") : boardChoices.find(choice => choice.id === id)?.name,
+    nameFor: id => {
+      const choice = boardChoices.find(choice => choice.id === id);
+      return choice ? boardLabel(choice) : undefined;
+    },
     async capture(destination = boardId) {
       if (!visible() || boardDialog.open || rulesDialog.open) return;
       if (!boardChoices.length) boardChoices = await invoke("nuts_boards", { language: copy("zh-CN", "en-US") });
-      if (visible()) openForm("note", destination === boardId ? origin() : { x: 30, y: 52 }, destination);
+      if (!boardChoices.some(choice => choice.id === destination)) {
+        destination = boardChoices.find(choice => choice.id === boardId)?.id ?? boardChoices[0]?.id;
+      }
+      if (visible() && destination) openForm("note", destination === boardId ? origin() : { x: 30, y: 52 }, destination);
     },
     async locate(id, destination = boardId) {
       if (!cards.has(id)) await reload();
@@ -1413,9 +1513,11 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
         dropTarget = dropTarget.catch(() => {}).then(() => invoke("nuts_board_drop_target", { active: visible() }));
         await dropTarget;
       }
-      await reload();
+      if (boardChoices.some(choice => choice.id === boardId)) await reload();
+      else await switchBoard(boardChoices[0].id);
     },
     close() {
+      hideGestureHint();
       loading += 1;
       restoreGesture(gesture);
       focusIssue(null);

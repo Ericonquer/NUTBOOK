@@ -295,9 +295,11 @@ fn builtin_skills(scene: &SceneSkill, language: &str) -> Vec<BoardSkill> {
                 serde_json::to_string(workflow.description.as_deref().unwrap_or(&workflow.name))
                     .expect("serialize Skill description"),
                 workflow.name,
-                scene.instructions
+                workflow.description.as_deref().unwrap_or(&scene.instructions)
             );
-            let mut files = BTreeMap::new();
+            let mut files: BTreeMap<_, _> = workflow.references.iter()
+                .map(|(name, text)| (format!("references/{name}"), text.clone()))
+                .collect();
             if let Some(reference) = &workflow.reference {
                 let label = if language == "en-US" {
                     "Submission checklist"
@@ -400,7 +402,14 @@ pub(super) fn read_rules(directory: &Path) -> Result<String> {
     if !fs::symlink_metadata(&file).is_ok_and(|meta| meta.is_file()) {
         return Err("The board's AGENTS.md is missing or is not a regular file".into());
     }
-    super::read_markdown(&file)
+    let mut text = String::new();
+    fs::File::open(file).map_err(file_error)?
+        .take(super::MAX_MARKDOWN_BYTES as u64 + 1)
+        .read_to_string(&mut text).map_err(file_error)?;
+    if !text.is_empty() {
+        super::validate_markdown(&text)?;
+    }
+    Ok(text)
 }
 
 pub(super) fn save_rules(directory: &Path, expected: &str, text: &str) -> Result<()> {
@@ -414,6 +423,66 @@ pub(super) fn save_rules(directory: &Path, expected: &str, text: &str) -> Result
         .persist(directory.join("AGENTS.md"))
         .map_err(|error| file_error(error.error))?;
     Ok(())
+}
+
+fn appended_instruction(base: &str, instruction: &str) -> String {
+    format!("{}\n\n- {instruction}", base.trim_end())
+}
+
+pub(super) fn apply_retrospective_rule(
+    directory: &Path, original: &str, instruction: &str, undo: bool,
+) -> Result<bool> {
+    if !directory.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+        return Ok(false);
+    }
+    let after = appended_instruction(original, instruction);
+    let (expected, replacement) = if undo { (after.as_str(), original) } else { (original, after.as_str()) };
+    let current = read_rules(directory)?;
+    if current == replacement {
+        return Ok(true);
+    }
+    if current != expected {
+        return Ok(false);
+    }
+    if !replacement.is_empty() { super::validate_markdown(replacement)?; }
+    save_rules(directory, expected, replacement)?;
+    Ok(true)
+}
+
+pub(super) fn apply_retrospective_skill(
+    directory: &Path, original: &BoardSkill, instruction: &str, undo: bool,
+) -> Result<bool> {
+    if !directory.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+        return Ok(false);
+    }
+    let Ok(folder) = skill_folder(directory, &original.id) else { return Ok(false) };
+    let Some(body) = original.files.get("SKILL.md") else { return Ok(false) };
+    let after = appended_instruction(body, instruction);
+    let mut updated = original.clone();
+    updated.files.insert("SKILL.md".into(), after.clone());
+    validate_skill(&updated)?;
+    let (expected, replacement) = if undo { (&updated, body) } else { (original, &after) };
+    let skills = read_skills(directory)?;
+    let Some(current) = skills.iter().find(|skill| skill.id == original.id) else { return Ok(false) };
+    if current == if undo { original } else { &updated } {
+        return Ok(true);
+    }
+    if current != expected {
+        return Ok(false);
+    }
+    if skills.iter().map(byte_count).sum::<usize>() - byte_count(current)
+        + if undo { byte_count(original) } else { byte_count(&updated) } > MAX_SNAPSHOT_BYTES
+    {
+        return Err("Board Skill files exceed 2 MiB".into());
+    }
+    let mut staged = tempfile::NamedTempFile::new_in(&folder).map_err(file_error)?;
+    staged.write_all(replacement.as_bytes()).map_err(file_error)?;
+    staged.as_file().sync_all().map_err(file_error)?;
+    if read_skill(&folder)? != *expected {
+        return Ok(false);
+    }
+    staged.persist(folder.join("SKILL.md")).map_err(|error| file_error(error.error))?;
+    Ok(true)
 }
 
 pub(super) fn add_skill(directory: &Path, skill: &BoardSkill) -> Result<()> {

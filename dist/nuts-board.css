@@ -95,13 +95,13 @@
 .nuts-group-focused .nuts-group-edge {
   stroke: var(--ink-soft); stroke-dasharray: none;
 }
-.nuts-group > button {
+.nuts-group > .nuts-group-title {
   appearance: none;
   position: absolute;
   inset: 1px auto auto 14px;
   box-sizing: border-box;
   height: 27px;
-  max-width: calc(100% - 64px);
+  max-width: calc(100% - 88px);
   pointer-events: auto;
   background: transparent;
   border: 0;
@@ -111,15 +111,26 @@
   padding-inline: 8px;
   cursor: pointer;
 }
-.nuts-group > button > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nuts-group > .nuts-group-title > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nuts-group:has(> button:is(:hover, :focus-visible), .nuts-group-tab:hover) .nuts-group-tab { fill: var(--line); }
 .nuts-group:has(> button:active, .nuts-group-tab:active) .nuts-group-tab { fill: var(--line-strong); }
 /* Follow the folder tab with the keyboard focus outline. */
-#nutsWorkspace .nuts-group > button:focus-visible { outline: none !important; }
+#nutsWorkspace .nuts-group > .nuts-group-title:focus-visible { outline: none !important; }
 .nuts-group:has(> button:focus-visible) .nuts-group-tab { stroke: var(--ink-soft); }
 .nuts-group-shape:active,
 .nuts-group-tab:active,
-.nuts-group > button:active { cursor: grabbing; }
+.nuts-group > .nuts-group-title:active { cursor: grabbing; }
+#nutsBoard .nuts-group-delete {
+  appearance: none; position: absolute; inset: 3px auto auto calc(14px + var(--issue-title-width));
+  display: grid; place-items: center; width: 22px; height: 22px;
+  padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--ink-soft);
+  opacity: 0; pointer-events: none; cursor: pointer;
+}
+#nutsBoard .nuts-group:hover > .nuts-group-delete,
+#nutsBoard .nuts-group > .nuts-group-delete:focus-visible {
+  opacity: 1; pointer-events: auto;
+}
+#nutsBoard .nuts-group-delete:not(:disabled):hover { color: var(--ink); }
 .nuts-references:empty { display: none; }
 #nutsCabinet { grid-row: 4; position: relative; }
 #nutsDrawerButtons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); }
@@ -241,6 +252,20 @@
   margin-block-end: -11px;
   padding-inline-start: 3px;
 }
+.nuts-tab-gesture-hint {
+  position: absolute;
+  top: calc(100% + 6px);
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+}
 #nutsBoardList {
   --tab-join-radius: 6px;
   flex: 0 1 auto;
@@ -274,6 +299,7 @@
   background: var(--tab-surface);
   white-space: nowrap;
   font-size: 13px;
+  transition: padding-inline-end 150ms ease;
 }
 #nutsBoardList .nuts-board-tab[aria-current="page"] {
   --tab-surface: var(--surface-variant);
@@ -297,14 +323,22 @@
 #nutsBoardList .nuts-board-tab::after { left: 100%; transform: scaleX(-1); }
 #nutsBoardList .nuts-board-tab:focus-visible { outline-offset: -3px; }
 #nutsBoardList .nuts-board-tab-entry { position: relative; flex: none; }
-#nutsBoardList .nuts-board-tab-entry:has(.nuts-board-delete:not([hidden])) .nuts-board-tab { padding-inline-end: 28px; }
+#nutsBoardList .nuts-board-tab-entry:has(.nuts-board-delete:not([inert])) .nuts-board-tab { padding-inline-end: 28px; }
 #nutsBoardList .nuts-board-delete {
-  position: absolute; inset-block-start: 1px; inset-inline-end: 2px;
+  position: absolute; inset-block: 0; inset-inline-end: 2px; margin-block: auto;
   display: grid; place-items: center; width: 24px; height: 24px;
   padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--ink-soft); cursor: pointer;
 }
-#nutsBoardList .nuts-board-delete[hidden] { display: none; }
-#nutsBoardList .nuts-board-delete:not(:disabled):hover { color: var(--ink); background: var(--surface-muted); }
+#nutsBoardList .nuts-board-delete { transition: opacity 100ms ease, visibility 0s; }
+#nutsBoardList .nuts-board-delete[inert] {
+  opacity: 0;
+  visibility: hidden;
+  transition-delay: 0s, 100ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  #nutsBoardList :is(.nuts-board-tab, .nuts-board-delete) { transition: none; }
+}
+#nutsBoardList .nuts-board-delete:not(:disabled):hover { color: var(--ink); }
 #nutsBoardList .nuts-board-name-form input {
   width: 14ch; box-sizing: border-box; padding: 6px 10px 7px; font: inherit; font-size: 13px;
   border: 1px solid var(--line); border-radius: 8px 8px 0 0; color: var(--ink); background: var(--paper);
@@ -459,6 +493,13 @@
   box-shadow: 0 1px var(--line);
 }
 .nuts-issue-header { margin: 26px 0 20px; }
+.nuts-claim-hint {
+  display: flex; align-items: center; gap: 6px;
+  margin: 8px 0 0; color: var(--ink-soft); font-size: 13px;
+}
+.nuts-claim-hint > span { min-width: 0; overflow-wrap: anywhere; }
+.nuts-claim-hint > button { flex: none; }
+.nuts-claim-hint[hidden] { display: none; }
 #nutsIssues .nuts-issue-header h1 { margin: 8px 0 5px; font-size: 31px; line-height: 1.2; letter-spacing: -.055em; overflow-wrap: anywhere; }
 #nutsIssues .nuts-issue-state { margin: 0; font-size: 12px; font-weight: 650; }
 .nuts-issue-rules { margin: 9px 0 12px; }
@@ -646,7 +687,7 @@
 #nutsSkillDocument > :last-child { margin-bottom: 0; }
 #nutsSkillDocument a[data-skill-reference] { color: var(--ink); text-decoration-color: var(--ink-soft); }
 #nutsSkillDocument a[data-skill-reference]:hover { color: var(--ink); background: var(--surface-muted); }
-#nutsSkillDocument pre { overflow: auto; padding: 10px; border-radius: 6px; background: var(--surface-variant); }
+#nutsSkillDocument pre { overflow: auto; padding: 10px; border-radius: 6px; background: var(--surface-variant); color: var(--ink); }
 #nutsSkillDocument table { border-collapse: collapse; }
 #nutsSkillDocument :is(th, td) { border: 1px solid var(--line); padding: 4px 8px; }
 #nutsSkillsReferences { flex: none; max-height: min(100px, 12vh); overflow: auto; }
@@ -718,16 +759,7 @@
   pointer-events: none;
 }
 
-#nutsIssues .nuts-issue-header:has(+ .nuts-context:not([hidden])) { margin-bottom: 7px; }
-#nutsIssues .nuts-context {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0;
-  color: var(--ink-soft);
-}
-#nutsIssues .nuts-context h2 { flex: none; margin: 0; font-size: 15px; font-weight: 650; }
-#nutsIssues .nuts-context p { min-width: 0; margin: 0; font-size: 15px; }
+#nutsIssues .nuts-context p { margin: 0; white-space: pre-wrap; }
 .nuts-material-list {
   margin-top: 10px;
   padding: 4px;
