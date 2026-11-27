@@ -118,7 +118,7 @@ fn import_material(
             title,
             &read_markdown(path)?,
             "markdown",
-            position,
+            Some(position),
             issue_id,
             absolute_path.to_str(),
         );
@@ -150,7 +150,7 @@ fn import_material(
     let (_, saved) = staged.keep().map_err(|e| e.to_string())?;
     let content = format!("Local attachment ({ext}): `{}`", saved.display());
     match board::add_card(
-        data_dir, board_id, title, &content, &ext, position, issue_id, None,
+        data_dir, board_id, title, &content, &ext, Some(position), issue_id, None,
     ) {
         Ok(id) => Ok(id),
         Err(error) => {

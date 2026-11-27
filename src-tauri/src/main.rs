@@ -3,6 +3,8 @@
 // 二进制 src/bin/nutbook.rs 不继承这条 crate 属性，继续按控制台语义运行。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod quick_capture;
+
 use std::{fs, io, io::{BufRead, BufReader, Read, Write}, net::TcpListener, path::PathBuf, sync::Mutex, time::Duration};
 
 use nutbook_backend::core::external_open;
@@ -71,6 +73,16 @@ fn finalize_html_edit_app_exit_command(
         *allow_exit_once = true;
     }
     app.exit(0);
+}
+
+#[tauri::command]
+fn set_native_ui_language(app: tauri::AppHandle, webview: tauri::Webview, language: String) -> Result<(), String> {
+    let english = language == "en-US";
+    commands::context_menu::set_native_ui_language(app.clone(), webview, language)?;
+    if let Some(menu) = app.try_state::<quick_capture::CaptureMenu>() {
+        menu.localize(english).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn map_agent_discovery_error(
@@ -294,6 +306,13 @@ fn main() {
                 _ => None,
             };
             if let Some(key) = native_history_key {
+                if let Some(window) = app.get_webview_window(quick_capture::WINDOW) {
+                    if window.is_focused().unwrap_or(false) {
+                        let edit = if key == "CmdOrCtrl+Z" { "undo" } else { "redo" };
+                        let _ = window.eval(format!("document.execCommand('{edit}');"));
+                        return;
+                    }
+                }
                 let active_item = app.state::<AppState>().active_html_edit_item.lock().ok().and_then(|item| *item);
                 if let Some(item_id) = active_item {
                     let _ = dispatch_html_runtime_shortcut(app, item_id, key);
@@ -359,6 +378,9 @@ fn main() {
                 eprintln!("Nutbook CLI IPC unavailable: {error}");
             }
             app.manage(HtmlEditAppExitState::default());
+            if let Err(error) = quick_capture::install(app.handle()) {
+                eprintln!("NUTBOOK quick capture setup: {error}");
+            }
             #[cfg(target_os = "macos")]
             nutbook_backend::core::html_runtime::install_html_runtime_minimize_observer(app.handle());
             Ok(())
@@ -434,7 +456,11 @@ fn main() {
             commands::nuts::nuts_reopen,
             commands::context_menu::show_context_menu,
             commands::context_menu::reveal_context_item,
-            commands::context_menu::set_native_ui_language,
+            set_native_ui_language,
+            quick_capture::quick_nut_generation,
+            quick_capture::quick_nut_language,
+            quick_capture::quick_nut_window_action,
+            quick_capture::notify_quick_nut_saved,
             commands::context_menu::context_find_in_document,
             get_cached_agent_projects,
             discover_agent_projects,
@@ -676,6 +702,14 @@ fn main() {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
+            } if label == quick_capture::WINDOW => {
+                api.prevent_close();
+                quick_capture::request_close(app);
+            }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
             } if label == "main" => {
                 if nutbook_backend::commands::native_presentation::stop_native_presentation_on_main_close(app) {
                     api.prevent_close();
@@ -685,6 +719,11 @@ fn main() {
                     return;
                 }
                 api.prevent_close();
+                if app.try_state::<quick_capture::CaptureMenu>().is_some() {
+                    if let Some(window) = app.get_window("main") {
+                        if window.hide().is_ok() { return; }
+                    }
+                }
                 request_html_edit_app_exit_decision(app);
             }
             tauri::RunEvent::ExitRequested { api, .. } => {
@@ -696,9 +735,18 @@ fn main() {
                     return;
                 }
                 api.prevent_exit();
+                quick_capture::hide_for_quit(app);
+                let _ = quick_capture::reveal(app);
                 request_html_edit_app_exit_decision(app);
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                if app.get_window("main").is_some_and(|window| !window.is_visible().unwrap_or(false)) {
+                    let _ = quick_capture::reveal(app);
+                }
+            }
             tauri::RunEvent::Exit => {
+                quick_capture::release_shortcut();
                 commands::wechat_delivery::shutdown();
                 if let Ok(directory) = prepare_app_data_dir(app) {
                     nutbook_backend::core::cli::remove_cli_ipc_endpoint_for_pid(&directory, std::process::id());
@@ -716,6 +764,7 @@ fn main() {
                 if !paths.is_empty() {
                     // PR B（5.1）：Opened 事件可能在 setup（AppState manage）之前
                     // 送达，必须只触碰进程级全局 inbox，不得访问 state()。
+                    let _ = quick_capture::reveal(app);
                     external_open::global_inbox().enqueue("system_open", paths);
                     let _ = app.emit("nutbook-external-open", ());
                 }
@@ -777,6 +826,13 @@ fn main() {
 /// 其余（未知 label）一律拒绝。注意：PR C 不拦截导航/外链，本表只管
 /// invoke 命令边界；新页面/弹窗仍按内容面 caller 对待。
 fn webview_may_invoke(label: &str, command: &str) -> bool {
+    if label == quick_capture::WINDOW {
+        return matches!(
+            command,
+            "quick_nut_generation" | "quick_nut_language" | "quick_nut_window_action"
+                | "notify_quick_nut_saved" | "nuts_boards" | "nuts_board_note"
+        );
+    }
     if label == "main"
         || label == "detached"
         || label == "settings-overlay"
@@ -857,6 +913,7 @@ fn start_cli_ipc_server(app: tauri::AppHandle, app_data_dir: PathBuf) -> io::Res
                     // PR B：第二实例打开请求转交——整体入 inbox（批次边界保留）
                     // 并通知前端 drain；不触发资料库 sync，也不进入 CLI 语义。
                     if wire.request.action == "external-open" {
+                        let _ = quick_capture::reveal(&app);
                         external_open::global_inbox().enqueue(
                             "single_instance",
                             wire.request.paths.clone().unwrap_or_default(),

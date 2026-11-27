@@ -1,7 +1,7 @@
 /* Match the host dialog body and action typography. */
 #nutsWorkspace dialog { font-size: 13px; }
 #nutsWorkspace dialog :is(h2, .nuts-capture-heading) { font-size: 16px; font-weight: 700; }
-#nutsWorkspace :is(.nuts-capture-actions button, .nuts-new-board-actions button, .nuts-skills-action-button, #nutsDraftRule, #nutsSelection button, #nutsIssuePage button) {
+#nutsWorkspace :is(.nuts-capture-actions button, #quickNutSave, .nuts-new-board-actions button, .nuts-skills-action-button, #nutsDraftRule, #nutsSelection button, #nutsIssuePage button) {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -214,7 +214,7 @@
 #nutsFormPanel[data-kind="issue"] #nutsBoardInput:focus { border-color: var(--ink-soft); }
 .nuts-capture-actions { display: flex; justify-content: flex-end; gap: 8px; align-items: center; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--surface-variant); }
 .nuts-capture-actions kbd { margin-right: auto; color: var(--ink-soft); }
-#nutsWorkspace #nutsBoardSubmit { background: var(--ink); color: var(--surface); }
+#nutsWorkspace :is(#nutsBoardSubmit, #quickNutSave) { background: var(--ink); color: var(--surface); }
 #nutsCaptureError:empty { display: none; }
 #nutsCaptureError { color: #ad2935; margin: 4px 24px 12px; }
 .nuts-capture-flight { position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none; transform-origin: 0 0; }
@@ -384,8 +384,8 @@
 #nutsDraftRule { border: 1px solid var(--line); border-radius: 7px; background: var(--surface-variant); padding: 6px 9px; }
 .nuts-context { margin: 12px 0; }
 .nuts-context p, .nuts-context pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-#nutsWorkspace .nuts-tool-icon[data-tooltip] { position: relative; }
-#nutsWorkspace .nuts-tool-icon[data-tooltip]::after {
+#nutsWorkspace :is(.nuts-tool-icon, .nuts-text-action)[data-tooltip] { position: relative; }
+#nutsWorkspace :is(.nuts-tool-icon, .nuts-text-action)[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   z-index: 5;
@@ -402,8 +402,8 @@
   opacity: 0;
   pointer-events: none;
 }
-#nutsWorkspace .nuts-tool-icon[data-tooltip]:is(:hover, :focus-visible) { z-index: 4; }
-#nutsWorkspace .nuts-tool-icon[data-tooltip]:is(:hover, :focus-visible)::after { opacity: 1; }
+#nutsWorkspace :is(.nuts-tool-icon, .nuts-text-action)[data-tooltip]:is(:hover, :focus-visible) { z-index: 4; }
+#nutsWorkspace :is(.nuts-tool-icon, .nuts-text-action)[data-tooltip]:is(:hover, :focus-visible)::after { opacity: 1; }
 #nutsWorkspace .nuts-board-actions { position: relative; z-index: 2; }
 #nutsWorkspace .nuts-board-actions .nuts-tool-icon:last-child::after { left: auto; right: 0; transform: none; }
 .nuts-group.nuts-group-drop .nuts-group-edge { stroke: #476aae; stroke-width: 2px; stroke-dasharray: none; }

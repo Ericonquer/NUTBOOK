@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>记 NUT</title>
+  <link rel="stylesheet" href="./surface-colors.css">
+  <link rel="stylesheet" href="./nuts-board.css">
+  <link rel="stylesheet" href="./quick-nut.css">
+  <script src="./nuts-picker.js" defer></script>
+  <script src="./quick-nut.js" defer></script>
+</head>
+<body>
+  <main id="nutsWorkspace">
+    <form id="quickNutForm">
+      <header>
+        <div id="quickNutDrag">
+          <img src="./assets/nuts/nut-icon-v7.png" alt="" draggable="false">
+          <h1 id="quickNutTitle">记 NUT</h1>
+        </div>
+        <button type="button" id="quickNutPin" class="nuts-tool-icon icon-button" aria-pressed="false" aria-label="置顶" data-tooltip="置顶">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 9V4m1-1H7m1 1v5l-3 4v2h14v-2l-3-4M12 15v6"/></svg>
+        </button>
+        <button type="button" id="quickNutClose" class="nuts-tool-icon icon-button" aria-label="收起" data-tooltip="收起">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+      <textarea id="quickNutText" aria-labelledby="quickNutTitle" placeholder="我刚想到……" spellcheck="false"></textarea>
+      <p id="quickNutStatus" role="status"></p>
+      <footer>
+        <span id="quickNutBoardLabel">收进白板</span><div id="quickNutBoard" class="nuts-picker"></div>
+        <button id="quickNutSave" class="nuts-text-action" type="submit" data-tooltip="收下 NUT" disabled>收下 NUT</button>
+      </footer>
+    </form>
+  </main>
+</body>
+</html>

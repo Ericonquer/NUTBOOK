@@ -156,8 +156,8 @@ pub fn nuts_board_note(
     state: tauri::State<'_, AppState>,
     board_id: String,
     markdown: String,
-    x: i64,
-    y: i64,
+    x: Option<i64>,
+    y: Option<i64>,
 ) -> Result<String, String> {
     let title: String = markdown
         .trim()
@@ -168,14 +168,15 @@ pub fn nuts_board_note(
         .chars()
         .take(100)
         .collect();
-    nuts::board::add(
+    nuts::board::add_card(
         &state.app_data_dir,
         &board_id,
         &title,
         &markdown,
         "note",
-        x,
-        y,
+        x.zip(y),
+        None,
+        None,
     )
 }
 

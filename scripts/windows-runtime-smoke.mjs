@@ -98,14 +98,15 @@ try{
  const endpointFile=join(root,'app-data','cli-ipc.json');
  await wait('application-ipc-created',()=>existsSync(endpointFile));
  {const endpoint=JSON.parse(readFileSync(endpointFile,'utf8'));report.applicationIpc={port:endpoint.port,pid:endpoint.pid};assert.notEqual(endpoint.port,debugPort,'IPC and debug port must be distinct');}
+ let mainTarget;
  await wait('native-webview-debug-ready',async()=>{
    const response=await fetch(debugEndpoint+'/json/list',{signal:AbortSignal.timeout(2000)});
    const targets=await response.json();report.targets=targets.map(({id,type,url,title})=>({id,type,url,title}));
-   return targets.some(target=>target.type==='page'&&target.url!=='about:blank');
+   mainTarget=targets.find(target=>target.type==='page'&&/^https?:\/\/tauri\.localhost\/(?:index\.html)?$/.test(target.url));
+   return Boolean(mainTarget);
  },15000);
- // Observe the real browser's network/security errors, including opaque
- // sandboxed history frames. No product test hook or policy relaxation.
- const mainTarget=(await fetch(debugEndpoint+'/json/list').then(r=>r.json())).find(target=>target.type==='page'&&target.url!=='about:blank');
+ // Observe the real main WebView, including errors from opaque sandboxed history frames.
+ // Hidden app windows can appear first in both the DevTools and WebDriver lists.
  devtools=new WebSocket(mainTarget.webSocketDebuggerUrl);
  await new Promise((ok,fail)=>{const timer=setTimeout(()=>fail(Error('DevTools diagnostics connection timeout')),3000);devtools.addEventListener('open',()=>{clearTimeout(timer);ok();},{once:true});devtools.addEventListener('error',()=>{clearTimeout(timer);fail(Error('DevTools diagnostics connection failed'));},{once:true});});
  let devtoolsId=0;
@@ -130,7 +131,18 @@ try{
  command('Log.enable');command('Network.enable');command('Runtime.enable');command('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:false,flatten:true});
  const created=await request('POST','/session',{capabilities:{alwaysMatch:{browserName:'webview2','ms:edgeChromium':true,'ms:edgeOptions':{debuggerAddress:`127.0.0.1:${debugPort}`}}}});
  session=created.sessionId;assert(session,'WebDriver session missing');
- const mainHandle=await request('GET',`/session/${session}/window`);
+ let mainHandle;
+ await wait('main-webdriver-surface',async()=>{
+   for(const handle of await request('GET',`/session/${session}/window/handles`)){
+     await request('POST',`/session/${session}/window`,{handle});
+     const url=await execute('return location.href;');
+     if(url!==mainTarget.url)continue;
+     mainHandle=handle;
+     report.mainWebDriverSurface={handle,url};
+     return true;
+   }
+   return false;
+ });
  await wait('markdown-editor',async()=>{await prompt();return execute(`return !!document.querySelector('.ProseMirror');`);});
  await execute(`document.querySelector('[data-join-external-tab]')?.click();`);
  await wait('joined-library',()=>execute(`return getActiveTab()?.sourceMode==='library'||getActiveTab()?.external?.joined===true;`));

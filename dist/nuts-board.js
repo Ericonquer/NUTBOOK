@@ -68,6 +68,7 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
   let scale = 1;
   let cameraX = 0, cameraY = 0;
   let captureDraft = "";
+  let composingNote = false;
   let spaceDown = false;
   let dropSubscription;
   let dropTarget = Promise.resolve();
@@ -667,6 +668,8 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     event.preventDefault();
     if (!submit.disabled) closeForm();
   });
+  field.addEventListener("compositionstart", () => { composingNote = true; });
+  field.addEventListener("compositionend", () => { composingNote = false; });
   field.addEventListener("input", () => { if (editor?.kind === "note") captureDraft = field.value; });
   field.addEventListener("keydown", event => {
     if (!event.isComposing && event.keyCode !== 229 && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -686,10 +689,12 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
-    if (!editor?.ready || submit.disabled) return;
+    if (!editor?.ready || submit.disabled || composingNote) return;
     const input = field.value.trim();
     if (!input) { field.focus(); return; }
     submit.disabled = true;
+    document.getElementById("nutsBoardCancel").disabled = true;
+    field.readOnly = true;
     try {
       if (editor.kind === "note") {
         const start = field.getBoundingClientRect();
@@ -715,7 +720,11 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     } catch (error) {
       document.getElementById("nutsCaptureError").textContent = String(error);
     }
-    finally { submit.disabled = false; }
+    finally {
+      submit.disabled = false;
+      document.getElementById("nutsBoardCancel").disabled = false;
+      field.readOnly = false;
+    }
   });
 
   function point(event) {
@@ -1497,6 +1506,16 @@ window.NutbookNutsBoard = function ({ invoke, copy, confirm, report, notify, ref
     nameFor: id => {
       const choice = boardChoices.find(choice => choice.id === id);
       return choice ? boardLabel(choice) : undefined;
+    },
+    prepareCaptureExit() {
+      if (submit.disabled || composingNote) {
+        document.getElementById("nutsCaptureError").textContent = composingNote
+          ? copy("请先确认输入法候选文字。", "Confirm the composed text first.")
+          : copy("正在保存，请稍候。", "Saving. Please wait.");
+        return false;
+      }
+      if (editor?.kind === "note") closeForm();
+      return true;
     },
     async capture(destination = boardId) {
       if (!visible() || boardDialog.open || rulesDialog.open) return;
